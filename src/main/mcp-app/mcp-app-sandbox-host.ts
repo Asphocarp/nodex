@@ -3,7 +3,6 @@ import {
   BrowserWindow,
   ipcMain,
   Menu,
-  net,
   session as electronSession,
   type IpcMainEvent,
   type Net,
@@ -22,8 +21,8 @@ import {
   type McpAppSandboxHostInitMessage,
 } from "../../shared/mcp-app/mcp-app-sandbox-contract";
 import {
-  McpAppSandboxProtocolCache,
   type McpAppSandboxCacheState,
+  type McpAppSandboxProtocolCache,
 } from "./mcp-app-sandbox-protocol";
 import {
   decideMcpAppWebviewAttachment,
@@ -42,8 +41,12 @@ interface AttachedMcpAppGuest extends OwnedMcpAppAttachment {
 }
 
 interface PendingMcpAppAttachment {
+  cancelExpiration: () => void;
   state: OwnedMcpAppAttachment;
-  timeout: ReturnType<typeof setTimeout>;
+}
+
+export interface McpAppSandboxScheduler {
+  readonly schedule: (delayMs: number, task: () => void) => () => void;
 }
 
 export interface McpAppSandboxHostOptions {
@@ -200,9 +203,13 @@ export class McpAppSandboxCoordinator {
     this.#hostsByGuestId.get(event.sender.id)?.handleGuestMessage(event, rawMessage);
   };
 
-  constructor(options: McpAppSandboxHostOptions) {
+  constructor(
+    options: McpAppSandboxHostOptions,
+    protocolCache: McpAppSandboxProtocolCache,
+    private readonly scheduler: McpAppSandboxScheduler,
+  ) {
     this.#options = options;
-    this.#protocolCache = new McpAppSandboxProtocolCache(options.fetch ?? net.fetch);
+    this.#protocolCache = protocolCache;
   }
 
   install(): void {
@@ -249,7 +256,7 @@ export class McpAppSandboxCoordinator {
     electronSession.defaultSession.webRequest.onBeforeSendHeaders(null);
     for (const host of [...this.#hosts]) host.dispose();
     for (const entries of this.#pendingBySession.values()) {
-      for (const pending of entries) clearTimeout(pending.timeout);
+      for (const pending of entries) pending.cancelExpiration();
     }
     this.#pendingBySession.clear();
     this.#hostsByGuestId.clear();
@@ -262,7 +269,6 @@ export class McpAppSandboxCoordinator {
       sandboxSession.protocol.unhandle(MCP_APP_SANDBOX_SCHEME);
     }
     this.#configuredSessions.clear();
-    this.#protocolCache.dispose();
   }
 
   configureSession(partition: string): Session {
@@ -311,7 +317,11 @@ export class McpAppSandboxCoordinator {
   }
 
   registerPendingAttachment(state: OwnedMcpAppAttachment): void {
-    const timeout = setTimeout(() => {
+    const pending: PendingMcpAppAttachment = {
+      cancelExpiration: () => undefined,
+      state,
+    };
+    pending.cancelExpiration = this.scheduler.schedule(PENDING_ATTACHMENT_TTL_MS, () => {
       const entries = this.#pendingBySession.get(state.session);
       if (!entries) return;
       const remaining = entries.filter((entry) => entry !== pending);
@@ -320,8 +330,7 @@ export class McpAppSandboxCoordinator {
         return;
       }
       this.#pendingBySession.set(state.session, remaining);
-    }, PENDING_ATTACHMENT_TTL_MS);
-    const pending = { state, timeout };
+    });
     const entries = this.#pendingBySession.get(state.session) ?? [];
     entries.push(pending);
     this.#pendingBySession.set(state.session, entries);
@@ -342,7 +351,7 @@ export class McpAppSandboxCoordinator {
     if (index < 0) return null;
     const [pending] = entries.splice(index, 1);
     if (!pending) return null;
-    clearTimeout(pending.timeout);
+    pending.cancelExpiration();
     if (entries.length === 0) this.#pendingBySession.delete(input.session);
     return pending.state;
   }
@@ -355,7 +364,7 @@ export class McpAppSandboxCoordinator {
     for (const [sandboxSession, entries] of this.#pendingBySession) {
       const remaining = entries.filter((entry) => {
         if (entry.state.ownerWebContents.id !== owner.id) return true;
-        clearTimeout(entry.timeout);
+        entry.cancelExpiration();
         return false;
       });
       if (remaining.length === 0) {

@@ -1,12 +1,15 @@
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
-import type { WebContents } from "electron";
+import { net, type WebContents } from "electron";
 import {
   McpAppSandboxCoordinator,
   type McpAppSandboxHost,
   type McpAppSandboxHostOptions,
 } from "../mcp-app/mcp-app-sandbox-host";
+import { makeMcpAppSandboxProtocolCache } from "../mcp-app/mcp-app-sandbox-protocol";
 
 export interface McpAppSandboxCoordinatorPort {
   readonly install: () => void;
@@ -34,4 +37,25 @@ export const fromCoordinator = (
   );
 
 export const live = (options: McpAppSandboxHostOptions): Layer.Layer<McpAppSandboxRuntime> =>
-  fromCoordinator(new McpAppSandboxCoordinator(options));
+  Layer.effect(
+    McpAppSandboxRuntime,
+    Effect.gen(function* () {
+      const protocolCache = yield* makeMcpAppSandboxProtocolCache(options.fetch ?? net.fetch);
+      const runTimer = yield* FiberSet.makeRuntime();
+      const coordinator = new McpAppSandboxCoordinator(options, protocolCache, {
+        schedule: (delayMs, task) => {
+          const fiber = runTimer(
+            Effect.sleep(Duration.millis(delayMs)).pipe(Effect.andThen(Effect.sync(task))),
+          );
+          return () => fiber.interruptUnsafe();
+        },
+      });
+      yield* Effect.acquireRelease(
+        Effect.sync(() => coordinator.install()),
+        () => Effect.sync(() => coordinator.dispose()),
+      );
+      return McpAppSandboxRuntime.of({
+        createHost: coordinator.createHost.bind(coordinator),
+      });
+    }),
+  );

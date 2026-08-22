@@ -171,11 +171,14 @@ arrival, and WebContents attachment waits borrow the session Effect clock and
 callback runtime, so closing the session interrupts waits and removes registrations;
 the IAB state machine contains no EventEmitter, timer, or detached Promise waiter.
 
-The MCP App sandbox coordinator owns its protocol cache together with Electron session policy,
-guest hosts, pending attachments, and protocol handlers. Skybridge fetches are shared only within
-that coordinator lifetime; releasing the Main Scope aborts in-flight fetches and clears cached
-responses before the custom protocol is detached. Protocol modules must not retain a cache across
-coordinator instances.
+The MCP App sandbox runtime Scope owns both the Electron coordinator and its protocol runtime.
+The protocol runtime uses a bounded Effect Cache for TTL and single-flight Skybridge fetches,
+tracks prewarm graphs in a keyed FiberMap, and projects Promise only at Electron's protocol and
+host callbacks. The coordinator borrows that port; it cannot construct, abort, or dispose the
+cache. Releasing the Scope first detaches guest/session protocol ingress, then interrupts fetch and
+prewarm fibers and invalidates cached responses. Pending guest-attachment expiry is likewise a
+scoped FiberSet task rather than a coordinator timer. No protocol cache or expiry task survives a
+runtime replacement.
 
 The Computer Use runtime owns helper materialization, runtime-config serialization, native pipe,
 and managed service state as one process-scoped aggregate. Releasing it stops new readiness

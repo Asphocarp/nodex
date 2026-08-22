@@ -1,3 +1,14 @@
+import * as Cache from "effect/Cache";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as FiberMap from "effect/FiberMap";
+import * as FiberSet from "effect/FiberSet";
+import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import type { Net } from "electron";
 import {
   MCP_APP_SANDBOX_REMOTE_HOST,
@@ -21,11 +32,20 @@ interface CachedSkybridgeResponse {
   statusText: string;
 }
 
-interface SkybridgeCacheEntry {
+interface SkybridgeCacheStateEntry {
   expiresAt: number;
-  prewarm?: Promise<void>;
-  response: Promise<CachedSkybridgeResponse>;
   state: Exclude<McpAppSandboxCacheState, "cold">;
+}
+
+export class McpAppSandboxProtocolError extends Schema.TaggedError<McpAppSandboxProtocolError>()(
+  "McpAppSandboxProtocolError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
+export interface McpAppSandboxProtocolCache {
+  readonly createHandler: () => (request: Request) => Promise<Response>;
+  readonly getState: (sourceUrl: string) => McpAppSandboxCacheState;
+  readonly prewarm: (locale: string) => Promise<void>;
 }
 
 function isSkybridgeHost(hostname: string): boolean {
@@ -115,145 +135,217 @@ function rootUpstreamUrl(locale: string): string {
   return upstream.toString();
 }
 
-/** One coordinator-scoped Skybridge response cache and prewarm lifecycle. */
-export class McpAppSandboxProtocolCache {
-  readonly #abortController = new AbortController();
-  readonly #entries = new Map<string, SkybridgeCacheEntry>();
-  readonly #fetch: Net["fetch"];
-  #closed = false;
+/** Builds one Scope-owned Skybridge response cache and prewarm runtime. */
+export const makeMcpAppSandboxProtocolCache = (
+  fetch: Net["fetch"],
+): Effect.Effect<McpAppSandboxProtocolCache, never, import("effect/Scope").Scope> =>
+  Effect.gen(function* () {
+    const closed = yield* Ref.make(false);
+    const states = yield* Ref.make<ReadonlyMap<string, SkybridgeCacheStateEntry>>(new Map());
+    const prewarms = yield* FiberMap.make<string, void, McpAppSandboxProtocolError>();
+    const prewarmLock = yield* Semaphore.make(1);
+    const runPromise = yield* FiberSet.makeRuntimePromise<
+      never,
+      unknown,
+      McpAppSandboxProtocolError
+    >();
+    const responses = yield* Cache.makeWith(
+      (upstreamUrl: string) =>
+        Effect.tryPromise({
+          try: (signal) => fetchUpstream(upstreamUrl, fetch, signal),
+          catch: (cause) => new McpAppSandboxProtocolError({ operation: "fetch-upstream", cause }),
+        }),
+      {
+        capacity: SKYBRIDGE_CACHE_MAX_ENTRIES,
+        timeToLive: (exit) =>
+          Exit.isSuccess(exit) ? Duration.millis(SKYBRIDGE_CACHE_TTL_MS) : Duration.zero,
+      },
+    );
 
-  constructor(fetch: Net["fetch"]) {
-    this.#fetch = fetch;
-  }
-
-  getState(sourceUrl: string): McpAppSandboxCacheState {
-    if (this.#closed) return "cold";
-    const upstreamUrl = resolveUpstreamUrl(new Request(sourceUrl));
-    if (!upstreamUrl) return "cold";
-    const entry = this.#entries.get(upstreamUrl);
-    if (!entry || entry.expiresAt <= Date.now()) return "cold";
-    return entry.state;
-  }
-
-  prewarm(locale: string): Promise<void> {
-    if (this.#closed) return Promise.resolve();
-    const rootUrl = rootUpstreamUrl(locale);
-    const existing = this.#entries.get(rootUrl);
-    if (existing?.expiresAt && existing.expiresAt > Date.now() && existing.prewarm) {
-      return existing.prewarm;
-    }
-
-    const rootResponse = this.#load(new Request(rootUrl));
-    const entry = this.#entries.get(rootUrl);
-    if (!entry) return rootResponse.then(() => undefined);
-
-    const prewarm = (async () => {
-      const response = await rootResponse;
-      if (!response?.ok) return;
-      const entryAssets = [...new Set((await response.text()).match(ENTRY_ASSET_PATH) ?? [])].slice(
-        0,
-        SKYBRIDGE_PREWARM_ASSET_LIMIT,
-      );
-      const assetResponses = await Promise.all(
-        entryAssets.map((asset) =>
-          this.#load(new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}${asset}`)),
-        ),
-      );
-      if (assetResponses.some((asset) => !asset?.ok)) {
-        throw new Error("MCP App sandbox startup asset failed to prewarm");
-      }
-      const mainScript = entryAssets.find((asset) => asset.endsWith(".js"));
-      if (mainScript) {
-        const script = await this.#load(
-          new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}${mainScript}`),
-        );
-        if (!script?.ok) {
-          throw new Error("MCP App sandbox main script failed to prewarm");
+    const removeState = (upstreamUrl: string) =>
+      Ref.update(states, (current) => {
+        if (!current.has(upstreamUrl)) return current;
+        const next = new Map(current);
+        next.delete(upstreamUrl);
+        return next;
+      });
+    const markState = (
+      upstreamUrl: string,
+      state: Exclude<McpAppSandboxCacheState, "cold">,
+      expiresAt: number,
+    ) =>
+      Ref.update(states, (current) => {
+        const next = new Map(current);
+        next.delete(upstreamUrl);
+        next.set(upstreamUrl, { expiresAt, state });
+        while (next.size > SKYBRIDGE_CACHE_MAX_ENTRIES) {
+          const oldest = next.keys().next().value;
+          if (oldest === undefined) break;
+          next.delete(oldest);
         }
-        const runtimeAssets = [
-          ...new Set((await script.text()).match(RUNTIME_ASSET_PATH) ?? []),
-        ].slice(0, SKYBRIDGE_PREWARM_ASSET_LIMIT);
-        const runtimeResponses = await Promise.all(
-          runtimeAssets.map((asset) =>
-            this.#load(new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}/${asset}`)),
+        return next;
+      });
+
+    const load = Effect.fn("McpAppSandboxProtocolCache.load")((request: Request) =>
+      Effect.gen(function* () {
+        if (yield* Ref.get(closed)) return null;
+        const upstreamUrl = resolveUpstreamUrl(request);
+        if (upstreamUrl === null) return null;
+        const now = Date.now();
+        const current = (yield* Ref.get(states)).get(upstreamUrl);
+        if (current === undefined || current.expiresAt <= now) {
+          yield* markState(
+            upstreamUrl,
+            hasExactSkybridgeQuery(new URL(upstreamUrl)) ? "warming" : "warm",
+            now + SKYBRIDGE_CACHE_TTL_MS,
+          );
+        }
+        const response = yield* Cache.get(responses, upstreamUrl).pipe(
+          Effect.tapError(() => removeState(upstreamUrl)),
+        );
+        if (response.status < 200 || response.status >= 300) {
+          yield* Cache.invalidate(responses, upstreamUrl);
+          yield* removeState(upstreamUrl);
+        }
+        return cloneCachedResponse(response);
+      }),
+    );
+    const readText = (operation: string, response: Response) =>
+      Effect.tryPromise({
+        try: () => response.text(),
+        catch: (cause) => new McpAppSandboxProtocolError({ operation, cause }),
+      });
+    const requireWarmResponse = (
+      response: Response | null,
+      message: string,
+    ): Effect.Effect<Response, McpAppSandboxProtocolError> =>
+      response?.ok
+        ? Effect.succeed(response)
+        : Effect.fail(
+            new McpAppSandboxProtocolError({ operation: "prewarm", cause: new Error(message) }),
+          );
+    const prewarmEffect = (rootUrl: string) =>
+      Effect.gen(function* () {
+        const root = yield* load(new Request(rootUrl)).pipe(
+          Effect.flatMap((response) =>
+            requireWarmResponse(response, "MCP App sandbox root failed to prewarm"),
           ),
         );
-        if (runtimeResponses.some((asset) => !asset?.ok)) {
-          throw new Error("MCP App sandbox runtime asset failed to prewarm");
+        const entryAssets = [
+          ...new Set((yield* readText("read-root", root)).match(ENTRY_ASSET_PATH) ?? []),
+        ].slice(0, SKYBRIDGE_PREWARM_ASSET_LIMIT);
+        const assetResponses = yield* Effect.forEach(
+          entryAssets,
+          (asset) => load(new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}${asset}`)),
+          { concurrency: "unbounded" },
+        );
+        if (assetResponses.some((asset) => !asset?.ok)) {
+          return yield* Effect.fail(
+            new McpAppSandboxProtocolError({
+              operation: "prewarm-assets",
+              cause: new Error("MCP App sandbox startup asset failed to prewarm"),
+            }),
+          );
         }
-      }
-      if (this.#entries.get(rootUrl) === entry) entry.state = "warm";
-    })().catch((error: unknown) => {
-      if (this.#entries.get(rootUrl) === entry) this.#entries.delete(rootUrl);
-      if (this.#closed) return;
-      throw error;
-    });
-    entry.prewarm = prewarm;
-    return prewarm;
-  }
+        const mainScript = entryAssets.find((asset) => asset.endsWith(".js"));
+        if (mainScript !== undefined) {
+          const script = yield* load(
+            new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}${mainScript}`),
+          ).pipe(
+            Effect.flatMap((response) =>
+              requireWarmResponse(response, "MCP App sandbox main script failed to prewarm"),
+            ),
+          );
+          const runtimeAssets = [
+            ...new Set(
+              (yield* readText("read-main-script", script)).match(RUNTIME_ASSET_PATH) ?? [],
+            ),
+          ].slice(0, SKYBRIDGE_PREWARM_ASSET_LIMIT);
+          const runtimeResponses = yield* Effect.forEach(
+            runtimeAssets,
+            (asset) => load(new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}/${asset}`)),
+            { concurrency: "unbounded" },
+          );
+          if (runtimeResponses.some((asset) => !asset?.ok)) {
+            return yield* Effect.fail(
+              new McpAppSandboxProtocolError({
+                operation: "prewarm-runtime-assets",
+                cause: new Error("MCP App sandbox runtime asset failed to prewarm"),
+              }),
+            );
+          }
+        }
+        const now = Date.now();
+        yield* markState(rootUrl, "warm", now + SKYBRIDGE_CACHE_TTL_MS);
+      }).pipe(Effect.tapError(() => removeState(rootUrl)));
 
-  createHandler(): (request: Request) => Promise<Response> {
-    return async (request) => {
-      try {
-        const upstream = await this.#load(request);
-        if (!upstream) return new Response(null, { status: 404 });
-        return new Response(await upstream.arrayBuffer(), {
-          headers: {
-            "Content-Security-Policy": upstream.headers.get("Content-Security-Policy") ?? "",
-            "Content-Type": upstream.headers.get("Content-Type") ?? "application/octet-stream",
-            "Permissions-Policy": upstream.headers.get("Permissions-Policy") ?? "",
-            "X-Content-Type-Options": "nosniff",
-          },
-          status: upstream.status,
-        });
-      } catch (error) {
-        if (this.#closed) return new Response(null, { status: 404 });
-        throw error;
-      }
+    const prewarm = (locale: string): Effect.Effect<void, McpAppSandboxProtocolError> => {
+      const rootUrl = rootUpstreamUrl(locale);
+      return prewarmLock
+        .withPermits(1)(
+          Effect.gen(function* () {
+            const existingState = (yield* Ref.get(states)).get(rootUrl);
+            const now = Date.now();
+            if (existingState?.state === "warm" && existingState.expiresAt > now) {
+              return null;
+            }
+            const existing = yield* FiberMap.get(prewarms, rootUrl);
+            if (Option.isSome(existing)) return existing.value;
+            return yield* FiberMap.run(prewarms, rootUrl, { startImmediately: true })(
+              prewarmEffect(rootUrl),
+            );
+          }),
+        )
+        .pipe(Effect.flatMap((fiber) => (fiber === null ? Effect.void : Fiber.join(fiber))));
     };
-  }
 
-  dispose(): void {
-    if (this.#closed) return;
-    this.#closed = true;
-    this.#abortController.abort();
-    this.#entries.clear();
-  }
+    yield* Effect.addFinalizer(() =>
+      Ref.set(closed, true).pipe(
+        Effect.andThen(Cache.invalidateAll(responses)),
+        Effect.andThen(Ref.set(states, new Map())),
+      ),
+    );
 
-  async #load(request: Request): Promise<Response | null> {
-    if (this.#closed) return null;
-    const upstreamUrl = resolveUpstreamUrl(request);
-    if (!upstreamUrl) return null;
-
-    const now = Date.now();
-    let entry = this.#entries.get(upstreamUrl);
-    if (entry && entry.expiresAt <= now) {
-      this.#entries.delete(upstreamUrl);
-      entry = undefined;
-    }
-    if (!entry) {
-      entry = {
-        expiresAt: now + SKYBRIDGE_CACHE_TTL_MS,
-        response: fetchUpstream(upstreamUrl, this.#fetch, this.#abortController.signal),
-        state: hasExactSkybridgeQuery(new URL(upstreamUrl)) ? "warming" : "warm",
-      };
-      this.#entries.set(upstreamUrl, entry);
-      while (this.#entries.size > SKYBRIDGE_CACHE_MAX_ENTRIES) {
-        const oldest = this.#entries.keys().next().value;
-        if (typeof oldest !== "string") break;
-        this.#entries.delete(oldest);
-      }
-    }
-
-    try {
-      const response = await entry.response;
-      if (response.status < 200 || response.status >= 300) {
-        if (this.#entries.get(upstreamUrl) === entry) this.#entries.delete(upstreamUrl);
-      }
-      return cloneCachedResponse(response);
-    } catch (error) {
-      if (this.#entries.get(upstreamUrl) === entry) this.#entries.delete(upstreamUrl);
-      throw error;
-    }
-  }
-}
+    const getState = (sourceUrl: string): McpAppSandboxCacheState => {
+      if (Ref.getUnsafe(closed)) return "cold";
+      const upstreamUrl = resolveUpstreamUrl(new Request(sourceUrl));
+      if (upstreamUrl === null) return "cold";
+      const entry = Ref.getUnsafe(states).get(upstreamUrl);
+      return entry !== undefined && entry.expiresAt > Date.now() ? entry.state : "cold";
+    };
+    return {
+      createHandler: () => (request) =>
+        runPromise(
+          load(request).pipe(
+            Effect.flatMap((upstream) => {
+              if (upstream === null) return Effect.succeed(new Response(null, { status: 404 }));
+              return Effect.tryPromise({
+                try: () => upstream.arrayBuffer(),
+                catch: (cause) =>
+                  new McpAppSandboxProtocolError({ operation: "read-response", cause }),
+              }).pipe(
+                Effect.map(
+                  (body) =>
+                    new Response(body, {
+                      headers: {
+                        "Content-Security-Policy":
+                          upstream.headers.get("Content-Security-Policy") ?? "",
+                        "Content-Type":
+                          upstream.headers.get("Content-Type") ?? "application/octet-stream",
+                        "Permissions-Policy": upstream.headers.get("Permissions-Policy") ?? "",
+                        "X-Content-Type-Options": "nosniff",
+                      },
+                      status: upstream.status,
+                    }),
+                ),
+              );
+            }),
+          ),
+        ).catch((error: unknown) => {
+          if (Ref.getUnsafe(closed)) return new Response(null, { status: 404 });
+          throw error;
+        }),
+      getState,
+      prewarm: (locale) => runPromise(prewarm(locale)),
+    };
+  });
