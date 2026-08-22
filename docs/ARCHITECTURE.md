@@ -585,6 +585,16 @@ pre-response events cannot cross import operations. One Effect-clock deadline an
 the request, collector, and wait. `CodexService` only materializes successfully imported Thread ids;
 it owns no import listener, early-completion map, resolver Promise, or timer.
 
+The user-facing Agent import protocol has a separate Main-scoped application owner. It retains
+bounded preview tokens, prunes them against the Effect clock, rejects a second apply immediately,
+and consumes a preview only after a successful import. Failed/interrupted imports release admission
+without losing the preview. Scope close atomically clears previews and prevents a late filesystem or
+Codex Promise result from publishing state; progress callbacks enter a Module-owned FiberSet, so a
+late native callback cannot reach a replacement/closed application. The large import operations
+adapter is deliberately stateless: it performs source discovery, safe-copy/config policy, ledger
+publication, and Thread materialization callbacks, but owns no scan Map, in-flight Promise, clock,
+or shutdown path.
+
 Heartbeat turn completion is one Main-scoped request/correlation capability. It subscribes to the
 generation-fenced Gateway stream before resolving the Thread host and starting the turn on that exact
 host, buffers completion that races the response, and accepts only the exact host, Thread, and returned

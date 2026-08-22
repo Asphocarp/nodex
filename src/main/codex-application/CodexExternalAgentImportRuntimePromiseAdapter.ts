@@ -12,7 +12,7 @@ export interface CodexExternalAgentImportRuntimePromiseAdapter {
   ) => Promise<ExternalAgentConfigImportCompletedNotification>;
 }
 
-/** Stateless projection for AgentImportCoordinator until that policy becomes Effect-native. */
+/** Narrow callback projection used by the higher-level AgentImportRuntime operation adapter. */
 export const makeCodexExternalAgentImportRuntimePromiseAdapter = (
   runtime: CodexExternalAgentImportRuntime["Service"],
   callbacks: Pick<ScopedCallbackRuntime["Service"], "runPromise">,

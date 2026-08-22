@@ -9,6 +9,8 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { performance } from "node:perf_hooks";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
+import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
+import type { ExternalAgentConfigMigrationItem } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItem";
 import { NodexAgentAuthorizationBroker } from "../agent-tools/authorization-broker";
 import {
   CoreAuthority,
@@ -46,6 +48,7 @@ import { createDesktopNodexAgentResourceAuthorityPort } from "../core-client/des
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { CodexService } from "../codex/codex-service";
 import { CodexSessionStore } from "../codex/codex-session-store";
+import { AgentImportOperations } from "../codex/agent-import-operations";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import {
@@ -53,6 +56,11 @@ import {
   live as agentProviderRuntimeLive,
 } from "../codex-application/AgentProviderRuntime";
 import { makeAgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
+import {
+  AgentImportOperationsError,
+  make as makeAgentImportRuntime,
+} from "../codex-application/AgentImportRuntime";
+import { makeAgentImportRuntimePromiseAdapter } from "../codex-application/AgentImportRuntimePromiseAdapter";
 import { CodexConnection, live as codexConnectionLive } from "../codex-application/CodexConnection";
 import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
 import { ChatGptDesktop, live as chatGptDesktopLive } from "../codex-application/ChatGptDesktop";
@@ -1695,6 +1703,60 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexForkSidePanelAdapterError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const agentImportOperations = new AgentImportOperations({
+          runtimeStateHome,
+          detectClaude: () =>
+            callbacks.runPromise(
+              codexGateway
+                .requestLocal("externalAgentConfig/detect", { includeHome: true, cwds: [] })
+                .pipe(
+                  Effect.map(
+                    (response) =>
+                      response.items as unknown as readonly ExternalAgentConfigMigrationItem[],
+                  ),
+                ),
+            ),
+          importClaude: (items, onProgress) =>
+            requireCodexService().importClaudeAgentConfiguration(items, onProgress),
+          forkSession: (session) => requireCodexService().importRolloutSession(session),
+          applyConfigEdits: (edits) =>
+            callbacks.runPromise(
+              edits.length === 0
+                ? Effect.void
+                : codexGateway
+                    .requestLocal("config/batchWrite", {
+                      edits: edits.map((edit) => ({
+                        keyPath: edit.keyPath,
+                        mergeStrategy: "upsert" as const,
+                        value:
+                          edit.value as ClientRequestParamsByMethod["config/batchWrite"]["edits"][number]["value"],
+                      })),
+                      reloadUserConfig: true,
+                    })
+                    .pipe(Effect.asVoid),
+            ),
+        });
+        const agentImport = yield* makeAgentImportRuntime(
+          {
+            scan: (sourceKind, selectedSourceHome, now) =>
+              Effect.tryPromise({
+                try: () => agentImportOperations.scan(sourceKind, selectedSourceHome, now),
+                catch: (cause) => new AgentImportOperationsError({ operation: "scan", cause }),
+              }),
+            apply: (input, scan, importId, startedAt, emitProgress) =>
+              Effect.tryPromise({
+                try: () =>
+                  agentImportOperations.apply(input, scan, importId, startedAt, emitProgress),
+                catch: (cause) => new AgentImportOperationsError({ operation: "apply", cause }),
+              }),
+            makeImportId: Effect.try({
+              try: () => agentImportOperations.makeImportId(),
+              catch: (cause) => new AgentImportOperationsError({ operation: "id", cause }),
+            }),
+          },
+          (progress) =>
+            Effect.sync(() => requireCodexService().projectAgentImportProgress(progress)),
+        ).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
@@ -1703,6 +1765,7 @@ export const live: Layer.Layer<
                 forkSidePanelTransfers,
                 callbacks,
               ),
+              agentImport: makeAgentImportRuntimePromiseAdapter(agentImport, callbacks),
               agentProviderRuntime,
               composerCatalog,
               desktopTools,

@@ -102,7 +102,7 @@ interface NativeCopyCandidate {
   readonly label: string;
 }
 
-interface ConfigEditCandidate {
+export interface ConfigEditCandidate {
   readonly keyPath: string;
   readonly value: unknown;
   readonly label: string;
@@ -114,7 +114,7 @@ type PendingImportItemPayload =
   | { readonly type: "copies"; readonly copies: readonly NativeCopyCandidate[] }
   | { readonly type: "config"; readonly edits: readonly ConfigEditCandidate[] };
 
-interface PendingImportItem {
+export interface PendingImportItem {
   readonly id: string;
   readonly kind: AgentImportItemKind;
   readonly label: string;
@@ -124,7 +124,7 @@ interface PendingImportItem {
   readonly payload: PendingImportItemPayload;
 }
 
-interface PendingImportScan {
+export interface PendingImportScan {
   readonly scan: AgentImportScan;
   readonly sourceHome: string;
   readonly itemsById: ReadonlyMap<string, PendingImportItem>;
@@ -148,7 +148,7 @@ interface NativeScanResult {
   readonly skippedAlreadyImportedSessions: number;
 }
 
-export interface AgentImportCoordinatorOptions {
+export interface AgentImportOperationsOptions {
   readonly runtimeStateHome: string;
   readonly detectClaude: () => Promise<readonly ExternalAgentConfigMigrationItem[]>;
   readonly importClaude: (
@@ -157,8 +157,6 @@ export interface AgentImportCoordinatorOptions {
   ) => Promise<ExternalAgentConfigImportCompletedNotification>;
   readonly forkSession: (session: NativeSessionCandidate) => Promise<string>;
   readonly applyConfigEdits: (edits: readonly ConfigEditCandidate[]) => Promise<void>;
-  readonly emitProgress: (progress: AgentImportProgress) => void;
-  readonly now?: () => number;
   readonly resolveSourceHome?: (sourceKind: AgentImportSourceKind) => string;
 }
 
@@ -852,34 +850,37 @@ function outcomeFromExternalResult(
   };
 }
 
-export class AgentImportCoordinator {
+/**
+ * Stateless filesystem/Codex adapter for AgentImportRuntime. Scan retention,
+ * apply admission, expiry, time, and Scope ownership belong to the Effect
+ * Module; this object only performs one requested operation.
+ */
+export class AgentImportOperations {
   private readonly runtimeStateHome: string;
-  private readonly detectClaude: AgentImportCoordinatorOptions["detectClaude"];
-  private readonly importClaude: AgentImportCoordinatorOptions["importClaude"];
-  private readonly forkSession: AgentImportCoordinatorOptions["forkSession"];
-  private readonly applyConfigEdits: AgentImportCoordinatorOptions["applyConfigEdits"];
-  private readonly emitProgress: AgentImportCoordinatorOptions["emitProgress"];
-  private readonly now: () => number;
+  private readonly detectClaude: AgentImportOperationsOptions["detectClaude"];
+  private readonly importClaude: AgentImportOperationsOptions["importClaude"];
+  private readonly forkSession: AgentImportOperationsOptions["forkSession"];
+  private readonly applyConfigEdits: AgentImportOperationsOptions["applyConfigEdits"];
   private readonly resolveSourceHome: (sourceKind: AgentImportSourceKind) => string;
-  private readonly scans = new Map<string, PendingImportScan>();
-  private importInFlight: Promise<AgentImportResult> | null = null;
 
-  constructor(options: AgentImportCoordinatorOptions) {
+  constructor(options: AgentImportOperationsOptions) {
     this.runtimeStateHome = path.resolve(options.runtimeStateHome);
     this.detectClaude = options.detectClaude;
     this.importClaude = options.importClaude;
     this.forkSession = options.forkSession;
     this.applyConfigEdits = options.applyConfigEdits;
-    this.emitProgress = options.emitProgress;
-    this.now = options.now ?? Date.now;
     this.resolveSourceHome = options.resolveSourceHome ?? defaultSourceHome;
+  }
+
+  makeImportId(): string {
+    return randomUUID();
   }
 
   async scan(
     sourceKind: AgentImportSourceKind,
     selectedSourceHome?: string,
-  ): Promise<AgentImportScan> {
-    this.deleteExpiredScans();
+    now = Date.now(),
+  ): Promise<PendingImportScan> {
     if (sourceKind === "claude-code" && selectedSourceHome) {
       throw new Error("Claude Code custom homes are not supported by this runtime");
     }
@@ -935,7 +936,7 @@ export class AgentImportCoordinator {
             ];
     } else {
       const result = await scanNativeHome({
-        now: this.now(),
+        now,
         runtimeStateHome: targetHome,
         sourceHome,
         sourceKind,
@@ -945,7 +946,7 @@ export class AgentImportCoordinator {
     }
 
     const scanId = randomUUID();
-    const expiresAt = this.now() + SCAN_TTL_MS;
+    const expiresAt = now + SCAN_TTL_MS;
     const scan: AgentImportScan = {
       expiresAt,
       items: items.map(({ id, kind, label, description, count, defaultSelected }) => ({
@@ -962,31 +963,20 @@ export class AgentImportCoordinator {
       sourceKind,
       sourceLabel: SOURCE_LABELS[sourceKind],
     };
-    this.scans.set(scanId, {
+    return {
       itemsById: new Map(items.map((item) => [item.id, item])),
       scan,
       sourceHome,
-    });
-    return scan;
+    };
   }
 
-  async apply(input: AgentImportApplyInput): Promise<AgentImportResult> {
-    if (this.importInFlight) {
-      throw new Error("Another agent import is already running");
-    }
-    const operation = this.applyExclusive(input);
-    this.importInFlight = operation;
-    try {
-      return await operation;
-    } finally {
-      this.importInFlight = null;
-    }
-  }
-
-  private async applyExclusive(input: AgentImportApplyInput): Promise<AgentImportResult> {
-    this.deleteExpiredScans();
-    const pendingScan = this.scans.get(input.scanId);
-    if (!pendingScan) throw new Error("This import preview expired. Scan the source again.");
+  async apply(
+    input: AgentImportApplyInput,
+    pendingScan: PendingImportScan,
+    importId: string,
+    startedAt: number,
+    emitProgress: (progress: AgentImportProgress) => void,
+  ): Promise<AgentImportResult> {
     const selectedIds = [...new Set(input.itemIds)];
     if (selectedIds.length === 0) throw new Error("Select at least one item to import");
     const selectedItems = selectedIds.map((itemId) => {
@@ -994,9 +984,7 @@ export class AgentImportCoordinator {
       if (!item) throw new Error("The selected import item does not belong to this scan");
       return item;
     });
-    const importId = randomUUID();
-    const startedAt = this.now();
-    this.emitProgress({
+    emitProgress({
       activeItemLabel: selectedItems[0]?.label ?? null,
       completed: false,
       completedItems: 0,
@@ -1007,9 +995,14 @@ export class AgentImportCoordinator {
 
     const result =
       pendingScan.scan.sourceKind === "claude-code"
-        ? await this.applyClaudeItems(importId, pendingScan, selectedItems, startedAt)
-        : await this.applyNativeItems(importId, pendingScan, selectedItems, startedAt);
-    this.scans.delete(input.scanId);
+        ? await this.applyClaudeItems(importId, pendingScan, selectedItems, startedAt, emitProgress)
+        : await this.applyNativeItems(
+            importId,
+            pendingScan,
+            selectedItems,
+            startedAt,
+            emitProgress,
+          );
     return result;
   }
 
@@ -1018,6 +1011,7 @@ export class AgentImportCoordinator {
     pendingScan: PendingImportScan,
     selectedItems: readonly PendingImportItem[],
     startedAt: number,
+    emitProgress: (progress: AgentImportProgress) => void,
   ): Promise<AgentImportResult> {
     const claudeItems = selectedItems.filter((item) => item.payload.type === "claude");
     const nativeItems = selectedItems.filter((item) => item.payload.type !== "claude");
@@ -1035,7 +1029,7 @@ export class AgentImportCoordinator {
                 item.payload.type === "claude" &&
                 !completedTypes.has(item.payload.migrationItem.itemType),
             );
-            this.emitProgress({
+            emitProgress({
               activeItemLabel: activeItem?.label ?? "Importing Claude Code data",
               completed: false,
               completedItems: Math.min(completedTypes.size, claudeItems.length),
@@ -1060,7 +1054,7 @@ export class AgentImportCoordinator {
     });
     const nativeOutcomes: AgentImportItemOutcome[] = [];
     for (const [index, item] of nativeItems.entries()) {
-      this.emitProgress({
+      emitProgress({
         activeItemLabel: item.label,
         completed: false,
         completedItems: claudeItems.length + index,
@@ -1068,7 +1062,9 @@ export class AgentImportCoordinator {
         sourceKind: "claude-code",
         totalItems: selectedItems.length,
       });
-      nativeOutcomes.push(await this.applyNativeItem("claude-code", item, importedThreadIds));
+      nativeOutcomes.push(
+        await this.applyNativeItem("claude-code", item, importedThreadIds, startedAt),
+      );
     }
     const outcomes = selectedItems.map((item) => {
       const outcome =
@@ -1078,7 +1074,7 @@ export class AgentImportCoordinator {
       return outcome;
     });
     const result: AgentImportResult = {
-      completedAt: this.now(),
+      completedAt: startedAt,
       importId,
       importedThreadIds,
       outcomes,
@@ -1086,7 +1082,7 @@ export class AgentImportCoordinator {
       sourceLabel: pendingScan.scan.sourceLabel,
       startedAt,
     };
-    this.emitCompletedProgress(result, selectedItems.length);
+    this.emitCompletedProgress(result, selectedItems.length, emitProgress);
     return result;
   }
 
@@ -1095,11 +1091,12 @@ export class AgentImportCoordinator {
     pendingScan: PendingImportScan,
     selectedItems: readonly PendingImportItem[],
     startedAt: number,
+    emitProgress: (progress: AgentImportProgress) => void,
   ): Promise<AgentImportResult> {
     const outcomes: AgentImportItemOutcome[] = [];
     const importedThreadIds: string[] = [];
     for (const [index, item] of selectedItems.entries()) {
-      this.emitProgress({
+      emitProgress({
         activeItemLabel: item.label,
         completed: false,
         completedItems: index,
@@ -1111,11 +1108,12 @@ export class AgentImportCoordinator {
         pendingScan.scan.sourceKind,
         item,
         importedThreadIds,
+        startedAt,
       );
       outcomes.push(outcome);
     }
     const result: AgentImportResult = {
-      completedAt: this.now(),
+      completedAt: startedAt,
       importId,
       importedThreadIds,
       outcomes,
@@ -1123,7 +1121,7 @@ export class AgentImportCoordinator {
       sourceLabel: pendingScan.scan.sourceLabel,
       startedAt,
     };
-    this.emitCompletedProgress(result, selectedItems.length);
+    this.emitCompletedProgress(result, selectedItems.length, emitProgress);
     return result;
   }
 
@@ -1131,9 +1129,16 @@ export class AgentImportCoordinator {
     sourceKind: AgentImportSourceKind,
     item: PendingImportItem,
     importedThreadIds: string[],
+    startedAt: number,
   ): Promise<AgentImportItemOutcome> {
     if (item.payload.type === "sessions") {
-      return await this.importSessions(sourceKind, item, item.payload.sessions, importedThreadIds);
+      return await this.importSessions(
+        sourceKind,
+        item,
+        item.payload.sessions,
+        importedThreadIds,
+        startedAt,
+      );
     }
     if (item.payload.type === "copies") {
       return await this.importCopies(item, item.payload.copies);
@@ -1179,6 +1184,7 @@ export class AgentImportCoordinator {
     item: PendingImportItem,
     sessions: readonly NativeSessionCandidate[],
     importedThreadIds: string[],
+    startedAt: number,
   ): Promise<AgentImportItemOutcome> {
     const ledger = await readSessionLedger(this.runtimeStateHome);
     const nextEntries = [...ledger.sessions];
@@ -1200,7 +1206,7 @@ export class AgentImportCoordinator {
         const targetThreadId = await this.forkSession(session);
         importedThreadIds.push(targetThreadId);
         nextEntries.push({
-          importedAt: this.now(),
+          importedAt: startedAt,
           sourceContentSha256: session.sourceContentSha256,
           sourceKind,
           sourcePath: session.sourcePath,
@@ -1250,8 +1256,12 @@ export class AgentImportCoordinator {
     };
   }
 
-  private emitCompletedProgress(result: AgentImportResult, totalItems: number): void {
-    this.emitProgress({
+  private emitCompletedProgress(
+    result: AgentImportResult,
+    totalItems: number,
+    emitProgress: (progress: AgentImportProgress) => void,
+  ): void {
+    emitProgress({
       activeItemLabel: null,
       completed: true,
       completedItems: totalItems,
@@ -1259,13 +1269,6 @@ export class AgentImportCoordinator {
       sourceKind: result.sourceKind,
       totalItems,
     });
-  }
-
-  private deleteExpiredScans(): void {
-    const now = this.now();
-    for (const [scanId, scan] of this.scans) {
-      if (scan.scan.expiresAt <= now) this.scans.delete(scanId);
-    }
   }
 }
 

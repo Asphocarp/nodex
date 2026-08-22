@@ -11,11 +11,9 @@ import type {
   RequestId,
 } from "@nodex/codex-app-server-protocol";
 import type { AppInfo } from "@nodex/codex-app-server-protocol/v2/AppInfo";
-import type { ConfigBatchWriteParams } from "@nodex/codex-app-server-protocol/v2/ConfigBatchWriteParams";
 import type { ConfigReadParams } from "@nodex/codex-app-server-protocol/v2/ConfigReadParams";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
-import type { ExternalAgentConfigDetectResponse } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigDetectResponse";
 import type { ExternalAgentConfigImportCompletedNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportCompletedNotification";
 import type { ExternalAgentConfigImportProgressNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportProgressNotification";
 import type { ExternalAgentConfigMigrationItem } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItem";
@@ -506,11 +504,13 @@ import type {
 } from "../../shared/agent-runtime";
 import type {
   AgentImportApplyInput,
+  AgentImportProgress,
   AgentImportResult,
   AgentImportScan,
   AgentImportSourceKind,
 } from "../../shared/agent-import";
-import { AgentImportCoordinator, type NativeSessionCandidate } from "./agent-import-coordinator";
+import type { NativeSessionCandidate } from "./agent-import-operations";
+import type { AgentImportRuntimePromiseAdapter } from "../codex-application/AgentImportRuntimePromiseAdapter";
 import { CodexManualCompactionTracker } from "./codex-manual-compaction-tracker";
 import {
   cleanCodexAutoTitlePrompt,
@@ -1202,6 +1202,7 @@ type CodexServiceOptions = {
   composerCatalog: ComposerCatalogPromiseAdapter;
   preferences: Pick<CodexPreferences["Service"], "current">;
   permissions: CodexPermissionsPromiseAdapter;
+  agentImport: AgentImportRuntimePromiseAdapter;
   client: CodexApplicationClient;
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
@@ -2377,7 +2378,7 @@ export class CodexService extends EventEmitter {
   private readonly composerCatalog: ComposerCatalogPromiseAdapter;
   private readonly preferences: Pick<CodexPreferences["Service"], "current">;
   private readonly permissions: CodexPermissionsPromiseAdapter;
-  private readonly agentImportCoordinator: AgentImportCoordinator;
+  private readonly agentImport: AgentImportRuntimePromiseAdapter;
   private readonly runtimeStateHome: string;
   private readonly nodexAgentDynamicService: NodexAgentV3DynamicService | null;
   private readonly runtimeVersion: string | null;
@@ -2481,6 +2482,7 @@ export class CodexService extends EventEmitter {
     this.composerCatalog = options.composerCatalog;
     this.preferences = options.preferences;
     this.permissions = options.permissions;
+    this.agentImport = options.agentImport;
     const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.desktopTools = options.desktopTools;
@@ -2554,39 +2556,6 @@ export class CodexService extends EventEmitter {
         this.workspaceThreadProjectionById.get(threadId)?.executionHostId ??
         CODEX_APP_LOCAL_HOST_ID,
     );
-    this.agentImportCoordinator = new AgentImportCoordinator({
-      runtimeStateHome: this.runtimeStateHome,
-      detectClaude: async () => {
-        await this.ensureClientReady();
-        const response = await this.client.request<
-          "externalAgentConfig/detect",
-          ExternalAgentConfigDetectResponse
-        >("externalAgentConfig/detect", {
-          includeHome: true,
-          cwds: [],
-        });
-        return response.items;
-      },
-      importClaude: async (items, onProgress) =>
-        await this.importClaudeAgentConfiguration(items, onProgress),
-      forkSession: async (session) => await this.importRolloutSession(session),
-      applyConfigEdits: async (edits) => {
-        if (edits.length === 0) return;
-        await this.ensureClientReady();
-        await this.client.request("config/batchWrite", {
-          edits: edits.map((edit) => ({
-            keyPath: edit.keyPath,
-            mergeStrategy: "upsert",
-            value: edit.value as ConfigBatchWriteParams["edits"][number]["value"],
-          })),
-          reloadUserConfig: true,
-        } satisfies ConfigBatchWriteParams);
-      },
-      emitProgress: (progress) => {
-        this.emit("agentImportProgress", progress);
-      },
-    });
-
     this.client.setServerRequestHandler(async (request) => this.handleServerRequest(request));
 
     this.client.on("connection", (connection) => {
@@ -5990,14 +5959,18 @@ export class CodexService extends EventEmitter {
     sourceKind: AgentImportSourceKind,
     selectedSourceHome?: string,
   ): Promise<AgentImportScan> {
-    return await this.agentImportCoordinator.scan(sourceKind, selectedSourceHome);
+    return await this.agentImport.scan(sourceKind, selectedSourceHome);
   }
 
   async applyAgentImport(input: AgentImportApplyInput): Promise<AgentImportResult> {
-    return await this.agentImportCoordinator.apply(input);
+    return await this.agentImport.apply(input);
   }
 
-  private async importClaudeAgentConfiguration(
+  projectAgentImportProgress(progress: AgentImportProgress): void {
+    this.emit("agentImportProgress", progress);
+  }
+
+  async importClaudeAgentConfiguration(
     migrationItems: readonly ExternalAgentConfigMigrationItem[],
     onProgress: (progress: ExternalAgentConfigImportProgressNotification) => void,
   ): Promise<ExternalAgentConfigImportCompletedNotification> {
@@ -6034,7 +6007,7 @@ export class CodexService extends EventEmitter {
     await this.syncSidebarThreadsDetailed({ policy: "force", reason: "host-message" });
   }
 
-  private async importRolloutSession(session: NativeSessionCandidate): Promise<string> {
+  async importRolloutSession(session: NativeSessionCandidate): Promise<string> {
     await this.ensureClientReady();
     const cwd = existsSync(session.cwd) ? session.cwd : this.projectlessHomeDirectory();
     const fork = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", {

@@ -2,7 +2,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
-import { AgentImportCoordinator, agentImportInternals } from "./agent-import-coordinator";
+import { AgentImportOperations, agentImportInternals } from "./agent-import-operations";
+
+const NOW = Date.parse("2026-07-22T12:00:00.000Z");
 
 const temporaryRoots: string[] = [];
 
@@ -18,7 +20,7 @@ afterEach(() => {
   }
 });
 
-describe("AgentImportCoordinator", () => {
+describe("AgentImportOperations", () => {
   test("detects native history and allowlisted setup without exposing credentials", async () => {
     const root = createTemporaryRoot();
     const sourceHome = path.join(root, "source", ".codex");
@@ -55,19 +57,18 @@ describe("AgentImportCoordinator", () => {
     );
 
     const appliedConfigEdits: Array<{ keyPath: string; value: unknown }> = [];
-    const coordinator = new AgentImportCoordinator({
+    const operations = new AgentImportOperations({
       applyConfigEdits: async (edits) => {
         appliedConfigEdits.push(...edits);
       },
       detectClaude: async () => [],
-      emitProgress: () => undefined,
       forkSession: async () => "019c0000-0000-7000-8000-000000000002",
       importClaude: async () => ({ importId: "unused", itemTypeResults: [] }),
-      now: () => Date.parse("2026-07-22T12:00:00.000Z"),
       runtimeStateHome: targetHome,
     });
 
-    const scan = await coordinator.scan("codex", sourceHome);
+    const prepared = await operations.scan("codex", sourceHome, NOW);
+    const scan = prepared.scan;
     expect(scan.items.map((item) => item.kind)).toEqual([
       "sessions",
       "skills",
@@ -80,7 +81,13 @@ describe("AgentImportCoordinator", () => {
     const selected = scan.items.filter(
       (item) => item.kind === "skills" || item.kind === "settings" || item.kind === "mcpServers",
     );
-    await coordinator.apply({ scanId: scan.scanId, itemIds: selected.map((item) => item.id) });
+    await operations.apply(
+      { scanId: scan.scanId, itemIds: selected.map((item) => item.id) },
+      prepared,
+      operations.makeImportId(),
+      NOW,
+      () => undefined,
+    );
     expect(appliedConfigEdits.map((edit) => edit.keyPath)).toEqual(["web_search", "mcp_servers"]);
     expect(JSON.stringify(appliedConfigEdits)).not.toContain("secret-model");
     expect(JSON.stringify(appliedConfigEdits)).not.toContain("private-provider");
@@ -108,23 +115,28 @@ describe("AgentImportCoordinator", () => {
       })}\n`,
     );
     const forkSession = vi.fn().mockResolvedValue("019c0000-0000-7000-8000-000000000004");
-    const coordinator = new AgentImportCoordinator({
+    const operations = new AgentImportOperations({
       applyConfigEdits: async () => undefined,
       detectClaude: async () => [],
-      emitProgress: () => undefined,
       forkSession,
       importClaude: async () => ({ importId: "unused", itemTypeResults: [] }),
-      now: () => Date.parse("2026-07-22T12:00:00.000Z"),
       runtimeStateHome: targetHome,
     });
 
-    const firstScan = await coordinator.scan("open-interpreter", sourceHome);
+    const firstPrepared = await operations.scan("open-interpreter", sourceHome, NOW);
+    const firstScan = firstPrepared.scan;
     const sessionItem = firstScan.items.find((item) => item.kind === "sessions");
     expect(sessionItem).toBeDefined();
-    await coordinator.apply({ scanId: firstScan.scanId, itemIds: [sessionItem!.id] });
+    await operations.apply(
+      { scanId: firstScan.scanId, itemIds: [sessionItem!.id] },
+      firstPrepared,
+      operations.makeImportId(),
+      NOW,
+      () => undefined,
+    );
     expect(forkSession).toHaveBeenCalledTimes(1);
 
-    const secondScan = await coordinator.scan("open-interpreter", sourceHome);
+    const secondScan = (await operations.scan("open-interpreter", sourceHome, NOW)).scan;
     expect(secondScan.items.some((item) => item.kind === "sessions")).toBe(false);
     expect(secondScan.skippedAlreadyImportedSessions).toBe(1);
     const ledger = JSON.parse(
@@ -155,7 +167,7 @@ describe("AgentImportCoordinator", () => {
       }),
     );
     const appliedConfigEdits: Array<{ keyPath: string; value: unknown }> = [];
-    const coordinator = new AgentImportCoordinator({
+    const operations = new AgentImportOperations({
       applyConfigEdits: async (edits) => {
         appliedConfigEdits.push(...edits);
       },
@@ -163,7 +175,6 @@ describe("AgentImportCoordinator", () => {
         { cwd: null, description: "unsafe config", details: null, itemType: "CONFIG" },
         { cwd: null, description: "mcp", details: null, itemType: "MCP_SERVER_CONFIG" },
       ],
-      emitProgress: () => undefined,
       forkSession: async () => "unused",
       importClaude: async () => {
         throw new Error("sanitized MCP import must not call the Claude config importer");
@@ -172,9 +183,16 @@ describe("AgentImportCoordinator", () => {
       runtimeStateHome: targetHome,
     });
 
-    const scan = await coordinator.scan("claude-code");
+    const prepared = await operations.scan("claude-code", undefined, NOW);
+    const scan = prepared.scan;
     expect(scan.items.map((item) => item.kind)).toEqual(["mcpServers"]);
-    await coordinator.apply({ scanId: scan.scanId, itemIds: [scan.items[0]!.id] });
+    await operations.apply(
+      { scanId: scan.scanId, itemIds: [scan.items[0]!.id] },
+      prepared,
+      operations.makeImportId(),
+      NOW,
+      () => undefined,
+    );
     expect(appliedConfigEdits).toEqual([
       {
         keyPath: "mcp_servers",
