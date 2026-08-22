@@ -115,6 +115,8 @@ import {
 } from "./codex-user-input-auto-resolution.test-support";
 import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuation.test-support";
 import { TestCodexNotificationRouting } from "./codex-notification-routing.test-support";
+import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainDeadline";
+import { TestCodexOwnerNotificationDrainDeadline } from "./codex-owner-notification-drain-deadline.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
@@ -1647,6 +1649,11 @@ function createService(options?: {
     if (!service) throw new Error("Codex test service is not constructed");
     await service.routeAppServerNotification(notification);
   });
+  const ownerNotificationDrainDeadline = new TestCodexOwnerNotificationDrainDeadline({
+    timeoutMs: DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT,
+    onTimeout: (conversationId, sentSequence, ackSequence) =>
+      service?.handleOwnerNotificationDrainTimeout(conversationId, sentSequence, ackSequence),
+  });
   const rendererOwnerRetention = new TestCodexRendererOwnerRetention({
     retentionMs: Math.max(0, options?.inactiveRendererOwnerRetentionMs ?? 60 * 60 * 1_000),
     maxRetained: Math.max(0, Math.floor(options?.inactiveRendererOwnerMaxRetained ?? 4)),
@@ -1781,6 +1788,7 @@ function createService(options?: {
     },
     activeGoalContinuation,
     notificationRouting,
+    ownerNotificationDrainDeadline,
     rendererOwnerRetention,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
@@ -1816,6 +1824,7 @@ function createService(options?: {
   const shutdown = testService.shutdown.bind(testService);
   testService.shutdown = async () => {
     activeGoalContinuation.dispose();
+    ownerNotificationDrainDeadline.dispose();
     rendererOwnerRetention.dispose();
     try {
       await shutdown();

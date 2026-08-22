@@ -286,6 +286,7 @@ import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-au
 import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
 import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application/CodexActiveGoalContinuation";
 import type { CodexNotificationRoutingLegacyPort } from "../codex-application/CodexNotificationRouting";
+import type { CodexOwnerNotificationDrainDeadlineLegacyPort } from "../codex-application/CodexOwnerNotificationDrainDeadline";
 import type { CodexRendererOwnerRetentionLegacyPort } from "../codex-application/CodexRendererOwnerRetention";
 import type { CodexUserInputAutoResolutionLegacyPort } from "../codex-application/CodexUserInputAutoResolution";
 import {
@@ -375,7 +376,6 @@ import {
   toCodexFrameTextDelta,
 } from "../../shared/codex-conversation-state/codex-frame-text-delta";
 import {
-  CODEX_FRAME_TEXT_DELTA_FALLBACK_INTERVAL_MS,
   CodexFrameTextDeltaQueue,
   createCodexFrameTextDeltaTimeoutScheduler,
   type CodexFrameTextDeltaUpdate,
@@ -1389,6 +1389,7 @@ type CodexServiceOptions = {
   nodexAgentDynamicService: NodexAgentV3DynamicService | null;
   activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   notificationRouting: CodexNotificationRoutingLegacyPort;
+  ownerNotificationDrainDeadline: CodexOwnerNotificationDrainDeadlineLegacyPort;
   rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
@@ -1496,9 +1497,6 @@ interface CodexAutomationArchiveMessages {
   archivedAssistantMessage: string | null;
 }
 
-const RENDERER_OWNER_NOTIFICATION_DRAIN_FRAMES = 8;
-const RENDERER_OWNER_NOTIFICATION_DRAIN_TIMEOUT_MS =
-  CODEX_FRAME_TEXT_DELTA_FALLBACK_INTERVAL_MS * RENDERER_OWNER_NOTIFICATION_DRAIN_FRAMES;
 const THREAD_TURNS_PAGE_SIZE = 5;
 const AUTOMATION_ARCHIVE_TURN_CAPTURE_LIMIT = 20;
 const THREAD_TURNS_PAGE_ITEMS_VIEW = "full" as const;
@@ -2584,6 +2582,7 @@ export class CodexService extends EventEmitter {
   private readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   private readonly activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   private readonly notificationRouting: CodexNotificationRoutingLegacyPort;
+  private readonly ownerNotificationDrainDeadline: CodexOwnerNotificationDrainDeadlineLegacyPort;
   private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
@@ -2716,10 +2715,6 @@ export class CodexService extends EventEmitter {
     string,
     Array<() => void>
   >();
-  private readonly ownerNotificationDrainTimersByConversationId = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
   private readonly pendingThreadSettingsUpdates = new Map<
     string,
     Promise<CodexConversationThreadSettings>
@@ -2812,6 +2807,7 @@ export class CodexService extends EventEmitter {
     this.sessionStore = options.sessionStore;
     this.activeGoalContinuation = options.activeGoalContinuation;
     this.notificationRouting = options.notificationRouting;
+    this.ownerNotificationDrainDeadline = options.ownerNotificationDrainDeadline;
     this.rendererOwnerRetention = options.rendererOwnerRetention;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
@@ -3722,11 +3718,7 @@ export class CodexService extends EventEmitter {
     if (!callbacks || callbacks.length === 0) return;
 
     this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
-    const timer = this.ownerNotificationDrainTimersByConversationId.get(conversationId);
-    if (timer) {
-      clearTimeout(timer);
-      this.ownerNotificationDrainTimersByConversationId.delete(conversationId);
-    }
+    this.ownerNotificationDrainDeadline.clear(conversationId);
 
     for (const callback of callbacks) {
       callback();
@@ -3749,30 +3741,30 @@ export class CodexService extends EventEmitter {
     callbacks.push(callback);
     this.ownerNotificationDrainCallbacksByConversationId.set(conversationId, callbacks);
 
-    if (this.ownerNotificationDrainTimersByConversationId.has(conversationId)) {
-      return true;
-    }
-
-    const timer = setTimeout(() => {
-      this.ownerNotificationDrainTimersByConversationId.delete(conversationId);
-      const pendingCallbacks =
-        this.ownerNotificationDrainCallbacksByConversationId.get(conversationId) ?? [];
-      this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
-      this.ownerNotificationAckSequenceByConversationId.set(conversationId, sentSequence);
-      this.logger.warn(
-        "Timed out waiting for renderer owner text-delta ack before terminal lifecycle",
-        {
-          conversationId,
-          sentSequence,
-          ackSequence,
-        },
-      );
-      for (const pendingCallback of pendingCallbacks) {
-        pendingCallback();
-      }
-    }, RENDERER_OWNER_NOTIFICATION_DRAIN_TIMEOUT_MS);
-    this.ownerNotificationDrainTimersByConversationId.set(conversationId, timer);
+    this.ownerNotificationDrainDeadline.schedule(conversationId, sentSequence, ackSequence);
     return true;
+  }
+
+  handleOwnerNotificationDrainTimeout(
+    conversationId: string,
+    sentSequence: number,
+    ackSequence: number,
+  ): void {
+    const pendingCallbacks =
+      this.ownerNotificationDrainCallbacksByConversationId.get(conversationId) ?? [];
+    this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
+    this.ownerNotificationAckSequenceByConversationId.set(conversationId, sentSequence);
+    this.logger.warn(
+      "Timed out waiting for renderer owner text-delta ack before terminal lifecycle",
+      {
+        conversationId,
+        sentSequence,
+        ackSequence,
+      },
+    );
+    for (const pendingCallback of pendingCallbacks) {
+      pendingCallback();
+    }
   }
 
   private waitForRendererOwnerNotificationDrain(conversationId: string): Promise<void> {
@@ -3792,11 +3784,7 @@ export class CodexService extends EventEmitter {
   }
 
   private clearOwnerNotificationDrain(conversationId: string): void {
-    const timer = this.ownerNotificationDrainTimersByConversationId.get(conversationId);
-    if (timer) {
-      clearTimeout(timer);
-      this.ownerNotificationDrainTimersByConversationId.delete(conversationId);
-    }
+    this.ownerNotificationDrainDeadline.clear(conversationId);
     this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
   }
 
@@ -6925,10 +6913,6 @@ export class CodexService extends EventEmitter {
       this.sidebarSnapshotCacheNotifierSubscribed = false;
     }
     this.terminalInputBuffers.clear();
-    for (const timer of this.ownerNotificationDrainTimersByConversationId.values()) {
-      clearTimeout(timer);
-    }
-    this.ownerNotificationDrainTimersByConversationId.clear();
     this.ownerNotificationDrainCallbacksByConversationId.clear();
     this.conversationResumeInFlightByThreadId.clear();
     this.pendingFreshSessionFirstTurnByThreadId.clear();

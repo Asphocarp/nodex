@@ -81,6 +81,8 @@ import {
   CodexNotificationRoutingError,
   make as makeCodexNotificationRouting,
 } from "../codex-application/CodexNotificationRouting";
+import { make as makeCodexOwnerNotificationDrainDeadline } from "../codex-application/CodexOwnerNotificationDrainDeadline";
+import { makeCodexOwnerNotificationDrainDeadlineCallbackAdapter } from "../codex-application/CodexOwnerNotificationDrainDeadlineCallbackAdapter";
 import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
@@ -1183,6 +1185,20 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexNotificationRoutingError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const ownerNotificationDrainDeadline = yield* makeCodexOwnerNotificationDrainDeadline({
+          onTimeout: (conversationId, sentSequence, ackSequence) =>
+            Effect.sync(() =>
+              requireCodexService().handleOwnerNotificationDrainTimeout(
+                conversationId,
+                sentSequence,
+                ackSequence,
+              ),
+            ),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const ownerNotificationDrainDeadlineCallbacks =
+          yield* makeCodexOwnerNotificationDrainDeadlineCallbackAdapter(
+            ownerNotificationDrainDeadline,
+          ).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1226,6 +1242,7 @@ export const live: Layer.Layer<
               ),
               activeGoalContinuation: activeGoalContinuationCallbacks,
               notificationRouting,
+              ownerNotificationDrainDeadline: ownerNotificationDrainDeadlineCallbacks,
               rendererOwnerRetention: rendererOwnerRetentionCallbacks,
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
