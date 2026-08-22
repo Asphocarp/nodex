@@ -426,6 +426,14 @@ retention clock, candidate collection, retry loop, capacity policy, or network c
 synchronous ownership callbacks enter the Module through one scoped FIFO adapter that captures
 eligibility at admission, preserving transient owner-generation boundaries without detached fibers.
 
+Active thread-goal continuation is admitted as an event, not as an untracked Promise workflow. One
+Main-scoped Module owns the per-conversation delay, single-flight fiber, duplicate coalescing,
+eligibility recheck, failure supervision, and interruption. Synchronous conversation lifecycle
+callbacks enter through a scoped FIFO adapter, so a later thread removal deterministically cancels
+an earlier request. Until thread-goal commands move with the canonical conversation authority,
+`CodexService` supplies only the current eligibility query and the eventual command Effect; it owns
+no continuation timer, in-flight collection, error catch, or shutdown cleanup.
+
 Codex native-notification policy is a pure projection from application events, settings, focus,
 and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
 registrations and notification-action admission in the Main Scope; it does not acquire a class with

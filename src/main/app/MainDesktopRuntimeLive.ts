@@ -73,6 +73,11 @@ import {
 } from "../codex-application/ApprovalCoordinator";
 import { makeServerRequestResponsesPromiseAdapter } from "../codex-application/ServerRequestResponsesPromiseAdapter";
 import {
+  CodexActiveGoalContinuationError,
+  make as makeCodexActiveGoalContinuation,
+} from "../codex-application/CodexActiveGoalContinuation";
+import { makeCodexActiveGoalContinuationCallbackAdapter } from "../codex-application/CodexActiveGoalContinuationCallbackAdapter";
+import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
 } from "../codex-application/CodexRendererOwnerRetention";
@@ -1148,6 +1153,25 @@ export const live: Layer.Layer<
           Effect.sync(() => codexSessionStore.clear()),
         );
         let codexService: CodexService | undefined;
+        const requireCodexService = (): CodexService => {
+          const service = codexService;
+          if (!service) throw new Error("CodexService is not constructed");
+          return service;
+        };
+        const isActiveGoalContinuationCandidate = (conversationId: string) =>
+          codexService?.isActiveThreadGoalContinuationCandidate(conversationId) === true;
+        const activeGoalContinuation = yield* makeCodexActiveGoalContinuation({
+          isEligible: isActiveGoalContinuationCandidate,
+          continueGoal: (conversationId) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().runActiveThreadGoalContinuation(conversationId),
+              catch: (cause) => new CodexActiveGoalContinuationError({ cause }),
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const activeGoalContinuationCallbacks =
+          yield* makeCodexActiveGoalContinuationCallbackAdapter(activeGoalContinuation).pipe(
+            Effect.provideService(Scope.Scope, runtimeScope),
+          );
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1163,11 +1187,7 @@ export const live: Layer.Layer<
               ),
           commitCleanup: (conversationId) =>
             Effect.sync(() => {
-              const service = codexService;
-              if (!service) {
-                throw new Error("CodexService is unavailable during renderer-owner cleanup");
-              }
-              service.commitInactiveRendererOwnerCleanup(conversationId);
+              requireCodexService().commitInactiveRendererOwnerCleanup(conversationId);
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const rendererOwnerRetentionCallbacks =
@@ -1193,6 +1213,7 @@ export const live: Layer.Layer<
                 approvalCoordinator,
                 callbacks,
               ),
+              activeGoalContinuation: activeGoalContinuationCallbacks,
               rendererOwnerRetention: rendererOwnerRetentionCallbacks,
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,

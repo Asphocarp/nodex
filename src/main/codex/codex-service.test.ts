@@ -113,6 +113,7 @@ import {
   TestCodexUserInputAutoResolutionController,
   USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS,
 } from "./codex-user-input-auto-resolution.test-support";
+import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuation.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
@@ -1632,6 +1633,15 @@ function createService(options?: {
       await pending.resolve();
     },
   });
+  const activeGoalContinuation = new TestCodexActiveGoalContinuation({
+    delayMs: 250,
+    isEligible: (conversationId) =>
+      service?.isActiveThreadGoalContinuationCandidate(conversationId) === true,
+    continueGoal: async (conversationId) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.runActiveThreadGoalContinuation(conversationId);
+    },
+  });
   const rendererOwnerRetention = new TestCodexRendererOwnerRetention({
     retentionMs: Math.max(0, options?.inactiveRendererOwnerRetentionMs ?? 60 * 60 * 1_000),
     maxRetained: Math.max(0, Math.floor(options?.inactiveRendererOwnerMaxRetained ?? 4)),
@@ -1764,6 +1774,7 @@ function createService(options?: {
         autoResolutionResolvers.clear();
       },
     },
+    activeGoalContinuation,
     rendererOwnerRetention,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
@@ -1798,10 +1809,11 @@ function createService(options?: {
   Reflect.set(testService, "getUserInputAutoResolutionSnapshot", () => autoResolution.snapshot());
   const shutdown = testService.shutdown.bind(testService);
   testService.shutdown = async () => {
+    activeGoalContinuation.dispose();
+    rendererOwnerRetention.dispose();
     try {
       await shutdown();
     } finally {
-      rendererOwnerRetention.dispose();
       await managedWorktreeHarness.close();
     }
   };
@@ -8126,7 +8138,7 @@ describe("codex-service interrupt target resolution", () => {
         threadGoal: ThreadGoal | null;
         detail: CodexThreadDetail | null;
       };
-      maybeContinueActiveThreadGoal: (threadId: string) => Promise<void>;
+      maybeContinueActiveThreadGoal: (threadId: string) => void;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -8182,10 +8194,12 @@ describe("codex-service interrupt target resolution", () => {
       record.detail = record.detail
         ? { ...record.detail, statusType: "idle", statusActiveFlags: [] }
         : null;
-      await Promise.all([
-        serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue"),
-        serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue"),
-      ]);
+      serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue");
+      serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue");
+      await waitForCondition(
+        () => requests.some((request) => request.method === "thread/goal/set"),
+        1_000,
+      );
 
       const goalSetRequests = requests.filter((request) => request.method === "thread/goal/set");
       expect(goalSetRequests.length).toBe(1);
@@ -8210,7 +8224,7 @@ describe("codex-service interrupt target resolution", () => {
         threadGoal: ThreadGoal | null;
         detail: CodexThreadDetail | null;
       };
-      maybeContinueActiveThreadGoal: (threadId: string) => Promise<void>;
+      maybeContinueActiveThreadGoal: (threadId: string) => void;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -8290,7 +8304,7 @@ describe("codex-service interrupt target resolution", () => {
         threadGoal: ThreadGoal | null;
         detail: CodexThreadDetail | null;
       };
-      maybeContinueActiveThreadGoal: (threadId: string) => Promise<void>;
+      maybeContinueActiveThreadGoal: (threadId: string) => void;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;

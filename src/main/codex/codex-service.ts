@@ -284,6 +284,7 @@ import type {
 } from "../nodex-agent-authority-port";
 import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
 import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
+import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application/CodexActiveGoalContinuation";
 import type { CodexRendererOwnerRetentionLegacyPort } from "../codex-application/CodexRendererOwnerRetention";
 import type { CodexUserInputAutoResolutionLegacyPort } from "../codex-application/CodexUserInputAutoResolution";
 import {
@@ -1385,6 +1386,7 @@ type CodexServiceOptions = {
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
   nodexAgentDynamicService: NodexAgentV3DynamicService | null;
+  activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
@@ -1495,7 +1497,6 @@ interface CodexAutomationArchiveMessages {
 const RENDERER_OWNER_NOTIFICATION_DRAIN_FRAMES = 8;
 const RENDERER_OWNER_NOTIFICATION_DRAIN_TIMEOUT_MS =
   CODEX_FRAME_TEXT_DELTA_FALLBACK_INTERVAL_MS * RENDERER_OWNER_NOTIFICATION_DRAIN_FRAMES;
-const ACTIVE_THREAD_GOAL_CONTINUATION_DELAY_MS = 250;
 const THREAD_TURNS_PAGE_SIZE = 5;
 const AUTOMATION_ARCHIVE_TURN_CAPTURE_LIMIT = 20;
 const THREAD_TURNS_PAGE_ITEMS_VIEW = "full" as const;
@@ -2579,6 +2580,7 @@ export class CodexService extends EventEmitter {
   private readonly nodexAgentDynamicService: NodexAgentV3DynamicService | null;
   private readonly runtimeVersion: string | null;
   private readonly desktopTools: DesktopToolRuntimePromiseAdapter;
+  private readonly activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
@@ -2720,8 +2722,6 @@ export class CodexService extends EventEmitter {
     Promise<CodexConversationThreadSettings>
   >();
   private readonly threadNamePersistenceByThreadId = new Map<string, Promise<void>>();
-  private readonly activeGoalContinuationPromises = new Map<string, Promise<void>>();
-  private readonly activeGoalContinuationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly queuedFollowUpDispatchInFlight = new Set<string>();
   private readonly conversationTurnsLoads = new Map<
     string,
@@ -2808,6 +2808,7 @@ export class CodexService extends EventEmitter {
     this.serverRequestResponses = options.serverRequestResponses;
     this.persistedAtoms = options.persistedAtoms;
     this.sessionStore = options.sessionStore;
+    this.activeGoalContinuation = options.activeGoalContinuation;
     this.rendererOwnerRetention = options.rendererOwnerRetention;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
@@ -6397,8 +6398,7 @@ export class CodexService extends EventEmitter {
     this.frameTextDeltaQueue.discardConversation(threadId);
     this.outputDeltaQueue.discardConversation(threadId);
     this.manualCompactionTracker.clear(threadId);
-    this.clearActiveGoalContinuationTimer(threadId);
-    this.activeGoalContinuationPromises.delete(threadId);
+    this.activeGoalContinuation.clear(threadId);
     this.queuedFollowUpDispatchInFlight.delete(threadId);
   }
 
@@ -6936,11 +6936,6 @@ export class CodexService extends EventEmitter {
     }
     this.ownerNotificationDrainTimersByConversationId.clear();
     this.ownerNotificationDrainCallbacksByConversationId.clear();
-    for (const timer of this.activeGoalContinuationTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.activeGoalContinuationTimers.clear();
-    this.activeGoalContinuationPromises.clear();
     this.conversationResumeInFlightByThreadId.clear();
     this.pendingFreshSessionFirstTurnByThreadId.clear();
     this.threadGoalHydrationInFlightByThreadId.clear();
@@ -19020,24 +19015,6 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
-  private clearActiveGoalContinuationTimer(threadId: string): void {
-    const timer = this.activeGoalContinuationTimers.get(threadId);
-    if (!timer) return;
-    clearTimeout(timer);
-    this.activeGoalContinuationTimers.delete(threadId);
-  }
-
-  private waitForActiveGoalContinuationDelay(threadId: string): Promise<void> {
-    this.clearActiveGoalContinuationTimer(threadId);
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.activeGoalContinuationTimers.delete(threadId);
-        resolve();
-      }, ACTIVE_THREAD_GOAL_CONTINUATION_DELAY_MS);
-      this.activeGoalContinuationTimers.set(threadId, timer);
-    });
-  }
-
   private async continueActiveThreadGoalWithEmptyTurn(threadId: string): Promise<void> {
     const record = this.getMaybeConversationRecord(threadId);
     const detail = record?.detail ?? this.serializeThreadDetail(threadId);
@@ -19071,41 +19048,31 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private async maybeContinueActiveThreadGoal(threadId: string): Promise<void> {
-    if (this.activeGoalContinuationPromises.has(threadId)) return;
+  isActiveThreadGoalContinuationCandidate(threadId: string): boolean {
+    return this.canContinueActiveThreadGoal(threadId);
+  }
+
+  async runActiveThreadGoalContinuation(threadId: string): Promise<void> {
     if (!this.canContinueActiveThreadGoal(threadId)) return;
 
-    const continuation = this.waitForActiveGoalContinuationDelay(threadId)
-      .then(async () => {
-        if (!this.canContinueActiveThreadGoal(threadId)) return;
+    const pendingThreadSettingsUpdate = this.pendingThreadSettingsUpdates.get(threadId);
+    if (pendingThreadSettingsUpdate) {
+      await pendingThreadSettingsUpdate;
+      if (!this.canContinueActiveThreadGoal(threadId)) return;
+    }
 
-        const pendingThreadSettingsUpdate = this.pendingThreadSettingsUpdates.get(threadId);
-        if (pendingThreadSettingsUpdate) {
-          await pendingThreadSettingsUpdate;
-          if (!this.canContinueActiveThreadGoal(threadId)) return;
-        }
+    await this.ensureReasoningSummaryForGoalContinuation(threadId);
+    if (this.threadSettingsUpdateSupport === "unsupported") {
+      await this.continueActiveThreadGoalWithEmptyTurn(threadId);
+      return;
+    }
 
-        await this.ensureReasoningSummaryForGoalContinuation(threadId);
-        if (this.threadSettingsUpdateSupport === "unsupported") {
-          await this.continueActiveThreadGoalWithEmptyTurn(threadId);
-          return;
-        }
+    await this.setThreadGoal({ threadId, status: "active" });
+  }
 
-        await this.setThreadGoal({ threadId, status: "active" });
-      })
-      .catch((error) => {
-        this.logger.error("Failed to continue active thread goal", {
-          threadId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      })
-      .finally(() => {
-        this.clearActiveGoalContinuationTimer(threadId);
-        this.activeGoalContinuationPromises.delete(threadId);
-      });
-
-    this.activeGoalContinuationPromises.set(threadId, continuation);
-    await continuation;
+  private maybeContinueActiveThreadGoal(threadId: string): void {
+    if (!this.canContinueActiveThreadGoal(threadId)) return;
+    this.activeGoalContinuation.request(threadId);
   }
 
   private async pauseActiveThreadGoalBeforeInterrupt(
