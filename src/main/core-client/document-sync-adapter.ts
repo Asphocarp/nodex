@@ -822,7 +822,7 @@ export const createCoreDocumentSyncAdapter = (
       onEvent: async (envelope) => {
         const commitSeq = envelope.packet.manifest.identity.commit_seq;
         try {
-          const events = await documentEvents(request, envelope, fetchUpdateResource);
+          const events = await mapDocumentLiveEnvelope(request, envelope, fetchUpdateResource);
           events.forEach(listener);
         } catch {
           listener({
@@ -1236,7 +1236,7 @@ export const createCoreDocumentSyncAdapter = (
   };
 };
 
-const documentEvents = async (
+export const mapDocumentLiveEnvelope = async (
   request: DocumentSyncSubscribeRequest,
   envelope: CoreEventEnvelope,
   fetchUpdateResource: ExactDocumentUpdateFetcher,

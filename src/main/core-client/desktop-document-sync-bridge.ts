@@ -85,26 +85,39 @@ import {
 } from "../../shared/block-documents/document-presence";
 import { decodeCanvasSceneSseEvent } from "../../shared/block-documents/canvas-scene-http-contract";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
-import type { DocumentLiveRuntimeAdapter } from "./document-live-runtime-adapter";
 import {
   contentAccessContextKey,
   type ContentAccessContext,
 } from "../../shared/content-access-context";
 import {
-  createCoreCanvasSceneAdapter,
-  type CoreCanvasSceneAdapter,
+  createCoreCanvasSceneCommands,
+  mapCanvasLiveEnvelope,
+  mapCoreCanvasSceneFailure,
 } from "./core-canvas-scene-adapter";
 import {
   createCoreBlockTransferAdapter,
   type CoreBlockTransferAdapter,
 } from "./block-transfer-adapter";
-import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
+import { createCoreDocumentSyncAdapter, mapDocumentLiveEnvelope } from "./document-sync-adapter";
 import type { CoreDocumentSyncAdapter } from "./document-sync-adapter";
+import { isRetryableCoreEventStreamError } from "./core-event-stream-retry";
 import {
   resolveAuthorizedDocumentEffect,
   resolveInlineAuthorizedDocumentEffect,
 } from "./document-effect-delivery";
-import type { CoreAuthorizedDeliveryPacket } from "./types";
+import type {
+  CoreAuthorizedDeliveryPacket,
+  CoreDocumentEventSubscription,
+  CoreEventEnvelope,
+  DocumentLiveRepair,
+} from "./types";
+import { CoreSessionAccess } from "../core-runtime/CoreAuthority";
+import { CoreModules } from "../core-runtime/CoreModules";
+import {
+  DocumentLiveRuntime,
+  documentLiveRuntimeError,
+  type DocumentLiveLease,
+} from "../core-runtime/DocumentLiveRuntime";
 
 const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
 
@@ -222,7 +235,12 @@ export class DesktopDocumentSessionRuntime extends Context.Service<
 export interface DesktopDocumentSessionRuntimeOptions {
   readonly authority: DesktopDataAuthorityRuntime;
   readonly canvasPresenceHub?: CanvasPresenceHub;
-  readonly documentLive: DocumentLiveRuntimeAdapter;
+}
+
+interface DesktopDocumentSessionRuntimeDependencies extends DesktopDocumentSessionRuntimeOptions {
+  readonly coreSession: CoreSessionAccess["Service"];
+  readonly coreModules: CoreModules["Service"];
+  readonly documentLive: DocumentLiveRuntime["Service"];
 }
 
 type OrderedDocumentRealtimeEvent = Extract<
@@ -424,11 +442,10 @@ const hasCanvasSceneIdentity = (request: CanvasSceneSubscribeRequest): boolean =
 };
 
 const makeDesktopDocumentSessionState = (
-  input: DesktopDocumentSessionRuntimeOptions,
+  input: DesktopDocumentSessionRuntimeDependencies,
   background: (effect: Effect.Effect<void>) => unknown,
 ) => {
   const adapters = new Map<string, CoreDocumentSyncAdapter>();
-  const canvasSceneAdapters = new Map<string, CoreCanvasSceneAdapter>();
   const blockTransferAdapters = new Map<string, CoreBlockTransferAdapter>();
   const subscriptions = new Map<string, NativeSubscription>();
   const deliveredCommitKeys = new Map<string, Set<string>>();
@@ -452,27 +469,8 @@ const makeDesktopDocumentSessionState = (
       scope.kind === "project"
         ? input.authority.clientForProject(scope.projectId)
         : input.authority.rootClient,
-      { live: input.documentLive },
     );
     adapters.set(key, adapter);
-    return adapter;
-  };
-
-  const canvasSceneAdapterFor = (accessContext: ContentAccessContext): CoreCanvasSceneAdapter => {
-    const key = contentAccessContextKey(accessContext);
-    let adapter = canvasSceneAdapters.get(key);
-    if (adapter) return adapter;
-    adapter = createCoreCanvasSceneAdapter(
-      accessContext.kind === "project"
-        ? input.authority.clientForProject(accessContext.projectId)
-        : input.authority.rootClient,
-      {
-        libraryId: input.authority.identity.libraryId,
-        accessContext,
-      },
-      { live: input.documentLive },
-    );
-    canvasSceneAdapters.set(key, adapter);
     return adapter;
   };
 
@@ -1014,16 +1012,92 @@ const makeDesktopDocumentSessionState = (
       Effect.catch((error) => Effect.succeed(transportUnavailable<Value>(error.cause))),
     );
 
-  const withCanvasResult = <Success extends { readonly ok: true }>(
+  const runCanvasCommand = <Success extends { readonly ok: true }>(
     operation: string,
-    run: (signal: AbortSignal) => Promise<Success | CanvasCommandFailure>,
+    accessContext: ContentAccessContext,
+    run: (
+      commands: ReturnType<typeof createCoreCanvasSceneCommands>,
+    ) => Promise<Success | CanvasCommandFailure>,
     mutationId?: string,
   ): Effect.Effect<Success | CanvasCommandFailure> =>
-    corePromise(operation, run).pipe(
-      Effect.catch((error) =>
-        Effect.succeed(canvasSceneTransportUnavailable(error.cause, mutationId)),
-      ),
-    );
+    input.coreSession
+      .use(
+        operation,
+        async (client) =>
+          await run(
+            createCoreCanvasSceneCommands(client, {
+              libraryId: input.authority.identity.libraryId,
+              accessContext,
+            }),
+          ),
+        { projectId: projectIdFor(accessContext) },
+      )
+      .pipe(
+        Effect.catch((error) =>
+          Effect.succeed(mapCoreCanvasSceneFailure(error.cause ?? error, mutationId)),
+        ),
+      );
+
+  const projectIdFor = (scope: DesktopDocumentSyncScope): string | undefined =>
+    scope.kind === "project" ? scope.projectId : undefined;
+
+  const openPhysicalDocumentSubscription = (
+    scope: DesktopDocumentSyncScope,
+    request: DocumentSyncSubscribeRequest,
+    onEvent: (event: CoreEventEnvelope) => void,
+    onRepair: (repair: DocumentLiveRepair) => void,
+    onRealtime: (event: DocumentSyncRealtimeEvent) => void,
+  ) =>
+    input.coreSession
+      .use(
+        "document.live.open",
+        async (client, signal): Promise<CoreDocumentEventSubscription> =>
+          await client.openDocumentEventStream(
+            {
+              documentId: request.documentId,
+              clientSessionId: request.clientSessionId,
+              signal,
+            },
+            onEvent,
+            onRepair,
+            onRealtime,
+          ),
+        { projectId: projectIdFor(scope) },
+      )
+      .pipe(
+        Effect.map((subscription) => ({
+          barrier: subscription.barrier,
+          done: Effect.tryPromise({
+            try: () => subscription.done,
+            catch: (cause) => documentLiveRuntimeError("stream.done", cause),
+          }),
+          close: Effect.sync(() => subscription.close()).pipe(Effect.ignoreCause),
+        })),
+        Effect.mapError((cause) => documentLiveRuntimeError("stream.open", cause)),
+      );
+
+  const closeLiveLease = (lease: DocumentLiveLease): (() => void) => {
+    let closed = false;
+    return () => {
+      if (closed) return;
+      closed = true;
+      void background(lease.close);
+    };
+  };
+
+  const retryDocumentLive = (cause: unknown | null): boolean => {
+    if (cause === null) return true;
+    if (
+      typeof cause === "object" &&
+      cause !== null &&
+      "_tag" in cause &&
+      cause._tag === "CoreRuntimeError" &&
+      "retryable" in cause
+    ) {
+      return cause.retryable === true;
+    }
+    return isRetryableCoreEventStreamError(cause);
+  };
 
   const applyDocumentMutation = (
     request: DocumentMutationRequest,
@@ -1047,9 +1121,10 @@ const makeDesktopDocumentSessionState = (
     target: DocumentSyncClientTarget,
     request: CanvasSceneCompactionRequest,
   ): Effect.Effect<CanvasSceneCompactionCommandResult> =>
-    withCanvasResult(
+    runCanvasCommand(
       "canvas.compact",
-      async () => {
+      request.accessContext,
+      async (commands) => {
         if (
           !hasCanvasSceneIdentity(request) ||
           !hasNativeCanvasSceneSubscription(target, request) ||
@@ -1057,9 +1132,7 @@ const makeDesktopDocumentSessionState = (
         ) {
           return canvasSceneUnauthorized(request.mutationId);
         }
-        const adapter = canvasSceneAdapterFor(request.accessContext);
-        const eligibility = await adapter.readCompaction(request);
-        if (!eligibility.ok) return eligibility;
+        const eligibility = await commands.readCompaction(request);
         if (!eligibility.value.eligible) {
           return canvasSceneFailure(
             "future_base_head",
@@ -1067,11 +1140,7 @@ const makeDesktopDocumentSessionState = (
             { mutationId: request.mutationId, retryable: true },
           );
         }
-        const committed = await adapter.compact(request, eligibility.value);
-        if (!committed.ok) {
-          return committed;
-        }
-        return committed;
+        return await commands.compact(request, eligibility.value);
       },
       request.mutationId,
     );
@@ -1413,7 +1482,6 @@ const makeDesktopDocumentSessionState = (
         if (!accepting || target.isDestroyed()) {
           return documentSyncUnauthorized<DocumentSyncSubscriptionAck>();
         }
-        const adapter = adapterFor(scope);
         const key = subscriptionKey(target, scope, request);
         const ownerKey = bindingKey(request);
         bindTargetLifecycle(target);
@@ -1429,8 +1497,7 @@ const makeDesktopDocumentSessionState = (
         }
         const { pending } = reservation;
         return yield* Effect.gen(function* () {
-          let lifecycle: ReturnType<CoreDocumentSyncAdapter["subscribeWithLifecycle"]> | null =
-            null;
+          let closeLease: (() => void) | null = null;
           return yield* Effect.gen(function* () {
             let admitted = false;
             let openingOverflowed = false;
@@ -1453,21 +1520,90 @@ const makeDesktopDocumentSessionState = (
                 revokeAfter: event.kind === "resync-required" && event.reason === "access-revoked",
               });
             };
-            lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
+            const receive = (event: DocumentSyncRealtimeEvent): void => {
               if (!admitted) {
                 if (openingEvents.length >= MAX_PENDING_REALTIME_EVENTS) {
                   openingOverflowed = true;
-                  lifecycle?.close();
+                  closeLease?.();
                   return;
                 }
                 openingEvents.push(event);
                 return;
               }
               deliver(event);
+            };
+            const lease = yield* input.documentLive.subscribe({
+              open: (onEvent, onRepair, onRealtime) =>
+                openPhysicalDocumentSubscription(scope, request, onEvent, onRepair, onRealtime),
+              onEvent: (envelope) =>
+                input.coreSession
+                  .use(
+                    "document.live.resolve-event",
+                    async (client) =>
+                      await mapDocumentLiveEnvelope(
+                        request,
+                        envelope,
+                        createCoreDocumentSyncAdapter(client).fetchUpdateResource,
+                      ),
+                    { projectId: projectIdFor(scope) },
+                  )
+                  .pipe(
+                    Effect.tap((events) => Effect.sync(() => events.forEach(receive))),
+                    Effect.asVoid,
+                    Effect.mapError((cause) => documentLiveRuntimeError("delivery.event", cause)),
+                    Effect.catch(() =>
+                      Effect.sync(() => {
+                        const identity = envelope.packet.manifest.identity;
+                        receive({
+                          kind: "resync-required",
+                          documentId: request.documentId,
+                          storeEpoch: identity.store_epoch,
+                          generation: 1,
+                          headSeq: 0,
+                          commitSeq: identity.commit_seq,
+                          reason: "resource-integrity-failure",
+                        });
+                      }),
+                    ),
+                  ),
+              onRepair: (repair) =>
+                Effect.sync(() => {
+                  receive({
+                    kind: "resync-required",
+                    documentId: repair.document_id,
+                    storeEpoch: repair.store_epoch,
+                    generation: repair.document_generation,
+                    headSeq: repair.head_seq,
+                    commitSeq: repair.commit_head,
+                    reason:
+                      repair.reason === "identity_changed"
+                        ? "identity-boundary-changed"
+                        : repair.reason === "access_revoked"
+                          ? "access-revoked"
+                          : "event-gap",
+                  });
+                }),
+              onRealtime: (event) => Effect.sync(() => receive(event)),
+              onOpened: () => Effect.void,
+              onInterrupted: () => Effect.void,
+              onConnectionStateChanged: (state) =>
+                Effect.sync(() => {
+                  receive({
+                    kind: "connection",
+                    documentId: request.documentId,
+                    clientSessionId: request.clientSessionId,
+                    state,
+                  });
+                }),
+              shouldRetry: retryDocumentLive,
+              maxInitialOpenAttempts: 3,
+              retryDelay: 250,
+              maxRetryDelay: 5_000,
             });
-            pending.close = lifecycle.close;
-            if (pending.cancelled) lifecycle.close();
-            const barrier = yield* corePromise("document.subscribe.ready", () => lifecycle!.ready);
+            closeLease = closeLiveLease(lease);
+            pending.close = closeLease;
+            if (pending.cancelled) closeLease();
+            const barrier = yield* lease.ready;
             if (
               openingOverflowed ||
               barrier.engine !== "yjs" ||
@@ -1480,7 +1616,7 @@ const makeDesktopDocumentSessionState = (
               );
             }
             if (!accepting || target.isDestroyed()) {
-              lifecycle.close();
+              closeLease();
               if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
               return documentSyncUnauthorized<DocumentSyncSubscriptionAck>();
             }
@@ -1492,17 +1628,17 @@ const makeDesktopDocumentSessionState = (
               clientSessionId: request.clientSessionId,
               target,
               targetId: target.id,
-              close: lifecycle.close,
+              close: closeLease,
               pendingRealtimeEvents: new Map(),
             });
             admitted = true;
             openingEvents.forEach(deliver);
             background(
-              corePromise("document.subscribe.done", () => lifecycle!.done).pipe(
+              lease.done.pipe(
                 Effect.ignore,
                 Effect.ensuring(
                   Effect.sync(() => {
-                    if (subscriptions.get(key)?.close === lifecycle?.close) {
+                    if (subscriptions.get(key)?.close === closeLease) {
                       closeSubscription(key);
                     }
                   }),
@@ -1513,7 +1649,7 @@ const makeDesktopDocumentSessionState = (
           }).pipe(
             Effect.catch((error) =>
               Effect.sync(() => {
-                lifecycle?.close();
+                closeLease?.();
                 closeSubscription(key);
                 if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
                 return transportUnavailable<DocumentSyncSubscriptionAck>(error.cause);
@@ -1535,43 +1671,54 @@ const makeDesktopDocumentSessionState = (
         return { ok: true, value: { unsubscribed: true } };
       }),
     sync: (scope, target, request) =>
-      withDocumentResult("document.sync", async () => {
-        const adapter = adapterFor(scope);
+      Effect.gen(function* () {
         if (!hasNativeSubscription(target, scope, request)) {
           return documentSyncUnauthorized();
         }
         const key = subscriptionKey(target, scope, request);
         suspendSubscriptionBoundary(key);
-        const result = await adapter.sync(request);
-        if (result.ok) {
-          adoptSubscriptionBoundary(key, result.value);
-          drainDocumentRealtimeEvents(key, target);
-        }
+        const result = yield* input.coreModules.document.sync(request, projectIdFor(scope)).pipe(
+          Effect.map((value) => ({ ok: true as const, value })),
+          Effect.catch((error) =>
+            Effect.succeed(transportUnavailable<DocumentSyncResponse>(error)),
+          ),
+        );
+        if (!result.ok) return result;
+        adoptSubscriptionBoundary(key, result.value);
+        drainDocumentRealtimeEvents(key, target);
         return result;
       }),
     applyUpdate: (scope, target, request) =>
-      withDocumentResult("document.apply-update", async () => {
-        const adapter = adapterFor(scope);
+      Effect.gen(function* () {
         if (!hasNativeSubscription(target, scope, request)) {
           return documentSyncUnauthorized();
         }
-        const result = await adapter.applyUpdate(request);
-        return result;
+        return yield* input.coreModules.document.applyUpdate(request, projectIdFor(scope)).pipe(
+          Effect.map((value) => ({ ok: true as const, value })),
+          Effect.catch((error) =>
+            Effect.succeed(transportUnavailable<DocumentSyncApplyAck>(error)),
+          ),
+        );
       }),
     publishAwareness: (scope, target, request) =>
-      withDocumentResult("document.publish-awareness", async () => {
-        const adapter = adapterFor(scope);
+      Effect.gen(function* () {
         if (!hasNativeSubscription(target, scope, request)) {
           return documentSyncUnauthorized();
         }
-        return await adapter.publishAwareness(request);
+        return yield* input.coreModules.document
+          .publishAwareness(request, projectIdFor(scope))
+          .pipe(
+            Effect.map((value) => ({ ok: true as const, value })),
+            Effect.catch((error) =>
+              Effect.succeed(transportUnavailable<DocumentAwarenessPublishAck>(error)),
+            ),
+          );
       }),
     subscribeCanvasScene: (target, request): Effect.Effect<CanvasSceneSubscriptionCommandResult> =>
       Effect.gen(function* () {
         if (!accepting || target.isDestroyed() || !hasCanvasSceneIdentity(request)) {
           return canvasSceneUnauthorized();
         }
-        const adapter = canvasSceneAdapterFor(request.accessContext);
         const key = canvasSceneSubscriptionKey(target, request);
         const ownerKey = bindingKey(request);
         bindTargetLifecycle(target);
@@ -1585,7 +1732,7 @@ const makeDesktopDocumentSessionState = (
         if (reservation.kind === "conflict") return canvasSceneUnauthorized();
         const { pending } = reservation;
         return yield* Effect.gen(function* () {
-          let lifecycle: ReturnType<CoreCanvasSceneAdapter["subscribeWithLifecycle"]> | null = null;
+          let closeLease: (() => void) | null = null;
           return yield* Effect.gen(function* () {
             let admitted = false;
             let openingOverflowed = false;
@@ -1593,21 +1740,73 @@ const makeDesktopDocumentSessionState = (
             const deliver = (event: CanvasSceneRealtimeEvent): void => {
               deliverCanvasRealtimeEvent(key, target, event);
             };
-            lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
+            const receive = (event: CanvasSceneRealtimeEvent): void => {
               if (!admitted) {
                 if (openingEvents.length >= MAX_PENDING_REALTIME_EVENTS) {
                   openingOverflowed = true;
-                  lifecycle?.close();
+                  closeLease?.();
                   return;
                 }
                 openingEvents.push(event);
                 return;
               }
               deliver(event);
+            };
+            const binding = {
+              libraryId: input.authority.identity.libraryId,
+              accessContext: request.accessContext,
+            };
+            const lease = yield* input.documentLive.subscribe({
+              open: (onEvent, onRepair, onRealtime) =>
+                openPhysicalDocumentSubscription(
+                  request.accessContext,
+                  request,
+                  onEvent,
+                  onRepair,
+                  onRealtime,
+                ),
+              onEvent: (envelope) =>
+                Effect.sync(() => {
+                  const event = mapCanvasLiveEnvelope(binding, request, envelope);
+                  if (event) receive(event);
+                }),
+              onRepair: (repair) =>
+                Effect.sync(() => {
+                  receive({
+                    type: "canvas_scene_resync_required",
+                    libraryId: binding.libraryId,
+                    accessContext: binding.accessContext,
+                    documentId: repair.document_id,
+                    storeEpoch: repair.store_epoch,
+                    generation: repair.document_generation,
+                    headSeq: repair.head_seq,
+                  });
+                }),
+              onRealtime: () => Effect.void,
+              onOpened: (barrier, reconnected) =>
+                Effect.sync(() => {
+                  if (!reconnected) return;
+                  receive({
+                    type: "canvas_scene_resync_required",
+                    libraryId: binding.libraryId,
+                    accessContext: binding.accessContext,
+                    documentId: barrier.document_id,
+                    storeEpoch: barrier.store_epoch,
+                    generation: barrier.document_generation,
+                    headSeq: barrier.head_seq,
+                  });
+                }),
+              onInterrupted: () => Effect.void,
+              onConnectionStateChanged: () => Effect.void,
+              shouldRetry: retryDocumentLive,
+              maxInitialOpenAttempts: 3,
+              retryDelay: 250,
+              maxRetryDelay: 5_000,
             });
-            pending.close = lifecycle.close;
-            if (pending.cancelled) lifecycle.close();
-            const barrier = yield* corePromise("canvas.subscribe.ready", () => lifecycle!.ready);
+            closeLease = closeLiveLease(lease);
+            pending.close = closeLease;
+            if (pending.cancelled) closeLease();
+            const barrier = yield* lease.ready;
             if (
               openingOverflowed ||
               barrier.engine !== "canvas_scene" ||
@@ -1620,7 +1819,7 @@ const makeDesktopDocumentSessionState = (
               );
             }
             if (!accepting || target.isDestroyed()) {
-              lifecycle.close();
+              closeLease();
               if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
               return canvasSceneUnauthorized();
             }
@@ -1633,7 +1832,7 @@ const makeDesktopDocumentSessionState = (
               clientSessionId: request.clientSessionId,
               target,
               targetId: target.id,
-              close: lifecycle.close,
+              close: closeLease,
               pendingRealtimeEvents: new Map(),
             });
             admitted = true;
@@ -1652,11 +1851,11 @@ const makeDesktopDocumentSessionState = (
               },
             });
             background(
-              corePromise("canvas.subscribe.done", () => lifecycle!.done).pipe(
+              lease.done.pipe(
                 Effect.ignore,
                 Effect.ensuring(
                   Effect.sync(() => {
-                    if (subscriptions.get(key)?.close === lifecycle?.close) {
+                    if (subscriptions.get(key)?.close === closeLease) {
                       closeSubscription(key);
                     }
                   }),
@@ -1667,7 +1866,7 @@ const makeDesktopDocumentSessionState = (
           }).pipe(
             Effect.catch((error) =>
               Effect.sync(() => {
-                lifecycle?.close();
+                closeLease?.();
                 closeSubscription(key);
                 if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
                 return canvasSceneTransportUnavailable(error.cause);
@@ -1690,13 +1889,15 @@ const makeDesktopDocumentSessionState = (
         return { ok: true, value: { unsubscribed: true } };
       }),
     syncCanvasScene: (target, request) =>
-      withCanvasResult("canvas.sync", async () => {
+      Effect.gen(function* () {
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized();
         }
         const key = canvasSceneSubscriptionKey(target, request);
         suspendSubscriptionBoundary(key);
-        const result = await canvasSceneAdapterFor(request.accessContext).sync(request);
+        const result = yield* runCanvasCommand("canvas.sync", request.accessContext, (commands) =>
+          commands.sync(request),
+        );
         if (result.ok) {
           adoptSubscriptionBoundary(key, result.value);
           drainCanvasRealtimeEvents(key, target);
@@ -1704,14 +1905,14 @@ const makeDesktopDocumentSessionState = (
         return result;
       }),
     applyCanvasSceneMutation: (target, request) =>
-      withCanvasResult(
+      runCanvasCommand(
         "canvas.apply-mutation",
-        async () => {
+        request.accessContext,
+        async (commands) => {
           if (!hasNativeCanvasSceneSubscription(target, request)) {
             return canvasSceneUnauthorized(request.mutationId);
           }
-          const result = await canvasSceneAdapterFor(request.accessContext).applyMutation(request);
-          return result;
+          return await commands.applyMutation(request);
         },
         request.mutationId,
       ),
@@ -1760,11 +1961,11 @@ const makeDesktopDocumentSessionState = (
         }
       }),
     readCanvasSceneCompaction: (target, request) =>
-      withCanvasResult("canvas.read-compaction", async () => {
+      runCanvasCommand("canvas.read-compaction", request.accessContext, async (commands) => {
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized();
         }
-        return await canvasSceneAdapterFor(request.accessContext).readCompaction(request);
+        return await commands.readCompaction(request);
       }),
     compactCanvasScene,
     applyAdditionalDocumentCommand: (request) =>
@@ -1797,14 +1998,13 @@ const makeDesktopDocumentSessionState = (
     for (const [, reservation] of pending) cancelPendingSubscription(reservation);
     for (const key of [...subscriptions.keys()]) closeSubscription(key);
     for (const listener of targetListeners.values()) {
-        listener.target.removeListener("destroyed", listener.onDestroyed);
+      listener.target.removeListener("destroyed", listener.onDestroyed);
     }
     targetListeners.clear();
     bindings.clear();
     pendingSubscriptions.clear();
     deliveredCommitKeys.clear();
     adapters.clear();
-    canvasSceneAdapters.clear();
     blockTransferAdapters.clear();
     yield* Effect.forEach(pending, ([, reservation]) =>
       Deferred.succeed(reservation.settled, undefined),
@@ -1819,15 +2019,28 @@ const makeDesktopDocumentSessionState = (
 
 export const makeDesktopDocumentSessionRuntime = (
   input: DesktopDocumentSessionRuntimeOptions,
-): Effect.Effect<DesktopDocumentSessionService, never, Scope.Scope> =>
+): Effect.Effect<
+  DesktopDocumentSessionService,
+  never,
+  Scope.Scope | CoreSessionAccess | CoreModules | DocumentLiveRuntime
+> =>
   Effect.gen(function* () {
+    const coreSession = yield* CoreSessionAccess;
+    const coreModules = yield* CoreModules;
+    const documentLive = yield* DocumentLiveRuntime;
     const background = yield* FiberSet.makeRuntime<never, void, never>();
-    const state = makeDesktopDocumentSessionState(input, background);
+    const state = makeDesktopDocumentSessionState(
+      { ...input, coreSession, coreModules, documentLive },
+      background,
+    );
     yield* Effect.addFinalizer(() => state.close);
     return state.service;
   });
 
 export const desktopDocumentSessionRuntimeLive = (
   options: DesktopDocumentSessionRuntimeOptions,
-): Layer.Layer<DesktopDocumentSessionRuntime> =>
-  Layer.effect(DesktopDocumentSessionRuntime, makeDesktopDocumentSessionRuntime(options));
+): Layer.Layer<
+  DesktopDocumentSessionRuntime,
+  never,
+  CoreSessionAccess | CoreModules | DocumentLiveRuntime
+> => Layer.effect(DesktopDocumentSessionRuntime, makeDesktopDocumentSessionRuntime(options));

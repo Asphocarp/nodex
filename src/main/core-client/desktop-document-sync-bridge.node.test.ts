@@ -11,9 +11,11 @@ import {
   desktopDocumentSessionRuntimeLive,
 } from "./desktop-document-sync-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { documentLiveRuntimeTestDouble } from "./document-live-runtime.test-support";
 import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 import type { CoreClientPort, CoreDocumentEventSubscription } from "./types";
+import { CoreSessionAccess } from "../core-runtime/CoreAuthority";
+import { live as coreModulesLive } from "../core-runtime/CoreModules";
+import { live as documentLiveRuntimeLive } from "../core-runtime/DocumentLiveRuntime";
 
 const subscribeRequest = {
   documentId: "document:one",
@@ -127,11 +129,19 @@ const acquireSession = Effect.fn("DesktopDocumentSessionRuntime.test.acquire")(f
   client: FakeCoreClient,
 ) {
   const scope = yield* Scope.make();
+  const authority = runtimeFor(client);
+  const coreSession = CoreSessionAccess.of({
+    use: (_operation, run) => Effect.promise((signal) => run(authority.rootClient, signal)),
+    handshake: Effect.succeed(authority.rootClient.handshake),
+  });
+  const coreSessionLayer = Layer.succeed(CoreSessionAccess, coreSession);
+  const dependencies = Layer.mergeAll(
+    coreSessionLayer,
+    coreModulesLive.pipe(Layer.provide(coreSessionLayer)),
+    documentLiveRuntimeLive,
+  );
   const context = yield* Layer.buildWithScope(
-    desktopDocumentSessionRuntimeLive({
-      authority: runtimeFor(client),
-      documentLive: documentLiveRuntimeTestDouble,
-    }),
+    desktopDocumentSessionRuntimeLive({ authority }).pipe(Layer.provide(dependencies)),
     scope,
   );
   return {
@@ -165,6 +175,58 @@ it.effect("releases an active subscription and its target listener with the owni
       subscribeRequest,
     );
     assert.isFalse(closedAdmission.ok);
+  }),
+);
+
+it.effect("admits a Document mutation only behind the exact live session", () =>
+  Effect.gen(function* () {
+    const client = new TrackingDocumentStreamClient();
+    const { scope, session } = yield* acquireSession(client);
+    const target = new FakeTarget(3);
+    const access = { kind: "project", projectId: "project:one" } as const;
+    const request = {
+      ...subscribeRequest,
+      storeEpoch: "epoch:test",
+      generation: 1,
+      updateId: "update:one",
+      baseHeadSeq: 0,
+      touchedBlockIds: [],
+      update: new Uint8Array([1]),
+    } as const;
+
+    yield* session.subscribe(access, target, subscribeRequest);
+    client.enqueueDocumentUpdateApply({
+      documentId: request.documentId,
+      storeEpoch: request.storeEpoch,
+      generation: request.generation,
+      updateId: request.updateId,
+      committedSeq: 0,
+      headSeq: 0,
+      stateVector: new Uint8Array(),
+      duplicate: false,
+      status: "no_op",
+      observed: { store_epoch: request.storeEpoch, commit_head: 0 },
+    });
+
+    assert.deepStrictEqual(yield* session.applyUpdate(access, target, request), {
+      ok: true,
+      value: {
+        documentId: request.documentId,
+        storeEpoch: request.storeEpoch,
+        generation: request.generation,
+        updateId: request.updateId,
+        committedSeq: 0,
+        headSeq: 0,
+        stateVector: new Uint8Array(),
+        duplicate: false,
+        status: "no_op",
+        observed: { store_epoch: request.storeEpoch, commit_head: 0 },
+      },
+    });
+
+    yield* session.unsubscribe(access, target, subscribeRequest);
+    assert.isFalse((yield* session.applyUpdate(access, target, request)).ok);
+    yield* Scope.close(scope, Exit.void);
   }),
 );
 
