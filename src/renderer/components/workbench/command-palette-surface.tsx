@@ -2,7 +2,9 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  forwardRef,
   useId,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -90,6 +92,11 @@ interface CommandPaletteSurfaceProps {
   onChangeMode: (mode: CommandMenuMode) => void;
   onRequestClose: () => void;
   onExecute: (item: PaletteItem) => void;
+}
+
+export interface CommandPaletteSurfaceHandle {
+  /** Clears the active query and reports whether this Escape should keep the palette open. */
+  consumeEscape: () => boolean;
 }
 
 const EMPTY_PALETTE_PAGES: readonly CommandPalettePage[] = [];
@@ -670,27 +677,33 @@ function SearchStatusRow({ children }: { children: string }) {
   );
 }
 
-export function CommandPaletteSurface({
-  open,
-  openTriggerTick,
-  mode,
-  initialQuery,
-  commands,
-  pages = EMPTY_PALETTE_PAGES,
-  projects = EMPTY_PALETTE_PROJECTS,
-  activeProjectId = null,
-  recentPageIds = EMPTY_RECENT_PAGE_IDS,
-  threads = EMPTY_PALETTE_THREADS,
-  threadSearchIndex,
-  pageSearchBatch: injectedPageSearchBatch,
-  loading,
-  pagesLoading,
-  chatsLoading,
-  threadSearchBatch: injectedThreadSearchBatch,
-  onChangeMode,
-  onRequestClose,
-  onExecute,
-}: CommandPaletteSurfaceProps) {
+export const CommandPaletteSurface = forwardRef<
+  CommandPaletteSurfaceHandle,
+  CommandPaletteSurfaceProps
+>(function CommandPaletteSurface(
+  {
+    open,
+    openTriggerTick,
+    mode,
+    initialQuery,
+    commands,
+    pages = EMPTY_PALETTE_PAGES,
+    projects = EMPTY_PALETTE_PROJECTS,
+    activeProjectId = null,
+    recentPageIds = EMPTY_RECENT_PAGE_IDS,
+    threads = EMPTY_PALETTE_THREADS,
+    threadSearchIndex,
+    pageSearchBatch: injectedPageSearchBatch,
+    loading,
+    pagesLoading,
+    chatsLoading,
+    threadSearchBatch: injectedThreadSearchBatch,
+    onChangeMode,
+    onRequestClose,
+    onExecute,
+  },
+  forwardedRef,
+) {
   const inputId = useId();
   const labelId = useId();
   const listId = useId();
@@ -703,6 +716,19 @@ export function CommandPaletteSurface({
   );
   const [filterOpen, setFilterOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
+
+  useImperativeHandle(
+    forwardedRef,
+    () => ({
+      consumeEscape: () => {
+        if (query.trim().length === 0) return false;
+        setQuery("");
+        return true;
+      },
+    }),
+    [query],
+  );
+
   const threadSearchPlan = getCommandPaletteThreadSearchPlan(mode, deferredQuery);
   const fetchedThreadSearchBatch = useCommandPaletteThreadSearch({
     enabled: open && threadSearchPlan?.includeContentResults === true,
@@ -1066,7 +1092,7 @@ export function CommandPaletteSurface({
       return;
     }
 
-    if (event.key !== "Escape" || query.trim().length === 0) return;
+    if (event.key !== "Escape" || event.defaultPrevented || query.trim().length === 0) return;
     event.preventDefault();
     setQuery("");
   };
@@ -1128,6 +1154,10 @@ export function CommandPaletteSurface({
           <CommandPalettePageFilterPopover
             open={filterOpen}
             onOpenChange={setFilterOpen}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              inputRef.current?.focus();
+            }}
             filters={pageFilters}
             availableTags={availableTags}
             availableAssignees={availableAssignees}
@@ -1217,4 +1247,4 @@ export function CommandPaletteSurface({
       </div>
     </div>
   );
-}
+});

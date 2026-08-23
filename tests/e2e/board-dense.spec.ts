@@ -102,6 +102,23 @@ const revealWithHover = async (target: Locator, revealed: Locator): Promise<void
   }).toPass({ timeout: 15_000 });
 };
 
+const clearQueryAndCloseCommandPalette = async ({
+  page,
+  dialog,
+  search,
+}: {
+  readonly page: Page;
+  readonly dialog: Locator;
+  readonly search: Locator;
+}): Promise<void> => {
+  await expect(search).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+};
+
 const setBoardCardPriority = async ({
   page,
   pageId,
@@ -853,8 +870,11 @@ test("materializes and opens the authoritative board/dense environment", async (
       ).toBeVisible();
       const paletteScreenshot = testInfo.outputPath("command-palette-page-search.png");
       await page.screenshot({ path: paletteScreenshot, fullPage: true });
-      await page.keyboard.press("Escape");
-      await expect(commandPalette).toHaveCount(0);
+      await clearQueryAndCloseCommandPalette({
+        page,
+        dialog: commandPalette,
+        search: commandPaletteSearch,
+      });
 
       await page.getByRole("tab", { name: "Keep projection updates bounded" }).click();
       const targetTitle = targetStage.getByRole("textbox", { name: "Page title" });
@@ -870,7 +890,11 @@ test("materializes and opens the authoritative board/dense environment", async (
           name: /Immediate searchable projection/u,
         }),
       ).toBeVisible();
-      await page.keyboard.press("Escape");
+      await clearQueryAndCloseCommandPalette({
+        page,
+        dialog: commandPalette,
+        search: commandPaletteSearch,
+      });
 
       await page.getByRole("tab", { name: "Immediate searchable projection" }).click();
       await targetTitle.fill("Keep projection updates bounded");
