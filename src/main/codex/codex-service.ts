@@ -209,7 +209,6 @@ import {
   ThreadGoalAttachmentDirectoryManager,
 } from "../thread-goal-attachments";
 import type { CodexAttachments } from "../codex-application/CodexAttachments";
-import type { CodexBackgroundProcessConversationProjection } from "../codex-application/CodexBackgroundProcesses";
 import type { CodexPendingServerRequestRuntimeService } from "../codex-application/CodexPendingServerRequestRuntime";
 import type {
   CodexTurnCommandsService,
@@ -308,7 +307,6 @@ import {
   reduceCodexConversationThreadGoalUpdated,
 } from "../../shared/codex-conversation-state/codex-thread-metadata";
 import { appendCodexCanonicalThreadGoalTranscriptTurn } from "../../shared/codex-conversation-state/codex-thread-goal-transcript";
-import { reduceCodexBackgroundTerminalCleanup } from "../../shared/codex-conversation-state/codex-background-terminal-cleanup";
 import { projectCodexHistoryRequestViews } from "../../shared/codex-conversation-state/codex-history-request-projection";
 import { buildCodexSteeringCompareKey } from "../../shared/codex-conversation-state/codex-steering-compare";
 import { removeCodexCanonicalSteeringItem } from "../../shared/codex-conversation-state/codex-steering-state";
@@ -11729,53 +11727,6 @@ export class CodexService {
 
   async steerTurn(input: CodexSteerTurnInput): Promise<{ turnId: string } | null> {
     return await this.controlPlane.runPromise(this.turnCommands.steer(input));
-  }
-
-  /** Temporary read-only projection while the conversation replica remains in this class. */
-  readBackgroundProcessProjectionForModule(
-    threadId: string,
-  ): CodexBackgroundProcessConversationProjection {
-    const detail = this.getMaybeConversationRecord(threadId)?.detail;
-    return {
-      threadTitle: detail?.threadName?.trim() || detail?.threadPreview?.trim() || null,
-      terminalItems:
-        detail?.transcript.flatMap((item) =>
-          item.kind === "commandExecution"
-            ? [
-                {
-                  itemId: item.itemId,
-                  processId:
-                    item.processId === null || item.processId === undefined
-                      ? null
-                      : String(item.processId),
-                  turnId: item.turnId,
-                  createdAt: item.createdAt,
-                },
-              ]
-            : [],
-        ) ?? [],
-    };
-  }
-
-  private markBackgroundTerminalsInterruptedSilently(threadId: string): void {
-    const record = this.getMaybeConversationRecord(threadId);
-    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
-    if (!record || !before) return;
-    const after = reduceCodexBackgroundTerminalCleanup(before);
-    if (after === before) return;
-    this.acceptCanonicalConversationState(threadId, after);
-    after.turns.forEach((turn, turnIndex) => {
-      if (turn === before.turns[turnIndex]) return;
-      this.applyCanonicalLifecycleTurnProjection({
-        threadId,
-        turnIndex,
-        beforeTurn: before.turns[turnIndex] ?? null,
-        afterTurn: turn,
-        observedAtMs: Date.now(),
-        preserveExistingUpdatedAt: true,
-      });
-    });
-    this.syncAcceptedConversationDocumentSilently(threadId);
   }
 
   private clearPendingServerRequestsAfterDisconnect(): void {

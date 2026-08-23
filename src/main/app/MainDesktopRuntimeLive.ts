@@ -2565,12 +2565,11 @@ export const live: Layer.Layer<
           Effect.forkIn(runtimeScope, { startImmediately: true }),
           Effect.asVoid,
         );
-        const backgroundProcesses = yield* makeCodexBackgroundProcesses({
-          projectWorkspace,
-          conversationProjection: (threadId) =>
-            codexService.readBackgroundProcessProjectionForModule(threadId),
-        }).pipe(
+        const backgroundProcesses = yield* makeCodexBackgroundProcesses.pipe(
           Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(CoreModules, coreModules),
           Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
           Effect.provideService(Scope.Scope, runtimeScope),
           Effect.provideService(TerminalSessions, terminals),
