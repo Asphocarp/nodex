@@ -140,6 +140,7 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
         } as never),
       descendants: () => Effect.die("unused"),
       acceptRollbackResult: () => Effect.die("unused"),
+      acceptSessionStart: () => Effect.die("unused"),
     });
     const projection = CodexConversationProjection.of({
       hydrate: (input: Parameters<CodexConversationProjection["Service"]["hydrate"]>[0]) =>

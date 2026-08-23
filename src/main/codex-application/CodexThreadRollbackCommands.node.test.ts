@@ -79,6 +79,7 @@ it.effect("runs owner drain, validation, Gateway, and projection commit in the T
           events.push(`commit:${expectedThreadId}`);
           return {} as never;
         }),
+      acceptSessionStart: () => Effect.die("unused"),
     } as unknown as CodexThreadDirectory["Service"]);
     const commands = yield* make.pipe(
       Effect.provideService(
@@ -122,6 +123,7 @@ it.effect("rejects a mismatched response before committing canonical state", () 
           commits += 1;
           return {} as never;
         }),
+      acceptSessionStart: () => Effect.die("unused"),
     } as unknown as CodexThreadDirectory["Service"]);
     const commands = yield* make.pipe(
       Effect.provideService(

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Thread, Turn } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
+import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
 import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -19,6 +20,7 @@ import type {
   CodexConversationTurnPagination,
   CodexThreadSummary,
 } from "../../shared/types";
+import type { AgentExecutionProfile } from "../../shared/agent-runtime";
 import type { DesktopProjectWorkspaceThread } from "../core-client/project-workspace-adapter";
 import { CoreModuleResponseError } from "../core-client/core-client";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
@@ -82,6 +84,17 @@ export class CodexThreadDirectory extends Context.Service<
       readonly thread: Thread;
       readonly executionHostId?: string;
       readonly fallbackCwd?: string | null;
+    }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
+    /** Links a newly accepted protocol Thread to its exact Session, then hydrates canonical state. */
+    readonly acceptSessionStart: (input: {
+      readonly response: ThreadStartResponse;
+      readonly sessionId: string;
+      readonly projectId: string | null;
+      readonly executionProfile: AgentExecutionProfile | null;
+      readonly runtimeWorkspaceRoots: readonly string[];
+      readonly fallbackCwd: string;
+      readonly projectlessOutputDirectory?: string | null;
+      readonly projectlessWorkspaceBrowserRoot?: string | null;
     }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
   }
 >()("nodex/main/codex-application/CodexThreadDirectory") {}
@@ -210,12 +223,16 @@ export const make: Effect.Effect<
     fidelity: CodexThreadDirectoryFidelity,
   ): CodexThreadDirectoryEntry => {
     const aggregate = conversations.currentConversation(durable.thread.threadId);
+    const state = aggregate?.read();
     return {
       fidelity,
       durable: durable.thread,
       summary: buildWorkspaceThreadSummary(durable.thread),
-      canonical: aggregate?.readCanonicalState() ?? null,
-      snapshot: aggregate?.readSnapshot() ?? null,
+      canonical: state?.canonicalState ?? null,
+      snapshot:
+        state?.streamRole === "owner"
+          ? (state.snapshot ?? null)
+          : (state?.acceptedReplica?.conversation ?? state?.snapshot ?? null),
     };
   };
 
@@ -594,9 +611,76 @@ export const make: Effect.Effect<
     },
   );
 
+  const acceptSessionStart = Effect.fn("CodexThreadDirectory.acceptSessionStart")(
+    function* (input: {
+      readonly response: ThreadStartResponse;
+      readonly sessionId: string;
+      readonly projectId: string | null;
+      readonly executionProfile: AgentExecutionProfile | null;
+      readonly runtimeWorkspaceRoots: readonly string[];
+      readonly fallbackCwd: string;
+      readonly projectlessOutputDirectory?: string | null;
+      readonly projectlessWorkspaceBrowserRoot?: string | null;
+    }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
+      const thread = normalizeThread(input.response.thread as unknown as Thread);
+      const threadId = thread.id.trim();
+      if (!threadId || threadId !== thread.id) {
+        return yield* error(
+          "materialize",
+          threadId,
+          new Error("Thread start did not return a valid Thread id"),
+        );
+      }
+      const cwd = input.response.cwd || thread.cwd || input.fallbackCwd;
+      yield* core.workspace
+        .apply({
+          operationId: `electron:session-thread-start:${input.sessionId}:${threadId}`,
+          intent: {
+            kind: "mutate_session",
+            session_id: input.sessionId,
+            intent: {
+              kind: "link_thread",
+              thread_id: threadId,
+              expected_project_id: input.projectId,
+              thread_patch: {
+                project_id: input.projectId,
+                thread_preview: thread.preview,
+                model_provider: input.executionProfile?.providerId ?? thread.modelProvider,
+                model_id: input.executionProfile?.modelId ?? input.response.model,
+                harness_id: input.executionProfile?.harnessId ?? null,
+                reasoning_effort:
+                  input.executionProfile?.reasoningEffort ?? input.response.reasoningEffort,
+                service_tier: input.executionProfile?.serviceTier ?? null,
+                execution_host_id: gateway.localHostId,
+                cwd,
+                projectless_output_directory: input.projectlessOutputDirectory ?? null,
+                projectless_workspace_browser_root: input.projectlessWorkspaceBrowserRoot ?? null,
+              },
+            },
+          },
+        })
+        .pipe(Effect.mapError((cause) => error("materialize", threadId, cause)));
+      const durable = yield* readDurable(threadId);
+      if (!durable) {
+        return yield* error(
+          "materialize",
+          threadId,
+          new Error("Core did not return the Session-linked Thread"),
+        );
+      }
+      return yield* hydrate({
+        durable,
+        thread: { ...thread, cwd },
+        context: input.response as unknown as ThreadResumeResponse,
+        pagination: fullPagination(thread),
+      });
+    },
+  );
+
   return CodexThreadDirectory.of({
     resolve: (input) => runOwned(resolvePhysical(input)),
     descendants,
     acceptRollbackResult: (input) => runOwned(acceptRollbackResult(input)),
+    acceptSessionStart: (input) => runOwned(acceptSessionStart(input)),
   });
 });
