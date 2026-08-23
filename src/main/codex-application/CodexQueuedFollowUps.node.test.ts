@@ -72,6 +72,7 @@ const makeHarness = (input: {
           }),
         ),
       startRendererOwned: () => Effect.die("unused"),
+      acceptPreparedRendererTurn: () => Effect.die("unused"),
       steer: ({ threadId, prompt }) =>
         input.submit(threadId, prompt).pipe(Effect.as({ turnId: "turn-a" })),
       steerRendererOwned: () => Effect.die("unused"),

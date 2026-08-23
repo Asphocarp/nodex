@@ -53,6 +53,7 @@ const makeHarness = () => {
       events.starts.push({ threadId: startedThreadId, prompt, overrides });
       return Effect.succeed({ turn: { id: "turn-started" } } as never);
     },
+    acceptPreparedRendererTurn: () => Effect.die("unused"),
     steer: () => Effect.die("unused"),
     steerRendererOwned: () => Effect.die("unused"),
   });

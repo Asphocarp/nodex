@@ -48,14 +48,16 @@ type CodexSessionThreadLaunchFailure =
   | CodexTurnCommandsError
   | CodexSessionThreadLaunchError;
 
+export interface CodexSessionThreadLaunchService {
+  readonly start: (
+    input: CodexThreadStartForSessionInput,
+    context: CodexSessionThreadLaunchContext,
+  ) => Effect.Effect<CodexThreadStartForSessionResult, CodexSessionThreadLaunchFailure>;
+}
+
 export class CodexSessionThreadLaunch extends Context.Service<
   CodexSessionThreadLaunch,
-  {
-    readonly start: (
-      input: CodexThreadStartForSessionInput,
-      context: CodexSessionThreadLaunchContext,
-    ) => Effect.Effect<CodexThreadStartForSessionResult, CodexSessionThreadLaunchFailure>;
-  }
+  CodexSessionThreadLaunchService
 >()("nodex/main/codex-application/CodexSessionThreadLaunch") {}
 
 class SessionLaunchLane extends Context.Service<
