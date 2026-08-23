@@ -71,6 +71,7 @@ it.effect("owns provider discovery, profile resolution, and deferred credential 
     }) as CodexGateway["Service"]["requestLocal"];
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.empty,
       requestLocal,
       requestOnHost: unsupported,
@@ -142,6 +143,7 @@ it.effect("serializes credential publication with runtime reload consequences", 
     const events: string[] = [];
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.empty,
       requestLocal: ((method: string) => {
         if (method === "thread/list") return Effect.succeed({ data: [], nextCursor: null });

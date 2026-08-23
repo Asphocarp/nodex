@@ -20,6 +20,7 @@ import { CodexThreadTitlePersistence } from "../../codex-application/CodexThread
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { CodexBackgroundProcesses } from "../../codex-application/CodexBackgroundProcesses";
 import { CodexSubagentCatalog } from "../../codex-application/CodexSubagentCatalog";
+import { CodexServerRequestResponses } from "../../codex-application/CodexServerRequestResponses";
 import { CodexSidebarSyncRuntime } from "../../codex-application/CodexSidebarSyncRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
@@ -141,6 +142,16 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           observe: () => undefined,
           shouldDropDelta: () => false,
           clear: () => undefined,
+        }),
+        serverRequestResponses: CodexServerRequestResponses.of({
+          approval: () => Effect.die("unused"),
+          userInput: () => Effect.die("unused"),
+          mcpElicitation: () => Effect.die("unused"),
+          permission: () => Effect.die("unused"),
+          optionPicker: () => Effect.die("unused"),
+          setupContextPicker: () => Effect.die("unused"),
+          setupCodexStep: () => Effect.die("unused"),
+          declineAll: () => Effect.die("unused"),
         }),
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),

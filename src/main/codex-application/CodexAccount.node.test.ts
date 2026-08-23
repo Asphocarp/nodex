@@ -46,6 +46,7 @@ it.effect("owns account, login, rate-limit, and notification state behind one in
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.fromPubSub(events),
       requestLocal,
       requestOnHost: (_hostId, method, params) => requestLocal(method, params),

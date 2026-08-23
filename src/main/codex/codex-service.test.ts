@@ -60,6 +60,11 @@ import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-appl
 import { TestCodexConversationEventBufferRuntime } from "./codex-conversation-event-buffer-runtime.test-support";
 import { TestCodexFreshThreadLaunchRuntime } from "./codex-fresh-thread-launch-runtime.test-support";
 import { TestCodexPendingServerRequestRuntime } from "./codex-pending-server-request-runtime.test-support";
+import {
+  type CodexServerRequestResponseKernel,
+  makeCodexServerRequestResponseKernel,
+} from "../codex-application/CodexServerRequestResponseKernel";
+import type { CodexServerRequestResponsesPromiseAdapter } from "../codex-application/CodexServerRequestResponsesPromiseAdapter";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -2056,6 +2061,114 @@ function createService(options?: {
       completeResponse(threadId, occurrenceToken, { kind: "failure", reason });
     },
   });
+  let serverRequestResponseKernel: CodexServerRequestResponseKernel | undefined;
+  const requireServerRequestResponseKernel = (): CodexServerRequestResponseKernel => {
+    if (!serverRequestResponseKernel) {
+      throw new Error("Test server-request response kernel is unavailable");
+    }
+    return serverRequestResponseKernel;
+  };
+  const serverRequestResponseAdapter: CodexServerRequestResponsesPromiseAdapter = {
+    approval: async (input) => {
+      const kernel = requireServerRequestResponseKernel();
+      const target = kernel.approvalTarget(input);
+      if (!target) return false;
+      if (target.follower) {
+        const client = Reflect.get(service as object, "client") as {
+          request: (method: string, params: unknown) => Promise<unknown>;
+        };
+        await client.request(
+          input.response.kind === "command"
+            ? "thread-follower-command-approval-decision"
+            : "thread-follower-file-approval-decision",
+          {
+            conversationId: target.threadId,
+            requestId: input.requestId,
+            decision: input.response.decision,
+          },
+        );
+      }
+      return kernel.approval({ ...input, threadId: target.threadId });
+    },
+    userInput: async (input) => {
+      const result = requireServerRequestResponseKernel().userInput(input);
+      if (result.accepted && result.observeResponse && result.threadId) {
+        autoResolution.observeResponse(result.threadId, input.requestId);
+        const pending = autoResolutionResolvers.get(result.threadId);
+        if (
+          pending &&
+          typeof pending.requestId === typeof input.requestId &&
+          pending.requestId === input.requestId
+        ) {
+          autoResolutionResolvers.delete(result.threadId);
+        }
+      }
+      return result.accepted;
+    },
+    mcpElicitation: async (input) => requireServerRequestResponseKernel().mcpElicitation(input),
+    permission: async (input) => requireServerRequestResponseKernel().permission(input),
+    optionPicker: async (input) => requireServerRequestResponseKernel().optionPicker(input),
+    setupContextPicker: async (input) =>
+      requireServerRequestResponseKernel().setupContextPicker(input),
+    setupCodexStep: async (input) => requireServerRequestResponseKernel().setupCodexStep(input),
+    declineAll: async (threadId) => {
+      for (const request of [...requireServerRequestResponseKernel().requests(threadId)]) {
+        switch (request.method) {
+          case "item/commandExecution/requestApproval":
+            await serverRequestResponseAdapter.approval({
+              threadId,
+              requestId: request.id,
+              response: { kind: "command", decision: "decline" },
+            });
+            break;
+          case "item/fileChange/requestApproval":
+            await serverRequestResponseAdapter.approval({
+              threadId,
+              requestId: request.id,
+              response: { kind: "file", decision: "decline" },
+            });
+            break;
+          case "item/permissions/requestApproval":
+            await serverRequestResponseAdapter.permission({
+              threadId,
+              requestId: request.id,
+              response: { permissions: {}, scope: "turn" },
+            });
+            break;
+          case "item/tool/requestUserInput":
+            await serverRequestResponseAdapter.userInput({
+              threadId,
+              requestId: request.id,
+              answers: {},
+            });
+            break;
+          case "item/tool/requestOptionPicker":
+            await serverRequestResponseAdapter.optionPicker({
+              threadId,
+              requestId: request.id,
+              response: { action: "dismiss", selectedOptions: [], freeformAnswer: null },
+            });
+            break;
+          case "item/tool/requestSetupCodexContextPicker":
+            await serverRequestResponseAdapter.setupContextPicker({
+              threadId,
+              requestId: request.id,
+              response: { action: "dismiss", selectedSources: [] },
+            });
+            break;
+          case "mcpServer/elicitation/request":
+            await serverRequestResponseAdapter.mcpElicitation({
+              threadId,
+              requestId: request.id,
+              response: "decline",
+            });
+            break;
+          default:
+            break;
+        }
+      }
+    },
+  };
   const testService = new CodexService({
     applicationEvents,
     foldSidebarPathCase: false,
@@ -2125,6 +2238,7 @@ function createService(options?: {
     },
     attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },
     pendingServerRequests,
+    serverRequestResponses: serverRequestResponseAdapter,
     userInputAutoResolution: {
       observeRequest: (conversationId, requestId, resolve) => {
         autoResolutionResolvers.set(conversationId, { requestId, resolve });
@@ -2287,6 +2401,95 @@ function createService(options?: {
     return () => applicationEventEmitter.off("threadNotification", listener);
   };
   service = testService as unknown as CodexService;
+  serverRequestResponseKernel = makeCodexServerRequestResponseKernel({
+    inbox: pendingServerRequests,
+    projection: {
+      read: (threadId) => service?.readServerRequestConversationForModule(threadId) ?? null,
+      resolveThreadId: (requestId) =>
+        service?.resolveServerRequestThreadIdForModule(requestId) ?? null,
+      applyCanonical: (input) => service?.applyServerRequestCanonicalLifecycleForModule(input),
+      applyRaw: (input) => service?.applyServerRequestRawLifecycleForModule(input),
+      clearApprovalAttachment: (input) => service?.clearApprovalRequestAttachmentForModule(input),
+      removeUserInputProjection: (input) =>
+        service?.removeUserInputRequestProjectionForModule(input),
+      hasRendererOwner: (threadId) =>
+        service?.hasRendererConversationOwnerForModule(threadId) === true,
+      broadcast: (input) => service?.syncServerRequestLifecycleForModule(input),
+      emitResolved: (event) => service?.emitServerRequestResolvedForModule(event),
+    },
+  });
+  Object.assign(testService, {
+    respondToApproval: (
+      requestId: string | number,
+      response: CodexApprovalResponse,
+      conversationId?: string,
+    ) =>
+      serverRequestResponseAdapter.approval({
+        ...(conversationId === undefined ? {} : { threadId: conversationId }),
+        requestId,
+        response,
+      }),
+    respondToUserInput: (
+      requestId: string | number,
+      answers: Record<string, string[]>,
+      conversationId?: string,
+    ) =>
+      serverRequestResponseAdapter.userInput({
+        ...(conversationId === undefined ? {} : { threadId: conversationId }),
+        requestId,
+        answers,
+      }),
+    respondToMcpServerElicitation: (
+      requestId: string | number,
+      response: "accept" | "decline" | "cancel" | CodexMcpServerElicitationResponse,
+      conversationId?: string,
+    ) =>
+      serverRequestResponseAdapter.mcpElicitation({
+        ...(conversationId === undefined ? {} : { threadId: conversationId }),
+        requestId,
+        response,
+      }),
+    respondToPermissionRequest: (
+      requestId: string | number,
+      response: import("../../shared/types").CodexPermissionRequestResponse,
+      conversationId?: string,
+    ) =>
+      serverRequestResponseAdapter.permission({
+        ...(conversationId === undefined ? {} : { threadId: conversationId }),
+        requestId,
+        response,
+      }),
+    respondToOptionPicker: (
+      conversationId: string,
+      requestId: string | number,
+      response: import("../../shared/types").CodexCanonicalOptionPickerResponse,
+    ) =>
+      serverRequestResponseAdapter.optionPicker({
+        threadId: conversationId,
+        requestId,
+        response,
+      }),
+    respondToSetupContextPicker: (
+      conversationId: string,
+      requestId: string | number,
+      response: import("../../shared/types").CodexCanonicalSetupContextPickerResponse,
+    ) =>
+      serverRequestResponseAdapter.setupContextPicker({
+        threadId: conversationId,
+        requestId,
+        response,
+      }),
+    respondToSetupCodexStep: (
+      conversationId: string,
+      requestId: string | number,
+      response: import("../../shared/types").CodexCanonicalSetupCodexStepResponse,
+    ) =>
+      serverRequestResponseAdapter.setupCodexStep({
+        threadId: conversationId,
+        requestId,
+        response,
+      }),
+  });
   threadSettingsRuntime.setUpdateOperation(async (input, signal) => {
     const prepared = await testService.prepareThreadSettingsUpdate(input, signal);
     if (threadSettingsRuntime.remoteUpdateSupport() === "unsupported") {

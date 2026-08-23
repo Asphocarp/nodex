@@ -19,6 +19,7 @@ import type { CodexThreadTitlePersistence } from "./codex-application/CodexThrea
 import type { ConversationCommands } from "./codex-application/ConversationCommands";
 import type { CodexBackgroundProcesses } from "./codex-application/CodexBackgroundProcesses";
 import type { CodexSubagentCatalog } from "./codex-application/CodexSubagentCatalog";
+import type { CodexServerRequestResponsesService } from "./codex-application/CodexServerRequestResponses";
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
@@ -122,6 +123,7 @@ interface CodexIpcOptions {
   structuredThreadTitle: CodexStructuredThreadTitle["Service"];
   backgroundProcesses: CodexBackgroundProcesses["Service"];
   subagentCatalog: CodexSubagentCatalog["Service"];
+  serverRequestResponses: CodexServerRequestResponsesService;
   rendererClientRouter: RendererClientRuntimeService;
 }
 
@@ -903,56 +905,107 @@ export const codexIpcLive = (
         await shell.openExternal(url.toString());
       });
 
-      registerHandle(
+      registerEffectHandle(
         "codex:approval:respond",
         (
           _,
           conversationId: string,
           requestId: CodexProtocolRequestId,
           response: CodexApprovalResponse,
-        ) => {
-          const parsedResponse = parseCodexApprovalResponse(response);
-          if (!parsedResponse) {
-            throw new Error("Invalid Codex approval response for approval kind.");
-          }
-          return codexService.respondToApproval(requestId, parsedResponse, conversationId);
-        },
+        ) =>
+          Effect.suspend(() => {
+            const parsedResponse = parseCodexApprovalResponse(response);
+            if (!parsedResponse) {
+              return Effect.fail(
+                new CodexIpcError({
+                  operation: "codex:approval:respond",
+                  cause: new Error("Invalid Codex approval response for approval kind."),
+                }),
+              );
+            }
+            return options.serverRequestResponses
+              .approval({ threadId: conversationId, requestId, response: parsedResponse })
+              .pipe(
+                Effect.mapError(
+                  (cause) => new CodexIpcError({ operation: "codex:approval:respond", cause }),
+                ),
+              );
+          }),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:user-input:respond",
         (_, conversationId: string, requestId: CodexProtocolRequestId, answers) =>
-          codexService.respondToUserInput(requestId, answers, conversationId),
+          options.serverRequestResponses
+            .userInput({ threadId: conversationId, requestId, answers })
+            .pipe(
+              Effect.mapError(
+                (cause) => new CodexIpcError({ operation: "codex:user-input:respond", cause }),
+              ),
+            ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:mcp-elicitation:respond",
         (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
-          codexService.respondToMcpServerElicitation(requestId, response, conversationId),
+          options.serverRequestResponses
+            .mcpElicitation({ threadId: conversationId, requestId, response })
+            .pipe(
+              Effect.mapError(
+                (cause) => new CodexIpcError({ operation: "codex:mcp-elicitation:respond", cause }),
+              ),
+            ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:permission-request:respond",
         (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
-          codexService.respondToPermissionRequest(requestId, response, conversationId),
+          options.serverRequestResponses
+            .permission({ threadId: conversationId, requestId, response })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexIpcError({ operation: "codex:permission-request:respond", cause }),
+              ),
+            ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:option-picker:respond",
         (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
-          codexService.respondToOptionPicker(conversationId, requestId, response),
+          options.serverRequestResponses
+            .optionPicker({ threadId: conversationId, requestId, response })
+            .pipe(
+              Effect.mapError(
+                (cause) => new CodexIpcError({ operation: "codex:option-picker:respond", cause }),
+              ),
+            ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:setup-context-picker:respond",
         (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
-          codexService.respondToSetupContextPicker(conversationId, requestId, response),
+          options.serverRequestResponses
+            .setupContextPicker({ threadId: conversationId, requestId, response })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexIpcError({ operation: "codex:setup-context-picker:respond", cause }),
+              ),
+            ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:setup-codex-step:respond",
         (_, conversationId: string, requestId: CodexProtocolRequestId, response) =>
-          codexService.respondToSetupCodexStep(conversationId, requestId, response),
+          options.serverRequestResponses
+            .setupCodexStep({ threadId: conversationId, requestId, response })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexIpcError({ operation: "codex:setup-codex-step:respond", cause }),
+              ),
+            ),
       );
 
       registerEffectHandle("codex:conversation-unread:set", (_, conversationId, hasUnreadTurn) =>

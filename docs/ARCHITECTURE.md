@@ -984,10 +984,17 @@ tool occurrences. Its FIFO lanes preserve duplicate scalar JSON-RPC ids and
 keep numeric and textual ids distinct; claimed entries remain Scope-tracked
 until their exact occurrence token is completed. Disconnect, history pruning,
 Thread cleanup, and Main Scope close all settle the same inbox. Canonical
-conversation reducers remain the sole owner of transcript/request truth and
-select which inbox occurrences receive a response; they do not own completion
-callbacks, pending maps, shutdown rejection loops, or a public inbox shutdown
-path.
+conversation reducers remain the sole owner of transcript/request truth.
+`CodexServerRequestResponses` is the only application command owner for renderer,
+automatic, and interrupt-time responses. A per-Thread scoped lane serializes
+target resolution, follower-host forwarding, canonical transition, projection
+cleanup, and exact occurrence settlement. Its pure response kernel is shared by
+the legacy reducer test harness, but production concurrency and I/O remain in the
+Effect Module. A failed follower decision leaves the occurrence queued and the
+canonical request unchanged; duplicate physical occurrences receive one protocol
+response and explicit no-response settlement for the rest. Renderer IPC never
+calls responder methods on `CodexService`, and the class owns no response facade,
+completion callback, pending map, or shutdown path.
 
 `CodexThreadHandoffRuntime` is the single owner of the cross-system compensation
 transaction. It atomically reserves one operation per Thread before resolving

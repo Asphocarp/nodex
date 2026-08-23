@@ -62,7 +62,6 @@ import type {
   CodexAgentMode,
   CodexAutomationRunsUpdatedEvent,
   CodexApprovalRequest,
-  CodexApprovalResponse,
   CodexBackgroundTerminalRow,
   CodexCanonicalServerRequest,
   CodexCanonicalConversationState,
@@ -85,16 +84,10 @@ import type {
   CodexHostMessage,
   CodexItemView,
   CodexLiveFileAttachment,
-  CodexMcpServerElicitationAction,
   CodexMcpServerElicitationRequest,
-  CodexMcpServerElicitationResponse,
-  CodexCanonicalOptionPickerResponse,
-  CodexCanonicalSetupContextPickerResponse,
-  CodexCanonicalSetupCodexStepResponse,
   CodexModelOption,
   CodexOwnerAppServerRequestInput,
   CodexPermissionRequest,
-  CodexPermissionRequestResponse,
   CodexPlanImplementationServerRequest,
   CodexPendingSteer,
   CodexPreparedPrompt,
@@ -250,6 +243,11 @@ import {
 import type { CodexAttachments } from "../codex-application/CodexAttachments";
 import type { CodexBackgroundProcessConversationProjection } from "../codex-application/CodexBackgroundProcesses";
 import type { CodexPendingServerRequestRuntimeService } from "../codex-application/CodexPendingServerRequestRuntime";
+import type { CodexServerRequestResponsesPromiseAdapter } from "../codex-application/CodexServerRequestResponsesPromiseAdapter";
+import type {
+  CodexServerRequestConversationProjection,
+  CodexServerRequestResolvedEvent,
+} from "../codex-application/CodexServerRequestResponses";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import {
   buildThreadPermissionOverrides,
@@ -287,11 +285,6 @@ import {
   buildPlanImplementationRequestId,
   selectPrimaryBackgroundConversationRequest,
 } from "../../shared/codex-conversation-request";
-import {
-  getCodexApprovalKindForRequestMethod,
-  getCodexApprovalRequestMethod,
-} from "../../shared/codex-approval";
-import { normalizeCodexMcpServerElicitationResponse } from "../../shared/codex-mcp-elicitation";
 import {
   extractCodexThreadSubagentMetadata,
   getCodexSubagentOtherSource,
@@ -391,19 +384,10 @@ import {
   applyCodexCanonicalPlanImplementationTurnStartedState,
   completeCodexCanonicalPlanImplementationRequest,
   createCodexCanonicalPlanImplementationRequest,
-  reduceCodexConversationApprovalResponse,
-  reduceCodexConversationMcpElicitationResponse,
-  reduceCodexConversationOnboardingInputResponse,
-  reduceCodexConversationOptionPickerResponse,
-  reduceCodexConversationPermissionResponse,
   reduceCodexConversationServerRequest,
   reduceCodexConversationServerRequestResolved,
-  reduceCodexConversationSetupCodexStepResponse,
-  reduceCodexConversationSetupContextPickerResponse,
-  reduceCodexConversationUserInputResponse,
   reduceCodexServerRequestRawState,
   reduceCodexServerRequestResolvedRawState,
-  reduceCodexServerRequestSetupCodexStepResponseRawState,
   type CodexServerRequestRawLifecycleResult,
   type CodexServerRequestLifecycleResult,
   type CodexServerRequestRawState,
@@ -493,11 +477,7 @@ import {
 import { readWorktreeEnvironmentDefinition } from "./worktree-environment-service";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
-import {
-  CODEX_APP_TOOL_NAMESPACE,
-  hasCodexDynamicToolIdentity,
-  isCodexAppDynamicTool,
-} from "../../shared/codex-dynamic-tool-identity";
+import { isCodexAppDynamicTool } from "../../shared/codex-dynamic-tool-identity";
 import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
 import type { NodexAgentAccess } from "../../shared/nodex-agent-tools/read-runtime";
 import { resolveDynamicToolCatalogBindings } from "./codex-dynamic-tool-catalog-bindings";
@@ -1078,6 +1058,7 @@ type CodexServiceOptions = {
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
   pendingServerRequests: CodexPendingServerRequestRuntimeService;
+  serverRequestResponses: CodexServerRequestResponsesPromiseAdapter;
   persistedAtoms: PersistedAtomStore;
   sessionStore: CodexSessionStore;
   runtime: ResolvedCodexRuntime;
@@ -1230,10 +1211,6 @@ const COMPLETE_TURN_PAGINATION: CodexConversationTurnPagination = {
   loadedTurnCount: 0,
   itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
 };
-const THREAD_FOLLOWER_COMMAND_APPROVAL_DECISION_METHOD =
-  "thread-follower-command-approval-decision";
-const THREAD_FOLLOWER_FILE_APPROVAL_DECISION_METHOD = "thread-follower-file-approval-decision";
-
 function normalizeAutomationArchiveText(value: string | null | undefined): string | null {
   const trimmed = stripCodexRemarkDirectiveLines(value);
   return trimmed.length > 0 ? trimmed : null;
@@ -2220,6 +2197,7 @@ export class CodexService {
   private readonly projectlessHomeDirectory: () => string;
   private readonly attachments: CodexAttachments["Service"]["legacy"];
   private readonly pendingServerRequests: CodexPendingServerRequestRuntimeService;
+  private readonly serverRequestResponses: CodexServerRequestResponsesPromiseAdapter;
   private readonly persistedAtoms: PersistedAtomStore;
   private readonly sessionStore: CodexSessionStore;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
@@ -2338,6 +2316,7 @@ export class CodexService {
     this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
     this.pendingServerRequests = options.pendingServerRequests;
+    this.serverRequestResponses = options.serverRequestResponses;
     this.persistedAtoms = options.persistedAtoms;
     this.sessionStore = options.sessionStore;
     this.activeGoalContinuation = options.activeGoalContinuation;
@@ -10236,6 +10215,92 @@ export class CodexService {
     };
   }
 
+  /** Temporary projection port while canonical conversation state remains in this class. */
+  readServerRequestConversationForModule(
+    threadId: string,
+  ): CodexServerRequestConversationProjection | null {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record) return null;
+    return {
+      canonicalState: record.canonicalState,
+      rawState: this.buildTransportOnlyServerRequestRawState(threadId, record),
+      streamRole: record.streamRole,
+    };
+  }
+
+  resolveServerRequestThreadIdForModule(requestId: RequestId): string | null {
+    for (const [threadId, record] of this.conversationRecords) {
+      if (record.canonicalState?.requests.some((request) => request.id === requestId)) {
+        return threadId;
+      }
+    }
+    return null;
+  }
+
+  applyServerRequestCanonicalLifecycleForModule(input: {
+    readonly threadId: string;
+    readonly before: CodexCanonicalConversationState;
+    readonly lifecycle: CodexServerRequestLifecycleResult;
+  }): void {
+    this.applyServerRequestCanonicalLifecycleResult(input.threadId, input.before, input.lifecycle);
+  }
+
+  applyServerRequestRawLifecycleForModule(input: {
+    readonly threadId: string;
+    readonly lifecycle: CodexServerRequestRawLifecycleResult;
+  }): void {
+    this.applyTransportOnlyServerRequestRawLifecycleResult(input.threadId, input.lifecycle);
+  }
+
+  hasRendererConversationOwnerForModule(threadId: string): boolean {
+    return this.rendererConversations.hasOwner(threadId);
+  }
+
+  syncServerRequestLifecycleForModule(input: {
+    readonly threadId: string;
+    readonly lifecycle: CodexServerRequestRawLifecycleResult | CodexServerRequestLifecycleResult;
+    readonly additionalTurnIds?: readonly string[];
+  }): void {
+    this.syncBroadcastServerRequestLifecycle(
+      input.threadId,
+      input.lifecycle,
+      input.additionalTurnIds,
+    );
+  }
+
+  clearApprovalRequestAttachmentForModule(input: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly requestId: RequestId;
+  }): void {
+    this.clearApprovalRequestAttachment(input.threadId, input.turnId, input.requestId);
+  }
+
+  removeUserInputRequestProjectionForModule(input: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly requestId: RequestId;
+  }): void {
+    this.removeStandalonePendingRequestProjection(
+      input.threadId,
+      input.turnId,
+      input.requestId,
+      "requestUserInput",
+    );
+  }
+
+  emitServerRequestResolvedForModule(event: CodexServerRequestResolvedEvent): void {
+    if (event.type === "approval") {
+      this.emitEvent({
+        type: "approvalResolved",
+        requestId: event.requestId,
+        decision: event.decision,
+      });
+      return;
+    }
+    this.emitEvent({ type: "userInputResolved", requestId: event.requestId });
+  }
+
   private applyTransportOnlyServerRequestRawLifecycleResult(
     threadId: string,
     result: CodexServerRequestRawLifecycleResult,
@@ -16274,7 +16339,7 @@ export class CodexService {
       throw new Error("Could not determine which turn to interrupt");
     }
     await this.pauseActiveThreadGoalBeforeInterrupt(threadId);
-    await this.declinePendingRequestsBeforeInterrupt(threadId);
+    await this.serverRequestResponses.declineAll(threadId);
     return resolvedTurnId;
   }
 
@@ -16305,56 +16370,6 @@ export class CodexService {
     }
     this.maybeDispatchQueuedFollowUp(input.threadId);
     return true;
-  }
-
-  private async declinePendingRequestsBeforeInterrupt(threadId: string): Promise<void> {
-    const requests = [...(this.getMaybeConversationRecord(threadId)?.serverRequests ?? [])];
-    for (const request of requests) {
-      switch (request.method) {
-        case "item/commandExecution/requestApproval":
-        case "item/fileChange/requestApproval":
-          await this.respondToApproval(
-            request.id,
-            {
-              kind: getCodexApprovalKindForRequestMethod(request.method),
-              decision: "decline",
-            },
-            threadId,
-          );
-          break;
-        case "item/permissions/requestApproval":
-          await this.respondToPermissionRequest(
-            request.id,
-            {
-              permissions: {},
-              scope: "turn",
-            },
-            threadId,
-          );
-          break;
-        case "item/tool/requestUserInput":
-          await this.respondToUserInput(request.id, {}, threadId);
-          break;
-        case "item/tool/requestOptionPicker":
-          await this.respondToOptionPicker(threadId, request.id, {
-            action: "dismiss",
-            selectedOptions: [],
-            freeformAnswer: null,
-          });
-          break;
-        case "item/tool/requestSetupCodexContextPicker":
-          await this.respondToSetupContextPicker(threadId, request.id, {
-            action: "dismiss",
-            selectedSources: [],
-          });
-          break;
-        case "mcpServer/elicitation/request":
-          await this.respondToMcpServerElicitation(request.id, "decline", threadId);
-          break;
-        default:
-          break;
-      }
-    }
   }
 
   readBackgroundTerminalTurnIdsForModule(threadId: string): readonly string[] | null {
@@ -16414,345 +16429,6 @@ export class CodexService {
       });
     });
     this.syncAcceptedConversationDocumentSilently(threadId);
-  }
-
-  async respondToApproval(
-    requestId: RequestId,
-    response: CodexApprovalResponse,
-    conversationId?: string,
-  ): Promise<boolean> {
-    const { kind, decision } = response;
-    const pending = conversationId
-      ? this.pendingServerRequests.find(
-          "approval",
-          requestId,
-          (candidate) =>
-            candidate.request.threadId === conversationId && candidate.request.kind === kind,
-        )
-      : this.pendingServerRequests.find(
-          "approval",
-          requestId,
-          (candidate) => candidate.request.kind === kind,
-        );
-    if (!pending) return false;
-    const record = this.getConversationRecord(pending.request.threadId);
-    const before = record.canonicalState;
-    if (!before) return false;
-    const lifecycle = reduceCodexConversationApprovalResponse(
-      before,
-      requestId,
-      getCodexApprovalRequestMethod(kind),
-    );
-    if (lifecycle.selectedRequests.length === 0) return false;
-    const selectedPendings = this.pendingServerRequests.takeAll(
-      "approval",
-      requestId,
-      (candidate) => candidate.request.threadId === pending.request.threadId,
-    );
-
-    this.logger.info("Resolving Codex approval request", {
-      requestId,
-      decision,
-      kind,
-      threadId: pending.request.threadId,
-      turnId: pending.request.turnId,
-      streamRole: record.streamRole,
-    });
-    if (record.streamRole === "follower") {
-      if (response.kind === "command") {
-        await this.client.request(THREAD_FOLLOWER_COMMAND_APPROVAL_DECISION_METHOD, {
-          conversationId: pending.request.threadId,
-          requestId,
-          decision: response.decision,
-        });
-      } else {
-        await this.client.request(THREAD_FOLLOWER_FILE_APPROVAL_DECISION_METHOD, {
-          conversationId: pending.request.threadId,
-          requestId,
-          decision: response.decision,
-        });
-      }
-      for (const selectedPending of selectedPendings) {
-        this.pendingServerRequests.complete(selectedPending, CODEX_SERVER_REQUEST_NO_RESPONSE);
-      }
-    } else {
-      for (const [index, selectedPending] of selectedPendings.entries()) {
-        this.pendingServerRequests.complete(
-          selectedPending,
-          index === 0 ? { decision } : CODEX_SERVER_REQUEST_NO_RESPONSE,
-        );
-      }
-    }
-    this.applyServerRequestCanonicalLifecycleResult(pending.request.threadId, before, lifecycle);
-    const ownerRouted = this.rendererConversations.hasOwner(pending.request.threadId);
-    for (const selectedPending of selectedPendings) {
-      this.clearApprovalRequestAttachment(
-        selectedPending.request.threadId,
-        selectedPending.request.turnId,
-        requestId,
-      );
-    }
-    this.abandonOtherPendingRequestsById(pending.request.threadId, requestId);
-    this.emitEvent({ type: "approvalResolved", requestId, decision });
-    if (!ownerRouted) {
-      this.syncBroadcastServerRequestLifecycle(
-        pending.request.threadId,
-        lifecycle,
-        selectedPendings.map((selectedPending) => selectedPending.request.turnId),
-      );
-    }
-    return true;
-  }
-
-  private findConversationIdForServerRequest(requestId: RequestId): string | null {
-    for (const [threadId, record] of this.conversationRecords) {
-      if (record.canonicalState?.requests.some((request) => request.id === requestId)) {
-        return threadId;
-      }
-    }
-    return null;
-  }
-
-  async respondToUserInput(
-    requestId: RequestId,
-    answers: Record<string, string[]>,
-    conversationId?: string,
-  ): Promise<boolean> {
-    const requestedConversationId =
-      conversationId?.trim() || this.findConversationIdForServerRequest(requestId);
-    const requestedRecord = requestedConversationId
-      ? this.getMaybeConversationRecord(requestedConversationId)
-      : null;
-    const firstCanonicalRequest = requestedRecord?.canonicalState?.requests.find(
-      (candidate) => candidate.id === requestId,
-    );
-
-    const normalizedAnswers = Object.entries(answers).reduce<Record<string, { answers: string[] }>>(
-      (acc, [questionId, values]) => {
-        if (!Array.isArray(values)) {
-          acc[questionId] = { answers: [] };
-          return acc;
-        }
-        acc[questionId] = {
-          answers: values.filter((value): value is string => typeof value === "string"),
-        };
-        return acc;
-      },
-      {},
-    );
-    const transcriptAnswers = Object.entries(normalizedAnswers).reduce<Record<string, string[]>>(
-      (acc, [questionId, value]) => {
-        acc[questionId] = value.answers;
-        return acc;
-      },
-      {},
-    );
-
-    if (
-      firstCanonicalRequest?.method === "item/tool/call" &&
-      hasCodexDynamicToolIdentity(firstCanonicalRequest.params, {
-        namespace: CODEX_APP_TOOL_NAMESPACE,
-        tool: "request_onboarding_input",
-      }) &&
-      requestedConversationId &&
-      requestedRecord
-    ) {
-      const before = requestedRecord.canonicalState;
-      if (!before) return false;
-      const lifecycle = reduceCodexConversationOnboardingInputResponse(before, requestId);
-      if (lifecycle.selectedRequests.length === 0) return false;
-      const selectedPendings = this.pendingServerRequests.takeAll(
-        "dynamic-tool",
-        requestId,
-        (candidate) =>
-          candidate.disposition === "stored" &&
-          candidate.request.params.threadId === requestedConversationId,
-      );
-      let didResolveResponse = false;
-      for (const selectedPending of selectedPendings) {
-        if (
-          !didResolveResponse &&
-          hasCodexDynamicToolIdentity(selectedPending.request.params, {
-            namespace: CODEX_APP_TOOL_NAMESPACE,
-            tool: "request_onboarding_input",
-          })
-        ) {
-          this.pendingServerRequests.complete(
-            selectedPending,
-            this.buildDynamicToolSuccess({ answers: normalizedAnswers }),
-          );
-          didResolveResponse = true;
-        } else {
-          this.pendingServerRequests.complete(selectedPending, CODEX_SERVER_REQUEST_NO_RESPONSE);
-        }
-      }
-      this.applyServerRequestCanonicalLifecycleResult(requestedConversationId, before, lifecycle);
-      this.abandonOtherPendingRequestsById(requestedConversationId, requestId);
-      this.emitEvent({ type: "userInputResolved", requestId });
-      if (!this.rendererConversations.hasOwner(requestedConversationId)) {
-        this.syncBroadcastServerRequestLifecycle(requestedConversationId, lifecycle);
-      }
-      return true;
-    }
-
-    const pending = conversationId
-      ? this.pendingServerRequests.find(
-          "user-input",
-          requestId,
-          (candidate) => candidate.request.threadId === conversationId,
-        )
-      : this.pendingServerRequests.find("user-input", requestId);
-    if (!pending) return false;
-    const record = this.getConversationRecord(pending.request.threadId);
-    const before = record.canonicalState;
-    if (!before) return false;
-    const lifecycle = reduceCodexConversationUserInputResponse(
-      before,
-      requestId,
-      transcriptAnswers,
-      { now: () => Date.now() },
-    );
-    if (lifecycle.selectedRequests.length === 0) return false;
-    this.userInputAutoResolution.observeResponse(pending.request.threadId, requestId);
-    this.logger.info("Resolving Codex user-input request", {
-      requestId,
-      threadId: pending.request.threadId,
-      turnId: pending.request.turnId,
-      questionCount: pending.request.questions.length,
-      answeredQuestionCount: Object.keys(normalizedAnswers).length,
-    });
-
-    const selectedPendings = this.pendingServerRequests.takeAll(
-      "user-input",
-      requestId,
-      (candidate) => candidate.request.threadId === pending.request.threadId,
-    );
-    for (const [index, selectedPending] of selectedPendings.entries()) {
-      this.pendingServerRequests.complete(
-        selectedPending,
-        index === 0 ? { answers: normalizedAnswers } : CODEX_SERVER_REQUEST_NO_RESPONSE,
-      );
-    }
-    this.applyServerRequestCanonicalLifecycleResult(pending.request.threadId, before, lifecycle);
-    this.removeStandalonePendingRequestProjection(
-      pending.request.threadId,
-      pending.request.turnId,
-      requestId,
-      "requestUserInput",
-    );
-    this.abandonOtherPendingRequestsById(pending.request.threadId, requestId);
-    this.emitEvent({ type: "userInputResolved", requestId });
-    if (!this.rendererConversations.hasOwner(pending.request.threadId)) {
-      this.syncBroadcastServerRequestLifecycle(pending.request.threadId, lifecycle);
-    }
-    return true;
-  }
-
-  async respondToMcpServerElicitation(
-    requestId: RequestId,
-    response: CodexMcpServerElicitationAction | CodexMcpServerElicitationResponse,
-    conversationId?: string,
-  ): Promise<boolean> {
-    const pending = conversationId
-      ? this.pendingServerRequests.find(
-          "mcp-elicitation",
-          requestId,
-          (candidate) => candidate.request.threadId === conversationId,
-        )
-      : this.pendingServerRequests.find("mcp-elicitation", requestId);
-    if (!pending) return false;
-    const normalizedResponse = normalizeCodexMcpServerElicitationResponse(response);
-    const record = this.getConversationRecord(pending.request.threadId);
-    const before = record.canonicalState;
-    if (!before) return false;
-    const lifecycle = reduceCodexConversationMcpElicitationResponse(
-      before,
-      requestId,
-      normalizedResponse,
-      { now: () => Date.now() },
-    );
-    if (lifecycle.selectedRequests.length === 0) return false;
-
-    this.logger.info("Resolving Codex MCP elicitation request", {
-      requestId,
-      action: normalizedResponse.action,
-      threadId: pending.request.threadId,
-      turnId: pending.request.turnId,
-      selectedRequestCount: lifecycle.selectedRequests.length,
-    });
-
-    const selectedTurnIds = new Set<string>();
-    for (const selectedRequest of lifecycle.selectedRequests) {
-      const selectedPending = this.pendingServerRequests.takeFirst(
-        "mcp-elicitation",
-        selectedRequest.id,
-        (candidate) => candidate.request.threadId === pending.request.threadId,
-      );
-      if (!selectedPending) continue;
-      this.pendingServerRequests.complete(selectedPending, normalizedResponse);
-      if (selectedPending.request.turnId) {
-        selectedTurnIds.add(selectedPending.request.turnId);
-      }
-    }
-    this.applyServerRequestCanonicalLifecycleResult(pending.request.threadId, before, lifecycle);
-    for (const selectedRequestId of new Set(
-      lifecycle.selectedRequests.map((request) => request.id),
-    )) {
-      this.abandonOtherPendingRequestsById(pending.request.threadId, selectedRequestId);
-    }
-    if (!this.rendererConversations.hasOwner(pending.request.threadId)) {
-      this.syncBroadcastServerRequestLifecycle(pending.request.threadId, lifecycle, [
-        ...selectedTurnIds,
-      ]);
-    }
-    return true;
-  }
-
-  async respondToPermissionRequest(
-    requestId: RequestId,
-    response: CodexPermissionRequestResponse,
-    conversationId?: string,
-  ): Promise<boolean> {
-    const pending = conversationId
-      ? this.pendingServerRequests.find(
-          "permission",
-          requestId,
-          (candidate) => candidate.request.threadId === conversationId,
-        )
-      : this.pendingServerRequests.find("permission", requestId);
-    if (!pending) return false;
-    const record = this.getConversationRecord(pending.request.threadId);
-    const before = record.canonicalState;
-    if (!before) return false;
-    const lifecycle = reduceCodexConversationPermissionResponse(before, requestId, response, {
-      now: () => Date.now(),
-    });
-    if (lifecycle.selectedRequests.length === 0) return false;
-
-    this.logger.info("Resolving Codex permissions request", {
-      requestId,
-      threadId: pending.request.threadId,
-      turnId: pending.request.turnId,
-      scope: response.scope,
-    });
-
-    const selectedPendings = this.pendingServerRequests.takeAll(
-      "permission",
-      requestId,
-      (candidate) => candidate.request.threadId === pending.request.threadId,
-    );
-    for (const [index, selectedPending] of selectedPendings.entries()) {
-      this.pendingServerRequests.complete(
-        selectedPending,
-        index === 0 ? response : CODEX_SERVER_REQUEST_NO_RESPONSE,
-      );
-    }
-    this.applyServerRequestCanonicalLifecycleResult(pending.request.threadId, before, lifecycle);
-    this.abandonOtherPendingRequestsById(pending.request.threadId, requestId);
-    if (!this.rendererConversations.hasOwner(pending.request.threadId)) {
-      this.syncBroadcastServerRequestLifecycle(pending.request.threadId, lifecycle);
-    }
-    return true;
   }
 
   private clearPendingServerRequestsAfterDisconnect(): void {
@@ -19772,176 +19448,6 @@ export class CodexService {
     }
   }
 
-  async respondToSetupCodexStep(
-    conversationId: string,
-    requestId: RequestId,
-    response: CodexCanonicalSetupCodexStepResponse,
-  ): Promise<boolean> {
-    const record = this.getMaybeConversationRecord(conversationId);
-    if (!record) return false;
-    const before = record.canonicalState;
-    let lifecycle: CodexServerRequestRawLifecycleResult | CodexServerRequestLifecycleResult;
-    let commitLifecycle: () => void;
-    if (conversationId.length === 0) {
-      const transportOnly = this.buildTransportOnlyServerRequestRawState(conversationId, record);
-      const rawLifecycle = reduceCodexServerRequestSetupCodexStepResponseRawState(
-        transportOnly,
-        requestId,
-        response,
-      );
-      lifecycle = rawLifecycle;
-      commitLifecycle = () => {
-        this.applyTransportOnlyServerRequestRawLifecycleResult(conversationId, rawLifecycle);
-      };
-    } else {
-      if (!before) return false;
-      const canonicalLifecycle = reduceCodexConversationSetupCodexStepResponse(
-        before,
-        requestId,
-        response,
-      );
-      lifecycle = canonicalLifecycle;
-      commitLifecycle = () => {
-        this.applyServerRequestCanonicalLifecycleResult(conversationId, before, canonicalLifecycle);
-      };
-    }
-    if (lifecycle.selectedRequests.length === 0) return false;
-
-    const result = (() => {
-      switch (response.step) {
-        case "role":
-          return { action: response.action, selectedRoles: [...response.selectedRoles] };
-        case "task":
-          return { action: response.action, answers: response.answers };
-        case "context":
-          return { action: response.action, selectedSources: [...response.selectedSources] };
-      }
-    })();
-    const selectedPendings = this.pendingServerRequests.takeAll(
-      "dynamic-tool",
-      requestId,
-      (candidate) =>
-        candidate.disposition === "stored" && candidate.request.params.threadId === conversationId,
-    );
-    let didResolveResponse = false;
-    for (const selectedPending of selectedPendings) {
-      if (
-        !didResolveResponse &&
-        hasCodexDynamicToolIdentity(selectedPending.request.params, {
-          namespace: CODEX_APP_TOOL_NAMESPACE,
-          tool: "setup_codex_step",
-        })
-      ) {
-        this.pendingServerRequests.complete(selectedPending, this.buildDynamicToolSuccess(result));
-        didResolveResponse = true;
-      } else {
-        this.pendingServerRequests.complete(selectedPending, CODEX_SERVER_REQUEST_NO_RESPONSE);
-      }
-    }
-    commitLifecycle();
-    this.abandonOtherPendingRequestsById(conversationId, requestId);
-    if (!this.rendererConversations.hasOwner(conversationId)) {
-      this.syncBroadcastServerRequestLifecycle(conversationId, lifecycle);
-    }
-    return true;
-  }
-
-  async respondToOptionPicker(
-    conversationId: string,
-    requestId: RequestId,
-    response: CodexCanonicalOptionPickerResponse,
-  ): Promise<boolean> {
-    return this.respondToStoredPicker(
-      conversationId,
-      requestId,
-      response,
-      "item/tool/requestOptionPicker",
-      "request_option_picker",
-    );
-  }
-
-  async respondToSetupContextPicker(
-    conversationId: string,
-    requestId: RequestId,
-    response: CodexCanonicalSetupContextPickerResponse,
-  ): Promise<boolean> {
-    return this.respondToStoredPicker(
-      conversationId,
-      requestId,
-      response,
-      "item/tool/requestSetupCodexContextPicker",
-      "setup_codex_context_picker",
-    );
-  }
-
-  private respondToStoredPicker(
-    conversationId: string,
-    requestId: RequestId,
-    response: CodexCanonicalOptionPickerResponse | CodexCanonicalSetupContextPickerResponse,
-    directMethod: "item/tool/requestOptionPicker" | "item/tool/requestSetupCodexContextPicker",
-    dynamicTool: "request_option_picker" | "setup_codex_context_picker",
-  ): boolean {
-    const record = this.getMaybeConversationRecord(conversationId);
-    if (!record) return false;
-    const before = record.canonicalState;
-    if (!before) return false;
-    const lifecycle =
-      directMethod === "item/tool/requestOptionPicker"
-        ? reduceCodexConversationOptionPickerResponse(before, requestId)
-        : reduceCodexConversationSetupContextPickerResponse(before, requestId);
-    const request = lifecycle.selectedRequests[0];
-    if (!request) return false;
-    const isDirect = request?.method === directMethod;
-    const isDynamic =
-      request?.method === "item/tool/call" &&
-      hasCodexDynamicToolIdentity(request.params, {
-        namespace: CODEX_APP_TOOL_NAMESPACE,
-        tool: dynamicTool,
-      });
-
-    const privatePendings = this.pendingServerRequests.takeAll(
-      "private",
-      requestId,
-      (candidate) => candidate.request.params.threadId === conversationId,
-    );
-    let didResolveResponse = false;
-    for (const pending of privatePendings) {
-      if (isDirect && !didResolveResponse && pending.request.method === directMethod) {
-        this.pendingServerRequests.complete(pending, response);
-        didResolveResponse = true;
-      } else {
-        this.pendingServerRequests.complete(pending, CODEX_SERVER_REQUEST_NO_RESPONSE);
-      }
-    }
-    const dynamicPendings = this.pendingServerRequests.takeAll(
-      "dynamic-tool",
-      requestId,
-      (candidate) =>
-        candidate.disposition === "stored" && candidate.request.params.threadId === conversationId,
-    );
-    for (const pending of dynamicPendings) {
-      if (
-        isDynamic &&
-        !didResolveResponse &&
-        hasCodexDynamicToolIdentity(pending.request.params, {
-          namespace: CODEX_APP_TOOL_NAMESPACE,
-          tool: dynamicTool,
-        })
-      ) {
-        this.pendingServerRequests.complete(pending, this.buildDynamicToolSuccess(response));
-        didResolveResponse = true;
-      } else {
-        this.pendingServerRequests.complete(pending, CODEX_SERVER_REQUEST_NO_RESPONSE);
-      }
-    }
-    this.abandonOtherPendingRequestsById(conversationId, requestId);
-    this.applyServerRequestCanonicalLifecycleResult(conversationId, before, lifecycle);
-    if (!this.rendererConversations.hasOwner(conversationId)) {
-      this.syncBroadcastServerRequestLifecycle(conversationId, lifecycle);
-    }
-    return true;
-  }
-
   async handleServerRequest(request: CodexServerRequest): Promise<unknown> {
     this.logger.info("Handling Codex server request", {
       requestId: String(request.id),
@@ -20557,7 +20063,11 @@ export class CodexService {
     });
     if (!params.isBlocking) {
       this.userInputAutoResolution.observeRequest(threadId, requestId, async () => {
-        const resolved = await this.respondToUserInput(requestId, {}, threadId);
+        const resolved = await this.serverRequestResponses.userInput({
+          threadId,
+          requestId,
+          answers: {},
+        });
         if (!resolved) throw new Error("Codex user-input auto-resolution was not accepted");
         this.forwardNotificationToRendererOwner({
           method: "serverRequest/resolved",

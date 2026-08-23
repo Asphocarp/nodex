@@ -54,6 +54,12 @@ export class CodexGateway extends Context.Service<
       method: M,
       params: ClientRequestParamsByMethod[M],
     ) => Effect.Effect<ClientRequestResponsesByMethod[M], CodexRuntimeError>;
+    /** Extension seam for app-server methods that have not entered the generated public protocol. */
+    readonly requestRawForThread: (
+      threadId: string,
+      method: string,
+      params: unknown,
+    ) => Effect.Effect<unknown, CodexRuntimeError>;
     readonly notifyLocal: <M extends ClientNotificationMethod>(
       method: M,
       params: ClientNotificationParamsByMethod[M],
@@ -122,6 +128,36 @@ export const live = (
           );
         }).pipe(Effect.withSpan("CodexGateway.request", { attributes: { hostId, method } }));
 
+      const requestRawOnHost = (hostId: string, method: string, params: unknown) =>
+        Effect.gen(function* () {
+          const endpoint = yield* endpoints.endpoint(hostId);
+          const session = yield* endpoint.session;
+          return yield* session.client.raw.request(method, params).pipe(
+            Effect.timeout(timeoutFor(options, method as ClientRequestMethod)),
+            Effect.mapError((cause) =>
+              Cause.isTimeoutError(cause)
+                ? codexRuntimeError({
+                    operation: "gateway.raw-request",
+                    reason: "timeout",
+                    retryable: true,
+                    hostId,
+                    generation: session.generation,
+                    pid: session.pid,
+                    method,
+                    cause,
+                  })
+                : classifyCodexClientError({
+                    operation: "gateway.raw-request",
+                    cause,
+                    hostId,
+                    generation: session.generation,
+                    pid: session.pid,
+                    method,
+                  }),
+            ),
+          );
+        }).pipe(Effect.withSpan("CodexGateway.rawRequest", { attributes: { hostId, method } }));
+
       const events = eventHub.events.pipe(
         Stream.filterEffect((event) => {
           if (event.kind === "connection") return Effect.succeed(true);
@@ -145,6 +181,10 @@ export const live = (
           threadHosts
             .resolve(threadId)
             .pipe(Effect.flatMap((hostId) => requestOnHost(hostId, method, params))),
+        requestRawForThread: (threadId, method, params) =>
+          threadHosts
+            .resolve(threadId)
+            .pipe(Effect.flatMap((hostId) => requestRawOnHost(hostId, method, params))),
         notifyLocal: (method, params) =>
           Effect.gen(function* () {
             const endpoint = yield* endpoints.endpoint(endpoints.localHostId);

@@ -94,6 +94,11 @@ import {
 } from "../codex-application/ApprovalCoordinator";
 import { make as makeCodexPendingServerRequestRuntime } from "../codex-application/CodexPendingServerRequestRuntime";
 import {
+  CodexServerRequestResponseProjectionError,
+  make as makeCodexServerRequestResponses,
+} from "../codex-application/CodexServerRequestResponses";
+import { makeCodexServerRequestResponsesPromiseAdapter } from "../codex-application/CodexServerRequestResponsesPromiseAdapter";
+import {
   CodexActiveGoalContinuationError,
   make as makeCodexActiveGoalContinuation,
 } from "../codex-application/CodexActiveGoalContinuation";
@@ -2180,6 +2185,57 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const manualCompaction = Context.get(manualCompactionContext, CodexManualCompactionRuntime);
+        const serverRequestResponses = yield* makeCodexServerRequestResponses({
+          inbox: pendingServerRequests,
+          projection: {
+            read: (threadId) =>
+              requireCodexService().readServerRequestConversationForModule(threadId),
+            resolveThreadId: (requestId) =>
+              requireCodexService().resolveServerRequestThreadIdForModule(requestId),
+            applyCanonical: (input) =>
+              requireCodexService().applyServerRequestCanonicalLifecycleForModule(input),
+            applyRaw: (input) =>
+              requireCodexService().applyServerRequestRawLifecycleForModule(input),
+            clearApprovalAttachment: (input) =>
+              requireCodexService().clearApprovalRequestAttachmentForModule(input),
+            removeUserInputProjection: (input) =>
+              requireCodexService().removeUserInputRequestProjectionForModule(input),
+            hasRendererOwner: (threadId) =>
+              requireCodexService().hasRendererConversationOwnerForModule(threadId),
+            broadcast: (input) => requireCodexService().syncServerRequestLifecycleForModule(input),
+            emitResolved: (event) =>
+              requireCodexService().emitServerRequestResolvedForModule(event),
+            observeUserInputResponse: (threadId, requestId) =>
+              userInputAutoResolution.observeResponse(threadId, requestId),
+            respondFollowerApproval: (input) =>
+              codexGateway
+                .requestRawForThread(
+                  input.threadId,
+                  input.response.kind === "command"
+                    ? "thread-follower-command-approval-decision"
+                    : "thread-follower-file-approval-decision",
+                  {
+                    conversationId: input.threadId,
+                    requestId: input.requestId,
+                    decision: input.response.decision,
+                  },
+                )
+                .pipe(
+                  Effect.asVoid,
+                  Effect.mapError(
+                    (cause) =>
+                      new CodexServerRequestResponseProjectionError({
+                        operation: "respond-follower-approval",
+                        cause,
+                      }),
+                  ),
+                ),
+          },
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const serverRequestResponseAdapter = makeCodexServerRequestResponsesPromiseAdapter(
+          serverRequestResponses,
+          callbacks,
+        );
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
@@ -2198,6 +2254,7 @@ export const live: Layer.Layer<
               persistedAtoms,
               attachments: attachments.legacy,
               pendingServerRequests,
+              serverRequestResponses: serverRequestResponseAdapter,
               activeGoalContinuation: activeGoalContinuationCallbacks,
               ownerNotificationDrain: makeCodexOwnerNotificationDrainRuntimePromiseAdapter(
                 ownerNotificationDrain,
@@ -2978,6 +3035,7 @@ export const live: Layer.Layer<
             structuredThreadTitle,
             backgroundProcesses,
             subagentCatalog,
+            serverRequestResponses,
             rendererClientRouter: rendererClients,
           }).pipe(
             Layer.provide(

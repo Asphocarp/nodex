@@ -58,6 +58,7 @@ it.effect("gates app discovery and coalesces concurrent status reads", () =>
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.empty,
       requestLocal,
       requestOnHost: (_hostId, method, params) => requestLocal(method, params),

@@ -239,6 +239,11 @@ it.effect("routes typed requests explicitly across local and thread execution ho
 
     const localAccount = yield* gateway.requestLocal("account/read", {});
     const remoteAccount = yield* gateway.requestForThread("thread-a", "account/read", {});
+    const remoteExtension = yield* gateway.requestRawForThread(
+      "thread-a",
+      "thread-follower-command-approval-decision",
+      { conversationId: "thread-a", requestId: "approval-1", decision: "decline" },
+    );
     assert.strictEqual(localAccount.account?.type, "chatgpt");
     assert.strictEqual(remoteAccount.account?.type, "chatgpt");
     if (localAccount.account?.type === "chatgpt") {
@@ -247,6 +252,10 @@ it.effect("routes typed requests explicitly across local and thread execution ho
     if (remoteAccount.account?.type === "chatgpt") {
       assert.strictEqual(remoteAccount.account.email, "remote@example.com");
     }
+    assert.strictEqual(
+      (remoteExtension as { readonly account?: { readonly email?: string } }).account?.email,
+      "remote@example.com",
+    );
 
     const localRemoval = yield* Effect.result(endpoints.unregister("local"));
     assert.isTrue(Result.isFailure(localRemoval));

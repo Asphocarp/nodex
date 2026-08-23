@@ -22,6 +22,7 @@ it.effect("routes thread requests through Gateway authority and global requests 
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.empty,
       requestLocal: unsupported,
       requestOnHost: (hostId, method) => {
@@ -68,6 +69,7 @@ it.effect("propagates Promise boundary cancellation to the Gateway request fiber
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.empty,
       requestLocal: unsupported,
       requestOnHost: () =>
