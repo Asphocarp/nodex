@@ -1,4 +1,5 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -23,10 +24,16 @@ import {
   sha256File,
   type NativeRuntimeArchitecture,
 } from "./native-runtime-manifest";
+import { cleanupIsolatedCore } from "./isolated-core-cleanup";
 import { verifyPackagedAgentSkills } from "./verify-packaged-agent-skills";
 import { InitialProjectBootstrapService } from "../src/main/initial-project-bootstrap-service";
 import { resolveInitialProjectJournalPath } from "../src/main/initial-project/initial-project-journal-store";
 import { CoreClient } from "../src/main/core-client/core-client";
+import {
+  acquireIsolatedRunLease,
+  ISOLATED_RUN_ID_ENV,
+  readIsolatedRunClaim,
+} from "../src/main/core-client/isolated-run-ownership";
 import { createCoreProjectWorkspaceAdapter } from "../src/main/core-client/project-workspace-adapter";
 
 export interface PackagedNativeRuntimeStructureOptions {
@@ -67,17 +74,49 @@ const DEFAULT_PREVIOUS_STORE_FIXTURE = resolve(
   "../crates/nodex-core/tests/fixtures/store-v130.db",
 );
 
-const STORE_MIGRATION_BACKUP_NAME = /^v130-to-v131-([a-f0-9]{64})\.db$/u;
+const STORE_MIGRATION_BACKUP_NAME = /^v([1-9]\d*)-to-v([1-9]\d*)-([a-f0-9]{64})\.db$/u;
+const STORE_FIXTURE_NAME = /^store-v([1-9]\d*)\.db$/u;
 
-export const assertContentAddressedStoreMigrationBackup = (backupPath: string): void => {
+export const assertContentAddressedStoreMigrationBackup = (
+  backupPath: string,
+  expected: { readonly sourceRevision: number; readonly targetRevision: number },
+): void => {
   const metadata = lstatSync(backupPath);
   const match = STORE_MIGRATION_BACKUP_NAME.exec(basename(backupPath));
   if (!metadata.isFile() || metadata.isSymbolicLink() || !match) {
     throw new Error("Packaged Store migration did not retain one content-addressed backup");
   }
-  if (sha256File(backupPath) !== match[1]) {
+  if (
+    Number(match[1]) !== expected.sourceRevision ||
+    Number(match[2]) !== expected.targetRevision ||
+    expected.targetRevision <= expected.sourceRevision
+  ) {
+    throw new Error("Packaged Store migration backup transition does not match the runtime");
+  }
+  if (sha256File(backupPath) !== match[3]) {
     throw new Error("Packaged Store migration backup digest does not match its filename");
   }
+};
+
+const storeFixtureRevision = (fixturePath: string): number => {
+  const revision = Number(STORE_FIXTURE_NAME.exec(basename(fixturePath))?.[1]);
+  if (!Number.isSafeInteger(revision) || revision <= 0) {
+    throw new Error("Packaged Store migration fixture must use the canonical store-vN.db name");
+  }
+  return revision;
+};
+
+const currentStoreRevision = (descriptorPath: string): number => {
+  const descriptor = JSON.parse(readFileSync(descriptorPath, "utf8")) as {
+    readonly actual_store_format?: { readonly version?: unknown };
+    readonly manifest?: { readonly store?: { readonly current?: { readonly version?: unknown } } };
+  };
+  const advertised = descriptor.manifest?.store?.current?.version;
+  const actual = descriptor.actual_store_format?.version;
+  if (!Number.isSafeInteger(advertised) || !Number.isSafeInteger(actual) || advertised !== actual) {
+    throw new Error("Packaged Core published inconsistent Store revision evidence");
+  }
+  return actual as number;
 };
 
 const run = (command: string, arguments_: readonly string[], label: string): CommandResult => {
@@ -330,6 +369,7 @@ const restrictedEnvironment = (home: string): NodeJS.ProcessEnv => ({
   NODEX_CORE_IDLE_TIMEOUT_MS: "2000",
   NODEX_HOME: join(home, "profile"),
   NODEX_LOG_CONSOLE: "false",
+  NODEX_LOG_FILE: "true",
   PATH: "/usr/bin:/bin",
   RUSTUP_HOME: join(home, "unavailable-rustup-home"),
   TMPDIR: join(home, "tmp"),
@@ -410,6 +450,25 @@ const readPackagedCoreIdentity = (
     throw new Error("Packaged Core published an invalid compatibility manifest digest");
   }
   return { pid: value.pid as number, startNonce: value.start_nonce };
+};
+
+export const isPackagedAppReady = (options: {
+  readonly descriptorPath: string;
+  readonly expectedCoreSha256: string;
+  readonly expectedHostPid: number;
+  readonly nodexHome: string;
+  readonly runId: string;
+}): boolean => {
+  const claim = readIsolatedRunClaim(options.nodexHome);
+  if (!claim || claim.phase !== "ready") return false;
+  if (claim.runId !== options.runId || claim.hostPid !== options.expectedHostPid) {
+    throw new Error("Packaged Nodex.app readiness belongs to another host generation");
+  }
+  if (!existsSync(options.descriptorPath)) {
+    throw new Error("Packaged Nodex.app became ready without a Core runtime descriptor");
+  }
+  readPackagedCoreIdentity(options.descriptorPath, options.expectedCoreSha256);
+  return true;
 };
 
 export const selectPackagedSmokeProjectId = (
@@ -587,6 +646,7 @@ const smokePreviousStoreMigration = async (
   appPath: string,
   previousStoreFixturePath: string,
 ): Promise<void> => {
+  const sourceRevision = storeFixtureRevision(previousStoreFixturePath);
   const directory = mkdtempSync("/tmp/ndx-store-migration-pkg-");
   const environment = restrictedEnvironment(directory);
   const profile = environment.NODEX_HOME!;
@@ -606,7 +666,7 @@ const smokePreviousStoreMigration = async (
       linkedCli,
       ["--json", "doctor"],
       environment,
-      "Migrate the v130 Store baseline through the packaged CLI symlink",
+      `Migrate the v${sourceRevision} Store baseline through the packaged CLI symlink`,
     );
     if ((JSON.parse(doctor.stdout) as { ok?: unknown }).ok !== true) {
       throw new Error("Migrated packaged Core doctor did not return a successful envelope");
@@ -616,7 +676,10 @@ const smokePreviousStoreMigration = async (
     if (backups.length !== 1) {
       throw new Error("Packaged Store migration did not retain one content-addressed backup");
     }
-    assertContentAddressedStoreMigrationBackup(join(backupRoot, backups[0]!));
+    assertContentAddressedStoreMigrationBackup(join(backupRoot, backups[0]!), {
+      sourceRevision,
+      targetRevision: currentStoreRevision(descriptor),
+    });
     const reopened = runWithEnvironment(
       linkedCli,
       ["--json", "doctor"],
@@ -701,46 +764,202 @@ const runWithEnvironment = (
   return { stderr: result.stderr, stdout: result.stdout };
 };
 
-const launchAppSmoke = async (appPath: string): Promise<void> => {
+const PACKAGED_APP_STARTUP_TIMEOUT_MS = 60_000;
+const PACKAGED_APP_TERMINATION_TIMEOUT_MS = 10_000;
+const PACKAGED_APP_KILL_TIMEOUT_MS = 5_000;
+const MAX_PACKAGED_APP_DIAGNOSTIC_CHARS = 32_768;
+
+interface CapturedProcessOutput {
+  stderr: string;
+  stdout: string;
+}
+
+const captureProcessOutput = (child: ChildProcess): CapturedProcessOutput => {
+  const output: CapturedProcessOutput = { stderr: "", stdout: "" };
+  const append = (key: keyof CapturedProcessOutput, chunk: Buffer | string): void => {
+    output[key] = `${output[key]}${String(chunk)}`.slice(-MAX_PACKAGED_APP_DIAGNOSTIC_CHARS);
+  };
+  child.stdout?.on("data", (chunk: Buffer | string) => append("stdout", chunk));
+  child.stderr?.on("data", (chunk: Buffer | string) => append("stderr", chunk));
+  return output;
+};
+
+const readPackagedAppRuntimeLogs = (nodexHome: string): string => {
+  const logDirectory = join(nodexHome, "logs");
+  if (!existsSync(logDirectory)) return "";
+  try {
+    return readdirSync(logDirectory)
+      .filter((entry) => entry.endsWith(".log"))
+      .sort()
+      .slice(-4)
+      .map((entry) => `== ${entry} ==\n${readFileSync(join(logDirectory, entry), "utf8")}`)
+      .join("\n")
+      .slice(-MAX_PACKAGED_APP_DIAGNOSTIC_CHARS);
+  } catch (error) {
+    return `Unable to read packaged app runtime logs: ${String(error)}`;
+  }
+};
+
+const waitForChildExit = async (child: ChildProcess, timeoutMs: number): Promise<boolean> => {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return await new Promise<boolean>((resolvePromise) => {
+    const onClose = (): void => {
+      clearTimeout(timer);
+      resolvePromise(true);
+    };
+    const timer = setTimeout(() => {
+      child.off("close", onClose);
+      resolvePromise(false);
+    }, timeoutMs);
+    child.once("close", onClose);
+  });
+};
+
+const signalProcessGroup = (child: ChildProcess, signal: NodeJS.Signals): void => {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+    child.kill(signal);
+  }
+};
+
+const stopPackagedApp = async (child: ChildProcess): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  signalProcessGroup(child, "SIGTERM");
+  if (await waitForChildExit(child, PACKAGED_APP_TERMINATION_TIMEOUT_MS)) return;
+  signalProcessGroup(child, "SIGKILL");
+  if (await waitForChildExit(child, PACKAGED_APP_KILL_TIMEOUT_MS)) return;
+  throw new Error("Packaged Nodex.app process group did not exit after SIGKILL");
+};
+
+const waitForPackagedAppReadiness = async (options: {
+  readonly child: ChildProcess;
+  readonly descriptorPath: string;
+  readonly expectedCoreSha256: string;
+  readonly nodexHome: string;
+  readonly runId: string;
+}): Promise<void> => {
+  const spawnErrors: Error[] = [];
+  const onSpawnError = (error: Error): void => {
+    spawnErrors.push(error);
+  };
+  options.child.once("error", onSpawnError);
+  try {
+    const deadline = Date.now() + PACKAGED_APP_STARTUP_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const spawnError = spawnErrors[0];
+      if (spawnError) {
+        throw new Error(`Packaged Nodex.app could not start: ${spawnError.message}`, {
+          cause: spawnError,
+        });
+      }
+      if (options.child.exitCode !== null || options.child.signalCode !== null) {
+        throw new Error(
+          "Packaged Nodex.app exited during startup " +
+            `(code ${String(options.child.exitCode)}, signal ${String(options.child.signalCode)})`,
+        );
+      }
+      if (
+        options.child.pid &&
+        isPackagedAppReady({
+          descriptorPath: options.descriptorPath,
+          expectedCoreSha256: options.expectedCoreSha256,
+          expectedHostPid: options.child.pid,
+          nodexHome: options.nodexHome,
+          runId: options.runId,
+        })
+      ) {
+        return;
+      }
+      await delay(50);
+    }
+    const phase = readIsolatedRunClaim(options.nodexHome)?.phase ?? "unclaimed";
+    throw new Error(
+      `Packaged Nodex.app did not become ready within ${PACKAGED_APP_STARTUP_TIMEOUT_MS}ms ` +
+        `(isolated host phase: ${phase})`,
+    );
+  } finally {
+    options.child.off("error", onSpawnError);
+  }
+};
+
+const launchAppSmoke = async (appPath: string, expectedCoreSha256: string): Promise<void> => {
   const directory = mkdtempSync("/tmp/ndx-app-");
   const userData = join(directory, "electron-user-data");
   const environment = restrictedEnvironment(directory);
   const executable = join(appPath, "Contents/MacOS/Nodex");
-  const descriptor = join(environment.NODEX_HOME!, "run/core/core.json");
+  const nodexHome = environment.NODEX_HOME!;
+  const descriptor = join(nodexHome, "run/core/core.json");
+  const runId = randomUUID();
   mkdirSync(environment.TMPDIR!, { mode: 0o700 });
+  mkdirSync(nodexHome, { mode: 0o700 });
+  const lease = acquireIsolatedRunLease({ nodexHome, runId, supervisorPid: process.pid });
   const child = spawn(executable, [`--user-data-dir=${userData}`], {
     cwd: directory,
-    env: environment,
-    stdio: "ignore",
+    detached: true,
+    env: { ...environment, [ISOLATED_RUN_ID_ENV]: runId },
+    stdio: ["ignore", "pipe", "pipe"],
   });
+  const output = captureProcessOutput(child);
+  let startupError: unknown = null;
+  const cleanupErrors: unknown[] = [];
   try {
-    const deadline = Date.now() + 5_000;
-    while (child.exitCode === null && !existsSync(descriptor) && Date.now() < deadline) {
-      await delay(50);
-    }
-    if (child.exitCode !== null) {
-      throw new Error(`Packaged Nodex.app exited during startup with status ${child.exitCode}`);
-    }
-    if (!existsSync(descriptor)) {
-      throw new Error(
-        "Packaged Nodex.app did not publish its Core runtime descriptor during startup",
+    await waitForPackagedAppReadiness({
+      child,
+      descriptorPath: descriptor,
+      expectedCoreSha256,
+      nodexHome,
+      runId,
+    });
+  } catch (error) {
+    startupError = error;
+  }
+
+  let applicationExited = false;
+  try {
+    await stopPackagedApp(child);
+    applicationExited = true;
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+
+  const runtimeLogs = readPackagedAppRuntimeLogs(nodexHome);
+  let safeToRemove = false;
+  if (applicationExited) {
+    const coreCleanup = await cleanupIsolatedCore({ lease, nodexHome, runId });
+    safeToRemove = coreCleanup.safeToDeleteRunRoot;
+    if (!safeToRemove) {
+      cleanupErrors.push(
+        new Error(
+          `Packaged Core cleanup ended with ${coreCleanup.status}: ` +
+            (coreCleanup.reason ?? "no reason reported"),
+        ),
       );
     }
-    const runtime = JSON.parse(readFileSync(descriptor, "utf8")) as { pid?: unknown };
-    if (!Number.isSafeInteger(runtime.pid)) {
-      throw new Error("Packaged Nodex.app published an invalid Core runtime descriptor");
+  }
+
+  if (safeToRemove) {
+    try {
+      removePrivateTemporaryDirectory(directory);
+    } catch (error) {
+      cleanupErrors.push(error);
     }
-  } finally {
-    if (child.exitCode === null) child.kill("SIGTERM");
-    await new Promise<void>((resolvePromise) => {
-      if (child.exitCode !== null) return resolvePromise();
-      child.once("exit", () => resolvePromise());
-      setTimeout(() => {
-        if (child.exitCode === null) child.kill("SIGKILL");
-      }, 5_000);
+  }
+
+  if (startupError || cleanupErrors.length > 0) {
+    const diagnostics = [
+      startupError instanceof Error ? (startupError.stack ?? startupError.message) : startupError,
+      ...cleanupErrors.map((error) => `Cleanup error: ${String(error)}`),
+      output.stdout ? `== stdout ==\n${output.stdout}` : "",
+      output.stderr ? `== stderr ==\n${output.stderr}` : "",
+      runtimeLogs,
+      existsSync(directory) ? `Preserved failed packaged smoke Profile: ${directory}` : "",
+    ].filter((section): section is string => typeof section === "string" && section.length > 0);
+    throw new Error(diagnostics.join("\n\n"), {
+      cause: startupError ?? cleanupErrors[0],
     });
-    await waitForRuntimeExit(descriptor);
-    removePrivateTemporaryDirectory(directory);
   }
 };
 
@@ -838,7 +1057,7 @@ export async function verifyPackagedNativeRuntimeSmoke(
     resolve(options.previousStoreFixturePath ?? DEFAULT_PREVIOUS_STORE_FIXTURE),
   );
   smokeBrowserProfileHelper(identity.appPath);
-  if (options.launchApp) await launchAppSmoke(identity.appPath);
+  if (options.launchApp) await launchAppSmoke(identity.appPath, identity.coreSha256);
   process.stdout.write(`Verified packaged native runtime smoke ${identity.targetArch}\n`);
 }
 

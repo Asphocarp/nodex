@@ -94,6 +94,7 @@ function createMacApplicationsInstallerEnvironment(): MacApplicationsInstallerEn
   return {
     platform: process.platform,
     isPackaged: app.isPackaged,
+    launchKind: primaryIsolatedRunId ? "supervised" : "ordinary",
     isInApplicationsFolder: () => {
       if (typeof app.isInApplicationsFolder !== "function") return true;
       return app.isInApplicationsFolder();
