@@ -738,42 +738,34 @@ one physical refresh fiber, fences completion with a monotonic generation, appli
 freshness and bounded failure backoff, and caches snapshots by the Project Workspace invalidation
 revision captured before each Core read. The database invalidation subscription, notification
 trailing debounce, minimum-generation repair, active refreshes, and cache all close with Main Scope.
-`CodexService` retains only first-window materialization and snapshot construction operations; it
-owns no refresh Promise, generation/freshness/backoff fields, cache, notification timer, or listener
-cleanup, and exposes no public snapshot/sync forwarding API. Renderer ingress invokes the typed
-runtime directly. The later paginated sweep publishes through the same revisioned projection
-boundary.
-
-The paginated background sidebar sweep is a separate Main-scoped runtime. It owns the single active
-sweep, cooperative replacement at the current physical page boundary, Effect-clock exponential
-retry with bounded jitter, and hard interruption on Main Scope close. `CodexService` owns only the
-domain step that materializes one app-server page or one reconciliation batch and returns the next
-immutable cursor state. A temporary Promise adapter drains the current non-cancellable page before
-a forced refresh starts, but it owns no timer, retry counter, generation fence, or in-flight queue.
+The same runtime owns first-window materialization and the paginated background reconciliation
+sweep, including cooperative replacement, bounded-jitter retry, and Scope interruption. It composes
+the typed Gateway, Core Workspace, Thread Directory, Internal Thread Registry, execution-host
+catalog, application event hub, and database invalidation Stream directly. Internal and ephemeral
+root identity comes only from app-server protocol metadata plus the scoped registry; child Threads
+remain durable descendants but Core retires any leaked sidebar Session ownership. No sidebar
+materialization, snapshot, sweep, telemetry callback bag, Promise adapter, timer, or hiding heuristic
+remains in `CodexService`.
 
 Thread Catalog reads, search, and placement are owned by `CodexThreadCatalog`. Project Thread
-windows and the bounded command-palette list are projected directly from Project Workspace; the
-latter merges the sidebar overview, projectless sessions, and Project windows, deduplicates by
-Thread, and applies the same recency ordering in one owner-scoped Effect. Full-text palette search
+windows, pinned order, and the bounded command-palette list are projected directly from Core
+Workspace windows. Those task windows carry the complete execution authority required by the
+catalog—provider/profile, host, cwd, managed-worktree identity, and Projectless directories—so the
+projection performs no per-Thread repair reads. Full-text palette search
 uses the typed local Codex Gateway directly, pages past filtered child/internal Threads with a
-repeated-cursor fence, and merges server results with the same local Project, pin, and runtime-status
-projection. Point resolution delegates durable identity and local app-server materialization to
+repeated-cursor fence, and merges server results with the same Core Project, pin, and runtime-status
+projection. Point resolution delegates durable identity and app-server materialization to
 `CodexThreadDirectory`, then publishes only a changed Project/projectless sidebar scope. Paginated
 pin reads, pin/unpin placement, full pinned-order
 replacement, and cross-Project/sidebar-lane moves share that source of truth. All
 mutations pass through one Main-scoped semaphore; reads remain concurrent but close with Main Scope.
-Ensuring a sidebar Session and preparing a move use that same mutation lane. Child Threads repair
-leaked Session ownership without creating another Session; root Threads reuse an existing owner or
-atomically create, link, restore writable roots, and restore pin state. A failed or interrupted link
-deletes the partially created Session before releasing admission.
-Moves include validation, Project access confirmation, Workspace/settings/canonical consequences,
-and exact sidebar publication before releasing admission. Pin mutations publish the exact
-Project/projectless invalidation through `CodexSidebarSyncRuntime` only after Core commits. Renderer
-ingress calls the typed Module directly, while internal launch flows use a stateless tracked
-projection. `CodexService` owns no public Project/palette read/search, point-resolution, Thread
-materialization, or placement command, Session creation algorithm, Promise chain, semaphore, or
-recovery tail; it temporarily supplies only non-sidebar hiding policy/projection, cached runtime
-fields, and the move domain projection.
+Ensuring a sidebar Session and preparing a move use the canonical Sidebar synchronization mutation
+lane. Root Threads reuse an existing owner or atomically create and link one; a failed link deletes
+the partial Session. Moves validate source and pin lanes, fence Project access grants with the target
+binding revision, commit Core placement and execution metadata, then delegate loaded-runtime and
+conversation relocation to `CodexThreadExecution`/`CodexConversationProjection` before publishing
+the exact changed scope. `CodexService` owns no catalog read/search, materialization, Session
+algorithm, pin/move command, cached projection, callback bag, or Promise adapter.
 
 Thread read state is owned by `CodexThreadReadState`. Manual read/unread transitions inspect the
 canonical and Project Workspace projections, reject archived or unknown Threads, persist to Project

@@ -92,6 +92,7 @@ export const projectCodexThreadDirectoryMaterialization = (input: {
   readonly explicitForkedFromId?: string | null;
   readonly executionProfile?: DesktopProjectWorkspaceThread["executionProfile"];
   readonly managedWorktreePath?: string | null;
+  readonly inferredInitialProjectId?: string | null;
   readonly observedExecutionHostId?: string;
   readonly fallbackCwd?: string | null;
   readonly nowMs: number;
@@ -128,7 +129,7 @@ export const projectCodexThreadDirectoryMaterialization = (input: {
     existingProjectId: existing?.projectId ?? null,
     explicitInitialOwnerProvided: parent !== null,
     explicitInitialProjectId: parent?.projectId ?? null,
-    inferredInitialProjectId: null,
+    inferredInitialProjectId: input.inferredInitialProjectId ?? null,
   });
   const threadSource = parseThreadSourceValue(candidate.threadSource ?? candidate.thread_source);
   const serviceName = candidate.serviceName ?? candidate.service_name;

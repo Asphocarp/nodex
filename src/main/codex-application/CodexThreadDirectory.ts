@@ -107,6 +107,12 @@ export class CodexThreadDirectory extends Context.Service<
       readonly projectlessOutputDirectory?: string | null;
       readonly projectlessWorkspaceBrowserRoot?: string | null;
     }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
+    /** Commits one app-server catalog observation with an explicit initial ownership decision. */
+    readonly observeMetadata: (input: {
+      readonly thread: Thread;
+      readonly inferredInitialProjectId: string | null;
+      readonly executionHostId?: string;
+    }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
   }
 >()("nodex/main/codex-application/CodexThreadDirectory") {}
 
@@ -255,6 +261,7 @@ export const make: Effect.Effect<
       readonly forkedFromId?: string | null;
       readonly executionProfile?: AgentExecutionProfile | null;
       readonly managedWorktreePath?: string | null;
+      readonly inferredInitialProjectId?: string | null;
       readonly executionHostId?: string;
       readonly fallbackCwd?: string | null;
       readonly hasUnreadTurn?: boolean;
@@ -286,6 +293,9 @@ export const make: Effect.Effect<
           : {}),
         ...(input.managedWorktreePath !== undefined
           ? { managedWorktreePath: input.managedWorktreePath }
+          : {}),
+        ...(input.inferredInitialProjectId !== undefined
+          ? { inferredInitialProjectId: input.inferredInitialProjectId }
           : {}),
         observedExecutionHostId: input.executionHostId,
         fallbackCwd: input.fallbackCwd,
@@ -851,5 +861,13 @@ export const make: Effect.Effect<
     acceptForkResult: (input) => runOwned(acceptForkResult(input)),
     acceptImportResult: (input) => runOwned(acceptImportResult(input)),
     acceptSessionStart: (input) => runOwned(acceptSessionStart(input)),
+    observeMetadata: (input) =>
+      runOwned(
+        persistObservation({
+          thread: normalizeThread(input.thread),
+          inferredInitialProjectId: input.inferredInitialProjectId,
+          executionHostId: input.executionHostId,
+        }).pipe(Effect.map((durable) => entry(durable, "metadata"))),
+      ),
   });
 });

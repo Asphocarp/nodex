@@ -1,14 +1,15 @@
+import { randomUUID } from "node:crypto";
+import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
+import type { ClientRequestResponsesByMethod } from "@nodex/effect-codex-app-server/rpc";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
-import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
-import type { ClientRequestResponsesByMethod } from "@nodex/effect-codex-app-server/rpc";
 import {
   CodexSidebarThreadMoveInputSchema,
+  readCodexSidebarThreadContainerLocation,
   type CodexSidebarThreadMoveInput,
   type CodexSidebarThreadMoveResult,
 } from "../../shared/codex-sidebar-thread-move";
@@ -23,22 +24,30 @@ import type {
   CommandPaletteThreadSummary,
   Project,
   ProjectSession,
-  ProjectSessionSummaryWindow,
-  ProjectSessionSummaryWindowInput,
 } from "../../shared/types";
-import type {
-  DesktopProjectWorkspaceSidebar,
-  DesktopProjectWorkspaceThread,
-} from "../core-client/project-workspace-adapter";
+import { CoreModuleResponseError } from "../core-client/core-client";
+import { applyResultCursor } from "../core-client/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
-import { CodexSidebarSyncRuntime, type CodexSidebarSyncMetadata } from "./CodexSidebarSyncRuntime";
-import { CodexThreadDirectory } from "./CodexThreadDirectory";
+import { CoreModules } from "../core-runtime/CoreModules";
+import { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import {
-  buildWorkspaceThreadSummary,
+  appendMissingCodexProjectMoveSources,
+  listMissingCodexProjectMoveSources,
+  resolveCodexProjectlessThreadWorkspaceMove,
+  resolveCodexProjectThreadWorkspaceMove,
+} from "../codex/codex-sidebar-thread-move";
+import { createCodexProjectlessWorkspace } from "../codex/codex-projectless-workspace";
+import { CodexInternalThreadRegistry } from "./CodexInternalThreadRegistry";
+import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
+import { CodexThreadDirectory } from "./CodexThreadDirectory";
+import { projectCoreWorkspaceThread } from "./CodexThreadDirectoryProjection";
+import { CodexThreadExecution } from "./CodexThreadExecution";
+import {
+  buildCoreWorkspaceTaskThreadSummary,
   hasSidebarThreadSummaryChanged,
   isNonSidebarThreadWithoutParent,
   parseThreadStatus,
-  normalizeSidebarSessionFallbackTitle,
+  projectCoreWorkspaceProject,
   resolveSidebarProjectIdForCwd,
   resolveSidebarThreadTitle,
 } from "./CodexThreadCatalogProjection";
@@ -59,50 +68,7 @@ export class CodexThreadCatalogError extends Data.TaggedError("CodexThreadCatalo
 }> {}
 
 export interface CodexThreadCatalogOptions {
-  readonly foldPathCase: boolean;
-  readonly readSidebarOverview: (
-    input: ProjectSessionSummaryWindowInput,
-  ) => Effect.Effect<ProjectSessionSummaryWindow, CodexThreadCatalogError>;
-  readonly listProjectWindow: (
-    projectId: string | null,
-    input: ProjectSessionSummaryWindowInput,
-  ) => Effect.Effect<ProjectSessionSummaryWindow, CodexThreadCatalogError>;
-  readonly listProjects: Effect.Effect<readonly Project[], CodexThreadCatalogError>;
-  readonly readThreadProjection: (threadId: string) => DesktopProjectWorkspaceThread | null;
-  readonly getSession: (
-    sessionId: string,
-  ) => Effect.Effect<ProjectSession | null, CodexThreadCatalogError>;
-  readonly createSession: (
-    projectId: string | null,
-    fallbackTitle: string,
-  ) => Effect.Effect<ProjectSession, CodexThreadCatalogError>;
-  readonly deleteSession: (sessionId: string) => Effect.Effect<void, CodexThreadCatalogError>;
-  readonly readWritableRoots: (
-    threadId: string,
-  ) => Effect.Effect<readonly string[], CodexThreadCatalogError>;
-  readonly linkSession: (
-    sessionId: string,
-    thread: DesktopProjectWorkspaceThread,
-    runtimeWorkspaceRoots: readonly string[],
-  ) => Effect.Effect<void, CodexThreadCatalogError>;
-  readonly setSessionPinned: (sessionId: string) => Effect.Effect<void, CodexThreadCatalogError>;
-  readonly repairChild: (
-    threadId: string,
-    parentThreadId: string,
-  ) => Effect.Effect<boolean, CodexThreadCatalogError>;
-  readonly shouldHideThread: (summary: CodexThreadSummary) => boolean;
-  readonly hideThread: (threadId: string) => Effect.Effect<void, CodexThreadCatalogError>;
-  readonly setThreadPinned: (
-    threadId: string,
-    pinned: boolean,
-    beforeThreadId?: string | null,
-  ) => Effect.Effect<DesktopProjectWorkspaceSidebar, CodexThreadCatalogError>;
-  readonly reorderPinnedThreads: (
-    orderedThreadIds: readonly string[],
-  ) => Effect.Effect<void, CodexThreadCatalogError>;
-  readonly move: (
-    input: CodexSidebarThreadMoveInput,
-  ) => Effect.Effect<CodexSidebarThreadMoveResult, CodexThreadCatalogError>;
+  readonly foldPathCase?: boolean;
 }
 
 export class CodexThreadCatalog extends Context.Service<
@@ -142,8 +108,12 @@ export class CodexThreadCatalog extends Context.Service<
 const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [] as const satisfies readonly ThreadSourceKind[];
 const COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT = 50;
 const COMMAND_PALETTE_THREAD_SEARCH_MAX_LIMIT = 60;
+type CoreTaskWindow = Extract<
+  import("../core-client/types").ProjectWorkspaceReadSnapshot["value"],
+  { readonly kind: "task_window" }
+>["tasks"];
 
-const normalizeCommandPaletteThreadSearchLimit = (limit: number | undefined): number => {
+const normalizeSearchLimit = (limit: number | undefined): number => {
   if (!Number.isFinite(limit)) return COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT;
   return Math.min(
     COMMAND_PALETTE_THREAD_SEARCH_MAX_LIMIT,
@@ -151,331 +121,485 @@ const normalizeCommandPaletteThreadSearchLimit = (limit: number | undefined): nu
   );
 };
 
-const metadataForProject = (projectId: string | null): CodexSidebarSyncMetadata => ({
-  changedProjectIds: projectId === null ? [] : [projectId],
-  projectlessChanged: projectId === null,
-  materializedSessionIds: [],
-  failedThreadIds: [],
-});
-
-const emptyMetadata: CodexSidebarSyncMetadata = {
-  changedProjectIds: [],
-  projectlessChanged: false,
-  materializedSessionIds: [],
-  failedThreadIds: [],
-};
-
-const projectThreadSummary = (
-  session: ProjectSessionSummaryWindow["items"][number],
-  projection: DesktopProjectWorkspaceThread | null,
-): CodexThreadSummary | null => {
-  const thread = session.thread;
-  if (!thread || thread.parentThreadId) return null;
-  return {
-    threadId: thread.threadId,
-    projectId: session.projectId,
-    forkedFromId: thread.forkedFromId ?? null,
-    source: null,
-    ephemeral: false,
-    threadSource: thread.threadSource ?? null,
-    serviceName: thread.serviceName ?? null,
-    agentNickname: thread.agentNickname ?? null,
-    agentRole: thread.agentRole ?? null,
-    agentPath: thread.agentPath ?? null,
-    threadName: thread.threadName ?? null,
-    threadPreview: thread.threadPreview,
-    modelProvider: projection?.modelProvider ?? "openai",
-    executionProfile: projection?.executionProfile ?? null,
-    cwd: thread.cwd ?? null,
-    managedWorktreePath: projection?.managedWorktreePath ?? null,
-    projectlessOutputDirectory: projection?.projectlessOutputDirectory ?? null,
-    projectlessWorkspaceBrowserRoot: projection?.projectlessWorkspaceBrowserRoot ?? null,
-    statusType: thread.statusType,
-    statusActiveFlags: [...thread.statusActiveFlags],
-    archived: session.archived || thread.archived,
-    pinned: session.pinned,
-    hasUnreadTurn: session.unread,
-    createdAt: thread.createdAt,
-    updatedAt: thread.updatedAt,
-    recencyAt: thread.recencyAt,
-    linkedAt: thread.linkedAt,
-  };
-};
+const isCoreNotFound = (cause: unknown): boolean =>
+  cause instanceof CoreRuntimeError &&
+  cause.cause instanceof CoreModuleResponseError &&
+  cause.cause.coreError.code === "not_found";
 
 export const make = (
-  options: CodexThreadCatalogOptions,
+  options: CodexThreadCatalogOptions = {},
 ): Effect.Effect<
   CodexThreadCatalog["Service"],
   never,
-  CodexGateway | CodexSidebarSyncRuntime | CodexThreadDirectory | Scope.Scope
+  | CodexGateway
+  | CodexInternalThreadRegistry
+  | CodexSidebarSyncRuntime
+  | CodexThreadDirectory
+  | CodexThreadExecution
+  | CoreModules
+  | Scope.Scope
 > =>
   Effect.gen(function* () {
     const ownerScope = yield* Scope.Scope;
     const gateway = yield* CodexGateway;
+    const internalThreads = yield* CodexInternalThreadRegistry;
     const sidebar = yield* CodexSidebarSyncRuntime;
     const directory = yield* CodexThreadDirectory;
+    const execution = yield* CodexThreadExecution;
+    const core = yield* CoreModules;
     const mutations = yield* Semaphore.make(1);
-    const runOwned = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+    const error = (operation: CodexThreadCatalogError["operation"], cause: unknown) =>
+      cause instanceof CodexThreadCatalogError
+        ? cause
+        : new CodexThreadCatalogError({ operation, cause });
+    const runOwned = <A>(
+      operation: Effect.Effect<A, CodexThreadCatalogError>,
+    ): Effect.Effect<A, CodexThreadCatalogError> =>
       Effect.acquireUseRelease(
         operation.pipe(Effect.forkIn(ownerScope, { startImmediately: true })),
         Fiber.join,
         Fiber.interrupt,
       );
-    const readSnapshot = (): Effect.Effect<CodexSidebarSnapshot, CodexThreadCatalogError> => {
-      return Effect.sync(() => sidebar.invalidate()).pipe(
-        Effect.andThen(sidebar.sync({ policy: "read", reason: "session-change" })),
-        Effect.map((result) => result.snapshot),
-        Effect.mapError((cause) => new CodexThreadCatalogError({ operation: "publish", cause })),
-      );
-    };
-    const publish = (
-      metadata: CodexSidebarSyncMetadata,
-      forceEmit = false,
-      reason: "host-message" | "session-change" = "session-change",
-    ): Effect.Effect<CodexSidebarSnapshot, CodexThreadCatalogError> => {
-      return Effect.sync(() => sidebar.invalidate()).pipe(
-        Effect.andThen(
-          sidebar.publish({
-            includeArchived: false,
-            source: "core",
-            refreshed: false,
-            metadata,
-            reason,
-            forceEmit,
-          }),
-        ),
-        Effect.map((result) => result.snapshot),
-        Effect.mapError((cause) => new CodexThreadCatalogError({ operation: "publish", cause })),
-      );
-    };
-    const runMutation = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+    const runMutation = <A>(operation: Effect.Effect<A, CodexThreadCatalogError>) =>
       runOwned(mutations.withPermit(operation));
-    const resolveThread = (
-      normalizedThreadId: string,
-    ): Effect.Effect<CodexThreadSummary | null, CodexThreadCatalogError> =>
-      Effect.gen(function* () {
-        const previousThread = options.readThreadProjection(normalizedThreadId);
-        const previous = previousThread ? buildWorkspaceThreadSummary(previousThread) : null;
-        const resolved = yield* directory
-          .resolve({
-            threadId: normalizedThreadId,
-            fidelity: "durable",
-            hostId: gateway.localHostId,
-          })
-          .pipe(
-            Effect.mapError(
-              (cause) => new CodexThreadCatalogError({ operation: "resolve", cause }),
-            ),
-          );
-        const summary = resolved?.summary ?? previous;
-        if (summary && hasSidebarThreadSummaryChanged(previous, summary)) {
-          yield* publish(metadataForProject(summary.projectId), false, "host-message");
-        }
-        return summary;
+
+    const readProjects = Effect.fn("CodexThreadCatalog.readProjects")(function* () {
+      const response = yield* core.workspace.read({
+        kind: "project_window",
+        include_archived: false,
+        window: { after: null, first: 200 },
       });
-    const ensureWorkspaceSession = (
-      thread: DesktopProjectWorkspaceThread,
-    ): Effect.Effect<ProjectSession, CodexThreadCatalogError> => {
-      if (thread.parentThreadId) {
-        return Effect.fail(
-          new CodexThreadCatalogError({
-            operation: "ensure-session",
-            cause: new Error(`Child Thread '${thread.threadId}' cannot own a sidebar Session`),
+      if (response.value.kind !== "project_window") {
+        return yield* error("list-palette", new Error("Core returned the wrong Project read"));
+      }
+      if (response.value.projects.next_cursor) {
+        return yield* error(
+          "list-palette",
+          new Error("Available Project collection exceeded its Core bound"),
+        );
+      }
+      return response.value.projects.items.map(projectCoreWorkspaceProject);
+    });
+
+    const readTaskWindow = Effect.fn("CodexThreadCatalog.readTaskWindow")(function* (input: {
+      readonly projectId: string | null;
+      readonly includeArchived?: boolean;
+      readonly after?: string | null;
+      readonly first?: number;
+      readonly pinned?: boolean;
+    }) {
+      const response = yield* core.workspace.read(
+        input.pinned
+          ? {
+              kind: "sidebar_overview" as const,
+              include_archived: input.includeArchived === true,
+              pinned_window: { after: input.after ?? null, first: input.first ?? 100 },
+            }
+          : {
+              kind: "task_window" as const,
+              project_id: input.projectId,
+              include_archived: input.includeArchived === true,
+              window: { after: input.after ?? null, first: input.first ?? 100 },
+            },
+      );
+      const tasks =
+        response.value.kind === "sidebar_overview"
+          ? response.value.pinned_tasks
+          : response.value.kind === "task_window"
+            ? response.value.tasks
+            : null;
+      if (!tasks) {
+        return yield* error("list-project", new Error("Core returned the wrong Task read"));
+      }
+      return tasks;
+    });
+
+    const readCoreThread = Effect.fn("CodexThreadCatalog.readThread")(function* (threadId: string) {
+      const response = yield* core.workspace
+        .read({ kind: "thread", thread_id: threadId })
+        .pipe(
+          Effect.catch((cause) =>
+            isCoreNotFound(cause) ? Effect.succeed(null) : Effect.fail(cause),
+          ),
+        );
+      if (response === null) return null;
+      if (response.value.kind !== "thread") {
+        return yield* error("resolve", new Error("Core returned the wrong Thread read"));
+      }
+      return response.value.thread;
+    });
+
+    const publish = (input: {
+      readonly projectIds?: readonly string[];
+      readonly projectless?: boolean;
+      readonly force?: boolean;
+    }): Effect.Effect<CodexSidebarSnapshot, CodexThreadCatalogError> =>
+      sidebar
+        .changed({
+          reason: "session-change",
+          changedProjectIds: input.projectIds,
+          projectlessChanged: input.projectless,
+          forceEmit: input.force,
+        })
+        .pipe(
+          Effect.map((result) => result.snapshot),
+          Effect.mapError((cause) => error("publish", cause)),
+        );
+
+    const readSnapshot = () =>
+      sidebar.sync({ policy: "read", reason: "session-change" }).pipe(
+        Effect.map((result) => result.snapshot),
+        Effect.mapError((cause) => error("publish", cause)),
+      );
+
+    const listPalette = Effect.fn("CodexThreadCatalog.listPalette")(function* (
+      input: CommandPaletteThreadListInput,
+    ) {
+      if (input.scope !== "sidebar") return [];
+      const projects = yield* readProjects();
+      const projectNames = new Map(projects.map((project) => [project.id, project.name] as const));
+      const summaries: CommandPaletteThreadSummary[] = [];
+      const seen = new Set<string>();
+      const add = (tasks: CoreTaskWindow): void => {
+        for (const task of tasks.items) {
+          if (summaries.length >= 100 || !task.thread || task.thread.parent_thread_id) continue;
+          if (task.session.archived || task.thread.archived || seen.has(task.thread.thread_id)) {
+            continue;
+          }
+          seen.add(task.thread.thread_id);
+          summaries.push({
+            threadId: task.thread.thread_id,
+            sessionId: task.session.id,
+            projectId: task.session.project_id ?? null,
+            projectName: task.session.project_id
+              ? (projectNames.get(task.session.project_id) ?? null)
+              : null,
+            title: task.session.display_title,
+            preview: task.thread.thread_preview,
+            cwd: task.thread.cwd ?? null,
+            gitBranch: null,
+            projectless: task.session.project_id == null,
+            pinned: task.session.pinned,
+            pinnedOrder: task.session.pinned_order ?? null,
+            statusType: task.thread.status.status_type,
+            statusActiveFlags: [...task.thread.status.active_flags],
+            createdAt: task.thread.created_at,
+            updatedAt: task.thread.recency_at,
+          });
+        }
+      };
+      add(yield* readTaskWindow({ projectId: null, pinned: true, first: 100 }));
+      if (summaries.length < 100) {
+        add(yield* readTaskWindow({ projectId: null, first: 100 - summaries.length }));
+      }
+      for (const project of projects) {
+        if (summaries.length >= 100) break;
+        add(
+          yield* readTaskWindow({
+            projectId: project.id,
+            first: 100 - summaries.length,
           }),
         );
       }
-      return Effect.gen(function* () {
-        if (thread.sessionId) {
-          const existing = yield* options.getSession(thread.sessionId);
-          if (existing) return existing;
-        }
+      return summaries.sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 100);
+    });
 
-        const summary = buildWorkspaceThreadSummary(thread);
-        return yield* Effect.acquireUseRelease(
-          options.createSession(thread.projectId, normalizeSidebarSessionFallbackTitle(summary)),
-          (session) =>
-            Effect.gen(function* () {
-              const runtimeWorkspaceRoots = yield* options.readWritableRoots(thread.threadId);
-              yield* options.linkSession(session.id, thread, runtimeWorkspaceRoots);
-              if (thread.pinnedOrder !== null) yield* options.setSessionPinned(session.id);
-              const linked = yield* options.getSession(session.id);
-              if (!linked?.thread) {
-                return yield* Effect.fail(
-                  new CodexThreadCatalogError({
-                    operation: "ensure-session",
-                    cause: new Error(
-                      `Unable to materialize Project Session for task: ${thread.threadId}`,
-                    ),
-                  }),
-                );
-              }
-              return linked;
-            }),
-          (session, exit) =>
-            Exit.isFailure(exit) ? options.deleteSession(session.id) : Effect.void,
-        );
-      });
+    const resolveThread = Effect.fn("CodexThreadCatalog.resolve")(function* (threadId: string) {
+      const before = yield* directory
+        .resolve({ threadId, fidelity: "durable" })
+        .pipe(Effect.mapError((cause) => error("resolve", cause)));
+      const resolved = yield* directory
+        .resolve({ threadId, fidelity: "durable", hostId: gateway.localHostId })
+        .pipe(Effect.mapError((cause) => error("resolve", cause)));
+      const summary = resolved?.summary ?? before?.summary ?? null;
+      if (summary && hasSidebarThreadSummaryChanged(before?.summary ?? null, summary)) {
+        yield* publish({
+          projectIds: summary.projectId ? [summary.projectId] : [],
+          projectless: summary.projectId === null,
+        });
+      }
+      return summary;
+    });
+
+    const placement = (input: CodexSidebarThreadMoveInput) => {
+      if (input.useDefaultOrder) return { kind: "default" as const };
+      if (input.beforeThreadId) {
+        return { kind: "before" as const, thread_id: input.beforeThreadId };
+      }
+      if (input.afterThreadId) return { kind: "after" as const, thread_id: input.afterThreadId };
+      if (input.insertAtEnd) return { kind: "end" as const };
+      return { kind: "start" as const };
     };
-    const prepareMoveSession = (threadId: string): Effect.Effect<void, CodexThreadCatalogError> =>
-      Effect.gen(function* () {
-        const normalizedThreadId = threadId.trim();
-        const resolved = yield* directory
-          .resolve({
-            threadId: normalizedThreadId,
-            fidelity: "durable",
-            hostId: gateway.localHostId,
-          })
-          .pipe(
-            Effect.mapError((cause) => new CodexThreadCatalogError({ operation: "move", cause })),
-          );
-        if (!resolved) {
-          return yield* Effect.fail(
-            new CodexThreadCatalogError({
-              operation: "move",
-              cause: new Error(`Task not found: ${normalizedThreadId}`),
-            }),
-          );
-        }
-        yield* ensureWorkspaceSession(resolved.durable);
-      });
 
-    const listPalette = (
-      input: CommandPaletteThreadListInput,
-    ): Effect.Effect<readonly CommandPaletteThreadSummary[], CodexThreadCatalogError> => {
-      if (input.scope !== "sidebar") return Effect.succeed([]);
-      return Effect.gen(function* () {
-        const projects = yield* options.listProjects;
-        const projectNameById = new Map(
-          projects.map((project) => [project.id, project.name] as const),
+    const move = Effect.fn("CodexThreadCatalog.move")(function* (
+      rawInput: CodexSidebarThreadMoveInput,
+    ) {
+      const input = yield* Effect.try({
+        try: () => CodexSidebarThreadMoveInputSchema.parse(rawInput),
+        catch: (cause) => error("move", cause),
+      });
+      yield* sidebar
+        .ensureSession(input.threadId)
+        .pipe(Effect.mapError((cause) => error("move", cause)));
+      const currentRaw = yield* readCoreThread(input.threadId);
+      if (!currentRaw) return yield* error("move", new Error(`Task not found: ${input.threadId}`));
+      const current = projectCoreWorkspaceThread(currentRaw);
+      const source = readCodexSidebarThreadContainerLocation(input.sourceContainerId);
+      const target = readCodexSidebarThreadContainerLocation(input.targetContainerId);
+      if (!source || source.projectId !== current.projectId) {
+        return yield* error("move", new Error("Sidebar task source changed during drag"));
+      }
+      if (source.pinned !== (current.pinnedOrder !== null)) {
+        return yield* error("move", new Error("Sidebar task pin lane changed during drag"));
+      }
+      if (!target) {
+        return yield* error(
+          "move",
+          new Error(`Unsupported sidebar target: ${input.targetContainerId}`),
         );
-        const seenThreadIds = new Set<string>();
-        const summaries: CommandPaletteThreadSummary[] = [];
-        const addWindow = (window: ProjectSessionSummaryWindow): void => {
-          for (const session of window.items) {
-            if (summaries.length >= 100) return;
-            const thread = session.thread;
-            if (
-              !thread ||
-              thread.parentThreadId ||
-              session.archived ||
-              thread.archived ||
-              seenThreadIds.has(thread.threadId)
-            ) {
-              continue;
-            }
-            seenThreadIds.add(thread.threadId);
-            summaries.push({
-              threadId: thread.threadId,
-              sessionId: session.id,
-              projectId: session.projectId,
-              projectName: session.projectId
-                ? (projectNameById.get(session.projectId) ?? null)
-                : null,
-              title: session.displayTitle,
-              preview: thread.threadPreview,
-              cwd: thread.cwd ?? null,
-              gitBranch: null,
-              projectless: session.projectId === null,
-              pinned: session.pinned,
-              pinnedOrder: session.pinnedOrder,
-              statusType: thread.statusType,
-              statusActiveFlags: [...thread.statusActiveFlags],
-              createdAt: thread.createdAt,
-              updatedAt: thread.recencyAt ?? thread.updatedAt,
-            });
+      }
+      if (
+        input.projectAccessGrant &&
+        input.projectAccessGrant.targetProjectId !== target.projectId
+      ) {
+        return yield* error("move", new Error("Project access grant does not match its target"));
+      }
+
+      const projects = yield* readProjects();
+      const sourceProject = current.projectId
+        ? (projects.find((project) => project.id === current.projectId) ?? null)
+        : null;
+      const targetProject = target.projectId
+        ? (projects.find((project) => project.id === target.projectId) ?? null)
+        : null;
+      if (current.projectId && !sourceProject) {
+        return yield* error("move", new Error(`Project not found: ${current.projectId}`));
+      }
+      if (target.projectId && !targetProject) {
+        return yield* error("move", new Error(`Project not found: ${target.projectId}`));
+      }
+      const missingSources = listMissingCodexProjectMoveSources(sourceProject, targetProject);
+      let targetForMove: Project | null = targetProject;
+      let projectAccessGrant:
+        | {
+            readonly expected_target_binding_revision: number;
+            readonly missing_source_roots: readonly string[];
           }
+        | undefined;
+      if (missingSources.length > 0) {
+        if (!targetProject || !target.projectId) {
+          return yield* error("move", new Error("Target Project is unavailable"));
+        }
+        const grant = input.projectAccessGrant;
+        const matches =
+          grant?.targetProjectId === target.projectId &&
+          grant.expectedBindingRevision === targetProject.bindingRevision &&
+          grant.missingProjectSources.length === missingSources.length &&
+          grant.missingProjectSources.every((root, index) => root === missingSources[index]);
+        if (!matches) {
+          return {
+            status: "confirmation-required" as const,
+            reason: "target-project-needs-source-access" as const,
+            threadId: input.threadId,
+            targetProjectId: target.projectId,
+            targetBindingRevision: targetProject.bindingRevision,
+            missingProjectSources: missingSources,
+            targetProjectName: targetProject.name,
+          };
+        }
+        targetForMove = appendMissingCodexProjectMoveSources(targetProject, missingSources);
+        projectAccessGrant = {
+          expected_target_binding_revision: targetProject.bindingRevision,
+          missing_source_roots: missingSources,
         };
-        addWindow(yield* options.readSidebarOverview({ first: 100 }));
-        if (summaries.length < 100) {
-          addWindow(
-            yield* options.listProjectWindow(null, {
-              first: 100 - summaries.length,
-            }),
-          );
-        }
-        for (const project of projects) {
-          if (summaries.length >= 100) break;
-          addWindow(
-            yield* options.listProjectWindow(project.id, {
-              first: 100 - summaries.length,
-            }),
-          );
-        }
-        summaries.sort((left, right) => right.updatedAt - left.updatedAt);
-        return summaries.slice(0, 100);
+      }
+
+      const currentWorkspace = {
+        cwd: current.cwd,
+        managedWorktreePath: current.managedWorktreePath,
+        projectlessOutputDirectory: current.projectlessOutputDirectory,
+        projectlessWorkspaceBrowserRoot: current.projectlessWorkspaceBrowserRoot,
+      };
+      const workspaceMove =
+        current.projectId === target.projectId
+          ? {
+              next: currentWorkspace,
+              runtimeWorkspaceRoots: [...currentRaw.writable_roots],
+            }
+          : targetForMove
+            ? yield* Effect.tryPromise({
+                try: () =>
+                  resolveCodexProjectThreadWorkspaceMove({
+                    current: currentWorkspace,
+                    targetProject: targetForMove,
+                    threadTitle: current.threadName ?? current.threadPreview ?? input.threadId,
+                    createProjectlessWorkspace: (workspaceInput) =>
+                      createCodexProjectlessWorkspace(workspaceInput),
+                  }),
+                catch: (cause) => error("move", cause),
+              })
+            : resolveCodexProjectlessThreadWorkspaceMove({
+                current: currentWorkspace,
+                persistedRuntimeWorkspaceRoots: currentRaw.writable_roots,
+              });
+      const operationId = randomUUID();
+      const applied = yield* core.workspace.apply({
+        operationId,
+        intent: {
+          kind: "move_thread",
+          thread_id: input.threadId,
+          source:
+            current.projectId === null
+              ? { kind: "projectless" }
+              : { kind: "project", project_id: current.projectId },
+          target:
+            target.projectId === null
+              ? { kind: "projectless" }
+              : { kind: "project", project_id: target.projectId },
+          placement: placement(input),
+          metadata:
+            current.projectId === target.projectId
+              ? {}
+              : {
+                  cwd: workspaceMove.next.cwd,
+                  managed_worktree_path: workspaceMove.next.managedWorktreePath,
+                  projectless_output_directory: workspaceMove.next.projectlessOutputDirectory,
+                  projectless_workspace_browser_root:
+                    workspaceMove.next.projectlessWorkspaceBrowserRoot,
+                },
+          ...(current.projectId === target.projectId
+            ? {}
+            : { runtime_workspace_roots: workspaceMove.runtimeWorkspaceRoots }),
+          ...(projectAccessGrant ? { project_access_grant: projectAccessGrant } : {}),
+        },
       });
-    };
+      if (source.pinned || target.pinned) {
+        yield* core.workspace.apply({
+          operationId: `electron:catalog-pin-after-move:${input.threadId}:${randomUUID()}`,
+          intent: {
+            kind: "set_thread_pinned",
+            thread_id: input.threadId,
+            pinned: target.pinned,
+            ...(target.pinned
+              ? {
+                  placement:
+                    input.beforeThreadId === null
+                      ? { kind: "end" as const }
+                      : { kind: "before" as const, thread_id: input.beforeThreadId },
+                }
+              : {}),
+          },
+        });
+      }
+      const movedRaw = yield* readCoreThread(input.threadId);
+      if (!movedRaw) {
+        return yield* error("move", new Error("Moved Task disappeared from Core"));
+      }
+      if (workspaceMove.next.cwd) {
+        yield* execution
+          .relocate({
+            threadId: input.threadId,
+            loaded: current.statusType !== "notLoaded",
+            location: {
+              hostId: movedRaw.execution_host_id,
+              cwd: workspaceMove.next.cwd,
+              workspaceRoots: workspaceMove.runtimeWorkspaceRoots,
+              managedWorktreePath: workspaceMove.next.managedWorktreePath,
+              projectId: target.projectId,
+              projectlessOutputDirectory: workspaceMove.next.projectlessOutputDirectory,
+              projectlessWorkspaceBrowserRoot: workspaceMove.next.projectlessWorkspaceBrowserRoot,
+            },
+          })
+          .pipe(Effect.mapError((cause) => error("move", cause)));
+      }
+      yield* publish({
+        projectIds: [current.projectId, target.projectId].filter(
+          (projectId): projectId is string => projectId !== null,
+        ),
+        projectless: current.projectId === null || target.projectId === null,
+      });
+      return {
+        status: "moved" as const,
+        threadId: input.threadId,
+        source: { projectId: current.projectId },
+        destination: { projectId: target.projectId },
+        operationId,
+        projectionRevision: applyResultCursor(applied),
+      };
+    });
 
     return CodexThreadCatalog.of({
       listPinned: runOwned(
         Effect.gen(function* () {
-          const threadIds: string[] = [];
+          const ids: string[] = [];
           let after: string | null = null;
           do {
-            const window: ProjectSessionSummaryWindow = yield* options.readSidebarOverview({
+            const tasks: CoreTaskWindow = yield* readTaskWindow({
+              projectId: null,
+              pinned: true,
               after,
               first: 200,
             });
-            threadIds.push(
-              ...window.items.flatMap((session) =>
-                session.thread ? [session.thread.threadId] : [],
-              ),
+            ids.push(
+              ...tasks.items.flatMap((task) => (task.thread ? [task.thread.thread_id] : [])),
             );
-            after = window.nextCursor;
-          } while (after !== null);
-          return threadIds;
-        }),
+            after = tasks.next_cursor ?? null;
+          } while (after);
+          return ids;
+        }).pipe(Effect.mapError((cause) => error("list-pinned", cause))),
       ),
       listProject: (projectId, input = {}) => {
-        const normalizedProjectId = projectId.trim();
-        if (!normalizedProjectId) {
-          return Effect.fail(
-            new CodexThreadCatalogError({
-              operation: "list-project",
-              cause: new Error("Project id is required"),
-            }),
-          );
-        }
+        const normalized = projectId.trim();
+        if (!normalized)
+          return Effect.fail(error("list-project", new Error("Project id is required")));
         return runOwned(
-          options.listProjectWindow(normalizedProjectId, input).pipe(
-            Effect.map((window) => ({
-              ...window,
-              items: window.items.flatMap((session) => {
-                const summary = projectThreadSummary(
-                  session,
-                  session.thread ? options.readThreadProjection(session.thread.threadId) : null,
-                );
-                return summary ? [summary] : [];
-              }),
+          readTaskWindow({
+            projectId: normalized,
+            includeArchived: input.includeArchived,
+            after: input.after,
+            first: input.first,
+          }).pipe(
+            Effect.map((tasks) => ({
+              items: tasks.items.flatMap((task) =>
+                task.thread && !task.thread.parent_thread_id
+                  ? [buildCoreWorkspaceTaskThreadSummary(task.session, task.thread)]
+                  : [],
+              ),
+              nextCursor: tasks.next_cursor ?? null,
+              hasMore: tasks.next_cursor != null,
+              projectionRevision: tasks.authority.projection_revision,
             })),
+            Effect.mapError((cause) => error("list-project", cause)),
           ),
         );
       },
-      listPalette: (input) => runOwned(listPalette(input)),
+      listPalette: (input) =>
+        runOwned(listPalette(input).pipe(Effect.mapError((cause) => error("list-palette", cause)))),
       searchPalette: (input) => {
         const query = input.query.trim();
         if (!query) return Effect.succeed([]);
-        const limit = normalizeCommandPaletteThreadSearchLimit(input.limit);
         return runOwned(
           Effect.gen(function* () {
-            const [localThreads, projects] = yield* Effect.all(
-              [listPalette({ scope: "sidebar" }), options.listProjects] as const,
+            const [local, projects] = yield* Effect.all(
+              [listPalette({ scope: "sidebar" }), readProjects()] as const,
               { concurrency: "unbounded" },
             );
-            const localByThreadId = new Map(
-              localThreads.map((thread) => [thread.threadId, thread] as const),
-            );
-            const projectNameById = new Map(
+            const localById = new Map(local.map((thread) => [thread.threadId, thread] as const));
+            const projectNames = new Map(
               projects.map((project) => [project.id, project.name] as const),
             );
             const results: CommandPaletteThreadSearchResult[] = [];
-            const seenThreadIds = new Set<string>();
+            const seen = new Set<string>();
             const seenCursors = new Set<string>();
             let cursor: string | null = null;
-
-            while (results.length < limit) {
-              const response: ClientRequestResponsesByMethod["thread/search"] = yield* gateway
-                .requestLocal("thread/search", {
+            const limit = normalizeSearchLimit(input.limit);
+            do {
+              if (cursor) {
+                if (seenCursors.has(cursor)) break;
+                seenCursors.add(cursor);
+              }
+              const response: ClientRequestResponsesByMethod["thread/search"] =
+                yield* gateway.requestLocal("thread/search", {
                   cursor,
                   limit: limit - results.length,
                   sortKey: "updated_at",
@@ -483,148 +607,111 @@ export const make = (
                   sourceKinds: [...CODEX_SIDEBAR_THREAD_SOURCE_KINDS],
                   archived: false,
                   searchTerm: query,
-                })
-                .pipe(
-                  Effect.mapError(
-                    (cause) => new CodexThreadCatalogError({ operation: "search-palette", cause }),
-                  ),
-                );
-
-              for (const result of response.data) {
-                const thread = result.thread;
-                if (thread.ephemeral || thread.parentThreadId) continue;
-                if (isNonSidebarThreadWithoutParent(thread as unknown as Record<string, unknown>)) {
+                });
+              for (const item of response.data) {
+                const thread = item.thread;
+                if (
+                  thread.ephemeral ||
+                  thread.parentThreadId ||
+                  internalThreads.shouldSuppress(thread.id) ||
+                  isNonSidebarThreadWithoutParent(thread as unknown as Record<string, unknown>) ||
+                  seen.has(thread.id)
+                ) {
                   continue;
                 }
-                if (seenThreadIds.has(thread.id)) continue;
-                seenThreadIds.add(thread.id);
-
-                const local = localByThreadId.get(thread.id);
-                const inferredProjectId = resolveSidebarProjectIdForCwd(
+                seen.add(thread.id);
+                const persisted = localById.get(thread.id);
+                const inferred = resolveSidebarProjectIdForCwd(
                   thread.cwd,
                   projects,
-                  options.foldPathCase,
+                  options.foldPathCase === true,
                 );
-                const projectId = local?.projectId ?? inferredProjectId;
-                const parsedStatus = parseThreadStatus(thread.status);
-                const createdAt = Number(thread.createdAt) * 1_000;
-                const updatedAt = Number(thread.recencyAt ?? thread.updatedAt) * 1_000;
-                const candidate: CommandPaletteThreadSummary = {
-                  threadId: thread.id,
-                  sessionId: local?.sessionId ?? null,
-                  projectId,
-                  projectName: projectId
-                    ? (projectNameById.get(projectId) ?? local?.projectName ?? null)
-                    : null,
-                  title: resolveSidebarThreadTitle({
-                    threadName: thread.name,
-                    threadPreview: thread.preview,
-                  }),
-                  preview: thread.preview,
-                  cwd: thread.cwd,
-                  gitBranch: thread.gitInfo?.branch ?? null,
-                  projectless: projectId === null,
-                  pinned: local?.pinned ?? false,
-                  pinnedOrder: local?.pinnedOrder ?? null,
-                  statusType: local?.statusType ?? parsedStatus.statusType,
-                  statusActiveFlags: local?.statusActiveFlags ?? parsedStatus.statusActiveFlags,
-                  createdAt: Number.isFinite(createdAt) ? createdAt : (local?.createdAt ?? 0),
-                  updatedAt: Number.isFinite(updatedAt) ? updatedAt : (local?.updatedAt ?? 0),
-                };
-                results.push({ thread: candidate, snippet: result.snippet });
+                const projectId = persisted?.projectId ?? inferred;
+                const status = parseThreadStatus(thread.status);
+                results.push({
+                  thread: {
+                    threadId: thread.id,
+                    sessionId: persisted?.sessionId ?? null,
+                    projectId,
+                    projectName: projectId
+                      ? (projectNames.get(projectId) ?? persisted?.projectName ?? null)
+                      : null,
+                    title: resolveSidebarThreadTitle({
+                      threadName: thread.name,
+                      threadPreview: thread.preview,
+                    }),
+                    preview: thread.preview,
+                    cwd: thread.cwd,
+                    gitBranch: thread.gitInfo?.branch ?? null,
+                    projectless: projectId === null,
+                    pinned: persisted?.pinned ?? false,
+                    pinnedOrder: persisted?.pinnedOrder ?? null,
+                    statusType: persisted?.statusType ?? status.statusType,
+                    statusActiveFlags: persisted?.statusActiveFlags ?? status.statusActiveFlags,
+                    createdAt: Number(thread.createdAt) * 1_000,
+                    updatedAt: Number(thread.recencyAt ?? thread.updatedAt) * 1_000,
+                  },
+                  snippet: item.snippet,
+                });
                 if (results.length >= limit) break;
               }
-
-              const nextCursor: string | null = response.nextCursor ?? null;
-              if (!nextCursor || seenCursors.has(nextCursor)) break;
-              seenCursors.add(nextCursor);
-              cursor = nextCursor;
-            }
-
+              cursor = response.nextCursor ?? null;
+            } while (cursor && results.length < limit);
             return results;
-          }),
+          }).pipe(Effect.mapError((cause) => error("search-palette", cause))),
         );
       },
       resolve: (threadId) => {
-        const normalizedThreadId = threadId.trim();
-        if (!normalizedThreadId) return Effect.succeed(null);
-        return runOwned(resolveThread(normalizedThreadId));
+        const normalized = threadId.trim();
+        return normalized ? runOwned(resolveThread(normalized)) : Effect.succeed(null);
       },
-      ensureSession: (threadId) => {
-        const normalizedThreadId = threadId.trim();
-        if (!normalizedThreadId) return Effect.succeed(null);
+      ensureSession: (threadId) =>
+        sidebar
+          .ensureSession(threadId)
+          .pipe(Effect.mapError((cause) => error("ensure-session", cause))),
+      setPinned: (threadId, pinned, beforeThreadId) => {
+        const normalized = threadId.trim();
+        if (!normalized) return runOwned(readSnapshot());
         return runMutation(
           Effect.gen(function* () {
-            const resolved = yield* directory
-              .resolve({
-                threadId: normalizedThreadId,
-                fidelity: "durable",
-                hostId: gateway.localHostId,
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
-                ),
-              );
-            if (!resolved) return null;
-            const thread = resolved.durable;
-
-            const summary = buildWorkspaceThreadSummary(thread);
-            if (thread.parentThreadId) {
-              if (thread.sessionId) {
-                const repaired = yield* options.repairChild(thread.threadId, thread.parentThreadId);
-                if (!repaired) {
-                  return yield* Effect.fail(
-                    new CodexThreadCatalogError({
-                      operation: "ensure-session",
-                      cause: new Error(
-                        `Child Thread '${thread.threadId}' disappeared during sidebar repair`,
-                      ),
+            const thread = yield* readCoreThread(normalized);
+            if (!thread) return yield* readSnapshot();
+            yield* core.workspace.apply({
+              operationId: `electron:catalog-pin:${normalized}:${randomUUID()}`,
+              intent: {
+                kind: "set_thread_pinned",
+                thread_id: normalized,
+                pinned,
+                ...(!pinned || beforeThreadId === undefined
+                  ? {}
+                  : {
+                      placement:
+                        beforeThreadId === null
+                          ? { kind: "end" as const }
+                          : { kind: "before" as const, thread_id: beforeThreadId },
                     }),
-                  );
-                }
-                yield* Effect.sync(() => sidebar.invalidate());
-              }
-              return null;
-            }
-            if (options.shouldHideThread(summary)) {
-              yield* options.hideThread(summary.threadId);
-              return null;
-            }
-            return yield* ensureWorkspaceSession(thread);
-          }),
-        );
-      },
-      setPinned: (threadId, pinned, beforeThreadId) => {
-        const normalizedThreadId = threadId.trim();
-        if (!normalizedThreadId) return runOwned(readSnapshot());
-        return runMutation(
-          options.setThreadPinned(normalizedThreadId, pinned, beforeThreadId).pipe(
-            Effect.flatMap((workspace) => {
-              const thread = workspace.threads.find(
-                (candidate) => candidate.threadId === normalizedThreadId,
-              );
-              return thread ? publish(metadataForProject(thread.projectId)) : readSnapshot();
-            }),
-          ),
+              },
+            });
+            return yield* publish({
+              projectIds: thread.project_id ? [thread.project_id] : [],
+              projectless: thread.project_id == null,
+            });
+          }).pipe(Effect.mapError((cause) => error("set-pinned", cause))),
         );
       },
       reorderPinned: (orderedThreadIds) =>
         runMutation(
-          options
-            .reorderPinnedThreads(orderedThreadIds)
-            .pipe(Effect.andThen(publish(emptyMetadata, true))),
+          core.workspace
+            .apply({
+              operationId: `electron:catalog-reorder-pinned:${randomUUID()}`,
+              intent: { kind: "reorder_pinned_threads", thread_ids: [...orderedThreadIds] },
+            })
+            .pipe(
+              Effect.andThen(publish({ force: true })),
+              Effect.mapError((cause) => error("reorder-pinned", cause)),
+            ),
         ),
       move: (input) =>
-        runMutation(
-          Effect.try({
-            try: () => CodexSidebarThreadMoveInputSchema.parse(input),
-            catch: (cause) => new CodexThreadCatalogError({ operation: "move", cause }),
-          }).pipe(
-            Effect.flatMap((validated) =>
-              prepareMoveSession(validated.threadId).pipe(Effect.andThen(options.move(validated))),
-            ),
-          ),
-        ),
+        runMutation(move(input).pipe(Effect.mapError((cause) => error("move", cause)))),
     });
   });

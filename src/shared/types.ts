@@ -1056,9 +1056,13 @@ export interface ProjectSessionThreadSummary {
   agentPath?: string | null;
   threadName?: string;
   threadPreview: string;
+  modelProvider: string;
+  executionProfile?: AgentExecutionProfile | null;
   executionHostId: string;
   cwd?: string;
   managedWorktreePath?: string | null;
+  projectlessOutputDirectory?: string | null;
+  projectlessWorkspaceBrowserRoot?: string | null;
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
   archived: boolean;

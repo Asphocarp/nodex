@@ -112,6 +112,7 @@ const directory = (
     descendants: unsupported,
     acceptRollbackResult: unsupported,
     acceptForkResult: unsupported,
+    observeMetadata: () => Effect.die("unused"),
     acceptSessionStart: unsupported,
   } as unknown as CodexThreadDirectory["Service"]);
 };

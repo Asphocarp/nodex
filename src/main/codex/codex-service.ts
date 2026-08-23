@@ -14,20 +14,16 @@ import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/Con
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
-import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
-import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
 import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
 import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSource";
-import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2/ThreadItem";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
 import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/ThreadResumeParams";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadSettings } from "@nodex/codex-app-server-protocol/v2/ThreadSettings";
-import type { ThreadSettingsUpdateResponse } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdateResponse";
 import type { Thread } from "@nodex/codex-app-server-protocol/v2/Thread";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
@@ -69,10 +65,6 @@ import type {
   CodexQueuedFollowUp,
   CodexReviewDiffCommentAttachment,
   CodexReasoningEffort,
-  CodexSidebarRefreshReason,
-  CodexSidebarSnapshot,
-  CodexSidebarSyncResult,
-  CodexSidebarThreadItem,
   CodexSteerTurnInput,
   CodexSteeringRestoreMessage,
   CodexSteeringUserInput,
@@ -104,9 +96,7 @@ import type {
   CodexPromptAgentConfigInput,
   CodexPromptInput,
   CodexPromptTextAttachmentInput,
-  Project,
   ProjectSession,
-  ProjectSessionSummary,
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
@@ -121,7 +111,6 @@ import type {
   ExecutionHost,
   ExecutionHostRuntime,
 } from "../codex-application/ExecutionHostRuntime";
-import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import type { CodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import type { CodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
 import type { CodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
@@ -138,12 +127,6 @@ import {
 } from "../../shared/codex-terminal-interaction";
 import { stripCodexRemarkDirectiveLines } from "../../shared/codex-remark-directives";
 import { CODEX_CLIENT_THREAD_ID_PREFIX } from "../../shared/codex-client-thread";
-import {
-  readCodexSidebarThreadContainerLocation,
-  type CodexSidebarThreadMoveInput,
-  type CodexSidebarThreadMoveResult,
-  type CodexSidebarThreadMoveScope,
-} from "../../shared/codex-sidebar-thread-move";
 import { buildCodexDelegationInput } from "../../shared/codex-delegation";
 import {
   buildCodexPendingWorktreeSetupRepairPrompt,
@@ -188,21 +171,12 @@ import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application
 import type { CodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import type { CodexRendererConversationRegistryService } from "../codex-application/CodexRendererConversationRegistry";
 import type { CodexRendererConversationCoordinatorService } from "../codex-application/CodexRendererConversationCoordinator";
-import type {
-  CodexSidebarRefreshOutcomeEvent,
-  CodexSidebarSyncDecisionEvent,
-  CodexSidebarSyncMetadata,
-} from "../codex-application/CodexSidebarSyncRuntime";
-import type { CodexSidebarSyncRuntimePromiseAdapter } from "../codex-application/CodexSidebarSyncRuntimePromiseAdapter";
 import type { CodexUserInputAutoResolutionLegacyPort } from "../codex-application/CodexUserInputAutoResolution";
 import {
   buildPlanImplementationRequestId,
   selectPrimaryBackgroundConversationRequest,
 } from "../../shared/codex-conversation-request";
-import {
-  extractCodexThreadSubagentMetadata,
-  getCodexSubagentOtherSource,
-} from "../../shared/codex-subagent-metadata";
+import { extractCodexThreadSubagentMetadata } from "../../shared/codex-subagent-metadata";
 import {
   type CodexNotificationConversationFacts,
   type CodexThreadNotificationEvent,
@@ -352,7 +326,6 @@ import {
 } from "./codex-app-meta-thread-tools";
 import {
   getCodexClientThreadId,
-  listCodexClientThreadIdentities,
   resolveCodexThreadIdForClientThreadId,
   setCodexClientThreadIdentity,
 } from "./codex-client-thread-identity";
@@ -404,14 +377,6 @@ import {
   repairCodexProjectlessWorkspace,
 } from "./codex-projectless-workspace-repair";
 import {
-  appendMissingCodexProjectMoveSources,
-  listMissingCodexProjectMoveSources,
-  resolveCodexProjectlessThreadWorkspaceMove,
-  resolveCodexProjectThreadWorkspaceMove,
-  type CodexSidebarThreadWorkspaceMove,
-  type CodexSidebarThreadWorkspaceState,
-} from "./codex-sidebar-thread-move";
-import {
   type CodexDynamicCreateModelProjection,
   type CodexDynamicCreateThreadInput,
 } from "./codex-dynamic-thread-create";
@@ -435,16 +400,10 @@ import {
 import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
 import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
-import type { CodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
 import {
   buildWorkspaceThreadSummary,
-  hasSidebarThreadSummaryChanged,
-  isInternalThreadSourceValue,
-  isNonSidebarThreadWithoutParent,
-  normalizeSidebarSessionFallbackTitle,
   parseThreadSourceValue,
   parseThreadStatus,
-  resolveSidebarProjectIdForCwd,
 } from "../codex-application/CodexThreadCatalogProjection";
 import type { ConversationCommands } from "../codex-application/ConversationCommands";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
@@ -473,11 +432,6 @@ import {
 } from "../dev-runtime-metrics";
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
-const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [] as const satisfies readonly ThreadSourceKind[];
-const AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES = [
-  "The following is the Codex agent history",
-  "The following is the Codex agent history added since your last approval assessment",
-] as const;
 const CODEX_HEARTBEAT_ROLLOUT_TAIL_BYTES = 256 * 1024;
 const CODEX_HEARTBEAT_TERMINAL_ROLLOUT_EVENTS = new Set([
   "task_complete",
@@ -550,106 +504,6 @@ interface CodexScheduledAutomationRunContext {
   leaseId?: string;
   scheduleDispatched?: boolean;
   heartbeat?: CodexScheduledAutomationHeartbeatRunContext;
-}
-
-interface SidebarThreadSyncMetadata {
-  changedProjectIds: Set<string>;
-  projectlessChanged: boolean;
-  materializedSessionIds: Set<string>;
-  failedThreadIds: Set<string>;
-}
-
-interface CodexSidebarSweepState {
-  readonly phase: "scan" | "reconcile";
-  readonly sweepId: string;
-  readonly cursor: string | null;
-  readonly archived: boolean;
-  readonly includeArchived: boolean;
-  readonly projects: readonly Project[];
-  readonly reason: CodexSidebarRefreshReason;
-  readonly metadata: SidebarThreadSyncMetadata;
-}
-
-interface SidebarThreadMaterializationResult {
-  summary: CodexThreadSummary | null;
-  projectId: string | null;
-  projectless: boolean;
-  sessionId: string | null;
-  materialized: boolean;
-  changed: boolean;
-  failed: boolean;
-  changedProjectIds: Set<string>;
-  projectlessChanged: boolean;
-}
-
-interface SidebarThreadSessionReconcileResult {
-  session: ProjectSession | null;
-  materialized: boolean;
-  changedProjectIds: Set<string>;
-  projectlessChanged: boolean;
-}
-
-function createEmptySidebarThreadMaterializationResult(): SidebarThreadMaterializationResult {
-  return {
-    summary: null,
-    projectId: null,
-    projectless: false,
-    sessionId: null,
-    materialized: false,
-    changed: false,
-    failed: false,
-    changedProjectIds: new Set(),
-    projectlessChanged: false,
-  };
-}
-
-function createSidebarThreadSyncMetadata(): SidebarThreadSyncMetadata {
-  return {
-    changedProjectIds: new Set(),
-    projectlessChanged: false,
-    materializedSessionIds: new Set(),
-    failedThreadIds: new Set(),
-  };
-}
-
-function projectSidebarThreadSyncMetadata(
-  metadata: SidebarThreadSyncMetadata,
-): CodexSidebarSyncMetadata {
-  return {
-    changedProjectIds: [...metadata.changedProjectIds],
-    projectlessChanged: metadata.projectlessChanged,
-    materializedSessionIds: [...metadata.materializedSessionIds],
-    failedThreadIds: [...metadata.failedThreadIds],
-  };
-}
-
-function markSidebarSyncScopeChanged(
-  metadata: Pick<SidebarThreadSyncMetadata, "changedProjectIds" | "projectlessChanged">,
-  projectId: string | null | undefined,
-): void {
-  if (projectId) {
-    metadata.changedProjectIds.add(projectId);
-    return;
-  }
-  metadata.projectlessChanged = true;
-}
-
-function mergeSidebarThreadMaterialization(
-  metadata: SidebarThreadSyncMetadata,
-  result: SidebarThreadMaterializationResult,
-): void {
-  if (!result.summary) return;
-  if (result.failed) metadata.failedThreadIds.add(result.summary.threadId);
-  if (result.sessionId && result.materialized)
-    metadata.materializedSessionIds.add(result.sessionId);
-
-  for (const projectId of result.changedProjectIds) {
-    metadata.changedProjectIds.add(projectId);
-  }
-  if (result.projectlessChanged) metadata.projectlessChanged = true;
-
-  if (!result.changed && !result.materialized) return;
-  markSidebarSyncScopeChanged(metadata, result.projectId);
 }
 
 type DormantConversationSyncReason =
@@ -764,8 +618,6 @@ type CodexServiceOptions = {
   ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
   rendererConversations: CodexRendererConversationRegistryService;
   rendererConversationCoordinator: CodexRendererConversationCoordinatorService;
-  sidebarSync: CodexSidebarSyncRuntimePromiseAdapter;
-  sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   gitProbe: CodexGitProbePromiseAdapter;
   heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
@@ -774,7 +626,6 @@ type CodexServiceOptions = {
   pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
-  threadCatalog: CodexThreadCatalogPromiseAdapter;
   conversationCommands: ConversationCommands["Service"];
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
@@ -1090,31 +941,6 @@ function shouldShowThreadGoalResumeConfirmation(status: ThreadGoal["status"]): b
   return status === "paused" || status === "blocked" || status === "usageLimited";
 }
 
-function parseThreadParentThreadId(thread: Record<string, unknown>): string | null {
-  return extractCodexThreadSubagentMetadata(thread).parentThreadId;
-}
-
-function isGuardianSubagentSource(source: unknown): boolean {
-  return getCodexSubagentOtherSource(source)?.toLowerCase() === "guardian";
-}
-
-function isPotentialAutoReviewReviewerPreview(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const trimmed = value.trim();
-  return AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
-}
-
-function isConfirmedAutoReviewReviewerMetadata(
-  sessionStore: CodexSessionStore,
-  threadId: string,
-  runtimeStateHome: string,
-): boolean {
-  const metadata = sessionStore.readThreadMetadata(threadId, runtimeStateHome);
-  if (!metadata) return false;
-  const threadSource = parseThreadSourceValue(metadata.threadSource);
-  return threadSource === "subagent" && isGuardianSubagentSource(metadata.source);
-}
-
 function isRolloutMaterializationMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   const isLegacyRolloutError =
@@ -1136,27 +962,6 @@ function isRolloutMaterializationMessage(message: string): boolean {
 
 function isRolloutMaterializationError(error: unknown): boolean {
   return error instanceof CodexRpcError && isRolloutMaterializationMessage(error.message);
-}
-
-function isThreadNotFoundError(error: unknown): boolean {
-  if (!(error instanceof CodexRpcError)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("thread not found") ||
-    (message.includes("thread") && message.includes("not found"))
-  );
-}
-
-function isUnsupportedStateDbOnlyThreadListError(error: unknown): boolean {
-  if (!(error instanceof CodexRpcError)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("usestatedbonly") &&
-    (message.includes("unknown field") ||
-      message.includes("invalid params") ||
-      message.includes("deserialize") ||
-      message.includes("experimentalapi"))
-  );
 }
 
 function isPathWithinOrEqual(parentPath: string, candidatePath: string): boolean {
@@ -1363,17 +1168,6 @@ function hasOwnValue(record: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
-function isUnsupportedThreadSettingsUpdateError(error: unknown): boolean {
-  if (!(error instanceof CodexRpcError)) return false;
-  if (error.code === -32601) return true;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("method not found") ||
-    message.includes("unknown method") ||
-    (message.includes("thread/settings/update") && message.includes("unsupported"))
-  );
-}
-
 /** Internal sentinel for the remaining class-local request projection. */
 export const CodexApplicationRequestPending = Symbol.for(
   "nodex/main/codex-application/CodexApplicationRequestPending",
@@ -1395,8 +1189,6 @@ export class CodexService {
   private readonly ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
   private readonly rendererConversations: CodexRendererConversationRegistryService;
   private readonly rendererConversationCoordinator: CodexRendererConversationCoordinatorService;
-  private readonly sidebarSync: CodexSidebarSyncRuntimePromiseAdapter;
-  private readonly sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   private readonly gitProbe: CodexGitProbePromiseAdapter;
   private readonly heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   private readonly structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
@@ -1442,7 +1234,6 @@ export class CodexService {
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
-  private readonly threadCatalog: CodexThreadCatalogPromiseAdapter;
   private readonly conversationCommands: ConversationCommands["Service"];
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
@@ -1455,7 +1246,6 @@ export class CodexService {
   private readonly deletedThreadIds = new Set<string>();
   private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   private readonly terminalInputBuffers = new Map<string, string>();
-  private sidebarUseStateDbOnlyThreadList = true;
 
   constructor(options: CodexServiceOptions) {
     this.conversationRuntimes = options.conversationRuntimes;
@@ -1490,8 +1280,6 @@ export class CodexService {
     this.ownerNotificationDrain = options.ownerNotificationDrain;
     this.rendererConversations = options.rendererConversations;
     this.rendererConversationCoordinator = options.rendererConversationCoordinator;
-    this.sidebarSync = options.sidebarSync;
-    this.sidebarSweep = options.sidebarSweep;
     this.gitProbe = options.gitProbe;
     this.heartbeatTurnCompletion = options.heartbeatTurnCompletion;
     this.structuredThreadTitle = options.structuredThreadTitle;
@@ -1500,7 +1288,6 @@ export class CodexService {
     this.pendingWorktreeRuntime = options.pendingWorktrees;
     this.threadSettingsRuntime = options.threadSettingsRuntime;
     this.threadTitlePersistence = options.threadTitlePersistence;
-    this.threadCatalog = options.threadCatalog;
     this.conversationCommands = options.conversationCommands;
     this.postResumeGoals = options.postResumeGoals;
     this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
@@ -1795,10 +1582,6 @@ export class CodexService {
       codexSessionId: input.codexSessionId,
       projectId: input.projectId,
     });
-  }
-
-  handleExecutionHostTopologyChanged(): void {
-    this.invalidateSidebarSnapshotCache();
   }
 
   private scheduleManagedWorktreeRetention(): void {
@@ -3337,7 +3120,6 @@ export class CodexService {
   }
 
   projectPendingWorktreeSnapshot(entries: readonly CodexPendingWorktreeEntry[]): void {
-    this.invalidateSidebarSnapshotCache();
     this.applicationEvents.publish({ kind: "pendingWorktreesChanged", value: entries });
   }
 
@@ -3571,996 +3353,9 @@ export class CodexService {
     }
   }
 
-  /** Effect Module projection operation; callers use CodexThreadCatalog. */
-  readThreadCatalogProjection(threadId: string): DesktopProjectWorkspaceThread | null {
-    return this.workspaceThreadProjectionById.get(threadId) ?? null;
-  }
-
-  /** Effect Module policy projection; callers use CodexThreadCatalog.ensureSession. */
-  shouldHideThreadForCatalog(summary: CodexThreadSummary): boolean {
-    return this.shouldHidePersistedNonSidebarThread(summary);
-  }
-
-  /** Effect Module projection operation; callers use CodexThreadCatalog.ensureSession. */
-  async hideThreadForCatalog(threadId: string): Promise<void> {
-    await this.hideNonSidebarThreadMaterialization(threadId, "manual");
-  }
-
   /** Temporary synchronous projection seam for application Modules committing Core Threads. */
   projectWorkspaceThreadFromModule(thread: DesktopProjectWorkspaceThread): void {
     this.rememberWorkspaceThread(thread);
-  }
-
-  /** Effect Module adapter operation; materializes the first app-server window. */
-  async refreshSidebarThreadsForSync(input: {
-    includeArchived: boolean;
-    reason: CodexSidebarRefreshReason;
-  }): Promise<CodexSidebarSyncMetadata> {
-    return projectSidebarThreadSyncMetadata(await this.refreshSidebarThreadsFromAppServer(input));
-  }
-
-  /** Effect Module adapter operation; emits an already policy-approved projection. */
-  emitSidebarSyncUpdated(result: CodexSidebarSyncResult, reason: CodexSidebarRefreshReason): void {
-    logDevRuntimeMetric("codex.sidebar.sync_updated_emit", {
-      emitted: true,
-      reason,
-      source: result.source,
-      refreshed: result.refreshed,
-      itemCount: result.snapshot.items.length,
-      changedProjectCount: result.changedProjectIds.length,
-      projectlessChanged: result.projectlessChanged,
-      materializedSessionCount: result.materializedSessionIds.length,
-      failedThreadCount: result.failedThreadIds.length,
-      approxPayloadBytes: approximateJsonPayloadBytes(result),
-    });
-    this.emitHostMessage({
-      type: "sidebarSyncUpdated",
-      hostId: DEFAULT_CODEX_HOST_ID,
-      result,
-      reason,
-    });
-  }
-
-  private invalidateSidebarSnapshotCache(): void {
-    this.sidebarSync.invalidate();
-  }
-
-  recordSidebarSyncDecision(event: CodexSidebarSyncDecisionEvent): void {
-    const result = event.result;
-    logDevRuntimeMetric("codex.sidebar.sync", {
-      decision: event.decision,
-      policy: event.policy,
-      reason: event.reason,
-      includeArchived: event.includeArchived,
-      source: result.source,
-      refreshed: result.refreshed,
-      itemCount: result.snapshot.items.length,
-      changedProjectCount: result.changedProjectIds.length,
-      projectlessChanged: result.projectlessChanged,
-      materializedSessionCount: result.materializedSessionIds.length,
-      failedThreadCount: result.failedThreadIds.length,
-      approxPayloadBytes: approximateJsonPayloadBytes(result),
-      durationMs: event.durationMs,
-      cacheAgeMs: event.cacheAgeMs,
-      backoffRemainingMs: event.backoffRemainingMs,
-    });
-  }
-
-  recordSidebarRefreshOutcome(event: CodexSidebarRefreshOutcomeEvent): void {
-    const result = event.result;
-    if (event.outcome === "error") {
-      this.logger.warn("Could not sync sidebar threads from app-server", {
-        reason: event.reason,
-        error: event.error instanceof Error ? event.error.message : String(event.error),
-      });
-    }
-    logDevRuntimeMetric("codex.sidebar.refresh", {
-      outcome: event.outcome,
-      reason: event.reason,
-      includeArchived: event.includeArchived,
-      ...(event.error
-        ? { error: event.error instanceof Error ? event.error.message : String(event.error) }
-        : {}),
-      ...(event.nextBackoffMs === undefined ? {} : { nextBackoffMs: event.nextBackoffMs }),
-      itemCount: result?.snapshot.items.length,
-      changedProjectCount: result?.changedProjectIds.length,
-      projectlessChanged: result?.projectlessChanged,
-      materializedSessionCount: result?.materializedSessionIds.length,
-      failedThreadCount: result?.failedThreadIds.length,
-      approxPayloadBytes: result ? approximateJsonPayloadBytes(result) : null,
-      durationMs: event.durationMs,
-    });
-  }
-
-  /** Effect Module adapter operation; builds a snapshot at the supplied revision fence. */
-  async buildBoundedWorkspaceSidebarSnapshot(
-    includeArchived: boolean,
-    revisionAtStart: number,
-  ): Promise<CodexSidebarSnapshot> {
-    const overview = await this.projectWorkspace.readSidebarOverview(includeArchived);
-    const tasks = overview.items.filter(
-      (
-        task,
-      ): task is ProjectSessionSummary & {
-        thread: NonNullable<ProjectSessionSummary["thread"]>;
-      } => task.thread !== null && !task.thread.parentThreadId,
-    );
-    const clientThreadIdByThreadId = new Map(
-      listCodexClientThreadIdentities(
-        this.persistedAtoms,
-        CODEX_APP_LOCAL_HOST_ID,
-        tasks.map((task) => task.thread.threadId),
-      ).map(({ threadId, clientThreadId }) => [threadId, clientThreadId] as const),
-    );
-    const hostDisplayNameById = new Map(
-      (await this.controlPlane.runPromise(this.executionHosts.hosts())).map((host) => [
-        host.hostId,
-        host.displayName,
-      ]),
-    );
-    const projectAssignments: Record<string, string> = {};
-    const projectlessThreadIds: string[] = [];
-    const items = tasks.map((task): CodexSidebarThreadItem => {
-      const thread = task.thread;
-      const hostId = thread.executionHostId || DEFAULT_CODEX_HOST_ID;
-      const isLocalHost = hostId === CODEX_APP_LOCAL_HOST_ID;
-      const hostDisplayName = hostDisplayNameById.get(hostId) ?? hostId;
-      const managedWorktreePath = thread.managedWorktreePath ?? null;
-      const projectId = task.projectId ?? thread.projectId;
-      if (projectId) projectAssignments[thread.threadId] = projectId;
-      else projectlessThreadIds.push(thread.threadId);
-      const clientThreadId = clientThreadIdByThreadId.get(thread.threadId) ?? null;
-      return {
-        key: `${isLocalHost ? "local" : "remote"}:${clientThreadId ?? thread.threadId}`,
-        kind: isLocalHost ? "local" : "remote",
-        runLocation: managedWorktreePath
-          ? isLocalHost
-            ? { kind: "local-worktree", path: managedWorktreePath, phase: "ready" }
-            : {
-                kind: "remote-worktree",
-                hostId,
-                hostDisplayName,
-                path: managedWorktreePath,
-                phase: "ready",
-              }
-          : isLocalHost
-            ? { kind: "local-checkout" }
-            : { kind: "remote-checkout", hostId, hostDisplayName },
-        ...(clientThreadId ? { clientThreadId } : {}),
-        hostId,
-        threadId: thread.threadId,
-        parentThreadId: thread.parentThreadId ?? null,
-        sessionId: task.id,
-        projectId,
-        title: task.displayTitle,
-        preview: thread.threadPreview,
-        cwd: thread.cwd ?? null,
-        updatedAt: thread.updatedAt,
-        recencyAt: thread.recencyAt ?? null,
-        createdAt: thread.createdAt,
-        pinned: task.pinned,
-        pinnedOrder: task.pinnedOrder,
-        unread: task.unread,
-        archived: task.archived || thread.archived,
-        statusType: thread.statusType,
-        statusActiveFlags: [...thread.statusActiveFlags],
-        projectless: projectId === null,
-        disabled: false,
-      };
-    });
-    const snapshot: CodexSidebarSnapshot = {
-      items,
-      pinnedThreadIds: items.map((item) => item.threadId),
-      projectAssignments,
-      projectlessThreadIds,
-      revision: revisionAtStart,
-      generatedAt: Date.now(),
-    };
-    return snapshot;
-  }
-
-  private async buildSidebarThreadMoveScope(
-    projectId: string | null,
-  ): Promise<CodexSidebarThreadMoveScope> {
-    return { projectId };
-  }
-
-  private async buildSidebarThreadMoveSuccess(input: {
-    threadId: string;
-    sourceProjectId: string | null;
-    targetProjectId: string | null;
-    operationId: string;
-    projectionRevision: number;
-  }): Promise<CodexSidebarThreadMoveResult> {
-    return {
-      status: "moved",
-      threadId: input.threadId,
-      source: await this.buildSidebarThreadMoveScope(input.sourceProjectId),
-      destination: await this.buildSidebarThreadMoveScope(input.targetProjectId),
-      operationId: input.operationId,
-      projectionRevision: input.projectionRevision,
-    };
-  }
-
-  private assertSidebarThreadMoveSource(input: {
-    sourceContainerId: CodexSidebarThreadMoveInput["sourceContainerId"];
-    sourceProjectId: string | null;
-    pinned: boolean;
-  }): void {
-    const sourceLocation = readCodexSidebarThreadContainerLocation(input.sourceContainerId);
-    if (sourceLocation === null) {
-      throw new Error(`Unsupported local sidebar task source: ${input.sourceContainerId}`);
-    }
-    if (sourceLocation.projectId !== input.sourceProjectId) {
-      throw new Error("Sidebar task source project changed during drag");
-    }
-    if (sourceLocation.pinned !== input.pinned) {
-      throw new Error("Sidebar task pin lane changed during drag");
-    }
-  }
-
-  private async syncLoadedSidebarThreadWorkspaceMove(input: {
-    threadId: string;
-    wasLoaded: boolean;
-    previous: CodexSidebarThreadWorkspaceState;
-    move: CodexSidebarThreadWorkspaceMove;
-  }): Promise<void> {
-    if (!input.wasLoaded) return;
-    if (input.previous.cwd === input.move.next.cwd) return;
-    if (this.threadSettingsRuntime.remoteUpdateSupport() === "unsupported") return;
-    try {
-      await this.ensureClientReady();
-      await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
-        "thread/settings/update",
-        {
-          threadId: input.threadId,
-          cwd: input.move.next.cwd,
-        },
-      );
-      this.threadSettingsRuntime.recordRemoteUpdateSupported();
-    } catch (error) {
-      if (isUnsupportedThreadSettingsUpdateError(error)) {
-        this.threadSettingsRuntime.recordRemoteUpdateUnsupported();
-        this.logger.warn(
-          "Codex app-server does not support workspace updates for loaded sidebar tasks",
-          { threadId: input.threadId },
-        );
-        return;
-      }
-      if (isThreadNotFoundError(error)) {
-        this.logger.info(
-          "Sidebar task unloaded before its runtime workspace could be synchronized",
-          { threadId: input.threadId },
-        );
-        return;
-      }
-      this.logger.warn("Could not synchronize the loaded task workspace after moving it", {
-        threadId: input.threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  private applySidebarThreadWorkspaceMoveToRecord(input: {
-    threadId: string;
-    targetProjectId: string | null;
-    move: CodexSidebarThreadWorkspaceMove;
-  }): void {
-    const record = this.conversationRecords.get(input.threadId);
-    if (!record) return;
-
-    if (record.detail) {
-      record.detail = {
-        ...record.detail,
-        projectId: input.targetProjectId,
-        cwd: input.move.next.cwd,
-        managedWorktreePath: input.move.next.managedWorktreePath,
-        projectlessOutputDirectory: input.move.next.projectlessOutputDirectory,
-        projectlessWorkspaceBrowserRoot: input.move.next.projectlessWorkspaceBrowserRoot,
-      };
-    }
-    const canonical = this.readCanonicalConversationState(record.threadId);
-    const hydrationContext = canonical?.sidecar.hydrationContext ?? null;
-    if (canonical && hydrationContext) {
-      this.acceptCanonicalConversationState(input.threadId, {
-        ...canonical,
-        sidecar: {
-          ...canonical.sidecar,
-          hydrationContext: {
-            ...hydrationContext,
-            cwd: input.move.next.cwd,
-            latestThreadSettings: {
-              ...(hydrationContext.latestThreadSettings ?? {}),
-              cwd: input.move.next.cwd,
-            },
-            currentPermissions: {
-              ...hydrationContext.currentPermissions,
-              runtimeWorkspaceRoots: [...input.move.runtimeWorkspaceRoots],
-            },
-          },
-        },
-      });
-    }
-    this.syncAcceptedConversationDocument(input.threadId, { syncDetail: true });
-  }
-
-  /** Effect Module projection operation; callers use CodexThreadCatalog.move. */
-  async applySidebarThreadMove(
-    input: CodexSidebarThreadMoveInput,
-  ): Promise<CodexSidebarThreadMoveResult> {
-    const threadId = input.threadId.trim();
-    let workspaceThread = await this.readWorkspaceThread(threadId);
-    if (!workspaceThread) throw new Error(`Task not found: ${threadId}`);
-
-    const sourceProjectId = workspaceThread.projectId;
-    const pinned = workspaceThread.pinnedOrder !== null;
-    this.assertSidebarThreadMoveSource({
-      sourceContainerId: input.sourceContainerId,
-      sourceProjectId,
-      pinned,
-    });
-
-    const targetLocation = readCodexSidebarThreadContainerLocation(input.targetContainerId);
-    if (targetLocation === null) {
-      throw new Error(`Unsupported local sidebar task target: ${input.targetContainerId}`);
-    }
-    const targetProjectId = targetLocation.projectId;
-    if (input.projectAccessGrant && input.projectAccessGrant.targetProjectId !== targetProjectId) {
-      throw new Error("Sidebar task Project access grant does not match its target");
-    }
-    if (targetProjectId === sourceProjectId && input.projectAccessGrant) {
-      throw new Error("Sidebar task Project access grant requires a cross-Project move");
-    }
-
-    const [sourceProject, targetProject] = await Promise.all([
-      sourceProjectId === null
-        ? Promise.resolve(null)
-        : this.projectWorkspace.getProject(sourceProjectId),
-      targetProjectId === null
-        ? Promise.resolve(null)
-        : this.projectWorkspace.getProject(targetProjectId),
-    ]);
-    if (targetProjectId !== null && !targetProject) {
-      throw new Error(`Project not found: ${targetProjectId}`);
-    }
-    if (sourceProjectId !== null && !sourceProject) {
-      throw new Error(`Project not found: ${sourceProjectId}`);
-    }
-    const missingProjectSources =
-      targetProject === null
-        ? []
-        : listMissingCodexProjectMoveSources(sourceProject, targetProject);
-    let targetProjectForMove = targetProject;
-    let projectAccessGrant:
-      | NonNullable<Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]["projectAccessGrant"]>
-      | undefined;
-    if (missingProjectSources.length > 0) {
-      if (!targetProject || targetProjectId === null) {
-        throw new Error("Target Project is unavailable during access confirmation");
-      }
-      const grant = input.projectAccessGrant;
-      const grantMatches =
-        grant !== undefined &&
-        grant.targetProjectId === targetProjectId &&
-        grant.expectedBindingRevision === targetProject.bindingRevision &&
-        grant.missingProjectSources.length === missingProjectSources.length &&
-        grant.missingProjectSources.every((root, index) => root === missingProjectSources[index]);
-      if (!grantMatches) {
-        return {
-          status: "confirmation-required",
-          reason: "target-project-needs-source-access",
-          threadId,
-          targetProjectId,
-          targetBindingRevision: targetProject.bindingRevision,
-          missingProjectSources,
-          targetProjectName: targetProject.name,
-        };
-      }
-      targetProjectForMove = appendMissingCodexProjectMoveSources(
-        targetProject,
-        missingProjectSources,
-      );
-      projectAccessGrant = {
-        expectedTargetBindingRevision: targetProject.bindingRevision,
-        missingProjectSources,
-      };
-    }
-
-    workspaceThread = await this.readWorkspaceThread(threadId);
-    if (!workspaceThread || workspaceThread.projectId !== sourceProjectId) {
-      throw new Error("Sidebar task source project changed during move preparation");
-    }
-    const summary = this.buildWorkspaceThreadSummary(workspaceThread);
-
-    const previousWorkspace: CodexSidebarThreadWorkspaceState = {
-      cwd: summary.cwd,
-      managedWorktreePath: summary.managedWorktreePath ?? null,
-      projectlessOutputDirectory: summary.projectlessOutputDirectory ?? null,
-      projectlessWorkspaceBrowserRoot: summary.projectlessWorkspaceBrowserRoot ?? null,
-    };
-    const workspaceMove =
-      sourceProjectId === targetProjectId
-        ? {
-            next: previousWorkspace,
-            runtimeWorkspaceRoots: await this.readThreadWritableRoots(threadId),
-          }
-        : targetProjectForMove
-          ? await resolveCodexProjectThreadWorkspaceMove({
-              current: previousWorkspace,
-              targetProject: targetProjectForMove,
-              threadTitle: summary.threadName ?? summary.threadPreview ?? threadId,
-              createProjectlessWorkspace: async (workspaceInput) =>
-                await createCodexProjectlessWorkspace(workspaceInput),
-            })
-          : resolveCodexProjectlessThreadWorkspaceMove({
-              current: previousWorkspace,
-              persistedRuntimeWorkspaceRoots: await this.readThreadWritableRoots(threadId),
-            });
-    const moved = await this.projectWorkspace.moveThread({
-      threadId,
-      sourceProjectId,
-      targetProjectId,
-      ...(sourceProjectId === targetProjectId
-        ? {}
-        : { runtimeWorkspaceRoots: workspaceMove.runtimeWorkspaceRoots }),
-      ...(projectAccessGrant === undefined ? {} : { projectAccessGrant }),
-      ...(targetLocation.pinned
-        ? {
-            useDefaultOrder: true,
-          }
-        : {
-            beforeThreadId: input.beforeThreadId,
-            ...(input.afterThreadId === undefined ? {} : { afterThreadId: input.afterThreadId }),
-            ...(input.insertAtEnd ? { insertAtEnd: true } : {}),
-            ...(input.useDefaultOrder ? { useDefaultOrder: true } : {}),
-          }),
-      ...(sourceProjectId === targetProjectId
-        ? {}
-        : {
-            metadata: {
-              cwd: workspaceMove.next.cwd,
-              managedWorktreePath: workspaceMove.next.managedWorktreePath,
-              projectlessOutputDirectory: workspaceMove.next.projectlessOutputDirectory,
-              projectlessWorkspaceBrowserRoot: workspaceMove.next.projectlessWorkspaceBrowserRoot,
-            },
-          }),
-    });
-    this.rememberWorkspaceThread(moved.thread);
-
-    await this.syncLoadedSidebarThreadWorkspaceMove({
-      threadId,
-      wasLoaded: workspaceThread.statusType !== "notLoaded",
-      previous: previousWorkspace,
-      move: workspaceMove,
-    });
-    if (pinned || targetLocation.pinned) {
-      try {
-        this.rememberWorkspaceSidebar(
-          await this.projectWorkspace.setThreadPinned(
-            threadId,
-            targetLocation.pinned,
-            targetLocation.pinned ? (input.beforeThreadId ?? null) : undefined,
-          ),
-        );
-      } catch (error) {
-        this.logger.warn("Failed to save sidebar pin state after moving task", {
-          threadId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    this.applySidebarThreadWorkspaceMoveToRecord({
-      threadId,
-      targetProjectId,
-      move: workspaceMove,
-    });
-
-    const metadata = createSidebarThreadSyncMetadata();
-    markSidebarSyncScopeChanged(metadata, sourceProjectId);
-    markSidebarSyncScopeChanged(metadata, targetProjectId);
-    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "session-change");
-    return await this.buildSidebarThreadMoveSuccess({
-      threadId,
-      sourceProjectId,
-      targetProjectId,
-      operationId: moved.operationId,
-      projectionRevision: moved.projectionRevision,
-    });
-  }
-
-  private async retireChildSidebarSession(thread: DesktopProjectWorkspaceThread): Promise<void> {
-    if (!thread.parentThreadId || !thread.sessionId) return;
-    const repaired = await this.projectWorkspace.updateThread(thread.threadId, {
-      parentThreadId: thread.parentThreadId,
-    });
-    if (!repaired) {
-      throw new Error(`Child Thread '${thread.threadId}' disappeared during sidebar repair`);
-    }
-    this.invalidateSidebarSnapshotCache();
-  }
-
-  private async refreshSidebarThreadsFromAppServer(input: {
-    includeArchived: boolean;
-    reason: CodexSidebarRefreshReason;
-  }): Promise<SidebarThreadSyncMetadata> {
-    const startedAt = getDevRuntimeMetricStart();
-    await this.ensureClientReady();
-    await this.sidebarSweep.cancel();
-
-    const projects = await this.projectWorkspace.listProjects();
-    const metadata = createSidebarThreadSyncMetadata();
-    const sweepId = randomUUID();
-
-    try {
-      const response = await this.requestSidebarThreadList({
-        cursor: null,
-        archived: false,
-      });
-      const observedThreadIds = await this.materializeSidebarThreadListWindow(response, {
-        projects,
-        includeArchived: input.includeArchived,
-        reason: input.reason,
-        metadata,
-      });
-      if (observedThreadIds.length > 0) {
-        await this.projectWorkspace.observeAppServerThreadWindow(sweepId, observedThreadIds);
-      }
-      const continuation: CodexSidebarSweepState = {
-        phase: "scan",
-        sweepId,
-        cursor: response.nextCursor,
-        archived: response.nextCursor === null,
-        includeArchived: input.includeArchived,
-        projects,
-        reason: input.reason,
-        metadata,
-      };
-      await this.sidebarSweep.start(continuation, (state) => this.advanceSidebarThreadSweep(state));
-
-      logDevRuntimeMetric("codex.sidebar.refresh_thread_list", {
-        outcome: "success",
-        reason: input.reason,
-        includeArchived: input.includeArchived,
-        projectCount: projects.length,
-        pageCount: 1,
-        threadCount: response.data.length,
-        continuationScheduled: true,
-        changedProjectCount: metadata.changedProjectIds.size,
-        projectlessChanged: metadata.projectlessChanged,
-        materializedSessionCount: metadata.materializedSessionIds.size,
-        failedThreadCount: metadata.failedThreadIds.size,
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      return metadata;
-    } catch (error) {
-      logDevRuntimeMetric("codex.sidebar.refresh_thread_list", {
-        outcome: "error",
-        reason: input.reason,
-        includeArchived: input.includeArchived,
-        projectCount: projects.length,
-        error: error instanceof Error ? error.message : String(error),
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      throw error;
-    }
-  }
-
-  private async materializeSidebarThreadListWindow(
-    response: ThreadListResponse,
-    input: {
-      projects: readonly Project[];
-      includeArchived: boolean;
-      reason: CodexSidebarRefreshReason;
-      metadata: SidebarThreadSyncMetadata;
-    },
-  ): Promise<string[]> {
-    const observedThreadIds: string[] = [];
-    for (const thread of response.data) {
-      const result = await this.upsertSidebarThreadFromAppServerThread(thread, {
-        projects: input.projects,
-        includeArchived: input.includeArchived,
-        reason: input.reason,
-      });
-      mergeSidebarThreadMaterialization(input.metadata, result);
-      if (result.summary && !result.summary.source?.parentThreadId) {
-        observedThreadIds.push(result.summary.threadId);
-      }
-    }
-    return observedThreadIds;
-  }
-
-  private async advanceSidebarThreadSweep(
-    state: CodexSidebarSweepState,
-  ): Promise<CodexSidebarSweepState | null> {
-    if (state.phase === "reconcile") {
-      const reconciled = await this.projectWorkspace.reconcileAppServerThreadSweep(
-        state.sweepId,
-        100,
-      );
-      for (const projectId of reconciled.projectIds) {
-        markSidebarSyncScopeChanged(state.metadata, projectId);
-      }
-      if (reconciled.threadIds.length > 0) {
-        state.metadata.projectlessChanged = true;
-      }
-      if (reconciled.threadIds.length === 100) return state;
-
-      await this.sidebarSync.publish({
-        includeArchived: state.includeArchived,
-        source: "app-server",
-        refreshed: true,
-        refreshedAt: Date.now(),
-        metadata: projectSidebarThreadSyncMetadata(state.metadata),
-        reason: state.reason,
-      });
-      return null;
-    }
-
-    const response = await this.requestSidebarThreadList({
-      cursor: state.cursor,
-      archived: state.archived,
-    });
-    const observedThreadIds = await this.materializeSidebarThreadListWindow(response, state);
-    if (observedThreadIds.length > 0) {
-      await this.projectWorkspace.observeAppServerThreadWindow(state.sweepId, observedThreadIds);
-    }
-    if (response.nextCursor) {
-      return { ...state, cursor: response.nextCursor };
-    }
-    if (!state.archived) {
-      return { ...state, cursor: null, archived: true };
-    }
-    return { ...state, phase: "reconcile", cursor: null };
-  }
-
-  private async requestSidebarThreadList(input: {
-    cursor: string | null;
-    archived: boolean;
-  }): Promise<ThreadListResponse> {
-    const startedAt = getDevRuntimeMetricStart();
-    const createParams = (useStateDbOnly: boolean): ThreadListParams => ({
-      cursor: input.cursor,
-      limit: 100,
-      sortKey: "updated_at",
-      sortDirection: "desc",
-      modelProviders: null,
-      sourceKinds: [...CODEX_SIDEBAR_THREAD_SOURCE_KINDS],
-      archived: input.archived,
-      ...(useStateDbOnly ? { useStateDbOnly: true } : {}),
-    });
-
-    try {
-      const useStateDbOnly = this.sidebarUseStateDbOnlyThreadList;
-      const response = await this.client.request<"thread/list", ThreadListResponse>(
-        "thread/list",
-        createParams(useStateDbOnly),
-      );
-      logDevRuntimeMetric("codex.sidebar.thread_list.page", {
-        outcome: "success",
-        archived: input.archived,
-        cursorPresent: input.cursor !== null,
-        useStateDbOnly,
-        rowCount: response.data.length,
-        hasNextCursor: response.nextCursor !== null,
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      return response;
-    } catch (error) {
-      if (
-        !this.sidebarUseStateDbOnlyThreadList ||
-        !isUnsupportedStateDbOnlyThreadListError(error)
-      ) {
-        logDevRuntimeMetric("codex.sidebar.thread_list.page", {
-          outcome: "error",
-          archived: input.archived,
-          cursorPresent: input.cursor !== null,
-          useStateDbOnly: this.sidebarUseStateDbOnlyThreadList,
-          error: error instanceof Error ? error.message : String(error),
-          durationMs: getDevRuntimeMetricDurationMs(startedAt),
-        });
-        throw error;
-      }
-
-      this.sidebarUseStateDbOnlyThreadList = false;
-      this.logger.warn(
-        "Codex app-server does not support state DB thread listing; falling back to rollout scan",
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      const response = await this.client.request<"thread/list", ThreadListResponse>(
-        "thread/list",
-        createParams(false),
-      );
-      logDevRuntimeMetric("codex.sidebar.thread_list.page", {
-        outcome: "fallback-success",
-        archived: input.archived,
-        cursorPresent: input.cursor !== null,
-        useStateDbOnly: false,
-        rowCount: response.data.length,
-        hasNextCursor: response.nextCursor !== null,
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      return response;
-    }
-  }
-
-  private async upsertSidebarThreadFromAppServerThread(
-    thread: unknown,
-    input: {
-      projects: readonly Project[];
-      includeArchived: boolean;
-      reason: CodexSidebarRefreshReason;
-    },
-  ): Promise<SidebarThreadMaterializationResult> {
-    const empty = createEmptySidebarThreadMaterializationResult();
-    if (typeof thread !== "object" || thread === null) return empty;
-
-    const candidate = thread as Record<string, unknown>;
-    if (typeof candidate.id !== "string" || candidate.id.trim().length === 0) return empty;
-    if (candidate.ephemeral === true) return empty;
-
-    const cwd = typeof candidate.cwd === "string" ? candidate.cwd : null;
-    const parentThreadId = parseThreadParentThreadId(candidate);
-    if (parentThreadId) {
-      const previousThread = await this.readWorkspaceThread(candidate.id);
-      const previousSummary = previousThread
-        ? this.buildWorkspaceThreadSummary(previousThread)
-        : null;
-      const summary = await this.upsertBackgroundSubagentThreadFromAppServerThread(
-        candidate,
-        parentThreadId,
-        cwd,
-      );
-      return {
-        ...empty,
-        summary,
-        projectId: summary?.projectId ?? null,
-        changed: summary ? hasSidebarThreadSummaryChanged(previousSummary, summary) : false,
-      };
-    }
-    if (isNonSidebarThreadWithoutParent(candidate)) {
-      return this.hideNonSidebarThreadMaterialization(candidate.id, input.reason);
-    }
-
-    const previousThread = await this.readWorkspaceThread(candidate.id);
-    const previousSummary = previousThread
-      ? this.buildWorkspaceThreadSummary(previousThread)
-      : null;
-    const inferredProjectId = resolveSidebarProjectIdForCwd(
-      cwd,
-      input.projects,
-      this.foldSidebarPathCase,
-    );
-    const projectId = resolveCodexThreadMaterializationOwner({
-      existingThreadFound: previousThread !== null,
-      existingProjectId: previousThread?.projectId ?? null,
-      explicitInitialOwnerProvided: false,
-      explicitInitialProjectId: null,
-      inferredInitialProjectId: inferredProjectId,
-    });
-    const summary = await this.upsertLinkFromThread(thread, { projectId, cwd }, cwd);
-    if (!summary) return empty;
-    const changed = hasSidebarThreadSummaryChanged(previousSummary, summary);
-    if (!input.includeArchived && summary.archived) {
-      return {
-        ...empty,
-        summary,
-        projectId: summary.projectId,
-        projectless: summary.projectId === null,
-        changed,
-      };
-    }
-    if (summary.ephemeral || summary.source?.sideConversation) {
-      return {
-        ...empty,
-        summary,
-        projectId: summary.projectId,
-        projectless: summary.projectId === null,
-        changed,
-      };
-    }
-
-    try {
-      const sessionResult = await this.reconcileSidebarThreadSession(summary);
-      if (previousSummary?.projectId !== summary.projectId) {
-        markSidebarSyncScopeChanged(sessionResult, previousSummary?.projectId ?? null);
-        markSidebarSyncScopeChanged(sessionResult, summary.projectId);
-      }
-      const sessionId =
-        sessionResult.session?.id ??
-        (await this.readWorkspaceThread(summary.threadId))?.sessionId ??
-        null;
-      return {
-        summary,
-        projectId: summary.projectId,
-        projectless: summary.projectId === null,
-        sessionId,
-        materialized: sessionResult.materialized,
-        changed,
-        failed: false,
-        changedProjectIds: sessionResult.changedProjectIds,
-        projectlessChanged: sessionResult.projectlessChanged,
-      };
-    } catch (error) {
-      const existingThread = await this.readWorkspaceThread(summary.threadId);
-      this.logger.warn("Could not materialize sidebar thread session", {
-        reason: input.reason,
-        threadId: summary.threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        summary,
-        projectId: summary.projectId,
-        projectless: summary.projectId === null,
-        sessionId: existingThread?.sessionId ?? null,
-        materialized: false,
-        changed,
-        failed: true,
-        changedProjectIds: new Set(),
-        projectlessChanged: false,
-      };
-    }
-  }
-
-  private async hideNonSidebarThreadMaterialization(
-    threadId: string,
-    reason: CodexSidebarRefreshReason,
-  ): Promise<SidebarThreadMaterializationResult> {
-    const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId) return createEmptySidebarThreadMaterializationResult();
-
-    const previous = await this.readWorkspaceThread(normalizedThreadId);
-    if (!previous) return createEmptySidebarThreadMaterializationResult();
-
-    const previousSummary = this.buildWorkspaceThreadSummary(previous);
-    const changedProjectIds = new Set<string>();
-    let projectlessChanged = previous.projectId === null;
-    if (previous.projectId) changedProjectIds.add(previous.projectId);
-
-    const owner = previous.sessionId
-      ? await this.projectWorkspace.getProjectSession(previous.sessionId)
-      : null;
-    await this.projectWorkspace.setThreadArchived(normalizedThreadId, true);
-    const detached = previous.sessionId
-      ? await this.projectWorkspace.detachProjectSessionThread(previous.sessionId)
-      : false;
-    const archived = await this.readWorkspaceThread(normalizedThreadId);
-    const archivedSummary = archived
-      ? this.buildWorkspaceThreadSummary(archived, {
-          archived: true,
-          hasUnreadTurn: false,
-          pinnedOrder: null,
-        })
-      : previousSummary;
-    const changed =
-      !previous.archived || previous.pinnedOrder !== null || previous.hasUnreadTurn || detached;
-    if (owner?.projectId) {
-      changedProjectIds.add(owner.projectId);
-    } else if (owner) {
-      projectlessChanged = true;
-    }
-
-    if (changed) {
-      this.invalidateSidebarSnapshotCache();
-      this.logger.info("Hid non-sidebar Codex thread from sidebar materialization", {
-        threadId: normalizedThreadId,
-        reason,
-        ownerCount: owner ? 1 : 0,
-      });
-    }
-
-    return {
-      ...createEmptySidebarThreadMaterializationResult(),
-      summary: archivedSummary,
-      projectId: archivedSummary.projectId,
-      projectless: archivedSummary.projectId === null,
-      changed,
-      changedProjectIds,
-      projectlessChanged,
-    };
-  }
-
-  private shouldHidePersistedNonSidebarThread(summary: CodexThreadSummary): boolean {
-    if (summary.source?.parentThreadId) return false;
-
-    const threadSource = parseThreadSourceValue(summary.threadSource);
-    if (isInternalThreadSourceValue(threadSource)) return true;
-    if (!isPotentialAutoReviewReviewerPreview(summary.threadPreview)) return false;
-    return isConfirmedAutoReviewReviewerMetadata(
-      this.sessionStore,
-      summary.threadId,
-      this.runtimeStateHome,
-    );
-  }
-
-  private async createSidebarThreadSessionFromSummary(
-    summary: CodexThreadSummary,
-  ): Promise<ProjectSession> {
-    if (summary.source?.parentThreadId) {
-      throw new Error(`Child Thread '${summary.threadId}' cannot own a sidebar Session`);
-    }
-    const session = await this.projectWorkspace.createProjectSession({
-      projectId: summary.projectId,
-      noThreadFallbackTitle: normalizeSidebarSessionFallbackTitle(summary),
-    });
-    try {
-      await this.projectWorkspace.upsertProjectSessionThreadLink({
-        sessionId: session.id,
-        projectId: summary.projectId,
-        threadId: summary.threadId,
-        forkedFromId: summary.forkedFromId,
-        parentThreadId: summary.source?.parentThreadId ?? null,
-        threadName: summary.threadName,
-        threadPreview: summary.threadPreview,
-        modelProvider: summary.modelProvider,
-        executionProfile: summary.executionProfile,
-        cwd: summary.cwd,
-        managedWorktreePath: summary.managedWorktreePath ?? null,
-        projectlessOutputDirectory: summary.projectlessOutputDirectory ?? null,
-        projectlessWorkspaceBrowserRoot: summary.projectlessWorkspaceBrowserRoot ?? null,
-        statusType: summary.statusType,
-        statusActiveFlags: summary.statusActiveFlags,
-        archived: summary.archived,
-        createdAt: summary.createdAt,
-        updatedAt: summary.updatedAt,
-        recencyAt: summary.recencyAt,
-      });
-      if (summary.pinned) {
-        await this.projectWorkspace.setProjectSessionPinned(session.id, {
-          pinned: true,
-        });
-      }
-    } catch (error) {
-      await this.projectWorkspace.deleteProjectSession(session.id);
-      throw error;
-    }
-
-    const linked = await this.projectWorkspace.getProjectSession(session.id);
-    if (!linked?.thread) {
-      throw new Error(`Unable to materialize sidebar Session for '${summary.threadId}'`);
-    }
-    return linked;
-  }
-
-  private async reconcileSidebarThreadSession(
-    summary: CodexThreadSummary,
-  ): Promise<SidebarThreadSessionReconcileResult> {
-    const changedProjectIds = new Set<string>();
-    const result: SidebarThreadSessionReconcileResult = {
-      session: null,
-      materialized: false,
-      changedProjectIds,
-      projectlessChanged: false,
-    };
-    if (summary.archived || summary.ephemeral || summary.source?.sideConversation) return result;
-    if (summary.source?.parentThreadId) {
-      const child = await this.readWorkspaceThread(summary.threadId);
-      if (child) await this.retireChildSidebarSession(child);
-      return result;
-    }
-
-    const thread = await this.readWorkspaceThread(summary.threadId);
-    if (!thread?.sessionId) {
-      const session = await this.createSidebarThreadSessionFromSummary(summary);
-      result.session = session;
-      result.materialized = true;
-      markSidebarSyncScopeChanged(result, session.projectId);
-      return result;
-    }
-
-    const existingSession = await this.projectWorkspace.getProjectSession(thread.sessionId);
-    if (!existingSession) {
-      throw new Error(`Owning Project Session '${thread.sessionId}' is unavailable`);
-    }
-
-    if (existingSession.projectId === summary.projectId) {
-      result.session = existingSession;
-      return result;
-    }
-    throw new Error(
-      `Thread '${summary.threadId}' and Session '${existingSession.id}' disagree on Project ownership`,
-    );
   }
 
   private rememberWorkspaceThread(
@@ -4622,22 +3417,6 @@ export class CodexService {
   ): Promise<CodexThreadSummary | null> {
     const thread = await this.projectWorkspace.updateThread(threadId, patch);
     return thread ? this.buildWorkspaceThreadSummary(this.rememberWorkspaceThread(thread)) : null;
-  }
-
-  private async emitWorkspaceSidebarSyncUpdatedFromMetadata(
-    metadata: SidebarThreadSyncMetadata,
-    reason: CodexSidebarRefreshReason,
-    options: { readonly force?: boolean } = {},
-  ): Promise<CodexSidebarSyncResult> {
-    this.invalidateSidebarSnapshotCache();
-    return await this.sidebarSync.publish({
-      includeArchived: false,
-      source: "core",
-      refreshed: false,
-      metadata: projectSidebarThreadSyncMetadata(metadata),
-      reason,
-      forceEmit: options.force,
-    });
   }
 
   async listModels(): Promise<CodexModelOption[]> {
@@ -7949,7 +6728,6 @@ export class CodexService {
       updatedAt: detail.updatedAt,
       linkedAt: detail.linkedAt,
     });
-    await this.emitSidebarCatalogChangedForThread(detail.threadId, "host-message");
   }
 
   private hasKnownThreadDetail(threadId: string): boolean {
@@ -8400,9 +7178,6 @@ export class CodexService {
       },
       candidate,
     );
-    if (hasSidebarThreadSummaryChanged(existing, summaryWithAgentMetadata)) {
-      this.invalidateSidebarSnapshotCache();
-    }
     return summaryWithAgentMetadata;
   }
 
@@ -8631,9 +7406,6 @@ export class CodexService {
       },
       candidate,
     );
-    if (hasSidebarThreadSummaryChanged(existing, summary)) {
-      this.invalidateSidebarSnapshotCache();
-    }
     return summary;
   }
 
@@ -8654,18 +7426,6 @@ export class CodexService {
       conversationId: normalizedThreadId,
       title: normalizedTitle,
     });
-  }
-
-  private async emitSidebarCatalogChangedForThread(
-    threadId: string,
-    reason: CodexSidebarRefreshReason,
-  ): Promise<void> {
-    const thread = await this.readWorkspaceThread(threadId);
-    const projectId =
-      thread?.projectId ?? this.getMaybeConversationRecord(threadId)?.detail?.projectId;
-    const metadata = createSidebarThreadSyncMetadata();
-    if (projectId !== undefined) markSidebarSyncScopeChanged(metadata, projectId);
-    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, reason);
   }
 
   private async hasThreadTitle(threadId: string): Promise<boolean> {
@@ -8848,9 +7608,7 @@ export class CodexService {
       );
     }
 
-    this.invalidateSidebarSnapshotCache();
     this.emitEvent({ type: "threadSummary", thread: summary });
-    await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
     return {
       projectId: null,
       cwd: summary.cwd,
@@ -9773,9 +8531,6 @@ export class CodexService {
     });
     this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
     this.forgetThreadLocalState(threadId);
-    const metadata = createSidebarThreadSyncMetadata();
-    if (previous) markSidebarSyncScopeChanged(metadata, previous.projectId);
-    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "host-message");
     return true;
   }
 
@@ -9846,7 +8601,6 @@ export class CodexService {
 
   /** Effect Module projection operation; callers use ConversationCommands.unarchive. */
   async applyThreadUnarchiveProjection(threadId: string): Promise<CodexThreadSummary | null> {
-    const previous = await this.readWorkspaceThread(threadId);
     this.rememberWorkspaceSidebar(await this.projectWorkspace.setThreadArchived(threadId, false));
     const persisted = await this.readWorkspaceThread(threadId);
     const summary = persisted ? this.buildWorkspaceThreadSummary(persisted) : null;
@@ -9857,10 +8611,6 @@ export class CodexService {
     const record = this.getMaybeConversationRecord(threadId);
     if (record?.detail) record.detail.archived = false;
     this.syncAcceptedConversationSummary(threadId, { syncCapabilityFlags: true });
-    const metadata = createSidebarThreadSyncMetadata();
-    if (previous) markSidebarSyncScopeChanged(metadata, previous.projectId);
-    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "host-message");
-
     return summary;
   }
 
@@ -10575,7 +9325,9 @@ export class CodexService {
     const onlyIfUntitled = entry.initialThreadTitle == null && entry.labelEdited;
     if (entry.isPinned) {
       try {
-        await this.threadCatalog.setPinned(threadId, true, entry.pinnedBeforeThreadId);
+        this.rememberWorkspaceSidebar(
+          await this.projectWorkspace.setThreadPinned(threadId, true, entry.pinnedBeforeThreadId),
+        );
       } catch (error) {
         this.logger.warn("Worktree conversation started without pinned metadata", {
           pendingWorktreeId: entry.id,
@@ -11235,7 +9987,6 @@ export class CodexService {
     ) {
       throw new Error(`Invalid client thread identity for ${threadId}`);
     }
-    this.invalidateSidebarSnapshotCache();
   }
 
   private resolveNodexAgentRootThreadId(threadId: string): string {
@@ -11592,23 +10343,6 @@ export class CodexService {
     }
 
     return requests;
-  }
-
-  private scheduleSidebarNotificationSync(notificationMethod: string, threadId: string): void {
-    this.sidebarSync.scheduleNotification({
-      notificationMethod,
-      threadId,
-    });
-  }
-
-  recordSidebarNotificationScheduled(input: {
-    readonly notificationMethod: string;
-    readonly threadId: string;
-    readonly minimumSyncGeneration: number;
-  }): void {
-    this.logger.debug("Scheduling sidebar thread-list sync from app-server notification", {
-      ...input,
-    });
   }
 
   serializeThreadDetail(threadId: string): CodexThreadDetail | null {

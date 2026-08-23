@@ -7,14 +7,18 @@ import { afterEach, describe, expect, test } from "vite-plus/test";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Scope from "effect/Scope";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as Y from "yjs";
 
 import { initializeStandaloneDataAuthority } from "./core-client/standalone-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
-import { documentLiveRuntimeTestDouble } from "./core-client/document-live-runtime.test-support";
-import { createCoreCanvasSceneAdapter } from "./core-client/core-canvas-scene-adapter";
+import {
+  createCoreCanvasSceneAdapter,
+  mapCanvasLiveEnvelope,
+} from "./core-client/core-canvas-scene-adapter";
 import { createCoreLibraryModuleAdapter } from "./core-client/library-module-adapter";
 import {
   createCoreDatabaseModuleAdapter,
@@ -23,6 +27,7 @@ import {
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
+import { makeDesktopDocumentSessionHarness } from "./core-client/testing/desktop-document-session-harness.integration";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
 import { createDesktopAutomationModuleBridge } from "./core-client/desktop-automation-module-bridge";
 import type { CoreEventEnvelope } from "./core-client/types";
@@ -423,9 +428,7 @@ describe("Electron native data authority", () => {
           ]),
         },
       });
-      const projectDocuments = createCoreDocumentSyncAdapter(runtime.clientForProject(projectId), {
-        live: documentLiveRuntimeTestDouble,
-      });
+      const projectDocuments = createCoreDocumentSyncAdapter(runtime.clientForProject(projectId));
       const nativeSourceBlockId = "01981e00-0000-7000-8000-000000000001";
       const nativeSourceDocumentId = "01981e00-0000-7000-8000-000000000002";
       const nativeContentBlockId = "01981e00-0000-7000-8000-000000000003";
@@ -2019,13 +2022,9 @@ describe("Electron native data authority", () => {
       const firstCanvas = createCoreCanvasSceneAdapter(
         runtime.clientForProject(projectId),
         canvasBinding,
-        { live: documentLiveRuntimeTestDouble },
       );
-      const secondCanvas = createCoreCanvasSceneAdapter(
-        runtime.clientForProject(projectId),
-        canvasBinding,
-        { live: documentLiveRuntimeTestDouble },
-      );
+      const secondCanvasClient = runtime.clientForProject(projectId);
+      const secondCanvas = createCoreCanvasSceneAdapter(secondCanvasClient, canvasBinding);
       const firstCanvasRequest = {
         accessContext: canvasAccessContext,
         documentId: canvasDocumentId,
@@ -2036,14 +2035,29 @@ describe("Electron native data authority", () => {
         clientSessionId: "renderer:electron-canvas:second",
       } as const;
       const secondCanvasEvents: CanvasSceneRealtimeEvent[] = [];
-      const closeFirstCanvas = firstCanvas.subscribe(firstCanvasRequest, () => undefined);
-      const secondCanvasSubscription = secondCanvas.subscribeWithLifecycle(
-        secondCanvasRequest,
-        (event) => secondCanvasEvents.push(event),
+      const secondCanvasSubscription = await secondCanvasClient.openDocumentEventStream(
+        {
+          documentId: secondCanvasRequest.documentId,
+          clientSessionId: secondCanvasRequest.clientSessionId,
+        },
+        (envelope) => {
+          const event = mapCanvasLiveEnvelope(canvasBinding, secondCanvasRequest, envelope);
+          if (event) secondCanvasEvents.push(event);
+        },
+        (repair) => {
+          secondCanvasEvents.push({
+            type: "canvas_scene_resync_required",
+            libraryId: canvasBinding.libraryId,
+            accessContext: canvasBinding.accessContext,
+            documentId: repair.document_id,
+            storeEpoch: repair.store_epoch,
+            generation: repair.document_generation,
+            headSeq: repair.head_seq,
+          });
+        },
+        () => undefined,
       );
-      const closeSecondCanvas = secondCanvasSubscription.close;
       try {
-        await secondCanvasSubscription.ready;
         const firstCanvasSync = await firstCanvas.sync({
           ...firstCanvasRequest,
           syncRequestId: "sync:electron:first",
@@ -2134,8 +2148,7 @@ describe("Electron native data authority", () => {
         });
         expect(listCurrentProcessFiles()).not.toContain(databasePath);
       } finally {
-        closeFirstCanvas();
-        closeSecondCanvas();
+        secondCanvasSubscription.close();
       }
 
       const library = createCoreLibraryModuleAdapter({
@@ -2372,9 +2385,7 @@ describe("Electron native data authority", () => {
           }),
         ],
       });
-      const libraryDocuments = createCoreDocumentSyncAdapter(runtime.rootClient, {
-        live: documentLiveRuntimeTestDouble,
-      });
+      const libraryDocuments = createCoreDocumentSyncAdapter(runtime.rootClient);
       const preparedLibraryDocument = await libraryDocuments.prepareOwner({
         ownerBlockId: "page:electron-library-adapter",
         operationId: "electron-library-owner-prepare",
@@ -2395,13 +2406,19 @@ describe("Electron native data authority", () => {
       const firstDocument = new Y.Doc({
         guid: "document:electron-library-adapter",
       });
+      const libraryDocumentScope = await Effect.runPromise(Scope.make());
+      const libraryRendererAdapter = await Effect.runPromise(
+        makeDesktopDocumentSessionHarness(runtime.rootClient, { kind: "library" }).pipe(
+          Effect.provideService(Scope.Scope, libraryDocumentScope),
+        ),
+      );
       // Library providers intentionally use the unscoped root client. Core binds
       // that transport to its trusted local Library capability instead of
       // accepting an Adapter-selected content owner.
       const firstProvider = new NodexYProvider({
         documentId: firstDocument.guid,
         document: firstDocument,
-        adapter: libraryDocuments,
+        adapter: libraryRendererAdapter,
         clientSessionId: "renderer:electron-authority:first",
         autoConnect: false,
         localCheckpointStore: null,
@@ -2412,9 +2429,7 @@ describe("Electron native data authority", () => {
       const secondProvider = new NodexYProvider({
         documentId: secondDocument.guid,
         document: secondDocument,
-        adapter: createCoreDocumentSyncAdapter(runtime.rootClient, {
-          live: documentLiveRuntimeTestDouble,
-        }),
+        adapter: libraryRendererAdapter,
         clientSessionId: "renderer:electron-authority:second",
         autoConnect: false,
         localCheckpointStore: null,
@@ -2436,6 +2451,7 @@ describe("Electron native data authority", () => {
         secondProvider.destroy();
         firstDocument.destroy();
         secondDocument.destroy();
+        await Effect.runPromise(Scope.close(libraryDocumentScope, Exit.void));
       }
     } finally {
       if (runtime) {

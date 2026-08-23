@@ -170,23 +170,17 @@ import {
 } from "../codex-application/CodexRendererConversationCoordinator";
 import { make as makeCodexRendererOwnerCommands } from "../codex-application/CodexRendererOwnerCommands";
 import {
-  CodexSidebarSyncError,
   CodexSidebarSyncRuntime,
   make as makeCodexSidebarSyncRuntime,
 } from "../codex-application/CodexSidebarSyncRuntime";
-import { makeCodexSidebarSyncRuntimePromiseAdapter } from "../codex-application/CodexSidebarSyncRuntimePromiseAdapter";
 import {
   CodexThreadCatalog,
-  CodexThreadCatalogError,
   make as makeCodexThreadCatalog,
 } from "../codex-application/CodexThreadCatalog";
-import { makeCodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
 import {
   CodexThreadReadState,
   make as makeCodexThreadReadState,
 } from "../codex-application/CodexThreadReadState";
-import { make as makeCodexSidebarSweepRuntime } from "../codex-application/CodexSidebarSweepRuntime";
-import { makeCodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
 import { makeCodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import {
@@ -1616,28 +1610,6 @@ export const live: Layer.Layer<
           runtimeScope,
           Effect.sync(() => codexSessionStore.clear()),
         );
-        const sidebarSync = yield* makeCodexSidebarSyncRuntime({
-          refresh: (input) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().refreshSidebarThreadsForSync(input),
-              catch: (cause) => new CodexSidebarSyncError({ cause }),
-            }),
-          buildSnapshot: (includeArchived, revision) =>
-            Effect.tryPromise({
-              try: () =>
-                requireCodexService().buildBoundedWorkspaceSidebarSnapshot(
-                  includeArchived,
-                  revision,
-                ),
-              catch: (cause) => new CodexSidebarSyncError({ cause }),
-            }),
-          emit: (result, reason) => requireCodexService().emitSidebarSyncUpdated(result, reason),
-          invalidations: databaseNotifications.projectSessionInvalidations,
-          observeDecision: (event) => requireCodexService().recordSidebarSyncDecision(event),
-          observeRefresh: (event) => requireCodexService().recordSidebarRefreshOutcome(event),
-          observeNotificationScheduled: (event) =>
-            requireCodexService().recordSidebarNotificationScheduled(event),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const conversationContext = yield* makeCodexConversationContext.pipe(
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(CoreModules, coreModules),
@@ -1656,114 +1628,22 @@ export const live: Layer.Layer<
           Effect.provideService(CoreModules, coreModules),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const threadCatalog = yield* makeCodexThreadCatalog({
-          foldPathCase: config.platform === "win32",
-          readSidebarOverview: (input) =>
-            Effect.tryPromise({
-              try: () => projectWorkspace.readSidebarOverview(false, input),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "list-pinned", cause }),
-            }),
-          listProjectWindow: (projectId, input) =>
-            Effect.tryPromise({
-              try: () => projectWorkspace.listProjectSessionSummaryWindow(projectId, input),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "list-project", cause }),
-            }),
-          listProjects: Effect.tryPromise({
-            try: () => projectWorkspace.listProjects(),
-            catch: (cause) => new CodexThreadCatalogError({ operation: "list-palette", cause }),
-          }),
-          readThreadProjection: (threadId) =>
-            requireCodexService().readThreadCatalogProjection(threadId),
-          getSession: (sessionId) =>
-            Effect.tryPromise({
-              try: () => projectWorkspace.getProjectSession(sessionId),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
-            }),
-          createSession: (projectId, fallbackTitle) =>
-            Effect.tryPromise({
-              try: () =>
-                projectWorkspace.createProjectSession({
-                  projectId,
-                  noThreadFallbackTitle: fallbackTitle,
-                }),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
-            }),
-          deleteSession: (sessionId) =>
-            Effect.tryPromise({
-              try: () => projectWorkspace.deleteProjectSession(sessionId),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
-            }).pipe(Effect.asVoid),
-          readWritableRoots: (threadId) =>
-            Effect.tryPromise({
-              try: () => projectWorkspace.readThreadExecutionContext(threadId),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
-            }).pipe(Effect.map((context) => context?.writableRoots ?? [])),
-          linkSession: (sessionId, thread, runtimeWorkspaceRoots) =>
-            Effect.tryPromise({
-              try: () =>
-                projectWorkspace.upsertProjectSessionThreadLink({
-                  sessionId,
-                  projectId: thread.projectId,
-                  threadId: thread.threadId,
-                  forkedFromId: thread.forkedFromId,
-                  parentThreadId: thread.parentThreadId,
-                  threadName: thread.threadName,
-                  threadPreview: thread.threadPreview,
-                  modelProvider: thread.modelProvider,
-                  executionProfile: thread.executionProfile,
-                  executionHostId: thread.executionHostId,
-                  runtimeWorkspaceRoots: [...runtimeWorkspaceRoots],
-                  cwd: thread.cwd,
-                  managedWorktreePath: thread.managedWorktreePath,
-                  projectlessOutputDirectory: thread.projectlessOutputDirectory,
-                  projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot,
-                  statusType: thread.statusType,
-                  statusActiveFlags: thread.statusActiveFlags,
-                  archived: thread.archived,
-                  createdAt: thread.createdAt,
-                  updatedAt: thread.updatedAt,
-                  recencyAt: thread.recencyAt,
-                }),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
-            }).pipe(Effect.asVoid),
-          setSessionPinned: (sessionId) =>
-            Effect.tryPromise({
-              try: () => projectWorkspace.setProjectSessionPinned(sessionId, { pinned: true }),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
-            }).pipe(Effect.asVoid),
-          repairChild: (threadId, parentThreadId) =>
-            Effect.tryPromise({
-              try: () => projectWorkspace.updateThread(threadId, { parentThreadId }),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
-            }).pipe(Effect.map((thread) => thread !== null)),
-          shouldHideThread: (summary) => requireCodexService().shouldHideThreadForCatalog(summary),
-          hideThread: (threadId) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().hideThreadForCatalog(threadId),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
-            }),
-          setThreadPinned: (threadId, pinned, beforeThreadId) =>
-            Effect.tryPromise({
-              try: () => projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "set-pinned", cause }),
-            }),
-          reorderPinnedThreads: (orderedThreadIds) =>
-            Effect.tryPromise({
-              try: () => projectWorkspace.reorderPinnedThreads(orderedThreadIds),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "reorder-pinned", cause }),
-            }).pipe(Effect.asVoid),
-          move: (input) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().applySidebarThreadMove(input),
-              catch: (cause) => new CodexThreadCatalogError({ operation: "move", cause }),
-            }),
-        }).pipe(
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
-          Effect.provideService(CodexThreadDirectory, threadDirectory),
+        const internalThreadRegistry = yield* makeCodexInternalThreadRegistry.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const sidebarSweep = yield* makeCodexSidebarSweepRuntime().pipe(
+        const sidebarSync = yield* makeCodexSidebarSyncRuntime({
+          foldPathCase: config.platform === "win32",
+        }).pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexInternalThreadRegistry, internalThreadRegistry),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(
+            DatabaseNotifierRuntime.DatabaseNotifierRuntime,
+            databaseNotifications,
+          ),
+          Effect.provideService(ExecutionHostRuntime, executionHosts),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const gitProbe = makeCodexGitProbe({ environment: config.environment });
@@ -1798,9 +1678,6 @@ export const live: Layer.Layer<
               ),
             ),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const internalThreadRegistry = yield* makeCodexInternalThreadRegistry.pipe(
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
         const structuredThreadTitle = yield* makeCodexStructuredThreadTitle({
           hostId: codexGateway.localHostId,
           events: codexGateway.events,
@@ -2214,6 +2091,17 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const threadExecution = Context.get(threadExecutionContext, CodexThreadExecution);
+        const threadCatalog = yield* makeCodexThreadCatalog({
+          foldPathCase: config.platform === "win32",
+        }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexInternalThreadRegistry, internalThreadRegistry),
+          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadExecution, threadExecution),
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
           storage: makeCodexThreadHandoffJournalStorage(
             resolveCodexThreadHandoffJournalPath(runtimeStateHome),
@@ -2577,8 +2465,6 @@ export const live: Layer.Layer<
               ),
               rendererConversations,
               rendererConversationCoordinator,
-              sidebarSync: makeCodexSidebarSyncRuntimePromiseAdapter(sidebarSync, callbacks),
-              sidebarSweep: makeCodexSidebarSweepRuntimePromiseAdapter(sidebarSweep, callbacks),
               gitProbe: makeCodexGitProbePromiseAdapter(gitProbe, callbacks),
               heartbeatTurnCompletion: makeCodexHeartbeatTurnCompletionPromiseAdapter(
                 heartbeatTurnCompletion,
@@ -2606,7 +2492,6 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               conversationCommands,
-              threadCatalog: makeCodexThreadCatalogPromiseAdapter(threadCatalog, callbacks),
               postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
                 postResumeGoals,
                 callbacks,
@@ -2712,9 +2597,7 @@ export const live: Layer.Layer<
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         yield* SubscriptionRef.changes(executionHosts.activeSshHosts).pipe(
-          Stream.runForEach(() =>
-            Effect.sync(() => codexService.handleExecutionHostTopologyChanged()),
-          ),
+          Stream.runForEach(() => Effect.sync(sidebarSync.invalidate)),
           Effect.forkIn(runtimeScope),
           Effect.asVoid,
         );

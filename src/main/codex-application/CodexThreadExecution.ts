@@ -46,6 +46,12 @@ export class CodexThreadExecution extends Context.Service<
       location: CodexThreadExecutionLocation,
       preparation: ManagedWorktreeHandoffPreparation | null,
     ) => Effect.Effect<void, CodexThreadExecutionError>;
+    /** Reconciles a same-host workspace move into the loaded runtime and canonical projection. */
+    readonly relocate: (input: {
+      readonly threadId: string;
+      readonly loaded: boolean;
+      readonly location: CodexThreadExecutionLocation;
+    }) => Effect.Effect<void, CodexThreadExecutionError>;
     readonly commit: (
       threadId: string,
       location: CodexThreadExecutionLocation,
@@ -293,6 +299,9 @@ export const live: Layer.Layer<
           threadId,
           cwd: location.cwd,
           managedWorktreePath: location.managedWorktreePath,
+          projectId: location.projectId,
+          projectlessOutputDirectory: location.projectlessOutputDirectory,
+          projectlessWorkspaceBrowserRoot: location.projectlessWorkspaceBrowserRoot,
           permissions,
         });
       }).pipe(
@@ -318,6 +327,47 @@ export const live: Layer.Layer<
           Effect.mapError((cause) => error("stop", threadId, cause)),
         ),
       switchRuntime,
+      relocate: (input) =>
+        Effect.gen(function* () {
+          const permissions = yield* permissionContext(
+            input.threadId,
+            input.location.workspaceRoots,
+          );
+          if (input.loaded) {
+            yield* gateway
+              .requestOnHost(input.location.hostId, "thread/settings/update", {
+                threadId: input.threadId,
+                cwd: input.location.cwd,
+                approvalPolicy: permissions.approvalPolicy,
+                approvalsReviewer: permissions.approvalsReviewer,
+                ...(permissions.activePermissionProfile
+                  ? { permissions: permissions.activePermissionProfile.id }
+                  : { sandboxPolicy: permissions.sandboxPolicy }),
+              })
+              .pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("Could not reconcile a loaded task after workspace move").pipe(
+                    Effect.annotateLogs({ threadId: input.threadId, cause: String(cause) }),
+                  ),
+                ),
+              );
+          }
+          yield* projection.relocateExecution({
+            threadId: input.threadId,
+            cwd: input.location.cwd,
+            managedWorktreePath: input.location.managedWorktreePath,
+            projectId: input.location.projectId,
+            projectlessOutputDirectory: input.location.projectlessOutputDirectory,
+            projectlessWorkspaceBrowserRoot: input.location.projectlessWorkspaceBrowserRoot,
+            permissions,
+          });
+        }).pipe(
+          Effect.mapError((cause) =>
+            cause instanceof CodexThreadExecutionError
+              ? cause
+              : error("relocate", input.threadId, cause),
+          ),
+        ),
       commit: (threadId, location) =>
         core.workspace
           .apply({

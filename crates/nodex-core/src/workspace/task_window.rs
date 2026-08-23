@@ -142,8 +142,11 @@ fn read_task_window_in_scope(
              thread.thread_id, thread.project_id, thread.forked_from_id, \
              thread.parent_thread_id, thread.thread_name, thread.thread_source, \
              thread.service_name, thread.agent_nickname, thread.agent_role, thread.agent_path, \
-             substr(thread.thread_preview, 1, 1024), thread.execution_host_id, thread.cwd, \
-             thread.managed_worktree_path, thread.status_type, \
+             substr(thread.thread_preview, 1, 1024), thread.model_provider, thread.model_id, \
+             thread.harness_id, thread.reasoning_effort, thread.service_tier, \
+             thread.execution_host_id, thread.cwd, thread.managed_worktree_path, \
+             thread.projectless_output_directory, thread.projectless_workspace_browser_root, \
+             thread.status_type, \
              thread.status_active_flags_json, thread.archived, thread.created_at, \
              thread.updated_at, thread.recency_at, thread.linked_at, \
              CASE WHEN session.pinned = 1 THEN 0 ELSE 1 END AS pin_bucket, \
@@ -219,7 +222,7 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
     let thread = thread_id
         .map(
             |thread_id| -> rusqlite::Result<ProjectWorkspaceTaskThreadSummary> {
-                let status_type = match row.get::<_, String>(25)?.as_str() {
+                let status_type = match row.get::<_, String>(32)?.as_str() {
                     "notLoaded" => Ok(CodexThreadStatusType::NotLoaded),
                     "idle" => Ok(CodexThreadStatusType::Idle),
                     "systemError" => Ok(CodexThreadStatusType::SystemError),
@@ -227,7 +230,7 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
                     _ => Err(rusqlite::Error::InvalidQuery),
                 }?;
                 let active_flags =
-                    serde_json::from_str::<Vec<CodexThreadActiveFlag>>(&row.get::<_, String>(26)?)
+                    serde_json::from_str::<Vec<CodexThreadActiveFlag>>(&row.get::<_, String>(33)?)
                         .map_err(|_| rusqlite::Error::InvalidQuery)?;
                 Ok(ProjectWorkspaceTaskThreadSummary {
                     thread_id,
@@ -242,18 +245,25 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
                     agent_role: row.get(19)?,
                     agent_path: row.get(20)?,
                     thread_preview: bounded_preview(&row.get::<_, String>(21)?),
-                    execution_host_id: row.get(22)?,
-                    cwd: row.get(23)?,
-                    managed_worktree_path: row.get(24)?,
+                    model_provider: row.get(22)?,
+                    model_id: row.get(23)?,
+                    harness_id: row.get(24)?,
+                    reasoning_effort: row.get(25)?,
+                    service_tier: row.get(26)?,
+                    execution_host_id: row.get(27)?,
+                    cwd: row.get(28)?,
+                    managed_worktree_path: row.get(29)?,
+                    projectless_output_directory: row.get(30)?,
+                    projectless_workspace_browser_root: row.get(31)?,
                     status: ProjectWorkspaceThreadStatus {
                         status_type,
                         active_flags,
                     },
-                    archived: row.get::<_, i64>(27)? == 1,
-                    created_at: row.get(28)?,
-                    updated_at: row.get(29)?,
-                    recency_at: row.get(30)?,
-                    linked_at: row.get(31)?,
+                    archived: row.get::<_, i64>(34)? == 1,
+                    created_at: row.get(35)?,
+                    updated_at: row.get(36)?,
+                    recency_at: row.get(37)?,
+                    linked_at: row.get(38)?,
                 })
             },
         )
@@ -298,7 +308,7 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
         },
         thread,
     };
-    Ok((task, row.get(32)?, row.get(33)?))
+    Ok((task, row.get(39)?, row.get(40)?))
 }
 
 pub(crate) fn bounded_preview(value: &str) -> String {

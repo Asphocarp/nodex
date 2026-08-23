@@ -6,6 +6,7 @@ import type {
   CodexThreadSummary,
   CodexThreadStatusType,
   Project,
+  ProjectSessionSummary,
 } from "../../shared/types";
 import { normalizeCodexManualThreadTitle } from "../../shared/codex-thread-title";
 import { MAX_PROJECT_SESSION_TITLE_LENGTH } from "../../shared/schemas/project-sessions";
@@ -161,6 +162,127 @@ type CoreWorkspaceThread = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { readonly kind: "thread" }
 >["thread"];
+type CoreWorkspaceTask = Extract<
+  ProjectWorkspaceReadSnapshot["value"],
+  { readonly kind: "task_window" }
+>["tasks"]["items"][number];
+type CoreWorkspaceTaskThread = NonNullable<CoreWorkspaceTask["thread"]>;
+type CoreWorkspaceProject = Extract<
+  ProjectWorkspaceReadSnapshot["value"],
+  { readonly kind: "project_window" }
+>["projects"]["items"][number];
+
+export const projectCoreWorkspaceProject = (project: CoreWorkspaceProject): Project => ({
+  id: project.id,
+  libraryId: project.library_id,
+  databaseId: project.database_id,
+  defaultDatabaseViewId: project.default_database_view_id ?? null,
+  lifecycle: project.lifecycle,
+  bindingRevision: project.binding_revision,
+  name: project.name,
+  description: project.description,
+  appearance: project.appearance,
+  sources: project.sources.map((source) => ({ root: source.root, order: source.order })),
+  primaryWorkspaceRoot: project.primary_workspace_root ?? null,
+  pinned: project.pinned,
+  pinnedOrder: project.pinned_order ?? null,
+  created: new Date(project.created_at),
+  updated: new Date(project.updated_at),
+});
+
+export const projectCoreWorkspaceTask = (task: CoreWorkspaceTask): ProjectSessionSummary => ({
+  id: task.session.id,
+  projectId: task.session.project_id ?? null,
+  noThreadFallbackTitle: task.session.no_thread_fallback_title,
+  displayTitle: task.session.display_title,
+  order: task.session.order,
+  pinned: task.session.pinned,
+  pinnedOrder: task.session.pinned_order ?? null,
+  archived: task.session.archived,
+  archivedAt: task.session.archived_at ?? null,
+  unread: task.session.unread,
+  thread: task.thread
+    ? {
+        sessionId: task.session.id,
+        projectId: task.thread.project_id ?? task.session.project_id ?? null,
+        threadId: task.thread.thread_id,
+        forkedFromId: task.thread.forked_from_id ?? null,
+        parentThreadId: task.thread.parent_thread_id ?? undefined,
+        threadSource: task.thread.thread_source ?? null,
+        serviceName: task.thread.service_name ?? null,
+        agentNickname: task.thread.agent_nickname ?? null,
+        agentRole: task.thread.agent_role ?? null,
+        agentPath: task.thread.agent_path ?? null,
+        threadName: task.thread.thread_name ?? undefined,
+        threadPreview: task.thread.thread_preview,
+        modelProvider: task.thread.model_provider,
+        executionProfile: task.thread.model_id
+          ? {
+              providerId: task.thread.model_provider,
+              modelId: task.thread.model_id,
+              harnessId: task.thread.harness_id ?? null,
+              reasoningEffort: task.thread.reasoning_effort ?? null,
+              serviceTier: task.thread.service_tier ?? null,
+            }
+          : null,
+        executionHostId: task.thread.execution_host_id,
+        cwd: task.thread.cwd ?? undefined,
+        managedWorktreePath: task.thread.managed_worktree_path ?? null,
+        projectlessOutputDirectory: task.thread.projectless_output_directory ?? null,
+        projectlessWorkspaceBrowserRoot: task.thread.projectless_workspace_browser_root ?? null,
+        statusType: task.thread.status.status_type,
+        statusActiveFlags: [...task.thread.status.active_flags],
+        archived: task.thread.archived,
+        createdAt: task.thread.created_at,
+        updatedAt: task.thread.updated_at,
+        recencyAt: task.thread.recency_at,
+        linkedAt: task.thread.linked_at,
+      }
+    : null,
+  createdAt: task.session.created_at,
+  updatedAt: task.session.updated_at,
+});
+
+export const buildCoreWorkspaceTaskThreadSummary = (
+  session: CoreWorkspaceTask["session"],
+  thread: CoreWorkspaceTaskThread,
+): CodexThreadSummary => ({
+  threadId: thread.thread_id,
+  projectId: thread.project_id ?? session.project_id ?? null,
+  forkedFromId: thread.forked_from_id ?? null,
+  source: thread.parent_thread_id ? { parentThreadId: thread.parent_thread_id } : null,
+  ephemeral: false,
+  threadSource: thread.thread_source ?? null,
+  serviceName: thread.service_name ?? null,
+  agentNickname: thread.agent_nickname ?? null,
+  agentRole: thread.agent_role ?? null,
+  agentPath: thread.agent_path ?? null,
+  threadName: thread.thread_name ?? null,
+  threadPreview: thread.thread_preview,
+  modelProvider: thread.model_provider,
+  executionProfile: thread.model_id
+    ? {
+        providerId: thread.model_provider,
+        modelId: thread.model_id,
+        harnessId: thread.harness_id ?? null,
+        reasoningEffort: thread.reasoning_effort ?? null,
+        serviceTier: thread.service_tier ?? null,
+      }
+    : null,
+  cwd: thread.cwd ?? null,
+  managedWorktreePath: thread.managed_worktree_path ?? null,
+  projectlessOutputDirectory: thread.projectless_output_directory ?? null,
+  projectlessWorkspaceBrowserRoot: thread.projectless_workspace_browser_root ?? null,
+  statusType: thread.status.status_type,
+  statusActiveFlags: [...thread.status.active_flags],
+  archived: session.archived || thread.archived,
+  pinned: session.pinned,
+  hasUnreadTurn: session.unread,
+  createdAt: thread.created_at,
+  updatedAt: thread.updated_at,
+  recencyAt: thread.recency_at,
+  linkedAt: thread.linked_at,
+});
 
 /** Direct Core projection used by final Effect application services. */
 export const buildCoreWorkspaceThreadSummary = (

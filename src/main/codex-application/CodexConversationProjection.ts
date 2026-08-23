@@ -84,6 +84,9 @@ export interface CodexConversationProjectionService {
     readonly threadId: string;
     readonly cwd: string;
     readonly managedWorktreePath: string | null;
+    readonly projectId: string | null;
+    readonly projectlessOutputDirectory: string | null;
+    readonly projectlessWorkspaceBrowserRoot: string | null;
     readonly permissions: CodexCanonicalHydratedPermissionContext;
   }) => Effect.Effect<void, CodexConversationProjectionError>;
   readonly acceptTurn: (input: {
@@ -428,6 +431,9 @@ export const make: Effect.Effect<
         conversation.relocateExecution({
           cwd: input.cwd,
           managedWorktreePath: input.managedWorktreePath,
+          projectId: input.projectId,
+          projectlessOutputDirectory: input.projectlessOutputDirectory,
+          projectlessWorkspaceBrowserRoot: input.projectlessWorkspaceBrowserRoot,
           permissions: input.permissions,
           projectReplica: projectReplica(input.threadId),
         }),

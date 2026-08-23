@@ -6753,13 +6753,20 @@ export interface components {
             readonly cwd?: string | null;
             readonly execution_host_id: string;
             readonly forked_from_id?: string | null;
+            readonly harness_id?: string | null;
             readonly linked_at: string;
             readonly managed_worktree_path?: string | null;
+            readonly model_id?: string | null;
+            readonly model_provider: string;
             readonly parent_thread_id?: string | null;
             readonly project_id?: string | null;
+            readonly projectless_output_directory?: string | null;
+            readonly projectless_workspace_browser_root?: string | null;
+            readonly reasoning_effort?: string | null;
             /** Format: int64 */
             readonly recency_at: number;
             readonly service_name?: string | null;
+            readonly service_tier?: string | null;
             readonly session_id?: string | null;
             readonly status: components["schemas"]["ProjectWorkspaceThreadStatus"];
             readonly thread_id: string;

@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test, vi } from "vite-plus/test";
+import { afterAll, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -24,8 +24,6 @@ import type {
   CodexThreadOwnerServerRequest,
   CodexThreadSummary,
   CodexTurnSummary,
-  CommandPaletteThreadSummary,
-  Project,
 } from "../../shared/types";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import {
@@ -57,7 +55,6 @@ import type {
   TurnStartResponse,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ServerNotification as CodexServerNotification } from "@nodex/codex-app-server-protocol";
-import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 
 import { getCodexFileChangePaths } from "../../shared/codex-file-change";
 import type {
@@ -90,10 +87,6 @@ import type {
   CodexApplicationEventPublisher,
 } from "../codex-application/CodexApplicationEventHub";
 import { TestCodexOwnerNotificationDrainRuntime } from "./codex-owner-notification-drain-runtime.test-support";
-import {
-  TestCodexSidebarSyncRuntime,
-  TestDatabaseInvalidationSource,
-} from "./codex-sidebar-sync-runtime.test-support";
 import type { CodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
 import { runCodexGitCommand } from "./codex-git-command";
 import type { CodexWorktreeWorkerEvent } from "./codex-worktree-worker-protocol";
@@ -107,7 +100,6 @@ import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
   DesktopProjectWorkspaceThread,
-  DesktopProjectWorkspaceThreadMoveInput,
 } from "../core-client/project-workspace-adapter";
 import { PersistedAtomStore } from "../local-store/persisted-atoms";
 import type { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
@@ -120,7 +112,6 @@ import type { ConversationCommands } from "../codex-application/ConversationComm
 import type { CodexQueuedFollowUpDispatcher } from "../codex-application/CodexQueuedFollowUpDispatcher";
 import { CodexQueuedFollowUps } from "../codex-application/CodexQueuedFollowUps";
 import type { CodexTurnCommandsService } from "../codex-application/CodexTurnCommands";
-import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
 import { CodexPendingWorktreeRuntime } from "./codex-pending-worktree-runtime.test-support";
 import {
@@ -172,8 +163,6 @@ interface TestableCodexService {
   ) => () => void;
   shutdown: () => Promise<void>;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
-  sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
-  threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
   requestConversationResume: (
     threadId: string,
     options?: { syncDormantConversationSnapshots?: boolean; replayBufferedNotifications?: boolean },
@@ -503,28 +492,6 @@ function makeDesktopWorkspaceThread(
     ...overrides,
   };
 }
-function makeProject(overrides: Partial<Project> & Pick<Project, "id">): Project {
-  const { id, ...rest } = overrides;
-  return {
-    id,
-    libraryId: "library:test",
-    databaseId: `database:${id}`,
-    defaultDatabaseViewId: null,
-    lifecycle: "active",
-    bindingRevision: 1,
-    name: id,
-    description: "",
-    appearance: DEFAULT_PROJECT_APPEARANCE,
-    sources: [],
-    primaryWorkspaceRoot: null,
-    pinned: false,
-    pinnedOrder: null,
-    created: new Date(0),
-    updated: new Date(0),
-    ...rest,
-  };
-}
-
 const DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT = fs.mkdtempSync(
   path.join(os.tmpdir(), "nodex-codex-service-goal-attachments-"),
 );
@@ -541,48 +508,6 @@ const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
   }),
 };
 const PROJECT_RUNTIME_TEST_HARNESS_RELEASES: Array<() => Promise<void>> = [];
-
-const makeCodexSidebarSweepTestAdapter = (): CodexSidebarSweepRuntimePromiseAdapter => {
-  let generation = 0;
-  let active: Promise<void> | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-
-  const schedule = <State extends { archived: boolean; cursor: string | null; phase: string }>(
-    admittedGeneration: number,
-    state: State,
-    step: (state: State) => Promise<State | null>,
-  ): void => {
-    timer = setTimeout(() => {
-      timer = null;
-      if (admittedGeneration !== generation) return;
-      const running = step(state)
-        .then((nextState) => {
-          if (nextState === null || admittedGeneration !== generation) return;
-          schedule(admittedGeneration, nextState, step);
-        })
-        .catch(() => undefined);
-      active = running;
-      void running.finally(() => {
-        if (active === running) active = null;
-      });
-    }, 0);
-  };
-
-  return {
-    start: async (initialState, step) => {
-      const admittedGeneration = ++generation;
-      schedule(admittedGeneration, initialState, step);
-    },
-    cancel: async () => {
-      generation += 1;
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      await active;
-    },
-  };
-};
 
 const TEST_CODEX_RUNTIME: ResolvedCodexRuntime = {
   source: "staged",
@@ -1120,7 +1045,6 @@ function createService(options?: {
     setTimeout?: (callback: () => void, timeoutMs: number) => unknown;
     clearTimeout?: (timer: unknown) => void;
   };
-  databaseNotifier?: TestDatabaseInvalidationSource;
 }): TestableCodexService {
   const conversationAggregates = makeCodexConversationAggregateRegistry();
   const conversationRuntimes = ConversationRuntimeMap.of({
@@ -1240,20 +1164,6 @@ function createService(options?: {
   const ownerNotificationDrain = new TestCodexOwnerNotificationDrainRuntime(
     DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT,
   );
-  const databaseNotifier = options?.databaseNotifier ?? new TestDatabaseInvalidationSource();
-  const sidebarSync = new TestCodexSidebarSyncRuntime({
-    refresh: async (input) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      return await service.refreshSidebarThreadsForSync(input);
-    },
-    buildSnapshot: async (includeArchived, revision) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      return await service.buildBoundedWorkspaceSidebarSnapshot(includeArchived, revision);
-    },
-    emit: (result, reason) => service?.emitSidebarSyncUpdated(result, reason),
-    invalidations: databaseNotifier,
-  });
-  const sidebarSweep = makeCodexSidebarSweepTestAdapter();
   const projectWorkspace = options?.projectWorkspace ?? createTestProjectWorkspace();
   const emitRendererOwnerMessage = (conversationId: string, message: CodexHostMessage): boolean => {
     const targetClientId = rendererConversations.getOwnerClientId(conversationId);
@@ -1298,53 +1208,6 @@ function createService(options?: {
       rendererConversations.clearRequestDelivery(conversationId, requestId),
     reconcileOwnership: () => undefined,
   } as unknown as CodexRendererConversationCoordinatorService;
-  const threadCatalog = {
-    listPinned: async (): Promise<readonly string[]> => {
-      const threadIds: string[] = [];
-      let after: string | null = null;
-      do {
-        const window = await projectWorkspace.readSidebarOverview(false, { after, first: 200 });
-        threadIds.push(
-          ...window.items.flatMap((session) => (session.thread ? [session.thread.threadId] : [])),
-        );
-        after = window.nextCursor;
-      } while (after !== null);
-      return threadIds;
-    },
-    listProject: async () => ({
-      items: [],
-      nextCursor: null,
-      hasMore: false,
-      projectionRevision: 0,
-    }),
-    listPalette: async (): Promise<readonly CommandPaletteThreadSummary[]> => [],
-    setPinned: async (threadId: string, pinned: boolean, beforeThreadId?: string | null) => {
-      await projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId);
-      return {
-        items: [],
-        pinnedThreadIds: [],
-        projectAssignments: {},
-        projectlessThreadIds: [],
-        generatedAt: 1,
-      };
-    },
-    reorderPinned: async (orderedThreadIds: readonly string[]) => {
-      await projectWorkspace.reorderPinnedThreads(orderedThreadIds);
-      return {
-        items: [],
-        pinnedThreadIds: [...orderedThreadIds],
-        projectAssignments: {},
-        projectlessThreadIds: [],
-        generatedAt: 1,
-      };
-    },
-    move: async (
-      input: import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveInput,
-    ) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      return await service.applySidebarThreadMove(input);
-    },
-  };
   const pendingWorktrees = new CodexPendingWorktreeRuntime({
     createWorktree: async (entry, context) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -1727,8 +1590,6 @@ function createService(options?: {
     ownerNotificationDrain,
     rendererConversations,
     rendererConversationCoordinator,
-    sidebarSync,
-    sidebarSweep,
     gitProbe: {
       readPath: async (cwd, args) => {
         if (!cwd.trim()) return null;
@@ -1777,7 +1638,6 @@ function createService(options?: {
     pendingWorktrees,
     threadSettingsRuntime,
     threadTitlePersistence,
-    threadCatalog,
     conversationCommands,
     postResumeGoals,
     backgroundSubagentMetadataRepair,
@@ -1900,10 +1760,8 @@ function createService(options?: {
     try {
       activeGoalContinuation.dispose();
       ownerNotificationDrain.dispose();
-      sidebarSync.dispose();
       pendingWorktrees.shutdown();
       conversationResume.dispose();
-      await sidebarSweep.cancel();
       await pendingServerRequests.shutdown(new Error("Codex test service is shutting down"));
     } finally {
       // The final Effect capabilities are process-scoped in production; this legacy test fixture
@@ -2065,591 +1923,6 @@ function createService(options?: {
   };
   return testService;
 }
-
-describe("codex-service sidebar Thread Project moves", () => {
-  test("confirms Project-wide source access, replays the move, and can remove it to Chats", async () => {
-    const sourceProject = makeProject({
-      id: "project:source",
-      name: "Source",
-      sources: [{ root: "/workspace/source", order: 0 }],
-      primaryWorkspaceRoot: "/workspace/source",
-    });
-    const targetProject = makeProject({
-      id: "project:target",
-      name: "Target",
-      bindingRevision: 4,
-      sources: [{ root: "/workspace/target", order: 0 }],
-      primaryWorkspaceRoot: "/workspace/target",
-    });
-    const projects = new Map([
-      [sourceProject.id, sourceProject],
-      [targetProject.id, targetProject],
-    ]);
-    const baseWorkspace = createTestProjectWorkspace();
-    await baseWorkspace.upsertThread("thread:move", {
-      projectId: sourceProject.id,
-      threadName: "Move me",
-      threadPreview: "Move me",
-      modelProvider: "openai",
-      cwd: "/workspace/source/.worktrees/thread",
-      managedWorktreePath: "/workspace/source/.worktrees",
-      status: { statusType: "idle", activeFlags: [] },
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    const moveInputs: Array<Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]> = [];
-    const projectWorkspace = {
-      ...baseWorkspace,
-      getProject: async (projectId: string) => projects.get(projectId) ?? null,
-      getProjectSession: async (sessionId: string) => ({
-        id: sessionId,
-        projectId: sourceProject.id,
-        noThreadFallbackTitle: "Move me",
-        displayTitle: "Move me",
-        order: 0,
-        pinned: false,
-        pinnedOrder: null,
-        archived: false,
-        archivedAt: null,
-        unread: false,
-        thread: null,
-        createdAt: "2026-08-12T00:00:00.000Z",
-        updatedAt: "2026-08-12T00:00:00.000Z",
-      }),
-      moveThread: async (input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]) => {
-        moveInputs.push(input);
-        return await baseWorkspace.moveThread(input);
-      },
-    } as DesktopProjectWorkspacePort;
-    const service = createService({ projectWorkspace });
-    const moveInput = {
-      hostId: "local" as const,
-      threadId: "thread:move",
-      sourceContainerId: "project:project:source" as const,
-      targetContainerId: "project:project:target" as const,
-      beforeThreadId: null,
-      useDefaultOrder: true as const,
-    };
-
-    try {
-      const confirmation = await service.threadCatalog.move(moveInput);
-      expect(confirmation).toEqual({
-        status: "confirmation-required",
-        reason: "target-project-needs-source-access",
-        threadId: "thread:move",
-        targetProjectId: targetProject.id,
-        targetBindingRevision: 4,
-        missingProjectSources: ["/workspace/source"],
-        targetProjectName: "Target",
-      });
-      expect(moveInputs).toEqual([]);
-      if (confirmation.status !== "confirmation-required") {
-        throw new Error("Expected Project access confirmation");
-      }
-
-      const moved = await service.threadCatalog.move({
-        ...moveInput,
-        projectAccessGrant: {
-          targetProjectId: confirmation.targetProjectId,
-          expectedBindingRevision: confirmation.targetBindingRevision,
-          missingProjectSources: confirmation.missingProjectSources,
-        },
-      });
-      expect(moved.status).toBe("moved");
-      if (moved.status === "moved") {
-        expect(moved.operationId).toBe("test-move:thread:move");
-        expect(moved.projectionRevision).toBe(1);
-      }
-      expect(moveInputs[0]).toMatchObject({
-        sourceProjectId: sourceProject.id,
-        targetProjectId: targetProject.id,
-        runtimeWorkspaceRoots: [
-          "/workspace/source/.worktrees/thread",
-          "/workspace/target",
-          "/workspace/source",
-        ],
-        projectAccessGrant: {
-          expectedTargetBindingRevision: 4,
-          missingProjectSources: ["/workspace/source"],
-        },
-      });
-
-      const reordered = await service.threadCatalog.move({
-        hostId: "local",
-        threadId: "thread:move",
-        sourceContainerId: "project:project:target",
-        targetContainerId: "project:project:target",
-        beforeThreadId: null,
-        afterThreadId: "thread:anchor",
-      });
-      expect(reordered.status).toBe("moved");
-      expect(moveInputs[1]).toMatchObject({
-        sourceProjectId: targetProject.id,
-        targetProjectId: targetProject.id,
-        beforeThreadId: null,
-        afterThreadId: "thread:anchor",
-      });
-
-      const removed = await service.threadCatalog.move({
-        hostId: "local",
-        threadId: "thread:move",
-        sourceContainerId: "project:project:target",
-        targetContainerId: "chats",
-        beforeThreadId: null,
-      });
-      expect(removed.status).toBe("moved");
-      if (removed.status === "moved") {
-        expect(removed.destination.projectId).toBeNull();
-      }
-      expect(moveInputs[2]).toMatchObject({
-        sourceProjectId: targetProject.id,
-        targetProjectId: null,
-      });
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("commits a dormant task move when app-server no longer has the loaded Thread", async () => {
-    const sourceProject = makeProject({
-      id: "project:source",
-      name: "Source",
-      sources: [{ root: "/workspace/target/source", order: 0 }],
-      primaryWorkspaceRoot: "/workspace/target/source",
-    });
-    const targetProject = makeProject({
-      id: "project:target",
-      name: "Target",
-      sources: [{ root: "/workspace/target", order: 0 }],
-      primaryWorkspaceRoot: "/workspace/target",
-    });
-    const projects = new Map([
-      [sourceProject.id, sourceProject],
-      [targetProject.id, targetProject],
-    ]);
-    const baseWorkspace = createTestProjectWorkspace();
-    await baseWorkspace.upsertThread("thread:dormant-move", {
-      projectId: sourceProject.id,
-      threadName: "Dormant move",
-      threadPreview: "Dormant move",
-      modelProvider: "openai",
-      cwd: "/workspace/target/source",
-      status: { statusType: "idle", activeFlags: [] },
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    const events: string[] = [];
-    const moveInputs: DesktopProjectWorkspaceThreadMoveInput[] = [];
-    const projectWorkspace = {
-      ...baseWorkspace,
-      getProject: async (projectId: string) => projects.get(projectId) ?? null,
-      getProjectSession: async (sessionId: string) => ({
-        id: sessionId,
-        projectId: sourceProject.id,
-        noThreadFallbackTitle: "Dormant move",
-        displayTitle: "Dormant move",
-        order: 0,
-        pinned: false,
-        pinnedOrder: null,
-        archived: false,
-        archivedAt: null,
-        unread: false,
-        thread: null,
-        createdAt: "2026-08-12T00:00:00.000Z",
-        updatedAt: "2026-08-12T00:00:00.000Z",
-      }),
-      moveThread: async (input: DesktopProjectWorkspaceThreadMoveInput) => {
-        events.push("core-move");
-        moveInputs.push(input);
-        return await baseWorkspace.moveThread(input);
-      },
-    } as DesktopProjectWorkspacePort;
-    const service = createService({ projectWorkspace });
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string) => Promise<unknown>;
-    };
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      expect(method).toBe("thread/settings/update");
-      events.push("app-server-sync");
-      throw new CodexRpcError("thread not found: thread:dormant-move", -32600);
-    };
-
-    try {
-      const moved = await service.threadCatalog.move({
-        hostId: "local",
-        threadId: "thread:dormant-move",
-        sourceContainerId: "project:project:source",
-        targetContainerId: "project:project:target",
-        beforeThreadId: null,
-        useDefaultOrder: true,
-      });
-
-      expect(moved.status).toBe("moved");
-      expect(events).toEqual(["core-move", "app-server-sync"]);
-      expect(moveInputs).toEqual([
-        expect.objectContaining({
-          sourceProjectId: sourceProject.id,
-          targetProjectId: targetProject.id,
-          runtimeWorkspaceRoots: ["/workspace/target"],
-          metadata: expect.objectContaining({ cwd: "/workspace/target" }),
-        }),
-      ]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
-
-test("keeps parent-linked child threads out of workspace sidebar snapshots", async () => {
-  const projectWorkspace = createTestProjectWorkspace();
-  await projectWorkspace.upsertThread("thread:root", {
-    projectId: null,
-    parentThreadId: null,
-    threadName: "Root chat",
-    threadPreview: "Root chat",
-  });
-  await projectWorkspace.upsertThread("thread:child", {
-    projectId: null,
-    parentThreadId: "thread:root",
-    threadName: "Subagent chat",
-    threadPreview: "Subagent chat",
-  });
-  await projectWorkspace.setThreadPinned("thread:root", true);
-  await projectWorkspace.setThreadPinned("thread:child", true);
-  const service = createService({ projectWorkspace });
-
-  try {
-    const snapshot = (await service.sidebarSync.sync({ policy: "read", reason: "manual" }))
-      .snapshot;
-
-    expect(snapshot.items.map((item) => item.threadId)).toEqual(["thread:root"]);
-    expect(snapshot.projectlessThreadIds).toEqual(["thread:root"]);
-    expect(snapshot.pinnedThreadIds).toEqual(["thread:root"]);
-  } finally {
-    await service.shutdown();
-  }
-});
-
-test("returns the last-known sidebar without repeating a failed Core read", async () => {
-  const baseWorkspace = createTestProjectWorkspace();
-  await baseWorkspace.upsertThread("thread:cached-sidebar", {
-    projectId: null,
-    threadName: "Cached sidebar",
-    threadPreview: "Cached sidebar",
-  });
-  await baseWorkspace.setThreadPinned("thread:cached-sidebar", true);
-  let reads = 0;
-  let coreBusy = false;
-  const projectWorkspace = {
-    ...baseWorkspace,
-    readSidebarOverview: async (includeArchived: boolean) => {
-      reads += 1;
-      if (coreBusy) throw new Error("Core request deadline was exceeded");
-      return await baseWorkspace.readSidebarOverview(includeArchived);
-    },
-  } as DesktopProjectWorkspacePort;
-  const service = createService({ projectWorkspace });
-  const client = Reflect.get(service as object, "client") as {
-    start: () => Promise<void>;
-    request: (method: string) => Promise<unknown>;
-  };
-  client.start = async () => undefined;
-  client.request = async (method) => {
-    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
-    return { data: [], nextCursor: null };
-  };
-
-  try {
-    const initial = await service.sidebarSync.sync({ policy: "read" });
-    expect(initial.snapshot.items.map((item) => item.threadId)).toEqual(["thread:cached-sidebar"]);
-    coreBusy = true;
-
-    const degraded = await service.sidebarSync.sync({
-      policy: "force",
-      reason: "manual",
-    });
-
-    expect(degraded.source).toBe("stale-last-known");
-    expect(degraded.snapshot.items.map((item) => item.threadId)).toEqual(["thread:cached-sidebar"]);
-    expect(reads).toBe(2);
-  } finally {
-    await service.shutdown();
-  }
-});
-
-test("does not mask a sidebar invalidation that lands during a Core read", async () => {
-  const baseWorkspace = createTestProjectWorkspace();
-  await baseWorkspace.upsertThread("thread:before-invalidation", {
-    projectId: null,
-    threadName: "Before invalidation",
-    threadPreview: "Before invalidation",
-  });
-  await baseWorkspace.setThreadPinned("thread:before-invalidation", true);
-  let reads = 0;
-  let releaseFirstRead!: () => void;
-  let markFirstReadStarted!: () => void;
-  const firstReadStarted = new Promise<void>((resolve) => {
-    markFirstReadStarted = resolve;
-  });
-  const firstReadRelease = new Promise<void>((resolve) => {
-    releaseFirstRead = resolve;
-  });
-  const projectWorkspace = {
-    ...baseWorkspace,
-    readSidebarOverview: async (includeArchived: boolean) => {
-      reads += 1;
-      const overview = await baseWorkspace.readSidebarOverview(includeArchived);
-      if (reads === 1) {
-        markFirstReadStarted();
-        await firstReadRelease;
-      }
-      return overview;
-    },
-  } as DesktopProjectWorkspacePort;
-  const databaseNotifier = new TestDatabaseInvalidationSource();
-  const service = createService({ projectWorkspace, databaseNotifier });
-  const client = Reflect.get(service as object, "client") as {
-    start: () => Promise<void>;
-    request: (method: string) => Promise<unknown>;
-  };
-  client.start = async () => undefined;
-  client.request = async (method) => {
-    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
-    return { data: [], nextCursor: null };
-  };
-
-  try {
-    const initialSync = service.sidebarSync.sync({
-      policy: "force",
-      reason: "manual",
-    });
-    await firstReadStarted;
-    await baseWorkspace.upsertThread("thread:after-invalidation", {
-      projectId: null,
-      threadName: "After invalidation",
-      threadPreview: "After invalidation",
-    });
-    await baseWorkspace.setThreadPinned("thread:after-invalidation", true);
-    databaseNotifier.invalidate();
-    releaseFirstRead();
-
-    const initial = await initialSync;
-    expect(initial.snapshot.items.map((item) => item.threadId)).toEqual([
-      "thread:before-invalidation",
-    ]);
-    const refreshed = await service.sidebarSync.sync({ policy: "stale" });
-    expect(reads).toBe(2);
-    expect(refreshed.snapshot.items.map((item) => item.threadId)).toEqual([
-      "thread:before-invalidation",
-      "thread:after-invalidation",
-    ]);
-  } finally {
-    releaseFirstRead?.();
-    await service.shutdown();
-  }
-});
-
-test("propagates a cold-start Core busy failure instead of fabricating an empty sidebar", async () => {
-  let reads = 0;
-  const projectWorkspace = {
-    ...createTestProjectWorkspace(),
-    readSidebarOverview: async () => {
-      reads += 1;
-      throw new Error("Core request deadline was exceeded");
-    },
-  } as DesktopProjectWorkspacePort;
-  const service = createService({ projectWorkspace });
-  const client = Reflect.get(service as object, "client") as {
-    start: () => Promise<void>;
-    request: (method: string) => Promise<unknown>;
-  };
-  client.start = async () => undefined;
-  client.request = async (method) => {
-    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
-    return { data: [], nextCursor: null };
-  };
-
-  try {
-    await expect(
-      service.sidebarSync.sync({
-        policy: "force",
-        reason: "manual",
-      }),
-    ).rejects.toThrow("Core request deadline was exceeded");
-    expect(reads).toBe(1);
-  } finally {
-    await service.shutdown();
-  }
-});
-
-test("projects durable local and remote managed worktree identities into the sidebar", async () => {
-  const projectWorkspace = createTestProjectWorkspace();
-  await projectWorkspace.upsertThread("thread:local-worktree", {
-    projectId: null,
-    threadName: "Local worktree",
-    threadPreview: "Local worktree",
-    executionHostId: "local",
-    cwd: "/tmp/.nodex/worktrees/91a6/repo",
-    managedWorktreePath: "/tmp/.nodex/worktrees/91a6/repo",
-  });
-  await projectWorkspace.upsertThread("thread:remote-worktree", {
-    projectId: null,
-    threadName: "Remote worktree",
-    threadPreview: "Remote worktree",
-    executionHostId: "build-host",
-    cwd: "/srv/.nodex/worktrees/91a6/repo",
-    managedWorktreePath: "/srv/.nodex/worktrees/91a6/repo",
-  });
-  await projectWorkspace.setThreadPinned("thread:local-worktree", true);
-  await projectWorkspace.setThreadPinned("thread:remote-worktree", true);
-  const service = createService({ projectWorkspace });
-
-  try {
-    const snapshot = (await service.sidebarSync.sync({ policy: "read", reason: "manual" }))
-      .snapshot;
-    const local = snapshot.items.find((item) => item.threadId === "thread:local-worktree");
-    const remote = snapshot.items.find((item) => item.threadId === "thread:remote-worktree");
-
-    expect(local?.kind).toBe("local");
-    expect(local?.runLocation).toEqual({
-      kind: "local-worktree",
-      path: "/tmp/.nodex/worktrees/91a6/repo",
-      phase: "ready",
-    });
-    expect(remote?.kind).toBe("remote");
-    expect(remote?.runLocation).toEqual({
-      kind: "remote-worktree",
-      hostId: "build-host",
-      hostDisplayName: "build-host",
-      path: "/srv/.nodex/worktrees/91a6/repo",
-      phase: "ready",
-    });
-  } finally {
-    await service.shutdown();
-  }
-});
-
-test("returns after the first sidebar page and serializes a forced refresh at the window boundary", async () => {
-  let reconcileCalls = 0;
-  const projectWorkspace = {
-    ...createTestProjectWorkspace(),
-    reconcileAppServerThreadSweep: async () => {
-      reconcileCalls += 1;
-      return { threadIds: [], projectIds: [] };
-    },
-  } as DesktopProjectWorkspacePort;
-  const service = createService({ projectWorkspace });
-  const client = Reflect.get(service as object, "client") as {
-    start: () => Promise<void>;
-    request: (method: string, params: unknown) => Promise<unknown>;
-  };
-  const threadListRequests: Array<{ cursor: string | null; archived: boolean }> = [];
-  let releaseSecondWindow!: () => void;
-  const secondWindowGate = new Promise<void>((resolve) => {
-    releaseSecondWindow = resolve;
-  });
-  client.start = async () => undefined;
-  client.request = async (method, params) => {
-    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
-    const input = params as { cursor: string | null; archived: boolean };
-    threadListRequests.push({ cursor: input.cursor, archived: input.archived });
-    if (threadListRequests.length === 1) {
-      return { data: [], nextCursor: "active:page-2" };
-    }
-    if (threadListRequests.length === 2) {
-      await secondWindowGate;
-      return { data: [], nextCursor: null };
-    }
-    return { data: [], nextCursor: null };
-  };
-
-  try {
-    const first = await service.sidebarSync.sync({
-      policy: "force",
-      reason: "manual",
-    });
-    expect(first.refreshed).toBe(true);
-    await waitForCondition(() => threadListRequests.length === 2, 1_000);
-
-    let secondResolved = false;
-    const second = service.sidebarSync
-      .sync({
-        policy: "force",
-        reason: "manual",
-      })
-      .then((result) => {
-        secondResolved = true;
-        return result;
-      });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(secondResolved).toBe(false);
-    expect(threadListRequests.length).toBe(2);
-
-    releaseSecondWindow();
-    await second;
-    expect(threadListRequests.length).toBe(3);
-    await waitForCondition(() => reconcileCalls === 1, 1_000);
-    expect(threadListRequests.some((request) => request.archived)).toBe(true);
-  } finally {
-    releaseSecondWindow();
-    await service.shutdown();
-  }
-});
-
-test("does not reconcile an incomplete sidebar sweep before a fresh replacement", async () => {
-  vi.useFakeTimers();
-  let reconcileCalls = 0;
-  const projectWorkspace = {
-    ...createTestProjectWorkspace(),
-    reconcileAppServerThreadSweep: async () => {
-      reconcileCalls += 1;
-      return { threadIds: [], projectIds: [] };
-    },
-  } as DesktopProjectWorkspacePort;
-  const service = createService({ projectWorkspace });
-  const client = Reflect.get(service as object, "client") as {
-    start: () => Promise<void>;
-    request: (method: string, params: unknown) => Promise<unknown>;
-  };
-  const requests: Array<{ cursor: string | null; archived: boolean }> = [];
-  client.start = async () => undefined;
-  client.request = async (method, params) => {
-    if (method !== "thread/list") throw new Error(`Unexpected request: ${method}`);
-    const input = params as { cursor: string | null; archived: boolean };
-    requests.push({ cursor: input.cursor, archived: input.archived });
-    if (requests.length === 1) return { data: [], nextCursor: "active:page-2" };
-    if (requests.length === 2) throw new Error("temporary page failure");
-    return { data: [], nextCursor: null };
-  };
-
-  try {
-    await service.sidebarSync.sync({
-      policy: "force",
-      reason: "manual",
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(requests.map((request) => request.cursor)).toEqual([null, "active:page-2"]);
-    expect(reconcileCalls).toBe(0);
-
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(requests).toHaveLength(2);
-    expect(reconcileCalls).toBe(0);
-
-    await service.sidebarSync.sync({
-      policy: "force",
-      reason: "manual",
-    });
-    expect(requests[2]).toEqual({ cursor: null, archived: false });
-    await vi.runAllTimersAsync();
-    expect(requests.some((request) => request.archived)).toBe(true);
-    expect(reconcileCalls).toBe(1);
-  } finally {
-    await service.shutdown();
-    vi.useRealTimers();
-  }
-});
 
 test("reads Git settings live for every project-aware instruction build", async () => {
   let gitSettings: CodexGitSettings = {
@@ -3859,113 +3132,6 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(canonical.sidecar.latestThreadSettings?.model ?? "").toBe("gpt-response");
       expect(canonical.sidecar.latestThreadSettings?.modelProvider ?? "").toBe("openai");
       expect(canonical.sidecar.latestThreadSettings?.effort ?? null).toBe("high");
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
-
-describe("codex-service edit-last-user-turn and fork-from-turn", () => {
-  test.each([
-    {
-      label: "Project owner when cwd moves outside every source",
-      threadId: "thread-durable-project",
-      existingProjectId: "project:durable",
-      nextCwd: "/outside/every/project",
-    },
-    {
-      label: "explicit Projectless owner when cwd enters a Project source",
-      threadId: "thread-durable-projectless",
-      existingProjectId: null,
-      nextCwd: "/Users/test/Documents/Nodex/My Project/nested",
-    },
-  ])("sidebar refresh preserves $label", async ({ threadId, existingProjectId, nextCwd }) => {
-    const baseWorkspace = createTestProjectWorkspace();
-    const existing = await baseWorkspace.upsertThread(threadId, {
-      projectId: existingProjectId,
-      threadName: threadId,
-      threadPreview: threadId,
-      modelProvider: "openai",
-      cwd: "/previous/cwd",
-      status: { statusType: "idle", activeFlags: [] },
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    const upsertPatches: Array<Parameters<DesktopProjectWorkspacePort["upsertThread"]>[1]> = [];
-    const moveInputs: Array<Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]> = [];
-    const projectWorkspace = {
-      ...baseWorkspace,
-      getProjectSession: async (sessionId: string) => ({
-        id: sessionId,
-        projectId: existingProjectId,
-      }),
-      upsertThread: async (
-        id: string,
-        patch: Parameters<DesktopProjectWorkspacePort["upsertThread"]>[1],
-      ) => {
-        upsertPatches.push(patch);
-        return await baseWorkspace.upsertThread(id, patch);
-      },
-      moveThread: async (input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]) => {
-        moveInputs.push(input);
-        return await baseWorkspace.moveThread(input);
-      },
-    } as unknown as DesktopProjectWorkspacePort;
-    const service = createService({ projectWorkspace });
-    const internals = service as unknown as {
-      upsertSidebarThreadFromAppServerThread: (
-        thread: unknown,
-        input: {
-          projects: readonly Project[];
-          includeArchived: boolean;
-          reason: "manual";
-        },
-      ) => Promise<{ projectId: string | null; summary: CodexThreadSummary | null }>;
-    };
-
-    try {
-      const result = await internals.upsertSidebarThreadFromAppServerThread(
-        {
-          id: threadId,
-          name: threadId,
-          preview: threadId,
-          modelProvider: "openai",
-          cwd: nextCwd,
-          status: { type: "idle" },
-          createdAt: 1,
-          updatedAt: 2,
-        },
-        {
-          projects: [
-            makeProject({
-              id: "project:durable",
-              sources: [{ root: "/workspace/durable", order: 0 }],
-              primaryWorkspaceRoot: "/workspace/durable",
-            }),
-            makeProject({
-              id: "project:default",
-              sources: [
-                {
-                  root: "/Users/test/Documents/Nodex/My Project",
-                  order: 0,
-                },
-              ],
-              primaryWorkspaceRoot: "/Users/test/Documents/Nodex/My Project",
-            }),
-          ],
-          includeArchived: false,
-          reason: "manual",
-        },
-      );
-
-      expect(existing.sessionId).not.toBeNull();
-      expect(result.summary?.projectId).toBe(existingProjectId);
-      expect(result.projectId).toBe(existingProjectId);
-      expect((await baseWorkspace.getThread(threadId))?.projectId).toBe(existingProjectId);
-      expect(moveInputs).toEqual([]);
-      expect(
-        upsertPatches.some((patch) => Object.prototype.hasOwnProperty.call(patch, "projectId")),
-      ).toBe(false);
     } finally {
       await service.shutdown();
     }

@@ -87,7 +87,8 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         }),
         sidebarSync: CodexSidebarSyncRuntime.of({
           sync: () => Effect.die("unused"),
-          publish: () => Effect.die("unused"),
+          changed: () => Effect.die("unused"),
+          ensureSession: () => Effect.die("unused"),
           invalidate: () => undefined,
           scheduleNotification: () => undefined,
         }),

@@ -81,6 +81,7 @@ const harness = (
   } as unknown as CoreModules["Service"]);
   const directory = CodexThreadDirectory.of({
     acceptForkResult: () => Effect.die("unused"),
+    observeMetadata: () => Effect.die("unused"),
     acceptSessionStart: (
       request: Parameters<CodexThreadDirectory["Service"]["acceptSessionStart"]>[0],
     ) =>

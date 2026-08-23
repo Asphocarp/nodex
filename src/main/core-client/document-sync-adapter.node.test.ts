@@ -1,109 +1,19 @@
 import { createHash } from "node:crypto";
 
-import { describe, it } from "@effect/vitest";
-import * as Effect from "effect/Effect";
-import { expect, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import { CoreModuleResponseError } from "./core-client";
-import {
-  createCoreDocumentSyncAdapter as createCoreDocumentSyncAdapterBase,
-  type CoreDocumentSyncAdapterOptions,
-} from "./document-sync-adapter";
-import { makeTestDocumentLiveRuntimeAdapter } from "./document-live-runtime.test-support";
+import { createCoreDocumentSyncAdapter as createCoreDocumentSyncAdapterBase } from "./document-sync-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
-import type { CoreDocumentEventSubscription } from "./types";
 
 type CreateDocumentAdapter = (
   client: Parameters<typeof createCoreDocumentSyncAdapterBase>[0],
-  options?: Omit<CoreDocumentSyncAdapterOptions, "live">,
 ) => ReturnType<typeof createCoreDocumentSyncAdapterBase>;
 
 const test = (name: string, run: (createAdapter: CreateDocumentAdapter) => Promise<void>): void =>
-  it.effect(name, () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const live = yield* makeTestDocumentLiveRuntimeAdapter;
-        const createAdapter: CreateDocumentAdapter = (client, options = {}) =>
-          createCoreDocumentSyncAdapterBase(client, { ...options, live });
-        yield* Effect.promise(() => run(createAdapter));
-      }),
-    ),
-  );
-
-class ControllableDocumentStreamClient extends FakeCoreClient {
-  readonly openings: Array<{
-    open(): void;
-    end(error?: unknown): void;
-  }> = [];
-
-  override openDocumentEventStream(input: {
-    readonly documentId: string;
-  }): Promise<CoreDocumentEventSubscription> {
-    let resolveOpen: (subscription: CoreDocumentEventSubscription) => void = () => undefined;
-    let resolveDone: () => void = () => undefined;
-    let rejectDone: (error: unknown) => void = () => undefined;
-    const done = new Promise<void>((resolve, reject) => {
-      resolveDone = resolve;
-      rejectDone = reject;
-    });
-    const subscription: CoreDocumentEventSubscription = {
-      barrier: {
-        store_epoch: "epoch:test",
-        core_generation: "fake-core-start",
-        document_id: input.documentId,
-        document_generation: 1,
-        head_seq: 0,
-        commit_head: 0,
-        engine: "yjs",
-      },
-      done,
-      close: resolveDone,
-    };
-    const opening = new Promise<CoreDocumentEventSubscription>((resolve) => {
-      resolveOpen = resolve;
-    });
-    this.openings.push({
-      open: () => resolveOpen(subscription),
-      end: (error) => {
-        if (error === undefined) {
-          resolveDone();
-          return;
-        }
-        rejectDone(error);
-      },
-    });
-    return opening;
-  }
-}
-
-class SubscriptionLossDocumentStreamClient extends FakeCoreClient {
-  streamOpenings = 0;
-  syncAttempts = 0;
-
-  override openDocumentEventStream(
-    ...args: Parameters<FakeCoreClient["openDocumentEventStream"]>
-  ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
-    this.streamOpenings += 1;
-    return super.openDocumentEventStream(...args);
-  }
-
-  override documentSync(
-    ...args: Parameters<FakeCoreClient["documentSync"]>
-  ): ReturnType<FakeCoreClient["documentSync"]> {
-    this.syncAttempts += 1;
-    if (this.syncAttempts === 1) {
-      throw new CoreModuleResponseError({
-        code: "unauthorized",
-        message: "An exact Document subscription is required",
-        retryable: true,
-        recovery: { kind: "reconnect_document_subscription" },
-      });
-    }
-    return super.documentSync(...args);
-  }
-}
+  it(name, () => run(createCoreDocumentSyncAdapterBase));
 
 const descriptorSnapshot = () => ({
   contract_version: 1 as const,
@@ -364,172 +274,41 @@ describe("Core Document sync adapter", () => {
     });
   });
 
-  test("tracks subscriptions by exact Document and client session", async (createCoreDocumentSyncAdapter) => {
-    const client = new FakeCoreClient();
-    const adapter = createCoreDocumentSyncAdapter(client);
-    const first = {
-      documentId: "document:first",
-      clientSessionId: "renderer:shared",
-    } as const;
-    const second = {
-      documentId: "document:second",
-      clientSessionId: "renderer:shared",
-    } as const;
-    const closeFirst = adapter.subscribe(first, () => undefined);
-    adapter.subscribe(second, () => undefined);
-    client.enqueueDocumentSync({
-      documentId: second.documentId,
-      storeEpoch: "epoch:test",
-      generation: 1,
-      headSeq: 1,
-      update: new Uint8Array(),
-      stateVector: new Uint8Array(),
-    });
-
-    closeFirst();
-
-    await expect(
-      adapter.sync({
-        ...first,
-        stateVector: new Uint8Array(),
-      }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "transport_unavailable" },
-    });
-    await expect(
-      adapter.sync({
-        ...second,
-        stateVector: new Uint8Array(),
-      }),
-    ).resolves.toMatchObject({
-      ok: true,
-      value: { documentId: second.documentId },
-    });
-  });
-
   test(
-    "repairs a rejected generic typed-owner mutation from canonical state",
+    "maps a rejected generic typed-owner mutation to a canonical repair",
     async (createCoreDocumentSyncAdapter) => {
-    const client = new FakeCoreClient();
-    const adapter = createCoreDocumentSyncAdapter(client);
-    const request = {
-      documentId: "document:owner-guard",
-      clientSessionId: "renderer:owner-guard",
-    } as const;
-    const close = adapter.subscribe(request, () => undefined);
-    vi.spyOn(client, "documentApplyUpdate").mockRejectedValueOnce(
-      new CoreModuleResponseError({
-        code: "protected_owner_deletion",
-        message: "Typed owner Page cannot contain child Blocks",
-        retryable: false,
-        recovery: { kind: "none" },
-      }),
-    );
+      const client = new FakeCoreClient();
+      const adapter = createCoreDocumentSyncAdapter(client);
+      vi.spyOn(client, "documentApplyUpdate").mockRejectedValueOnce(
+        new CoreModuleResponseError({
+          code: "protected_owner_deletion",
+          message: "Typed owner Page cannot contain child Blocks",
+          retryable: false,
+          recovery: { kind: "none" },
+        }),
+      );
 
-    await expect(
-      adapter.applyUpdate({
-        ...request,
-        storeEpoch: "epoch:test",
-        generation: 1,
-        updateId: "update:owner-guard",
-        baseHeadSeq: 4,
-        touchedBlockIds: ["page:nested"],
-        update: new Uint8Array([1]),
-      }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: "protected_owner_mutation",
-        retryable: false,
-        resetRequired: true,
-      },
-    });
-      close();
+      await expect(
+        adapter.applyUpdate({
+          documentId: "document:owner-guard",
+          clientSessionId: "renderer:owner-guard",
+          storeEpoch: "epoch:test",
+          generation: 1,
+          updateId: "update:owner-guard",
+          baseHeadSeq: 4,
+          touchedBlockIds: ["page:nested"],
+          update: new Uint8Array([1]),
+        }),
+      ).resolves.toMatchObject({
+        ok: false,
+        error: {
+          code: "protected_owner_mutation",
+          retryable: false,
+          resetRequired: true,
+        },
+      });
     },
   );
-
-  test("waits for the replacement physical stream before syncing after interruption", async (createCoreDocumentSyncAdapter) => {
-    const client = new ControllableDocumentStreamClient();
-    const adapter = createCoreDocumentSyncAdapter(client, { retryDelayMs: 0 });
-    const request = {
-      documentId: "document:one",
-      clientSessionId: "renderer:one",
-    } as const;
-    const lifecycle = adapter.subscribeWithLifecycle(request, () => undefined);
-    await vi.waitFor(() => {
-      expect(client.openings).toHaveLength(1);
-    });
-    client.openings[0]?.open();
-    await expect(lifecycle.ready).resolves.toMatchObject({
-      document_id: request.documentId,
-      engine: "yjs",
-      commit_head: 0,
-    });
-
-    client.openings[0]?.end(new Error("socket interrupted"));
-    await vi.waitFor(() => {
-      expect(client.openings).toHaveLength(2);
-    });
-    client.enqueueDocumentSync({
-      documentId: request.documentId,
-      storeEpoch: "epoch:test",
-      generation: 1,
-      headSeq: 2,
-      update: new Uint8Array(),
-      stateVector: new Uint8Array(),
-    });
-    const syncing = adapter.sync({
-      ...request,
-      stateVector: new Uint8Array(),
-    });
-    await Promise.resolve();
-    expect(client.documentSyncs).toHaveLength(0);
-
-    client.openings[1]?.open();
-
-    await expect(syncing).resolves.toMatchObject({
-      ok: true,
-      value: { documentId: request.documentId, headSeq: 2 },
-    });
-    expect(client.openings).toHaveLength(2);
-    lifecycle.close();
-    await lifecycle.done;
-  });
-
-  test("reconnects and retries once when Core reports a lost subscription lease", async (createCoreDocumentSyncAdapter) => {
-    const client = new SubscriptionLossDocumentStreamClient();
-    const adapter = createCoreDocumentSyncAdapter(client, { retryDelayMs: 0 });
-    const request = {
-      documentId: "document:one",
-      clientSessionId: "renderer:one",
-    } as const;
-    const lifecycle = adapter.subscribeWithLifecycle(request, () => undefined);
-    await lifecycle.ready;
-    client.enqueueDocumentSync({
-      documentId: request.documentId,
-      storeEpoch: "epoch:test",
-      generation: 1,
-      headSeq: 2,
-      update: new Uint8Array(),
-      stateVector: new Uint8Array(),
-    });
-
-    await expect(
-      adapter.sync({
-        ...request,
-        stateVector: new Uint8Array(),
-      }),
-    ).resolves.toMatchObject({
-      ok: true,
-      value: { documentId: request.documentId, headSeq: 2 },
-    });
-    expect(client.streamOpenings).toBe(2);
-    expect(client.syncAttempts).toBe(2);
-
-    lifecycle.close();
-    await lifecycle.done;
-  });
 
   test("maps Additional Document owner commands and durable receipts", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();

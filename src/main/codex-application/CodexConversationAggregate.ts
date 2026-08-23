@@ -347,6 +347,9 @@ export interface CodexConversationAggregate {
   readonly relocateExecution: (input: {
     readonly cwd: string;
     readonly managedWorktreePath: string | null;
+    readonly projectId: string | null;
+    readonly projectlessOutputDirectory: string | null;
+    readonly projectlessWorkspaceBrowserRoot: string | null;
     readonly permissions: CodexCanonicalHydratedPermissionContext;
     readonly projectReplica: boolean;
   }) => boolean;
@@ -1364,7 +1367,15 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           projectReplica,
         );
       },
-      relocateExecution: ({ cwd, managedWorktreePath, permissions, projectReplica }) => {
+      relocateExecution: ({
+        cwd,
+        managedWorktreePath,
+        projectId,
+        projectlessOutputDirectory,
+        projectlessWorkspaceBrowserRoot,
+        permissions,
+        projectReplica,
+      }) => {
         const before = aggregate.canonicalState;
         const hydration = before?.sidecar.hydrationContext;
         if (!before || !hydration) return false;
@@ -1386,8 +1397,11 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
         aggregate.canonicalState = canonical;
         const project = (conversation: CodexConversationSnapshot): CodexConversationSnapshot => ({
           ...conversation,
+          projectId,
           cwd,
           managedWorktreePath,
+          projectlessOutputDirectory,
+          projectlessWorkspaceBrowserRoot,
           approvalPolicy: permissions.approvalPolicy,
           approvalsReviewer: permissions.approvalsReviewer,
           sandbox: permissions.sandboxPolicy,

@@ -22,12 +22,6 @@ import {
 } from "../../shared/block-documents/canvas-scene-maintenance";
 import { decodeCanvasSceneSseEvent } from "../../shared/block-documents/canvas-scene-http-contract";
 import { CoreModuleResponseError } from "./core-client";
-import { isRetryableCoreEventStreamError } from "./core-event-stream-retry";
-import {
-  type DocumentLiveRuntimeAdapter,
-  type DocumentLiveSubscriptionHandle,
-} from "./document-live-runtime-adapter";
-import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import {
   contentAccessContextKey,
   type ContentAccessContext,
@@ -38,17 +32,7 @@ import {
   rendererLocalCommitApply,
   type CoreClientPort,
   type CoreEventEnvelope,
-  type DocumentLiveRepair,
 } from "./types";
-
-type ActiveSubscription = DocumentLiveSubscriptionHandle;
-
-export interface CoreCanvasSceneAdapterOptions {
-  readonly live?: DocumentLiveRuntimeAdapter;
-  readonly retryDelayMs?: number;
-  readonly maxRetryDelayMs?: number;
-  readonly maxInitialOpenAttempts?: number;
-}
 
 export type CoreCanvasSceneAdapterBinding = ContentAccessIdentity;
 
@@ -69,14 +53,6 @@ class CanvasSceneAdapterContractError extends Error {
 }
 
 export interface CoreCanvasSceneAdapter {
-  subscribeWithLifecycle(
-    request: CanvasSceneSubscribeRequest,
-    listener: (event: CanvasSceneRealtimeEvent) => void,
-  ): DocumentLiveSubscriptionHandle;
-  subscribe(
-    request: CanvasSceneSubscribeRequest,
-    listener: (event: CanvasSceneRealtimeEvent) => void,
-  ): () => void;
   sync(request: CanvasSceneSyncRequest): Promise<CanvasSceneSyncCommandResult>;
   applyMutation(request: CanvasSceneMutationRequest): Promise<CanvasSceneMutationCommandResult>;
   readCompaction(
@@ -87,10 +63,6 @@ export interface CoreCanvasSceneAdapter {
     stats: CanvasSceneCompactionStats,
   ): Promise<CanvasSceneCompactionCommandResult>;
 }
-
-const subscriptionKey = (
-  request: Pick<CanvasSceneSubscribeRequest, "clientSessionId" | "documentId">,
-): string => JSON.stringify([request.clientSessionId, request.documentId]);
 
 export interface CoreCanvasSceneCommands {
   readonly sync: (request: CanvasSceneSyncRequest) => Promise<CanvasSyncSuccess>;
@@ -233,152 +205,34 @@ export const createCoreCanvasSceneCommands = (
 export const createCoreCanvasSceneAdapter = (
   client: CoreClientPort,
   binding: CoreCanvasSceneAdapterBinding,
-  options: CoreCanvasSceneAdapterOptions,
 ): CoreCanvasSceneAdapter => {
-  const subscriptions = new Map<string, ActiveSubscription>();
-  const bindingAccessKey = contentAccessContextKey(binding.accessContext);
   const commands = createCoreCanvasSceneCommands(client, binding);
 
-  const assertBoundAccess = (accessContext: ContentAccessContext): void => {
-    if (contentAccessContextKey(accessContext) === bindingAccessKey) return;
-    throw new CanvasSceneAdapterContractError("Canvas request escaped its access boundary");
-  };
-
-  const subscriptionFor = (
-    request: Pick<CanvasSceneSubscribeRequest, "clientSessionId" | "documentId">,
-  ): ActiveSubscription => {
-    const subscription = subscriptions.get(subscriptionKey(request));
-    if (subscription) return subscription;
-    throw new Error("Canvas scene sync requires an active event subscription");
-  };
-
-  const subscribeWithLifecycle = (
-    request: CanvasSceneSubscribeRequest,
-    listener: (event: CanvasSceneRealtimeEvent) => void,
-  ): DocumentLiveSubscriptionHandle => {
-    if (!options.live) {
-      throw new Error("Canvas live subscription capability is unavailable");
-    }
-    assertBoundAccess(request.accessContext);
-    const key = subscriptionKey(request);
-    const predecessor = subscriptions.get(key);
-    predecessor?.close();
-    const predecessorDone = predecessor?.done.catch(() => undefined) ?? Promise.resolve();
-    const subscription = options.live.subscribe({
-      maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
-      shouldRetry: isRetryableCoreEventStreamError,
-      retryDelayMs: options.retryDelayMs,
-      maxRetryDelayMs: options.maxRetryDelayMs,
-      open: async (onEvent, onRepair, onRealtime, signal) => {
-        await predecessorDone;
-        if (signal.aborted) throw signal.reason;
-        return await client.openDocumentEventStream(
-          {
-            documentId: request.documentId,
-            clientSessionId: request.clientSessionId,
-            signal,
-          },
-          onEvent,
-          onRepair,
-          onRealtime,
-        );
-      },
-      onEvent: (envelope) => {
-        const event = mapCanvasLiveEnvelope(binding, request, envelope);
-        if (!event) return;
-        listener(event);
-      },
-      onRepair: (repair: DocumentLiveRepair) => {
-        listener({
-          type: "canvas_scene_resync_required",
-          libraryId: binding.libraryId,
-          accessContext: binding.accessContext,
-          documentId: repair.document_id,
-          storeEpoch: repair.store_epoch,
-          generation: repair.document_generation,
-          headSeq: repair.head_seq,
-        });
-      },
-      onOpened: (barrier, reconnected) => {
-        if (!reconnected) return;
-        listener({
-          type: "canvas_scene_resync_required",
-          libraryId: binding.libraryId,
-          accessContext: binding.accessContext,
-          documentId: barrier.document_id,
-          storeEpoch: barrier.store_epoch,
-          generation: barrier.document_generation,
-          headSeq: barrier.head_seq,
-        });
-      },
-      onRealtime: () => undefined,
-    });
-    subscriptions.set(key, subscription);
-    void subscription.done
-      .catch(() => undefined)
-      .finally(() => {
-        if (subscriptions.get(key) === subscription) {
-          subscriptions.delete(key);
-        }
-      });
-    return subscription;
-  };
-
   return {
-    subscribeWithLifecycle,
-    subscribe: (request, listener) => subscribeWithLifecycle(request, listener).close,
     sync: async (request) => {
       try {
-        assertBoundAccess(request.accessContext);
-        const key = subscriptionKey(request);
-        const subscription = subscriptionFor(request);
-        return await executeWithDocumentSubscription(
-          subscription,
-          () => subscriptions.get(key) === subscription,
-          async () => await commands.sync(request),
-        );
+        return await commands.sync(request);
       } catch (error) {
         return mapCoreCanvasSceneFailure(error);
       }
     },
     applyMutation: async (request) => {
       try {
-        assertBoundAccess(request.accessContext);
-        const key = subscriptionKey(request);
-        const subscription = subscriptionFor(request);
-        return await executeWithDocumentSubscription(
-          subscription,
-          () => subscriptions.get(key) === subscription,
-          async () => await commands.applyMutation(request),
-        );
+        return await commands.applyMutation(request);
       } catch (error) {
         return mapCoreCanvasSceneFailure(error, request.mutationId);
       }
     },
     readCompaction: async (request) => {
       try {
-        assertBoundAccess(request.accessContext);
-        const key = subscriptionKey(request);
-        const subscription = subscriptionFor(request);
-        return await executeWithDocumentSubscription(
-          subscription,
-          () => subscriptions.get(key) === subscription,
-          async () => await commands.readCompaction(request),
-        );
+        return await commands.readCompaction(request);
       } catch (error) {
         return mapCoreCanvasSceneFailure(error);
       }
     },
     compact: async (request, stats) => {
       try {
-        assertBoundAccess(request.accessContext);
-        const key = subscriptionKey(request);
-        const subscription = subscriptionFor(request);
-        return await executeWithDocumentSubscription(
-          subscription,
-          () => subscriptions.get(key) === subscription,
-          async () => await commands.compact(request, stats),
-        );
+        return await commands.compact(request, stats);
       } catch (error) {
         return mapCoreCanvasSceneFailure(error, request.mutationId);
       }

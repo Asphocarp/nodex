@@ -447,9 +447,21 @@ const fromCoreTaskThread = (
   agentPath: thread.agent_path ?? null,
   threadName: thread.thread_name ?? undefined,
   threadPreview: thread.thread_preview,
+  modelProvider: thread.model_provider,
+  executionProfile: thread.model_id
+    ? {
+        providerId: thread.model_provider,
+        modelId: thread.model_id,
+        harnessId: thread.harness_id ?? null,
+        reasoningEffort: thread.reasoning_effort ?? null,
+        serviceTier: thread.service_tier ?? null,
+      }
+    : null,
   executionHostId: thread.execution_host_id,
   cwd: thread.cwd ?? undefined,
   managedWorktreePath: thread.managed_worktree_path ?? null,
+  projectlessOutputDirectory: thread.projectless_output_directory ?? null,
+  projectlessWorkspaceBrowserRoot: thread.projectless_workspace_browser_root ?? null,
   statusType: thread.status.status_type,
   statusActiveFlags: [...thread.status.active_flags],
   archived: thread.archived,

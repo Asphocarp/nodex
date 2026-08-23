@@ -143,6 +143,7 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       acceptRollbackResult: () => Effect.die("unused"),
       acceptImportResult: () => Effect.die("unused"),
       acceptForkResult: () => Effect.die("unused"),
+      observeMetadata: () => Effect.die("unused"),
       acceptSessionStart: () => Effect.die("unused"),
     });
     const projection = CodexConversationProjection.of({

@@ -27646,6 +27646,7 @@
         "required": [
           "thread_id",
           "thread_preview",
+          "model_provider",
           "execution_host_id",
           "status",
           "archived",
@@ -27695,6 +27696,12 @@
               "null"
             ]
           },
+          "harness_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "linked_at": {
             "type": "string"
           },
@@ -27703,6 +27710,15 @@
               "string",
               "null"
             ]
+          },
+          "model_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_provider": {
+            "type": "string"
           },
           "parent_thread_id": {
             "type": [
@@ -27716,11 +27732,35 @@
               "null"
             ]
           },
+          "projectless_output_directory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projectless_workspace_browser_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reasoning_effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "recency_at": {
             "type": "integer",
             "format": "int64"
           },
           "service_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "service_tier": {
             "type": [
               "string",
               "null"

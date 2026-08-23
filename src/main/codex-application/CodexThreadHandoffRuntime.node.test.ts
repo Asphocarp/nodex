@@ -150,6 +150,8 @@ const makeHarness = (input: {
         ),
       switchRuntime: (_threadId, location) =>
         record(location === source ? "runtime:source" : "runtime:destination"),
+      relocate: ({ location }) =>
+        record(location === source ? "runtime:source" : "runtime:destination"),
       commit: (_threadId, location) =>
         record(location === source ? "core:source" : "core:destination"),
       followUp: () => record("follow-up"),
