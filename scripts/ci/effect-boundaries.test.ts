@@ -62,6 +62,18 @@ describe("Effect architecture boundaries", () => {
       "application-unsafe-runtime",
       "application-unsafe-runtime",
     ]);
+
+    const applicationRoots = [
+      "src/main/database-application/DatabaseModule.ts",
+      "src/main/git-application/GitActions.ts",
+      "src/main/initial-project/InitialProjectBootstrapRuntime.ts",
+      "src/main/library-application/LibraryModule.ts",
+      "src/main/nodex-agent-application/NodexAgentApplication.ts",
+      "src/main/project-application/ProjectLifecycleCommands.ts",
+    ];
+    for (const path of applicationRoots) {
+      expect(codes(path, "application-unstructured-async.ts"), path).toHaveLength(5);
+    }
   });
 
   test("accepts dedicated adapters and the unique process entry", () => {
