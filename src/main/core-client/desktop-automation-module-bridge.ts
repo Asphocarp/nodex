@@ -104,8 +104,12 @@ export interface DesktopPageOccurrenceWindow {
 export type DesktopAutomationReadClass = "interactive" | "background";
 
 export interface DesktopAutomationModulePort {
-  peekRunAutomationId?(threadId: string): string | null;
-  peekActiveHeartbeatAutomationId?(threadId: string): string | null;
+  /** Synchronous read projection used while routing already-materialized Codex notifications. */
+  peekRunAutomationId(threadId: string): string | null;
+  /** Synchronous read projection used while deriving Thread launch instructions. */
+  peekActiveHeartbeatAutomationId(threadId: string): string | null;
+  /** Rebuilds both routing projections from the canonical Core Automation Module. */
+  synchronizeIndex(): Promise<void>;
   listDefinitions(requestClass?: DesktopAutomationReadClass): Promise<CodexScheduledAutomation[]>;
   getDefinition(id: string): Promise<CodexScheduledAutomation | null>;
   createDefinition(input: CodexScheduledAutomationCreateInput): Promise<CodexScheduledAutomation>;
@@ -461,6 +465,65 @@ const createCoreAutomationPort = (
   client: CoreClientPort,
   clientForProject: (projectId: string) => CoreClientPort,
 ): DesktopAutomationModulePort => {
+  const runAutomationIdByThreadId = new Map<string, string>();
+  const heartbeatAutomationIdByThreadId = new Map<string, string>();
+  let definitionReadGeneration = 0;
+  let definitionMutationRevision = 0;
+  let runReadGeneration = 0;
+  let runMutationRevision = 0;
+  const beginDefinitionRead = () => ({
+    generation: ++definitionReadGeneration,
+    mutationRevision: definitionMutationRevision,
+  });
+  const isCurrentDefinitionRead = (ticket: ReturnType<typeof beginDefinitionRead>): boolean =>
+    ticket.generation === definitionReadGeneration &&
+    ticket.mutationRevision === definitionMutationRevision;
+  const commitDefinitionProjection = (commit: () => void): void => {
+    definitionMutationRevision += 1;
+    definitionReadGeneration += 1;
+    commit();
+  };
+  const beginRunRead = () => ({
+    generation: ++runReadGeneration,
+    mutationRevision: runMutationRevision,
+  });
+  const isCurrentRunRead = (ticket: ReturnType<typeof beginRunRead>): boolean =>
+    ticket.generation === runReadGeneration && ticket.mutationRevision === runMutationRevision;
+  const commitRunProjection = (commit: () => void): void => {
+    runMutationRevision += 1;
+    runReadGeneration += 1;
+    commit();
+  };
+  const removeDefinitionFromIndex = (automationId: string): void => {
+    for (const [threadId, indexedAutomationId] of heartbeatAutomationIdByThreadId) {
+      if (indexedAutomationId !== automationId) continue;
+      heartbeatAutomationIdByThreadId.delete(threadId);
+    }
+  };
+  const indexDefinition = (definition: CoreAutomationDefinition): void => {
+    removeDefinitionFromIndex(definition.automation_id);
+    if (
+      definition.kind !== "heartbeat" ||
+      definition.status !== "ACTIVE" ||
+      !definition.target_thread_id
+    ) {
+      return;
+    }
+    heartbeatAutomationIdByThreadId.set(definition.target_thread_id, definition.automation_id);
+  };
+  const replaceDefinitionIndex = (definitions: readonly CoreAutomationDefinition[]): void => {
+    heartbeatAutomationIdByThreadId.clear();
+    for (const definition of definitions) indexDefinition(definition);
+  };
+  const indexRun = (run: CoreAutomationRun): void => {
+    runAutomationIdByThreadId.set(run.thread_id, run.automation_id);
+  };
+  const replaceRunIndex = (items: readonly CoreAutomationInboxItem[]): void => {
+    runAutomationIdByThreadId.clear();
+    for (const item of items) {
+      runAutomationIdByThreadId.set(item.thread_id, item.automation_id);
+    }
+  };
   const readDefinition = async (automationId: string): Promise<CoreAutomationDefinition | null> => {
     const snapshot = await client.automationRead({
       kind: "definition",
@@ -475,6 +538,7 @@ const createCoreAutomationPort = (
     threadId: string,
     options?: CoreRequestOptions,
   ): Promise<CoreAutomationRun | null> => {
+    const ticket = beginRunRead();
     const snapshot = await client.automationRead(
       {
         kind: "run",
@@ -485,7 +549,12 @@ const createCoreAutomationPort = (
     if (snapshot.value.kind !== "run") {
       throw new Error("Core returned a non-Run Automation read");
     }
-    return snapshot.value.item ?? null;
+    const run = snapshot.value.item ?? null;
+    if (isCurrentRunRead(ticket)) {
+      if (run) indexRun(run);
+      else runAutomationIdByThreadId.delete(threadId);
+    }
+    return run;
   };
   const applyRun = async (
     threadId: string,
@@ -559,12 +628,68 @@ const createCoreAutomationPort = (
     }
     return [...snapshot.value.window.items];
   };
+  const readInboxItems = async (
+    limit: number | undefined,
+    requestClass: DesktopAutomationReadClass = "interactive",
+  ): Promise<{
+    readonly items: CoreAutomationInboxItem[];
+    readonly unreadTotal: number;
+  }> => {
+    const requested = limit ?? 200;
+    if (!Number.isInteger(requested) || requested < 1 || requested > 1_000) {
+      throw new Error("Automation inbox limit must be between 1 and 1000");
+    }
+    const items: CoreAutomationInboxItem[] = [];
+    let after: string | null = null;
+    let unreadTotal = 0;
+    do {
+      const snapshot = await client.automationRead(
+        {
+          kind: "inbox",
+          window: {
+            after,
+            first: Math.min(200, requested - items.length),
+          },
+        },
+        requestClass === "background" ? BACKGROUND_CORE_REQUEST : undefined,
+      );
+      if (snapshot.value.kind !== "inbox") {
+        throw new Error("Core returned a non-Inbox Automation read");
+      }
+      items.push(...snapshot.value.window.items);
+      unreadTotal = snapshot.value.unread_counts.total;
+      after = items.length < requested ? (snapshot.value.window.next_cursor ?? null) : null;
+    } while (after !== null);
+    return { items, unreadTotal };
+  };
 
   return {
-    listDefinitions: async (requestClass) =>
-      (await readActiveDefinitions(requestClass)).map(mapDefinition),
+    peekRunAutomationId: (threadId) => runAutomationIdByThreadId.get(threadId) ?? null,
+    peekActiveHeartbeatAutomationId: (threadId) =>
+      heartbeatAutomationIdByThreadId.get(threadId) ?? null,
+    synchronizeIndex: async () => {
+      const definitionTicket = beginDefinitionRead();
+      const runTicket = beginRunRead();
+      const [definitions, inbox] = await Promise.all([
+        readActiveDefinitions("background"),
+        readInboxItems(200, "background"),
+      ]);
+      if (isCurrentDefinitionRead(definitionTicket)) replaceDefinitionIndex(definitions);
+      if (isCurrentRunRead(runTicket)) replaceRunIndex(inbox.items);
+    },
+    listDefinitions: async (requestClass) => {
+      const ticket = beginDefinitionRead();
+      const definitions = await readActiveDefinitions(requestClass);
+      if (isCurrentDefinitionRead(ticket)) replaceDefinitionIndex(definitions);
+      return definitions.map(mapDefinition);
+    },
     getDefinition: async (id) => {
+      const ticket = beginDefinitionRead();
       const item = await readDefinition(id);
+      if (isCurrentDefinitionRead(ticket)) {
+        if (item) indexDefinition(item);
+        else removeDefinitionFromIndex(id);
+      }
       return item ? mapDefinition(item) : null;
     },
     createDefinition: async (input) => {
@@ -580,7 +705,9 @@ const createCoreAutomationPort = (
           definition: toCoreDefinitionInput(input),
         },
       });
-      return mapDefinition(requireDefinition(committed, automationId));
+      const definition = requireDefinition(committed, automationId);
+      commitDefinitionProjection(() => indexDefinition(definition));
+      return mapDefinition(definition);
     },
     updateDefinition: async (input) => {
       const current = await readDefinition(input.id);
@@ -602,11 +729,15 @@ const createCoreAutomationPort = (
                 definition: toCoreDefinitionInput(input),
               },
       });
-      return mapDefinition(requireDefinition(committed, input.id));
+      const definition = requireDefinition(committed, input.id);
+      commitDefinitionProjection(() => indexDefinition(definition));
+      return mapDefinition(definition);
     },
     deleteDefinition: async (id) => {
+      const ticket = beginDefinitionRead();
       const current = await readDefinition(id);
       if (!current) {
+        if (isCurrentDefinitionRead(ticket)) removeDefinitionFromIndex(id);
         return {
           item: null,
           success: true,
@@ -622,6 +753,14 @@ const createCoreAutomationPort = (
           expected_revision: current.definition_revision,
         },
       });
+      commitDefinitionProjection(() => removeDefinitionFromIndex(id));
+      if (committed.outcome.deleted_run_ids.length > 0) {
+        commitRunProjection(() => {
+          for (const threadId of committed.outcome.deleted_run_ids) {
+            runAutomationIdByThreadId.delete(threadId);
+          }
+        });
+      }
       return {
         item: mapDefinition(current),
         success: true,
@@ -740,7 +879,11 @@ const createCoreAutomationPort = (
         },
         BACKGROUND_CORE_REQUEST,
       );
-      return committed.outcome.runs.some((candidate) => candidate.thread_id === input.threadId);
+      const run = committed.outcome.runs.find(
+        (candidate) => candidate.thread_id === input.threadId,
+      );
+      if (run) commitRunProjection(() => indexRun(run));
+      return run !== undefined;
     },
     replacePendingRunThread: async (input) => {
       const pending = await readRun(input.pendingThreadId, BACKGROUND_CORE_REQUEST);
@@ -757,7 +900,15 @@ const createCoreAutomationPort = (
         },
         BACKGROUND_CORE_REQUEST,
       );
-      return committed.outcome.runs.some((candidate) => candidate.thread_id === input.threadId);
+      const run = committed.outcome.runs.find(
+        (candidate) => candidate.thread_id === input.threadId,
+      );
+      if (!run) return false;
+      commitRunProjection(() => {
+        runAutomationIdByThreadId.delete(input.pendingThreadId);
+        indexRun(run);
+      });
+      return true;
     },
     setRunThreadTitle: async (threadId, threadTitle) =>
       (await applyRun(
@@ -820,7 +971,11 @@ const createCoreAutomationPort = (
           expected_revision: run.run_revision,
         },
       });
-      return committed.outcome.deleted_run_ids.includes(threadId);
+      const deleted = committed.outcome.deleted_run_ids.includes(threadId);
+      if (deleted) {
+        commitRunProjection(() => runAutomationIdByThreadId.delete(threadId));
+      }
+      return deleted;
     },
     unarchiveRun: async (threadId) =>
       (await applyRun(threadId, (run) => ({
@@ -829,31 +984,13 @@ const createCoreAutomationPort = (
         expected_revision: run.run_revision,
       }))) !== null,
     readInbox: async (limit, requestClass = "interactive") => {
-      const requested = limit ?? 200;
-      if (!Number.isInteger(requested) || requested < 1 || requested > 1_000) {
-        throw new Error("Automation inbox limit must be between 1 and 1000");
-      }
-      const items: CoreAutomationInboxItem[] = [];
-      let after: string | null = null;
-      let unreadTotal = 0;
-      do {
-        const snapshot = await client.automationRead(
-          {
-            kind: "inbox",
-            window: {
-              after,
-              first: Math.min(200, requested - items.length),
-            },
-          },
-          requestClass === "background" ? BACKGROUND_CORE_REQUEST : undefined,
-        );
-        if (snapshot.value.kind !== "inbox") {
-          throw new Error("Core returned a non-Inbox Automation read");
+      const ticket = beginRunRead();
+      const { items, unreadTotal } = await readInboxItems(limit, requestClass);
+      if (isCurrentRunRead(ticket)) {
+        for (const item of items) {
+          runAutomationIdByThreadId.set(item.thread_id, item.automation_id);
         }
-        items.push(...snapshot.value.window.items);
-        unreadTotal = snapshot.value.unread_counts.total;
-        after = items.length < requested ? (snapshot.value.window.next_cursor ?? null) : null;
-      } while (after !== null);
+      }
       const mappedItems = items.map(mapInboxItem);
       const unreadItems = mappedItems.filter(
         (item) =>
@@ -1016,6 +1153,10 @@ export const createDesktopAutomationModuleBridge = (
     return corePort;
   };
   return {
+    peekRunAutomationId: (threadId) => corePort?.peekRunAutomationId(threadId) ?? null,
+    peekActiveHeartbeatAutomationId: (threadId) =>
+      corePort?.peekActiveHeartbeatAutomationId(threadId) ?? null,
+    synchronizeIndex: async () => (await port()).synchronizeIndex(),
     listDefinitions: async (requestClass) => (await port()).listDefinitions(requestClass),
     getDefinition: async (id) => (await port()).getDefinition(id),
     createDefinition: async (definition) => (await port()).createDefinition(definition),

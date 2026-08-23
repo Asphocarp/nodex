@@ -2541,7 +2541,7 @@ export const live: Layer.Layer<
                 codexService.notifyAutomationRunsUpdated(event),
               notifyScheduledAutomationChanged: (event) =>
                 codexService.notifyScheduledAutomationChanged(event),
-              synchronize: Effect.promise(() => codexService.synchronizeAutomationRuntime()),
+              synchronize: Effect.promise(() => automationModule.synchronizeIndex()),
             },
             notifications: databaseNotifications,
           }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
@@ -2716,7 +2716,7 @@ export const live: Layer.Layer<
             .pipe(Effect.mapError((cause) => runtimeError("initial-project-bootstrap", cause)));
           yield* deepLinks.markReady;
           yield* Effect.tryPromise({
-            try: () => codexService.synchronizeAutomationRuntime(),
+            try: () => automationModule.synchronizeIndex(),
             catch: (cause) => runtimeError("synchronize-automations", cause),
           });
           yield* managedWorktreeRetention.request;

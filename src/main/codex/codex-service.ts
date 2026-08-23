@@ -2264,8 +2264,6 @@ export class CodexService {
   private readonly automationModule: DesktopAutomationModulePort;
   private readonly projectWorkspace: DesktopProjectWorkspacePort;
   private readonly workspaceThreadProjectionById = new Map<string, DesktopProjectWorkspaceThread>();
-  private readonly automationIdByRunThreadId = new Map<string, string>();
-  private readonly activeHeartbeatAutomationIdByThreadId = new Map<string, string>();
   private readonly nodexAgentAuthorityRegistry: NodexAgentAuthorityPort;
   private readonly nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort;
 
@@ -2516,13 +2514,7 @@ export class CodexService {
   }
 
   private resolveAutomationIdForRunThread(threadId: string): string | null {
-    const cached = this.automationIdByRunThreadId.get(threadId);
-    if (cached) return cached;
-    const resolved = this.automationModule.peekRunAutomationId?.(threadId) ?? null;
-    if (resolved) {
-      this.automationIdByRunThreadId.set(threadId, resolved);
-    }
-    return resolved;
+    return this.automationModule.peekRunAutomationId(threadId);
   }
 
   private isCommandOnlyAutomationThread(threadId: string): boolean {
@@ -3557,47 +3549,6 @@ export class CodexService {
 
   handleExecutionHostTopologyChanged(): void {
     this.invalidateSidebarSnapshotCache();
-  }
-
-  async synchronizeAutomationRuntime(): Promise<void> {
-    const [definitions, inbox] = await Promise.all([
-      this.automationModule.listDefinitions("background"),
-      this.automationModule.readInbox(200, "background"),
-    ]);
-    this.activeHeartbeatAutomationIdByThreadId.clear();
-    for (const definition of definitions) {
-      if (
-        definition.kind !== "heartbeat" ||
-        definition.status !== "ACTIVE" ||
-        !definition.targetThreadId
-      ) {
-        continue;
-      }
-      this.activeHeartbeatAutomationIdByThreadId.set(definition.targetThreadId, definition.id);
-    }
-    this.automationIdByRunThreadId.clear();
-    for (const item of inbox.items) {
-      this.automationIdByRunThreadId.set(item.threadId, item.automationId);
-    }
-  }
-
-  private cacheAutomationDefinition(definition: CodexScheduledAutomation): void {
-    this.removeCachedAutomationDefinition(definition.id);
-    if (
-      definition.kind !== "heartbeat" ||
-      definition.status !== "ACTIVE" ||
-      !definition.targetThreadId
-    ) {
-      return;
-    }
-    this.activeHeartbeatAutomationIdByThreadId.set(definition.targetThreadId, definition.id);
-  }
-
-  private removeCachedAutomationDefinition(automationId: string): void {
-    for (const [threadId, cachedAutomationId] of this.activeHeartbeatAutomationIdByThreadId) {
-      if (cachedAutomationId !== automationId) continue;
-      this.activeHeartbeatAutomationIdByThreadId.delete(threadId);
-    }
   }
 
   private rejectPendingDynamicToolCallsForThread(threadId: string, reason: unknown): void {
@@ -8008,7 +7959,6 @@ export class CodexService {
       sourceCwd: input.cwd,
     });
     if (pendingInserted) {
-      this.automationIdByRunThreadId.set(pendingThreadId, input.automation.id);
       this.notifyAutomationRunsUpdated({
         automationId: input.automation.id,
         threadId: pendingThreadId,
@@ -8171,8 +8121,6 @@ export class CodexService {
           threadId: link.threadId,
         });
         if (replacedPendingRun) {
-          this.automationIdByRunThreadId.delete(pendingThreadId);
-          this.automationIdByRunThreadId.set(link.threadId, input.automation.id);
           this.notifyAutomationRunsUpdated({
             automationId: input.automation.id,
             threadId: link.threadId,
@@ -8186,7 +8134,6 @@ export class CodexService {
             sourceCwd: input.cwd,
           });
           if (realRunInserted) {
-            this.automationIdByRunThreadId.set(link.threadId, input.automation.id);
             this.notifyAutomationRunsUpdated({
               automationId: input.automation.id,
               threadId: link.threadId,
@@ -8410,11 +8357,7 @@ export class CodexService {
   }
 
   private hasActiveHeartbeatForThread(threadId: string): boolean {
-    if (this.activeHeartbeatAutomationIdByThreadId.has(threadId)) return true;
-    const automationId = this.automationModule.peekActiveHeartbeatAutomationId?.(threadId) ?? null;
-    if (!automationId) return false;
-    this.activeHeartbeatAutomationIdByThreadId.set(threadId, automationId);
-    return true;
+    return this.automationModule.peekActiveHeartbeatAutomationId(threadId) !== null;
   }
 
   private async resolveIsNonGitWorkspace(cwd: string): Promise<boolean> {
@@ -15821,15 +15764,11 @@ export class CodexService {
   }
 
   private async deleteHeartbeatAutomationForArchivedThread(threadId: string): Promise<void> {
-    const automationId =
-      this.activeHeartbeatAutomationIdByThreadId.get(threadId) ??
-      this.automationModule.peekActiveHeartbeatAutomationId?.(threadId) ??
-      null;
+    const automationId = this.automationModule.peekActiveHeartbeatAutomationId(threadId);
     if (!automationId) return;
     try {
       const deleted = await this.automationModule.deleteDefinition(automationId);
       if (!deleted.success) return;
-      this.removeCachedAutomationDefinition(automationId);
       this.logger.info("Deleted heartbeat automation for archived thread", {
         automationId,
         threadId,
@@ -17801,7 +17740,6 @@ export class CodexService {
         model: null,
         reasoningEffort: null,
       });
-      this.cacheAutomationDefinition(automation);
       this.emitScheduledAutomationChanged({
         automationId: automation.id,
         targetThreadId: automation.targetThreadId,
@@ -17923,7 +17861,6 @@ export class CodexService {
         const automation = await this.automationModule.createDefinition(
           this.buildAutomationCreateInput(parsed, params.threadId),
         );
-        this.cacheAutomationDefinition(automation);
         this.emitScheduledAutomationChanged({
           automationId: automation.id,
           targetThreadId: automation.targetThreadId,
@@ -17953,7 +17890,6 @@ export class CodexService {
             "Automation does not exist in the app and could not be updated. It may have been deleted manually by the user.",
           );
         }
-        this.cacheAutomationDefinition(automation);
         this.emitScheduledAutomationChanged({
           automationId: automation.id,
           targetThreadId: automation.targetThreadId,
@@ -17974,7 +17910,6 @@ export class CodexService {
           );
         }
         const existing = result.item;
-        this.removeCachedAutomationDefinition(automationId);
         if (result.deletedRunCount > 0) {
           this.notifyAutomationRunsUpdated({
             automationId: existing?.id ?? automationId,

@@ -1036,9 +1036,15 @@ three Store maintenance lanes. Every schedule is a scoped Effect fiber.
 Per-domain semaphores reject overlapping ticks, the maintenance lanes share one
 Store-wide permit, and backup configuration replacement interrupts the previous
 schedule through one `FiberHandle`. Core remains the durable definition and
-lease authority. Core recovery triggers an immediate reminder and automation
-pass, while Main Scope closure interrupts every schedule and returns admitted
-leases. Scheduled Codex execution receives the owning schedule fiber's
+lease authority. The Core Automation adapter owns the synchronous routing
+projection from Codex Thread IDs to runs and active heartbeat definitions. A
+complete background read atomically rebuilds that projection, unless a newer
+committed mutation fences the stale read; successful definition/run reads and
+mutations update it immediately. Codex conversation code may borrow these
+synchronous lookups while reducing protocol events, but cannot own or repair a
+parallel cache. Core recovery triggers an immediate projection rebuild and
+automation pass, while Main Scope closure interrupts every schedule and returns
+admitted leases. Scheduled Codex execution receives the owning schedule fiber's
 `AbortSignal` through the temporary Promise adapter, and passes it unchanged to
 Gateway and worktree requests. Shutdown therefore cancels active external work
 in addition to stopping future ticks. `DesktopNotificationRuntime` is the sole registry for active operating-system notification

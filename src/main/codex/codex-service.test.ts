@@ -938,6 +938,7 @@ class TestCodexGatewayPromiseClient implements CodexGatewayPromiseClient {
 const createTestAutomationModule = (): DesktopAutomationModulePort => ({
   peekRunAutomationId: () => null,
   peekActiveHeartbeatAutomationId: () => null,
+  synchronizeIndex: async () => undefined,
   listDefinitions: async () => [],
   getDefinition: async () => null,
   createDefinition: async () => {
