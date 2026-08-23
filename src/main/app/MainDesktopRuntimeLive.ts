@@ -2064,10 +2064,16 @@ export const live: Layer.Layer<
               runtime: codexRuntime,
               runtimeStateHome,
               nodexAgentDynamicService,
+              nodexAgentAuthority: createDesktopNodexAgentAuthorityPort({
+                authority: dataAuthorityPromise,
+              }),
+              nodexAgentResourceAuthority,
               nodexAgentAuthorization: makeNodexAgentAuthorizationRuntimePromiseAdapter(
                 nodexAgentAuthorization,
                 callbacks,
               ),
+              automationModule,
+              projectWorkspace,
               loadWorktreeSetupBaseEnvironment: () =>
                 callbacks.runPromise(worktreeShellEnvironment.load),
               executionHosts: executionHosts.registry,
@@ -2092,6 +2098,16 @@ export const live: Layer.Layer<
           },
           catch: (cause) => runtimeError("construct-codex-application", cause),
         });
+        yield* Effect.tryPromise({
+          try: () => codexService.recoverThreadHandoffs(),
+          catch: (cause) => runtimeError("recover-thread-handoffs", cause),
+        }).pipe(
+          Effect.catch((cause) =>
+            Effect.sync(() => applicationLogger.error("Task handoff recovery failed", { cause })),
+          ),
+          Effect.forkIn(runtimeScope, { startImmediately: true }),
+          Effect.asVoid,
+        );
         yield* Layer.buildWithScope(
           codexApplicationIngressRuntimeLive({
             connections: codexConnectionService.changes,
@@ -2570,12 +2586,6 @@ export const live: Layer.Layer<
         );
 
         yield* deepLinks.extractFromArgv(config.argv);
-        codexService.setNodexAgentAuthorityPort(
-          createDesktopNodexAgentAuthorityPort({ authority: dataAuthorityPromise }),
-        );
-        codexService.setNodexAgentResourceAuthorityPort(nodexAgentResourceAuthority);
-        codexService.setAutomationModule(automationModule);
-        codexService.setProjectWorkspacePort(projectWorkspace);
         const initializationStartedAt = performance.now();
         const initialize = Effect.gen(function* () {
           applicationLogger.info("Native Core authority ready", {

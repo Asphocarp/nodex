@@ -955,6 +955,10 @@ journal remains the recovery authority. A cross-host preparation that may have
 partially committed performs deterministic, operation-fenced compensation through
 the destination host Scope without reusing the already-aborted request signal; this
 best-effort cleanup is not a second handoff owner.
+The temporary canonical projection receives Project Workspace, Automation, Nodex Agent, and
+resource-authority ports as immutable construction dependencies. Startup recovery is admitted as a
+tracked Main Scope fiber after construction; no late setter, unavailable-authority proxy, or
+detached constructor side effect participates in the application graph.
 
 After creation, `ManagedWorktreeRuntime` owns physical lifecycle routing,
 normalized single-flight removal, newborn protection, inspection, restoration,

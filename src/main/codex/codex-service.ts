@@ -1142,7 +1142,11 @@ type CodexServiceOptions = {
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
   nodexAgentDynamicService: NodexAgentV3DynamicService | null;
+  nodexAgentAuthority: NodexAgentAuthorityPort;
+  nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort;
   nodexAgentAuthorization: NodexAgentAuthorizationRuntimePromiseAdapter;
+  automationModule: DesktopAutomationModulePort;
+  projectWorkspace: DesktopProjectWorkspacePort;
   activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
   rendererConversations: CodexRendererConversationRuntimeService;
@@ -2217,16 +2221,6 @@ function isUnsupportedThreadSettingsUpdateError(error: unknown): boolean {
   );
 }
 
-const unconfiguredAuthority = <Port extends object>(name: string): Port =>
-  new Proxy(
-    {},
-    {
-      get: () => () => {
-        throw new Error(`${name} is unavailable before Rust Core initialization`);
-      },
-    },
-  ) as Port;
-
 export class CodexService {
   private readonly logger = codexLogger;
   private readonly client: CodexGatewayPromiseClient;
@@ -2282,19 +2276,13 @@ export class CodexService {
   private readonly forkSidePanelTransferLifecycle: CodexServiceOptions["forkSidePanelTransferLifecycle"];
   private readonly terminalRuntime: NonNullable<CodexServiceOptions["terminalRuntime"]>;
   private readonly nodexAgentAuthorization: NodexAgentAuthorizationRuntimePromiseAdapter;
-  private automationModule: DesktopAutomationModulePort =
-    unconfiguredAuthority("Automation authority");
-  private projectWorkspace: DesktopProjectWorkspacePort = unconfiguredAuthority(
-    "Project Workspace authority",
-  );
+  private readonly automationModule: DesktopAutomationModulePort;
+  private readonly projectWorkspace: DesktopProjectWorkspacePort;
   private readonly workspaceThreadProjectionById = new Map<string, DesktopProjectWorkspaceThread>();
   private readonly automationIdByRunThreadId = new Map<string, string>();
   private readonly activeHeartbeatAutomationIdByThreadId = new Map<string, string>();
-  private nodexAgentAuthorityRegistry: NodexAgentAuthorityPort =
-    unconfiguredAuthority("Nodex Agent authority");
-  private nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort = unconfiguredAuthority(
-    "Nodex Agent resource authority",
-  );
+  private readonly nodexAgentAuthorityRegistry: NodexAgentAuthorityPort;
+  private readonly nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort;
 
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
@@ -2389,7 +2377,11 @@ export class CodexService {
       } satisfies CodexTerminalRuntimePort);
     this.runtimeStateHome = path.resolve(options.runtimeStateHome);
     this.nodexAgentDynamicService = options.nodexAgentDynamicService;
+    this.nodexAgentAuthorityRegistry = options.nodexAgentAuthority;
+    this.nodexAgentResourceAuthority = options.nodexAgentResourceAuthority;
     this.nodexAgentAuthorization = options.nodexAgentAuthorization;
+    this.automationModule = options.automationModule;
+    this.projectWorkspace = options.projectWorkspace;
     this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
     this.pendingServerRequests = options.pendingServerRequests;
@@ -3534,28 +3526,9 @@ export class CodexService {
     });
   }
 
-  setNodexAgentAuthorityPort(port: NodexAgentAuthorityPort): void {
-    this.nodexAgentAuthorityRegistry = port;
-  }
-
-  setNodexAgentResourceAuthorityPort(port: NodexAgentResourceAuthorityPort): void {
-    this.nodexAgentResourceAuthority = port;
-  }
-
-  setAutomationModule(module: DesktopAutomationModulePort): void {
-    this.automationModule = module;
-    this.automationIdByRunThreadId.clear();
-    this.activeHeartbeatAutomationIdByThreadId.clear();
-  }
-
-  setProjectWorkspacePort(port: DesktopProjectWorkspacePort): void {
-    this.projectWorkspace = port;
-    this.workspaceThreadProjectionById.clear();
-    void this.threadHandoffRuntime
-      .recover(this.buildThreadExecutionLocationEffects())
-      .catch((error) => {
-        this.logger.error("Task handoff recovery failed", { error });
-      });
+  /** Temporary projection port until handoff recovery owns the canonical Thread location model. */
+  async recoverThreadHandoffs(): Promise<void> {
+    await this.threadHandoffRuntime.recover(this.buildThreadExecutionLocationEffects());
   }
 
   /** Test-only replacement seam for the execution host's worktree worker adapter. */

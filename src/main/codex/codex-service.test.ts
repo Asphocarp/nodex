@@ -154,6 +154,7 @@ import {
   ThreadGoalAttachmentDirectoryManager,
 } from "../thread-goal-attachments";
 import type { NodexAgentAuthorityPort } from "../nodex-agent-authority-port";
+import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
 import type { DesktopAutomationModulePort } from "../core-client/desktop-automation-module-bridge";
 import type {
   DesktopProjectWorkspacePort,
@@ -299,9 +300,6 @@ interface TestableCodexService {
   registerBackgroundProcessRunAction: (
     input: CodexBackgroundProcessRunActionInput,
   ) => Promise<CodexBackgroundProcessRow[]>;
-  setProjectWorkspacePort: (port: DesktopProjectWorkspacePort) => void;
-  setAutomationModule: (port: DesktopAutomationModulePort) => void;
-  setNodexAgentAuthorityPort: (port: NodexAgentAuthorityPort) => void;
   markSubagentThreadOpened: (threadId: string) => boolean;
   hydrateBackgroundSubagentThreads: (
     input: CodexBackgroundSubagentThreadsHydrateInput,
@@ -1132,6 +1130,13 @@ const TEST_NODEX_AGENT_AUTHORITY: NodexAgentAuthorityPort = {
   capturePersisted: async () => null,
   hasRecordedAuthority: async () => false,
   capture: async () => null,
+};
+
+const TEST_NODEX_AGENT_RESOURCE_AUTHORITY: NodexAgentResourceAuthorityPort = {
+  plan: async () => {
+    throw new Error("Nodex Agent resource authority is unavailable in this fixture");
+  },
+  persistProjectGrants: async () => undefined,
 };
 
 const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
@@ -2201,12 +2206,16 @@ function createService(options?: {
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome,
     nodexAgentDynamicService: null,
+    nodexAgentAuthority: TEST_NODEX_AGENT_AUTHORITY,
+    nodexAgentResourceAuthority: TEST_NODEX_AGENT_RESOURCE_AUTHORITY,
     nodexAgentAuthorization: {
       authorize: async () => "unavailable",
       extendTaskAccess: async () => undefined,
       getTaskAccess: async () => undefined,
       revokeRoot: async () => undefined,
     },
+    automationModule: options?.automationModule ?? createTestAutomationModule(),
+    projectWorkspace,
     executionHosts,
     managedWorktrees: managedWorktreeHarness.adapter,
     managedWorktreeRetention: {
@@ -2283,9 +2292,6 @@ function createService(options?: {
     }
   };
   permissionStateByTestService.set(testService, permissionStateByScope);
-  testService.setAutomationModule(options?.automationModule ?? createTestAutomationModule());
-  testService.setProjectWorkspacePort(projectWorkspace);
-  testService.setNodexAgentAuthorityPort(TEST_NODEX_AGENT_AUTHORITY);
   const internals = testService as unknown as {
     getMaybeConversationRecord: (threadId: string) => {
       canonicalState: CodexCanonicalConversationState | null;
