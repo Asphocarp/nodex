@@ -273,6 +273,43 @@ it.effect("lets another Thread respond while the first Thread command lane is oc
   ),
 );
 
+it.effect("keeps one-shot requests outside a blocked Thread command lane", () =>
+  withProtocol(({ inbox, conversations }) =>
+    Effect.gen(function* () {
+      const generationScope = yield* Scope.make();
+      const generation = yield* inbox
+        .openGeneration("local", 5)
+        .pipe(Effect.provideService(Scope.Scope, generationScope));
+      const laneEntered = yield* Deferred.make<void>();
+      const releaseLane = yield* Deferred.make<void>();
+      const blocker = yield* conversations
+        .runExclusive(
+          "thread-a",
+          Deferred.succeed(laneEntered, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseLane)),
+          ),
+        )
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(laneEntered);
+      const settled = yield* generation.settlements.pipe(Stream.runHead, Effect.forkChild);
+      yield* generation.admit({
+        requestId: "time",
+        method: "currentTime/read",
+        params: { threadId: "thread-a" },
+      });
+
+      const settlement = yield* Fiber.join(settled);
+      assert.strictEqual(settlement._tag, "Some");
+      if (settlement._tag === "Some") {
+        assert.strictEqual(settlement.value.outcome.kind, "result");
+      }
+      yield* Deferred.succeed(releaseLane, undefined);
+      yield* Fiber.join(blocker);
+      yield* Scope.close(generationScope, Exit.void);
+    }),
+  ),
+);
+
 it.effect("commits a request before the following resolution notification in the same Thread", () =>
   withProtocol(({ inbox, conversations }) =>
     Effect.gen(function* () {

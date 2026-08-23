@@ -78,7 +78,7 @@ export class CodexApplicationProtocol extends Context.Service<
 >()("nodex/main/codex-application/CodexApplicationProtocol") {}
 
 const threadIdForRequest = (request: CodexServerRequest): string | null => {
-  if (request.method === "inbox-items-create") return null;
+  if (request.method === "inbox-items-create" || isCodexOneShotServerRequest(request)) return null;
   if ("threadId" in request.params && typeof request.params.threadId === "string") {
     return request.params.threadId;
   }
