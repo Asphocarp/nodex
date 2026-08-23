@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import type * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import { ScopedCallbackRuntime } from "../src/main/app/ScopedCallbackRuntime";
-import { CodexRpcError } from "../src/main/codex-runtime/CodexGatewayPromiseAdapter";
+import { CodexRpcError } from "../src/main/codex-runtime/CodexRpcError";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
 import {
   readOpenInterpreterReleaseLock,

@@ -13,6 +13,9 @@ import {
   CodexRuntimeError,
   type CodexRuntimeError as CodexRuntimeFailure,
 } from "./CodexRuntimeError";
+import { CodexRpcError } from "./CodexRpcError";
+
+export { CodexRpcError } from "./CodexRpcError";
 
 export type ClientRequestMethod = ClientRequest["method"];
 export type ClientRequestParams<TMethod extends ClientRequestMethod> = Extract<
@@ -119,18 +122,3 @@ export const makeCodexGatewayPromiseClient = (
     },
   };
 };
-
-// oxlint-disable-next-line effecttsgo/extends-native-error -- Promise adapter callers require Error identity; this type never enters an Effect failure channel.
-export class CodexRpcError extends Error {
-  readonly code: number;
-  readonly data?: unknown;
-  readonly retryable: boolean;
-
-  constructor(message: string, code: number, data?: unknown) {
-    super(message);
-    this.name = "CodexRpcError";
-    this.code = code;
-    this.data = data;
-    this.retryable = code === -32_001;
-  }
-}

@@ -20,7 +20,7 @@ import {
   CodexAppServerSession,
   live as codexAppServerSessionLive,
 } from "../src/main/codex-runtime/CodexAppServerSession";
-import { CodexRpcError } from "../src/main/codex-runtime/CodexGatewayPromiseAdapter";
+import { CodexRpcError } from "../src/main/codex-runtime/CodexRpcError";
 import type { CodexRuntimeError } from "../src/main/codex-runtime/CodexRuntimeError";
 import * as CodexSessionTransport from "../src/main/platform/node/CodexSessionTransport";
 
