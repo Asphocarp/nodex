@@ -161,34 +161,9 @@ export const make: Effect.Effect<
         new Error(`Thread '${sourceThreadId}' was not found`),
       );
     }
-    const current = yield* projection.read(sourceThreadId).pipe(
-      Effect.catch(() =>
-        directory
-          .resolve({
-            threadId: sourceThreadId,
-            fidelity: "full",
-            hostId: source.durable.executionHostId,
-          })
-          .pipe(
-            Effect.flatMap((entry) =>
-              entry?.canonical
-                ? Effect.succeed({ canonical: entry.canonical, snapshot: entry.snapshot })
-                : Effect.fail(
-                    error(
-                      "admit",
-                      sourceThreadId,
-                      new Error(`Thread '${sourceThreadId}' has no canonical projection`),
-                    ),
-                  ),
-            ),
-            Effect.mapError((cause) =>
-              cause instanceof CodexConversationForkError
-                ? cause
-                : error("admit", sourceThreadId, cause),
-            ),
-          ),
-      ),
-    );
+    const current = yield* projection
+      .read(sourceThreadId)
+      .pipe(Effect.mapError((cause) => error("admit", sourceThreadId, cause)));
     if (lastTurnId) {
       const turn = current.canonical.turns.find(
         (candidate) => candidate.protocol.id === lastTurnId,
@@ -375,7 +350,51 @@ export const make: Effect.Effect<
 
   return CodexConversationFork.of({
     fork: (input) =>
-      conversations.runExclusive(input.sourceThreadId.trim(), forkPhysical(input)).pipe(
+      Effect.gen(function* () {
+        const sourceThreadId = input.sourceThreadId.trim();
+        if (!sourceThreadId) {
+          return yield* error("admit", input.sourceThreadId, new Error("Fork source is required"));
+        }
+        const durable = yield* directory
+          .resolve({ threadId: sourceThreadId, fidelity: "durable" })
+          .pipe(Effect.mapError((cause) => error("admit", sourceThreadId, cause)));
+        if (!durable) {
+          return yield* error(
+            "admit",
+            sourceThreadId,
+            new Error(`Thread '${sourceThreadId}' was not found`),
+          );
+        }
+        yield* projection.read(sourceThreadId).pipe(
+          Effect.catch(() =>
+            directory
+              .resolve({
+                threadId: sourceThreadId,
+                fidelity: "full",
+                hostId: durable.durable.executionHostId,
+              })
+              .pipe(
+                Effect.flatMap((entry) =>
+                  entry?.canonical
+                    ? Effect.void
+                    : Effect.fail(
+                        error(
+                          "admit",
+                          sourceThreadId,
+                          new Error(`Thread '${sourceThreadId}' has no canonical projection`),
+                        ),
+                      ),
+                ),
+                Effect.mapError((cause) =>
+                  cause instanceof CodexConversationForkError
+                    ? cause
+                    : error("admit", sourceThreadId, cause),
+                ),
+              ),
+          ),
+        );
+        return yield* conversations.runExclusive(sourceThreadId, forkPhysical(input));
+      }).pipe(
         Effect.mapError((cause) =>
           cause instanceof CodexConversationForkError
             ? cause
