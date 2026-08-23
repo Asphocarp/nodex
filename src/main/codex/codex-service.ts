@@ -249,6 +249,7 @@ import type {
 } from "../codex-application/CodexServerRequestResponses";
 import type {
   CodexPreparedTurnStart,
+  CodexPreparedTurnSteer,
   CodexTurnStartOverrides,
 } from "../codex-application/CodexTurnCommands";
 import type { CodexTurnCommandsPromiseAdapter } from "../codex-application/CodexTurnCommandsPromiseAdapter";
@@ -1997,6 +1998,15 @@ interface CodexTurnStartTransactionState {
   optimisticStartedAt: number | null;
   protocolCommitted: boolean;
   readonly buildRequest: () => TurnStartParams;
+}
+
+interface CodexTurnSteerTransactionState {
+  readonly threadId: string;
+  readonly expectedTurnId: string;
+  readonly steerId: string;
+  readonly syncDormantConversationUpdates: boolean;
+  readonly canonicalSteer: CodexCanonicalSteeringUserMessageItem;
+  optimisticAdmitted: boolean;
 }
 
 /** Electron retains this app-private sidecar in the raw turn/start JSON payload. */
@@ -15095,11 +15105,12 @@ export class CodexService {
           conversationId,
           request.params.launchId,
         );
-      case "turn/steer":
-        return await this.client.request<"turn/steer", TurnSteerResponse>(
-          "turn/steer",
-          readOwnerTurnSteerParams(conversationId, request.params),
-        );
+      case "turn/steer": {
+        const params = readOwnerTurnSteerParams(conversationId, request.params);
+        return this.turnCommands
+          ? await this.turnCommands.steerRendererOwned(params)
+          : await this.client.request<"turn/steer", TurnSteerResponse>("turn/steer", params);
+      }
       case "turn/interrupt":
         return await this.conversationCommands.interrupt(conversationId, request.params.turnId, {
           syncDormantConversationUpdates: false,
@@ -16386,15 +16397,19 @@ export class CodexService {
       }
     });
   }
-  async steerTurn(
-    input: CodexSteerTurnInput,
-    options: DormantConversationSyncOptions = {},
-  ): Promise<{ turnId: string } | null> {
-    await this.ensureClientReady();
-    const syncDormantConversationUpdates = options.syncDormantConversationUpdates ?? true;
 
-    const threadId = input.threadId;
-    const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
+  async prepareTurnSteerForModule(input: {
+    readonly command: CodexSteerTurnInput;
+    readonly steerId: string;
+    readonly syncDormantConversationUpdates: boolean;
+    readonly signal: AbortSignal;
+  }): Promise<CodexPreparedTurnSteer> {
+    input.signal.throwIfAborted();
+    await this.ensureClientReady();
+    const command = input.command;
+    const threadId = command.threadId;
+    const preparedPrompt = await this.preparePromptForTurn(command.prompt, command.promptInput);
+    input.signal.throwIfAborted();
     if (
       preparedPrompt.agentConfigOverrides.collaborationMode ||
       preparedPrompt.agentConfigOverrides.model ||
@@ -16408,12 +16423,12 @@ export class CodexService {
     if (!promptText) {
       throw new Error("Turn steer requires a non-empty prompt");
     }
-    const activeTurn = input.expectedTurnId
-      ? this.getKnownTurn(threadId, input.expectedTurnId)
+    const activeTurn = command.expectedTurnId
+      ? this.getKnownTurn(threadId, command.expectedTurnId)
       : ([...this.listKnownTurns(threadId)]
           .reverse()
           .find((turn) => turn.status === "inProgress") ?? null);
-    const expectedTurnId = input.expectedTurnId ?? activeTurn?.turnId ?? null;
+    const expectedTurnId = command.expectedTurnId ?? activeTurn?.turnId ?? null;
     if (!expectedTurnId) {
       throw new Error(
         "Nodex is already running. Wait for the active turn to load or queue the follow-up instead.",
@@ -16427,22 +16442,21 @@ export class CodexService {
       promptPreview: previewText(promptText),
     });
 
-    const steerId = `steer:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const steerParams: TurnSteerParams = {
       threadId,
       expectedTurnId,
-      clientUserMessageId: steerId,
+      clientUserMessageId: input.steerId,
       input: preparedPrompt.inputItems,
       ...(preparedPrompt.additionalContext
         ? { additionalContext: preparedPrompt.additionalContext }
         : {}),
     };
     const restoreMessage: CodexSteeringRestoreMessage = {
-      prompt: input.prompt,
-      ...(input.promptInput ? { promptInput: input.promptInput } : {}),
-      collaborationMode: input.collaborationMode ?? null,
-      serviceTier: normalizeCodexServiceTier(input.serviceTier),
-      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      prompt: command.prompt,
+      ...(command.promptInput ? { promptInput: command.promptInput } : {}),
+      collaborationMode: command.collaborationMode ?? null,
+      serviceTier: normalizeCodexServiceTier(command.serviceTier),
+      ...(command.summary !== undefined ? { summary: command.summary } : {}),
     };
     const canonicalBefore = this.getMaybeConversationRecord(threadId)?.canonicalState;
     if (!canonicalBefore) {
@@ -16450,8 +16464,8 @@ export class CodexService {
     }
     const canonicalSteer = this.buildCanonicalSteeringUserMessageItem({
       turnId: expectedTurnId,
-      steerId,
-      clientUserMessageId: steerId,
+      steerId: input.steerId,
+      clientUserMessageId: input.steerId,
       inputItems: preparedPrompt.inputItems,
       attachments: dedupeCodexLiveFileAttachments([
         ...preparedPrompt.fileAttachments,
@@ -16469,62 +16483,158 @@ export class CodexService {
     if (canonicalAfter === canonicalBefore) {
       throw new Error(`Cannot steer missing canonical turn '${expectedTurnId}'`);
     }
-    this.applyCanonicalTurnMutation({
-      threadId,
-      turnId: expectedTurnId,
-      before: canonicalBefore,
-      after: canonicalAfter,
-    });
-    if (syncDormantConversationUpdates) {
-      this.syncAcceptedConversationTurnState(threadId, expectedTurnId, {
-        syncBackgroundTerminalRows: true,
-        syncCapabilityFlags: true,
-      });
-    }
-    let result: TurnSteerResponse;
-    try {
-      result = await this.client.request<"turn/steer", TurnSteerResponse>(
-        "turn/steer",
-        steerParams,
-      );
-    } catch (error) {
-      this.removeSteeringUserMessage(threadId, steerId);
-      if (syncDormantConversationUpdates) {
-        this.syncAcceptedConversationTurnState(threadId, expectedTurnId, {
-          syncBackgroundTerminalRows: true,
-          syncCapabilityFlags: true,
-        });
-      }
-      if (isSteerTurnInactiveError(error)) {
-        const restarted = await this.startTurn(
-          threadId,
-          input.prompt,
-          {
-            collaborationMode: input.collaborationMode ?? undefined,
-            serviceTier: input.serviceTier,
-            summary: input.summary,
-            ...(input.promptInput ? { promptInput: input.promptInput } : {}),
-          },
-          options,
-        );
-        if (!restarted || restarted.turnId === null) return null;
-        return { turnId: restarted.turnId };
-      }
-      throw error;
-    }
 
-    if (typeof result.turnId !== "string") {
-      this.removeSteeringUserMessage(threadId, steerId);
-      this.logger.warn("Codex turn steer returned no turn id", { threadId, expectedTurnId });
+    return {
+      threadId,
+      request: steerParams,
+      fallbackStart: {
+        prompt: command.prompt,
+        overrides: {
+          collaborationMode: command.collaborationMode ?? undefined,
+          serviceTier: command.serviceTier,
+          summary: command.summary,
+          ...(command.promptInput ? { promptInput: command.promptInput } : {}),
+        },
+        syncDormantConversationUpdates: input.syncDormantConversationUpdates,
+      },
+      state: {
+        threadId,
+        expectedTurnId,
+        steerId: input.steerId,
+        syncDormantConversationUpdates: input.syncDormantConversationUpdates,
+        canonicalSteer,
+        optimisticAdmitted: false,
+      } satisfies CodexTurnSteerTransactionState,
+    };
+  }
+
+  private readTurnSteerTransaction(
+    prepared: CodexPreparedTurnSteer,
+  ): CodexTurnSteerTransactionState {
+    const transaction = prepared.state as CodexTurnSteerTransactionState;
+    if (transaction.threadId !== prepared.threadId) {
+      throw new Error("Turn steer transaction identity changed");
+    }
+    return transaction;
+  }
+
+  beginTurnSteerForModule(prepared: CodexPreparedTurnSteer): void {
+    const transaction = this.readTurnSteerTransaction(prepared);
+    const record = this.getMaybeConversationRecord(transaction.threadId);
+    const before = record?.canonicalState;
+    if (!record || !before) {
+      throw new Error(
+        `Cannot steer '${transaction.threadId}' before canonical conversation state is loaded`,
+      );
+    }
+    const after = upsertCodexCanonicalSteeringItem(
+      before,
+      transaction.expectedTurnId,
+      transaction.canonicalSteer,
+    );
+    if (after === before) {
+      throw new Error(`Cannot steer missing canonical turn '${transaction.expectedTurnId}'`);
+    }
+    transaction.optimisticAdmitted = true;
+    this.applyCanonicalTurnMutation({
+      threadId: transaction.threadId,
+      turnId: transaction.expectedTurnId,
+      before,
+      after,
+    });
+    if (!transaction.syncDormantConversationUpdates) return;
+    this.syncAcceptedConversationTurnState(transaction.threadId, transaction.expectedTurnId, {
+      syncBackgroundTerminalRows: true,
+      syncCapabilityFlags: true,
+    });
+  }
+
+  async commitTurnSteerForModule(
+    prepared: CodexPreparedTurnSteer,
+    response: TurnSteerResponse,
+  ): Promise<{ turnId: string } | null> {
+    const transaction = this.readTurnSteerTransaction(prepared);
+    if (typeof response.turnId !== "string") {
+      this.rollbackTurnSteerForModule(prepared);
+      this.logger.warn("Codex turn steer returned no turn id", {
+        threadId: transaction.threadId,
+        expectedTurnId: transaction.expectedTurnId,
+      });
       return null;
     }
-    this.clearPausedQueuedFollowUps(threadId);
+    this.clearPausedQueuedFollowUps(transaction.threadId);
     this.logger.info("Steered Codex turn", {
-      threadId,
-      expectedTurnId,
-      turnId: result.turnId,
+      threadId: transaction.threadId,
+      expectedTurnId: transaction.expectedTurnId,
+      turnId: response.turnId,
     });
-    return { turnId: result.turnId };
+    return { turnId: response.turnId };
+  }
+
+  rollbackTurnSteerForModule(prepared: CodexPreparedTurnSteer): void {
+    const transaction = this.readTurnSteerTransaction(prepared);
+    if (!transaction.optimisticAdmitted) return;
+    transaction.optimisticAdmitted = false;
+    const record = this.getMaybeConversationRecord(transaction.threadId);
+    const before = record?.canonicalState;
+    if (record && before) {
+      const after = removeCodexCanonicalSteeringItem(
+        before,
+        transaction.expectedTurnId,
+        transaction.steerId,
+      );
+      if (after !== before) {
+        this.applyCanonicalTurnMutation({
+          threadId: transaction.threadId,
+          turnId: transaction.expectedTurnId,
+          before,
+          after,
+        });
+      }
+    }
+    if (!transaction.syncDormantConversationUpdates) return;
+    this.syncAcceptedConversationTurnState(transaction.threadId, transaction.expectedTurnId, {
+      syncBackgroundTerminalRows: true,
+      syncCapabilityFlags: true,
+    });
+  }
+
+  async steerTurn(
+    input: CodexSteerTurnInput,
+    options: DormantConversationSyncOptions = {},
+  ): Promise<{ turnId: string } | null> {
+    if (this.turnCommands) return await this.turnCommands.steer(input, options);
+
+    // Plain-Promise interpreter for the legacy Main test fixture. Production uses the scoped
+    // command lane and Gateway interpreter in CodexTurnCommands.
+    const controller = new AbortController();
+    const prepared = await this.prepareTurnSteerForModule({
+      command: input,
+      steerId: `steer:${input.threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+      syncDormantConversationUpdates: options.syncDormantConversationUpdates ?? true,
+      signal: controller.signal,
+    });
+    try {
+      this.beginTurnSteerForModule(prepared);
+      const response = await this.client.request<"turn/steer", TurnSteerResponse>(
+        "turn/steer",
+        prepared.request,
+      );
+      return await this.commitTurnSteerForModule(prepared, response);
+    } catch (error) {
+      this.rollbackTurnSteerForModule(prepared);
+      if (!isSteerTurnInactiveError(error)) throw error;
+      const restarted = await this.startTurn(
+        prepared.threadId,
+        prepared.fallbackStart.prompt,
+        prepared.fallbackStart.overrides,
+        {
+          syncDormantConversationUpdates: prepared.fallbackStart.syncDormantConversationUpdates,
+        },
+      );
+      if (!restarted || restarted.turnId === null) return null;
+      return { turnId: restarted.turnId };
+    }
   }
 
   async prepareTurnInterruptForModule(threadId: string, turnId?: string): Promise<string> {

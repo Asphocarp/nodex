@@ -767,6 +767,16 @@ it no longer owns the production request, missing-Thread retry policy, command l
 lifetime. Fresh-Thread launch remains a separate application transaction because it additionally
 owns reservation, adoption and first-Turn admission.
 
+Steering an active Turn belongs to that same command owner and shared lane. Main-owned steering
+uses the Effect clock and random service for correlation identity, appends the optimistic steering
+item, sends typed `turn/steer`, and removes the exact canonical item on failure or interruption
+without consulting the derived transcript. An inactive-target response first completes that
+rollback, then invokes the private in-transaction start path without reacquiring the non-reentrant
+Thread lane. Renderer-owned steering uses the same Gateway and lane but performs no Main projection
+or inactive fallback because the renderer owns those state transitions. Standard renderer IPC
+invokes the Effect command directly; the still-generic renderer-owner request router temporarily
+borrows its stateless adapter and owns no parallel protocol request or recovery policy.
+
 Background-process discovery and local terminal actions are owned by `CodexBackgroundProcesses`.
 One owner-scoped read drains the typed app-server terminal cursor, degrades a failed live observation
 to the durable Project Workspace catalog, records successful observations, refreshes local PTY

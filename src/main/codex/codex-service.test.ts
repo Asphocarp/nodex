@@ -8923,6 +8923,53 @@ describe("codex-service interrupt target resolution", () => {
   });
 });
 
+describe("codex-service steerTurn", () => {
+  test("removes the optimistic steering item when the protocol request fails", async () => {
+    const service = createService();
+    const threadId = "thr_steer_failure";
+    const turnId = "turn_steer_failure";
+    const serviceInternals = service as unknown as {
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string) => Promise<unknown>;
+    };
+    const activeTurn: Turn = {
+      ...makeCanonicalHydrationTurn(turnId),
+      status: "inProgress",
+      completedAt: null,
+      durationMs: null,
+    };
+    serviceInternals.hydrateCanonicalConversationState(
+      makeCanonicalResumeResponse({
+        threadId,
+        threadTurns: [activeTurn],
+        initialTurnsPage: { data: [activeTurn], nextCursor: null, backwardsCursor: null },
+      }),
+    );
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method === "turn/steer") throw new Error("steer transport failed");
+      throw new Error(`Unexpected method: ${method}`);
+    };
+
+    try {
+      await expect(
+        service.steerTurn({ threadId, expectedTurnId: turnId, prompt: "change course" }),
+      ).rejects.toThrow("steer transport failed");
+      const canonical = getCanonicalConversationState(service, threadId);
+      expect(canonical?.turns[0]?.items.some((item) => item.type === "steeringUserMessage")).toBe(
+        false,
+      );
+    } finally {
+      await service.shutdown();
+    }
+  });
+});
+
 describe("codex-service startTurn", () => {
   test("keeps an accepted canonical turn when a post-commit projection fails", async () => {
     const service = createService();

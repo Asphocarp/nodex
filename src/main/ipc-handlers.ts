@@ -63,6 +63,7 @@ import type {
   CodexSideChatStartInput,
   CodexThreadGoalSetActionInput,
   CodexThreadStartForSessionInput,
+  CodexSteerTurnInput,
   CodexTurnStartOptions,
 } from "../shared/types";
 import {
@@ -860,7 +861,13 @@ export const codexIpcLive = (
           ),
       );
 
-      registerHandle("codex:turn:steer", (_, input) => codexService.steerTurn(input));
+      registerEffectHandle("codex:turn:steer", (_, input: CodexSteerTurnInput) =>
+        options.turnCommands
+          .steer(input)
+          .pipe(
+            Effect.mapError((cause) => new CodexIpcError({ operation: "codex:turn:steer", cause })),
+          ),
+      );
 
       registerEffectHandle(
         "codex:thread:background-processes:list",

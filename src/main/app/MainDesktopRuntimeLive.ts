@@ -2257,7 +2257,7 @@ export const live: Layer.Layer<
                 requireCodexService().prepareTurnStartForModule({ ...input, signal }),
               catch: (cause) =>
                 new CodexTurnCommandProjectionError({
-                  operation: "prepare",
+                  operation: "prepare-start",
                   threadId: input.threadId,
                   cause,
                 }),
@@ -2267,7 +2267,7 @@ export const live: Layer.Layer<
               try: () => requireCodexService().beginTurnStartForModule(prepared),
               catch: (cause) =>
                 new CodexTurnCommandProjectionError({
-                  operation: "begin",
+                  operation: "begin-start",
                   threadId: prepared.threadId,
                   cause,
                 }),
@@ -2277,7 +2277,7 @@ export const live: Layer.Layer<
               try: (signal) => requireCodexService().recoverTurnStartForModule(prepared, signal),
               catch: (cause) =>
                 new CodexTurnCommandProjectionError({
-                  operation: "recover",
+                  operation: "recover-start",
                   threadId: prepared.threadId,
                   cause,
                 }),
@@ -2287,13 +2287,46 @@ export const live: Layer.Layer<
               try: () => requireCodexService().commitTurnStartForModule(prepared, response),
               catch: (cause) =>
                 new CodexTurnCommandProjectionError({
-                  operation: "commit",
+                  operation: "commit-start",
                   threadId: prepared.threadId,
                   cause,
                 }),
             }),
           rollbackStart: (prepared) =>
             Effect.sync(() => requireCodexService().rollbackTurnStartForModule(prepared)),
+          prepareSteer: (input) =>
+            Effect.tryPromise({
+              try: (signal) =>
+                requireCodexService().prepareTurnSteerForModule({ ...input, signal }),
+              catch: (cause) =>
+                new CodexTurnCommandProjectionError({
+                  operation: "prepare-steer",
+                  threadId: input.command.threadId,
+                  cause,
+                }),
+            }),
+          beginSteer: (prepared) =>
+            Effect.try({
+              try: () => requireCodexService().beginTurnSteerForModule(prepared),
+              catch: (cause) =>
+                new CodexTurnCommandProjectionError({
+                  operation: "begin-steer",
+                  threadId: prepared.threadId,
+                  cause,
+                }),
+            }),
+          commitSteer: (prepared, response) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().commitTurnSteerForModule(prepared, response),
+              catch: (cause) =>
+                new CodexTurnCommandProjectionError({
+                  operation: "commit-steer",
+                  threadId: prepared.threadId,
+                  cause,
+                }),
+            }),
+          rollbackSteer: (prepared) =>
+            Effect.sync(() => requireCodexService().rollbackTurnSteerForModule(prepared)),
         }).pipe(
           Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
