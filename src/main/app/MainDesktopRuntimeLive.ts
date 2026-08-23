@@ -198,6 +198,14 @@ import {
   CodexStructuredThreadTitleError,
   make as makeCodexStructuredThreadTitle,
 } from "../codex-application/CodexStructuredThreadTitle";
+import {
+  CodexInternalThreadRegistry,
+  make as makeCodexInternalThreadRegistry,
+} from "../codex-application/CodexInternalThreadRegistry";
+import {
+  CodexNotificationAdmission,
+  make as makeCodexNotificationAdmission,
+} from "../codex-application/CodexNotificationAdmission";
 import { makeCodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import { make as makeCodexDynamicToolsLaunch } from "../codex-application/CodexDynamicToolsLaunch";
 import { makeCodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
@@ -228,7 +236,10 @@ import {
   CodexBackgroundSubagentMetadataRepairError,
   make as makeCodexBackgroundSubagentMetadataRepair,
 } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
-import { make as makeCodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
+import {
+  CodexSubagentCatalog,
+  make as makeCodexSubagentCatalog,
+} from "../codex-application/CodexSubagentCatalog";
 import {
   CodexConversationContext,
   make as makeCodexConversationContext,
@@ -1802,6 +1813,9 @@ export const live: Layer.Layer<
               ),
             ),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const internalThreadRegistry = yield* makeCodexInternalThreadRegistry.pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const structuredThreadTitle = yield* makeCodexStructuredThreadTitle({
           hostId: codexGateway.localHostId,
           events: codexGateway.events,
@@ -1853,11 +1867,10 @@ export const live: Layer.Layer<
                   }),
               ),
             ),
-          registerInternalThread: (threadId) =>
-            Effect.sync(() => requireCodexService().registerStructuredThreadTitleThread(threadId)),
-          releaseInternalThread: (threadId) =>
-            Effect.sync(() => requireCodexService().releaseStructuredThreadTitleThread(threadId)),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        }).pipe(
+          Effect.provideService(CodexInternalThreadRegistry, internalThreadRegistry),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
         const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime({
           prepare: (input) =>
@@ -1953,6 +1966,13 @@ export const live: Layer.Layer<
           Effect.provideService(CodexConversationContext, conversationContext),
           Effect.provideService(CoreAuthority, authority),
           Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const notificationAdmission = yield* makeCodexNotificationAdmission.pipe(
+          Effect.provideService(CodexInternalThreadRegistry, internalThreadRegistry),
+          Effect.provideService(CodexSubagentCatalog, subagentCatalog),
+          Effect.provideService(CodexTurnAuthority, turnAuthority),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const turnPreparation = yield* makeCodexTurnPreparation.pipe(
@@ -2557,6 +2577,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexApplicationRequestInbox, applicationRequestInbox),
           Effect.provideService(CodexAutomationInbox, automationInbox),
           Effect.provideService(CodexOneShotServerRequests, oneShotServerRequests),
+          Effect.provideService(CodexNotificationAdmission, notificationAdmission),
           Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
           Effect.provideService(CodexProtocolNotificationEffects, protocolNotificationEffects),
           Effect.provideService(
