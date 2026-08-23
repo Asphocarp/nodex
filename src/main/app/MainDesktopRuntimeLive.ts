@@ -327,7 +327,6 @@ import {
 import { makeCodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
 import {
   CodexThreadSettingsRuntime,
-  CodexThreadSettingsOperationError,
   make as makeCodexThreadSettingsRuntime,
 } from "../codex-application/CodexThreadSettingsRuntime";
 import {
@@ -1884,19 +1883,13 @@ export const live: Layer.Layer<
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
-        const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime({
-          prepare: (input) =>
-            Effect.tryPromise({
-              try: (signal) => requireCodexService().prepareThreadSettingsUpdate(input, signal),
-              catch: (cause) =>
-                new CodexThreadSettingsOperationError({
-                  operation: "prepare-update",
-                  threadId: input.threadId,
-                  cause,
-                }),
-            }),
-        }).pipe(
+        const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime.pipe(
+          Effect.provideService(AgentProviderRuntime, agentProviders),
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexConversationProjection, conversationProjection),
           Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
+          Effect.provideService(CoreModules, coreModules),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const threadGoalContext = yield* Layer.buildWithScope(

@@ -219,7 +219,6 @@ it.effect("forks a local Project Session through the canonical direct capability
       {
         threadId: childThreadId,
         patch: { collaborationMode: "plan" },
-        syncDormantConversationUpdates: false,
       },
     ]);
     assert.deepEqual(order, ["direct:fork", "settings:update"]);

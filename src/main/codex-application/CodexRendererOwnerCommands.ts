@@ -296,7 +296,6 @@ export const make: Effect.Effect<
             return threadSettings.update({
               threadId,
               patch: request.params.patch,
-              syncDormantConversationUpdates: false,
             });
           case "thread/goal/set":
             return Effect.try({

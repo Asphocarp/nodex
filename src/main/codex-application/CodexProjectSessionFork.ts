@@ -387,7 +387,6 @@ export const make: Effect.Effect<
             .update({
               threadId: forked.threadId,
               patch: { collaborationMode: parsed.collaborationMode },
-              syncDormantConversationUpdates: false,
             })
             .pipe(Effect.mapError((cause) => error("settings", sessionId, cause)));
         }

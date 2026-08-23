@@ -33,7 +33,6 @@ import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal"
 import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/ThreadResumeParams";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadSettings } from "@nodex/codex-app-server-protocol/v2/ThreadSettings";
-import type { ThreadSettingsUpdateParams } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdateParams";
 import type { ThreadSettingsUpdateResponse } from "@nodex/codex-app-server-protocol/v2/ThreadSettingsUpdateResponse";
 import type { Thread } from "@nodex/codex-app-server-protocol/v2/Thread";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
@@ -55,7 +54,6 @@ import type {
   CodexConversationItem,
   CodexConversationResumeState,
   CodexConversationThreadSettings,
-  CodexConversationThreadSettingsPatch,
   CodexConversationServerRequest,
   CodexConversationSnapshot,
   CodexConversationTurnPagination,
@@ -73,7 +71,6 @@ import type {
   CodexPreparedPrompt,
   CodexPermissionMode,
   CodexPermissionState,
-  CodexPersonality,
   CodexProjectlessWorkspace,
   CodexQueuedFollowUp,
   CodexReviewDiffCommentAttachment,
@@ -85,7 +82,6 @@ import type {
   CodexSteerTurnInput,
   CodexSteeringRestoreMessage,
   CodexSteeringUserInput,
-  CodexServiceTier,
   CodexGitSettings,
   CodexTranscriptEntry,
   CodexTranscriptEntrySource,
@@ -122,10 +118,6 @@ import type { ComposerCatalogPromiseAdapter } from "../codex-application/Compose
 import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
 import type { CodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
 import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
-import type {
-  CodexPreparedThreadSettingsUpdate,
-  CodexThreadSettingsUpdateCommand,
-} from "../codex-application/CodexThreadSettingsRuntime";
 import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
@@ -345,14 +337,16 @@ import { convertImmerPatchesToCodexConversationStateUpdates } from "../../shared
 import { type CodexThreadStreamReplica } from "../../shared/codex-owner-follower-replication";
 import type { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
 import type { CodexConversationAggregate } from "../codex-application/CodexConversationAggregate";
+import {
+  buildCollaborationModePayload,
+  buildCollaborationModeState,
+  buildDefaultCollaborationModeState,
+  normalizeCodexServiceTier,
+  normalizeThreadSettingsModel,
+} from "../codex-application/CodexThreadSettingsProjection";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
 import type { DesktopToolRuntimePromiseAdapter } from "../host-runtime/DesktopToolRuntime";
-import type {
-  AgentExecutionProfile,
-  AgentExecutionProfileChange,
-  AgentModelOption,
-  AgentProviderCatalog,
-} from "../../shared/agent-runtime";
+import type { AgentExecutionProfile, AgentProviderCatalog } from "../../shared/agent-runtime";
 import type { AgentImportProgress } from "../../shared/agent-import";
 import type { NativeSessionCandidate } from "./agent-import-operations";
 import {
@@ -1197,50 +1191,6 @@ function isPathWithinOrEqual(parentPath: string, candidatePath: string): boolean
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function normalizeCodexServiceTier(value: unknown): CodexServiceTier {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim();
-  return normalized && normalized !== "standard" ? normalized : null;
-}
-
-function preserveSupportedAgentProfileValue(
-  current: string | null,
-  requestedFallback: string | null,
-  supported: readonly { readonly value: string | null }[],
-): string | null {
-  if (current === null) return null;
-  return supported.some((option) => option.value === current) ? current : requestedFallback;
-}
-
-function mergeAgentModelChange(
-  current: AgentExecutionProfile,
-  requested: AgentExecutionProfile,
-  model: AgentModelOption | null,
-): AgentExecutionProfile {
-  if (!model) {
-    return {
-      ...requested,
-      providerId: current.providerId,
-      harnessId: current.harnessId,
-    };
-  }
-
-  return {
-    ...current,
-    modelId: requested.modelId,
-    reasoningEffort: preserveSupportedAgentProfileValue(
-      current.reasoningEffort,
-      requested.reasoningEffort,
-      model.supportedReasoningEfforts,
-    ),
-    serviceTier: preserveSupportedAgentProfileValue(
-      current.serviceTier,
-      requested.serviceTier,
-      model.supportedServiceTiers,
-    ),
-  };
-}
-
 function buildHeartbeatPermissionOverrides(
   permissions: CodexHeartbeatAutomationPermissions,
 ): Pick<TurnStartParams, "approvalPolicy" | "approvalsReviewer" | "sandboxPolicy"> {
@@ -1434,12 +1384,6 @@ function parseNullableReasoningEffort(
   if (value === null) return null;
   if (value === undefined) return fallback;
   return parseReasoningEffort(value) ?? fallback;
-}
-
-function normalizeThreadSettingsModel(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : null;
 }
 
 function hasOwnValue(record: object, key: string): boolean {
@@ -2445,124 +2389,6 @@ export class CodexService {
     }
   }
 
-  private buildDefaultCollaborationModeState(): CodexCollaborationModeState {
-    return {
-      mode: "default",
-      settings: {
-        model: "",
-        reasoning_effort: null,
-        developer_instructions: null,
-      },
-    };
-  }
-
-  private buildCollaborationModeState(input: {
-    collaborationMode?: CodexCollaborationModeKind | null;
-    model?: string | null;
-    reasoningEffort?: CodexReasoningEffort | null;
-    fallback?: CodexCollaborationModeState | null;
-  }): CodexCollaborationModeState {
-    const fallback = input.fallback ?? this.buildDefaultCollaborationModeState();
-    const mode = input.collaborationMode ?? fallback.mode;
-    const model =
-      normalizeThreadSettingsModel(input.model) ??
-      normalizeThreadSettingsModel(fallback.settings.model) ??
-      "";
-    const reasoningEffort =
-      input.reasoningEffort !== undefined
-        ? input.reasoningEffort
-        : fallback.settings.reasoning_effort;
-
-    return {
-      mode,
-      settings: {
-        model,
-        reasoning_effort: reasoningEffort ?? null,
-        developer_instructions: null,
-      },
-    };
-  }
-
-  private buildConversationThreadSettings(input: {
-    model?: string | null;
-    modelProvider?: string | null;
-    serviceTier?: string | null;
-    reasoningEffort?: CodexReasoningEffort | null;
-    summary?: CodexConversationThreadSettings["summary"];
-    collaborationMode?: CodexCollaborationModeKind | null;
-    personality?: CodexPersonality | null;
-    fallback?: CodexConversationThreadSettings | null;
-    fallbackCollaborationMode?: CodexCollaborationModeState | null;
-  }): CodexConversationThreadSettings {
-    const fallbackCollaborationMode =
-      input.fallback?.collaborationMode ??
-      input.fallbackCollaborationMode ??
-      this.buildDefaultCollaborationModeState();
-    const model =
-      normalizeThreadSettingsModel(input.model) ??
-      normalizeThreadSettingsModel(input.fallback?.model) ??
-      normalizeThreadSettingsModel(fallbackCollaborationMode.settings.model) ??
-      "";
-    const reasoningEffort =
-      input.reasoningEffort !== undefined
-        ? input.reasoningEffort
-        : (input.fallback?.reasoningEffort ?? fallbackCollaborationMode.settings.reasoning_effort);
-    const collaborationMode = this.buildCollaborationModeState({
-      collaborationMode: input.collaborationMode ?? fallbackCollaborationMode.mode,
-      model,
-      reasoningEffort,
-      fallback: fallbackCollaborationMode,
-    });
-
-    return {
-      model,
-      modelProvider:
-        normalizeThreadSettingsModel(input.modelProvider) ??
-        normalizeThreadSettingsModel(input.fallback?.modelProvider) ??
-        null,
-      serviceTier:
-        input.serviceTier !== undefined
-          ? normalizeCodexServiceTier(input.serviceTier)
-          : (input.fallback?.serviceTier ?? null),
-      reasoningEffort: reasoningEffort ?? null,
-      summary: input.summary !== undefined ? input.summary : (input.fallback?.summary ?? null),
-      collaborationMode,
-      personality:
-        input.personality !== undefined ? input.personality : (input.fallback?.personality ?? null),
-    };
-  }
-
-  private mergeThreadSettingsPatch(
-    threadId: string,
-    patch: CodexConversationThreadSettingsPatch,
-  ): CodexConversationThreadSettings {
-    const record = this.getConversationRecord(threadId);
-    const executionProfile = patch.executionProfile;
-    return this.buildConversationThreadSettings({
-      model:
-        executionProfile?.modelId ??
-        (hasOwnValue(patch, "model") ? (patch.model ?? null) : undefined),
-      modelProvider: executionProfile?.providerId,
-      serviceTier: executionProfile
-        ? executionProfile.serviceTier
-        : hasOwnValue(patch, "serviceTier")
-          ? (patch.serviceTier ?? null)
-          : undefined,
-      reasoningEffort: executionProfile
-        ? executionProfile.reasoningEffort
-        : hasOwnValue(patch, "reasoningEffort")
-          ? (patch.reasoningEffort ?? null)
-          : undefined,
-      summary: hasOwnValue(patch, "summary") ? (patch.summary ?? null) : undefined,
-      collaborationMode: hasOwnValue(patch, "collaborationMode")
-        ? (patch.collaborationMode ?? "default")
-        : undefined,
-      personality: hasOwnValue(patch, "personality") ? (patch.personality ?? null) : undefined,
-      fallback: record.latestThreadSettings,
-      fallbackCollaborationMode: record.latestCollaborationMode,
-    });
-  }
-
   private parseCollaborationModeStateFromProtocol(
     value: unknown,
     fallback: CodexCollaborationModeState,
@@ -2586,7 +2412,7 @@ export class CodexService {
       fallback.settings.reasoning_effort,
     );
 
-    return this.buildCollaborationModeState({
+    return buildCollaborationModeState({
       collaborationMode: mode,
       model,
       reasoningEffort,
@@ -2614,14 +2440,14 @@ export class CodexService {
     const collaborationMode =
       this.parseCollaborationModeStateFromProtocol(
         candidate.collaborationMode ?? candidate.collaboration_mode,
-        this.buildCollaborationModeState({
+        buildCollaborationModeState({
           collaborationMode: fallbackMode.mode,
           model,
           reasoningEffort,
           fallback: fallbackMode,
         }),
       ) ??
-      this.buildCollaborationModeState({
+      buildCollaborationModeState({
         collaborationMode: fallbackMode.mode,
         model,
         reasoningEffort,
@@ -2830,7 +2656,7 @@ export class CodexService {
       itemsByTurn: new Map<string, Map<string, CodexItemView>>(),
       planImplementationRequestsByTurnId: new Map<string, CodexPlanImplementationServerRequest>(),
       pendingSteers: [],
-      latestCollaborationMode: this.buildDefaultCollaborationModeState(),
+      latestCollaborationMode: buildDefaultCollaborationModeState(),
       latestThreadSettings: null,
       latestTokenUsageInfo: null,
       threadGoal: null,
@@ -4989,88 +4815,6 @@ export class CodexService {
     return await this.agentProviderRuntime.resolveExecutionProfile(requested);
   }
 
-  private async validateAndPersistThreadExecutionProfile(
-    threadId: string,
-    requested: AgentExecutionProfile,
-    change?: AgentExecutionProfileChange,
-  ): Promise<AgentExecutionProfile> {
-    const workspaceThread = await this.readWorkspaceThread(threadId);
-    if (!workspaceThread) {
-      throw new Error(`Cannot update execution settings for unknown thread '${threadId}'`);
-    }
-
-    const current = workspaceThread.executionProfile ?? null;
-    const modelChangeCatalog =
-      current && change === "model" ? await this.listAgentProviderCatalog() : null;
-    const requestedModel =
-      modelChangeCatalog?.providers
-        .find((provider) => provider.id === current?.providerId)
-        ?.models.find((model) => model.modelId === requested.modelId) ?? null;
-    let requestedUpdate = requested;
-    if (current && change === "model") {
-      requestedUpdate = mergeAgentModelChange(current, requested, requestedModel);
-    } else if (current && change === "reasoningEffort") {
-      requestedUpdate = {
-        ...current,
-        reasoningEffort: requested.reasoningEffort,
-      };
-    } else if (current && change === "serviceTier") {
-      requestedUpdate = {
-        ...current,
-        serviceTier: requested.serviceTier,
-      };
-    }
-    const resolved = await this.resolveAgentExecutionProfile(requestedUpdate);
-    if (!resolved) {
-      throw new Error("The requested execution profile is unavailable");
-    }
-
-    const boundProviderId =
-      current?.providerId ?? normalizeThreadSettingsModel(workspaceThread.modelProvider);
-    if (boundProviderId && resolved.providerId !== boundProviderId) {
-      throw new Error("Start a new thread to change provider");
-    }
-    if (current && resolved.harnessId !== current.harnessId) {
-      throw new Error("Start a new thread to change the agent harness");
-    }
-
-    const currentModelId =
-      current?.modelId ??
-      normalizeThreadSettingsModel(
-        this.getMaybeConversationRecord(threadId)?.latestThreadSettings?.model,
-      );
-    if (currentModelId && resolved.modelId !== currentModelId) {
-      const catalog = modelChangeCatalog ?? (await this.listAgentProviderCatalog());
-      const model = catalog.providers
-        .find((provider) => provider.id === resolved.providerId)
-        ?.models.find((candidate) => candidate.modelId === resolved.modelId);
-      if (!model || model.switchPolicy !== "same-thread") {
-        throw new Error("Start a new thread to use this model");
-      }
-    }
-
-    const updated = await this.updateWorkspaceThreadSummary(threadId, {
-      modelProvider: resolved.providerId,
-      executionProfile: resolved,
-    });
-    if (!updated) {
-      throw new Error(`Unable to persist execution settings for '${threadId}'`);
-    }
-
-    const record = this.getMaybeConversationRecord(threadId);
-    if (record?.detail) {
-      record.detail = {
-        ...record.detail,
-        modelProvider: resolved.providerId,
-        executionProfile: resolved,
-      };
-    }
-    this.invalidateSidebarSnapshotCache();
-    this.emitEvent({ type: "threadSummary", thread: updated });
-    await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
-    return resolved;
-  }
-
   async prepareScheduledAutomationInput<
     Input extends CodexScheduledAutomationCreateInput | CodexScheduledAutomationUpdateInput,
   >(input: Input, current?: CodexScheduledAutomation | null): Promise<Input> {
@@ -5423,7 +5167,7 @@ export class CodexService {
   ): Promise<CodexAppServerCollaborationMode | null> {
     if (!mode) return null;
     if (typeof mode === "string") {
-      return await this.buildCollaborationModePayload({ collaborationMode: mode });
+      return await buildCollaborationModePayload({ collaborationMode: mode });
     }
 
     return {
@@ -6350,72 +6094,6 @@ export class CodexService {
       projectlessOutputDirectory: workspace.outputDirectory,
       projectlessWorkspaceBrowserRoot: workspace.workspaceRoot,
     };
-  }
-
-  private buildCollaborationModePayload(input: {
-    collaborationMode?: CodexCollaborationModeKind;
-    model?: string;
-    reasoningEffort?: CodexReasoningEffort | null;
-  }): CodexAppServerCollaborationMode | null {
-    const selectedMode = input.collaborationMode;
-    if (!selectedMode) return null;
-
-    const modelCandidate = input.model ?? null;
-    const model =
-      typeof modelCandidate === "string" && modelCandidate.trim().length > 0
-        ? modelCandidate.trim()
-        : null;
-    if (!model) return null;
-    const reasoningEffort = input.reasoningEffort ?? null;
-
-    return {
-      mode: selectedMode,
-      settings: {
-        model,
-        reasoning_effort: reasoningEffort,
-        developer_instructions: null,
-      },
-    };
-  }
-
-  private async buildThreadSettingsUpdateParams(
-    threadId: string,
-    patch: CodexConversationThreadSettingsPatch,
-    nextSettings: CodexConversationThreadSettings,
-  ): Promise<ThreadSettingsUpdateParams> {
-    const params: ThreadSettingsUpdateParams = { threadId };
-    const executionProfile = patch.executionProfile;
-    if (executionProfile || hasOwnValue(patch, "model")) {
-      params.model = executionProfile?.modelId ?? patch.model ?? null;
-    }
-    if (executionProfile || hasOwnValue(patch, "serviceTier")) {
-      params.serviceTier = executionProfile?.serviceTier ?? patch.serviceTier ?? null;
-    }
-    if (executionProfile || hasOwnValue(patch, "reasoningEffort")) {
-      params.effort = executionProfile?.reasoningEffort ?? patch.reasoningEffort ?? null;
-    }
-    if (hasOwnValue(patch, "summary")) {
-      params.summary = patch.summary ?? null;
-    }
-    if (
-      executionProfile ||
-      hasOwnValue(patch, "model") ||
-      hasOwnValue(patch, "reasoningEffort") ||
-      hasOwnValue(patch, "collaborationMode")
-    ) {
-      const selectedMode =
-        patch.collaborationMode ?? nextSettings.collaborationMode?.mode ?? "default";
-      params.collaborationMode = await this.buildCollaborationModePayload({
-        collaborationMode: selectedMode,
-        model: normalizeThreadSettingsModel(nextSettings.model) ?? undefined,
-        reasoningEffort: nextSettings.reasoningEffort,
-      });
-    }
-    if (hasOwnValue(patch, "personality")) {
-      params.personality = patch.personality ?? null;
-    }
-
-    return params;
   }
 
   private async resolveAgentConfigOverrides(
@@ -8845,7 +8523,7 @@ export class CodexService {
         approvalsReviewer: existingRecord?.detail?.approvalsReviewer ?? null,
         sandbox: existingRecord?.detail?.sandbox ?? null,
         latestCollaborationMode:
-          existingRecord?.latestCollaborationMode ?? this.buildDefaultCollaborationModeState(),
+          existingRecord?.latestCollaborationMode ?? buildDefaultCollaborationModeState(),
         statusType: parsedStatus.statusType,
         statusActiveFlags: parsedStatus.statusActiveFlags,
         threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
@@ -9800,7 +9478,7 @@ export class CodexService {
           },
         } satisfies CodexCollaborationModeState)
       : null;
-    const resumedCollaborationMode = this.buildCollaborationModeState({
+    const resumedCollaborationMode = buildCollaborationModeState({
       collaborationMode: "default",
       model: resumedModel,
       reasoningEffort: resumedReasoningEffort,
@@ -10403,38 +10081,6 @@ export class CodexService {
     await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "host-message");
 
     return summary;
-  }
-
-  /** Effect Module adapter operation; the runtime owns ordering, remote I/O, and fallback policy. */
-  async prepareThreadSettingsUpdate(
-    input: CodexThreadSettingsUpdateCommand,
-    signal: AbortSignal,
-  ): Promise<CodexPreparedThreadSettingsUpdate> {
-    signal.throwIfAborted();
-    const executionProfile = input.patch.executionProfile
-      ? await this.validateAndPersistThreadExecutionProfile(
-          input.threadId,
-          input.patch.executionProfile,
-          input.patch.executionProfileChange,
-        )
-      : null;
-    signal.throwIfAborted();
-    const validatedPatch = executionProfile ? { ...input.patch, executionProfile } : input.patch;
-    const nextSettings = this.mergeThreadSettingsPatch(input.threadId, validatedPatch);
-    this.applyLatestThreadSettingsForThread(input.threadId, nextSettings);
-    if (input.syncDormantConversationUpdates ?? true) {
-      this.syncAcceptedConversationDocument(input.threadId, {
-        syncLatestCollaborationMode: true,
-        syncLatestThreadSettings: true,
-      });
-    }
-    const params = await this.buildThreadSettingsUpdateParams(
-      input.threadId,
-      validatedPatch,
-      nextSettings,
-    );
-    signal.throwIfAborted();
-    return { nextSettings, params };
   }
 
   private maybeContinueActiveThreadGoal(threadId: string): void {
@@ -11630,7 +11276,7 @@ export class CodexService {
             approvalsReviewer: responsePermissionContext.approvalsReviewer,
             sandboxPolicy: responsePermissionContext.sandboxPolicy,
           };
-    const latestCollaborationMode = this.buildCollaborationModeState({
+    const latestCollaborationMode = buildCollaborationModeState({
       collaborationMode: "default",
       model: effectiveModel,
       reasoningEffort: effectiveReasoningEffort,
@@ -12373,7 +12019,7 @@ export class CodexService {
       latestCollaborationMode:
         detail?.latestCollaborationMode ??
         record?.latestCollaborationMode ??
-        this.buildDefaultCollaborationModeState(),
+        buildDefaultCollaborationModeState(),
       latestThreadSettings: detail?.latestThreadSettings ?? record?.latestThreadSettings ?? null,
       latestTokenUsageInfo: detail?.latestTokenUsageInfo ?? record?.latestTokenUsageInfo ?? null,
       updatedAt: Math.max(link.updatedAt, transcriptUpdatedAt),

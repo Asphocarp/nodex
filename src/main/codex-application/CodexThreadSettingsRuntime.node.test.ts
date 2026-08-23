@@ -4,40 +4,112 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
+import type { AgentExecutionProfile, AgentProviderCatalog } from "../../shared/agent-runtime";
+import type {
+  CodexCanonicalConversationState,
+  CodexConversationSnapshot,
+  CodexConversationThreadSettings,
+} from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { codexRuntimeError } from "../codex-runtime/CodexRuntimeError";
+import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
+import { CoreModules, type CoreModuleClients } from "../core-runtime/CoreModules";
+import { AgentProviderRuntime } from "./AgentProviderRuntime";
+import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import {
-  CodexThreadSettingsOperationError,
-  make,
-  type CodexPreparedThreadSettingsUpdate,
-  type CodexThreadSettingsRuntimeOptions,
-  type CodexThreadSettingsUpdateCommand,
-} from "./CodexThreadSettingsRuntime";
+  CodexConversationProjection,
+  type CodexConversationProjectionService,
+} from "./CodexConversationProjection";
+import {
+  CodexSidebarSyncRuntime,
+  type CodexSidebarSyncNotification,
+} from "./CodexSidebarSyncRuntime";
+import { CodexThreadSettingsOperationError, make } from "./CodexThreadSettingsRuntime";
 
-const settings = (model: string) => ({
+type CoreThread = Extract<
+  ProjectWorkspaceReadSnapshot["value"],
+  { readonly kind: "thread" }
+>["thread"];
+
+const settings = (model: string): CodexConversationThreadSettings => ({
   model,
-  modelProvider: null,
+  modelProvider: "openai",
   serviceTier: null,
-  reasoningEffort: null,
+  reasoningEffort: "high",
   summary: null,
   collaborationMode: {
-    mode: "default" as const,
-    settings: {
-      model,
-      reasoning_effort: null,
-      developer_instructions: null,
-    },
+    mode: "default",
+    settings: { model, reasoning_effort: "high", developer_instructions: null },
   },
   personality: null,
 });
 
-const prepared = (input: CodexThreadSettingsUpdateCommand): CodexPreparedThreadSettingsUpdate => {
-  const model = input.patch.model ?? "default";
-  return {
-    nextSettings: settings(model),
-    params: { threadId: input.threadId, model },
-  };
-};
+const canonical = (threadId: string): CodexCanonicalConversationState =>
+  ({
+    protocol: { id: threadId },
+    turns: [],
+    requests: [],
+    sidecar: {
+      hasUnreadTurn: false,
+      hydrationContext: {
+        model: "model-a",
+        reasoningEffort: "high",
+        latestModel: "model-a",
+        latestReasoningEffort: "high",
+        cwd: "/repo",
+        latestThreadSettings: null,
+        currentPermissions: {
+          activePermissionProfile: null,
+          runtimeWorkspaceRoots: ["/repo"],
+          approvalPolicy: "on-request",
+          approvalsReviewer: "user",
+          sandboxPolicy: {
+            type: "workspaceWrite",
+            writableRoots: ["/repo"],
+            networkAccess: false,
+            excludeTmpdirEnvVar: false,
+            excludeSlashTmp: false,
+          },
+        },
+      },
+    },
+  }) as unknown as CodexCanonicalConversationState;
+
+const coreThread = (overrides: Partial<CoreThread> = {}): CoreThread =>
+  ({
+    thread_id: "thread-1",
+    project_id: "project-a",
+    session_id: null,
+    forked_from_id: null,
+    parent_thread_id: null,
+    thread_source: null,
+    service_name: null,
+    agent_nickname: null,
+    agent_role: null,
+    agent_path: null,
+    thread_name: "Thread",
+    thread_preview: "",
+    model_provider: "openai",
+    model_id: "model-a",
+    harness_id: "codex",
+    reasoning_effort: "high",
+    service_tier: null,
+    execution_host_id: "local",
+    cwd: "/repo",
+    writable_roots: ["/repo"],
+    managed_worktree_path: null,
+    projectless_output_directory: null,
+    projectless_workspace_browser_root: null,
+    status: { status_type: "idle", active_flags: [] },
+    archived: false,
+    pinned_order: null,
+    has_unread_turn: false,
+    created_at: 1,
+    updated_at: 1,
+    recency_at: 1,
+    linked_at: "2026-08-24T00:00:00.000Z",
+    ...overrides,
+  }) as unknown as CoreThread;
 
 const gateway = (request: CodexGateway["Service"]["requestForThread"]): CodexGateway["Service"] => {
   const unsupported = () => Effect.die(new Error("Unsupported test operation"));
@@ -59,81 +131,133 @@ const gateway = (request: CodexGateway["Service"]["requestForThread"]): CodexGat
   });
 };
 
-const runtime = (
-  options: CodexThreadSettingsRuntimeOptions,
-  request: CodexGateway["Service"]["requestForThread"] = (() =>
-    Effect.succeed({})) as CodexGateway["Service"]["requestForThread"],
-) => make(options).pipe(Effect.provideService(CodexGateway, gateway(request)));
+const harness = (input: {
+  readonly request?: CodexGateway["Service"]["requestForThread"];
+  readonly configure?: (
+    command: Parameters<CodexConversationProjectionService["configureTurn"]>[0],
+  ) => Effect.Effect<void>;
+  readonly providers?: AgentProviderRuntime["Service"];
+  readonly workspace?: CoreModuleClients["workspace"];
+}) => {
+  const current = new Map<string, CodexConversationThreadSettings>();
+  const projection = CodexConversationProjection.of({
+    read: (threadId: string) =>
+      Effect.succeed({
+        canonical: canonical(threadId),
+        snapshot: {
+          threadId,
+          latestCollaborationMode: current.get(threadId)?.collaborationMode ?? undefined,
+          latestThreadSettings: current.get(threadId) ?? settings("model-a"),
+        } as unknown as CodexConversationSnapshot,
+      }),
+    configureTurn: (command: Parameters<CodexConversationProjectionService["configureTurn"]>[0]) =>
+      (input.configure?.(command) ?? Effect.void).pipe(
+        Effect.andThen(Effect.sync(() => void current.set(command.threadId, command.settings))),
+      ),
+  } as unknown as CodexConversationProjectionService);
+  const providers =
+    input.providers ??
+    AgentProviderRuntime.of({
+      list: () => Effect.die("Unexpected provider catalog read"),
+      resolveExecutionProfile: () => Effect.die("Unexpected profile resolution"),
+    } as unknown as AgentProviderRuntime["Service"]);
+  const workspace =
+    input.workspace ??
+    ({
+      read: () => Effect.die("Unexpected Core read"),
+      apply: () => Effect.die("Unexpected Core apply"),
+    } as CoreModuleClients["workspace"]);
+  return make.pipe(
+    Effect.provideService(AgentProviderRuntime, providers),
+    Effect.provideService(
+      CodexApplicationEventHub,
+      CodexApplicationEventHub.of({ events: Stream.empty, publish: () => undefined }),
+    ),
+    Effect.provideService(CodexConversationProjection, projection),
+    Effect.provideService(
+      CodexGateway,
+      gateway(
+        input.request ??
+          ((() => Effect.succeed({})) as CodexGateway["Service"]["requestForThread"]),
+      ),
+    ),
+    Effect.provideService(
+      CodexSidebarSyncRuntime,
+      CodexSidebarSyncRuntime.of({
+        scheduleNotification: (_notification: CodexSidebarSyncNotification) => undefined,
+      } as unknown as CodexSidebarSyncRuntime["Service"]),
+    ),
+    Effect.provideService(
+      CoreModules,
+      CoreModules.of({ workspace } as unknown as CoreModuleClients),
+    ),
+  );
+};
 
-it.effect(
-  "serializes complete settings transactions per Thread and exposes an admission barrier",
-  () =>
-    Effect.gen(function* () {
-      const firstStarted = yield* Deferred.make<void>();
-      const releaseFirst = yield* Deferred.make<void>();
-      const order: string[] = [];
-      const service = yield* runtime(
-        {
-          prepare: (input) =>
-            input.patch.model === "first"
-              ? Deferred.succeed(firstStarted, undefined).pipe(
-                  Effect.andThen(Effect.sync(() => order.push("first:prepare"))),
-                  Effect.andThen(Deferred.await(releaseFirst)),
-                  Effect.as(prepared(input)),
-                )
-              : Effect.sync(() => {
-                  order.push("second:prepare");
-                  return prepared(input);
-                }),
-        },
-        ((_threadId, method, params) => {
-          assert.strictEqual(method, "thread/settings/update");
-          order.push(`${String((params as { model?: unknown }).model)}:remote`);
-          return Effect.succeed({});
-        }) as CodexGateway["Service"]["requestForThread"],
-      );
-      const first = yield* Effect.forkChild(
-        service.update({ threadId: "thread-1", patch: { model: "first" } }),
-      );
-      yield* Deferred.await(firstStarted);
-      const second = yield* Effect.forkChild(
-        service.update({ threadId: "thread-1", patch: { model: "second" } }),
-      );
-      let admitted = false;
-      const admission = yield* Effect.forkChild(
-        service.awaitCurrent("thread-1").pipe(
+it.effect("serializes complete settings transactions and the admission barrier per Thread", () =>
+  Effect.gen(function* () {
+    const firstStarted = yield* Deferred.make<void>();
+    const releaseFirst = yield* Deferred.make<void>();
+    const order: string[] = [];
+    const service = yield* harness({
+      configure: (command) =>
+        Effect.sync(() => void order.push(`${command.settings.model}:project`)).pipe(
           Effect.andThen(
-            Effect.sync(() => {
-              admitted = true;
-            }),
+            command.settings.model === "first"
+              ? Deferred.succeed(firstStarted, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseFirst)),
+                )
+              : Effect.void,
           ),
         ),
-      );
+      request: ((_threadId, method, params) => {
+        assert.strictEqual(method, "thread/settings/update");
+        const model = String((params as { model?: unknown }).model);
+        return Effect.sync(() => void order.push(`${model}:remote`)).pipe(Effect.as({}));
+      }) as CodexGateway["Service"]["requestForThread"],
+    });
 
-      yield* Effect.yieldNow;
-      assert.deepEqual(order, ["first:prepare"]);
-      assert.isFalse(admitted);
-      yield* Deferred.succeed(releaseFirst, undefined);
-      yield* Fiber.join(first);
-      yield* Fiber.join(second);
-      yield* Fiber.join(admission);
-      assert.deepEqual(order, ["first:prepare", "first:remote", "second:prepare", "second:remote"]);
-      assert.isTrue(admitted);
-    }),
+    const first = yield* Effect.forkChild(
+      service.update({ threadId: "thread-1", patch: { model: "first" } }),
+    );
+    yield* Deferred.await(firstStarted);
+    const second = yield* Effect.forkChild(
+      service.update({ threadId: "thread-1", patch: { model: "second" } }),
+    );
+    let admitted = false;
+    const admission = yield* Effect.forkChild(
+      service
+        .awaitCurrent("thread-1")
+        .pipe(Effect.andThen(Effect.sync(() => void (admitted = true)))),
+    );
+    yield* Effect.yieldNow;
+    assert.deepEqual(order, ["first:project"]);
+    assert.isFalse(admitted);
+    yield* Deferred.succeed(releaseFirst, undefined);
+    yield* Fiber.join(first);
+    yield* Fiber.join(second);
+    yield* Fiber.join(admission);
+    assert.deepEqual(order, ["first:project", "first:remote", "second:project", "second:remote"]);
+    assert.isTrue(admitted);
+  }),
 );
 
 it.effect("keeps different Thread settings transactions independent", () =>
   Effect.gen(function* () {
+    const firstStarted = yield* Deferred.make<void>();
     const releaseFirst = yield* Deferred.make<void>();
-    const service = yield* runtime({
-      prepare: (input) =>
-        input.threadId === "thread-1"
-          ? Deferred.await(releaseFirst).pipe(Effect.as(prepared(input)))
-          : Effect.succeed(prepared(input)),
+    const service = yield* harness({
+      configure: (command) =>
+        command.threadId === "thread-1"
+          ? Deferred.succeed(firstStarted, undefined).pipe(
+              Effect.andThen(Deferred.await(releaseFirst)),
+            )
+          : Effect.void,
     });
     const first = yield* Effect.forkChild(
       service.update({ threadId: "thread-1", patch: { model: "first" } }),
     );
+    yield* Deferred.await(firstStarted);
     assert.strictEqual(
       (yield* service.update({ threadId: "thread-2", patch: { model: "independent" } })).model,
       "independent",
@@ -143,98 +267,126 @@ it.effect("keeps different Thread settings transactions independent", () =>
   }),
 );
 
-it.effect("releases a Thread lane after preparation failure and propagates interruption", () =>
+it.effect("contains unloaded and unsupported remote updates while support stays monotonic", () =>
   Effect.gen(function* () {
-    const started = yield* Deferred.make<void>();
-    let interrupted = false;
-    let attempts = 0;
-    const service = yield* runtime({
-      prepare: (input) => {
-        attempts += 1;
-        if (attempts === 1) {
-          return Effect.fail(
-            new CodexThreadSettingsOperationError({
-              operation: "prepare-update",
-              threadId: input.threadId,
-              cause: new Error("invalid settings"),
-            }),
-          );
-        }
-        return Deferred.succeed(started, undefined).pipe(
-          Effect.andThen(Effect.never),
-          Effect.onInterrupt(() =>
-            Effect.sync(() => {
-              interrupted = true;
-            }),
+    const requests: string[] = [];
+    const service = yield* harness({
+      request: ((_threadId, _method, params) => {
+        const model = String((params as { model?: unknown }).model);
+        return Effect.sync(() => void requests.push(model)).pipe(
+          Effect.andThen(
+            Effect.fail(
+              codexRuntimeError({
+                operation: "settings-test",
+                reason: "request",
+                retryable: false,
+                cause:
+                  model === "missing"
+                    ? new CodexAppServerRequestError({
+                        code: -32603,
+                        errorMessage: "Thread not found",
+                      })
+                    : CodexAppServerRequestError.methodNotFound("thread/settings/update"),
+              }),
+            ),
           ),
         );
-      },
+      }) as CodexGateway["Service"]["requestForThread"],
     });
-    const failure = yield* service
-      .update({ threadId: "thread-1", patch: { model: "invalid" } })
-      .pipe(Effect.flip);
-    assert.instanceOf(failure, CodexThreadSettingsOperationError);
 
-    const pending = yield* Effect.forkChild(
-      service.update({ threadId: "thread-1", patch: { model: "pending" } }),
+    assert.strictEqual(
+      (yield* service.update({ threadId: "thread-1", patch: { model: "missing" } })).model,
+      "missing",
     );
-    yield* Deferred.await(started);
-    yield* Fiber.interrupt(pending);
-    assert.isTrue(interrupted);
+    assert.strictEqual(service.remoteUpdateSupport(), "unknown");
+    assert.strictEqual(
+      (yield* service.update({ threadId: "thread-1", patch: { model: "unsupported" } })).model,
+      "unsupported",
+    );
+    assert.strictEqual(service.remoteUpdateSupport(), "unsupported");
+    assert.strictEqual(
+      (yield* service.update({ threadId: "thread-1", patch: { model: "local-only" } })).model,
+      "local-only",
+    );
+    assert.deepEqual(requests, ["missing", "unsupported"]);
   }),
 );
 
-it.effect(
-  "contains unloaded and unsupported remote updates while keeping capability monotonic",
-  () =>
-    Effect.gen(function* () {
-      const requests: string[] = [];
-      const service = yield* runtime({ prepare: (input) => Effect.succeed(prepared(input)) }, ((
-        _threadId,
-        _method,
-        params,
-      ) => {
-        const model = String((params as { model?: unknown }).model);
-        requests.push(model);
-        if (model === "missing") {
-          return Effect.fail(
-            codexRuntimeError({
-              operation: "settings-test",
-              reason: "request",
-              retryable: false,
-              cause: new CodexAppServerRequestError({
-                code: -32603,
-                errorMessage: "Thread not found",
-              }),
-            }),
-          );
-        }
-        return Effect.fail(
-          codexRuntimeError({
-            operation: "settings-test",
-            reason: "request",
-            retryable: false,
-            cause: CodexAppServerRequestError.methodNotFound("thread/settings/update"),
-          }),
-        );
-      }) as CodexGateway["Service"]["requestForThread"]);
+it.effect("persists a validated same-thread profile before canonical and remote projection", () =>
+  Effect.gen(function* () {
+    const order: string[] = [];
+    let stored = coreThread();
+    const workspace: CoreModuleClients["workspace"] = {
+      read: () => Effect.succeed({ value: { kind: "thread", thread: stored } } as never),
+      apply: (operation) =>
+        Effect.sync(() => {
+          if (operation.intent.kind !== "update_thread") return {} as never;
+          order.push("core");
+          stored = {
+            ...stored,
+            model_provider: operation.intent.patch.model_provider ?? stored.model_provider,
+            harness_id: operation.intent.patch.harness_id ?? stored.harness_id,
+            model_id: operation.intent.patch.model_id ?? stored.model_id,
+            reasoning_effort: operation.intent.patch.reasoning_effort ?? stored.reasoning_effort,
+            service_tier: operation.intent.patch.service_tier ?? stored.service_tier,
+          };
+          return {} as never;
+        }),
+    };
+    const catalog = {
+      providers: [
+        {
+          id: "openai",
+          models: [
+            {
+              modelId: "model-b",
+              switchPolicy: "same-thread",
+              supportedReasoningEfforts: [{ value: "high" }],
+              supportedServiceTiers: [{ value: null }],
+            },
+          ],
+        },
+      ],
+    } as unknown as AgentProviderCatalog;
+    const providers = AgentProviderRuntime.of({
+      list: () => Effect.succeed(catalog),
+      resolveExecutionProfile: (requested: AgentExecutionProfile) => Effect.succeed(requested),
+    } as unknown as AgentProviderRuntime["Service"]);
+    const service = yield* harness({
+      providers,
+      workspace,
+      configure: () => Effect.sync(() => void order.push("project")),
+      request: ((_threadId, _method, params) =>
+        Effect.sync(() => {
+          order.push("remote");
+          assert.strictEqual((params as { model?: string }).model, "model-b");
+          return {};
+        })) as CodexGateway["Service"]["requestForThread"],
+    });
+    const requested: AgentExecutionProfile = {
+      providerId: "openai",
+      harnessId: "codex",
+      modelId: "model-b",
+      reasoningEffort: "high",
+      serviceTier: null,
+    };
 
-      assert.strictEqual(
-        (yield* service.update({ threadId: "thread-1", patch: { model: "missing" } })).model,
-        "missing",
-      );
-      assert.strictEqual(service.remoteUpdateSupport(), "unknown");
-      assert.strictEqual(
-        (yield* service.update({ threadId: "thread-1", patch: { model: "unsupported" } })).model,
-        "unsupported",
-      );
-      assert.strictEqual(service.remoteUpdateSupport(), "unsupported");
-      assert.strictEqual(
-        (yield* service.update({ threadId: "thread-1", patch: { model: "local-only" } })).model,
-        "local-only",
-      );
-      assert.deepEqual(requests, ["missing", "unsupported"]);
-      service.recordRemoteUpdateSupported();
-      assert.strictEqual(service.remoteUpdateSupport(), "unsupported");
-    }),
+    assert.strictEqual(
+      (yield* service.update({
+        threadId: "thread-1",
+        patch: { executionProfile: requested, executionProfileChange: "model" },
+      })).model,
+      "model-b",
+    );
+    assert.deepEqual(order, ["core", "project", "remote"]);
+
+    const failure = yield* service
+      .update({
+        threadId: "thread-1",
+        patch: { executionProfile: { ...requested, providerId: "other" } },
+      })
+      .pipe(Effect.flip);
+    assert.instanceOf(failure, CodexThreadSettingsOperationError);
+    assert.match(String(failure.cause), /change provider/u);
+  }),
 );

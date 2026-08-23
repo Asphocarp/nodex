@@ -33,10 +33,10 @@ import {
   isCodexThreadOwnerNotification,
 } from "../../shared/types";
 import { TestCodexThreadSettingsRuntime } from "./codex-thread-settings-runtime.test-support";
-import type {
-  CodexPreparedThreadSettingsUpdate,
-  CodexThreadSettingsUpdateCommand,
-} from "../codex-application/CodexThreadSettingsRuntime";
+import {
+  buildThreadSettingsUpdateParams,
+  mergeThreadSettingsPatch,
+} from "../codex-application/CodexThreadSettingsProjection";
 import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistence.test-support";
 import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime.test-support";
 import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-subagent-metadata-repair.test-support";
@@ -57,7 +57,6 @@ import type {
   TurnStartResponse,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ServerNotification as CodexServerNotification } from "@nodex/codex-app-server-protocol";
-import type { AgentProviderCatalog } from "../../shared/agent-runtime";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 
 import { getCodexFileChangePaths } from "../../shared/codex-file-change";
@@ -240,10 +239,6 @@ interface TestableCodexService {
     thread: DesktopProjectWorkspaceThread,
     reason: "archive" | "automation-archive",
   ) => Promise<void>;
-  prepareThreadSettingsUpdate: (
-    input: CodexThreadSettingsUpdateCommand,
-    signal: AbortSignal,
-  ) => Promise<CodexPreparedThreadSettingsUpdate>;
 }
 
 function makeThreadDetail(threadId: string): CodexThreadDetail {
@@ -1882,22 +1877,35 @@ function createService(options?: {
     bindRecord(threadId, originalEnsureConversationRecord(threadId));
   serviceRecordAccess.getConversationRecord = (threadId) =>
     bindRecord(threadId, originalGetConversationRecord(threadId));
-  threadSettingsRuntime.setUpdateOperation(async (input, signal) => {
-    const prepared = await testService.prepareThreadSettingsUpdate(input, signal);
+  threadSettingsRuntime.setUpdateOperation(async (input) => {
+    const current =
+      service.serializeConversationSnapshot(input.threadId)?.latestThreadSettings ?? null;
+    const nextSettings = mergeThreadSettingsPatch({
+      patch: input.patch,
+      current,
+      currentCollaborationMode: current?.collaborationMode ?? null,
+    });
     if (threadSettingsRuntime.remoteUpdateSupport() === "unsupported") {
-      return prepared.nextSettings;
+      return nextSettings;
     }
     const client = Reflect.get(service as object, "client") as {
       request: (method: string, params: unknown) => Promise<unknown>;
     };
     try {
-      await client.request("thread/settings/update", prepared.params);
+      await client.request(
+        "thread/settings/update",
+        buildThreadSettingsUpdateParams({
+          threadId: input.threadId,
+          patch: input.patch,
+          nextSettings,
+        }),
+      );
       threadSettingsRuntime.recordRemoteUpdateSupported();
     } catch (error) {
       if (error instanceof CodexRpcError) {
         const message = error.message.toLowerCase();
         if (message.includes("thread") && message.includes("not found")) {
-          return prepared.nextSettings;
+          return nextSettings;
         }
         if (
           error.code === -32601 ||
@@ -1906,12 +1914,12 @@ function createService(options?: {
           (message.includes("thread/settings/update") && message.includes("unsupported"))
         ) {
           threadSettingsRuntime.recordRemoteUpdateUnsupported();
-          return prepared.nextSettings;
+          return nextSettings;
         }
       }
       throw error;
     }
-    return prepared.nextSettings;
+    return nextSettings;
   });
   Reflect.set(testService, "getUserInputAutoResolutionSnapshot", () => autoResolution.snapshot());
   testService.shutdown = async () => {
@@ -2083,15 +2091,6 @@ function createService(options?: {
   };
   return testService;
 }
-
-const updateThreadSettingsForTest = (
-  service: TestableCodexService,
-  threadId: string,
-  patch: import("../../shared/types").CodexConversationThreadSettingsPatch,
-) =>
-  (
-    Reflect.get(service as object, "threadSettingsRuntime") as TestCodexThreadSettingsRuntime
-  ).update({ threadId, patch });
 
 describe("codex-service sidebar Thread Project moves", () => {
   test("confirms Project-wide source access, replays the move, and can remove it to Chats", async () => {
@@ -3993,209 +3992,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       expect(
         upsertPatches.some((patch) => Object.prototype.hasOwnProperty.call(patch, "projectId")),
       ).toBe(false);
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
-
-describe("codex-service collaboration modes", () => {
-  test("validates active-task identity and persists compatible intelligence updates", async () => {
-    const service = createService();
-    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
-    const persistedProfiles: unknown[] = [];
-    const currentProfile = {
-      providerId: "openai",
-      modelId: "gpt-5.5",
-      harnessId: null,
-      reasoningEffort: "high",
-      serviceTier: null,
-    };
-    let persistedCurrentProfile = currentProfile;
-    const serviceInternals = service as unknown as {
-      ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
-      readWorkspaceThread: (threadId: string) => Promise<{
-        modelProvider: string;
-        executionProfile: typeof currentProfile;
-      } | null>;
-      resolveAgentExecutionProfile: (
-        profile: typeof currentProfile,
-      ) => Promise<typeof currentProfile | null>;
-      listAgentProviderCatalog: () => Promise<AgentProviderCatalog>;
-      updateWorkspaceThreadSummary: (
-        threadId: string,
-        patch: { executionProfile?: typeof currentProfile },
-      ) => Promise<CodexThreadSummary | null>;
-      emitSidebarCatalogChangedForThread: () => Promise<void>;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    client.start = async () => undefined;
-    client.request = async (method, params) => {
-      requests.push({ method, params: params as Record<string, unknown> });
-      return {};
-    };
-    serviceInternals.ensureConversationDetail("thr_profile_update");
-    serviceInternals.readWorkspaceThread = async () => ({
-      modelProvider: "openai",
-      executionProfile: persistedCurrentProfile,
-    });
-    serviceInternals.resolveAgentExecutionProfile = async (profile) => profile;
-    serviceInternals.listAgentProviderCatalog = async () => ({
-      providers: [
-        {
-          id: "openai",
-          displayName: "OpenAI",
-          description: null,
-          wireApi: "responses",
-          credentialStatus: "runtimeManaged",
-          supportedByNodex: true,
-          isDefault: true,
-          credentialEnvKey: null,
-          recommendedHarnessId: null,
-          models: [
-            {
-              providerId: "openai",
-              modelId: "gpt-5.4",
-              displayName: "GPT-5.4",
-              description: null,
-              hidden: false,
-              isDefault: false,
-              recommendedHarnessId: null,
-              supportedReasoningEfforts: [],
-              defaultReasoningEffort: null,
-              supportedServiceTiers: [],
-              defaultServiceTier: null,
-              inputCapabilities: ["text"],
-              switchPolicy: "same-thread",
-            },
-            {
-              providerId: "openai",
-              modelId: "gpt-new-thread-only",
-              displayName: "New task only",
-              description: null,
-              hidden: false,
-              isDefault: false,
-              recommendedHarnessId: null,
-              supportedReasoningEfforts: [],
-              defaultReasoningEffort: null,
-              supportedServiceTiers: [],
-              defaultServiceTier: null,
-              inputCapabilities: ["text"],
-              switchPolicy: "new-thread",
-            },
-            {
-              providerId: "openai",
-              modelId: "gpt-5.6",
-              displayName: "GPT-5.6",
-              description: null,
-              hidden: false,
-              isDefault: false,
-              recommendedHarnessId: null,
-              supportedReasoningEfforts: [
-                {
-                  value: "xhigh",
-                  displayName: "Extra high",
-                  description: null,
-                },
-              ],
-              defaultReasoningEffort: "xhigh",
-              supportedServiceTiers: [
-                {
-                  value: "fast",
-                  displayName: "Fast",
-                  description: null,
-                },
-              ],
-              defaultServiceTier: "fast",
-              inputCapabilities: ["text"],
-              switchPolicy: "same-thread",
-            },
-          ],
-        },
-      ],
-    });
-    serviceInternals.updateWorkspaceThreadSummary = async (_threadId, patch) => {
-      persistedProfiles.push(patch.executionProfile);
-      if (patch.executionProfile) {
-        persistedCurrentProfile = patch.executionProfile;
-      }
-      return {
-        ...makeThreadDetail("thr_profile_update"),
-        statusType: "idle",
-        statusActiveFlags: [],
-        archived: false,
-        createdAt: 1,
-        updatedAt: 1,
-        linkedAt: "2026-07-28T00:00:00.000Z",
-      };
-    };
-    serviceInternals.emitSidebarCatalogChangedForThread = async () => undefined;
-
-    const nextProfile = {
-      ...currentProfile,
-      modelId: "gpt-5.4",
-      reasoningEffort: "medium",
-      serviceTier: "fast",
-    };
-
-    try {
-      const settings = await updateThreadSettingsForTest(service, "thr_profile_update", {
-        executionProfile: nextProfile,
-      });
-      const params = requests[0]?.params;
-      expect(persistedProfiles).toEqual([nextProfile]);
-      expect(params?.model).toBe("gpt-5.4");
-      expect(params).not.toHaveProperty("modelProvider");
-      expect(params?.effort).toBe("medium");
-      expect(params?.serviceTier).toBe("fast");
-      expect(settings.model).toBe("gpt-5.4");
-      expect(settings.serviceTier).toBe("fast");
-
-      await updateThreadSettingsForTest(service, "thr_profile_update", {
-        executionProfile: {
-          ...currentProfile,
-          reasoningEffort: "xhigh",
-        },
-        executionProfileChange: "reasoningEffort",
-      });
-      expect(persistedProfiles[1]).toEqual({
-        ...nextProfile,
-        reasoningEffort: "xhigh",
-      });
-
-      await updateThreadSettingsForTest(service, "thr_profile_update", {
-        executionProfile: {
-          ...currentProfile,
-          modelId: "gpt-5.6",
-        },
-        executionProfileChange: "model",
-      });
-      const latestProfile = {
-        ...nextProfile,
-        modelId: "gpt-5.6",
-        reasoningEffort: "xhigh",
-      };
-      expect(persistedProfiles[2]).toEqual(latestProfile);
-
-      await expect(
-        updateThreadSettingsForTest(service, "thr_profile_update", {
-          executionProfile: {
-            ...nextProfile,
-            modelId: "gpt-new-thread-only",
-          },
-        }),
-      ).rejects.toThrow("Start a new thread");
-      expect(persistedProfiles).toEqual([
-        nextProfile,
-        {
-          ...nextProfile,
-          reasoningEffort: "xhigh",
-        },
-        latestProfile,
-      ]);
     } finally {
       await service.shutdown();
     }

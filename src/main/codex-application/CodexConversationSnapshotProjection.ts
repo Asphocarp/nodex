@@ -15,7 +15,7 @@ const asCurrentView = (item: CodexConversationTurn["items"][number]): CodexItemV
   normalizedKind: item.kind,
 });
 
-const projectThreadSettings = (
+export const projectCodexConversationThreadSettings = (
   state: CodexCanonicalConversationState,
 ): CodexConversationThreadSettings | null => {
   const hydration = state.sidecar.hydrationContext;
@@ -42,7 +42,7 @@ export const projectCodexConversationMetadataSnapshot = (input: {
   const hydration = input.state.sidecar.hydrationContext;
   const permissions = settings ?? hydration?.currentPermissions ?? null;
   const status = parseThreadStatus(input.state.protocol.status);
-  const projectedSettings = projectThreadSettings(input.state);
+  const projectedSettings = projectCodexConversationThreadSettings(input.state);
   return {
     ...input.conversation,
     threadName: input.state.protocol.name?.trim() || input.conversation.threadName,
