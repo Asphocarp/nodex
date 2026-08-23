@@ -14,31 +14,23 @@ import type {
   CodexCanonicalConversationState,
   CodexConversationSnapshot,
 } from "../../shared/types";
-import {
-  CodexServerRequestRuntime,
-  type CodexServerRequestRuntime as CodexServerRequestRuntimeTag,
-} from "../codex-runtime/CodexServerRequestRuntime";
+import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationRequestInbox";
 import {
   ApprovalCoordinator,
   CodexApplicationRequestPending,
   CodexGlobalServerRequestRuntime,
   applicationRequestDispatcherLive,
   live as approvalLive,
-  serverRequestLayer,
   unhandledGlobal,
 } from "./ApprovalCoordinator";
+import { requestHandlingLive } from "./CodexApplicationLayers";
 import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
 
-const applicationLayer: Layer.Layer<
-  CodexServerRequestRuntimeTag | ApprovalCoordinator | ConversationRuntimeMap
-> = serverRequestLayer.pipe(
-  Layer.provideMerge(
-    approvalLive.pipe(Layer.provideMerge(Layer.merge(conversationRuntimeMapLive, unhandledGlobal))),
-  ),
-);
+const applicationLayer: Layer.Layer<ApprovalCoordinator | ConversationRuntimeMap> =
+  approvalLive.pipe(Layer.provideMerge(Layer.merge(conversationRuntimeMapLive, unhandledGlobal)));
 
 it.effect("serializes application commands across owners in one Thread generation", () =>
   Effect.gen(function* () {
@@ -85,6 +77,7 @@ it.effect("keeps canonical state and the accepted renderer replica in one genera
     const canonical = { requests: [] } as unknown as CodexCanonicalConversationState;
     const conversation = {
       threadId: "thread-a",
+      queuedFollowUps: [],
       requests: [],
     } as unknown as CodexConversationSnapshot;
 
@@ -116,6 +109,7 @@ it.effect("owns read, resume, streaming, and cursor-fenced history sidecars", ()
     aggregate.installSnapshot({
       threadId: "thread-a",
       hasUnreadTurn: false,
+      queuedFollowUps: [],
       resumeState: "resumed",
       turns: [],
     } as unknown as CodexConversationSnapshot);
@@ -245,23 +239,36 @@ it.effect("evicts a closed generation without recreating it from reads", () =>
 it.effect("completes a thread-owned server request exactly once", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(applicationLayer, scope);
-    const serverRequests = Context.get(context, CodexServerRequestRuntime);
+    const generationScope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(
+      requestHandlingLive.pipe(Layer.provide(unhandledGlobal)),
+      scope,
+    );
+    const inbox = Context.get(context, CodexApplicationRequestInbox);
     const approvals = Context.get(context, ApprovalCoordinator);
     const conversations = Context.get(context, ConversationRuntimeMap);
+    const generation = yield* inbox
+      .openGeneration("local", 7)
+      .pipe(Effect.provideService(Scope.Scope, generationScope));
     const runtime = yield* conversations.runtime("thread-a");
-    const eventFiber = yield* Stream.runHead(runtime.events).pipe(Effect.forkScoped);
-    yield* Effect.yieldNow;
+    const eventFiber = yield* Stream.runHead(runtime.events).pipe(
+      Effect.forkIn(scope, { startImmediately: true }),
+    );
+    const settlementFiber = yield* Stream.runHead(generation.settlements).pipe(
+      Effect.forkIn(scope, { startImmediately: true }),
+    );
 
-    const responseFiber = yield* serverRequests
-      .handle("local", 7, 42, "item/tool/requestUserInput", {
+    const occurrence = yield* generation.admit({
+      requestId: 42,
+      method: "item/tool/requestUserInput",
+      params: {
         isBlocking: true,
         itemId: "item-a",
         questions: [],
         threadId: "thread-a",
         turnId: "turn-a",
-      })
-      .pipe(Effect.forkScoped);
+      },
+    });
     const event = yield* Fiber.join(eventFiber);
     assert.isTrue(Option.isSome(event));
     if (Option.isSome(event)) {
@@ -273,8 +280,18 @@ it.effect("completes a thread-owned server request exactly once", () =>
     }
 
     assert.isTrue(yield* approvals.respond("thread-a", 7, 42, { answers: {} }));
-    assert.deepEqual(yield* Fiber.join(responseFiber), { answers: {} });
+    const settlement = yield* Fiber.join(settlementFiber);
+    assert.strictEqual(settlement._tag, "Some");
+    if (settlement._tag === "Some") {
+      assert.strictEqual(settlement.value.occurrence, occurrence);
+      assert.deepEqual(settlement.value.outcome, {
+        kind: "result",
+        value: { answers: {} },
+      });
+    }
     assert.isFalse(yield* approvals.respond("thread-a", 7, 42, { answers: {} }));
+    assert.isFalse(yield* inbox.settle(occurrence, { kind: "result", value: "duplicate" }));
+    yield* Scope.close(generationScope, Exit.void);
     yield* Scope.close(scope, Exit.void);
   }),
 );
@@ -283,10 +300,10 @@ it.effect("rejects pending requests when a thread runtime is invalidated", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(applicationLayer, scope);
-    const serverRequests = Context.get(context, CodexServerRequestRuntime);
+    const approvals = Context.get(context, ApprovalCoordinator);
     const conversations = Context.get(context, ConversationRuntimeMap);
     const runtime = yield* conversations.runtime("thread-a");
-    const request = yield* serverRequests
+    const request = yield* approvals
       .handle("local", 1, "request-a", "item/fileChange/requestApproval", {
         itemId: "item-a",
         startedAtMs: 0,
@@ -315,11 +332,8 @@ it.effect("routes private app-server methods through the same thread runtime", (
   Effect.gen(function* () {
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(applicationLayer, scope);
-    const serverRequests = Context.get(context, CodexServerRequestRuntime);
     const approvals = Context.get(context, ApprovalCoordinator);
-    assert.isFunction(serverRequests.handleUnknown);
-    if (serverRequests.handleUnknown === undefined) return;
-    const response = yield* serverRequests
+    const response = yield* approvals
       .handleUnknown("local", 2, "private-a", "item/tool/requestOptionPicker", {
         threadId: "thread-private",
         turnId: "turn-private",
@@ -343,12 +357,11 @@ it.effect("preserves duplicate JSON-RPC ids and completes them in arrival order"
   Effect.gen(function* () {
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(applicationLayer, scope);
-    const serverRequests = Context.get(context, CodexServerRequestRuntime);
     const approvals = Context.get(context, ApprovalCoordinator);
     const conversations = Context.get(context, ConversationRuntimeMap);
     const runtime = yield* conversations.runtime("thread-a");
     const invoke = () =>
-      serverRequests.handle("local", 3, 7, "item/tool/requestUserInput", {
+      approvals.handle("local", 3, 7, "item/tool/requestUserInput", {
         isBlocking: true,
         itemId: "item-a",
         questions: [],
@@ -416,13 +429,8 @@ it.effect("buffers application ingress and dispatches waiting threads concurrent
       scope,
     );
     const approvals = Context.get(approvalsContext, ApprovalCoordinator);
-    const requestContext = yield* Layer.buildWithScope(
-      serverRequestLayer.pipe(Layer.provide(Layer.succeed(ApprovalCoordinator, approvals))),
-      scope,
-    );
-    const requests = Context.get(requestContext, CodexServerRequestRuntime);
     const invoke = (threadId: string, requestId: string) =>
-      requests.handle("local", 1, requestId, "item/tool/requestUserInput", {
+      approvals.handle("local", 1, requestId, "item/tool/requestUserInput", {
         isBlocking: true,
         itemId: `item-${threadId}`,
         questions: [],
@@ -486,10 +494,6 @@ it.effect("leaves pending application requests open and resolves exact occurrenc
       scope,
     );
     const approvals = Context.get(approvalsContext, ApprovalCoordinator);
-    const requestContext = yield* Layer.buildWithScope(
-      serverRequestLayer.pipe(Layer.provide(Layer.succeed(ApprovalCoordinator, approvals))),
-      scope,
-    );
     yield* Layer.buildWithScope(
       applicationRequestDispatcherLive.pipe(
         Layer.provide(
@@ -501,9 +505,8 @@ it.effect("leaves pending application requests open and resolves exact occurrenc
       ),
       scope,
     );
-    const requests = Context.get(requestContext, CodexServerRequestRuntime);
     const invoke = () =>
-      requests.handle("local", 8, 19, "item/tool/requestUserInput", {
+      approvals.handle("local", 8, 19, "item/tool/requestUserInput", {
         isBlocking: true,
         itemId: "item-a",
         questions: [],

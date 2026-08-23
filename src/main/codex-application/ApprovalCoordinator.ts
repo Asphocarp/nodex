@@ -7,10 +7,8 @@ import {
   CodexAppServerRequestError,
   type CodexAppServerError,
 } from "@nodex/effect-codex-app-server/errors";
-import {
-  CodexServerRequestRuntime,
-  type CodexServerRequestRuntime as CodexServerRequestRuntimeTag,
-} from "../codex-runtime/CodexServerRequestRuntime";
+import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
+import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationRequestInbox";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
 export const CodexApplicationRequestPending = Symbol.for(
@@ -107,6 +105,7 @@ export const live: Layer.Layer<
       requestId,
       method,
       params,
+      occurrenceToken,
     ) => {
       if (method === "currentTime/read") {
         return Clock.currentTimeMillis.pipe(
@@ -115,7 +114,7 @@ export const live: Layer.Layer<
       }
       const threadId = serverRequestThreadId(method, params);
       if (threadId === undefined) {
-        return global.handle(hostId, generation, requestId, method, params);
+        return global.handle(hostId, generation, requestId, method, params, occurrenceToken);
       }
       return conversations
         .runtime(threadId)
@@ -148,20 +147,55 @@ export const live: Layer.Layer<
   }),
 );
 
-export const serverRequestLayer: Layer.Layer<
-  CodexServerRequestRuntimeTag,
+/**
+ * Transfers admitted physical occurrences into the application interpreter without ever occupying
+ * the app-server wire reader. The Inbox remains the sole owner of the eventual wire settlement.
+ */
+export const applicationRequestIngressLive: Layer.Layer<
   never,
-  ApprovalCoordinator
-> = Layer.effect(
-  CodexServerRequestRuntime,
-  ApprovalCoordinator.use((coordinator) =>
-    Effect.succeed(
-      CodexServerRequestRuntime.of({
-        handle: coordinator.handle,
-        handleUnknown: coordinator.handleUnknown,
-      }),
-    ),
-  ),
+  never,
+  ApprovalCoordinator | CodexApplicationRequestInbox
+> = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const coordinator = yield* ApprovalCoordinator;
+    const inbox = yield* CodexApplicationRequestInbox;
+    yield* inbox.requests.pipe(
+      Stream.mapEffect(
+        (occurrence) =>
+          coordinator
+            .handle(
+              occurrence.hostId,
+              occurrence.generation,
+              occurrence.requestId,
+              occurrence.method,
+              occurrence.params,
+              occurrence.occurrenceToken,
+            )
+            .pipe(
+              Effect.matchEffect({
+                onFailure: (error) =>
+                  inbox.settle(occurrence, {
+                    kind: "error",
+                    error: CodexAppServerRequestError.fromAppServerError(error, occurrence.method),
+                  }),
+                onSuccess: (response) => {
+                  if (response === CodexApplicationRequestPending) return Effect.void;
+                  return inbox.settle(
+                    occurrence,
+                    response === CodexAppServerNoResponse
+                      ? { kind: "abandon" }
+                      : { kind: "result", value: response },
+                  );
+                },
+              }),
+              Effect.asVoid,
+            ),
+        { concurrency: "unbounded", unordered: true },
+      ),
+      Stream.runDrain,
+      Effect.forkScoped,
+    );
+  }),
 );
 
 /**

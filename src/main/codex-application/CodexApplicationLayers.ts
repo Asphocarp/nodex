@@ -1,10 +1,13 @@
 import * as Layer from "effect/Layer";
-import type { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
+import {
+  CodexApplicationRequestInbox,
+  make as makeApplicationRequestInbox,
+} from "../codex-runtime/CodexApplicationRequestInbox";
 import {
   ApprovalCoordinator,
   CodexGlobalServerRequestRuntime,
+  applicationRequestIngressLive,
   live as approvalLive,
-  serverRequestLayer,
 } from "./ApprovalCoordinator";
 import {
   ConversationRuntimeMap,
@@ -12,16 +15,18 @@ import {
 } from "./ConversationRuntimeMap";
 
 export type CodexRequestHandling =
-  | CodexServerRequestRuntime
+  | CodexApplicationRequestInbox
   | ApprovalCoordinator
   | ConversationRuntimeMap;
 
-/** Built before CodexEndpoint so its scoped server-request runtime can be installed per attempt. */
+/** Built before every CodexEndpoint so request admission never depends on application readiness. */
 const conversationRuntimes = conversationRuntimeMapLive;
 const approvalCoordinator = approvalLive.pipe(Layer.provideMerge(conversationRuntimes));
+const requestInbox = Layer.effect(CodexApplicationRequestInbox, makeApplicationRequestInbox);
+const requestCapabilities = Layer.merge(approvalCoordinator, requestInbox);
 
 export const requestHandlingLive: Layer.Layer<
   CodexRequestHandling,
   never,
   CodexGlobalServerRequestRuntime
-> = serverRequestLayer.pipe(Layer.provideMerge(approvalCoordinator));
+> = applicationRequestIngressLive.pipe(Layer.provideMerge(requestCapabilities));

@@ -1,0 +1,261 @@
+import type { RequestId } from "@nodex/codex-app-server-protocol";
+import type { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import * as SynchronizedRef from "effect/SynchronizedRef";
+
+export interface CodexApplicationRequestOccurrence {
+  readonly hostId: string;
+  readonly generation: number;
+  readonly occurrenceToken: number;
+  readonly requestId: RequestId;
+  readonly method: string;
+  readonly params: unknown;
+}
+
+export type CodexApplicationRequestOutcome =
+  | { readonly kind: "result"; readonly value: unknown }
+  | { readonly kind: "error"; readonly error: CodexAppServerRequestError }
+  | { readonly kind: "abandon" };
+
+export interface CodexApplicationRequestSettlement {
+  readonly occurrence: CodexApplicationRequestOccurrence;
+  readonly outcome: CodexApplicationRequestOutcome;
+}
+
+export class CodexApplicationRequestGenerationUnavailable extends Schema.TaggedError<CodexApplicationRequestGenerationUnavailable>()(
+  "CodexApplicationRequestGenerationUnavailable",
+  {
+    hostId: Schema.String,
+    generation: Schema.Int,
+    reason: Schema.Literals(["closed", "conflict", "invalid"]),
+  },
+) {}
+
+export interface CodexApplicationRequestGeneration {
+  readonly hostId: string;
+  readonly generation: number;
+  readonly admit: (input: {
+    readonly requestId: RequestId;
+    readonly method: string;
+    readonly params: unknown;
+  }) => Effect.Effect<
+    CodexApplicationRequestOccurrence,
+    CodexApplicationRequestGenerationUnavailable
+  >;
+  readonly settlements: Stream.Stream<CodexApplicationRequestSettlement>;
+  readonly rejectOutstanding: (error: CodexAppServerRequestError) => Effect.Effect<number>;
+}
+
+export interface CodexApplicationRequestInboxService {
+  /** Lossless single-consumer ingress for the canonical application protocol interpreter. */
+  readonly requests: Stream.Stream<CodexApplicationRequestOccurrence>;
+  readonly openGeneration: (
+    hostId: string,
+    generation: number,
+  ) => Effect.Effect<
+    CodexApplicationRequestGeneration,
+    CodexApplicationRequestGenerationUnavailable,
+    Scope.Scope
+  >;
+  readonly settle: (
+    occurrence: CodexApplicationRequestOccurrence,
+    outcome: CodexApplicationRequestOutcome,
+  ) => Effect.Effect<boolean>;
+}
+
+export class CodexApplicationRequestInbox extends Context.Service<
+  CodexApplicationRequestInbox,
+  CodexApplicationRequestInboxService
+>()("nodex/main/codex-runtime/CodexApplicationRequestInbox") {}
+
+interface GenerationState {
+  readonly lease: object;
+  readonly pending: ReadonlyMap<number, CodexApplicationRequestOccurrence>;
+  readonly settlements: Queue.Queue<CodexApplicationRequestSettlement>;
+}
+
+interface InboxState {
+  readonly closed: boolean;
+  readonly nextOccurrenceToken: number;
+  readonly generations: ReadonlyMap<string, GenerationState>;
+}
+
+const generationLease = Symbol("CodexApplicationRequestInbox.generationLease");
+type OwnedGeneration = CodexApplicationRequestGeneration & {
+  readonly [generationLease]: object;
+};
+
+const generationKey = (hostId: string, generation: number): string =>
+  `${hostId}\u0000${generation}`;
+
+const unavailable = (
+  hostId: string,
+  generation: number,
+  reason: CodexApplicationRequestGenerationUnavailable["reason"],
+) => new CodexApplicationRequestGenerationUnavailable({ hostId, generation, reason });
+
+/**
+ * Owns physical server-request completion before any Codex endpoint is opened. Each endpoint
+ * generation receives an exact scoped lease and a lossless settlement queue, so application
+ * handlers can return to the wire reader immediately without losing the eventual response.
+ */
+export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Scope.Scope> =
+  Effect.gen(function* () {
+    const requests = yield* Queue.unbounded<CodexApplicationRequestOccurrence>();
+    const state = yield* SynchronizedRef.make<InboxState>({
+      closed: false,
+      nextOccurrenceToken: 1,
+      generations: new Map(),
+    });
+
+    const settle: CodexApplicationRequestInboxService["settle"] = (occurrence, outcome) =>
+      SynchronizedRef.modifyEffect(state, (current) => {
+        const key = generationKey(occurrence.hostId, occurrence.generation);
+        const generation = current.generations.get(key);
+        const pending = generation?.pending.get(occurrence.occurrenceToken);
+        if (!generation || pending !== occurrence) return Effect.succeed([false, current] as const);
+
+        const nextPending = new Map(generation.pending);
+        nextPending.delete(occurrence.occurrenceToken);
+        const nextGenerations = new Map(current.generations);
+        nextGenerations.set(key, { ...generation, pending: nextPending });
+        return Queue.offer(generation.settlements, { occurrence, outcome }).pipe(
+          Effect.as([true, { ...current, generations: nextGenerations }] as const),
+        );
+      });
+
+    const acquireGeneration = Effect.fn("CodexApplicationRequestInbox.acquireGeneration")(
+      function* (hostIdInput: string, generation: number) {
+        const hostId = hostIdInput.trim();
+        if (hostId.length === 0 || !Number.isSafeInteger(generation) || generation <= 0) {
+          return yield* unavailable(hostId, generation, "invalid");
+        }
+        const key = generationKey(hostId, generation);
+        const settlements = yield* Queue.unbounded<CodexApplicationRequestSettlement>();
+        const lease = {};
+        const registered = yield* SynchronizedRef.modifyEffect(state, (current) => {
+          if (current.closed) {
+            return Effect.succeed([unavailable(hostId, generation, "closed"), current] as const);
+          }
+          if (current.generations.has(key)) {
+            return Effect.succeed([unavailable(hostId, generation, "conflict"), current] as const);
+          }
+          const generations = new Map(current.generations);
+          generations.set(key, { lease, pending: new Map(), settlements });
+          return Effect.succeed([null, { ...current, generations }] as const);
+        });
+        if (registered) {
+          yield* Queue.shutdown(settlements);
+          return yield* registered;
+        }
+
+        const admit: CodexApplicationRequestGeneration["admit"] = (input) =>
+          SynchronizedRef.modifyEffect(state, (current) => {
+            const active = current.generations.get(key);
+            if (current.closed || active?.lease !== lease) {
+              return Effect.fail(unavailable(hostId, generation, "closed"));
+            }
+            const occurrence: CodexApplicationRequestOccurrence = {
+              hostId,
+              generation,
+              occurrenceToken: current.nextOccurrenceToken,
+              requestId: input.requestId,
+              method: input.method,
+              params: input.params,
+            };
+            const pending = new Map(active.pending);
+            pending.set(occurrence.occurrenceToken, occurrence);
+            const generations = new Map(current.generations);
+            generations.set(key, { ...active, pending });
+            return Queue.offer(requests, occurrence).pipe(
+              Effect.as([
+                occurrence,
+                {
+                  ...current,
+                  nextOccurrenceToken: current.nextOccurrenceToken + 1,
+                  generations,
+                },
+              ] as const),
+            );
+          });
+
+        const rejectOutstanding = (error: CodexAppServerRequestError) =>
+          SynchronizedRef.modifyEffect(state, (current) => {
+            const active = current.generations.get(key);
+            if (active?.lease !== lease || active.pending.size === 0) {
+              return Effect.succeed([0, current] as const);
+            }
+            const outstanding = [...active.pending.values()];
+            const generations = new Map(current.generations);
+            generations.set(key, { ...active, pending: new Map() });
+            return Effect.forEach(
+              outstanding,
+              (occurrence) =>
+                Queue.offer(active.settlements, {
+                  occurrence,
+                  outcome: { kind: "error", error },
+                }),
+              { discard: true },
+            ).pipe(Effect.as([outstanding.length, { ...current, generations }] as const));
+          });
+
+        return {
+          hostId,
+          generation,
+          admit,
+          settlements: Stream.fromQueue(settlements),
+          rejectOutstanding,
+          [generationLease]: lease,
+        } satisfies OwnedGeneration;
+      },
+    );
+
+    const releaseGeneration = Effect.fn("CodexApplicationRequestInbox.releaseGeneration")((
+      generation: OwnedGeneration,
+    ) => {
+      const key = generationKey(generation.hostId, generation.generation);
+      return SynchronizedRef.modifyEffect(state, (current) => {
+        const active = current.generations.get(key);
+        if (active?.lease !== generation[generationLease]) {
+          return Effect.succeed([undefined, current] as const);
+        }
+        const generations = new Map(current.generations);
+        generations.delete(key);
+        return Queue.shutdown(active.settlements).pipe(
+          Effect.as([undefined, { ...current, generations }] as const),
+        );
+      });
+    });
+
+    const openGeneration: CodexApplicationRequestInboxService["openGeneration"] = (
+      hostId,
+      generation,
+    ) =>
+      Effect.acquireRelease(acquireGeneration(hostId, generation), (opened) =>
+        releaseGeneration(opened),
+      ).pipe(Effect.map((opened) => opened as CodexApplicationRequestGeneration));
+
+    yield* Effect.addFinalizer(() =>
+      SynchronizedRef.modifyEffect(state, (current) =>
+        Effect.forEach(
+          current.generations.values(),
+          (generation) => Queue.shutdown(generation.settlements),
+          { discard: true },
+        ).pipe(
+          Effect.andThen(Queue.shutdown(requests)),
+          Effect.as([undefined, { ...current, closed: true, generations: new Map() }] as const),
+        ),
+      ),
+    );
+
+    return CodexApplicationRequestInbox.of({
+      requests: Stream.fromQueue(requests),
+      openGeneration,
+      settle,
+    });
+  });

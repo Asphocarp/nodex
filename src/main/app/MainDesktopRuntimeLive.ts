@@ -359,9 +359,9 @@ import {
   live as codexEphemeralThreadRoutingLive,
 } from "../codex-runtime/CodexEphemeralThreadRouting";
 import { makeCodexApplicationServerRequests } from "../codex-runtime/CodexApplicationServerRequests";
+import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationRequestInbox";
 import { makeCodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
-import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
 import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIpc";
 import * as ApplicationLocalStateIpc from "../ipc/handlers/ApplicationLocalStateIpc";
@@ -727,7 +727,10 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const conversationRuntimes = Context.get(requestHandlingContext, ConversationRuntimeMap);
-        const serverRequests = Context.get(requestHandlingContext, CodexServerRequestRuntime);
+        const applicationRequestInbox = Context.get(
+          requestHandlingContext,
+          CodexApplicationRequestInbox,
+        );
         const approvalCoordinator = Context.get(requestHandlingContext, ApprovalCoordinator);
         const pendingServerRequests = yield* makeCodexPendingServerRequestRuntime({
           respond: (threadId, _requestId, occurrenceToken, response) =>
@@ -749,7 +752,7 @@ export const live: Layer.Layer<
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const codexDependencies = Layer.mergeAll(
           CodexSessionTransport.nodeLive,
-          Layer.succeed(CodexServerRequestRuntime, serverRequests),
+          Layer.succeed(CodexApplicationRequestInbox, applicationRequestInbox),
           Layer.succeed(CodexThreadHostResolver, threadHostResolver),
         );
         const codexContext = yield* Layer.buildWithScope(

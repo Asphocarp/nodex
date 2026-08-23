@@ -6,6 +6,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Sink from "effect/Sink";
 import * as Stdio from "effect/Stdio";
@@ -14,6 +15,11 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { TestClock } from "effect/testing";
 import { assert, it } from "@effect/vitest";
 import { make as makeCodexClient } from "@nodex/effect-codex-app-server/client";
+import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
+import {
+  CodexApplicationRequestInbox,
+  make as makeApplicationRequestInbox,
+} from "./CodexApplicationRequestInbox";
 import { CodexAppServerSession } from "./CodexAppServerSession";
 import { CodexEndpoint, live as endpointLive, type CodexEndpointConfig } from "./CodexEndpoint";
 import {
@@ -21,15 +27,16 @@ import {
   live as endpointMapLive,
   type CodexExecutionHostConfig,
 } from "./CodexEndpointMap";
-import { live as eventHubLive } from "./CodexEventHub";
+import { CodexEventHub, live as eventHubLive } from "./CodexEventHub";
 import { CodexGateway, CodexThreadHostResolver, live as gatewayLive } from "./CodexGateway";
 import { codexRuntimeError, type CodexRuntimeError } from "./CodexRuntimeError";
-import { unhandled as unhandledServerRequests } from "./CodexServerRequestRuntime";
 import { CodexSessionTransport } from "../platform/node/CodexSessionTransport";
 
 interface FakeAttempt {
   readonly generation: number;
   readonly fail: (error: CodexRuntimeError) => Effect.Effect<boolean>;
+  readonly input: Queue.Queue<Uint8Array>;
+  readonly output: Queue.Queue<string>;
 }
 
 interface FakeEndpoint {
@@ -99,6 +106,8 @@ const fakeEndpoint = (input: {
         attempts.push({
           generation,
           fail: (error) => Deferred.fail(termination, error),
+          input: io.input,
+          output: io.output,
         });
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
@@ -174,7 +183,15 @@ const waitForConnection = (
     return yield* Effect.die(new Error(`Endpoint did not enter ${kind}`));
   });
 
-const endpointDependencies = Layer.mergeAll(eventHubLive, unhandledServerRequests, fakeTransport);
+const applicationRequestInboxLive = Layer.effect(
+  CodexApplicationRequestInbox,
+  makeApplicationRequestInbox,
+);
+const endpointDependencies = Layer.mergeAll(
+  eventHubLive,
+  applicationRequestInboxLive,
+  fakeTransport,
+);
 
 it.effect("retries one owned session at a time and interrupts backoff on scope close", () =>
   Effect.gen(function* () {
@@ -212,6 +229,93 @@ it.effect("retries one owned session at a time and interrupts backoff on scope c
   }),
 );
 
+it.effect(
+  "admits server requests without blocking later notifications and settles on the same session",
+  () =>
+    Effect.gen(function* () {
+      const fake = fakeEndpoint({ hostId: "local", respond: false });
+      const scope = yield* Scope.make();
+      const context = yield* Layer.buildWithScope(
+        endpointLive(fake.config).pipe(Layer.provideMerge(endpointDependencies)),
+        scope,
+      );
+      const endpoint = Context.get(context, CodexEndpoint);
+      const events = Context.get(context, CodexEventHub);
+      const inbox = Context.get(context, CodexApplicationRequestInbox);
+      const notificationFiber = yield* events.events.pipe(
+        Stream.filter(
+          (event) => event.kind === "notification" && event.value.method === "thread/name/updated",
+        ),
+        Stream.runHead,
+        Effect.forkIn(scope, { startImmediately: true }),
+      );
+
+      const session = yield* endpoint.session;
+      assert.strictEqual(session.generation, 1);
+      const attempt = fake.attempts[0];
+      assert.isDefined(attempt);
+      if (attempt === undefined) return yield* Effect.die("Missing endpoint attempt");
+
+      yield* Queue.offer(
+        attempt.input,
+        encoder.encode(
+          '{"id":41,"method":"custom/request","params":{"value":1}}\n{"id":42,"method":"custom/failure","params":{"value":2}}\n{"method":"thread/name/updated","params":{"threadId":"thread-a","threadName":"Thread A"}}\n',
+        ),
+      );
+
+      const observedNotification = yield* Fiber.join(notificationFiber);
+      assert.strictEqual(observedNotification._tag, "Some");
+      assert.strictEqual(yield* Queue.size(attempt.output), 0);
+
+      const occurrences = yield* inbox.requests.pipe(Stream.take(2), Stream.runCollect);
+      const accepted = occurrences[0];
+      const rejected = occurrences[1];
+      if (accepted === undefined || rejected === undefined) {
+        return yield* Effect.die("Missing admitted requests");
+      }
+      assert.strictEqual(accepted.requestId, 41);
+      assert.strictEqual(accepted.method, "custom/request");
+      assert.strictEqual(rejected.requestId, 42);
+      assert.strictEqual(rejected.method, "custom/failure");
+      assert.isTrue(
+        yield* inbox.settle(accepted, {
+          kind: "result",
+          value: { accepted: true },
+        }),
+      );
+
+      const response = yield* Schema.decodeEffect(
+        Schema.fromJsonString(
+          Schema.Struct({
+            id: Schema.Finite,
+            result: Schema.Struct({ accepted: Schema.Boolean }),
+          }),
+        ),
+      )((yield* Queue.take(attempt.output)).trim());
+      assert.deepEqual(response, { id: 41, result: { accepted: true } });
+
+      assert.isTrue(
+        yield* inbox.settle(rejected, {
+          kind: "error",
+          error: CodexAppServerRequestError.invalidRequest("Rejected by application"),
+        }),
+      );
+      const errorResponse = yield* Schema.decodeEffect(
+        Schema.fromJsonString(
+          Schema.Struct({
+            id: Schema.Finite,
+            error: Schema.Struct({ code: Schema.Finite, message: Schema.String }),
+          }),
+        ),
+      )((yield* Queue.take(attempt.output)).trim());
+      assert.deepEqual(errorResponse, {
+        id: 42,
+        error: { code: -32_600, message: "Rejected by application" },
+      });
+      yield* Scope.close(scope, Exit.void);
+    }),
+);
+
 it.effect("routes typed requests explicitly across local and thread execution hosts", () =>
   Effect.gen(function* () {
     const local = fakeEndpoint({ hostId: "local", accountEmail: "local@example.com" });
@@ -222,7 +326,7 @@ it.effect("routes typed requests explicitly across local and thread execution ho
     });
     const hub = eventHubLive;
     const endpointMap = endpointMapLive(local.config).pipe(
-      Layer.provideMerge(Layer.mergeAll(hub, unhandledServerRequests, fakeTransport)),
+      Layer.provideMerge(Layer.mergeAll(hub, applicationRequestInboxLive, fakeTransport)),
     );
     const resolver = Layer.succeed(
       CodexThreadHostResolver,
@@ -270,7 +374,7 @@ it.effect("applies the only ordinary request deadline in the gateway", () =>
     const local = fakeEndpoint({ hostId: "local", respond: false });
     const hub = eventHubLive;
     const endpointMap = endpointMapLive(local.config).pipe(
-      Layer.provideMerge(Layer.mergeAll(hub, unhandledServerRequests, fakeTransport)),
+      Layer.provideMerge(Layer.mergeAll(hub, applicationRequestInboxLive, fakeTransport)),
     );
     const resolver = Layer.succeed(
       CodexThreadHostResolver,

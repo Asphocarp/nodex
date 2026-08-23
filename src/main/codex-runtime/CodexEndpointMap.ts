@@ -6,10 +6,10 @@ import * as LayerMap from "effect/LayerMap";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import type { CodexSessionTransport } from "../platform/node/CodexSessionTransport";
+import type { CodexApplicationRequestInbox } from "./CodexApplicationRequestInbox";
 import { CodexEndpoint, live as endpointLive, type CodexEndpointConfig } from "./CodexEndpoint";
 import type { CodexEventHub } from "./CodexEventHub";
 import { codexRuntimeError, type CodexRuntimeError } from "./CodexRuntimeError";
-import type { CodexServerRequestRuntime } from "./CodexServerRequestRuntime";
 
 export interface CodexExecutionHostConfig extends CodexEndpointConfig {
   readonly kind: "local" | "remote";
@@ -46,7 +46,7 @@ export const live = (
 ): Layer.Layer<
   CodexEndpointMap,
   never,
-  CodexSessionTransport | CodexEventHub | CodexServerRequestRuntime
+  CodexSessionTransport | CodexEventHub | CodexApplicationRequestInbox
 > =>
   Layer.effect(
     CodexEndpointMap,
@@ -61,7 +61,7 @@ export const live = (
       ): Layer.Layer<
         CodexEndpoint,
         CodexRuntimeError,
-        CodexSessionTransport | CodexEventHub | CodexServerRequestRuntime
+        CodexSessionTransport | CodexEventHub | CodexApplicationRequestInbox
       > =>
         Layer.unwrap(
           Ref.get(configs).pipe(
@@ -71,7 +71,7 @@ export const live = (
               ): Layer.Layer<
                 CodexEndpoint,
                 CodexRuntimeError,
-                CodexSessionTransport | CodexEventHub | CodexServerRequestRuntime
+                CodexSessionTransport | CodexEventHub | CodexApplicationRequestInbox
               > => {
                 const config = current.get(hostId);
                 return config === undefined

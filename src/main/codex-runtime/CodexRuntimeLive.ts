@@ -1,12 +1,12 @@
 import type * as Duration from "effect/Duration";
 import * as Layer from "effect/Layer";
 import type { CodexSessionTransport } from "../platform/node/CodexSessionTransport";
+import type { CodexApplicationRequestInbox } from "./CodexApplicationRequestInbox";
 import { live as sessionLive, type CodexAppServerSessionOptions } from "./CodexAppServerSession";
 import type { CodexEndpointConfig } from "./CodexEndpoint";
 import { CodexEndpointMap, live as endpointMapLive } from "./CodexEndpointMap";
 import { CodexEventHub, live as eventHubLive } from "./CodexEventHub";
 import { CodexGateway, CodexThreadHostResolver, live as gatewayLive } from "./CodexGateway";
-import type { CodexServerRequestRuntime } from "./CodexServerRequestRuntime";
 
 export interface CodexRuntimeOptions {
   readonly local: Omit<CodexAppServerSessionOptions, "generation">;
@@ -30,7 +30,7 @@ export const live = (
 ): Layer.Layer<
   CodexGateway | CodexEndpointMap | CodexEventHub,
   never,
-  CodexSessionTransport | CodexServerRequestRuntime | CodexThreadHostResolver
+  CodexSessionTransport | CodexApplicationRequestInbox | CodexThreadHostResolver
 > => {
   const events = eventHubLive;
   const endpoints = endpointMapLive({

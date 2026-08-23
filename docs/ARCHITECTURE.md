@@ -1092,14 +1092,22 @@ after health, worker-deployment, file-transfer, and app-server capabilities are
 ready; renderer and Core never receive SSH credentials or arbitrary commands.
 
 Server-request transport and application presentation have separate, single
-authorities. `ApprovalCoordinator` routes each request occurrence to the
-Thread-scoped `ConversationRuntimeMap`, whose `Deferred` is the only transport
-waiter. `CodexPendingServerRequestRuntime` owns the application inbox for
-approval, user-input, permission, MCP elicitation, private picker, and dynamic
-tool occurrences. Its FIFO lanes preserve duplicate scalar JSON-RPC ids and
-keep numeric and textual ids distinct; claimed entries remain Scope-tracked
-until their exact occurrence token is completed. Disconnect, history pruning,
-Thread cleanup, and Main Scope close all settle the same inbox. Canonical
+authorities. The process-scoped `CodexApplicationRequestInbox` exists before any
+Endpoint and owns every physical request occurrence through settlement. Each
+Endpoint generation holds an exact scoped lease, starts its same-session
+settlement drain before installing request fallbacks, and returns no-response
+immediately after admission so an approval waiting on UI cannot block the wire
+reader or later notifications. Result and error writes use that generation's
+raw session; exact occurrence tokens and generation leases reject duplicate or
+stale settlements. `ApprovalCoordinator` consumes the Inbox and routes each
+occurrence to the Thread-scoped `ConversationRuntimeMap`; its `Deferred` waits
+only for application interpretation and never owns the physical transport.
+`CodexPendingServerRequestRuntime` owns the presentation queue for approval,
+user-input, permission, MCP elicitation, private picker, and dynamic tool
+occurrences. Its FIFO lanes preserve duplicate scalar JSON-RPC ids and keep
+numeric and textual ids distinct; claimed entries remain Scope-tracked until
+their exact occurrence token is completed. Disconnect, history pruning, Thread
+cleanup, and Main Scope close all settle the same physical Inbox. Canonical
 conversation reducers remain the sole owner of transcript/request truth.
 `CodexServerRequestResponses` is the only application command owner for renderer,
 automatic, interrupt-time, and synthetic plan-implementation responses. The shared

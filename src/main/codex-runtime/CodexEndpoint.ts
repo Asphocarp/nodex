@@ -10,11 +10,15 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
+import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
 import type { CodexSessionTransport } from "../platform/node/CodexSessionTransport";
+import {
+  CodexApplicationRequestInbox,
+  type CodexApplicationRequestSettlement,
+} from "./CodexApplicationRequestInbox";
 import { CodexAppServerSession, type CodexAppServerSessionService } from "./CodexAppServerSession";
 import { CodexEventHub, type CodexEndpointConnection } from "./CodexEventHub";
 import { codexRuntimeError, type CodexRuntimeError } from "./CodexRuntimeError";
-import { CodexServerRequestRuntime } from "./CodexServerRequestRuntime";
 
 export interface CodexEndpointConfig {
   readonly hostId: string;
@@ -53,14 +57,14 @@ export const live = (
 ): Layer.Layer<
   CodexEndpoint,
   never,
-  CodexSessionTransport | CodexEventHub | CodexServerRequestRuntime
+  CodexSessionTransport | CodexEventHub | CodexApplicationRequestInbox
 > =>
   Layer.effect(
     CodexEndpoint,
     Effect.gen(function* () {
       const hostId = config.hostId.trim();
       const eventHub = yield* CodexEventHub;
-      const serverRequests = yield* CodexServerRequestRuntime;
+      const requestInbox = yield* CodexApplicationRequestInbox;
       const state = yield* SubscriptionRef.make<CodexEndpointConnection>({
         kind: "connecting",
         hostId,
@@ -93,23 +97,84 @@ export const live = (
               attemptScope,
             );
             const session = Context.get(context, CodexAppServerSession);
+            const requestGeneration = yield* requestInbox
+              .openGeneration(hostId, currentGeneration)
+              .pipe(
+                Effect.provideService(Scope.Scope, attemptScope),
+                Effect.mapError((cause) =>
+                  codexRuntimeError({
+                    operation: "endpoint.request-generation",
+                    reason:
+                      cause.reason === "invalid"
+                        ? "host-unavailable"
+                        : cause.reason === "closed"
+                          ? "closing"
+                          : "session-lost",
+                    retryable: cause.reason === "conflict",
+                    hostId,
+                    generation: currentGeneration,
+                    cause,
+                  }),
+                ),
+              );
+
+            const writeSettlement = Effect.fn("CodexEndpoint.writeApplicationSettlement")(({
+              occurrence,
+              outcome,
+            }: CodexApplicationRequestSettlement) => {
+              const write = (() => {
+                switch (outcome.kind) {
+                  case "result":
+                    return session.client.raw.respond(occurrence.requestId, outcome.value);
+                  case "error":
+                    return session.client.raw.respondError(occurrence.requestId, outcome.error);
+                  case "abandon":
+                    return Effect.void;
+                }
+              })();
+              return write.pipe(
+                Effect.catch((cause) =>
+                  Effect.logWarning("Could not settle Codex application request").pipe(
+                    Effect.annotateLogs({
+                      hostId,
+                      generation: currentGeneration,
+                      method: occurrence.method,
+                      requestId: String(occurrence.requestId),
+                      cause,
+                    }),
+                  ),
+                ),
+              );
+            });
+            yield* requestGeneration.settlements.pipe(
+              Stream.runForEach(writeSettlement),
+              Effect.forkIn(attemptScope, { startImmediately: true }),
+            );
+
+            const admit = (
+              method: string,
+              params: unknown,
+              requestId: string | number,
+            ): Effect.Effect<typeof CodexAppServerNoResponse, CodexAppServerRequestError> =>
+              requestGeneration.admit({ requestId, method, params }).pipe(
+                Effect.as(CodexAppServerNoResponse),
+                Effect.mapError(() =>
+                  CodexAppServerRequestError.internalError(
+                    `Codex endpoint generation ${currentGeneration} is no longer active`,
+                    undefined,
+                    {
+                      method,
+                      requestId: String(requestId),
+                      operation: "handle-request",
+                    },
+                  ),
+                ),
+              );
             yield* session.client
-              .handleServerRequestFallback((method, params, requestId) =>
-                serverRequests.handle(hostId, currentGeneration, requestId, method, params),
-              )
+              .handleServerRequestFallback(admit)
               .pipe(Effect.provideService(Scope.Scope, attemptScope));
             yield* session.client
-              .handleUnknownServerRequest((method, params, requestId) =>
-                serverRequests.handleUnknown === undefined
-                  ? Effect.fail(CodexAppServerRequestError.methodNotFound(method))
-                  : serverRequests.handleUnknown(
-                      hostId,
-                      currentGeneration,
-                      requestId,
-                      method,
-                      params,
-                    ),
-              )
+              .handleUnknownServerRequest(admit)
               .pipe(Effect.provideService(Scope.Scope, attemptScope));
             yield* session.client
               .handleServerNotificationFallback((method, params) =>
@@ -121,17 +186,6 @@ export const live = (
                 }),
               )
               .pipe(Effect.provideService(Scope.Scope, attemptScope));
-            yield* session.client.raw.requests.pipe(
-              Stream.runForEach((value) =>
-                eventHub.publish({
-                  kind: "request",
-                  hostId,
-                  generation: currentGeneration,
-                  value,
-                }),
-              ),
-              Effect.forkIn(attemptScope),
-            );
             return session;
           }),
         );
