@@ -10,6 +10,7 @@ import {
 import { make } from "./CodexRendererOwnerCommands";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
+import { CodexThreadRollbackCommands } from "./CodexThreadRollbackCommands";
 import { CodexTurnCommands, type CodexTurnStartOverrides } from "./CodexTurnCommands";
 
 const threadId = "thread-owner-command";
@@ -84,7 +85,6 @@ const makeHarness = () => {
     cleanBackgroundTerminalsSilently: () => Effect.die("unused"),
   });
   const commands = make({
-    rollbackForEdit: () => Effect.die("unused"),
     forkFromTurn: (input) =>
       Effect.sync(() => {
         events.forks.push(input);
@@ -128,6 +128,12 @@ const makeHarness = () => {
         remoteUpdateSupport: () => "unknown",
         recordRemoteUpdateSupported: () => undefined,
         recordRemoteUpdateUnsupported: () => undefined,
+      }),
+    ),
+    Effect.provideService(
+      CodexThreadRollbackCommands,
+      CodexThreadRollbackCommands.of({
+        rollbackLatestForEdit: () => Effect.die("unused"),
       }),
     ),
     Effect.provideService(CodexTurnCommands, turnCommands),

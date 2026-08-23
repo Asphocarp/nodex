@@ -18,14 +18,10 @@ import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
 import { CodexRendererConversationRuntime } from "./CodexRendererConversationRuntime";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
+import { CodexThreadRollbackCommands } from "./CodexThreadRollbackCommands";
 import { CodexTurnCommands } from "./CodexTurnCommands";
 
 export interface CodexRendererOwnerCommandProjection {
-  readonly rollbackForEdit: (input: {
-    readonly threadId: string;
-    readonly turnId: string;
-    readonly numTurns: number;
-  }) => Effect.Effect<unknown, CodexRendererOwnerCommandProjectionError>;
   readonly forkFromTurn: (input: {
     readonly threadId: string;
     readonly turnId: string;
@@ -37,7 +33,7 @@ export interface CodexRendererOwnerCommandProjection {
 export class CodexRendererOwnerCommandProjectionError extends Schema.TaggedError<CodexRendererOwnerCommandProjectionError>()(
   "CodexRendererOwnerCommandProjectionError",
   {
-    operation: Schema.Literals(["rollback", "fork"]),
+    operation: Schema.Literal("fork"),
     threadId: Schema.String,
     cause: Schema.Defect(),
   },
@@ -211,6 +207,7 @@ export const make = (
   | CodexManualCompactionRuntime
   | CodexThreadGoalRuntime
   | CodexThreadSettingsRuntime
+  | CodexThreadRollbackCommands
   | CodexTurnCommands
   | ConversationCommands
 > =>
@@ -220,6 +217,7 @@ export const make = (
     const manualCompaction = yield* CodexManualCompactionRuntime;
     const threadGoals = yield* CodexThreadGoalRuntime;
     const threadSettings = yield* CodexThreadSettingsRuntime;
+    const threadRollback = yield* CodexThreadRollbackCommands;
     const turnCommands = yield* CodexTurnCommands;
     const conversations = yield* ConversationCommands;
 
@@ -238,7 +236,7 @@ export const make = (
           const request = input.request;
           switch (request.method) {
             case "thread/rollback":
-              return projection.rollbackForEdit({
+              return threadRollback.rollbackLatestForEdit({
                 threadId,
                 turnId: request.params.turnId,
                 numTurns: request.params.numTurns,

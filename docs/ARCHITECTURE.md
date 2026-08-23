@@ -812,6 +812,13 @@ The owner-only IPC channel is registered by the concentrated Codex application i
 `CodexRendererIpc` owns only renderer coordination channels, and `CodexService` has no generic
 app-server request router or fallback transport switch.
 
+Editing the latest completed user Turn is a `CodexThreadRollbackCommands` transaction. It holds the
+shared Thread-generation lane while waiting for the renderer owner's current text-delta ack,
+validates the exact latest editable Turn, sends typed `thread/rollback`, rejects a response for a
+different Thread, and only then replaces the canonical/materialized conversation projection. A
+transport failure or interruption cannot publish a partial rollback. `CodexService` supplies only
+the prepare and accepted-response projection stages and sends no owner-edit rollback request.
+
 Side-chat creation and discard are complete `CodexSideChatCommands` transactions. Creation holds
 the parent Thread-generation lane while it prepares inherited workspace policy, forks an ephemeral
 excluded-history Thread on the parent's exact execution host, injects the side-conversation

@@ -163,6 +163,7 @@ import type {
   CodexPreparedThreadSettingsUpdate,
   CodexThreadSettingsUpdateCommand,
 } from "../codex-application/CodexThreadSettingsRuntime";
+import type { CodexPreparedThreadRollback } from "../codex-application/CodexThreadRollbackCommands";
 import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
@@ -1903,6 +1904,12 @@ interface CodexFreshThreadFirstTurnTransactionState {
   readonly launch: CodexFreshThreadLaunch;
   authorityLaunch: NodexAgentTurnAuthorityLaunch | null;
   protocolAccepted: boolean;
+}
+
+interface CodexThreadRollbackTransactionState {
+  readonly threadId: string;
+  readonly fallbackRef: ThreadRef | null;
+  readonly fallbackCwd: string | null;
 }
 
 /** Electron retains this app-private sidecar in the raw turn/start JSON payload. */
@@ -14965,13 +14972,11 @@ export class CodexService {
     return { detail, summary };
   }
 
-  async rollbackRendererOwnedThreadForEditForModule(input: {
+  prepareRendererOwnedThreadRollbackForModule(input: {
     readonly threadId: string;
     readonly turnId: string;
     readonly numTurns: number;
-  }): Promise<ThreadRollbackResponse> {
-    await this.ensureClientReady();
-    await this.waitForRendererOwnerNotificationDrain(input.threadId);
+  }): CodexPreparedThreadRollback {
     if (input.numTurns !== 1) {
       throw new Error("Owner thread/rollback currently supports numTurns: 1");
     }
@@ -14983,20 +14988,33 @@ export class CodexService {
     if (!latestEditableTurn || latestEditableTurn.turnId !== input.turnId) {
       throw new Error("Only the latest completed user turn can be edited");
     }
-    const rollbackResult = await this.client.request<"thread/rollback", ThreadRollbackResponse>(
-      "thread/rollback",
-      { threadId: input.threadId, numTurns: input.numTurns },
-    );
-    const threadRef = this.parseThreadRef(input.threadId);
-    const { detail, summary } = await this.materializeThreadDetailFromThreadPayload(
-      rollbackResult.thread,
-      threadRef,
-      currentDetail.cwd,
-    );
-    this.setConversationRecordDetail(detail);
-    if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
-    this.syncAcceptedConversationDocumentSilently(input.threadId);
-    return rollbackResult;
+    return {
+      threadId: input.threadId,
+      request: { threadId: input.threadId, numTurns: input.numTurns },
+      state: {
+        threadId: input.threadId,
+        fallbackRef: this.parseThreadRef(input.threadId),
+        fallbackCwd: currentDetail.cwd,
+      } satisfies CodexThreadRollbackTransactionState,
+    };
+  }
+
+  async commitRendererOwnedThreadRollbackForModule(
+    prepared: CodexPreparedThreadRollback,
+    response: ThreadRollbackResponse,
+  ): Promise<ThreadRollbackResponse> {
+    const transaction = prepared.state as CodexThreadRollbackTransactionState;
+    if (transaction.threadId !== prepared.threadId) {
+      throw new Error("Renderer-owned Thread rollback identity changed");
+    }
+    await this.applyForkRollbackResponse({
+      threadId: prepared.threadId,
+      response,
+      fallbackRef: transaction.fallbackRef,
+      fallbackCwd: transaction.fallbackCwd,
+    });
+    this.syncAcceptedConversationDocumentSilently(prepared.threadId);
+    return response;
   }
 
   async forkRendererOwnedThreadFromTurnForModule(input: {

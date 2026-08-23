@@ -123,7 +123,10 @@ import {
   make as makeCodexNotificationRouting,
 } from "../codex-application/CodexNotificationRouting";
 import { live as codexApplicationIngressRuntimeLive } from "../codex-application/CodexApplicationIngressRuntime";
-import { make as makeCodexOwnerNotificationDrainRuntime } from "../codex-application/CodexOwnerNotificationDrainRuntime";
+import {
+  CodexOwnerNotificationDrainRuntime,
+  make as makeCodexOwnerNotificationDrainRuntime,
+} from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import { makeCodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntimePromiseAdapter";
 import {
   CodexRendererConversationRuntime,
@@ -238,6 +241,11 @@ import {
   CodexThreadSettingsOperationError,
   make as makeCodexThreadSettingsRuntime,
 } from "../codex-application/CodexThreadSettingsRuntime";
+import {
+  CodexThreadRollbackCommands,
+  CodexThreadRollbackProjectionError,
+  make as makeCodexThreadRollbackCommands,
+} from "../codex-application/CodexThreadRollbackCommands";
 import { makeCodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
   CodexThreadTitlePersistenceEffectError,
@@ -2407,17 +2415,37 @@ export const live: Layer.Layer<
           Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const rendererOwnerCommands = yield* makeCodexRendererOwnerCommands({
-          rollbackForEdit: (input) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().rollbackRendererOwnedThreadForEditForModule(input),
+        const threadRollbackCommands = yield* makeCodexThreadRollbackCommands({
+          prepareLatestForEdit: (input) =>
+            Effect.try({
+              try: () => requireCodexService().prepareRendererOwnedThreadRollbackForModule(input),
               catch: (cause) =>
-                new CodexRendererOwnerCommandProjectionError({
-                  operation: "rollback",
+                new CodexThreadRollbackProjectionError({
+                  operation: "prepare",
                   threadId: input.threadId,
                   cause,
                 }),
             }),
+          commit: (prepared, response) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().commitRendererOwnedThreadRollbackForModule(
+                  prepared,
+                  response,
+                ),
+              catch: (cause) =>
+                new CodexThreadRollbackProjectionError({
+                  operation: "commit",
+                  threadId: prepared.threadId,
+                  cause,
+                }),
+            }),
+        }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+        );
+        const rendererOwnerCommands = yield* makeCodexRendererOwnerCommands({
           forkFromTurn: (input) =>
             Effect.tryPromise({
               try: () => requireCodexService().forkRendererOwnedThreadFromTurnForModule(input),
@@ -2434,6 +2462,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexManualCompactionRuntime, manualCompaction),
           Effect.provideService(CodexThreadGoalRuntime, threadGoals),
           Effect.provideService(CodexThreadSettingsRuntime, threadSettingsRuntime),
+          Effect.provideService(CodexThreadRollbackCommands, threadRollbackCommands),
           Effect.provideService(CodexTurnCommands, turnCommands),
           Effect.provideService(ConversationCommands, conversationCommands),
         );
