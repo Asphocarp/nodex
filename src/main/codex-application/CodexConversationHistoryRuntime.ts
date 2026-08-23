@@ -6,6 +6,7 @@ import * as FiberMap from "effect/FiberMap";
 import * as FiberSet from "effect/FiberSet";
 import * as Option from "effect/Option";
 import type * as Scope from "effect/Scope";
+import type { CodexConversationSnapshot } from "../../shared/types";
 
 export interface CodexConversationHistoryLoadInput {
   readonly threadId: string;
@@ -24,16 +25,21 @@ export interface CodexConversationHistoryRuntimeOptions {
   readonly load: (
     input: CodexConversationHistoryLoadInput,
   ) => Effect.Effect<void, CodexConversationHistoryError>;
+  readonly snapshot: (
+    threadId: string,
+  ) => Effect.Effect<CodexConversationSnapshot | null, CodexConversationHistoryError>;
 }
 
 export class CodexConversationHistoryRuntime extends Context.Service<
   CodexConversationHistoryRuntime,
   {
-    readonly loadPage: (threadId: string) => Effect.Effect<void, CodexConversationHistoryError>;
+    readonly loadPage: (
+      threadId: string,
+    ) => Effect.Effect<CodexConversationSnapshot | null, CodexConversationHistoryError>;
     readonly loadComplete: (
       threadId: string,
       broadcastResult: boolean,
-    ) => Effect.Effect<void, CodexConversationHistoryError>;
+    ) => Effect.Effect<CodexConversationSnapshot | null, CodexConversationHistoryError>;
     readonly requestRemaining: (threadId: string) => void;
     readonly clear: (threadId: string) => void;
   }
@@ -108,9 +114,14 @@ export const make = (
     );
 
     return CodexConversationHistoryRuntime.of({
-      loadPage: (threadId) => load({ threadId, loadCompleteHistory: false, broadcastResult: true }),
+      loadPage: (threadId) =>
+        load({ threadId, loadCompleteHistory: false, broadcastResult: true }).pipe(
+          Effect.andThen(options.snapshot(threadId)),
+        ),
       loadComplete: (threadId, broadcastResult) =>
-        load({ threadId, loadCompleteHistory: true, broadcastResult }),
+        load({ threadId, loadCompleteHistory: true, broadcastResult }).pipe(
+          Effect.andThen(options.snapshot(threadId)),
+        ),
       requestRemaining,
       clear,
     });

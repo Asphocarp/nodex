@@ -14415,7 +14415,7 @@ export class CodexService {
       throw new Error(`Thread '${sourceThreadId}' could not be loaded for turn-scoped fork`);
     }
     if (parsed.turnId) {
-      await this.loadCompleteThreadHistory(sourceThreadId);
+      await this.conversationHistory.loadComplete(sourceThreadId, false);
       sourceDetail = this.serializeThreadDetail(sourceThreadId) ?? sourceDetail;
     }
     const sourceTurn =
@@ -15594,16 +15594,6 @@ export class CodexService {
     });
   }
 
-  async loadOlderThreadTurns(threadId: string): Promise<CodexConversationSnapshot | null> {
-    await this.conversationHistory.loadPage(threadId);
-    return this.serializeConversationSnapshot(threadId);
-  }
-
-  async loadCompleteThreadHistory(threadId: string): Promise<CodexConversationSnapshot | null> {
-    await this.conversationHistory.loadComplete(threadId, false);
-    return this.serializeConversationSnapshot(threadId);
-  }
-
   /** Effect Module adapter operation; callers use conversationHistory instead. */
   async loadConversationHistory(input: {
     readonly threadId: string;
@@ -16438,7 +16428,7 @@ export class CodexService {
   ): Promise<CodexThreadActionResult> {
     await this.ensureClientReady();
 
-    await this.loadCompleteThreadHistory(threadId);
+    await this.conversationHistory.loadComplete(threadId, false);
     const currentDetail =
       this.serializeThreadDetail(threadId) ?? (await this.readThread(threadId, true));
     if (!currentDetail) {
@@ -19817,7 +19807,7 @@ export class CodexService {
     let source = await this.resolveDynamicThreadDetail(entry.sourceConversationId);
     let trailingTurnCount = 0;
     if (entry.targetTurnId) {
-      await this.loadCompleteThreadHistory(entry.sourceConversationId);
+      await this.conversationHistory.loadComplete(entry.sourceConversationId, false);
       source = this.serializeThreadDetail(entry.sourceConversationId) ?? source;
       const sourceTurnIndex = source.turns.findIndex((turn) => turn.turnId === entry.targetTurnId);
       if (sourceTurnIndex < 0) {

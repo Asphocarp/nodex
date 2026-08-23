@@ -639,8 +639,11 @@ callers join the same physical load; a complete-history demand arriving behind a
 the required escalation after that page settles. Caller interruption only stops that waiter, while
 Thread removal and Main Scope close interrupt the shared physical load. Post-resume remaining-history
 work enters the same runtime as a supervised background request instead of a detached Promise.
-`CodexService` owns the canonical pagination reducer and page materialization operation, but owns no
-load Promise map, escalation tail, background error handler, or lifecycle cleanup.
+Awaited page/complete commands return the canonical snapshot observed after their required physical
+load, so renderer ingress invokes the typed runtime directly instead of re-entering a facade for the
+result projection. `CodexService` owns the canonical pagination reducer, page materialization, and
+snapshot projection ports, but owns no public history-load command, load Promise map, escalation
+tail, background error handler, or lifecycle cleanup.
 
 Missing background-subagent metadata repair is owned by one Main-scoped keyed runtime. The canonical
 conversation projection decides whether a child still lacks a valid parent/friendly identity and

@@ -236,7 +236,6 @@ interface TestableCodexService {
     sourceClientId: string,
     input: { conversationId: string; sequence: number },
   ) => boolean;
-  loadOlderThreadTurns: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
   listPendingWorktrees: () => readonly import("../../shared/codex-pending-worktree").CodexPendingWorktreeEntry[];
@@ -1891,6 +1890,7 @@ function createService(options?: {
       if (!service) throw new Error("Codex test service is not constructed");
       await service.loadConversationHistory(input);
     },
+    snapshot: (threadId) => service?.serializeConversationSnapshot(threadId) ?? null,
   });
   const backgroundSubagentMetadataRepair = new TestCodexBackgroundSubagentMetadataRepair({
     isRepairNeeded: (parentThreadId, childThreadId) =>

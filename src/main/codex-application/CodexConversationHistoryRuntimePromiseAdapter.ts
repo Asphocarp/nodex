@@ -3,10 +3,14 @@ import {
   CodexConversationHistoryError,
   type CodexConversationHistoryRuntime,
 } from "./CodexConversationHistoryRuntime";
+import type { CodexConversationSnapshot } from "../../shared/types";
 
 export interface CodexConversationHistoryRuntimePromiseAdapter {
-  readonly loadPage: (threadId: string) => Promise<void>;
-  readonly loadComplete: (threadId: string, broadcastResult: boolean) => Promise<void>;
+  readonly loadPage: (threadId: string) => Promise<CodexConversationSnapshot | null>;
+  readonly loadComplete: (
+    threadId: string,
+    broadcastResult: boolean,
+  ) => Promise<CodexConversationSnapshot | null>;
   readonly requestRemaining: (threadId: string) => void;
   readonly clear: (threadId: string) => void;
 }

@@ -21,6 +21,7 @@ import type { ConversationCommands } from "./codex-application/ConversationComma
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
+import type { CodexConversationHistoryRuntime } from "./codex-application/CodexConversationHistoryRuntime";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -112,6 +113,7 @@ interface CodexIpcOptions {
   sidebarSync: CodexSidebarSyncRuntime["Service"];
   threadReadState: CodexThreadReadState["Service"];
   agentImport: AgentImportRuntime["Service"];
+  conversationHistory: CodexConversationHistoryRuntime["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -584,11 +586,24 @@ export const codexIpcLive = (
         return true;
       });
 
-      registerHandle("codex:thread:turns:load-older", (_, threadId: string) =>
-        codexService.loadOlderThreadTurns(threadId),
+      registerEffectHandle("codex:thread:turns:load-older", (_, threadId) =>
+        options.conversationHistory
+          .loadPage(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:turns:load-older", cause }),
+            ),
+          ),
       );
-      registerHandle("codex:thread:turns:load-complete", (_, threadId: string) =>
-        codexService.loadCompleteThreadHistory(threadId),
+      registerEffectHandle("codex:thread:turns:load-complete", (_, threadId) =>
+        options.conversationHistory
+          .loadComplete(threadId, false)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new CodexIpcError({ operation: "codex:thread:turns:load-complete", cause }),
+            ),
+          ),
       );
 
       registerEffectHandle("codex:thread:name:set", (_, threadId: string, name: string) =>

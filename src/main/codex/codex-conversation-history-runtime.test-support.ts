@@ -1,9 +1,11 @@
 import type { CodexConversationHistoryLoadInput } from "../codex-application/CodexConversationHistoryRuntime";
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
+import type { CodexConversationSnapshot } from "../../shared/types";
 
 export interface TestCodexConversationHistoryRuntimeOptions {
   readonly shouldLoadRemaining: (threadId: string) => boolean;
   readonly load: (input: CodexConversationHistoryLoadInput) => Promise<void>;
+  readonly snapshot: (threadId: string) => CodexConversationSnapshot | null;
 }
 
 /** Mutable vertical harness used only by the legacy CodexService test suite. */
@@ -15,12 +17,17 @@ export class TestCodexConversationHistoryRuntime implements CodexConversationHis
 
   constructor(private readonly options: TestCodexConversationHistoryRuntimeOptions) {}
 
-  loadPage(threadId: string): Promise<void> {
-    return this.load({ threadId, loadCompleteHistory: false, broadcastResult: true });
+  async loadPage(threadId: string): Promise<CodexConversationSnapshot | null> {
+    await this.load({ threadId, loadCompleteHistory: false, broadcastResult: true });
+    return this.options.snapshot(threadId);
   }
 
-  loadComplete(threadId: string, broadcastResult: boolean): Promise<void> {
-    return this.load({ threadId, loadCompleteHistory: true, broadcastResult });
+  async loadComplete(
+    threadId: string,
+    broadcastResult: boolean,
+  ): Promise<CodexConversationSnapshot | null> {
+    await this.load({ threadId, loadCompleteHistory: true, broadcastResult });
+    return this.options.snapshot(threadId);
   }
 
   requestRemaining(threadId: string): void {

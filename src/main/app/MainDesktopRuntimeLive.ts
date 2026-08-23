@@ -1631,6 +1631,11 @@ export const live: Layer.Layer<
               try: () => requireCodexService().loadConversationHistory(input),
               catch: (cause) => new CodexConversationHistoryError({ cause }),
             }),
+          snapshot: (threadId) =>
+            Effect.try({
+              try: () => requireCodexService().serializeConversationSnapshot(threadId),
+              catch: (cause) => new CodexConversationHistoryError({ cause }),
+            }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const conversationResume = yield* makeCodexConversationResumeRuntime({
           run: (input) =>
@@ -2696,6 +2701,7 @@ export const live: Layer.Layer<
             sidebarSync,
             threadReadState,
             agentImport,
+            conversationHistory,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

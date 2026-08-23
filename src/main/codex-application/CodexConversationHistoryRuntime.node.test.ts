@@ -15,6 +15,7 @@ const options = (
 ): CodexConversationHistoryRuntimeOptions => ({
   shouldLoadRemaining: () => true,
   load: () => Effect.void,
+  snapshot: () => Effect.succeed(null),
   ...overrides,
 });
 
@@ -23,6 +24,7 @@ it.effect("shares one physical history load for concurrent callers", () =>
     const started = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
     let loads = 0;
+    let snapshots = 0;
     const runtime = yield* make(
       options({
         load: () =>
@@ -32,6 +34,11 @@ it.effect("shares one physical history load for concurrent callers", () =>
             Effect.andThen(Deferred.succeed(started, undefined)),
             Effect.andThen(Deferred.await(release)),
           ),
+        snapshot: () =>
+          Effect.sync(() => {
+            snapshots += 1;
+            return null;
+          }),
       }),
     );
     const first = yield* Effect.forkChild(runtime.loadPage("thread-1"));
@@ -40,8 +47,9 @@ it.effect("shares one physical history load for concurrent callers", () =>
     yield* Effect.yieldNow;
     assert.strictEqual(loads, 1);
     yield* Deferred.succeed(release, undefined);
-    yield* Fiber.join(first);
-    yield* Fiber.join(second);
+    const results = yield* Effect.all([Fiber.join(first), Fiber.join(second)]);
+    assert.deepEqual(results, [null, null]);
+    assert.strictEqual(snapshots, 2);
   }),
 );
 
