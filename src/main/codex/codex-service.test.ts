@@ -328,10 +328,6 @@ interface TestableCodexService {
   }) => void;
   setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
   getRendererConversationOwner: (threadId: string) => string | null;
-  handleRendererOwnerAppServerRequest: (
-    sourceClientId: string | null,
-    input: import("../../shared/types").CodexOwnerAppServerRequestInput,
-  ) => Promise<unknown>;
   handleRendererClientDisposed: (clientId: string) => void;
   publishRendererThreadStreamStateChange: (
     sourceClientId: string,
@@ -6411,64 +6407,6 @@ describe("codex-service renderer owner stream publishing", () => {
     }
   });
 
-  test("renderer owner Resume sends an inherited turn/start with an empty input array", async () => {
-    const service = createService();
-    const threadId = "thread-owner-resume-interrupted";
-    const ownerClientId = "renderer-owner-resume-interrupted";
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (id: string) => null;
-      markThreadAsActive: (id: string) => void;
-      persistThreadSnapshot: (id: string) => void;
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = () => undefined;
-    serviceInternals.persistThreadSnapshot = () => undefined;
-    serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
-    service.setRendererConversationOwner(threadId, ownerClientId);
-    client.start = async () => undefined;
-    client.request = async (method, params) => {
-      requests.push({ method, params });
-      if (method !== "turn/start") return {};
-      return {
-        turn: {
-          id: "turn-resumed",
-          status: "in_progress",
-          transcript: [],
-        },
-      };
-    };
-
-    try {
-      await service.handleRendererOwnerAppServerRequest(ownerClientId, {
-        conversationId: threadId,
-        request: {
-          method: "turn/resume-interrupted",
-          params: {
-            threadId,
-            clientUserMessageId: "client-resume-interrupted",
-            opts: { permissionMode: "auto" },
-          },
-        },
-      });
-
-      const turnStart = requests.find((request) => request.method === "turn/start");
-      expect(turnStart?.params).toMatchObject({
-        threadId,
-        clientUserMessageId: "client-resume-interrupted",
-        input: [],
-        summary: "detailed",
-      });
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test("a fresh owner consumes its exact first-turn launch only once", async () => {
     const service = createService();
     const threadId = "thread-fresh-owner-first-turn";
@@ -6524,11 +6462,6 @@ describe("codex-service renderer owner stream publishing", () => {
       };
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       syncDormantConversationFromRecord: (id: string, reason: "owner-unavailable") => void;
-      startRendererOwnedSessionFirstTurn: (
-        clientId: string,
-        id: string,
-        launch: string,
-      ) => Promise<{ turn: { id: string } }>;
       markAutomationRunAcceptedForUserContinuation: (id: string) => Promise<void>;
       markThreadAsActive: (id: string) => Promise<void>;
       applyStartedSessionThreadGoal: (input: unknown) => Promise<void>;
@@ -6561,11 +6494,11 @@ describe("codex-service renderer owner stream publishing", () => {
 
     try {
       await service.freshThreadLaunch.adopt({ threadId, launchId, ownerClientId });
-      const response = await serviceInternals.startRendererOwnedSessionFirstTurn(
+      const response = await service.freshThreadLaunch.start({
         ownerClientId,
         threadId,
         launchId,
-      );
+      });
       expect(response.turn.id).toBe("turn-fresh-owner-first-turn");
       expect(requests).toEqual([
         {
@@ -6575,7 +6508,7 @@ describe("codex-service renderer owner stream publishing", () => {
       ]);
       expect(serviceInternals.getFreshThreadLaunchReservation(threadId)).toBeNull();
       await expect(
-        serviceInternals.startRendererOwnedSessionFirstTurn(ownerClientId, threadId, launchId),
+        service.freshThreadLaunch.start({ ownerClientId, threadId, launchId }),
       ).rejects.toThrow(`Fresh thread launch '${launchId}' is unavailable`);
       expect(requests).toHaveLength(1);
     } finally {

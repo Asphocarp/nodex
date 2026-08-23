@@ -49,6 +49,7 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
           setMemoryMode: () => Effect.die("unused"),
           startReview: () => Effect.die("unused"),
           uploadFeedback: () => Effect.die("unused"),
+          listBackgroundTerminalsPage: () => Effect.die("unused"),
           listBackgroundTerminals: () => Effect.die("unused"),
           terminateBackgroundTerminal: () => Effect.die("unused"),
           interrupt: () => Effect.die("unused"),

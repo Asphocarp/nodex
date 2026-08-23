@@ -199,15 +199,6 @@ export const live = (
           ),
         ),
       );
-      yield* handle("codex:thread-owner:app-server-request", (event, input) =>
-        authorize(event).pipe(
-          Effect.flatMap((clientId) =>
-            invoke("handle-owner-server-request", () =>
-              options.codex.handleRendererOwnerAppServerRequest(clientId, input),
-            ),
-          ),
-        ),
-      );
       yield* handle("codex:thread-follower:action", (event, input) =>
         authorize(event).pipe(
           Effect.flatMap((clientId) =>

@@ -801,8 +801,16 @@ without consulting the derived transcript. An inactive-target response first com
 rollback, then invokes the private in-transaction start path without reacquiring the non-reentrant
 Thread lane. Renderer-owned steering uses the same Gateway and lane but performs no Main projection
 or inactive fallback because the renderer owns those state transitions. Standard renderer IPC
-invokes the Effect command directly; the still-generic renderer-owner request router temporarily
-borrows its stateless adapter and owns no parallel protocol request or recovery policy.
+invokes the Effect command directly.
+
+Renderer-owner commands are admitted by `CodexRendererOwnerCommands`, which validates the exact
+renderer owner and Thread identity before any effect can run. The coordinator decodes the closed
+owner-command union and composes the same Turn, Conversation, settings, goal, compaction, and fresh
+launch Modules used by every other ingress. Background-terminal paging remains a typed
+`ConversationCommands` capability instead of bypassing the Module through a raw protocol request.
+The owner-only IPC channel is registered by the concentrated Codex application ingress;
+`CodexRendererIpc` owns only renderer coordination channels, and `CodexService` has no generic
+app-server request router or fallback transport switch.
 
 Side-chat creation and discard are complete `CodexSideChatCommands` transactions. Creation holds
 the parent Thread-generation lane while it prepares inherited workspace policy, forks an ephemeral

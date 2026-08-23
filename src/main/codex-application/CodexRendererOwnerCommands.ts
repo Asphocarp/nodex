@@ -1,0 +1,356 @@
+import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
+import type { ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetParams";
+import type { TurnSteerParams } from "@nodex/codex-app-server-protocol/v2/TurnSteerParams";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import { createEmptyCodexPreparedPrompt } from "../../shared/codex-prompt-preparation";
+import { CodexThreadGoalStatusSchema } from "../../shared/schemas/codex";
+import type {
+  CodexLiveFileAttachment,
+  CodexOwnerAppServerRequestInput,
+  CodexPreparedPrompt,
+  CodexThreadActionResult,
+} from "../../shared/types";
+import { ConversationCommands } from "./ConversationCommands";
+import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
+import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
+import { CodexRendererConversationRuntime } from "./CodexRendererConversationRuntime";
+import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
+import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
+import { CodexTurnCommands } from "./CodexTurnCommands";
+
+export interface CodexRendererOwnerCommandProjection {
+  readonly rollbackForEdit: (input: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly numTurns: number;
+  }) => Effect.Effect<unknown, CodexRendererOwnerCommandProjectionError>;
+  readonly forkFromTurn: (input: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly message: string;
+    readonly ownerClientId: string;
+  }) => Effect.Effect<CodexThreadActionResult, CodexRendererOwnerCommandProjectionError>;
+}
+
+export class CodexRendererOwnerCommandProjectionError extends Schema.TaggedError<CodexRendererOwnerCommandProjectionError>()(
+  "CodexRendererOwnerCommandProjectionError",
+  {
+    operation: Schema.Literals(["rollback", "fork"]),
+    threadId: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class CodexRendererOwnerCommandError extends Schema.TaggedError<CodexRendererOwnerCommandError>()(
+  "CodexRendererOwnerCommandError",
+  {
+    method: Schema.String,
+    threadId: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class CodexRendererOwnerCommands extends Context.Service<
+  CodexRendererOwnerCommands,
+  {
+    readonly execute: (
+      ownerClientId: string,
+      input: CodexOwnerAppServerRequestInput,
+    ) => Effect.Effect<unknown, CodexRendererOwnerCommandError>;
+  }
+>()("nodex/main/codex-application/CodexRendererOwnerCommands") {}
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+
+const isOwnerTurnUserInput = (value: unknown): value is TurnSteerParams["input"][number] => {
+  const input = asRecord(value);
+  if (!input || typeof input.type !== "string") return false;
+
+  switch (input.type) {
+    case "text":
+      return typeof input.text === "string" && Array.isArray(input.text_elements);
+    case "image":
+      return typeof input.url === "string";
+    case "localImage":
+      return typeof input.path === "string";
+    case "skill":
+    case "mention":
+      return typeof input.name === "string" && typeof input.path === "string";
+    default:
+      return false;
+  }
+};
+
+const readSteerParams = (threadId: string, value: unknown): TurnSteerParams => {
+  const params = asRecord(value);
+  if (!params || params.threadId !== threadId) {
+    throw new Error(`Owner turn/steer request must target ${threadId}`);
+  }
+  if (typeof params.expectedTurnId !== "string" || !params.expectedTurnId.trim()) {
+    throw new Error("Owner turn/steer request requires expectedTurnId");
+  }
+  if (
+    params.clientUserMessageId !== undefined &&
+    params.clientUserMessageId !== null &&
+    typeof params.clientUserMessageId !== "string"
+  ) {
+    throw new Error("Owner turn/steer request has an invalid clientUserMessageId");
+  }
+  if (
+    !Array.isArray(params.input) ||
+    params.input.length === 0 ||
+    !params.input.every(isOwnerTurnUserInput)
+  ) {
+    throw new Error("Owner turn/steer request requires valid input");
+  }
+  if (
+    params.additionalContext !== undefined &&
+    params.additionalContext !== null &&
+    !asRecord(params.additionalContext)
+  ) {
+    throw new Error("Owner turn/steer request has invalid additionalContext");
+  }
+  return value as TurnSteerParams;
+};
+
+const isLiveFileAttachment = (value: unknown): value is CodexLiveFileAttachment => {
+  const attachment = asRecord(value);
+  return Boolean(
+    attachment &&
+    typeof attachment.label === "string" &&
+    typeof attachment.path === "string" &&
+    typeof attachment.fsPath === "string",
+  );
+};
+
+const readPreparedPrompt = (value: unknown): CodexPreparedPrompt => {
+  const prepared = asRecord(value);
+  if (!prepared || typeof prepared.promptText !== "string") {
+    throw new Error("Owner turn/start request requires a prepared prompt");
+  }
+  if (
+    !Array.isArray(prepared.inputItems) ||
+    !prepared.inputItems.every(isOwnerTurnUserInput) ||
+    !Array.isArray(prepared.pendingInputItems) ||
+    !prepared.pendingInputItems.every(isOwnerTurnUserInput)
+  ) {
+    throw new Error("Owner turn/start request has invalid prepared input");
+  }
+  if (
+    !Array.isArray(prepared.fileAttachments) ||
+    !prepared.fileAttachments.every(isLiveFileAttachment) ||
+    !Array.isArray(prepared.addedFiles) ||
+    !prepared.addedFiles.every(isLiveFileAttachment) ||
+    !Array.isArray(prepared.pastedTextAttachments) ||
+    !Array.isArray(prepared.commentAttachments) ||
+    !Array.isArray(prepared.agentConfigs)
+  ) {
+    throw new Error("Owner turn/start request has invalid prepared sidecars");
+  }
+  if (prepared.inputItems.length === 0 && prepared.pastedTextAttachments.length === 0) {
+    throw new Error("Owner turn/start request requires prepared input or pasted text");
+  }
+  if (prepared.additionalContext !== undefined && !asRecord(prepared.additionalContext)) {
+    throw new Error("Owner turn/start request has invalid prepared additionalContext");
+  }
+  return value as CodexPreparedPrompt;
+};
+
+const readGoalSetParams = (threadId: string, value: unknown): ThreadGoalSetParams => {
+  const params = asRecord(value);
+  if (!params) throw new Error("Invalid thread goal input");
+  const input: ThreadGoalSetParams = { threadId };
+  if (Object.prototype.hasOwnProperty.call(params, "objective")) {
+    if (typeof params.objective !== "string" && params.objective !== null) {
+      throw new Error("Invalid thread goal objective");
+    }
+    input.objective = params.objective;
+  }
+  if (Object.prototype.hasOwnProperty.call(params, "status")) {
+    const status = params.status;
+    if (status !== null && !CodexThreadGoalStatusSchema.safeParse(status).success) {
+      throw new Error("Invalid thread goal status");
+    }
+    input.status = status as ThreadGoal["status"] | null;
+  }
+  if (Object.prototype.hasOwnProperty.call(params, "tokenBudget")) {
+    input.tokenBudget =
+      typeof params.tokenBudget === "number" && Number.isFinite(params.tokenBudget)
+        ? params.tokenBudget
+        : null;
+  }
+  return input;
+};
+
+const validateIdentity = (
+  ownerClientId: string,
+  input: CodexOwnerAppServerRequestInput,
+  rendererConversations: CodexRendererConversationRuntime["Service"],
+): string => {
+  const threadId = input.conversationId.trim();
+  if (!ownerClientId || rendererConversations.getOwnerClientId(threadId) !== ownerClientId) {
+    throw new Error(`Renderer client ${ownerClientId || "unknown"} is not owner for ${threadId}`);
+  }
+  const params = asRecord(input.request.params);
+  if (!params || params.threadId !== threadId) {
+    throw new Error(`Owner app-server request '${input.request.method}' must target ${threadId}`);
+  }
+  return threadId;
+};
+
+export const make = (
+  projection: CodexRendererOwnerCommandProjection,
+): Effect.Effect<
+  CodexRendererOwnerCommands["Service"],
+  never,
+  | CodexRendererConversationRuntime
+  | CodexFreshThreadLaunchRuntime
+  | CodexManualCompactionRuntime
+  | CodexThreadGoalRuntime
+  | CodexThreadSettingsRuntime
+  | CodexTurnCommands
+  | ConversationCommands
+> =>
+  Effect.gen(function* () {
+    const rendererConversations = yield* CodexRendererConversationRuntime;
+    const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
+    const manualCompaction = yield* CodexManualCompactionRuntime;
+    const threadGoals = yield* CodexThreadGoalRuntime;
+    const threadSettings = yield* CodexThreadSettingsRuntime;
+    const turnCommands = yield* CodexTurnCommands;
+    const conversations = yield* ConversationCommands;
+
+    const execute = (
+      ownerClientId: string,
+      input: CodexOwnerAppServerRequestInput,
+    ): Effect.Effect<unknown, CodexRendererOwnerCommandError> => {
+      const method = input.request.method;
+      const requestedThreadId = input.conversationId.trim();
+      return Effect.try({
+        try: () => validateIdentity(ownerClientId, input, rendererConversations),
+        catch: (cause) =>
+          new CodexRendererOwnerCommandError({ method, threadId: requestedThreadId, cause }),
+      }).pipe(
+        Effect.flatMap((threadId): Effect.Effect<unknown, object> => {
+          const request = input.request;
+          switch (request.method) {
+            case "thread/rollback":
+              return projection.rollbackForEdit({
+                threadId,
+                turnId: request.params.turnId,
+                numTurns: request.params.numTurns,
+              });
+            case "thread/fork":
+              return projection.forkFromTurn({
+                threadId,
+                turnId: request.params.turnId,
+                message: request.params.message,
+                ownerClientId,
+              });
+            case "turn/start":
+              return Effect.try({
+                try: () => readPreparedPrompt(request.params.preparedPrompt),
+                catch: (cause) => new CodexRendererOwnerCommandError({ method, threadId, cause }),
+              }).pipe(
+                Effect.flatMap((preparedPrompt) =>
+                  turnCommands.startRendererOwned(threadId, request.params.prompt, {
+                    ...(request.params.opts ?? {}),
+                    clientUserMessageId: request.params.clientUserMessageId,
+                    preparedPrompt,
+                  }),
+                ),
+              );
+            case "turn/resume-interrupted":
+              if (!request.params.clientUserMessageId.trim()) {
+                return Effect.fail(
+                  new CodexRendererOwnerCommandError({
+                    method,
+                    threadId,
+                    cause: new Error(
+                      "Owner turn/resume-interrupted requires a clientUserMessageId",
+                    ),
+                  }),
+                );
+              }
+              return turnCommands.startRendererOwned(threadId, "", {
+                ...(request.params.opts ?? {}),
+                clientUserMessageId: request.params.clientUserMessageId,
+                preparedPrompt: createEmptyCodexPreparedPrompt(),
+              });
+            case "thread/session-first-turn/start":
+              return freshThreadLaunch.start({
+                threadId,
+                launchId: request.params.launchId,
+                ownerClientId,
+              });
+            case "turn/steer":
+              return Effect.try({
+                try: () => readSteerParams(threadId, request.params),
+                catch: (cause) => new CodexRendererOwnerCommandError({ method, threadId, cause }),
+              }).pipe(Effect.flatMap(turnCommands.steerRendererOwned));
+            case "turn/interrupt":
+              return conversations.interrupt(threadId, request.params.turnId, {
+                syncDormantConversationUpdates: false,
+              });
+            case "thread/settings/update":
+              return threadSettings.update({
+                threadId,
+                patch: request.params.patch,
+                syncDormantConversationUpdates: false,
+              });
+            case "thread/goal/set":
+              return Effect.try({
+                try: () => readGoalSetParams(threadId, request.params),
+                catch: (cause) => new CodexRendererOwnerCommandError({ method, threadId, cause }),
+              }).pipe(Effect.flatMap(threadGoals.set));
+            case "thread/goal/clear":
+              return threadGoals.clear(threadId);
+            case "thread/memoryMode/set":
+              return conversations.setMemoryMode(threadId, request.params.mode);
+            case "thread/compact/start":
+              return manualCompaction.start(threadId);
+            case "thread/backgroundTerminals/list":
+              return conversations.listBackgroundTerminalsPage(threadId, {
+                cursor: request.params.cursor ?? null,
+                limit:
+                  request.params.limit && request.params.limit > 0
+                    ? request.params.limit
+                    : undefined,
+              });
+            case "thread/backgroundTerminals/terminate":
+              if (!request.params.processId.trim()) {
+                return Effect.fail(
+                  new CodexRendererOwnerCommandError({
+                    method,
+                    threadId,
+                    cause: new Error(
+                      "Owner thread/backgroundTerminals/terminate requires a processId",
+                    ),
+                  }),
+                );
+              }
+              return conversations
+                .terminateBackgroundTerminal(threadId, request.params.processId)
+                .pipe(Effect.map((terminated) => ({ terminated })));
+          }
+        }),
+        Effect.mapError((cause) =>
+          cause instanceof CodexRendererOwnerCommandError
+            ? cause
+            : new CodexRendererOwnerCommandError({
+                method,
+                threadId: requestedThreadId,
+                cause,
+              }),
+        ),
+        Effect.withSpan("CodexRendererOwnerCommands.execute", {
+          attributes: { method, threadId: requestedThreadId },
+        }),
+      );
+    };
+
+    return CodexRendererOwnerCommands.of({ execute });
+  });

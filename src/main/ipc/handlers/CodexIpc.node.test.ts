@@ -166,12 +166,16 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         sessionThreadLaunch: {
           start: () => Effect.die("unused"),
         },
+        rendererOwnerCommands: {
+          execute: () => Effect.die("unused"),
+        },
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),
           unarchive: () => Effect.die("unused"),
           setMemoryMode: () => Effect.die("unused"),
           startReview: () => Effect.die("unused"),
           uploadFeedback: () => Effect.die("unused"),
+          listBackgroundTerminalsPage: () => Effect.die("unused"),
           listBackgroundTerminals: () => Effect.die("unused"),
           terminateBackgroundTerminal: () => Effect.die("unused"),
           interrupt: () => Effect.die("unused"),

@@ -22,6 +22,7 @@ import type { CodexServerRequestResponsesService } from "./codex-application/Cod
 import type { CodexTurnCommandsService } from "./codex-application/CodexTurnCommands";
 import type { CodexSideChatCommandsService } from "./codex-application/CodexSideChatCommands";
 import type { CodexSessionThreadLaunchService } from "./codex-application/CodexSessionThreadLaunch";
+import type { CodexRendererOwnerCommands } from "./codex-application/CodexRendererOwnerCommands";
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
@@ -129,6 +130,7 @@ interface CodexIpcOptions {
   turnCommands: CodexTurnCommandsService;
   sideChatCommands: CodexSideChatCommandsService;
   sessionThreadLaunch: CodexSessionThreadLaunchService;
+  rendererOwnerCommands: CodexRendererOwnerCommands["Service"];
   rendererClientRouter: RendererClientRuntimeService;
 }
 
@@ -616,6 +618,26 @@ export const codexIpcLive = (
                 : new CodexIpcError({ operation: "codex:thread:fresh-owner:adopt", cause }),
             ),
           ),
+      );
+
+      registerEffectHandle("codex:thread-owner:app-server-request", (event, input) =>
+        Effect.try({
+          try: () => resolveRendererClientId(event),
+          catch: (cause) =>
+            new CodexIpcError({ operation: "codex:thread-owner:app-server-request", cause }),
+        }).pipe(
+          Effect.flatMap((ownerClientId) =>
+            options.rendererOwnerCommands.execute(ownerClientId, input),
+          ),
+          Effect.mapError((cause) =>
+            cause instanceof CodexIpcError
+              ? cause
+              : new CodexIpcError({
+                  operation: "codex:thread-owner:app-server-request",
+                  cause,
+                }),
+          ),
+        ),
       );
 
       registerEffectHandle(

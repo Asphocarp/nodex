@@ -28,8 +28,6 @@ import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/Mode
 import type { PermissionsRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalResponse";
 import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
-import type { ThreadBackgroundTerminalsListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsListResponse";
-import type { ThreadBackgroundTerminalsTerminateResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsTerminateResponse";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
 import type { ThreadDeleteResponse } from "@nodex/codex-app-server-protocol/v2/ThreadDeleteResponse";
@@ -39,7 +37,6 @@ import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSou
 import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2/ThreadItem";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
-import type { ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetParams";
 import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/ThreadResumeParams";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadSettings } from "@nodex/codex-app-server-protocol/v2/ThreadSettings";
@@ -84,7 +81,6 @@ import type {
   CodexLiveFileAttachment,
   CodexMcpServerElicitationRequest,
   CodexModelOption,
-  CodexOwnerAppServerRequestInput,
   CodexPermissionRequest,
   CodexPlanImplementationServerRequest,
   CodexPendingSteer,
@@ -161,10 +157,7 @@ import type { ComposerCatalogPromiseAdapter } from "../codex-application/Compose
 import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
 import type { CodexManualCompactionProjectionPort } from "../codex-application/CodexManualCompactionRuntime";
 import type { CodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
-import {
-  normalizeCodexThreadGoalSetAction,
-  type CodexThreadGoalProjectionPort,
-} from "../codex-application/CodexThreadGoalRuntime";
+import type { CodexThreadGoalProjectionPort } from "../codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
 import type {
   CodexPreparedThreadSettingsUpdate,
@@ -224,14 +217,10 @@ import {
   type CodexPendingWorktreeThreadResolution,
 } from "../../shared/codex-pending-worktree";
 import {
-  createEmptyCodexPreparedPrompt,
   createCodexTextUserInput as createTextUserInput,
   prepareCodexPrompt,
 } from "../../shared/codex-prompt-preparation";
-import {
-  CodexThreadGoalStatusSchema,
-  parseCodexThreadTokenUsage,
-} from "../../shared/schemas/codex";
+import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
 import { ProjectSessionForkInputSchema } from "../../shared/schemas/project-sessions";
 import {
   PastedTextAttachmentManager,
@@ -1526,35 +1515,6 @@ function shouldShowThreadGoalResumeConfirmation(status: ThreadGoal["status"]): b
   return status === "paused" || status === "blocked" || status === "usageLimited";
 }
 
-function isThreadGoalStatus(value: unknown): value is ThreadGoal["status"] {
-  return CodexThreadGoalStatusSchema.safeParse(value).success;
-}
-
-function readThreadGoalSetParams(
-  threadId: string,
-  params: Record<string, unknown>,
-): ThreadGoalSetParams {
-  const input: ThreadGoalSetParams = { threadId };
-  if (hasOwnValue(params, "objective")) {
-    if (typeof params.objective !== "string" && params.objective !== null) {
-      throw new Error("Invalid thread goal objective");
-    }
-    input.objective = params.objective;
-  }
-  if (hasOwnValue(params, "status")) {
-    const status = params.status;
-    if (status !== null && !isThreadGoalStatus(status)) {
-      throw new Error("Invalid thread goal status");
-    }
-    input.status = status;
-  }
-  if (hasOwnValue(params, "tokenBudget")) {
-    input.tokenBudget = getFiniteNumber(params.tokenBudget);
-  }
-
-  return normalizeCodexThreadGoalSetAction(input);
-}
-
 function parseThreadParentThreadId(thread: Record<string, unknown>): string | null {
   return extractCodexThreadSubagentMetadata(thread).parentThreadId;
 }
@@ -1672,102 +1632,6 @@ function isSteerTurnInactiveError(error: unknown): boolean {
     message.includes("active turn not steerable") ||
     (message.includes("active turn") && message.includes("not") && message.includes("steer"))
   );
-}
-
-function isOwnerTurnUserInput(value: unknown): value is TurnSteerParams["input"][number] {
-  const input = asRecord(value);
-  if (!input || typeof input.type !== "string") return false;
-
-  switch (input.type) {
-    case "text":
-      return typeof input.text === "string" && Array.isArray(input.text_elements);
-    case "image":
-      return typeof input.url === "string";
-    case "localImage":
-      return typeof input.path === "string";
-    case "skill":
-    case "mention":
-      return typeof input.name === "string" && typeof input.path === "string";
-    default:
-      return false;
-  }
-}
-
-function readOwnerTurnSteerParams(conversationId: string, value: unknown): TurnSteerParams {
-  const params = asRecord(value);
-  if (!params || params.threadId !== conversationId) {
-    throw new Error(`Owner turn/steer request must target ${conversationId}`);
-  }
-  if (typeof params.expectedTurnId !== "string" || !params.expectedTurnId.trim()) {
-    throw new Error("Owner turn/steer request requires expectedTurnId");
-  }
-  if (
-    params.clientUserMessageId !== undefined &&
-    params.clientUserMessageId !== null &&
-    typeof params.clientUserMessageId !== "string"
-  ) {
-    throw new Error("Owner turn/steer request has an invalid clientUserMessageId");
-  }
-  if (
-    !Array.isArray(params.input) ||
-    params.input.length === 0 ||
-    !params.input.every(isOwnerTurnUserInput)
-  ) {
-    throw new Error("Owner turn/steer request requires valid input");
-  }
-  if (
-    params.additionalContext !== undefined &&
-    params.additionalContext !== null &&
-    !asRecord(params.additionalContext)
-  ) {
-    throw new Error("Owner turn/steer request has invalid additionalContext");
-  }
-
-  return value as TurnSteerParams;
-}
-
-function isOwnerLiveFileAttachment(value: unknown): value is CodexLiveFileAttachment {
-  const attachment = asRecord(value);
-  return Boolean(
-    attachment &&
-    typeof attachment.label === "string" &&
-    typeof attachment.path === "string" &&
-    typeof attachment.fsPath === "string",
-  );
-}
-
-function readOwnerPreparedPrompt(value: unknown): CodexPreparedPrompt {
-  const prepared = asRecord(value);
-  if (!prepared || typeof prepared.promptText !== "string") {
-    throw new Error("Owner turn/start request requires a prepared prompt");
-  }
-  if (
-    !Array.isArray(prepared.inputItems) ||
-    !prepared.inputItems.every(isOwnerTurnUserInput) ||
-    !Array.isArray(prepared.pendingInputItems) ||
-    !prepared.pendingInputItems.every(isOwnerTurnUserInput)
-  ) {
-    throw new Error("Owner turn/start request has invalid prepared input");
-  }
-  if (
-    !Array.isArray(prepared.fileAttachments) ||
-    !prepared.fileAttachments.every(isOwnerLiveFileAttachment) ||
-    !Array.isArray(prepared.addedFiles) ||
-    !prepared.addedFiles.every(isOwnerLiveFileAttachment) ||
-    !Array.isArray(prepared.pastedTextAttachments) ||
-    !Array.isArray(prepared.commentAttachments) ||
-    !Array.isArray(prepared.agentConfigs)
-  ) {
-    throw new Error("Owner turn/start request has invalid prepared sidecars");
-  }
-  if (prepared.inputItems.length === 0 && prepared.pastedTextAttachments.length === 0) {
-    throw new Error("Owner turn/start request requires prepared input or pasted text");
-  }
-  if (prepared.additionalContext !== undefined && !asRecord(prepared.additionalContext)) {
-    throw new Error("Owner turn/start request has invalid prepared additionalContext");
-  }
-
-  return value as CodexPreparedPrompt;
 }
 
 function previewText(value: string, maxLength = 160): string {
@@ -15101,186 +14965,52 @@ export class CodexService {
     return { detail, summary };
   }
 
-  async handleRendererOwnerAppServerRequest(
-    sourceClientId: string | null,
-    input: CodexOwnerAppServerRequestInput,
-  ): Promise<unknown> {
+  async rollbackRendererOwnedThreadForEditForModule(input: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly numTurns: number;
+  }): Promise<ThreadRollbackResponse> {
     await this.ensureClientReady();
-
-    const conversationId = input.conversationId.trim();
-    const ownerClientId = this.rendererConversations.getOwnerClientId(conversationId);
-    if (!sourceClientId || ownerClientId !== sourceClientId) {
-      throw new Error(
-        `Renderer client ${sourceClientId ?? "unknown"} is not owner for ${conversationId}`,
-      );
+    await this.waitForRendererOwnerNotificationDrain(input.threadId);
+    if (input.numTurns !== 1) {
+      throw new Error("Owner thread/rollback currently supports numTurns: 1");
     }
-
-    const request = input.request;
-    const untrustedParams = asRecord(request.params);
-    if (!untrustedParams || untrustedParams.threadId !== conversationId) {
-      throw new Error(
-        `Owner app-server request '${input.request.method}' must target ${conversationId}`,
-      );
+    const currentDetail = this.serializeThreadDetail(input.threadId);
+    if (!currentDetail) {
+      throw new Error(`Thread '${input.threadId}' was not found`);
     }
-
-    switch (request.method) {
-      case "thread/rollback": {
-        const params = request.params;
-        await this.waitForRendererOwnerNotificationDrain(conversationId);
-        const { numTurns, turnId } = params;
-        if (numTurns !== 1) {
-          throw new Error("Owner thread/rollback currently supports numTurns: 1");
-        }
-        if (turnId) {
-          const currentDetail = this.serializeThreadDetail(conversationId);
-          if (!currentDetail) {
-            throw new Error(`Thread '${conversationId}' was not found`);
-          }
-          const latestEditableTurn = this.resolveLatestEditableTurn(currentDetail);
-          if (!latestEditableTurn || latestEditableTurn.turnId !== turnId) {
-            throw new Error("Only the latest completed user turn can be edited");
-          }
-        }
-        const rollbackResult = await this.client.request<"thread/rollback", ThreadRollbackResponse>(
-          "thread/rollback",
-          {
-            threadId: conversationId,
-            numTurns,
-          },
-        );
-        const currentDetail = this.serializeThreadDetail(conversationId);
-        const threadRef = this.parseThreadRef(conversationId);
-        const { detail, summary } = await this.materializeThreadDetailFromThreadPayload(
-          rollbackResult.thread,
-          threadRef,
-          currentDetail?.cwd ?? null,
-        );
-        this.setConversationRecordDetail(detail);
-        if (summary) {
-          this.emitEvent({ type: "threadSummary", thread: summary });
-        }
-        this.syncAcceptedConversationDocumentSilently(conversationId);
-        return rollbackResult;
-      }
-      case "thread/fork": {
-        const { turnId, message } = request.params;
-        await this.waitForRendererOwnerNotificationDrain(conversationId);
-        if (!turnId) {
-          throw new Error("Owner thread/fork requires a turnId");
-        }
-        if (typeof message !== "string") {
-          throw new Error("Owner thread/fork requires a message");
-        }
-        return await this.forkConversationFromTurn(conversationId, turnId, message, {
-          syncDormantConversationUpdates: false,
-          ownerClientId: sourceClientId ?? undefined,
-        });
-      }
-      case "turn/start": {
-        const params = request.params;
-        const { clientUserMessageId, opts, prompt } = params;
-        const preparedPrompt = readOwnerPreparedPrompt(params.preparedPrompt);
-        const startOverrides: StartTurnOverrides = {
-          ...(opts ?? {}),
-          clientUserMessageId,
-          preparedPrompt,
-        };
-        const result = await this.startTurn(conversationId, prompt, startOverrides, {
-          stateOwner: "renderer",
-        });
-        return result;
-      }
-      case "turn/resume-interrupted": {
-        const { clientUserMessageId, opts } = request.params;
-        if (typeof clientUserMessageId !== "string" || !clientUserMessageId.trim()) {
-          throw new Error("Owner turn/resume-interrupted requires a clientUserMessageId");
-        }
-        return await this.startTurn(
-          conversationId,
-          "",
-          {
-            ...(opts ?? {}),
-            clientUserMessageId,
-            preparedPrompt: createEmptyCodexPreparedPrompt(),
-          },
-          { stateOwner: "renderer" },
-        );
-      }
-      case "thread/session-first-turn/start":
-        return await this.startRendererOwnedSessionFirstTurn(
-          sourceClientId,
-          conversationId,
-          request.params.launchId,
-        );
-      case "turn/steer": {
-        const params = readOwnerTurnSteerParams(conversationId, request.params);
-        return this.turnCommands
-          ? await this.turnCommands.steerRendererOwned(params)
-          : await this.client.request<"turn/steer", TurnSteerResponse>("turn/steer", params);
-      }
-      case "turn/interrupt":
-        return await this.conversationCommands.interrupt(conversationId, request.params.turnId, {
-          syncDormantConversationUpdates: false,
-        });
-      case "thread/settings/update":
-        return await this.threadSettingsRuntime.update({
-          threadId: conversationId,
-          patch: request.params.patch,
-          syncDormantConversationUpdates: false,
-        });
-      case "thread/goal/set": {
-        return await this.threadGoals.set(readThreadGoalSetParams(conversationId, untrustedParams));
-      }
-      case "thread/goal/clear":
-        await this.threadGoals.clear(conversationId);
-        return null;
-      case "thread/memoryMode/set": {
-        const mode =
-          request.params.mode === "enabled"
-            ? "enabled"
-            : request.params.mode === "disabled"
-              ? "disabled"
-              : null;
-        if (!mode) throw new Error("Invalid thread memory mode");
-        await this.client.request("thread/memoryMode/set", {
-          threadId: conversationId,
-          mode,
-        });
-        return null;
-      }
-      case "thread/compact/start":
-        await this.manualCompaction.start(conversationId);
-        return null;
-      case "thread/backgroundTerminals/list": {
-        const { cursor = null, limit } = request.params;
-        return await this.client.request<
-          "thread/backgroundTerminals/list",
-          ThreadBackgroundTerminalsListResponse
-        >("thread/backgroundTerminals/list", {
-          threadId: conversationId,
-          cursor,
-          limit: limit && limit > 0 ? limit : undefined,
-        });
-      }
-      case "thread/backgroundTerminals/terminate": {
-        const { processId } = request.params;
-        if (!processId) {
-          throw new Error("Owner thread/backgroundTerminals/terminate requires a processId");
-        }
-        return await this.client.request<
-          "thread/backgroundTerminals/terminate",
-          ThreadBackgroundTerminalsTerminateResponse
-        >("thread/backgroundTerminals/terminate", { threadId: conversationId, processId });
-      }
+    const latestEditableTurn = this.resolveLatestEditableTurn(currentDetail);
+    if (!latestEditableTurn || latestEditableTurn.turnId !== input.turnId) {
+      throw new Error("Only the latest completed user turn can be edited");
     }
+    const rollbackResult = await this.client.request<"thread/rollback", ThreadRollbackResponse>(
+      "thread/rollback",
+      { threadId: input.threadId, numTurns: input.numTurns },
+    );
+    const threadRef = this.parseThreadRef(input.threadId);
+    const { detail, summary } = await this.materializeThreadDetailFromThreadPayload(
+      rollbackResult.thread,
+      threadRef,
+      currentDetail.cwd,
+    );
+    this.setConversationRecordDetail(detail);
+    if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
+    this.syncAcceptedConversationDocumentSilently(input.threadId);
+    return rollbackResult;
   }
 
-  private async startRendererOwnedSessionFirstTurn(
-    ownerClientId: string,
-    threadId: string,
-    launchId: string,
-  ): Promise<TurnStartResponse> {
-    return await this.freshThreadLaunch.start({ launchId, ownerClientId, threadId });
+  async forkRendererOwnedThreadFromTurnForModule(input: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly message: string;
+    readonly ownerClientId: string;
+  }): Promise<CodexThreadActionResult> {
+    await this.waitForRendererOwnerNotificationDrain(input.threadId);
+    if (!input.turnId.trim()) throw new Error("Owner thread/fork requires a turnId");
+    return await this.forkConversationFromTurn(input.threadId, input.turnId, input.message, {
+      syncDormantConversationUpdates: false,
+      ownerClientId: input.ownerClientId,
+    });
   }
 
   prepareFreshThreadFirstTurnForModule(

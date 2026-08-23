@@ -81,6 +81,13 @@ export class ConversationCommands extends Context.Service<
     readonly listBackgroundTerminals: (
       threadId: string,
     ) => Effect.Effect<readonly BackgroundTerminal[], CodexRuntimeError>;
+    readonly listBackgroundTerminalsPage: (
+      threadId: string,
+      options?: { readonly cursor?: string | null; readonly limit?: number },
+    ) => Effect.Effect<
+      ClientRequestResponsesByMethod["thread/backgroundTerminals/list"],
+      CodexRuntimeError
+    >;
     readonly terminateBackgroundTerminal: (
       threadId: string,
       processId: string,
@@ -131,25 +138,28 @@ export const live = (
         threadId: string,
         operation: Effect.Effect<A, E>,
       ): Effect.Effect<A, E> => conversations.runExclusive(threadId, operation);
+      const listBackgroundTerminalsPage = (
+        threadId: string,
+        options?: { readonly cursor?: string | null; readonly limit?: number },
+      ) =>
+        gateway.requestForThread(threadId, "thread/backgroundTerminals/list", {
+          threadId,
+          cursor: options?.cursor ?? null,
+          limit: options?.limit,
+        });
       const listBackgroundTerminals = (
         threadId: string,
         cursor: string | null = null,
         collected: readonly BackgroundTerminal[] = [],
       ): Effect.Effect<readonly BackgroundTerminal[], CodexRuntimeError> =>
-        gateway
-          .requestForThread(threadId, "thread/backgroundTerminals/list", {
-            threadId,
-            cursor,
-            limit: 100,
-          })
-          .pipe(
-            Effect.flatMap((response) => {
-              const next = [...collected, ...response.data];
-              return response.nextCursor
-                ? listBackgroundTerminals(threadId, response.nextCursor, next)
-                : Effect.succeed(next);
-            }),
-          );
+        listBackgroundTerminalsPage(threadId, { cursor, limit: 100 }).pipe(
+          Effect.flatMap((response) => {
+            const next = [...collected, ...response.data];
+            return response.nextCursor
+              ? listBackgroundTerminals(threadId, response.nextCursor, next)
+              : Effect.succeed(next);
+          }),
+        );
       const interruptInLane = (
         threadId: string,
         turnId: string | undefined,
@@ -211,6 +221,8 @@ export const live = (
         startReview: (params) => gateway.requestForThread(params.threadId, "review/start", params),
         uploadFeedback: (params) =>
           gateway.requestLocal("feedback/upload", params).pipe(Effect.asVoid),
+        listBackgroundTerminalsPage: (threadId, options) =>
+          listBackgroundTerminalsPage(threadId.trim(), options),
         listBackgroundTerminals: (threadId) => listBackgroundTerminals(threadId.trim()),
         terminateBackgroundTerminal: (threadId, processId) =>
           gateway

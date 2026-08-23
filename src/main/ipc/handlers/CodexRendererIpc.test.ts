@@ -53,9 +53,8 @@ it.effect("owns renderer coordination ingress with the Main Scope", () =>
       scope,
     );
 
-    assert.strictEqual(channels.size, 16);
+    assert.strictEqual(channels.size, 15);
     assert.isTrue(channels.has("codex:renderer-client:id"));
-    assert.isTrue(channels.has("codex:thread-owner:app-server-request"));
     assert.isTrue(channels.has("codex:dynamic-tool-call:respond"));
     assert.isTrue(channels.has("codex:thread:view-active:set"));
     assert.isTrue(channels.has("codex:thread:stream-following:set"));

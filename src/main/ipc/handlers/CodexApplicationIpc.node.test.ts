@@ -119,6 +119,7 @@ it.effect("registers application channels directly against their owning modules"
       setMemoryMode: () => Effect.void,
       startReview: () => Effect.die("unused"),
       uploadFeedback: () => Effect.void,
+      listBackgroundTerminalsPage: () => Effect.die("unused"),
       listBackgroundTerminals: () =>
         Effect.succeed([
           {

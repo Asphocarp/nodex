@@ -130,6 +130,10 @@ import {
   make as makeCodexRendererConversationRuntime,
 } from "../codex-application/CodexRendererConversationRuntime";
 import {
+  CodexRendererOwnerCommandProjectionError,
+  make as makeCodexRendererOwnerCommands,
+} from "../codex-application/CodexRendererOwnerCommands";
+import {
   CodexSidebarSyncError,
   CodexSidebarSyncRuntime,
   make as makeCodexSidebarSyncRuntime,
@@ -206,6 +210,7 @@ import {
 import { makeCodexConversationEventBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationEventBufferRuntimePromiseAdapter";
 import {
   type CodexFreshThreadLaunch,
+  CodexFreshThreadLaunchRuntime,
   CodexFreshThreadLaunchError,
   make as makeCodexFreshThreadLaunchRuntime,
 } from "../codex-application/CodexFreshThreadLaunchRuntime";
@@ -229,6 +234,7 @@ import {
 } from "../codex-application/CodexManualCompactionRuntime";
 import { makeCodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
 import {
+  CodexThreadSettingsRuntime,
   CodexThreadSettingsOperationError,
   make as makeCodexThreadSettingsRuntime,
 } from "../codex-application/CodexThreadSettingsRuntime";
@@ -2401,6 +2407,36 @@ export const live: Layer.Layer<
           Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const rendererOwnerCommands = yield* makeCodexRendererOwnerCommands({
+          rollbackForEdit: (input) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().rollbackRendererOwnedThreadForEditForModule(input),
+              catch: (cause) =>
+                new CodexRendererOwnerCommandProjectionError({
+                  operation: "rollback",
+                  threadId: input.threadId,
+                  cause,
+                }),
+            }),
+          forkFromTurn: (input) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().forkRendererOwnedThreadFromTurnForModule(input),
+              catch: (cause) =>
+                new CodexRendererOwnerCommandProjectionError({
+                  operation: "fork",
+                  threadId: input.threadId,
+                  cause,
+                }),
+            }),
+        }).pipe(
+          Effect.provideService(CodexRendererConversationRuntime, rendererConversations),
+          Effect.provideService(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
+          Effect.provideService(CodexManualCompactionRuntime, manualCompaction),
+          Effect.provideService(CodexThreadGoalRuntime, threadGoals),
+          Effect.provideService(CodexThreadSettingsRuntime, threadSettingsRuntime),
+          Effect.provideService(CodexTurnCommands, turnCommands),
+          Effect.provideService(ConversationCommands, conversationCommands),
+        );
         const turnCommandsAdapter = makeCodexTurnCommandsPromiseAdapter(turnCommands, callbacks);
         const sideChatCommands = yield* makeCodexSideChatCommands({
           prepare: (input) =>
@@ -3368,6 +3404,7 @@ export const live: Layer.Layer<
             turnCommands,
             sideChatCommands,
             sessionThreadLaunch,
+            rendererOwnerCommands,
             rendererClientRouter: rendererClients,
           }).pipe(
             Layer.provide(
