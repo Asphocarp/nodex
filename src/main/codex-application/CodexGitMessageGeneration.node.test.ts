@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
@@ -20,8 +21,12 @@ it.effect("routes Git message generation to the selected host and decodes canoni
           : { title: "  Generated title ", body: " Generated body\n" };
       }),
   } as unknown as CodexGateway["Service"]);
-  const program = Effect.gen(function* () {
-    const messages = yield* CodexGitMessageGeneration;
+  return Effect.gen(function* () {
+    const scope = yield* Effect.scope;
+    const context = yield* Layer.buildWithScope(live, scope).pipe(
+      Effect.provideService(CodexGateway, gateway),
+    );
+    const messages = Context.get(context, CodexGitMessageGeneration);
     assert.strictEqual(
       yield* messages.generateCommitMessage({
         hostId: "remote",
@@ -42,8 +47,4 @@ it.effect("routes Git message generation to the selected host and decodes canoni
       ],
     );
   });
-  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this test owns the complete CodexGitMessageGeneration layer.
-  return program.pipe(
-    Effect.provide(live.pipe(Layer.provide(Layer.succeed(CodexGateway, gateway)))),
-  );
 });
