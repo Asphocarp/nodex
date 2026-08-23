@@ -898,20 +898,22 @@ External-agent import request correlation is owned by one Main-scoped runtime. I
 generation-fenced local Gateway stream before issuing the import request, buffers progress and
 completion notifications until the returned import identity is known, and serializes admission so
 pre-response events cannot cross import operations. One Effect-clock deadline and the Main Scope own
-the request, collector, and wait. `CodexService` only materializes successfully imported Thread ids;
-it owns no import listener, early-completion map, resolver Promise, or timer.
+the request, collector, and wait. The runtime depends directly on `CodexGateway`; `CodexService`
+owns no import request, listener, early-completion map, resolver Promise, timer, or Promise adapter.
 
 The user-facing Agent import protocol has a separate Main-scoped application owner. It retains
 bounded preview tokens, prunes them against the Effect clock, rejects a second apply immediately,
 and consumes a preview only after a successful import. Failed/interrupted imports release admission
-without losing the preview. Scope close atomically clears previews and prevents a late filesystem or
-Codex Promise result from publishing state; progress callbacks enter a Module-owned FiberSet, so a
-late native callback cannot reach a replacement/closed application. The large import operations
-adapter is deliberately stateless: it performs source discovery, safe-copy/config policy, ledger
-publication, and Thread materialization callbacks, but owns no scan Map, in-flight Promise, clock,
-or shutdown path. All three renderer import channels execute the typed owner directly; the directory
-picker remains the sole Electron Promise seam. `CodexService` receives only progress projections and
-owns no import command, runtime adapter, or lifecycle state.
+without losing the preview. Scope close atomically clears previews, while the scoped Event Hub fences
+late progress from a replacement application. Its Effect-native import engine owns source discovery,
+safe-copy/config policy, and ledger publication, and invokes formal Gateway, external-import,
+Thread-directory, title-persistence, sidebar-sync, and application-event services directly. Native
+rollouts are forked through the Gateway, accepted as canonical standalone Threads by the Directory,
+and compensated with `thread/delete` if canonical materialization or title persistence fails; Claude
+imports resolve their returned Thread ids through the same Directory. All three renderer import
+channels execute the typed owner directly; the directory picker remains the sole Electron Promise
+seam. `CodexService` owns no import command, callback bag, materialization path, progress projection,
+Promise adapter, or lifecycle state.
 
 Heartbeat turn completion is one Main-scoped request/correlation capability. It subscribes to the
 generation-fenced Gateway stream before resolving the Thread host and starting the turn on that exact

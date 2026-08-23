@@ -18,9 +18,12 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import type { ExternalAgentConfigImportCompletedNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportCompletedNotification";
-import type { ExternalAgentConfigImportProgressNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportProgressNotification";
 import type { ExternalAgentConfigMigrationItem } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItem";
 import type { ExternalAgentConfigMigrationItemType } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItemType";
+import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
+import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
 import type {
   AgentImportApplyInput,
   AgentImportItemKind,
@@ -30,6 +33,15 @@ import type {
   AgentImportScan,
   AgentImportSourceKind,
 } from "../../shared/agent-import";
+import { resolveCodexCanonicalHydratedCwd } from "../../shared/codex-conversation-state/codex-conversation-state";
+import { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
+import { CodexExternalAgentImportRuntime } from "../codex-application/CodexExternalAgentImportRuntime";
+import { CodexSidebarSyncRuntime } from "../codex-application/CodexSidebarSyncRuntime";
+import { CodexThreadDirectory } from "../codex-application/CodexThreadDirectory";
+import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTitlePersistence";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { getLogger } from "../logging/logger";
+import { buildCodexThreadConfigOverrides } from "./codex-thread-capabilities";
 
 const SCAN_TTL_MS = 10 * 60 * 1_000;
 const SESSION_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -148,17 +160,32 @@ interface NativeScanResult {
   readonly skippedAlreadyImportedSessions: number;
 }
 
-export interface AgentImportOperationsOptions {
+export interface AgentImportFileConfiguration {
   readonly runtimeStateHome: string;
-  readonly detectClaude: () => Promise<readonly ExternalAgentConfigMigrationItem[]>;
-  readonly importClaude: (
-    items: readonly ExternalAgentConfigMigrationItem[],
-    onProgress: (progress: ExternalAgentConfigImportProgressNotification) => void,
-  ) => Promise<ExternalAgentConfigImportCompletedNotification>;
-  readonly forkSession: (session: NativeSessionCandidate) => Promise<string>;
-  readonly applyConfigEdits: (edits: readonly ConfigEditCandidate[]) => Promise<void>;
-  readonly resolveSourceHome?: (sourceKind: AgentImportSourceKind) => string;
+  readonly sourceHomes?: Partial<Record<AgentImportSourceKind, string>>;
 }
+
+interface AgentImportEffectServices {
+  readonly events: CodexApplicationEventHub["Service"];
+  readonly externalImport: CodexExternalAgentImportRuntime["Service"];
+  readonly gateway: CodexGateway["Service"];
+  readonly sidebarSync: CodexSidebarSyncRuntime["Service"];
+  readonly threadDirectory: CodexThreadDirectory["Service"];
+  readonly threadTitles: CodexThreadTitlePersistence["Service"];
+}
+
+class AgentImportOperationError extends Data.TaggedError("AgentImportOperationError")<{
+  readonly operation: "apply" | "scan";
+  readonly cause: unknown;
+}> {}
+
+const operationError = (
+  operation: AgentImportOperationError["operation"],
+  cause: unknown,
+): AgentImportOperationError =>
+  cause instanceof AgentImportOperationError
+    ? cause
+    : new AgentImportOperationError({ operation, cause });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -851,35 +878,54 @@ function outcomeFromExternalResult(
 }
 
 /**
- * Stateless filesystem/Codex adapter for AgentImportRuntime. Scan retention,
- * apply admission, expiry, time, and Scope ownership belong to the Effect
- * Module; this object only performs one requested operation.
+ * Effect-native import engine. AgentImportRuntime owns coordination while this
+ * module owns source discovery and the complete import transaction.
  */
-export class AgentImportOperations {
+class AgentImportOperations {
   private readonly runtimeStateHome: string;
-  private readonly detectClaude: AgentImportOperationsOptions["detectClaude"];
-  private readonly importClaude: AgentImportOperationsOptions["importClaude"];
-  private readonly forkSession: AgentImportOperationsOptions["forkSession"];
-  private readonly applyConfigEdits: AgentImportOperationsOptions["applyConfigEdits"];
+  private readonly services: AgentImportEffectServices;
   private readonly resolveSourceHome: (sourceKind: AgentImportSourceKind) => string;
+  private readonly logger = getLogger({ component: "agent-import" });
 
-  constructor(options: AgentImportOperationsOptions) {
+  constructor(options: AgentImportFileConfiguration, services: AgentImportEffectServices) {
     this.runtimeStateHome = path.resolve(options.runtimeStateHome);
-    this.detectClaude = options.detectClaude;
-    this.importClaude = options.importClaude;
-    this.forkSession = options.forkSession;
-    this.applyConfigEdits = options.applyConfigEdits;
-    this.resolveSourceHome = options.resolveSourceHome ?? defaultSourceHome;
+    this.services = services;
+    this.resolveSourceHome = (sourceKind) =>
+      options.sourceHomes?.[sourceKind] ?? defaultSourceHome(sourceKind);
   }
 
   makeImportId(): string {
     return randomUUID();
   }
 
-  async scan(
+  scan(
     sourceKind: AgentImportSourceKind,
-    selectedSourceHome?: string,
-    now = Date.now(),
+    selectedSourceHome: string | undefined,
+    now: number,
+  ): Effect.Effect<PendingImportScan, AgentImportOperationError> {
+    return Effect.gen({ self: this }, function* () {
+      const claudeMigrations =
+        sourceKind === "claude-code"
+          ? yield* this.services.gateway
+              .requestLocal("externalAgentConfig/detect", { includeHome: true, cwds: [] })
+              .pipe(
+                Effect.map(
+                  (response) =>
+                    response.items as unknown as readonly ExternalAgentConfigMigrationItem[],
+                ),
+              )
+          : [];
+      return yield* Effect.tryPromise(() =>
+        this.scanFileSystem(sourceKind, selectedSourceHome, now, claudeMigrations),
+      );
+    }).pipe(Effect.mapError((cause) => operationError("scan", cause)));
+  }
+
+  private async scanFileSystem(
+    sourceKind: AgentImportSourceKind,
+    selectedSourceHome: string | undefined,
+    now: number,
+    claudeMigrations: readonly ExternalAgentConfigMigrationItem[],
   ): Promise<PendingImportScan> {
     if (sourceKind === "claude-code" && selectedSourceHome) {
       throw new Error("Claude Code custom homes are not supported by this runtime");
@@ -896,8 +942,7 @@ export class AgentImportOperations {
     let items: readonly PendingImportItem[];
     let skippedAlreadyImportedSessions = 0;
     if (sourceKind === "claude-code") {
-      const migrations = await this.detectClaude();
-      const nativeMigrations = migrations.filter(
+      const nativeMigrations = claudeMigrations.filter(
         (migrationItem) =>
           migrationItem.itemType !== "CONFIG" && migrationItem.itemType !== "MCP_SERVER_CONFIG",
       );
@@ -969,170 +1014,209 @@ export class AgentImportOperations {
       sourceHome,
     };
   }
-
-  async apply(
+  apply(
     input: AgentImportApplyInput,
     pendingScan: PendingImportScan,
     importId: string,
     startedAt: number,
-    emitProgress: (progress: AgentImportProgress) => void,
-  ): Promise<AgentImportResult> {
-    const selectedIds = [...new Set(input.itemIds)];
-    if (selectedIds.length === 0) throw new Error("Select at least one item to import");
-    const selectedItems = selectedIds.map((itemId) => {
-      const item = pendingScan.itemsById.get(itemId);
-      if (!item) throw new Error("The selected import item does not belong to this scan");
-      return item;
+  ): Effect.Effect<AgentImportResult, AgentImportOperationError> {
+    const selected = Effect.try({
+      try: () => {
+        const selectedIds = [...new Set(input.itemIds)];
+        if (selectedIds.length === 0) throw new Error("Select at least one item to import");
+        return selectedIds.map((itemId) => {
+          const item = pendingScan.itemsById.get(itemId);
+          if (!item) throw new Error("The selected import item does not belong to this scan");
+          return item;
+        });
+      },
+      catch: (cause) => operationError("apply", cause),
     });
-    emitProgress({
-      activeItemLabel: selectedItems[0]?.label ?? null,
-      completed: false,
-      completedItems: 0,
-      importId,
-      sourceKind: pendingScan.scan.sourceKind,
-      totalItems: selectedItems.length,
-    });
-
-    const result =
-      pendingScan.scan.sourceKind === "claude-code"
-        ? await this.applyClaudeItems(importId, pendingScan, selectedItems, startedAt, emitProgress)
-        : await this.applyNativeItems(
-            importId,
-            pendingScan,
-            selectedItems,
-            startedAt,
-            emitProgress,
-          );
-    return result;
-  }
-
-  private async applyClaudeItems(
-    importId: string,
-    pendingScan: PendingImportScan,
-    selectedItems: readonly PendingImportItem[],
-    startedAt: number,
-    emitProgress: (progress: AgentImportProgress) => void,
-  ): Promise<AgentImportResult> {
-    const claudeItems = selectedItems.filter((item) => item.payload.type === "claude");
-    const nativeItems = selectedItems.filter((item) => item.payload.type !== "claude");
-    const migrationItems = claudeItems.flatMap((item) =>
-      item.payload.type === "claude" ? [item.payload.migrationItem] : [],
-    );
-    const completed =
-      migrationItems.length > 0
-        ? await this.importClaude(migrationItems, (progress) => {
-            const completedTypes = new Set(
-              progress.itemTypeResults.map((result) => result.itemType),
-            );
-            const activeItem = claudeItems.find(
-              (item) =>
-                item.payload.type === "claude" &&
-                !completedTypes.has(item.payload.migrationItem.itemType),
-            );
-            emitProgress({
-              activeItemLabel: activeItem?.label ?? "Importing Claude Code data",
-              completed: false,
-              completedItems: Math.min(completedTypes.size, claudeItems.length),
-              importId,
-              sourceKind: "claude-code",
-              totalItems: selectedItems.length,
-            });
-          })
-        : { importId, itemTypeResults: [] };
-    const importedThreadIds = completed.itemTypeResults.flatMap((result) =>
-      result.itemType === "SESSIONS"
-        ? result.successes.flatMap((success) => (success.target ? [success.target] : []))
-        : [],
-    );
-    const externalOutcomes = claudeItems.map((item) => {
-      if (item.payload.type !== "claude") return outcomeFromExternalResult(item, undefined);
-      const migrationItem = item.payload.migrationItem;
-      return outcomeFromExternalResult(
-        item,
-        completed.itemTypeResults.find((result) => result.itemType === migrationItem.itemType),
-      );
-    });
-    const nativeOutcomes: AgentImportItemOutcome[] = [];
-    for (const [index, item] of nativeItems.entries()) {
-      emitProgress({
-        activeItemLabel: item.label,
+    return Effect.gen({ self: this }, function* () {
+      const selectedItems = yield* selected;
+      this.emitProgress({
+        activeItemLabel: selectedItems[0]?.label ?? null,
         completed: false,
-        completedItems: claudeItems.length + index,
-        importId,
-        sourceKind: "claude-code",
-        totalItems: selectedItems.length,
-      });
-      nativeOutcomes.push(
-        await this.applyNativeItem("claude-code", item, importedThreadIds, startedAt),
-      );
-    }
-    const outcomes = selectedItems.map((item) => {
-      const outcome =
-        externalOutcomes.find((candidate) => candidate.itemId === item.id) ??
-        nativeOutcomes.find((candidate) => candidate.itemId === item.id);
-      if (!outcome) throw new Error(`Missing import outcome for ${item.label}`);
-      return outcome;
-    });
-    const result: AgentImportResult = {
-      completedAt: startedAt,
-      importId,
-      importedThreadIds,
-      outcomes,
-      sourceKind: "claude-code",
-      sourceLabel: pendingScan.scan.sourceLabel,
-      startedAt,
-    };
-    this.emitCompletedProgress(result, selectedItems.length, emitProgress);
-    return result;
-  }
-
-  private async applyNativeItems(
-    importId: string,
-    pendingScan: PendingImportScan,
-    selectedItems: readonly PendingImportItem[],
-    startedAt: number,
-    emitProgress: (progress: AgentImportProgress) => void,
-  ): Promise<AgentImportResult> {
-    const outcomes: AgentImportItemOutcome[] = [];
-    const importedThreadIds: string[] = [];
-    for (const [index, item] of selectedItems.entries()) {
-      emitProgress({
-        activeItemLabel: item.label,
-        completed: false,
-        completedItems: index,
+        completedItems: 0,
         importId,
         sourceKind: pendingScan.scan.sourceKind,
         totalItems: selectedItems.length,
       });
-      const outcome = await this.applyNativeItem(
-        pendingScan.scan.sourceKind,
-        item,
-        importedThreadIds,
-        startedAt,
-      );
-      outcomes.push(outcome);
-    }
-    const result: AgentImportResult = {
-      completedAt: startedAt,
-      importId,
-      importedThreadIds,
-      outcomes,
-      sourceKind: pendingScan.scan.sourceKind,
-      sourceLabel: pendingScan.scan.sourceLabel,
-      startedAt,
-    };
-    this.emitCompletedProgress(result, selectedItems.length, emitProgress);
-    return result;
+      const result =
+        pendingScan.scan.sourceKind === "claude-code"
+          ? yield* this.applyClaudeItems(importId, pendingScan, selectedItems, startedAt)
+          : yield* this.applyNativeItems(importId, pendingScan, selectedItems, startedAt);
+      if (result.importedThreadIds.length > 0) {
+        yield* this.services.sidebarSync.sync({ policy: "force", reason: "host-message" });
+      }
+      return result;
+    }).pipe(Effect.mapError((cause) => operationError("apply", cause)));
   }
 
-  private async applyNativeItem(
+  private applyClaudeItems(
+    importId: string,
+    pendingScan: PendingImportScan,
+    selectedItems: readonly PendingImportItem[],
+    startedAt: number,
+  ) {
+    return Effect.gen({ self: this }, function* () {
+      const claudeItems = selectedItems.filter((item) => item.payload.type === "claude");
+      const nativeItems = selectedItems.filter((item) => item.payload.type !== "claude");
+      const migrationItems = claudeItems.flatMap((item) =>
+        item.payload.type === "claude" ? [item.payload.migrationItem] : [],
+      );
+      const completed =
+        migrationItems.length > 0
+          ? yield* this.services.externalImport.run(migrationItems, (progress) =>
+              Effect.sync(() => {
+                const completedTypes = new Set(
+                  progress.itemTypeResults.map((result) => result.itemType),
+                );
+                const activeItem = claudeItems.find(
+                  (item) =>
+                    item.payload.type === "claude" &&
+                    !completedTypes.has(item.payload.migrationItem.itemType),
+                );
+                this.emitProgress({
+                  activeItemLabel: activeItem?.label ?? "Importing Claude Code data",
+                  completed: false,
+                  completedItems: Math.min(completedTypes.size, claudeItems.length),
+                  importId,
+                  sourceKind: "claude-code",
+                  totalItems: selectedItems.length,
+                });
+              }),
+            )
+          : { importId, itemTypeResults: [] };
+      const importedThreadIds = completed.itemTypeResults.flatMap((result) =>
+        result.itemType === "SESSIONS"
+          ? result.successes.flatMap((success) => (success.target ? [success.target] : []))
+          : [],
+      );
+      yield* Effect.forEach(
+        importedThreadIds,
+        (threadId) =>
+          this.services.threadDirectory
+            .resolve({
+              threadId,
+              fidelity: "full",
+              hostId: this.services.gateway.localHostId,
+            })
+            .pipe(
+              Effect.flatMap((entry) =>
+                entry
+                  ? Effect.void
+                  : Effect.fail(
+                      operationError(
+                        "apply",
+                        new Error("Imported Thread was not found: " + threadId),
+                      ),
+                    ),
+              ),
+              Effect.catch((cause) =>
+                Effect.sync(() => {
+                  this.logger.warn("Could not materialize an imported Claude Code Thread", {
+                    threadId,
+                    error: cause,
+                  });
+                }),
+              ),
+            ),
+        { concurrency: 1, discard: true },
+      );
+
+      const externalOutcomes = claudeItems.map((item) => {
+        if (item.payload.type !== "claude") return outcomeFromExternalResult(item, undefined);
+        const migrationItem = item.payload.migrationItem;
+        return outcomeFromExternalResult(
+          item,
+          completed.itemTypeResults.find((result) => result.itemType === migrationItem.itemType),
+        );
+      });
+      const nativeOutcomes: AgentImportItemOutcome[] = [];
+      for (const [index, item] of nativeItems.entries()) {
+        this.emitProgress({
+          activeItemLabel: item.label,
+          completed: false,
+          completedItems: claudeItems.length + index,
+          importId,
+          sourceKind: "claude-code",
+          totalItems: selectedItems.length,
+        });
+        nativeOutcomes.push(
+          yield* this.applyNativeItem("claude-code", item, importedThreadIds, startedAt),
+        );
+      }
+      const outcomes = selectedItems.map((item) => {
+        const outcome =
+          externalOutcomes.find((candidate) => candidate.itemId === item.id) ??
+          nativeOutcomes.find((candidate) => candidate.itemId === item.id);
+        if (!outcome) throw new Error("Missing import outcome for " + item.label);
+        return outcome;
+      });
+      const result: AgentImportResult = {
+        completedAt: startedAt,
+        importId,
+        importedThreadIds,
+        outcomes,
+        sourceKind: "claude-code",
+        sourceLabel: pendingScan.scan.sourceLabel,
+        startedAt,
+      };
+      this.emitCompletedProgress(result, selectedItems.length);
+      return result;
+    });
+  }
+
+  private applyNativeItems(
+    importId: string,
+    pendingScan: PendingImportScan,
+    selectedItems: readonly PendingImportItem[],
+    startedAt: number,
+  ) {
+    return Effect.gen({ self: this }, function* () {
+      const outcomes: AgentImportItemOutcome[] = [];
+      const importedThreadIds: string[] = [];
+      for (const [index, item] of selectedItems.entries()) {
+        this.emitProgress({
+          activeItemLabel: item.label,
+          completed: false,
+          completedItems: index,
+          importId,
+          sourceKind: pendingScan.scan.sourceKind,
+          totalItems: selectedItems.length,
+        });
+        outcomes.push(
+          yield* this.applyNativeItem(
+            pendingScan.scan.sourceKind,
+            item,
+            importedThreadIds,
+            startedAt,
+          ),
+        );
+      }
+      const result: AgentImportResult = {
+        completedAt: startedAt,
+        importId,
+        importedThreadIds,
+        outcomes,
+        sourceKind: pendingScan.scan.sourceKind,
+        sourceLabel: pendingScan.scan.sourceLabel,
+        startedAt,
+      };
+      this.emitCompletedProgress(result, selectedItems.length);
+      return result;
+    });
+  }
+
+  private applyNativeItem(
     sourceKind: AgentImportSourceKind,
     item: PendingImportItem,
     importedThreadIds: string[],
     startedAt: number,
-  ): Promise<AgentImportItemOutcome> {
+  ): Effect.Effect<AgentImportItemOutcome> {
     if (item.payload.type === "sessions") {
-      return await this.importSessions(
+      return this.importSessions(
         sourceKind,
         item,
         item.payload.sessions,
@@ -1141,12 +1225,28 @@ export class AgentImportOperations {
       );
     }
     if (item.payload.type === "copies") {
-      return await this.importCopies(item, item.payload.copies);
+      const copies = item.payload.copies;
+      return Effect.tryPromise(() => this.importCopies(item, copies)).pipe(
+        Effect.catch((cause) => Effect.succeed(this.failedItemOutcome(item, cause))),
+      );
     }
     if (item.payload.type === "config") {
-      try {
-        const revalidated = await revalidateConfigEdits(this.runtimeStateHome, item.payload.edits);
-        await this.applyConfigEdits(revalidated.edits);
+      const edits = item.payload.edits;
+      return Effect.gen({ self: this }, function* () {
+        const revalidated = yield* Effect.tryPromise(() =>
+          revalidateConfigEdits(this.runtimeStateHome, edits),
+        );
+        if (revalidated.edits.length > 0) {
+          yield* this.services.gateway.requestLocal("config/batchWrite", {
+            edits: revalidated.edits.map((edit) => ({
+              keyPath: edit.keyPath,
+              mergeStrategy: "upsert" as const,
+              value:
+                edit.value as ClientRequestParamsByMethod["config/batchWrite"]["edits"][number]["value"],
+            })),
+            reloadUserConfig: true,
+          });
+        }
         return {
           failureCount: 0,
           itemId: item.id,
@@ -1156,19 +1256,9 @@ export class AgentImportOperations {
           skippedCount: revalidated.skippedCount,
           successCount: revalidated.successCount,
         };
-      } catch (error) {
-        return {
-          failureCount: item.count,
-          itemId: item.id,
-          kind: item.kind,
-          label: item.label,
-          messages: [error instanceof Error ? error.message : String(error)],
-          skippedCount: 0,
-          successCount: 0,
-        };
-      }
+      }).pipe(Effect.catch((cause) => Effect.succeed(this.failedItemOutcome(item, cause))));
     }
-    return {
+    return Effect.succeed({
       failureCount: item.count,
       itemId: item.id,
       kind: item.kind,
@@ -1176,57 +1266,130 @@ export class AgentImportOperations {
       messages: ["Unsupported native import item"],
       skippedCount: 0,
       successCount: 0,
-    };
+    });
   }
 
-  private async importSessions(
+  private importSessions(
     sourceKind: AgentImportSourceKind,
     item: PendingImportItem,
     sessions: readonly NativeSessionCandidate[],
     importedThreadIds: string[],
     startedAt: number,
-  ): Promise<AgentImportItemOutcome> {
-    const ledger = await readSessionLedger(this.runtimeStateHome);
-    const nextEntries = [...ledger.sessions];
-    const messages: string[] = [];
-    let successCount = 0;
-    let skippedCount = 0;
+  ): Effect.Effect<AgentImportItemOutcome> {
+    return Effect.gen({ self: this }, function* () {
+      const ledger = yield* Effect.tryPromise(() => readSessionLedger(this.runtimeStateHome));
+      const nextEntries = [...ledger.sessions];
+      const messages: string[] = [];
+      let successCount = 0;
+      let skippedCount = 0;
 
-    for (const session of sessions) {
-      try {
-        if (hasImportedSession({ version: 1, sessions: nextEntries }, sourceKind, session)) {
-          skippedCount += 1;
-          continue;
-        }
-        if ((await hashFile(session.sourcePath)) !== session.sourceContentSha256) {
-          throw new Error(
-            `${session.title ?? session.sourceThreadId}: source changed after scanning`,
-          );
-        }
-        const targetThreadId = await this.forkSession(session);
-        importedThreadIds.push(targetThreadId);
-        nextEntries.push({
-          importedAt: startedAt,
-          sourceContentSha256: session.sourceContentSha256,
-          sourceKind,
-          sourcePath: session.sourcePath,
-          targetThreadId,
-        });
-        successCount += 1;
-      } catch (error) {
-        messages.push(error instanceof Error ? error.message : String(error));
+      for (const session of sessions) {
+        yield* Effect.gen({ self: this }, function* () {
+          if (hasImportedSession({ version: 1, sessions: nextEntries }, sourceKind, session)) {
+            skippedCount += 1;
+            return;
+          }
+          const currentHash = yield* Effect.tryPromise(() => hashFile(session.sourcePath));
+          if (currentHash !== session.sourceContentSha256) {
+            return yield* Effect.fail(
+              operationError(
+                "apply",
+                new Error(
+                  (session.title ?? session.sourceThreadId) + ": source changed after scanning",
+                ),
+              ),
+            );
+          }
+          const targetThreadId = yield* this.importSession(session);
+          importedThreadIds.push(targetThreadId);
+          nextEntries.push({
+            importedAt: startedAt,
+            sourceContentSha256: session.sourceContentSha256,
+            sourceKind,
+            sourcePath: session.sourcePath,
+            targetThreadId,
+          });
+          successCount += 1;
+        }).pipe(
+          Effect.catch((cause) =>
+            Effect.sync(() => {
+              messages.push(this.errorMessage(cause));
+            }),
+          ),
+        );
       }
-    }
-    if (successCount > 0) await writeSessionLedger(this.runtimeStateHome, nextEntries);
-    return {
-      failureCount: messages.length,
-      itemId: item.id,
-      kind: item.kind,
-      label: item.label,
-      messages,
-      skippedCount,
-      successCount,
-    };
+      if (successCount > 0) {
+        yield* Effect.tryPromise(() => writeSessionLedger(this.runtimeStateHome, nextEntries)).pipe(
+          Effect.catch((cause) =>
+            Effect.sync(() => {
+              messages.push(this.errorMessage(cause));
+            }),
+          ),
+        );
+      }
+      return {
+        failureCount: messages.length,
+        itemId: item.id,
+        kind: item.kind,
+        label: item.label,
+        messages,
+        skippedCount,
+        successCount,
+      };
+    }).pipe(Effect.catch((cause) => Effect.succeed(this.failedItemOutcome(item, cause))));
+  }
+
+  private importSession(session: NativeSessionCandidate) {
+    let createdThreadId: string | null = null;
+    return Effect.gen({ self: this }, function* () {
+      const cwd = existsSync(session.cwd) ? session.cwd : homedir();
+      const response = (yield* this.services.gateway.requestLocal("thread/fork", {
+        cwd,
+        excludeTurns: false,
+        path: session.sourcePath,
+        threadId: session.sourceThreadId,
+        threadSource: "user",
+        config:
+          buildCodexThreadConfigOverrides() as ClientRequestParamsByMethod["thread/fork"]["config"],
+      })) as unknown as ThreadForkResponse;
+      const threadId = response.thread.id.trim();
+      if (!threadId)
+        return yield* Effect.fail(
+          operationError("apply", new Error("Imported rollout did not return a Thread id")),
+        );
+      createdThreadId = threadId;
+      const effectiveCwd =
+        resolveCodexCanonicalHydratedCwd({
+          fallbackCwd: cwd,
+          requestedCwd: cwd,
+          responseCwd: response.cwd,
+          threadCwd: response.thread.cwd,
+        }) ?? cwd;
+      yield* this.services.threadDirectory.acceptImportResult({
+        response: {
+          ...response,
+          thread: { ...response.thread, cwd: effectiveCwd },
+        },
+        executionHostId: this.services.gateway.localHostId,
+        fallbackCwd: effectiveCwd,
+      });
+      if (session.title && !response.thread.name?.trim()) {
+        yield* this.services.threadTitles.setRequired({
+          threadId,
+          name: session.title,
+          normalization: "trim",
+        });
+      }
+      return threadId;
+    }).pipe(
+      Effect.onError(() =>
+        createdThreadId
+          ? this.services.gateway
+              .requestLocal("thread/delete", { threadId: createdThreadId })
+              .pipe(Effect.ignore)
+          : Effect.void,
+      ),
+    );
   }
 
   private async importCopies(
@@ -1242,7 +1405,7 @@ export class AgentImportOperations {
         if (status === "imported") successCount += 1;
         else skippedCount += 1;
       } catch (error) {
-        messages.push(`${copy.label}: ${error instanceof Error ? error.message : String(error)}`);
+        messages.push(copy.label + ": " + this.errorMessage(error));
       }
     }
     return {
@@ -1256,12 +1419,8 @@ export class AgentImportOperations {
     };
   }
 
-  private emitCompletedProgress(
-    result: AgentImportResult,
-    totalItems: number,
-    emitProgress: (progress: AgentImportProgress) => void,
-  ): void {
-    emitProgress({
+  private emitCompletedProgress(result: AgentImportResult, totalItems: number): void {
+    this.emitProgress({
       activeItemLabel: null,
       completed: true,
       completedItems: totalItems,
@@ -1270,7 +1429,36 @@ export class AgentImportOperations {
       totalItems,
     });
   }
+
+  private emitProgress(progress: AgentImportProgress): void {
+    this.services.events.publish({ kind: "agentImportProgress", value: progress });
+  }
+
+  private failedItemOutcome(item: PendingImportItem, cause: unknown): AgentImportItemOutcome {
+    return {
+      failureCount: item.count,
+      itemId: item.id,
+      kind: item.kind,
+      label: item.label,
+      messages: [this.errorMessage(cause)],
+      skippedCount: 0,
+      successCount: 0,
+    };
+  }
+
+  private errorMessage(cause: unknown): string {
+    if (cause instanceof Error && cause.message.trim()) return cause.message;
+    if (typeof cause === "object" && cause !== null && "cause" in cause && cause.cause !== cause) {
+      return this.errorMessage(cause.cause);
+    }
+    return String(cause);
+  }
 }
+
+export const makeAgentImportOperations = (
+  options: AgentImportFileConfiguration,
+  services: AgentImportEffectServices,
+) => new AgentImportOperations(options, services);
 
 export const agentImportInternals = {
   SAFE_CONFIG_KEYS,

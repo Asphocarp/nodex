@@ -151,6 +151,7 @@ const makeHarness = (responseTurnId = "turn-a") => {
       } as never),
     descendants: () => Effect.die("unused"),
     acceptRollbackResult: () => Effect.die("unused"),
+    acceptImportResult: () => Effect.die("unused"),
     acceptForkResult: ({ sourceThreadId: acceptedSource, response }) =>
       Effect.sync(() => {
         order.push("directory:accept");

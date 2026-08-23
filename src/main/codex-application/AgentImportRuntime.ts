@@ -2,40 +2,27 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as FiberSet from "effect/FiberSet";
 import * as HashMap from "effect/HashMap";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import type * as Scope from "effect/Scope";
 import type {
   AgentImportApplyInput,
-  AgentImportProgress,
   AgentImportResult,
   AgentImportScan,
   AgentImportSourceKind,
 } from "../../shared/agent-import";
-import type { PendingImportScan } from "../codex/agent-import-operations";
-
-export class AgentImportOperationsError extends Data.TaggedError("AgentImportOperationsError")<{
-  readonly operation: "apply" | "id" | "scan";
-  readonly cause: unknown;
-}> {}
-
-export interface AgentImportOperationsAdapter {
-  readonly scan: (
-    sourceKind: AgentImportSourceKind,
-    selectedSourceHome: string | undefined,
-    now: number,
-  ) => Effect.Effect<PendingImportScan, AgentImportOperationsError>;
-  readonly apply: (
-    input: AgentImportApplyInput,
-    scan: PendingImportScan,
-    importId: string,
-    startedAt: number,
-    emitProgress: (progress: AgentImportProgress) => void,
-  ) => Effect.Effect<AgentImportResult, AgentImportOperationsError>;
-  readonly makeImportId: Effect.Effect<string, AgentImportOperationsError>;
-}
+import {
+  makeAgentImportOperations,
+  type AgentImportFileConfiguration,
+  type PendingImportScan,
+} from "../codex/agent-import-operations";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
+import { CodexExternalAgentImportRuntime } from "./CodexExternalAgentImportRuntime";
+import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
+import { CodexThreadDirectory } from "./CodexThreadDirectory";
+import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 
 export class AgentImportRuntimeError extends Data.TaggedError("AgentImportRuntimeError")<{
   readonly reason: "apply-failed" | "closed" | "concurrent-import" | "expired-scan" | "scan-failed";
@@ -66,6 +53,8 @@ export class AgentImportRuntime extends Context.Service<
   }
 >()("nodex/main/codex-application/AgentImportRuntime") {}
 
+export type AgentImportRuntimeOptions = AgentImportFileConfiguration;
+
 type ApplyAdmission =
   | { readonly _tag: "admitted"; readonly scan: PendingImportScan }
   | { readonly _tag: "closed" }
@@ -83,10 +72,27 @@ const runtimeError = (
 ): AgentImportRuntimeError => new AgentImportRuntimeError({ reason, cause });
 
 export const make = (
-  operations: AgentImportOperationsAdapter,
-  emitProgress: (progress: AgentImportProgress) => Effect.Effect<void>,
-): Effect.Effect<AgentImportRuntime["Service"], never, Scope.Scope> =>
+  options: AgentImportRuntimeOptions,
+): Effect.Effect<
+  AgentImportRuntime["Service"],
+  never,
+  | CodexApplicationEventHub
+  | CodexExternalAgentImportRuntime
+  | CodexGateway
+  | CodexSidebarSyncRuntime
+  | CodexThreadDirectory
+  | CodexThreadTitlePersistence
+  | Scope.Scope
+> =>
   Effect.gen(function* () {
+    const operations = makeAgentImportOperations(options, {
+      events: yield* CodexApplicationEventHub,
+      externalImport: yield* CodexExternalAgentImportRuntime,
+      gateway: yield* CodexGateway,
+      sidebarSync: yield* CodexSidebarSyncRuntime,
+      threadDirectory: yield* CodexThreadDirectory,
+      threadTitles: yield* CodexThreadTitlePersistence,
+    });
     const state = yield* Ref.make<AgentImportState>({
       applying: false,
       closed: false,
@@ -99,18 +105,12 @@ export const make = (
         scans: HashMap.empty(),
       }),
     );
-    const progressFibers = yield* FiberSet.make();
-    const runProgress = yield* FiberSet.runtime(progressFibers)();
-    const reportProgress = (progress: AgentImportProgress): void => {
-      runProgress(emitProgress(progress));
-    };
-
     const scan = (sourceKind: AgentImportSourceKind, selectedSourceHome?: string) =>
       Effect.gen(function* () {
         const startedAt = yield* Clock.currentTimeMillis;
         const prepared = yield* operations
           .scan(sourceKind, selectedSourceHome, startedAt)
-          .pipe(Effect.mapError((error) => runtimeError("scan-failed", error.cause)));
+          .pipe(Effect.mapError((cause) => runtimeError("scan-failed", cause)));
         const committed = yield* Ref.modify(state, (current) => {
           if (current.closed) return [false, current] as const;
           const currentScans = pruneExpired(current, startedAt).scans;
@@ -171,12 +171,10 @@ export const make = (
         }
 
         return yield* Effect.gen(function* () {
-          const importId = yield* operations.makeImportId.pipe(
-            Effect.mapError((error) => runtimeError("apply-failed", error.cause)),
-          );
+          const importId = yield* Effect.sync(() => operations.makeImportId());
           const result = yield* operations
-            .apply(input, admission.scan, importId, startedAt, reportProgress)
-            .pipe(Effect.mapError((error) => runtimeError("apply-failed", error.cause)));
+            .apply(input, admission.scan, importId, startedAt)
+            .pipe(Effect.mapError((cause) => runtimeError("apply-failed", cause)));
           const completedAt = yield* Clock.currentTimeMillis;
           const committed = yield* Ref.modify(state, (current) => {
             if (current.closed) return [false, current] as const;

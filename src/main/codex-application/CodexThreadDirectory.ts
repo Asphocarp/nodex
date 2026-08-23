@@ -90,6 +90,12 @@ export class CodexThreadDirectory extends Context.Service<
       readonly sourceThreadId: string;
       readonly response: ThreadForkResponse;
     }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
+    /** Accepts an imported rollout as a standalone local Thread. */
+    readonly acceptImportResult: (input: {
+      readonly response: ThreadForkResponse;
+      readonly fallbackCwd: string;
+      readonly executionHostId?: string;
+    }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
     /** Links a newly accepted protocol Thread to its exact Session, then hydrates canonical state. */
     readonly acceptSessionStart: (input: {
       readonly response: ThreadStartResponse;
@@ -739,6 +745,39 @@ export const make: Effect.Effect<
     });
   });
 
+  const acceptImportResult = Effect.fn("CodexThreadDirectory.acceptImportResult")(
+    function* (input: {
+      readonly response: ThreadForkResponse;
+      readonly fallbackCwd: string;
+      readonly executionHostId?: string;
+    }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
+      const thread = normalizeThread(input.response.thread);
+      const threadId = thread.id.trim();
+      if (!threadId || threadId !== thread.id) {
+        return yield* error(
+          "materialize",
+          threadId,
+          new Error("Imported rollout did not return a valid Thread id"),
+        );
+      }
+      const durable = yield* persistObservation({
+        thread,
+        executionProfile: null,
+        managedWorktreePath: null,
+        executionHostId: input.executionHostId,
+        fallbackCwd: input.fallbackCwd,
+        hasUnreadTurn: false,
+      });
+      return yield* hydrate({
+        durable,
+        thread,
+        pagination: fullPagination(thread),
+        pendingRequests: [],
+        hasUnreadTurn: false,
+      });
+    },
+  );
+
   const acceptSessionStart = Effect.fn("CodexThreadDirectory.acceptSessionStart")(
     function* (input: {
       readonly response: ThreadStartResponse;
@@ -810,6 +849,7 @@ export const make: Effect.Effect<
     descendants,
     acceptRollbackResult: (input) => runOwned(acceptRollbackResult(input)),
     acceptForkResult: (input) => runOwned(acceptForkResult(input)),
+    acceptImportResult: (input) => runOwned(acceptImportResult(input)),
     acceptSessionStart: (input) => runOwned(acceptSessionStart(input)),
   });
 });

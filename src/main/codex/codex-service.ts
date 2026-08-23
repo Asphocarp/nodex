@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { mkdir, open as openFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import * as path from "node:path";
@@ -12,9 +12,6 @@ import type {
 } from "@nodex/codex-app-server-protocol";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
-import type { ExternalAgentConfigImportCompletedNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportCompletedNotification";
-import type { ExternalAgentConfigImportProgressNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportProgressNotification";
-import type { ExternalAgentConfigMigrationItem } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItem";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
@@ -23,7 +20,6 @@ import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/Thr
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
-import type { ThreadDeleteResponse } from "@nodex/codex-app-server-protocol/v2/ThreadDeleteResponse";
 import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
 import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
 import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSource";
@@ -129,7 +125,6 @@ import type {
 } from "../codex-application/ExecutionHostRuntime";
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import type { CodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
-import type { CodexExternalAgentImportRuntimePromiseAdapter } from "../codex-application/CodexExternalAgentImportRuntimePromiseAdapter";
 import type { CodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
 import type { CodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import type { CodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
@@ -345,8 +340,6 @@ import {
 import type { ResolvedCodexRuntime } from "./codex-runtime";
 import type { DesktopToolRuntimePromiseAdapter } from "../host-runtime/DesktopToolRuntime";
 import type { AgentExecutionProfile, AgentProviderCatalog } from "../../shared/agent-runtime";
-import type { AgentImportProgress } from "../../shared/agent-import";
-import type { NativeSessionCandidate } from "./agent-import-operations";
 import {
   cleanCodexAutoTitlePrompt,
   CODEX_THREAD_TITLE_PROMPT_MAX_CHARS,
@@ -790,7 +783,6 @@ type CodexServiceOptions = {
   sidebarSync: CodexSidebarSyncRuntimePromiseAdapter;
   sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   gitProbe: CodexGitProbePromiseAdapter;
-  externalAgentImport: CodexExternalAgentImportRuntimePromiseAdapter;
   heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
   dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
@@ -1423,7 +1415,6 @@ export class CodexService {
   private readonly sidebarSync: CodexSidebarSyncRuntimePromiseAdapter;
   private readonly sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   private readonly gitProbe: CodexGitProbePromiseAdapter;
-  private readonly externalAgentImport: CodexExternalAgentImportRuntimePromiseAdapter;
   private readonly heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   private readonly structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
   private readonly dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
@@ -1522,7 +1513,6 @@ export class CodexService {
     this.sidebarSync = options.sidebarSync;
     this.sidebarSweep = options.sidebarSweep;
     this.gitProbe = options.gitProbe;
-    this.externalAgentImport = options.externalAgentImport;
     this.heartbeatTurnCompletion = options.heartbeatTurnCompletion;
     this.structuredThreadTitle = options.structuredThreadTitle;
     this.dynamicToolsLaunch = options.dynamicToolsLaunch;
@@ -3367,120 +3357,6 @@ export class CodexService {
     readonly verifiedBuiltinFullAccess: boolean;
   }> {
     return await this.permissions.resolve({ projectId, requestedMode: mode, workspaceRoots });
-  }
-
-  projectAgentImportProgress(progress: AgentImportProgress): void {
-    this.applicationEvents.publish({ kind: "agentImportProgress", value: progress });
-  }
-
-  async importClaudeAgentConfiguration(
-    migrationItems: readonly ExternalAgentConfigMigrationItem[],
-    onProgress: (progress: ExternalAgentConfigImportProgressNotification) => void,
-  ): Promise<ExternalAgentConfigImportCompletedNotification> {
-    const completed = await this.externalAgentImport.run(migrationItems, onProgress);
-    await this.materializeImportedClaudeThreads(completed);
-    return completed;
-  }
-
-  private async materializeImportedClaudeThreads(
-    completed: ExternalAgentConfigImportCompletedNotification,
-  ): Promise<void> {
-    const importedThreadIds = completed.itemTypeResults.flatMap((result) =>
-      result.itemType === "SESSIONS"
-        ? result.successes.flatMap((success) => (success.target ? [success.target] : []))
-        : [],
-    );
-    for (const threadId of importedThreadIds) {
-      try {
-        const response = await this.client.request<"thread/read", ThreadReadResponse>(
-          "thread/read",
-          {
-            includeTurns: true,
-            threadId,
-          },
-        );
-        await this.materializeImportedThread(response.thread);
-      } catch (error) {
-        this.logger.warn("Could not materialize an imported Claude Code thread", {
-          error: error instanceof Error ? error.message : String(error),
-          threadId,
-        });
-      }
-    }
-    await this.sidebarSync.sync({ policy: "force", reason: "host-message" });
-  }
-
-  async importRolloutSession(session: NativeSessionCandidate): Promise<string> {
-    await this.ensureClientReady();
-    const cwd = existsSync(session.cwd) ? session.cwd : this.projectlessHomeDirectory();
-    const fork = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", {
-      cwd,
-      excludeTurns: false,
-      path: session.sourcePath,
-      threadId: session.sourceThreadId,
-      threadSource: "user",
-      config: buildCodexThreadConfigOverrides(),
-    });
-    const threadId = fork.thread.id.trim();
-    if (!threadId) throw new Error("Imported rollout did not return a thread id");
-
-    try {
-      const projectedThread = {
-        ...fork.thread,
-        cwd:
-          resolveCodexCanonicalHydratedCwd({
-            fallbackCwd: cwd,
-            requestedCwd: cwd,
-            responseCwd: fork.cwd,
-            threadCwd: fork.thread.cwd,
-          }) ?? cwd,
-      };
-      await this.materializeImportedThread(projectedThread);
-      if (session.title && !fork.thread.name?.trim()) {
-        await this.threadTitlePersistence.setRequired({
-          threadId,
-          name: session.title,
-          normalization: "trim",
-        });
-      }
-      return threadId;
-    } catch (error) {
-      await this.client
-        .request<"thread/delete", ThreadDeleteResponse>("thread/delete", {
-          threadId,
-        })
-        .catch(() => undefined);
-      throw error;
-    }
-  }
-
-  private async materializeImportedThread(thread: Thread): Promise<void> {
-    const cwd = thread.cwd?.trim() || this.projectlessHomeDirectory();
-    const materialized = await this.materializeThreadDetailFromThreadPayload(
-      thread,
-      {
-        cwd,
-        managedWorktreePath: null,
-        projectId: null,
-        projectlessOutputDirectory: null,
-        projectlessWorkspaceBrowserRoot: null,
-      },
-      cwd,
-    );
-    this.setConversationRecordDetail({
-      ...materialized.detail,
-      executionProfile: null,
-      projectId: null,
-    });
-    this.setConversationResumeState(thread.id, "needs_resume");
-    if (materialized.summary) {
-      const summary =
-        (await this.updateWorkspaceThreadSummary(thread.id, {
-          executionProfile: null,
-        })) ?? materialized.summary;
-      this.emitEvent({ type: "threadSummary", thread: summary });
-    }
-    await this.emitSidebarCatalogChangedForThread(thread.id, "host-message");
   }
 
   listPendingWorktrees(): readonly CodexPendingWorktreeEntry[] {

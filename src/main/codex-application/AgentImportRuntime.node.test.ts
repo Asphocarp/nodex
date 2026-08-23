@@ -1,206 +1,205 @@
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { assert, it } from "@effect/vitest";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as Fiber from "effect/Fiber";
-import * as Scope from "effect/Scope";
-import * as TestClock from "effect/testing/TestClock";
-import type { PendingImportScan } from "../codex/agent-import-operations";
-import {
-  AgentImportOperationsError,
-  make,
-  type AgentImportOperationsAdapter,
-} from "./AgentImportRuntime";
+import * as Stream from "effect/Stream";
+import type { AgentImportProgress } from "../../shared/agent-import";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { make } from "./AgentImportRuntime";
+import { CodexApplicationEventHub, type CodexApplicationEvent } from "./CodexApplicationEventHub";
+import { CodexExternalAgentImportRuntime } from "./CodexExternalAgentImportRuntime";
+import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
+import { CodexThreadDirectory, CodexThreadDirectoryError } from "./CodexThreadDirectory";
+import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 
-const preparedScan = (scanId: string, expiresAt: number): PendingImportScan => ({
-  itemsById: new Map(),
-  scan: {
-    expiresAt,
-    items: [],
-    scanId,
-    skippedAlreadyImportedSessions: 0,
-    sourceHome: "/source",
-    sourceKind: "codex",
-    sourceLabel: "Codex",
-  },
-  sourceHome: "/source",
-});
+const SOURCE_THREAD_ID = "019c0000-0000-7000-8000-000000000003";
+const TARGET_THREAD_ID = "019c0000-0000-7000-8000-000000000004";
 
-const result = (importId: string, startedAt: number) => ({
-  completedAt: startedAt,
-  importId,
-  importedThreadIds: [],
-  outcomes: [],
-  sourceKind: "codex" as const,
-  sourceLabel: "Codex",
-  startedAt,
-});
+interface ImportHarnessOptions {
+  readonly onAcceptImport?: CodexThreadDirectory["Service"]["acceptImportResult"];
+}
 
-const makeOperations = (
-  overrides: Partial<AgentImportOperationsAdapter> = {},
-): AgentImportOperationsAdapter => ({
-  scan: (_sourceKind, _selectedSourceHome, now) =>
-    Effect.succeed(preparedScan("scan-1", now + 600_000)),
-  apply: (_input, _scan, importId, startedAt) => Effect.succeed(result(importId, startedAt)),
-  makeImportId: Effect.succeed("import-1"),
-  ...overrides,
-});
-
-it.effect("owns scan expiry and consumes a successful scan exactly once", () =>
-  Effect.gen(function* () {
-    const runtime = yield* make(makeOperations(), () => Effect.void);
-    const scan = yield* runtime.scan("codex", "/source");
-    assert.strictEqual(scan.scanId, "scan-1");
-    assert.deepEqual((yield* runtime.snapshot).scanIds, ["scan-1"]);
-
-    yield* TestClock.adjust("2 seconds");
-    const imported = yield* runtime.apply({ scanId: scan.scanId, itemIds: ["item-1"] });
-    assert.strictEqual(imported.importId, "import-1");
-    assert.strictEqual(imported.startedAt, 2_000);
-    assert.strictEqual(imported.completedAt, 2_000);
-    assert.deepEqual((yield* runtime.snapshot).scanIds, []);
-
-    const expired = yield* Effect.flip(runtime.apply({ scanId: scan.scanId, itemIds: ["item-1"] }));
-    assert.strictEqual(expired.reason, "expired-scan");
-  }),
+const temporaryRoot = Effect.acquireRelease(
+  Effect.sync(() => mkdtempSync(path.join(tmpdir(), "nodex-agent-import-"))),
+  (root) => Effect.sync(() => rmSync(root, { force: true, recursive: true })),
 );
 
-it.effect("rejects a concurrent apply immediately and preserves admission after failure", () =>
-  Effect.gen(function* () {
-    const applyStarted = yield* Deferred.make<void>();
-    const releaseApply = yield* Deferred.make<void>();
-    let shouldFail = true;
-    const runtime = yield* make(
-      makeOperations({
-        apply: (_input, _scan, importId, startedAt) =>
-          Deferred.succeed(applyStarted, undefined).pipe(
-            Effect.andThen(Deferred.await(releaseApply)),
-            Effect.flatMap(() =>
-              shouldFail
-                ? Effect.fail(
-                    new AgentImportOperationsError({
-                      operation: "apply",
-                      cause: new Error("copy failed"),
-                    }),
-                  )
-                : Effect.succeed(result(importId, startedAt)),
-            ),
+const prepareSession = (root: string) => {
+  const sourceHome = path.join(root, "source", ".openinterpreter");
+  const runtimeStateHome = path.join(root, "target", "agent");
+  const cwd = path.join(root, "workspace");
+  mkdirSync(path.join(sourceHome, "sessions"), { recursive: true });
+  mkdirSync(runtimeStateHome, { recursive: true });
+  mkdirSync(cwd, { recursive: true });
+  writeFileSync(
+    path.join(sourceHome, "session_index.jsonl"),
+    `${JSON.stringify({ id: SOURCE_THREAD_ID, thread_name: "Imported conversation" })}\n`,
+  );
+  writeFileSync(
+    path.join(sourceHome, "sessions", "rollout.jsonl"),
+    `${JSON.stringify({
+      payload: { cwd, id: SOURCE_THREAD_ID },
+      type: "session_meta",
+    })}\n`,
+  );
+  return { cwd, runtimeStateHome, sourceHome };
+};
+
+const makeHarness = (runtimeStateHome: string, cwd: string, options: ImportHarnessOptions = {}) => {
+  const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
+  const acceptedImports: unknown[] = [];
+  const titles: unknown[] = [];
+  const events: CodexApplicationEvent[] = [];
+  let sidebarSyncs = 0;
+
+  const requestLocal = ((method: string, params: unknown) =>
+    Effect.sync(() => {
+      requests.push({ method, params });
+      if (method === "thread/fork") {
+        return {
+          cwd,
+          thread: { cwd, id: TARGET_THREAD_ID, name: null },
+        };
+      }
+      if (method === "thread/delete") return {};
+      throw new Error(`Unexpected local request: ${method}`);
+    })) as CodexGateway["Service"]["requestLocal"];
+  const gateway = CodexGateway.of({
+    events: Stream.empty,
+    localHostId: "local",
+    requestLocal,
+  } as unknown as CodexGateway["Service"]);
+  const directory = CodexThreadDirectory.of({
+    acceptImportResult:
+      options.onAcceptImport ??
+      ((input) =>
+        Effect.sync(() => {
+          acceptedImports.push(input);
+          return {} as never;
+        })),
+  } as CodexThreadDirectory["Service"]);
+  const titlePersistence = CodexThreadTitlePersistence.of({
+    setRequired: (input: Parameters<CodexThreadTitlePersistence["Service"]["setRequired"]>[0]) =>
+      Effect.sync(() => {
+        titles.push(input);
+        return true;
+      }),
+  } as unknown as CodexThreadTitlePersistence["Service"]);
+  const sidebar = CodexSidebarSyncRuntime.of({
+    sync: () =>
+      Effect.sync(() => {
+        sidebarSyncs += 1;
+        return {} as never;
+      }),
+  } as unknown as CodexSidebarSyncRuntime["Service"]);
+
+  return {
+    acceptedImports,
+    events,
+    requests,
+    sidebarSyncs: () => sidebarSyncs,
+    titles,
+    runtime: make({ runtimeStateHome }).pipe(
+      Effect.provideService(
+        CodexApplicationEventHub,
+        CodexApplicationEventHub.of({
+          events: Stream.empty,
+          publish: (event) => events.push(event),
+        }),
+      ),
+      Effect.provideService(
+        CodexExternalAgentImportRuntime,
+        CodexExternalAgentImportRuntime.of({ run: () => Effect.die("unused") }),
+      ),
+      Effect.provideService(CodexGateway, gateway),
+      Effect.provideService(CodexSidebarSyncRuntime, sidebar),
+      Effect.provideService(CodexThreadDirectory, directory),
+      Effect.provideService(CodexThreadTitlePersistence, titlePersistence),
+    ),
+  };
+};
+
+it.effect("imports a native rollout through the canonical services and records it once", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const root = yield* temporaryRoot;
+      const source = prepareSession(root);
+      const harness = makeHarness(source.runtimeStateHome, source.cwd);
+      const runtime = yield* harness.runtime;
+
+      const scan = yield* runtime.scan("open-interpreter", source.sourceHome);
+      const sessionItem = scan.items.find((item) => item.kind === "sessions");
+      assert.isDefined(sessionItem);
+      const result = yield* runtime.apply({ scanId: scan.scanId, itemIds: [sessionItem.id] });
+
+      assert.deepEqual(result.importedThreadIds, [TARGET_THREAD_ID]);
+      assert.deepEqual(
+        harness.requests.map(({ method }) => method),
+        ["thread/fork"],
+      );
+      assert.strictEqual(harness.acceptedImports.length, 1);
+      assert.deepEqual(harness.titles, [
+        { name: "Imported conversation", normalization: "trim", threadId: TARGET_THREAD_ID },
+      ]);
+      assert.strictEqual(harness.sidebarSyncs(), 1);
+      const progress = harness.events.flatMap((event): AgentImportProgress[] =>
+        event.kind === "agentImportProgress" ? [event.value] : [],
+      );
+      assert.isFalse(progress[0]?.completed ?? true);
+      assert.isTrue(progress.at(-1)?.completed ?? false);
+
+      const ledger = JSON.parse(
+        readFileSync(
+          path.join(source.runtimeStateHome, "imports", "session-imports-v1.json"),
+          "utf8",
+        ),
+      ) as { readonly sessions: ReadonlyArray<{ readonly targetThreadId: string }> };
+      assert.deepEqual(
+        ledger.sessions.map(({ targetThreadId }) => targetThreadId),
+        [TARGET_THREAD_ID],
+      );
+      const consumed = yield* Effect.flip(
+        runtime.apply({ scanId: scan.scanId, itemIds: [sessionItem.id] }),
+      );
+      assert.strictEqual(consumed.reason, "expired-scan");
+      const secondScan = yield* runtime.scan("open-interpreter", source.sourceHome);
+      assert.isFalse(secondScan.items.some((item) => item.kind === "sessions"));
+      assert.strictEqual(secondScan.skippedAlreadyImportedSessions, 1);
+    }),
+  ),
+);
+
+it.effect("deletes a fork when canonical materialization fails", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const root = yield* temporaryRoot;
+      const source = prepareSession(root);
+      const harness = makeHarness(source.runtimeStateHome, source.cwd, {
+        onAcceptImport: () =>
+          Effect.fail(
+            new CodexThreadDirectoryError({
+              operation: "materialize",
+              threadId: TARGET_THREAD_ID,
+              cause: new Error("projection failed"),
+            }),
           ),
-      }),
-      () => Effect.void,
-    );
-    const scan = yield* runtime.scan("codex");
-    const first = yield* Effect.forkChild(
-      runtime.apply({ scanId: scan.scanId, itemIds: ["item-1"] }).pipe(Effect.flip),
-    );
-    yield* Deferred.await(applyStarted);
+      });
+      const runtime = yield* harness.runtime;
+      const scan = yield* runtime.scan("open-interpreter", source.sourceHome);
+      const sessionItem = scan.items.find((item) => item.kind === "sessions");
+      assert.isDefined(sessionItem);
 
-    const concurrent = yield* Effect.flip(
-      runtime.apply({ scanId: scan.scanId, itemIds: ["item-1"] }),
-    );
-    assert.strictEqual(concurrent.reason, "concurrent-import");
-    yield* Deferred.succeed(releaseApply, undefined);
-    assert.strictEqual((yield* Fiber.join(first)).reason, "apply-failed");
-    assert.isFalse((yield* runtime.snapshot).applying);
-    assert.deepEqual((yield* runtime.snapshot).scanIds, [scan.scanId]);
+      const result = yield* runtime.apply({ scanId: scan.scanId, itemIds: [sessionItem.id] });
 
-    shouldFail = false;
-    const second = yield* runtime.apply({ scanId: scan.scanId, itemIds: ["item-1"] });
-    assert.strictEqual(second.importId, "import-1");
-  }),
-);
-
-it.effect("prunes an expired preview with the Effect clock before apply admission", () =>
-  Effect.gen(function* () {
-    const runtime = yield* make(
-      makeOperations({
-        scan: (_sourceKind, _selectedSourceHome, now) =>
-          Effect.succeed(preparedScan("short-scan", now + 1_000)),
-      }),
-      () => Effect.void,
-    );
-    const scan = yield* runtime.scan("codex");
-    yield* TestClock.adjust("1 second");
-
-    const expired = yield* Effect.flip(runtime.apply({ scanId: scan.scanId, itemIds: [] }));
-    assert.strictEqual(expired.reason, "expired-scan");
-    assert.deepEqual((yield* runtime.snapshot).scanIds, []);
-  }),
-);
-
-it.effect("rejects a late scan result after the owning Main Scope closes", () =>
-  Effect.gen(function* () {
-    const scanStarted = yield* Deferred.make<void>();
-    const releaseScan = yield* Deferred.make<void>();
-    const scope = yield* Scope.make();
-    const runtime = yield* make(
-      makeOperations({
-        scan: (_sourceKind, _selectedSourceHome, now) =>
-          Deferred.succeed(scanStarted, undefined).pipe(
-            Effect.andThen(Deferred.await(releaseScan)),
-            Effect.as(preparedScan("late-scan", now + 600_000)),
-          ),
-      }),
-      () => Effect.void,
-    ).pipe(Effect.provideService(Scope.Scope, scope));
-    const scanning = yield* Effect.forkChild(runtime.scan("codex").pipe(Effect.flip));
-    yield* Deferred.await(scanStarted);
-
-    yield* Scope.close(scope, Exit.void);
-    yield* Deferred.succeed(releaseScan, undefined);
-
-    assert.strictEqual((yield* Fiber.join(scanning)).reason, "closed");
-    const snapshot = yield* runtime.snapshot;
-    assert.isTrue(snapshot.closed);
-    assert.deepEqual(snapshot.scanIds, []);
-  }),
-);
-
-it.effect("fences late apply completion and progress callbacks after Scope close", () =>
-  Effect.gen(function* () {
-    const applyStarted = yield* Deferred.make<void>();
-    const releaseApply = yield* Deferred.make<void>();
-    const progress: string[] = [];
-    const scope = yield* Scope.make();
-    const runtime = yield* make(
-      makeOperations({
-        apply: (_input, _scan, importId, startedAt, emitProgress) =>
-          Effect.gen(function* () {
-            emitProgress({
-              activeItemLabel: "early",
-              completed: false,
-              completedItems: 0,
-              importId,
-              sourceKind: "codex",
-              totalItems: 1,
-            });
-            yield* Deferred.succeed(applyStarted, undefined);
-            yield* Deferred.await(releaseApply);
-            emitProgress({
-              activeItemLabel: "late",
-              completed: false,
-              completedItems: 0,
-              importId,
-              sourceKind: "codex",
-              totalItems: 1,
-            });
-            return result(importId, startedAt);
-          }),
-      }),
-      (update) => Effect.sync(() => progress.push(update.activeItemLabel ?? "completed")),
-    ).pipe(Effect.provideService(Scope.Scope, scope));
-    const scan = yield* runtime.scan("codex");
-    const applying = yield* Effect.forkChild(
-      runtime.apply({ scanId: scan.scanId, itemIds: ["item-1"] }).pipe(Effect.flip),
-    );
-    yield* Deferred.await(applyStarted);
-    yield* Effect.yieldNow;
-    assert.deepEqual(progress, ["early"]);
-
-    yield* Scope.close(scope, Exit.void);
-    yield* Deferred.succeed(releaseApply, undefined);
-    assert.strictEqual((yield* Fiber.join(applying)).reason, "closed");
-    yield* Effect.yieldNow;
-    assert.deepEqual(progress, ["early"]);
-  }),
+      assert.deepEqual(
+        harness.requests.map(({ method }) => method),
+        ["thread/fork", "thread/delete"],
+      );
+      assert.deepEqual(result.importedThreadIds, []);
+      assert.strictEqual(result.outcomes[0]?.failureCount, 1);
+      assert.match(result.outcomes[0]?.messages[0] ?? "", /projection failed/u);
+      assert.strictEqual(harness.sidebarSyncs(), 0);
+    }),
+  ),
 );

@@ -12,6 +12,7 @@ import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
 
 export const DEFAULT_CODEX_EXTERNAL_AGENT_IMPORT_TIMEOUT = "2 minutes";
 
@@ -34,11 +35,6 @@ export class CodexExternalAgentImportError extends Data.TaggedError(
 }> {}
 
 export interface CodexExternalAgentImportRuntimeOptions {
-  readonly hostId: string;
-  readonly events: Stream.Stream<CodexEndpointEvent>;
-  readonly request: (
-    items: readonly ExternalAgentConfigMigrationItem[],
-  ) => Effect.Effect<ExternalAgentConfigImportResponse, CodexExternalAgentImportError>;
   readonly timeout?: Duration.Input;
 }
 
@@ -76,9 +72,10 @@ const relevantNotification = (
 };
 
 export const make = (
-  options: CodexExternalAgentImportRuntimeOptions,
-): Effect.Effect<CodexExternalAgentImportRuntime["Service"], never, Scope.Scope> =>
+  options: CodexExternalAgentImportRuntimeOptions = {},
+): Effect.Effect<CodexExternalAgentImportRuntime["Service"], never, CodexGateway | Scope.Scope> =>
   Effect.gen(function* () {
+    const gateway = yield* CodexGateway;
     const admission = yield* Semaphore.make(1);
     const closed = yield* Latch.make();
     yield* Effect.addFinalizer(() => closed.open);
@@ -91,9 +88,9 @@ export const make = (
         Effect.gen(function* () {
           const notifications = yield* Queue.unbounded<ImportNotification>();
           yield* Effect.addFinalizer(() => Queue.shutdown(notifications).pipe(Effect.asVoid));
-          yield* options.events.pipe(
+          yield* gateway.events.pipe(
             Stream.runForEach((event) => {
-              const notification = relevantNotification(event, options.hostId);
+              const notification = relevantNotification(event, gateway.localHostId);
               return notification === null
                 ? Effect.void
                 : Queue.offer(notifications, notification).pipe(Effect.asVoid);
@@ -102,7 +99,21 @@ export const make = (
           );
           yield* Effect.yieldNow;
 
-          const response = yield* options.request(items);
+          const response: ExternalAgentConfigImportResponse = yield* gateway
+            .requestLocal("externalAgentConfig/import", { migrationItems: [...items] })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexExternalAgentImportError({
+                    reason: "request-failed",
+                    message:
+                      cause instanceof Error
+                        ? cause.message
+                        : "Could not start the Claude Code import",
+                    cause,
+                  }),
+              ),
+            );
           const awaitCompletion: Effect.Effect<ExternalAgentConfigImportCompletedNotification> =
             Effect.suspend(() =>
               Queue.take(notifications).pipe(

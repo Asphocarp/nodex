@@ -227,6 +227,57 @@ it.effect("accepts rollback as one durable and canonical replacement", () =>
   ),
 );
 
+it.effect("accepts an imported rollout as a standalone canonical Thread", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const threads = new Map<string, CoreThread>();
+      const core = makeCore(threads);
+      const conversations = makeConversations();
+      const eventHub = CodexApplicationEventHub.of({
+        events: Stream.empty,
+        publish: () => undefined,
+      });
+      const projection = yield* makeConversationProjection.pipe(
+        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(
+          CodexRendererConversationRegistry,
+          makeCodexRendererConversationRegistryState(),
+        ),
+        Effect.provideService(CodexApplicationEventHub, eventHub),
+        Effect.provideService(CoreModules, core),
+      );
+      const directory = yield* makeDirectory.pipe(
+        Effect.provideService(CodexApplicationEventHub, eventHub),
+        Effect.provideService(CodexConversationProjection, projection),
+        Effect.provideService(
+          CodexGateway,
+          makeGateway((() => Effect.die("unused")) as RequestOnHost),
+        ),
+        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(CoreModules, core),
+      );
+      const thread = appThread("thread-imported");
+
+      const accepted = yield* directory.acceptImportResult({
+        response: { cwd: "/repo", thread } as never,
+        executionHostId: "local",
+        fallbackCwd: "/fallback",
+      });
+
+      assert.strictEqual(accepted.fidelity, "full");
+      assert.strictEqual(accepted.durable.projectId, null);
+      assert.strictEqual(accepted.durable.executionHostId, "local");
+      assert.strictEqual(accepted.durable.managedWorktreePath, null);
+      assert.strictEqual(accepted.durable.cwd, "/repo");
+      assert.strictEqual(accepted.canonical?.protocol.id, "thread-imported");
+      assert.deepEqual(
+        conversations.currentConversation("thread-imported")?.readSnapshot(),
+        accepted.snapshot,
+      );
+    }),
+  ),
+);
+
 it.effect("accepts a fork with inherited durable authority and an exact canonical cut", () =>
   Effect.scoped(
     Effect.gen(function* () {

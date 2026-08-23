@@ -1766,9 +1766,6 @@ function createService(options?: {
         }
       },
     },
-    externalAgentImport: {
-      run: async () => ({ importId: "test-import", itemTypeResults: [] }),
-    },
     heartbeatTurnCompletion: {
       startAndWait: async (params) => {
         if (!service) throw new Error("Codex test service is not constructed");

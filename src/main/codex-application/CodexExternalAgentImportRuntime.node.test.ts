@@ -8,6 +8,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { make } from "./CodexExternalAgentImportRuntime";
 
 const notification = (
@@ -21,30 +22,46 @@ const notification = (
   value: { method, params: { importId, itemTypeResults: [] } },
 });
 
+const makeGateway = (
+  events: Stream.Stream<CodexEndpointEvent>,
+  request: () => Effect.Effect<{ readonly importId: string }>,
+): CodexGateway["Service"] =>
+  CodexGateway.of({
+    localHostId: "local",
+    events,
+    requestLocal: ((_method: string, _params: unknown) =>
+      request()) as CodexGateway["Service"]["requestLocal"],
+  } as CodexGateway["Service"]);
+
 it.effect("buffers completion that arrives before the import response", () =>
   Effect.gen(function* () {
     const events = yield* PubSub.unbounded<CodexEndpointEvent>();
     const progress: string[] = [];
-    const runtime = yield* make({
-      hostId: "local",
-      events: Stream.fromPubSub(events),
-      request: () =>
-        PubSub.publish(
-          events,
-          notification("externalAgentConfig/import/completed", "remote", "ssh"),
-        ).pipe(
-          Effect.andThen(
-            PubSub.publish(events, notification("externalAgentConfig/import/progress", "import-1")),
-          ),
-          Effect.andThen(
-            PubSub.publish(
-              events,
-              notification("externalAgentConfig/import/completed", "import-1"),
+    const runtime = yield* make().pipe(
+      Effect.provideService(
+        CodexGateway,
+        makeGateway(Stream.fromPubSub(events), () =>
+          PubSub.publish(
+            events,
+            notification("externalAgentConfig/import/completed", "remote", "ssh"),
+          ).pipe(
+            Effect.andThen(
+              PubSub.publish(
+                events,
+                notification("externalAgentConfig/import/progress", "import-1"),
+              ),
             ),
+            Effect.andThen(
+              PubSub.publish(
+                events,
+                notification("externalAgentConfig/import/completed", "import-1"),
+              ),
+            ),
+            Effect.as({ importId: "import-1" }),
           ),
-          Effect.as({ importId: "import-1" }),
         ),
-    });
+      ),
+    );
 
     const completed = yield* runtime.run([], (update) =>
       Effect.sync(() => progress.push(update.importId)),
@@ -60,17 +77,18 @@ it.effect("serializes import admission so pre-response notifications cannot cros
     const firstRequested = yield* Deferred.make<void>();
     const secondRequested = yield* Deferred.make<void>();
     let requestCount = 0;
-    const runtime = yield* make({
-      hostId: "local",
-      events: Stream.fromPubSub(events),
-      request: () => {
-        requestCount += 1;
-        return Deferred.succeed(
-          requestCount === 1 ? firstRequested : secondRequested,
-          undefined,
-        ).pipe(Effect.as({ importId: `import-${requestCount}` }));
-      },
-    });
+    const runtime = yield* make().pipe(
+      Effect.provideService(
+        CodexGateway,
+        makeGateway(Stream.fromPubSub(events), () => {
+          requestCount += 1;
+          return Deferred.succeed(
+            requestCount === 1 ? firstRequested : secondRequested,
+            undefined,
+          ).pipe(Effect.as({ importId: `import-${requestCount}` }));
+        }),
+      ),
+    );
     const first = yield* Effect.forkChild(runtime.run([], () => Effect.void));
     yield* Deferred.await(firstRequested);
     const second = yield* Effect.forkChild(runtime.run([], () => Effect.void));
@@ -89,12 +107,14 @@ it.effect("serializes import admission so pre-response notifications cannot cros
 it.effect("uses the Effect clock for the sole completion deadline", () =>
   Effect.gen(function* () {
     const events = yield* PubSub.unbounded<CodexEndpointEvent>();
-    const runtime = yield* make({
-      hostId: "local",
-      events: Stream.fromPubSub(events),
-      request: () => Effect.succeed({ importId: "import-timeout" }),
-      timeout: "2 seconds",
-    });
+    const runtime = yield* make({ timeout: "2 seconds" }).pipe(
+      Effect.provideService(
+        CodexGateway,
+        makeGateway(Stream.fromPubSub(events), () =>
+          Effect.succeed({ importId: "import-timeout" }),
+        ),
+      ),
+    );
     const timedOut = yield* Effect.forkChild(runtime.run([], () => Effect.void).pipe(Effect.flip));
     yield* TestClock.adjust("1999 millis");
     yield* TestClock.adjust("1 millis");
@@ -109,12 +129,15 @@ it.effect("interrupts an active import when the Main Scope closes", () =>
     const scope = yield* Scope.make();
     const events = yield* PubSub.unbounded<CodexEndpointEvent>();
     const requested = yield* Deferred.make<void>();
-    const runtime = yield* make({
-      hostId: "local",
-      events: Stream.fromPubSub(events),
-      request: () =>
-        Deferred.succeed(requested, undefined).pipe(Effect.as({ importId: "import-closing" })),
-    }).pipe(Effect.provideService(Scope.Scope, scope));
+    const runtime = yield* make().pipe(
+      Effect.provideService(
+        CodexGateway,
+        makeGateway(Stream.fromPubSub(events), () =>
+          Deferred.succeed(requested, undefined).pipe(Effect.as({ importId: "import-closing" })),
+        ),
+      ),
+      Effect.provideService(Scope.Scope, scope),
+    );
     const closed = yield* Effect.forkChild(runtime.run([], () => Effect.void).pipe(Effect.flip));
     yield* Deferred.await(requested);
     yield* Scope.close(scope, Exit.void);
