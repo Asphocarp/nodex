@@ -2,7 +2,10 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
+import type { CodexConversationSnapshot } from "../../shared/types";
+import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
+import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { make } from "./CodexThreadRollbackCommands";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
@@ -52,25 +55,32 @@ const conversationLane = (events: string[]): ConversationRuntimeMap["Service"] =
   });
 };
 
+const editableSnapshot = {
+  cwd: "/repo",
+  turns: [
+    {
+      turnId: "turn-a",
+      status: "completed",
+      items: [{ turnId: "turn-a", semanticKind: "userMessage", kind: "userMessage" }],
+    },
+  ],
+} as unknown as CodexConversationSnapshot;
+
+const projection = CodexConversationProjection.of({
+  read: () => Effect.succeed({ canonical: {} as never, snapshot: editableSnapshot }),
+} as unknown as CodexConversationProjection["Service"]);
+
 it.effect("runs owner drain, validation, Gateway, and projection commit in the Thread lane", () =>
   Effect.gen(function* () {
     const events: string[] = [];
-    const commands = yield* make({
-      prepareLatestForEdit: (input) =>
+    const directory = CodexThreadDirectory.of({
+      acceptMutationResult: ({ expectedThreadId }: { readonly expectedThreadId: string }) =>
         Effect.sync(() => {
-          events.push(`prepare:${input.turnId}`);
-          return {
-            threadId: input.threadId,
-            request: { threadId: input.threadId, numTurns: input.numTurns },
-            state: {},
-          };
+          events.push(`commit:${expectedThreadId}`);
+          return {} as never;
         }),
-      commit: (prepared, response) =>
-        Effect.sync(() => {
-          events.push(`commit:${prepared.threadId}`);
-          return response;
-        }),
-    }).pipe(
+    } as unknown as CodexThreadDirectory["Service"]);
+    const commands = yield* make.pipe(
       Effect.provideService(
         CodexGateway,
         makeGateway(((threadId, method, params) =>
@@ -80,6 +90,8 @@ it.effect("runs owner drain, validation, Gateway, and projection commit in the T
             return { thread: { id: threadId } } as never;
           })) as CodexGateway["Service"]["requestForThread"]),
       ),
+      Effect.provideService(CodexConversationProjection, projection),
+      Effect.provideService(CodexThreadDirectory, directory),
       Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerDrain(events)),
       Effect.provideService(ConversationRuntimeMap, conversationLane(events)),
     );
@@ -94,7 +106,6 @@ it.effect("runs owner drain, validation, Gateway, and projection commit in the T
     assert.deepEqual(events, [
       "lane:thread-a",
       "drain:thread-a",
-      "prepare:turn-a",
       "request:thread-a:thread/rollback:1",
       "commit:thread-a",
     ]);
@@ -105,19 +116,14 @@ it.effect("rejects a mismatched response before committing canonical state", () 
   Effect.gen(function* () {
     let commits = 0;
     const events: string[] = [];
-    const commands = yield* make({
-      prepareLatestForEdit: (input) =>
-        Effect.succeed({
-          threadId: input.threadId,
-          request: { threadId: input.threadId, numTurns: input.numTurns },
-          state: {},
-        }),
-      commit: (_prepared, response) =>
+    const directory = CodexThreadDirectory.of({
+      acceptMutationResult: () =>
         Effect.sync(() => {
           commits += 1;
-          return response;
+          return {} as never;
         }),
-    }).pipe(
+    } as unknown as CodexThreadDirectory["Service"]);
+    const commands = yield* make.pipe(
       Effect.provideService(
         CodexGateway,
         makeGateway((() =>
@@ -125,6 +131,8 @@ it.effect("rejects a mismatched response before committing canonical state", () 
             thread: { id: "thread-other" },
           } as never)) as CodexGateway["Service"]["requestForThread"]),
       ),
+      Effect.provideService(CodexConversationProjection, projection),
+      Effect.provideService(CodexThreadDirectory, directory),
       Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerDrain(events)),
       Effect.provideService(ConversationRuntimeMap, conversationLane(events)),
     );

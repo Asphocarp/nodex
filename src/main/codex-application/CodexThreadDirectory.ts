@@ -72,6 +72,17 @@ export class CodexThreadDirectory extends Context.Service<
       readonly threadIds?: readonly string[];
       readonly fidelity: Exclude<CodexThreadDirectoryFidelity, "live">;
     }) => Effect.Effect<readonly CodexThreadDirectoryEntry[], CodexThreadDirectoryError>;
+    /**
+     * Accepts a Thread returned by a protocol mutation while the caller owns the Thread lane.
+     * The Directory commits durable identity and refreshes the canonical aggregate as one
+     * application projection outcome.
+     */
+    readonly acceptMutationResult: (input: {
+      readonly expectedThreadId: string;
+      readonly thread: Thread;
+      readonly executionHostId?: string;
+      readonly fallbackCwd?: string | null;
+    }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
   }
 >()("nodex/main/codex-application/CodexThreadDirectory") {}
 
@@ -544,8 +555,34 @@ export const make: Effect.Effect<
       ),
     );
 
+  const acceptMutationResult = Effect.fn("CodexThreadDirectory.acceptMutationResult")(
+    function* (input: {
+      readonly expectedThreadId: string;
+      readonly thread: Thread;
+      readonly executionHostId?: string;
+      readonly fallbackCwd?: string | null;
+    }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
+      const expectedThreadId = input.expectedThreadId.trim();
+      if (!expectedThreadId || input.thread.id !== expectedThreadId) {
+        return yield* error(
+          "materialize",
+          expectedThreadId || input.thread.id,
+          new Error(`Expected Thread '${expectedThreadId}' but received '${input.thread.id}'`),
+        );
+      }
+      const thread = normalizeThread(input.thread);
+      const durable = yield* persistObservation({
+        thread,
+        ...(input.executionHostId ? { executionHostId: input.executionHostId } : {}),
+        ...(input.fallbackCwd !== undefined ? { fallbackCwd: input.fallbackCwd } : {}),
+      });
+      return yield* hydrate({ durable, thread, pagination: fullPagination(thread) });
+    },
+  );
+
   return CodexThreadDirectory.of({
     resolve: (input) => runOwned(resolvePhysical(input)),
     descendants,
+    acceptMutationResult: (input) => runOwned(acceptMutationResult(input)),
   });
 });
