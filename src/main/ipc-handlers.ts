@@ -19,6 +19,7 @@ import type { CodexThreadCatalog } from "./codex-application/CodexThreadCatalog"
 import type { CodexThreadTitlePersistence } from "./codex-application/CodexThreadTitlePersistence";
 import type { ConversationCommands } from "./codex-application/ConversationCommands";
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
+import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -108,6 +109,7 @@ interface CodexIpcOptions {
   threadTitles: CodexThreadTitlePersistence["Service"];
   conversationCommands: ConversationCommands["Service"];
   sidebarSync: CodexSidebarSyncRuntime["Service"];
+  threadReadState: CodexThreadReadState["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -827,10 +829,14 @@ export const codexIpcLive = (
           codexService.respondToSetupCodexStep(conversationId, requestId, response),
       );
 
-      registerHandle(
-        "codex:conversation-unread:set",
-        (_, conversationId: string, hasUnreadTurn: boolean) =>
-          codexService.setConversationUnreadState(conversationId, hasUnreadTurn),
+      registerEffectHandle("codex:conversation-unread:set", (_, conversationId, hasUnreadTurn) =>
+        options.threadReadState
+          .set({ threadId: conversationId, hasUnreadTurn })
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:conversation-unread:set", cause }),
+            ),
+          ),
       );
 
       yield* Effect.all(registrations, { discard: true });

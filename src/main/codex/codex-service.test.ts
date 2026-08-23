@@ -206,6 +206,7 @@ interface TestableCodexService {
   ) => Promise<import("../../shared/types").CodexThreadSummaryWindow>;
   sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
   threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
+  threadReadState: import("../codex-application/CodexThreadReadStatePromiseAdapter").CodexThreadReadStatePromiseAdapter;
   listCommandPaletteThreads: (input: {
     scope: "sidebar";
   }) => Promise<CommandPaletteThreadSummary[]>;
@@ -1817,6 +1818,12 @@ function createService(options?: {
       return await service.applySidebarThreadMove(input);
     },
   };
+  const threadReadState = {
+    persistProjected: async (input: { threadId: string; hasUnreadTurn: boolean }) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.persistThreadReadStateProjection(input.threadId, input.hasUnreadTurn);
+    },
+  };
   const pendingWorktrees = new CodexPendingWorktreeRuntime({
     createWorktree: async (entry, context) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2191,6 +2198,7 @@ function createService(options?: {
     threadSettingsRuntime,
     threadTitlePersistence,
     threadCatalog,
+    threadReadState,
     conversationCommands,
     postResumeGoals,
     conversationHistory,

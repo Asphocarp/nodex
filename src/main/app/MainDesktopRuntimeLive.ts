@@ -117,6 +117,11 @@ import {
   make as makeCodexThreadCatalog,
 } from "../codex-application/CodexThreadCatalog";
 import { makeCodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
+import {
+  CodexThreadReadStateError,
+  make as makeCodexThreadReadState,
+} from "../codex-application/CodexThreadReadState";
+import { makeCodexThreadReadStatePromiseAdapter } from "../codex-application/CodexThreadReadStatePromiseAdapter";
 import { make as makeCodexSidebarSweepRuntime } from "../codex-application/CodexSidebarSweepRuntime";
 import { makeCodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
@@ -1434,6 +1439,25 @@ export const live: Layer.Layer<
           Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const threadReadState = yield* makeCodexThreadReadState({
+          inspect: (threadId) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().inspectThreadReadStateProjection(threadId),
+              catch: (cause) => new CodexThreadReadStateError({ operation: "inspect", cause }),
+            }),
+          persist: ({ threadId, hasUnreadTurn }) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().persistThreadReadStateProjection(threadId, hasUnreadTurn),
+              catch: (cause) => new CodexThreadReadStateError({ operation: "persist", cause }),
+            }),
+          project: ({ threadId, hasUnreadTurn }) =>
+            Effect.try({
+              try: () =>
+                requireCodexService().applyThreadReadStateProjection(threadId, hasUnreadTurn),
+              catch: (cause) => new CodexThreadReadStateError({ operation: "project", cause }),
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const sidebarSweep = yield* makeCodexSidebarSweepRuntime().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
@@ -1984,6 +2008,7 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               threadCatalog: makeCodexThreadCatalogPromiseAdapter(threadCatalog, callbacks),
+              threadReadState: makeCodexThreadReadStatePromiseAdapter(threadReadState, callbacks),
               postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
                 postResumeGoals,
                 callbacks,
@@ -2671,6 +2696,7 @@ export const live: Layer.Layer<
             conversationCommands,
             threadCatalog,
             sidebarSync,
+            threadReadState,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

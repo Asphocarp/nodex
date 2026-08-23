@@ -674,6 +674,7 @@ import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-applica
 import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
 import type { CodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
+import type { CodexThreadReadStatePromiseAdapter } from "../codex-application/CodexThreadReadStatePromiseAdapter";
 import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
@@ -1228,6 +1229,7 @@ type CodexServiceOptions = {
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   threadCatalog: CodexThreadCatalogPromiseAdapter;
+  threadReadState: CodexThreadReadStatePromiseAdapter;
   conversationCommands: ConversationCommandsPromiseAdapter;
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
@@ -2417,6 +2419,7 @@ export class CodexService {
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   private readonly threadCatalog: CodexThreadCatalogPromiseAdapter;
+  private readonly threadReadState: CodexThreadReadStatePromiseAdapter;
   private readonly conversationCommands: ConversationCommandsPromiseAdapter;
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
@@ -2527,6 +2530,7 @@ export class CodexService {
     this.threadSettingsRuntime = options.threadSettingsRuntime;
     this.threadTitlePersistence = options.threadTitlePersistence;
     this.threadCatalog = options.threadCatalog;
+    this.threadReadState = options.threadReadState;
     this.conversationCommands = options.conversationCommands;
     this.postResumeGoals = options.postResumeGoals;
     this.conversationHistory = options.conversationHistory;
@@ -5411,6 +5415,36 @@ export class CodexService {
     }
   }
 
+  /** Effect Module projection operation; callers use CodexThreadReadState. */
+  async inspectThreadReadStateProjection(threadId: string): Promise<{
+    exists: boolean;
+    archived: boolean;
+    conversationHasUnreadTurn: boolean | null;
+    workspaceHasUnreadTurn: boolean | null;
+  }> {
+    const record = this.getMaybeConversationRecord(threadId);
+    const thread = await this.readWorkspaceThread(threadId);
+    return {
+      exists: record !== null || thread !== null,
+      archived: Boolean(thread?.archived || record?.detail?.archived),
+      conversationHasUnreadTurn: record?.hasUnreadTurn ?? null,
+      workspaceHasUnreadTurn: thread?.hasUnreadTurn ?? null,
+    };
+  }
+
+  /** Effect Module projection operation; callers use CodexThreadReadState. */
+  async persistThreadReadStateProjection(
+    threadId: string,
+    hasUnreadTurn: boolean,
+  ): Promise<boolean> {
+    return (await this.persistConversationUnreadState(threadId, hasUnreadTurn)) !== null;
+  }
+
+  /** Effect Module projection operation; callers use CodexThreadReadState. */
+  applyThreadReadStateProjection(threadId: string, hasUnreadTurn: boolean): void {
+    this.applyCommittedConversationUnreadState(threadId, hasUnreadTurn, { broadcast: true });
+  }
+
   private applyCommittedConversationUnreadState(
     threadId: string,
     hasUnreadTurn: boolean,
@@ -5435,26 +5469,6 @@ export class CodexService {
       conversationId: threadId,
       hasUnreadTurn,
     });
-  }
-
-  async setConversationUnreadState(threadId: string, hasUnreadTurn: boolean): Promise<boolean> {
-    const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId) return false;
-    const record = this.getMaybeConversationRecord(normalizedThreadId);
-    const thread = await this.readWorkspaceThread(normalizedThreadId);
-    if (!record && !thread) return false;
-    if (hasUnreadTurn && (thread?.archived || record?.detail?.archived)) return false;
-    const recordChanged = Boolean(record && record.hasUnreadTurn !== hasUnreadTurn);
-    const threadChanged = Boolean(thread && thread.hasUnreadTurn !== hasUnreadTurn);
-    if (!recordChanged && !threadChanged) return false;
-
-    const committed = await this.persistConversationUnreadState(normalizedThreadId, hasUnreadTurn);
-    if (!committed) return false;
-
-    this.applyCommittedConversationUnreadState(normalizedThreadId, hasUnreadTurn, {
-      broadcast: true,
-    });
-    return true;
   }
 
   private listChildThreadLinksSafely(parentThreadId: string): CodexThreadSummary[] {
@@ -11469,7 +11483,10 @@ export class CodexService {
     record.serverRequests = [...result.state.requests];
     record.hasUnreadTurn = result.state.hasUnreadTurn;
     if (record.hasUnreadTurn !== previousHasUnreadTurn) {
-      void this.persistConversationUnreadState(threadId, record.hasUnreadTurn);
+      void this.threadReadState.persistProjected({
+        threadId,
+        hasUnreadTurn: record.hasUnreadTurn,
+      });
     }
   }
 
@@ -11486,7 +11503,10 @@ export class CodexService {
     record.serverRequests = [...result.state.requests];
     record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
     if (record.hasUnreadTurn !== previousHasUnreadTurn) {
-      void this.persistConversationUnreadState(threadId, record.hasUnreadTurn);
+      void this.threadReadState.persistProjected({
+        threadId,
+        hasUnreadTurn: record.hasUnreadTurn,
+      });
     }
     if (!record.detail) return;
 

@@ -687,6 +687,16 @@ while pending-worktree and dynamic-tool flows use a stateless tracked projection
 interrupts active and queued mutations. `CodexService` owns no public placement command, Promise
 chain, semaphore, or recovery tail; it temporarily supplies only the move domain projection.
 
+Thread read state is owned by `CodexThreadReadState`. Manual read/unread transitions inspect the
+canonical and Project Workspace projections, reject archived or unknown Threads, persist to Project
+Workspace before publishing the in-memory and renderer projection, and return whether a transition
+committed. Synchronous conversation reducers submit their already-projected state to the same
+per-Thread lane and reproject after persistence; this post-commit reconciliation makes the lane's
+last admitted transition authoritative even when a reducer runs during an earlier physical write.
+Main Scope closure interrupts active and queued writes. Renderer ingress invokes the typed command
+directly; `CodexService` temporarily exposes only inspect, persistence, and projection ports and owns
+no public read-state command or write queue.
+
 Thread archive and unarchive are complete `ConversationCommands` transactions. A reference-counted
 per-Thread lane serializes the typed Gateway transition with automation/worktree cleanup, Project
 Workspace persistence, canonical projection, sidebar publication, and conversation-runtime eviction.
