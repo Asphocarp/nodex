@@ -136,9 +136,9 @@ app-owned adapters. Its error rules guard invalid Effect types and control flow:
 `missing-star-in-yield-effect-gen`, `non-object-effect-service-type`,
 `overridden-schema-constructor`, `schema-literal-non-finite`, and
 `schema-opaque-instance-member`. Follow the rule's Effect-aware diagnostic;
-Node/platform access belongs in `src/main/effect-adapters`, where only the two
-intentional frontier warnings (`global-random` and `node-builtin-import`) are
-disabled.
+Node/platform access belongs in `src/main/platform`, the companion protocol package's internal
+platform seam, or an explicitly allowlisted process entry. Only those frontiers disable the two
+intentional warnings (`global-random` and `node-builtin-import`).
 
 ## Maintenance
 

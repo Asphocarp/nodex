@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted.
+Superseded by [ADR 0048](0048-effect-main-application-kernel.md) on 2026-08-24.
+
+This ADR established the Effect frontier during the kernel cut-over. ADR 0048 records the final
+single-application topology and removes the former allowance for internal compatibility adapters.
 
 ## Context
 
