@@ -761,11 +761,14 @@ does so because its renderer remains the state authority. Response validation, a
 canonical binding and downstream projection commit precede success. Failure or Main Scope
 interruption before the protocol commit aborts pending authority and terminalizes the optimistic
 Turn exactly once; failure after an accepted and bound protocol response does not rewrite that Turn
-as failed. Renderer IPC invokes the Effect command directly. Transitional internal callers borrow a
-stateless Promise adapter, while `CodexService` supplies only the preparation and projection stages;
-it no longer owns the production request, missing-Thread retry policy, command lane or cancellation
-lifetime. Fresh-Thread launch remains a separate application transaction because it additionally
-owns reservation, adoption and first-Turn admission.
+as failed. The Main-owned first Turn of a freshly materialized Session Thread enters this same
+transaction with its already compiled prompt and correlation metadata; it no longer has a second
+optimistic reducer, authority binding path, or direct `turn/start` request in the Session launcher.
+Renderer IPC invokes the Effect command directly. Transitional internal callers borrow a stateless
+Promise adapter, while `CodexService` supplies only the preparation and projection stages; it no
+longer owns the production request, missing-Thread retry policy, command lane or cancellation
+lifetime. Renderer-owned fresh-Thread launch remains a separate application transaction because it
+additionally owns reservation, adoption and first-Turn admission.
 
 Steering an active Turn belongs to that same command owner and shared lane. Main-owned steering
 uses the Effect clock and random service for correlation identity, appends the optimistic steering

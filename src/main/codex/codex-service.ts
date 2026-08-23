@@ -12613,95 +12613,6 @@ export class CodexService {
     }
   }
 
-  private async dispatchCanonicalOptimisticTurn(input: {
-    readonly authorityLaunch: NodexAgentTurnAuthorityLaunch | null;
-    readonly canonicalParams: CodexCanonicalLiveTurnParams<
-      CodexLiveFileAttachment,
-      CodexReviewDiffCommentAttachment
-    >;
-    readonly clientUserMessageId: string;
-    readonly currentCollaborationModel: string;
-    readonly request: () => Promise<TurnStartResponse>;
-    readonly threadId: string;
-  }): Promise<Turn> {
-    const record = this.getConversationRecord(input.threadId);
-    const beforeAppend = record.canonicalState;
-    if (!beforeAppend) {
-      throw new Error("Cannot start a canonical turn before conversation hydration");
-    }
-
-    const optimisticStartedAt = Date.now();
-    const afterAppend = appendCodexCanonicalOptimisticTurn(beforeAppend, {
-      params: input.canonicalParams,
-      currentCollaborationModel: input.currentCollaborationModel,
-      startedAtMs: optimisticStartedAt,
-    });
-    this.commitCanonicalLocalTurnMutation({
-      threadId: input.threadId,
-      before: beforeAppend,
-      after: afterAppend,
-      observedAtMs: optimisticStartedAt,
-    });
-    record.isStreaming = true;
-    await this.markThreadAsActive(input.threadId);
-    this.syncDormantConversationFromRecord(input.threadId, "owner-unavailable");
-
-    try {
-      const response = await input.request();
-      if (!this.asTurnSummary(input.threadId, response.turn)) {
-        throw new Error("Codex turn/start returned an invalid turn payload");
-      }
-      await this.nodexAgentAuthorityRegistry.bindTurn(input.authorityLaunch, response.turn.id);
-
-      const beforeBind = record.canonicalState;
-      if (!beforeBind) {
-        throw new Error("Canonical conversation state disappeared during turn/start");
-      }
-      const stateWithPendingTurn = beforeBind.turns.some(
-        (turn) => turn.sidecar.params.clientUserMessageId === input.clientUserMessageId,
-      )
-        ? beforeBind
-        : appendCodexCanonicalOptimisticTurn(beforeBind, {
-            params: input.canonicalParams,
-            currentCollaborationModel: input.currentCollaborationModel,
-            startedAtMs: optimisticStartedAt,
-          });
-      const afterBind = bindCodexCanonicalOptimisticTurn(
-        stateWithPendingTurn,
-        input.clientUserMessageId,
-        response.turn,
-      );
-      if (!afterBind.turns.some((turn) => turn.protocol.id === response.turn.id)) {
-        throw new Error("Codex turn/start could not bind its canonical optimistic turn");
-      }
-      this.commitCanonicalLocalTurnMutation({
-        threadId: input.threadId,
-        before: beforeBind,
-        after: afterBind,
-        observedAtMs: Date.now(),
-      });
-      return response.turn;
-    } catch (error) {
-      this.nodexAgentAuthorityRegistry.abortTurn(input.authorityLaunch);
-      const beforeFailure = record.canonicalState;
-      if (beforeFailure) {
-        const afterFailure = failCodexCanonicalOptimisticTurn(
-          beforeFailure,
-          input.clientUserMessageId,
-          randomUUID(),
-        );
-        this.commitCanonicalLocalTurnMutation({
-          threadId: input.threadId,
-          before: beforeFailure,
-          after: afterFailure,
-          observedAtMs: Date.now(),
-        });
-        this.syncDormantConversationFromRecord(input.threadId, "owner-unavailable");
-      }
-      throw error;
-    }
-  }
-
   async startThreadForSession(
     input: CodexThreadStartForSessionInput,
     options: {
@@ -13024,7 +12935,7 @@ export class CodexService {
         this.buildConversationThreadSettings({
           model: effectiveModel ?? null,
           modelProvider: executionProfile?.providerId ?? null,
-          serviceTier: executionProfile?.serviceTier ?? null,
+          serviceTier: executionProfile?.serviceTier ?? threadStart.serviceTier,
           reasoningEffort: effectiveReasoningEffort ?? null,
           summary: firstTurnReasoningSummary,
           collaborationMode:
@@ -13044,66 +12955,67 @@ export class CodexService {
         threadGoalDraft: input.threadGoalDraft,
       });
       const clientUserMessageId = randomUUID();
-      const turnStartParams: CodexAppPrivateTurnStartParams = {
-        threadId: link.threadId,
-        clientUserMessageId,
-        input: firstTurnInput,
-        responsesapiClientMetadata: {
-          workspace_kind: input.projectId === null ? "projectless" : "project",
-        },
-        cwd: effectiveCwd,
-        ...(preparedPrompt.additionalContext
-          ? { additionalContext: preparedPrompt.additionalContext }
-          : {}),
-        ...turnPermissionOverrides,
-        ...(effectiveModel ? { model: effectiveModel } : {}),
-        ...buildServiceTierParams(input.serviceTier),
-        ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
-        summary: firstTurnReasoningSummary,
-        ...(collaborationMode ? { collaborationMode } : {}),
-        attachments: firstTurnAttachments,
-      };
-      const record = this.getConversationRecord(link.threadId);
-      const canonicalState = record.canonicalState;
-      const hydration = canonicalState?.sidecar.hydrationContext;
-      if (!canonicalState || !hydration) {
-        throw new Error("Codex thread/start did not initialize canonical conversation state");
-      }
-      const firstTurnPermissionContext = hydration.currentPermissions;
-      const canonicalTurnParams: CodexCanonicalLiveTurnParams<
-        CodexLiveFileAttachment,
-        CodexReviewDiffCommentAttachment
-      > = {
-        ...turnStartParams,
-        cwd: effectiveCwd,
-        approvalPolicy: turnStartParams.approvalPolicy ?? firstTurnPermissionContext.approvalPolicy,
-        approvalsReviewer:
-          turnStartParams.approvalsReviewer ?? firstTurnPermissionContext.approvalsReviewer,
-        sandboxPolicy: turnStartParams.sandboxPolicy ?? firstTurnPermissionContext.sandboxPolicy,
-        permissions: firstTurnPermissionContext.activePermissionProfile?.id ?? null,
-        runtimeWorkspaceRoots: firstTurnPermissionContext.activePermissionProfile
-          ? [...firstTurnPermissionContext.runtimeWorkspaceRoots]
-          : null,
-        useAppServerPermissionDefault: effectivePermissionState.effectivePreset === "custom",
-        model: collaborationMode ? null : (effectiveModel ?? threadStart.model),
-        serviceTier: normalizeCodexServiceTier(input.serviceTier) ?? threadStart.serviceTier,
-        effort: collaborationMode
-          ? null
-          : (effectiveReasoningEffort ?? threadStart.reasoningEffort),
-        multiAgentMode: "explicitRequestOnly",
-        summary: firstTurnReasoningSummary,
-        personality: this.preferences.current(),
-        outputSchema: null,
-        collaborationMode,
-        attachments: firstTurnAttachments,
-        commentAttachments: [...preparedPrompt.commentAttachments],
-      };
       const ownerClientId = options.ownerClientId?.trim() || null;
       if (ownerClientId) {
         if (this.rendererConversations.isClientDisposed(ownerClientId)) {
           throw new Error(`Renderer client '${ownerClientId}' is unavailable`);
         }
 
+        const turnStartParams: CodexAppPrivateTurnStartParams = {
+          threadId: link.threadId,
+          clientUserMessageId,
+          input: firstTurnInput,
+          responsesapiClientMetadata: {
+            workspace_kind: input.projectId === null ? "projectless" : "project",
+          },
+          cwd: effectiveCwd,
+          ...(preparedPrompt.additionalContext
+            ? { additionalContext: preparedPrompt.additionalContext }
+            : {}),
+          ...turnPermissionOverrides,
+          ...(effectiveModel ? { model: effectiveModel } : {}),
+          ...buildServiceTierParams(input.serviceTier),
+          ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
+          summary: firstTurnReasoningSummary,
+          ...(collaborationMode ? { collaborationMode } : {}),
+          attachments: firstTurnAttachments,
+        };
+        const record = this.getConversationRecord(link.threadId);
+        const canonicalState = record.canonicalState;
+        const hydration = canonicalState?.sidecar.hydrationContext;
+        if (!canonicalState || !hydration) {
+          throw new Error("Codex thread/start did not initialize canonical conversation state");
+        }
+        const firstTurnPermissionContext = hydration.currentPermissions;
+        const canonicalTurnParams: CodexCanonicalLiveTurnParams<
+          CodexLiveFileAttachment,
+          CodexReviewDiffCommentAttachment
+        > = {
+          ...turnStartParams,
+          cwd: effectiveCwd,
+          approvalPolicy:
+            turnStartParams.approvalPolicy ?? firstTurnPermissionContext.approvalPolicy,
+          approvalsReviewer:
+            turnStartParams.approvalsReviewer ?? firstTurnPermissionContext.approvalsReviewer,
+          sandboxPolicy: turnStartParams.sandboxPolicy ?? firstTurnPermissionContext.sandboxPolicy,
+          permissions: firstTurnPermissionContext.activePermissionProfile?.id ?? null,
+          runtimeWorkspaceRoots: firstTurnPermissionContext.activePermissionProfile
+            ? [...firstTurnPermissionContext.runtimeWorkspaceRoots]
+            : null,
+          useAppServerPermissionDefault: effectivePermissionState.effectivePreset === "custom",
+          model: collaborationMode ? null : (effectiveModel ?? threadStart.model),
+          serviceTier: normalizeCodexServiceTier(input.serviceTier) ?? threadStart.serviceTier,
+          effort: collaborationMode
+            ? null
+            : (effectiveReasoningEffort ?? threadStart.reasoningEffort),
+          multiAgentMode: "explicitRequestOnly",
+          summary: firstTurnReasoningSummary,
+          personality: this.preferences.current(),
+          outputSchema: null,
+          collaborationMode,
+          attachments: firstTurnAttachments,
+          commentAttachments: [...preparedPrompt.commentAttachments],
+        };
         const launchId = randomUUID();
         const launch: CodexFreshThreadLaunch = {
           launchId,
@@ -13147,18 +13059,52 @@ export class CodexService {
         };
       }
 
-      const startedTurn = await this.dispatchCanonicalOptimisticTurn({
-        authorityLaunch: await this.beginNodexAgentTurnAuthority(
-          link.threadId,
-          permissionDecision.verifiedBuiltinFullAccess,
-        ),
-        canonicalParams: canonicalTurnParams,
-        clientUserMessageId,
-        currentCollaborationModel: record.latestCollaborationMode.settings.model,
-        request: () =>
-          this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams),
-        threadId: link.threadId,
-      });
+      const preparedFirstTurn: CodexPreparedPrompt = {
+        promptText:
+          materializedGoalObjective.length > 0
+            ? `/goal ${materializedGoalObjective}`
+            : preparedPrompt.promptText,
+        inputItems: [...firstTurnInput] as CodexPreparedPrompt["inputItems"],
+        pendingInputItems: [
+          ...preparedPrompt.pendingInputItems,
+        ] as CodexPreparedPrompt["pendingInputItems"],
+        fileAttachments: [...firstTurnAttachments],
+        addedFiles: [],
+        pastedTextAttachments: [],
+        ...(preparedPrompt.additionalContext
+          ? {
+              additionalContext:
+                preparedPrompt.additionalContext as CodexPreparedPrompt["additionalContext"],
+            }
+          : {}),
+        commentAttachments: [...preparedPrompt.commentAttachments],
+        agentConfigs: [],
+      };
+      const startedTurn = await this.startTurn(
+        link.threadId,
+        preparedFirstTurn.promptText,
+        {
+          clientUserMessageId,
+          preparedPrompt: preparedFirstTurn,
+          responsesapiClientMetadata: {
+            workspace_kind: input.projectId === null ? "projectless" : "project",
+          },
+          ...(effectiveModel ? { model: effectiveModel } : {}),
+          ...(input.serviceTier === undefined ? {} : { serviceTier: input.serviceTier }),
+          ...(input.permissionMode === undefined ? {} : { permissionMode: input.permissionMode }),
+          ...(effectiveReasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: effectiveReasoningEffort }),
+          summary: firstTurnReasoningSummary,
+          ...(effectiveCollaborationMode === undefined
+            ? {}
+            : { collaborationMode: effectiveCollaborationMode }),
+        },
+        { syncDormantConversationUpdates: true },
+      );
+      if (!startedTurn) {
+        throw new Error("Codex turn/start returned an invalid turn payload");
+      }
       await this.applyStartedSessionThreadGoal({
         threadId: link.threadId,
         objective: materializedGoalObjective,
@@ -13174,7 +13120,7 @@ export class CodexService {
       }
       this.logger.info("Started first Codex turn for project session", {
         threadId: link.threadId,
-        turnId: startedTurn.id,
+        turnId: startedTurn.turnId,
         durationMs: Date.now() - startedAt,
       });
       this.syncDormantConversationFromRecord(link.threadId, "owner-unavailable");
@@ -16060,6 +16006,9 @@ export class CodexService {
       ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
       summary: reasoningSummary,
       ...(collaborationMode ? { collaborationMode } : {}),
+      ...(input.overrides?.responsesapiClientMetadata
+        ? { responsesapiClientMetadata: input.overrides.responsesapiClientMetadata }
+        : {}),
       input: preparedPrompt.inputItems,
     });
     transaction = {
