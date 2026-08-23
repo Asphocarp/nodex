@@ -269,10 +269,10 @@ import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application
 import type { CodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import type {
   CodexRendererConversationPresentedResult,
-  CodexRendererConversationRuntimeService,
+  CodexRendererConversationRegistryService,
   CodexRendererConversationViewActiveResult,
-} from "../codex-application/CodexRendererConversationRuntime";
-import type { CodexRendererOwnerRetentionLegacyPort } from "../codex-application/CodexRendererOwnerRetention";
+} from "../codex-application/CodexRendererConversationRegistry";
+import type { CodexRendererConversationCoordinatorService } from "../codex-application/CodexRendererConversationCoordinator";
 import type {
   CodexSidebarRefreshOutcomeEvent,
   CodexSidebarSyncDecisionEvent,
@@ -502,7 +502,6 @@ import {
   CODEX_APP_READ_THREAD_MAX_TURN_LIMIT,
 } from "./codex-app-meta-thread-tools";
 import {
-  CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS,
   type CodexThreadStreamFollowingResult,
   type CodexThreadStreamSubscriptionAction,
 } from "./codex-thread-stream-subscription-state";
@@ -1073,8 +1072,8 @@ type CodexServiceOptions = {
   projectWorkspace: DesktopProjectWorkspacePort;
   activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
-  rendererConversations: CodexRendererConversationRuntimeService;
-  rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
+  rendererConversations: CodexRendererConversationRegistryService;
+  rendererConversationCoordinator: CodexRendererConversationCoordinatorService;
   sidebarSync: CodexSidebarSyncRuntimePromiseAdapter;
   sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   gitProbe: CodexGitProbePromiseAdapter;
@@ -2090,8 +2089,8 @@ export class CodexService {
   private readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   private readonly activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   private readonly ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
-  private readonly rendererConversations: CodexRendererConversationRuntimeService;
-  private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
+  private readonly rendererConversations: CodexRendererConversationRegistryService;
+  private readonly rendererConversationCoordinator: CodexRendererConversationCoordinatorService;
   private readonly sidebarSync: CodexSidebarSyncRuntimePromiseAdapter;
   private readonly sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   private readonly gitProbe: CodexGitProbePromiseAdapter;
@@ -2241,7 +2240,7 @@ export class CodexService {
     this.activeGoalContinuation = options.activeGoalContinuation;
     this.ownerNotificationDrain = options.ownerNotificationDrain;
     this.rendererConversations = options.rendererConversations;
-    this.rendererOwnerRetention = options.rendererOwnerRetention;
+    this.rendererConversationCoordinator = options.rendererConversationCoordinator;
     this.sidebarSync = options.sidebarSync;
     this.sidebarSweep = options.sidebarSweep;
     this.gitProbe = options.gitProbe;
@@ -2630,12 +2629,12 @@ export class CodexService {
   private async releaseConversationResumeBufferCore(threadId: string): Promise<void> {
     await this.replayBufferedResumeNotifications(threadId);
     await this.waitForRendererOwnerNotificationDrain(threadId);
-    this.rendererOwnerRetention.reconcile(threadId);
+    this.rendererConversationCoordinator.reconcileOwnership(threadId);
   }
 
   private discardConversationResumeBuffer(threadId: string, reason: unknown): void {
     this.conversationEventBuffer.discardResume(threadId, reason);
-    this.rendererOwnerRetention.reconcile(threadId);
+    this.rendererConversationCoordinator.reconcileOwnership(threadId);
   }
 
   async releaseConversationResumeBufferForModule(threadId: string): Promise<boolean> {
@@ -3024,7 +3023,7 @@ export class CodexService {
     for (const targetClientId of ownerResult.snapshotClientIds) {
       this.emitRendererThreadStreamSnapshot(threadId, targetClientId);
     }
-    this.rendererOwnerRetention.reconcile(threadId);
+    this.rendererConversationCoordinator.reconcileOwnership(threadId);
     if (ownerResult.previousOwnerClientId === clientId) return;
 
     this.ownerNotificationDrain.resetOwner(threadId);
@@ -3053,7 +3052,7 @@ export class CodexService {
     if (input.result.shouldSendSnapshot) {
       this.emitRendererThreadStreamSnapshot(input.conversationId, input.clientId);
     }
-    this.rendererOwnerRetention.reconcile(input.conversationId);
+    this.rendererConversationCoordinator.reconcileOwnership(input.conversationId);
   }
 
   acknowledgeRendererFollowerSnapshotApplied(
@@ -3074,7 +3073,7 @@ export class CodexService {
     if (result.shouldSendSnapshot) {
       this.emitRendererThreadStreamSnapshot(input.conversationId, sourceClientId);
     }
-    this.rendererOwnerRetention.reconcile(input.conversationId);
+    this.rendererConversationCoordinator.reconcileOwnership(input.conversationId);
     return result.accepted;
   }
 
@@ -3142,7 +3141,7 @@ export class CodexService {
       }
     }
     this.userInputAutoResolution.reevaluatePresentation(input.conversationId);
-    this.rendererOwnerRetention.reconcile(input.conversationId);
+    this.rendererConversationCoordinator.reconcileOwnership(input.conversationId);
   }
 
   setRendererClientForegrounded(clientId: string | null | undefined, foregrounded: boolean): void {
@@ -3270,7 +3269,7 @@ export class CodexService {
 
     for (const conversationId of conversationIds) {
       this.releaseOwnerNotificationDrain(conversationId);
-      this.rendererOwnerRetention.clear(conversationId);
+      this.rendererConversationCoordinator.reconcileOwnership(conversationId);
       const record = this.getMaybeConversationRecord(conversationId);
       if (record) {
         record.resumeState = "needs_resume";
@@ -3281,16 +3280,12 @@ export class CodexService {
         conversationId,
         new Error("Dynamic tool call owner disconnected"),
       );
-      this.rendererOwnerRetention.reconcile(conversationId);
-      this.rendererOwnerRetention.recheckAfter(
-        conversationId,
-        CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS + 1,
-      );
+      this.rendererConversationCoordinator.reconcileOwnership(conversationId);
     }
 
     for (const conversationId of viewConversationIds) {
       if (conversationIds.includes(conversationId)) continue;
-      this.rendererOwnerRetention.reconcile(conversationId);
+      this.rendererConversationCoordinator.reconcileOwnership(conversationId);
     }
 
     if (conversationIds.length === 0) return;
@@ -5279,7 +5274,7 @@ export class CodexService {
     this.conversationRuntimes.currentConversation(threadId)?.reset();
     this.rendererConversations.clearConversation(threadId);
     this.userInputAutoResolution.clearConversation(threadId);
-    this.rendererOwnerRetention.clear(threadId);
+    this.rendererConversationCoordinator.reconcileOwnership(threadId);
     this.clearOwnerNotificationDrain(threadId);
     this.conversationDeltaBuffer.clear(threadId);
     this.manualCompaction.clear(threadId);
@@ -14082,7 +14077,7 @@ export class CodexService {
       this.ensureConversationDetail(threadId);
       this.setConversationResumeState(threadId, "needs_resume");
       syncOrEmitSnapshot();
-      this.rendererOwnerRetention.reconcile(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
       return this.serializeConversationSnapshotIncludingArchived(threadId);
     }
 
@@ -14116,7 +14111,7 @@ export class CodexService {
         await this.releaseConversationResumeBufferCore(threadId);
         this.setConversationResumeState(threadId, "needs_resume");
         syncOrEmitSnapshot();
-        this.rendererOwnerRetention.reconcile(threadId);
+        this.rendererConversationCoordinator.reconcileOwnership(threadId);
         return null;
       }
 
@@ -14138,7 +14133,7 @@ export class CodexService {
       const record = this.ensureConversationRecord(threadId);
       this.setConversationStreamRole(threadId, null);
       record.isStreaming = false;
-      this.rendererOwnerRetention.reconcile(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
       if (isThreadArchivedError(error)) {
         this.rememberWorkspaceSidebar(
           await this.projectWorkspace.setThreadArchived(threadId, true),
@@ -19475,7 +19470,7 @@ export class CodexService {
       params: request.params,
     });
     if (ownerRouted) {
-      this.rendererOwnerRetention.reconcile(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
       return CodexApplicationRequestPending;
     }
 
@@ -19662,7 +19657,7 @@ export class CodexService {
     });
     const ownerRouted = this.forwardServerRequestToRendererOwner(request);
     if (ownerRouted) {
-      this.rendererOwnerRetention.reconcile(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
     }
     if (request.method === "item/tool/requestOptionPicker") {
       this.emitUserInputRequiredNotification({
@@ -19847,7 +19842,7 @@ export class CodexService {
     const ownerRouted = this.forwardServerRequestToRendererOwner(request);
 
     if (ownerRouted) {
-      this.rendererOwnerRetention.reconcile(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
     }
     this.emitEvent({ type: "approvalRequested", request: payload });
     this.emitThreadNotificationEvent({
@@ -20054,7 +20049,7 @@ export class CodexService {
       params,
     });
     if (ownerRouted) {
-      this.rendererOwnerRetention.reconcile(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
     }
     this.emitThreadNotificationEvent({
       type: "approval-requested",
@@ -20140,7 +20135,7 @@ export class CodexService {
       params,
     });
     if (ownerRouted) {
-      this.rendererOwnerRetention.reconcile(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
     }
     this.emitEvent({ type: "userInputRequested", request: payload });
     this.emitUserInputRequiredNotification({
@@ -20224,7 +20219,7 @@ export class CodexService {
       params,
     });
     if (ownerRouted) {
-      this.rendererOwnerRetention.reconcile(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
     }
     return CodexApplicationRequestPending;
   }
@@ -21091,7 +21086,7 @@ export class CodexService {
       if (mergedTurn.status !== "inProgress") {
         this.maybeDispatchQueuedFollowUp(threadId);
       }
-      this.rendererOwnerRetention.reconcile(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
       return;
     }
 
@@ -21190,7 +21185,7 @@ export class CodexService {
 
       const turnId = this.reduceCanonicalMainItemLifecycle(notification);
       if (!turnId) {
-        if (ownerRouted) this.rendererOwnerRetention.reconcile(threadId);
+        if (ownerRouted) this.rendererConversationCoordinator.reconcileOwnership(threadId);
         return;
       }
       if (method === "item/completed" && payload.item.type === "fileChange") {
@@ -21200,7 +21195,7 @@ export class CodexService {
         }
       }
       if (ownerRouted) {
-        this.rendererOwnerRetention.reconcile(threadId);
+        this.rendererConversationCoordinator.reconcileOwnership(threadId);
         return;
       }
       this.syncAcceptedConversationTurnState(threadId, turnId, {

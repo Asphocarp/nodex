@@ -1,7 +1,4 @@
-import type {
-  CodexRendererOwnerCleanupReason,
-  CodexRendererOwnerRetentionLegacyPort,
-} from "../codex-application/CodexRendererOwnerRetention";
+import type { CodexRendererOwnerCleanupReason } from "../codex-application/CodexRendererOwnerRetention";
 
 interface TestCodexRendererOwnerRetentionOptions {
   readonly isCandidate: (conversationId: string) => boolean;
@@ -15,7 +12,7 @@ interface TestCodexRendererOwnerRetentionOptions {
 }
 
 /** Synchronous timer fixture for legacy CodexService integration tests only. */
-export class TestCodexRendererOwnerRetention implements CodexRendererOwnerRetentionLegacyPort {
+export class TestCodexRendererOwnerRetention {
   readonly #candidateSince = new Map<string, number>();
   readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #rechecks = new Map<string, ReturnType<typeof setTimeout>>();

@@ -2,8 +2,10 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import type { IpcEvents } from "../../shared/ipc-api";
-import type { CodexService } from "../codex/codex-service";
 import type { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
+import type { CodexFreshThreadLaunchRuntime } from "../codex-application/CodexFreshThreadLaunchRuntime";
+import type { CodexRendererConversationCoordinator } from "../codex-application/CodexRendererConversationCoordinator";
+import type { CodexRendererConversationRegistry } from "../codex-application/CodexRendererConversationRegistry";
 import type { CodexUserInputAutoResolution } from "../codex-application/CodexUserInputAutoResolution";
 import {
   broadcastCodexHostMessageToRendererClients,
@@ -16,8 +18,10 @@ import { safeBroadcastToWindows } from "../ipc-safe-send";
 import type { WindowRuntimeService } from "../window-runtime/WindowRuntime";
 
 export interface CodexRendererProjectionRuntimeOptions {
-  readonly codex: CodexService;
+  readonly coordinator: CodexRendererConversationCoordinator["Service"];
   readonly events: CodexApplicationEventHub["Service"];
+  readonly freshThreadLaunch: CodexFreshThreadLaunchRuntime["Service"];
+  readonly registry: CodexRendererConversationRegistry["Service"];
   readonly rendererClients: RendererClientRuntimeService;
   readonly userInputAutoResolution: CodexUserInputAutoResolution["Service"];
   readonly windows: WindowRuntimeService;
@@ -40,13 +44,20 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
       );
       yield* options.rendererClients.events.pipe(
         Stream.runForEach((event) =>
-          Effect.sync(() => {
-            if (event.kind === "connected") {
-              options.codex.handleRendererClientConnected(event.clientId);
-              return;
-            }
-            options.codex.handleRendererClientDisposed(event.clientId);
-          }),
+          event.kind === "connected"
+            ? options.coordinator.handleClientConnected(event.clientId)
+            : options.coordinator
+                .handleClientDisposed(event.clientId)
+                .pipe(
+                  Effect.tap(() =>
+                    Effect.sync(() =>
+                      options.freshThreadLaunch.releaseRenderer(
+                        event.clientId,
+                        new Error("Fresh thread owner disconnected"),
+                      ),
+                    ),
+                  ),
+                ),
         ),
         Effect.forkScoped({ startImmediately: true }),
       );
@@ -59,16 +70,15 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
       const reportDeliveryFailure = (delivery: {
         readonly unavailableClientIds: readonly string[];
         readonly failedClientIds: readonly string[];
-      }): void => {
-        options.codex.handleRendererClientDeliveryFailure([
+      }): Effect.Effect<void> =>
+        options.coordinator.handleClientDeliveryFailure([
           ...delivery.unavailableClientIds,
           ...delivery.failedClientIds,
         ]);
-      };
 
       yield* options.events.events.pipe(
         Stream.runForEach((event) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
             if (event.kind === "codex") {
               options.rendererClients.broadcast("codex:event", [event.value]);
               if (event.value.type === "scheduledAutomationChanged") {
@@ -83,11 +93,11 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
               const message = event.value;
               const targetClientIds =
                 message.type === "threadStreamStateChanged"
-                  ? options.codex.getRendererConversationFollowerClientIds(message.conversationId)
+                  ? options.registry.getFollowerClientIds(message.conversationId)
                   : undefined;
               if (message.type === "threadStreamStateChanged" && targetClientIds !== undefined) {
                 if (targetClientIds === null) return;
-                reportDeliveryFailure(
+                yield* reportDeliveryFailure(
                   sendRendererThreadStreamRelay(
                     options.rendererClients,
                     targetClientIds,
@@ -109,7 +119,7 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
               return;
             }
             if (event.kind === "rendererThreadStreamRelay") {
-              reportDeliveryFailure(
+              yield* reportDeliveryFailure(
                 sendRendererThreadStreamRelay(
                   options.rendererClients,
                   event.value.targetClientIds,
@@ -120,7 +130,7 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
               return;
             }
             if (event.kind === "rendererThreadStreamControlRelay") {
-              reportDeliveryFailure(
+              yield* reportDeliveryFailure(
                 sendRendererThreadStreamControlRelay(
                   options.rendererClients,
                   event.value.targetClientIds,

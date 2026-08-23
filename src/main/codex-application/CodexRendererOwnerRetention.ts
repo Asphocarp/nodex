@@ -9,6 +9,12 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
+import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
+import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
+import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
+import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
 export const DEFAULT_RENDERER_OWNER_RETENTION = "1 hour";
 export const DEFAULT_RENDERER_OWNER_MAX_RETAINED = 4;
@@ -29,14 +35,6 @@ interface TrackedCandidate {
 }
 
 export interface CodexRendererOwnerRetentionOptions {
-  readonly isCandidate: (conversationId: string) => boolean;
-  readonly unsubscribe: (
-    conversationId: string,
-  ) => Effect.Effect<void, CodexRendererOwnerRetentionError>;
-  readonly commitCleanup: (
-    conversationId: string,
-    reason: CodexRendererOwnerCleanupReason,
-  ) => Effect.Effect<void>;
   readonly retention?: Duration.Input;
   readonly maxRetained?: number;
   readonly retry?: Duration.Input;
@@ -46,16 +44,30 @@ export class CodexRendererOwnerRetention extends Context.Service<
   CodexRendererOwnerRetention,
   {
     readonly trackedConversationIds: Effect.Effect<readonly string[]>;
-    readonly reconcile: (conversationId: string, candidate: boolean) => Effect.Effect<void>;
+    readonly reconcile: (conversationId: string) => Effect.Effect<void>;
     readonly recheckAfter: (conversationId: string, delay: Duration.Input) => Effect.Effect<void>;
     readonly clear: (conversationId: string) => Effect.Effect<void>;
   }
 >()("nodex/main/codex-application/CodexRendererOwnerRetention") {}
 
 export const make = (
-  options: CodexRendererOwnerRetentionOptions,
-): Effect.Effect<CodexRendererOwnerRetention["Service"], never, Scope.Scope> =>
+  options: CodexRendererOwnerRetentionOptions = {},
+): Effect.Effect<
+  CodexRendererOwnerRetention["Service"],
+  never,
+  | CodexApplicationEventHub
+  | CodexGateway
+  | CodexOwnerNotificationDrainRuntime
+  | CodexRendererConversationRegistry
+  | ConversationRuntimeMap
+  | Scope.Scope
+> =>
   Effect.gen(function* () {
+    const conversations = yield* ConversationRuntimeMap;
+    const events = yield* CodexApplicationEventHub;
+    const gateway = yield* CodexGateway;
+    const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
+    const rendererConversations = yield* CodexRendererConversationRegistry;
     const retention = options.retention ?? DEFAULT_RENDERER_OWNER_RETENTION;
     const retry = options.retry ?? DEFAULT_RENDERER_OWNER_RETRY;
     const maxRetained = Math.max(
@@ -73,11 +85,32 @@ export const make = (
       Ref.get(candidates).pipe(
         Effect.map((state) => Option.getOrUndefined(HashMap.get(state, conversationId))),
       );
+    const isCandidate = (conversationId: string): boolean => {
+      const detached = rendererConversations.hasDetachedOwner(conversationId);
+      if (!rendererConversations.hasOwner(conversationId) && !detached) return false;
+      if (rendererConversations.hasFollowersOrPendingReconnect(conversationId)) return false;
+      if (rendererConversations.hasActiveView(conversationId)) return false;
+
+      const aggregate = conversations.currentConversation(conversationId);
+      const conversation = aggregate?.read().acceptedReplica?.conversation;
+      if (!aggregate || !conversation) return false;
+      if (!detached && aggregate.readStreamRole() !== "owner") return false;
+      if (
+        conversation.resumeState !== "resumed" &&
+        !(detached && conversation.resumeState === "needs_resume")
+      ) {
+        return false;
+      }
+      if (conversation.statusType === "active" || conversation.statusActiveFlags.length > 0) {
+        return false;
+      }
+      if (conversation.turns.some((turn) => turn.status === "inProgress")) return false;
+      return aggregate.readServerRequests().length === 0;
+    };
     const isCurrent = (conversationId: string, generation: number) =>
       current(conversationId).pipe(
         Effect.map(
-          (candidate) =>
-            candidate?.generation === generation && options.isCandidate(conversationId),
+          (candidate) => candidate?.generation === generation && isCandidate(conversationId),
         ),
       );
     const removeCurrent = (conversationId: string, generation: number) =>
@@ -87,6 +120,45 @@ export const make = (
       });
     const cleanupKey = (conversationId: string, generation: number) =>
       `${conversationId}\0${generation}`;
+    const unsubscribe = (conversationId: string) =>
+      gateway
+        .requestForThread(conversationId, "thread/unsubscribe", { threadId: conversationId })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((cause) => new CodexRendererOwnerRetentionError({ cause })),
+        );
+    const commitCleanup = (conversationId: string): Effect.Effect<void> =>
+      Effect.sync(() => {
+        if (!isCandidate(conversationId)) return;
+        const aggregate = conversations.currentConversation(conversationId);
+        const replica = aggregate?.read().acceptedReplica ?? null;
+        const ownerClientId = rendererConversations.clearConversation(conversationId);
+        ownerNotificationDrain.release(conversationId);
+        if (aggregate) {
+          aggregate.setStreamRole(null);
+          if (replica) {
+            aggregate.advanceReplica({
+              conversation: {
+                ...replica.conversation,
+                resumeState: "needs_resume",
+                statusType: "idle",
+                statusActiveFlags: [],
+              },
+              ownerEpoch: replica.checkpoint.ownerEpoch,
+            });
+          }
+        }
+        if (!ownerClientId) return;
+        events.publish({
+          kind: "hostMessage",
+          value: {
+            type: "threadOwnerUnavailable",
+            hostId: DEFAULT_CODEX_HOST_ID,
+            ownerClientId,
+            conversationIds: [conversationId],
+          },
+        });
+      });
 
     const startTimer = (
       conversationId: string,
@@ -115,14 +187,14 @@ export const make = (
         yield* FiberMap.run(
           cleanups,
           key,
-          options.unsubscribe(conversationId).pipe(
+          unsubscribe(conversationId).pipe(
             Effect.flatMap(() =>
               isCurrent(conversationId, generation).pipe(
                 Effect.flatMap((stillCurrent) =>
                   stillCurrent
-                    ? options
-                        .commitCleanup(conversationId, reason)
-                        .pipe(Effect.andThen(removeCurrent(conversationId, generation)))
+                    ? commitCleanup(conversationId).pipe(
+                        Effect.andThen(removeCurrent(conversationId, generation)),
+                      )
                     : Effect.void,
                 ),
               ),
@@ -150,10 +222,10 @@ export const make = (
         );
       });
 
-    const reconcile = (conversationId: string, candidateEligible: boolean) =>
+    const reconcile = (conversationId: string) =>
       mutations.withPermits(1)(
         Effect.gen(function* () {
-          if (!candidateEligible) {
+          if (!isCandidate(conversationId)) {
             yield* Ref.update(candidates, (state) => HashMap.remove(state, conversationId));
             yield* FiberMap.remove(timers, conversationId);
             return;
@@ -205,11 +277,7 @@ export const make = (
         FiberMap.run(
           rechecks,
           conversationId,
-          Effect.sleep(delay).pipe(
-            Effect.andThen(
-              Effect.suspend(() => reconcile(conversationId, options.isCandidate(conversationId))),
-            ),
-          ),
+          Effect.sleep(delay).pipe(Effect.andThen(Effect.suspend(() => reconcile(conversationId)))),
           { startImmediately: true },
         ).pipe(Effect.asVoid),
       clear: (conversationId) =>
@@ -222,9 +290,3 @@ export const make = (
         ),
     });
   });
-
-export interface CodexRendererOwnerRetentionLegacyPort {
-  readonly reconcile: (conversationId: string) => void;
-  readonly recheckAfter: (conversationId: string, delayMs: number) => void;
-  readonly clear: (conversationId: string) => void;
-}

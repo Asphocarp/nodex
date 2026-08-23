@@ -115,9 +115,10 @@ import { TestCodexUserInputAutoResolutionController } from "./codex-user-input-a
 import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuation.test-support";
 import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import {
-  makeCodexRendererConversationState,
-  type CodexRendererConversationRuntimeService,
-} from "../codex-application/CodexRendererConversationRuntime";
+  makeCodexRendererConversationRegistryState,
+  type CodexRendererConversationRegistryService,
+} from "../codex-application/CodexRendererConversationRegistry";
+import type { CodexRendererConversationCoordinatorService } from "../codex-application/CodexRendererConversationCoordinator";
 import type {
   CodexApplicationEvent,
   CodexApplicationEventPublisher,
@@ -1707,13 +1708,11 @@ function createService(options?: {
     },
   });
   const projectWorkspace = options?.projectWorkspace ?? createTestProjectWorkspace();
-  const rendererConversations = makeCodexRendererConversationState({
-    projection: {
-      following: (input) => service?.applyRendererConversationFollowingForModule(input),
-      viewActive: (input) => service?.applyRendererConversationViewActiveForModule(input),
-      presented: (input) => service?.applyRendererConversationPresentedForModule(input),
-    },
-  });
+  const rendererConversations = makeCodexRendererConversationRegistryState();
+  const rendererConversationCoordinator = {
+    reconcileOwnership: (conversationId: string) =>
+      rendererOwnerRetention.reconcile(conversationId),
+  } as unknown as CodexRendererConversationCoordinatorService;
   const threadCatalog = {
     listPinned: async (): Promise<readonly string[]> => {
       const threadIds: string[] = [];
@@ -2172,7 +2171,7 @@ function createService(options?: {
     activeGoalContinuation,
     ownerNotificationDrain,
     rendererConversations,
-    rendererOwnerRetention,
+    rendererConversationCoordinator,
     sidebarSync,
     sidebarSweep,
     gitProbe: {
@@ -2736,7 +2735,7 @@ const updateRendererConversationViewForTest = (
       Reflect.get(
         service as object,
         "rendererConversations",
-      ) as CodexRendererConversationRuntimeService
+      ) as CodexRendererConversationRegistryService
     ).setViewActive(threadId, clientId, active);
     service.applyRendererConversationViewActiveForModule({
       conversationId: threadId,

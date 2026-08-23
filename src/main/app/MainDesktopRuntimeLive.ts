@@ -130,9 +130,13 @@ import {
 } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import { makeCodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntimePromiseAdapter";
 import {
-  CodexRendererConversationRuntime,
-  make as makeCodexRendererConversationRuntime,
-} from "../codex-application/CodexRendererConversationRuntime";
+  CodexRendererConversationRegistry,
+  make as makeCodexRendererConversationRegistry,
+} from "../codex-application/CodexRendererConversationRegistry";
+import {
+  CodexRendererConversationCoordinator,
+  make as makeCodexRendererConversationCoordinator,
+} from "../codex-application/CodexRendererConversationCoordinator";
 import {
   CodexRendererOwnerCommandProjectionError,
   make as makeCodexRendererOwnerCommands,
@@ -255,10 +259,9 @@ import {
 } from "../codex-application/CodexThreadTitlePersistence";
 import { makeCodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
 import {
-  CodexRendererOwnerRetentionError,
+  CodexRendererOwnerRetention,
   make as makeCodexRendererOwnerRetention,
 } from "../codex-application/CodexRendererOwnerRetention";
-import { makeCodexRendererOwnerRetentionCallbackAdapter } from "../codex-application/CodexRendererOwnerRetentionCallbackAdapter";
 import {
   CodexUserInputAutoResolution,
   make as makeCodexUserInputAutoResolution,
@@ -698,16 +701,9 @@ export const live: Layer.Layer<
         const ownerNotificationDrain = yield* makeCodexOwnerNotificationDrainRuntime().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const rendererConversations = yield* makeCodexRendererConversationRuntime({
-          projection: {
-            following: (input) =>
-              requireCodexService().applyRendererConversationFollowingForModule(input),
-            viewActive: (input) =>
-              requireCodexService().applyRendererConversationViewActiveForModule(input),
-            presented: (input) =>
-              requireCodexService().applyRendererConversationPresentedForModule(input),
-          },
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const rendererConversations = yield* makeCodexRendererConversationRegistry().pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const threadReadState = yield* makeCodexThreadReadState({
           inspect: (threadId) =>
             Effect.tryPromise({
@@ -727,16 +723,35 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexThreadReadStateError({ operation: "project", cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const userInputAutoResolution = yield* makeCodexUserInputAutoResolution({
-          isConversationPresented: (conversationId) =>
-            rendererConversations.isPresentedInForeground(conversationId),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const userInputAutoResolution = yield* makeCodexUserInputAutoResolution.pipe(
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention().pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const rendererConversationCoordinator =
+          yield* makeCodexRendererConversationCoordinator.pipe(
+            Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+            Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
+            Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
+            Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+            Effect.provideService(CodexRendererOwnerRetention, rendererOwnerRetention),
+            Effect.provideService(CodexUserInputAutoResolution, userInputAutoResolution),
+            Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+            Effect.provideService(Scope.Scope, runtimeScope),
+          );
         const serverRequestResponses = yield* makeCodexServerRequestResponses.pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
           Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
           Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
-          Effect.provideService(CodexRendererConversationRuntime, rendererConversations),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(CodexThreadReadState, threadReadState),
           Effect.provideService(CodexUserInputAutoResolution, userInputAutoResolution),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
@@ -2159,28 +2174,6 @@ export const live: Layer.Layer<
           managedWorktreeRetentionContext,
           ManagedWorktreeRetentionRuntime,
         );
-        const isInactiveRendererOwnerCandidate = (conversationId: string) =>
-          codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
-        const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
-          isCandidate: isInactiveRendererOwnerCandidate,
-          unsubscribe: (conversationId) =>
-            codexGateway
-              .requestForThread(conversationId, "thread/unsubscribe", {
-                threadId: conversationId,
-              })
-              .pipe(
-                Effect.asVoid,
-                Effect.mapError((cause) => new CodexRendererOwnerRetentionError({ cause })),
-              ),
-          commitCleanup: (conversationId) =>
-            Effect.sync(() => {
-              requireCodexService().commitInactiveRendererOwnerCleanup(conversationId);
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const rendererOwnerRetentionCallbacks =
-          yield* makeCodexRendererOwnerRetentionCallbackAdapter(rendererOwnerRetention, {
-            isCandidate: isInactiveRendererOwnerCandidate,
-          }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const forkBrowserSnapshotAdapter = createCodexForkBrowserSnapshotAdapter({
           getProjectSession: (projectSessionId) =>
             projectWorkspace.getProjectSession(projectSessionId),
@@ -2414,7 +2407,7 @@ export const live: Layer.Layer<
                 }),
             }),
         }).pipe(
-          Effect.provideService(CodexRendererConversationRuntime, rendererConversations),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
           Effect.provideService(CodexManualCompactionRuntime, manualCompaction),
           Effect.provideService(CodexThreadGoalRuntime, threadGoals),
@@ -2613,7 +2606,7 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               rendererConversations,
-              rendererOwnerRetention: rendererOwnerRetentionCallbacks,
+              rendererConversationCoordinator,
               sidebarSync: makeCodexSidebarSyncRuntimePromiseAdapter(sidebarSync, callbacks),
               sidebarSweep: makeCodexSidebarSweepRuntimePromiseAdapter(sidebarSweep, callbacks),
               gitProbe: makeCodexGitProbePromiseAdapter(gitProbe, callbacks),
@@ -2780,8 +2773,10 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           codexRendererProjectionRuntimeLive({
-            codex: codexService,
+            coordinator: rendererConversationCoordinator,
             events: codexApplicationEvents,
+            freshThreadLaunch,
+            registry: rendererConversations,
             rendererClients,
             userInputAutoResolution,
             windows,
@@ -2796,7 +2791,11 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(CodexRendererConversationRuntime, rendererConversations),
+                Layer.succeed(
+                  CodexRendererConversationCoordinator,
+                  rendererConversationCoordinator,
+                ),
+                Layer.succeed(CodexRendererConversationRegistry, rendererConversations),
                 Layer.succeed(CodexUserInputAutoResolution, userInputAutoResolution),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
@@ -3071,7 +3070,7 @@ export const live: Layer.Layer<
           applicationWindowRuntimeLive({
             appUpdates,
             browserSidebar: browserSidebarService,
-            codex: codexService,
+            rendererConversations: rendererConversationCoordinator,
             desktopNotifications,
             iconPath: config.isPackaged
               ? `${config.resourcesPath}/icon.png`

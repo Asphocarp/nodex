@@ -16,25 +16,9 @@ import {
   type CodexThreadStreamSubscriptionAction,
 } from "../codex/codex-thread-stream-subscription-state";
 
-export interface CodexRendererConversationRuntimeOptions {
+export interface CodexRendererConversationRegistryOptions {
   readonly now?: () => number;
   readonly reconnectGraceMs?: number;
-  readonly projection?: {
-    readonly following: (input: {
-      readonly conversationId: string;
-      readonly clientId: string;
-      readonly result: CodexThreadStreamFollowingResult;
-    }) => void;
-    readonly viewActive: (input: {
-      readonly conversationId: string;
-      readonly clientId: string;
-      readonly result: CodexRendererConversationViewActiveResult;
-    }) => void;
-    readonly presented: (input: {
-      readonly conversationId: string;
-      readonly result: CodexRendererConversationPresentedResult;
-    }) => void;
-  };
 }
 
 export interface CodexRendererConversationOwnerResult extends CodexThreadStreamOwnerResult {
@@ -58,7 +42,7 @@ export interface CodexRendererConversationPresentedResult {
   readonly presentedInForeground: boolean;
 }
 
-export interface CodexRendererConversationRuntimeService {
+export interface CodexRendererConversationRegistryService {
   readonly setOwner: (
     conversationId: string,
     clientId: string,
@@ -135,29 +119,12 @@ export interface CodexRendererConversationRuntimeService {
   ) => void;
   readonly clearRequestDelivery: (conversationId: string, requestId: RequestId) => void;
   readonly clearConversation: (conversationId: string) => string | null;
-  readonly updateFollowing: (
-    conversationId: string,
-    clientId: string,
-    following: boolean,
-    options?: { readonly forceSnapshot?: boolean },
-  ) => Effect.Effect<boolean>;
-  readonly updateViewActive: (
-    conversationId: string,
-    clientId: string,
-    active: boolean,
-  ) => Effect.Effect<boolean>;
-  readonly updatePresented: (
-    conversationId: string,
-    clientId: string,
-    surfaceId: string,
-    presented: boolean,
-  ) => Effect.Effect<boolean>;
 }
 
-export class CodexRendererConversationRuntime extends Context.Service<
-  CodexRendererConversationRuntime,
-  CodexRendererConversationRuntimeService
->()("nodex/main/codex-application/CodexRendererConversationRuntime") {}
+export class CodexRendererConversationRegistry extends Context.Service<
+  CodexRendererConversationRegistry,
+  CodexRendererConversationRegistryService
+>()("nodex/main/codex-application/CodexRendererConversationRegistry") {}
 
 const normalizeId = (value: string): string => value.trim();
 
@@ -183,14 +150,14 @@ const requestDeliveryKey = (request: CodexThreadOwnerServerRequest): string => {
 
 /**
  * Deterministic renderer-generation state machine. Production obtains it only
- * through the scoped runtime; tests may construct it directly to exercise the
+ * through the scoped registry; tests may construct it directly to exercise the
  * synchronous conversation reducer without creating a second Effect runtime.
  */
 const makeRuntimeState = (
-  options: CodexRendererConversationRuntimeOptions = {},
+  options: CodexRendererConversationRegistryOptions = {},
 ): {
   readonly close: () => void;
-  readonly runtime: CodexRendererConversationRuntimeService;
+  readonly registry: CodexRendererConversationRegistryService;
 } => {
   const subscriptions = new CodexThreadStreamSubscriptionState({
     now: options.now,
@@ -205,7 +172,7 @@ const makeRuntimeState = (
     requestDeliveriesByConversationId.delete(normalizeId(conversationId));
   };
 
-  const service: CodexRendererConversationRuntimeService = {
+  const service: CodexRendererConversationRegistryService = {
     setOwner: (conversationId, clientId) => {
       const normalizedConversationId = normalizeId(conversationId);
       const normalizedClientId = normalizeId(clientId);
@@ -381,27 +348,6 @@ const makeRuntimeState = (
       clearRequestDeliveries(normalizedConversationId);
       return ownerClientId;
     },
-    updateFollowing: (conversationId, clientId, following, followingOptions) =>
-      Effect.sync(() => {
-        const result = service.setFollowing(conversationId, clientId, following, followingOptions);
-        if (!result) return false;
-        options.projection?.following({ conversationId, clientId, result });
-        return true;
-      }),
-    updateViewActive: (conversationId, clientId, active) =>
-      Effect.sync(() => {
-        const result = service.setViewActive(conversationId, clientId, active);
-        if (!result.accepted) return false;
-        options.projection?.viewActive({ conversationId, clientId, result });
-        return true;
-      }),
-    updatePresented: (conversationId, clientId, surfaceId, presented) =>
-      Effect.sync(() => {
-        const result = service.setPresented(conversationId, clientId, surfaceId, presented);
-        if (!result.accepted) return false;
-        options.projection?.presented({ conversationId, result });
-        return true;
-      }),
   };
   return {
     close: () => {
@@ -412,19 +358,19 @@ const makeRuntimeState = (
       disposedClientIds.clear();
       requestDeliveriesByConversationId.clear();
     },
-    runtime: service,
+    registry: service,
   };
 };
 
-export const makeCodexRendererConversationState = (
-  options: CodexRendererConversationRuntimeOptions = {},
-): CodexRendererConversationRuntimeService => makeRuntimeState(options).runtime;
+export const makeCodexRendererConversationRegistryState = (
+  options: CodexRendererConversationRegistryOptions = {},
+): CodexRendererConversationRegistryService => makeRuntimeState(options).registry;
 
 export const make = (
-  options: CodexRendererConversationRuntimeOptions = {},
-): Effect.Effect<CodexRendererConversationRuntimeService, never, Scope.Scope> =>
+  options: CodexRendererConversationRegistryOptions = {},
+): Effect.Effect<CodexRendererConversationRegistryService, never, Scope.Scope> =>
   Effect.gen(function* () {
     const state = makeRuntimeState(options);
     yield* Effect.addFinalizer(() => Effect.sync(state.close));
-    return CodexRendererConversationRuntime.of(state.runtime);
+    return CodexRendererConversationRegistry.of(state.registry);
   });

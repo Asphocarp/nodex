@@ -1,14 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type {
-  CodexHostMessage,
-  CodexThreadFollowerActionInput,
-  CodexThreadFollowerSnapshotAppliedInput,
-  CodexThreadOwnerNotificationAckInput,
-  CodexThreadOwnerStreamStatePublishResult,
-  CodexThreadOwnerStreamStatePublishInput,
-  CodexThreadStreamResyncRequestInput,
-} from "../../shared/types";
+import type { CodexHostMessage, CodexThreadFollowerActionInput } from "../../shared/types";
 import {
   COMPLETE_HISTORY_RENDERER_CLIENT_REQUEST_TIMEOUT_MS,
   type RendererClientDeliveryResult,
@@ -41,29 +33,6 @@ export interface CodexOwnerFollowerRendererClientRuntime {
     args: readonly unknown[],
     options?: { excludeClientId?: string | null },
   ): RendererClientDeliveryResult;
-}
-
-export interface CodexOwnerFollowerService {
-  ackRendererThreadOwnerNotification(
-    sourceClientId: string,
-    input: CodexThreadOwnerNotificationAckInput,
-  ): boolean;
-  getRendererConversationOwner(threadId: string): string | null;
-  getRendererConversationFollowerClientIds?(threadId: string): readonly string[] | null;
-  handleRendererClientDisposed(clientId: string): void;
-  handleRendererClientDeliveryFailure?(clientIds: readonly string[]): void;
-  acknowledgeRendererFollowerSnapshotApplied(
-    sourceClientId: string,
-    input: CodexThreadFollowerSnapshotAppliedInput,
-  ): boolean;
-  requestRendererThreadStreamResync(
-    sourceClientId: string,
-    input: CodexThreadStreamResyncRequestInput,
-  ): boolean;
-  publishRendererThreadStreamStateChange(
-    sourceClientId: string,
-    input: CodexThreadOwnerStreamStatePublishInput,
-  ): CodexThreadOwnerStreamStatePublishResult;
 }
 
 export class CodexOwnerFollowerError extends Schema.TaggedError<CodexOwnerFollowerError>()(
@@ -177,50 +146,10 @@ export function sendRendererThreadStreamRelay(
   });
 }
 
-export function publishRendererThreadOwnerStreamState(
-  service: CodexOwnerFollowerService,
-  sourceClientId: string | null,
-  input: CodexThreadOwnerStreamStatePublishInput,
-): CodexThreadOwnerStreamStatePublishResult {
-  if (!sourceClientId) {
-    return { accepted: false, reason: "not-owner", recovery: null };
-  }
-
-  return service.publishRendererThreadStreamStateChange(sourceClientId, input);
-}
-
-export function acknowledgeRendererFollowerSnapshotApplied(
-  service: CodexOwnerFollowerService,
-  sourceClientId: string | null,
-  input: CodexThreadFollowerSnapshotAppliedInput,
-): boolean {
-  if (!sourceClientId) return false;
-  return service.acknowledgeRendererFollowerSnapshotApplied(sourceClientId, input);
-}
-
-export function requestRendererThreadStreamResync(
-  service: CodexOwnerFollowerService,
-  sourceClientId: string | null,
-  input: CodexThreadStreamResyncRequestInput,
-): boolean {
-  if (!sourceClientId) return false;
-  return service.requestRendererThreadStreamResync(sourceClientId, input);
-}
-
-export function ackRendererThreadOwnerNotification(
-  service: CodexOwnerFollowerService,
-  sourceClientId: string | null,
-  input: CodexThreadOwnerNotificationAckInput,
-): boolean {
-  if (!sourceClientId) return false;
-
-  return service.ackRendererThreadOwnerNotification(sourceClientId, input);
-}
-
 export const runThreadFollowerActionThroughOwner = Effect.fn(
   "CodexOwnerFollower.runThreadFollowerActionThroughOwner",
 )(function* (
-  service: CodexOwnerFollowerService,
+  registry: { readonly getOwnerClientId: (conversationId: string) => string | null },
   router: CodexOwnerFollowerRendererClientRuntime | null | undefined,
   sourceClientId: string | null,
   input: CodexThreadFollowerActionInput,
@@ -229,7 +158,7 @@ export const runThreadFollowerActionThroughOwner = Effect.fn(
     return yield* ownerFollowerError("authorize-source", "Renderer client is not registered");
   }
 
-  const ownerClientId = service.getRendererConversationOwner(input.conversationId);
+  const ownerClientId = registry.getOwnerClientId(input.conversationId);
   if (!ownerClientId)
     return yield* ownerFollowerError(
       "resolve-owner",

@@ -15,7 +15,7 @@ import type {
 import { ConversationCommands } from "./ConversationCommands";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
-import { CodexRendererConversationRuntime } from "./CodexRendererConversationRuntime";
+import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
 import { CodexThreadRollbackCommands } from "./CodexThreadRollbackCommands";
@@ -184,7 +184,7 @@ const readGoalSetParams = (threadId: string, value: unknown): ThreadGoalSetParam
 const validateIdentity = (
   ownerClientId: string,
   input: CodexOwnerAppServerRequestInput,
-  rendererConversations: CodexRendererConversationRuntime["Service"],
+  rendererConversations: CodexRendererConversationRegistry["Service"],
 ): string => {
   const threadId = input.conversationId.trim();
   if (!ownerClientId || rendererConversations.getOwnerClientId(threadId) !== ownerClientId) {
@@ -202,7 +202,7 @@ export const make = (
 ): Effect.Effect<
   CodexRendererOwnerCommands["Service"],
   never,
-  | CodexRendererConversationRuntime
+  | CodexRendererConversationRegistry
   | CodexFreshThreadLaunchRuntime
   | CodexManualCompactionRuntime
   | CodexThreadGoalRuntime
@@ -212,7 +212,7 @@ export const make = (
   | ConversationCommands
 > =>
   Effect.gen(function* () {
-    const rendererConversations = yield* CodexRendererConversationRuntime;
+    const rendererConversations = yield* CodexRendererConversationRegistry;
     const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
     const manualCompaction = yield* CodexManualCompactionRuntime;
     const threadGoals = yield* CodexThreadGoalRuntime;

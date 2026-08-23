@@ -8,16 +8,10 @@ import {
   parseCodexUserInputAutoResolutionTarget,
 } from "../../../shared/codex-user-input-auto-resolution";
 import { MainConfig } from "../../app/MainConfig";
+import { CodexRendererConversationCoordinator } from "../../codex-application/CodexRendererConversationCoordinator";
+import { CodexRendererConversationRegistry } from "../../codex-application/CodexRendererConversationRegistry";
 import { CodexUserInputAutoResolution } from "../../codex-application/CodexUserInputAutoResolution";
-import { CodexRendererConversationRuntime } from "../../codex-application/CodexRendererConversationRuntime";
 import type { CodexService } from "../../codex/codex-service";
-import {
-  acknowledgeRendererFollowerSnapshotApplied,
-  ackRendererThreadOwnerNotification,
-  publishRendererThreadOwnerStreamState,
-  requestRendererThreadStreamResync,
-  runThreadFollowerActionThroughOwner,
-} from "../../codex/owner-follower-ipc-bridge";
 import type {
   RendererClientRuntimeService,
   RendererClientWebContents,
@@ -46,7 +40,8 @@ export const live = (
 ): Layer.Layer<
   never,
   never,
-  | CodexRendererConversationRuntime
+  | CodexRendererConversationCoordinator
+  | CodexRendererConversationRegistry
   | CodexUserInputAutoResolution
   | ElectronIpc
   | MainConfig
@@ -56,7 +51,8 @@ export const live = (
     Effect.gen(function* () {
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
-      const rendererConversations = yield* CodexRendererConversationRuntime;
+      const coordinator = yield* CodexRendererConversationCoordinator;
+      const rendererConversations = yield* CodexRendererConversationRegistry;
       const userInputAutoResolution = yield* CodexUserInputAutoResolution;
       const windows = yield* WindowRuntime;
       const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
@@ -103,7 +99,7 @@ export const live = (
                 ? input.threadId.trim()
                 : "";
             return threadId
-              ? rendererConversations.updateViewActive(
+              ? coordinator.setViewActive(
                   threadId,
                   clientId,
                   "active" in input && input.active === true,
@@ -121,7 +117,7 @@ export const live = (
                 ? input.threadId.trim()
                 : "";
             return threadId
-              ? rendererConversations.updateFollowing(
+              ? coordinator.setFollowing(
                   threadId,
                   clientId,
                   "following" in input && input.following === true,
@@ -144,7 +140,7 @@ export const live = (
                 ? input.surfaceId.trim()
                 : "";
             return threadId && surfaceId
-              ? rendererConversations.updatePresented(
+              ? coordinator.setPresented(
                   threadId,
                   clientId,
                   surfaceId,
@@ -157,61 +153,44 @@ export const live = (
       yield* handle("codex:thread-owner:stream-state:publish", (event, input) =>
         authorize(event).pipe(
           Effect.flatMap((clientId) =>
-            invoke("publish-owner-stream-state", () =>
-              publishRendererThreadOwnerStreamState(options.codex, clientId, input),
-            ),
+            Effect.sync(() => coordinator.publishOwnerStateChange(clientId, input)),
           ),
         ),
       );
       yield* handle("codex:thread-follower:snapshot-applied", (event, input) =>
         authorize(event).pipe(
           Effect.flatMap((clientId) =>
-            invoke("acknowledge-follower-snapshot", () =>
-              acknowledgeRendererFollowerSnapshotApplied(options.codex, clientId, input),
-            ),
+            coordinator.acknowledgeFollowerSnapshotApplied(clientId, input),
           ),
         ),
       );
       yield* handle("codex:thread:stream-resync:request", (event, input) =>
         authorize(event).pipe(
-          Effect.flatMap((clientId) =>
-            invoke("request-stream-resync", () =>
-              requestRendererThreadStreamResync(options.codex, clientId, input),
-            ),
-          ),
+          Effect.flatMap((clientId) => coordinator.requestStreamResync(clientId, input)),
         ),
       );
       yield* handle("codex:thread-owner:notification:ack", (event, input) =>
         authorize(event).pipe(
-          Effect.flatMap((clientId) =>
-            invoke("acknowledge-owner-notification", () =>
-              ackRendererThreadOwnerNotification(options.codex, clientId, input),
-            ),
-          ),
+          Effect.flatMap((clientId) => coordinator.acknowledgeOwnerNotification(clientId, input)),
         ),
       );
       yield* handle("codex:thread-owner:pending-requests:replay", (event, threadId) =>
         authorize(event).pipe(
           Effect.flatMap((clientId) =>
-            invoke("replay-owner-requests", () =>
-              options.codex.replayRendererOwnerPendingRequests(threadId, clientId),
-            ),
+            Effect.sync(() => coordinator.replayPendingOwnerRequests(threadId, clientId)),
           ),
         ),
       );
       yield* handle("codex:thread-follower:action", (event, input) =>
         authorize(event).pipe(
           Effect.flatMap((clientId) =>
-            runThreadFollowerActionThroughOwner(
-              options.codex,
-              options.rendererClients,
-              clientId,
-              input,
-            ).pipe(
-              Effect.mapError(
-                (cause) => new CodexRendererIpcError({ operation: "run-follower-action", cause }),
+            coordinator
+              .runFollowerAction(options.rendererClients, clientId, input)
+              .pipe(
+                Effect.mapError(
+                  (cause) => new CodexRendererIpcError({ operation: "run-follower-action", cause }),
+                ),
               ),
-            ),
           ),
         ),
       );
@@ -234,7 +213,7 @@ export const live = (
           Effect.flatMap((clientId) => {
             const conversationId = parseCodexUserInputAutoResolutionActivityInput(input);
             if (conversationId === null) return Effect.succeed(false);
-            if (!options.codex.isRendererClientPresenting(conversationId, clientId)) {
+            if (!rendererConversations.isClientPresenting(conversationId, clientId)) {
               return Effect.succeed(false);
             }
             return userInputAutoResolution.recordActivity(conversationId).pipe(Effect.as(true));
@@ -246,7 +225,7 @@ export const live = (
           Effect.flatMap((clientId) => {
             const target = parseCodexUserInputAutoResolutionTarget(input);
             if (target === null) return Effect.succeed(false);
-            if (!options.codex.isRendererClientPresenting(target.conversationId, clientId)) {
+            if (!rendererConversations.isClientPresenting(target.conversationId, clientId)) {
               return Effect.succeed(false);
             }
             return userInputAutoResolution.snooze(target.conversationId, target.requestId);

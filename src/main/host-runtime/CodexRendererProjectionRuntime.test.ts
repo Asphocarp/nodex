@@ -6,7 +6,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type { CodexApplicationEvent } from "../codex-application/CodexApplicationEventHub";
-import type { CodexService } from "../codex/codex-service";
+import type { CodexRendererConversationCoordinator } from "../codex-application/CodexRendererConversationCoordinator";
 import type {
   RendererClientEvent,
   RendererClientRuntimeService,
@@ -16,14 +16,12 @@ import { live } from "./CodexRendererProjectionRuntime";
 it.effect("releases Codex projection and renderer-client subscriptions with the Main Scope", () =>
   Effect.gen(function* () {
     const rendererLifecycleEvents: string[] = [];
-    const codex = {
-      handleRendererClientConnected: (clientId: string) => {
-        rendererLifecycleEvents.push(`connected:${clientId}`);
-      },
-      handleRendererClientDisposed: (clientId: string) => {
-        rendererLifecycleEvents.push(`disposed:${clientId}`);
-      },
-    } as unknown as CodexService;
+    const coordinator = {
+      handleClientConnected: (clientId: string) =>
+        Effect.sync(() => rendererLifecycleEvents.push(`connected:${clientId}`)),
+      handleClientDisposed: (clientId: string) =>
+        Effect.sync(() => rendererLifecycleEvents.push(`disposed:${clientId}`)),
+    } as unknown as CodexRendererConversationCoordinator["Service"];
     const autoResolutionChanges = yield* PubSub.unbounded();
     const applicationEvents = yield* PubSub.unbounded<CodexApplicationEvent>();
     const projectedChanges: Array<readonly [string, unknown]> = [];
@@ -34,13 +32,15 @@ it.effect("releases Codex projection and renderer-client subscriptions with the 
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live({
-        codex,
+        coordinator,
         events: {
           events: Stream.fromPubSub(applicationEvents),
           publish: (event) => {
             PubSub.publishUnsafe(applicationEvents, event);
           },
         },
+        freshThreadLaunch: { releaseRenderer: () => undefined } as never,
+        registry: { getFollowerClientIds: () => null } as never,
         rendererClients,
         userInputAutoResolution: {
           changes: Stream.fromPubSub(autoResolutionChanges),

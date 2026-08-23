@@ -3,7 +3,10 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import type { CodexThreadOwnerServerRequest } from "../../shared/types";
-import { make, makeCodexRendererConversationState } from "./CodexRendererConversationRuntime";
+import {
+  make,
+  makeCodexRendererConversationRegistryState,
+} from "./CodexRendererConversationRegistry";
 
 const checkpoint = (revision = 0, ownerEpoch = 1, marker = "a") => ({
   protocolVersion: 1 as const,
@@ -27,7 +30,7 @@ const request = (id: string | number, callId = "call-1"): CodexThreadOwnerServer
   }) as CodexThreadOwnerServerRequest;
 
 it("atomically retires ownership, subscriptions, deliveries, and views for a client generation", () => {
-  const runtime = makeCodexRendererConversationState({ now: () => 100 });
+  const runtime = makeCodexRendererConversationRegistryState({ now: () => 100 });
   runtime.handleClientConnected("owner-a");
   assert.isNotNull(runtime.setOwner("thread-1", "owner-a"));
   assert.isTrue(runtime.setViewActive("thread-1", "owner-a", true).accepted);
@@ -49,7 +52,7 @@ it("atomically retires ownership, subscriptions, deliveries, and views for a cli
 });
 
 it("replaces owner generations, re-fences followers, and scopes delivery ids by scalar type", () => {
-  const runtime = makeCodexRendererConversationState();
+  const runtime = makeCodexRendererConversationRegistryState();
   for (const clientId of ["owner-a", "owner-b", "follower"]) {
     runtime.handleClientConnected(clientId);
   }
@@ -81,36 +84,6 @@ it("replaces owner generations, re-fences followers, and scopes delivery ids by 
   assert.deepEqual(runtime.getSnapshotClientIds("thread-1"), ["follower"]);
   assert.isFalse(runtime.hasRequestDelivery("thread-1", request("7"), "owner-a"));
 });
-
-it.effect("owns renderer view, following, and presentation application transitions", () =>
-  Effect.gen(function* () {
-    const projections: string[] = [];
-    const runtime = makeCodexRendererConversationState({
-      projection: {
-        following: ({ conversationId, clientId, result }) => {
-          projections.push(`following:${conversationId}:${clientId}:${result.shouldSendSnapshot}`);
-        },
-        viewActive: ({ conversationId, clientId, result }) => {
-          projections.push(`view:${conversationId}:${clientId}:${result.accepted}`);
-        },
-        presented: ({ conversationId, result }) => {
-          projections.push(`presented:${conversationId}:${result.presentedInForeground}`);
-        },
-      },
-    });
-    runtime.handleClientConnected("renderer-a");
-    runtime.setClientForegrounded("renderer-a", true);
-
-    assert.isTrue(yield* runtime.updateFollowing("thread-1", "renderer-a", true));
-    assert.isTrue(yield* runtime.updateViewActive("thread-1", "renderer-a", true));
-    assert.isTrue(yield* runtime.updatePresented("thread-1", "renderer-a", "surface-a", true));
-    assert.deepEqual(projections, [
-      "following:thread-1:renderer-a:true",
-      "view:thread-1:renderer-a:true",
-      "presented:thread-1:true",
-    ]);
-  }),
-);
 
 it.effect("closes the whole renderer generation with its Main Scope", () =>
   Effect.gen(function* () {

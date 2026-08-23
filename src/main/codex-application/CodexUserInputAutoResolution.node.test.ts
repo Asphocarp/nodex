@@ -11,11 +11,26 @@ import {
   USER_INPUT_AUTO_RESOLUTION_COUNTDOWN,
   USER_INPUT_FOREGROUND_INACTIVITY,
 } from "./CodexUserInputAutoResolution";
+import {
+  CodexRendererConversationRegistry,
+  makeCodexRendererConversationRegistryState,
+} from "./CodexRendererConversationRegistry";
+
+const makeRuntime = (presented: boolean) => {
+  const registry = makeCodexRendererConversationRegistryState();
+  registry.handleClientConnected("renderer-a");
+  registry.setClientForegrounded("renderer-a", presented);
+  registry.setPresented("thread-1", "renderer-a", "surface-a", presented);
+  return {
+    registry,
+    runtime: make.pipe(Effect.provideService(CodexRendererConversationRegistry, registry)),
+  };
+};
 
 it.effect("waits for foreground inactivity before publishing one typed timeout", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
-    const runtime = yield* make({ isConversationPresented: () => true }).pipe(
+    const runtime = yield* makeRuntime(true).runtime.pipe(
       Effect.provideService(Scope.Scope, scope),
     );
     const changes = yield* runtime.changes.pipe(
@@ -47,21 +62,21 @@ it.effect("waits for foreground inactivity before publishing one typed timeout",
 
 it.effect("resets inactivity, preserves scalar request identity, and snoozes permanently", () =>
   Effect.gen(function* () {
-    let presented = true;
-    const runtime = yield* make({ isConversationPresented: () => presented });
+    const { registry, runtime: runtimeEffect } = makeRuntime(true);
+    const runtime = yield* runtimeEffect;
     yield* runtime.observeRequest("thread-1", 7);
     yield* TestClock.adjust("59 seconds");
     yield* runtime.recordActivity("thread-1");
     yield* TestClock.adjust("59 seconds");
     assert.strictEqual((yield* runtime.snapshot)[0]?.phase.type, "waitingForInactivity");
 
-    presented = false;
+    registry.setPresented("thread-1", "renderer-a", "surface-a", false);
     yield* runtime.reevaluatePresentation("thread-1");
     assert.strictEqual((yield* runtime.snapshot)[0]?.phase.type, "scheduled");
-    presented = true;
+    registry.setPresented("thread-1", "renderer-a", "surface-a", true);
     yield* runtime.reevaluatePresentation("thread-1");
     assert.strictEqual((yield* runtime.snapshot)[0]?.phase.type, "waitingForInactivity");
-    presented = false;
+    registry.setPresented("thread-1", "renderer-a", "surface-a", false);
     yield* runtime.reevaluatePresentation("thread-1");
     assert.isFalse(yield* runtime.snooze("thread-1", "7"));
     assert.isTrue(yield* runtime.snooze("thread-1", 7));
@@ -72,7 +87,7 @@ it.effect("resets inactivity, preserves scalar request identity, and snoozes per
 
 it.effect("clears every request generation when the app-server disconnects", () =>
   Effect.gen(function* () {
-    const runtime = yield* make({ isConversationPresented: () => false });
+    const runtime = yield* makeRuntime(false).runtime;
     const removal = yield* runtime.changes.pipe(
       Stream.filter((change) => change.type === "removed" && change.reason === "disconnected"),
       Stream.runHead,
@@ -94,7 +109,7 @@ it.effect("clears every request generation when the app-server disconnects", () 
 
 it.effect("replaces requests and cancels stale generations on response or reconciliation", () =>
   Effect.gen(function* () {
-    const runtime = yield* make({ isConversationPresented: () => false });
+    const runtime = yield* makeRuntime(false).runtime;
     const changes = yield* runtime.changes.pipe(
       Stream.take(4),
       Stream.runCollect,
@@ -121,7 +136,7 @@ it.effect("replaces requests and cancels stale generations on response or reconc
 it.effect("interrupts every countdown when its owning Scope closes", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
-    const runtime = yield* make({ isConversationPresented: () => false }).pipe(
+    const runtime = yield* makeRuntime(false).runtime.pipe(
       Effect.provideService(Scope.Scope, scope),
     );
     const timeout = yield* runtime.timeouts.pipe(Stream.runHead, Effect.forkScoped);

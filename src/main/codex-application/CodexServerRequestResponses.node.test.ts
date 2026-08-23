@@ -31,9 +31,9 @@ import {
   make as makeInbox,
 } from "./CodexPendingServerRequestRuntime";
 import {
-  CodexRendererConversationRuntime,
-  makeCodexRendererConversationState,
-} from "./CodexRendererConversationRuntime";
+  CodexRendererConversationRegistry,
+  makeCodexRendererConversationRegistryState,
+} from "./CodexRendererConversationRegistry";
 import { CodexThreadReadState } from "./CodexThreadReadState";
 import {
   CodexUserInputAutoResolution,
@@ -205,7 +205,7 @@ const makeHarness = (
       reject: () => Effect.succeed(true),
     }).pipe(Effect.provideService(Scope.Scope, scope));
     const emitted: CodexApplicationEvent[] = [];
-    const rendererConversations = makeCodexRendererConversationState();
+    const rendererConversations = makeCodexRendererConversationRegistryState();
     const responses = yield* makeResponses.pipe(
       Effect.provideService(
         CodexApplicationEventHub,
@@ -227,7 +227,7 @@ const makeHarness = (
         }),
       ),
       Effect.provideService(CodexPendingServerRequestRuntime, inbox),
-      Effect.provideService(CodexRendererConversationRuntime, rendererConversations),
+      Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
       Effect.provideService(
         CodexThreadReadState,
         CodexThreadReadState.of({
@@ -301,9 +301,12 @@ it.effect("commits one semantic response and releases duplicate physical occurre
 it.effect("executes timed-out user input through the canonical response capability", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const autoResolutionRuntime = yield* makeAutoResolution({
-        isConversationPresented: () => false,
-      });
+      const autoResolutionRuntime = yield* makeAutoResolution.pipe(
+        Effect.provideService(
+          CodexRendererConversationRegistry,
+          makeCodexRendererConversationRegistryState(),
+        ),
+      );
       const harness = yield* makeHarness(undefined, autoResolutionRuntime);
       const threadId = "thread-auto-resolution";
       const requestId = "user-input-timeout";
@@ -331,9 +334,12 @@ it.effect("executes timed-out user input through the canonical response capabili
 it.effect("executes timed-out user input and resolves the exact renderer owner", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const autoResolutionRuntime = yield* makeAutoResolution({
-        isConversationPresented: () => false,
-      });
+      const autoResolutionRuntime = yield* makeAutoResolution.pipe(
+        Effect.provideService(
+          CodexRendererConversationRegistry,
+          makeCodexRendererConversationRegistryState(),
+        ),
+      );
       const harness = yield* makeHarness(undefined, autoResolutionRuntime);
       const threadId = "thread-auto-resolution";
       const requestId = "user-input-timeout";

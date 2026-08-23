@@ -4,9 +4,9 @@ import { ConversationCommands } from "./ConversationCommands";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
 import {
-  CodexRendererConversationRuntime,
-  makeCodexRendererConversationState,
-} from "./CodexRendererConversationRuntime";
+  CodexRendererConversationRegistry,
+  makeCodexRendererConversationRegistryState,
+} from "./CodexRendererConversationRegistry";
 import { make } from "./CodexRendererOwnerCommands";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
@@ -45,7 +45,7 @@ const makeHarness = () => {
     terminated: [],
     forks: [],
   };
-  const rendererConversations = makeCodexRendererConversationState();
+  const rendererConversations = makeCodexRendererConversationRegistryState();
   rendererConversations.setOwner(threadId, ownerClientId);
   const turnCommands = CodexTurnCommands.of({
     start: () => Effect.die("unused"),
@@ -91,7 +91,7 @@ const makeHarness = () => {
         return { threadId: "thread-forked" };
       }),
   }).pipe(
-    Effect.provideService(CodexRendererConversationRuntime, rendererConversations),
+    Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
     Effect.provideService(
       CodexFreshThreadLaunchRuntime,
       CodexFreshThreadLaunchRuntime.of({

@@ -17,7 +17,7 @@ import {
   parseBrowserWebviewInstanceId,
   registerPendingBrowserWebviewAttachment,
 } from "../browser/browser-webview-attachment-policy";
-import type { CodexService } from "../codex/codex-service";
+import type { CodexRendererConversationCoordinator } from "../codex-application/CodexRendererConversationCoordinator";
 import type {
   RendererClientRegistration,
   RendererClientRuntimeService,
@@ -43,7 +43,7 @@ export interface ApplicationWindowRuntimeOptions {
     readonly currentStatus: Effect.Effect<AppUpdateStatus>;
   };
   readonly browserSidebar: BrowserSidebarService;
-  readonly codex: CodexService;
+  readonly rendererConversations: CodexRendererConversationCoordinator["Service"];
   readonly desktopNotifications: DesktopNotificationRuntime["Service"];
   readonly iconPath: string;
   readonly mcpAppSandbox: McpAppSandboxRuntime["Service"];
@@ -246,19 +246,31 @@ export const live = (
         const webContentsId = window.webContents.id;
         let rendererRegistration: RendererClientRegistration | null =
           options.rendererClients.register(window.webContents);
-        options.codex.setRendererClientForegrounded(
-          rendererRegistration.clientId,
-          window.isFocused(),
+        callbacks.fork(
+          options.rendererConversations.setClientForegrounded(
+            rendererRegistration.clientId,
+            window.isFocused(),
+          ),
         );
         syncMacWindowTitle(options.platform, window);
         if (savedBounds?.mode === "maximized") window.maximize();
         else if (savedBounds?.mode === "fullscreen") window.setFullScreen(true);
 
         window.on("focus", () =>
-          options.codex.setRendererClientForegrounded(rendererRegistration?.clientId, true),
+          callbacks.fork(
+            options.rendererConversations.setClientForegrounded(
+              rendererRegistration?.clientId,
+              true,
+            ),
+          ),
         );
         window.on("blur", () =>
-          options.codex.setRendererClientForegrounded(rendererRegistration?.clientId, false),
+          callbacks.fork(
+            options.rendererConversations.setClientForegrounded(
+              rendererRegistration?.clientId,
+              false,
+            ),
+          ),
         );
         window.webContents.on("did-finish-load", () => {
           logger.info("Renderer document finished loading", {
@@ -290,7 +302,12 @@ export const live = (
         window.on("closed", () => {
           options.browserSidebar.releaseRendererOwner(webContentsId);
           options.desktopNotifications.dismissByOriginWebContentsId(webContentsId);
-          options.codex.setRendererClientForegrounded(rendererRegistration?.clientId, false);
+          callbacks.fork(
+            options.rendererConversations.setClientForegrounded(
+              rendererRegistration?.clientId,
+              false,
+            ),
+          );
           if (rendererRegistration) callbacks.fork(rendererRegistration.release);
           rendererRegistration = null;
         });

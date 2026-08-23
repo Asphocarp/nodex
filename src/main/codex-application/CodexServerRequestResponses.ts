@@ -45,7 +45,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
-import { CodexRendererConversationRuntime } from "./CodexRendererConversationRuntime";
+import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexThreadReadState } from "./CodexThreadReadState";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
@@ -170,7 +170,7 @@ export const make: Effect.Effect<
   | CodexGateway
   | CodexOwnerNotificationDrainRuntime
   | CodexPendingServerRequestRuntime
-  | CodexRendererConversationRuntime
+  | CodexRendererConversationRegistry
   | CodexThreadReadState
   | CodexUserInputAutoResolution
   | ConversationRuntimeMap
@@ -180,7 +180,7 @@ export const make: Effect.Effect<
   const gateway = yield* CodexGateway;
   const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
   const inbox = yield* CodexPendingServerRequestRuntime;
-  const rendererConversations = yield* CodexRendererConversationRuntime;
+  const rendererConversations = yield* CodexRendererConversationRegistry;
   const readState = yield* CodexThreadReadState;
   const autoResolution = yield* CodexUserInputAutoResolution;
   const events = yield* CodexApplicationEventHub;
