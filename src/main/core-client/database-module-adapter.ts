@@ -64,7 +64,7 @@ export interface CoreDatabaseModuleAdapterInput {
 
 export interface CoreDatabaseModuleAdapter {
   read(request: DatabaseModuleReadRequestV2): Promise<DatabaseModuleReadResultV2>;
-  readCore(read: DatabaseRead, minimumCommitSeq?: number): Promise<DatabaseReadSnapshot>;
+  readCore(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
   apply(request: DatabaseApplyV2): Promise<DatabaseApplyResultV2>;
 }
 
@@ -76,7 +76,7 @@ export interface CoreLibraryDatabaseModuleAdapterInput {
 }
 
 export interface CoreLibraryDatabaseModuleAdapter {
-  readCore(read: DatabaseRead, minimumCommitSeq?: number): Promise<DatabaseReadSnapshot>;
+  readCore(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
   read(request: LibraryDatabaseModuleReadRequestV2): Promise<LibraryDatabaseModuleReadResultV2>;
   apply(request: LibraryDatabaseApplyV2): Promise<LibraryDatabaseApplyResultV2>;
 }
@@ -156,41 +156,17 @@ const toCoreRead = (read: DatabaseReadV2): DatabaseRead => {
   }
 };
 
-const MINIMUM_COMMIT_READ_ATTEMPTS = 40;
-const MINIMUM_COMMIT_READ_DELAY_MS = 5;
-
-const readDatabaseSnapshotAtLeast = async (
+const readDatabaseSnapshot = async (
   client: CoreClientPort,
   read: DatabaseRead,
   storeEpoch: string,
-  minimumCommitSeq = 0,
   options?: CoreRequestOptions,
 ): Promise<DatabaseReadSnapshot> => {
-  for (let attempt = 0; attempt < MINIMUM_COMMIT_READ_ATTEMPTS; attempt += 1) {
-    const snapshot = await client.databaseRead(read, options);
-    if (snapshot.store_epoch !== storeEpoch) {
-      throw new Error("Core Database read crossed its Store epoch boundary");
-    }
-    if (snapshot.commit_head >= minimumCommitSeq) return snapshot;
-    await new Promise<void>((resolve, reject) => {
-      const signal = options?.signal;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const abort = () => {
-        if (timeout !== undefined) clearTimeout(timeout);
-        reject(signal?.reason ?? new Error("Core Database read was aborted"));
-      };
-      if (signal?.aborted) {
-        abort();
-        return;
-      }
-      timeout = setTimeout(() => {
-        signal?.removeEventListener("abort", abort);
-        resolve();
-      }, MINIMUM_COMMIT_READ_DELAY_MS);
-      signal?.addEventListener("abort", abort, { once: true });
-    });
+  const snapshot = await client.databaseRead(read, options);
+  if (snapshot.store_epoch !== storeEpoch) {
+    throw new Error("Core Database read crossed its Store epoch boundary");
   }
-  throw new Error(`Core Database read did not reach local commit ${minimumCommitSeq}`);
+  return snapshot;
 };
 
 export const mapCoreDatabaseModuleError = (
@@ -1106,16 +1082,12 @@ export const createCoreDatabaseModuleAdapter = (
     };
   };
 
-  const readCore = async (
-    read: DatabaseRead,
-    minimumCommitSeq = 0,
-  ): Promise<DatabaseModuleReadResultV2> => {
+  const readCore = async (read: DatabaseRead): Promise<DatabaseModuleReadResultV2> => {
     try {
-      const snapshot = await readDatabaseSnapshotAtLeast(
+      const snapshot = await readDatabaseSnapshot(
         input.client,
         read,
         input.storeEpoch,
-        minimumCommitSeq,
         input.requestOptions,
       );
       const value = await hydrateCoreReadValue(input.client, snapshot.value, input.requestOptions);
@@ -1136,18 +1108,17 @@ export const createCoreDatabaseModuleAdapter = (
   };
 
   return {
-    readCore: (read, minimumCommitSeq) =>
-      readDatabaseSnapshotAtLeast(
-        input.client,
-        read,
-        input.storeEpoch,
-        minimumCommitSeq,
-        input.requestOptions,
-      ),
+    readCore: (read) =>
+      readDatabaseSnapshot(input.client, read, input.storeEpoch, input.requestOptions),
     read: async (request) => {
       const projectError = assertBoundProject(request.projectId);
       if (projectError) return { ok: false, error: projectError };
-      return await readCore(toCoreRead(request.read), request.read.minimumCommitSeq);
+      if ((request.read.minimumCommitSeq ?? 0) > 0) {
+        return failure(
+          new Error("Minimum-commit reads require the Effect Database application capability"),
+        );
+      }
+      return await readCore(toCoreRead(request.read));
     },
     apply: async (request) => {
       const projectError = assertBoundProject(request.projectId);
@@ -1201,21 +1172,17 @@ export const createCoreDatabaseModuleAdapter = (
 export const createCoreLibraryDatabaseModuleAdapter = (
   input: CoreLibraryDatabaseModuleAdapterInput,
 ): CoreLibraryDatabaseModuleAdapter => ({
-  readCore: (read, minimumCommitSeq) =>
-    readDatabaseSnapshotAtLeast(
-      input.client,
-      read,
-      input.storeEpoch,
-      minimumCommitSeq,
-      input.requestOptions,
-    ),
+  readCore: (read) =>
+    readDatabaseSnapshot(input.client, read, input.storeEpoch, input.requestOptions),
   read: async (request) => {
     try {
-      const snapshot = await readDatabaseSnapshotAtLeast(
+      if ((request.read.minimumCommitSeq ?? 0) > 0) {
+        throw new Error("Minimum-commit reads require the Effect Database application capability");
+      }
+      const snapshot = await readDatabaseSnapshot(
         input.client,
         toCoreRead(request.read),
         input.storeEpoch,
-        request.read.minimumCommitSeq,
         input.requestOptions,
       );
       return parseLibraryDatabaseModuleReadResultV2({

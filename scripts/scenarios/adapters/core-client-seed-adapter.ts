@@ -20,7 +20,7 @@ import {
   readPrimaryDataSourcePropertyCount,
   type ScenarioDatabasePort,
 } from "../seed/primary-data-source-properties";
-import { runScenarioDatabase } from "./core-client-seed-runtime";
+import { runScenarioDatabase, runScenarioLibrary } from "./core-client-seed-runtime";
 
 const requireSuccess = <Value>(
   result:
@@ -126,7 +126,9 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     minimumCommitSeq?: number,
   ): Promise<ScenarioPageObservation> {
     const detail = requireSuccess(
-      await this.#library(projectId).readProjectPageDetail(projectId, pageId, minimumCommitSeq),
+      await runScenarioLibrary(this.#runtime, (library) =>
+        library.readProjectPageDetail(projectId, pageId, minimumCommitSeq),
+      ),
       `Read ${pageId}`,
     );
     return {

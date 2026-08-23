@@ -176,14 +176,14 @@ export const live: Layer.Layer<LibraryModule, never, CoreAuthority | CoreSession
         readProjectPageDetail: (projectId, pageId, minimumCommitSeq) =>
           readPageDetailAtLeast(
             use("library.readProjectPageDetail", projectId, (core) =>
-              core.readProjectPageDetail(projectId, pageId, 0),
+              core.readProjectPageDetail(projectId, pageId),
             ),
             minimumCommitSeq,
           ),
         readLibraryPageDetail: (pageId, _accessActor, minimumCommitSeq) =>
           readPageDetailAtLeast(
             use("library.readLibraryPageDetail", undefined, (core) =>
-              core.readLibraryPageDetail(pageId, 0),
+              core.readLibraryPageDetail(pageId),
             ),
             minimumCommitSeq,
           ),

@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import type * as Scope from "effect/Scope";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { RustDataAuthorityRuntime } from "../../../src/main/core-client";
 import {
@@ -12,11 +13,14 @@ import {
   DatabaseModule,
   live as databaseModuleLive,
 } from "../../../src/main/database-application/DatabaseModule";
+import {
+  LibraryModule,
+  live as libraryModuleLive,
+} from "../../../src/main/library-application/LibraryModule";
 
-/** One-shot Effect root for scenario tooling that runs outside Electron Main. */
-export const runScenarioDatabase = <A, E>(
+const runWithScenarioCore = <A, E>(
   runtime: RustDataAuthorityRuntime,
-  use: (database: DatabaseModule["Service"]) => Effect.Effect<A, E>,
+  operation: Effect.Effect<A, E, CoreAuthority | CoreSessionAccess | Scope.Scope>,
 ): Promise<A> =>
   Effect.runPromise(
     Effect.scoped(
@@ -48,17 +52,36 @@ export const runScenarioDatabase = <A, E>(
               ),
             ),
         });
-        const context = yield* Layer.build(
-          databaseModuleLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(CoreSessionAccess, sessions),
-              ),
-            ),
-          ),
+        return yield* operation.pipe(
+          Effect.provideService(CoreAuthority, authority),
+          Effect.provideService(CoreSessionAccess, sessions),
         );
-        return yield* use(Context.get(context, DatabaseModule));
       }),
     ),
+  );
+
+/** One-shot Effect root for scenario tooling that runs outside Electron Main. */
+export const runScenarioDatabase = <A, E>(
+  runtime: RustDataAuthorityRuntime,
+  use: (database: DatabaseModule["Service"]) => Effect.Effect<A, E>,
+): Promise<A> =>
+  runWithScenarioCore(
+    runtime,
+    Effect.gen(function* () {
+      const context = yield* Layer.build(databaseModuleLive);
+      return yield* use(Context.get(context, DatabaseModule));
+    }),
+  );
+
+/** Uses the same final minimum-commit capability as production Library reads. */
+export const runScenarioLibrary = <A, E>(
+  runtime: RustDataAuthorityRuntime,
+  use: (library: LibraryModule["Service"]) => Effect.Effect<A, E>,
+): Promise<A> =>
+  runWithScenarioCore(
+    runtime,
+    Effect.gen(function* () {
+      const context = yield* Layer.build(libraryModuleLive);
+      return yield* use(Context.get(context, LibraryModule));
+    }),
   );
