@@ -6,7 +6,6 @@ import * as FiberMap from "effect/FiberMap";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
-import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
 import type { TurnStartParams } from "@nodex/codex-app-server-protocol/v2/TurnStartParams";
 import type { TurnStartResponse } from "@nodex/codex-app-server-protocol/v2/TurnStartResponse";
 import type {
@@ -18,12 +17,9 @@ import type {
   CodexThreadStartForSessionInput,
   PageRunInTarget,
 } from "../../shared/types";
-import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
-import { CodexGateway } from "../codex-runtime/CodexGateway";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
-
-type GatewayTurnStartParams = ClientRequestParamsByMethod["turn/start"];
+import { CodexThreadLaunchCompletion } from "./CodexThreadLaunchCompletion";
+import { CodexTurnCommands } from "./CodexTurnCommands";
 
 export type CodexFreshThreadLaunchTurnStartParams = TurnStartParams & {
   readonly attachments: readonly CodexLiveFileAttachment[];
@@ -58,16 +54,6 @@ export interface CodexFreshThreadLaunchIdentity {
 export interface CodexFreshThreadLaunchReservation {
   readonly rendererClientId: string;
   readonly state: "prepared" | "adopting" | "adopted" | "starting";
-}
-
-export interface CodexPreparedFreshThreadFirstTurn {
-  readonly launchId: string;
-  readonly ownerClientId: string;
-  readonly projectId: string | null;
-  readonly threadId: string;
-  readonly request: TurnStartParams;
-  /** Opaque mutable transaction state owned exclusively by the projection. */
-  readonly state: object;
 }
 
 type AdoptionResult = Extract<CodexRendererConversationResumeResult, { readonly role: "owner" }>;
@@ -105,28 +91,6 @@ export class CodexFreshThreadLaunchError extends Error {
   }
 }
 
-export interface CodexFreshThreadLaunchRuntimeOptions {
-  readonly prepareStart: (
-    launch: CodexFreshThreadLaunch,
-  ) => Effect.Effect<CodexPreparedFreshThreadFirstTurn, CodexFreshThreadLaunchError>;
-  readonly beginStart: (
-    prepared: CodexPreparedFreshThreadFirstTurn,
-  ) => Effect.Effect<void, CodexFreshThreadLaunchError>;
-  readonly commitStart: (
-    prepared: CodexPreparedFreshThreadFirstTurn,
-    response: TurnStartResponse,
-  ) => Effect.Effect<TurnStartResponse, CodexFreshThreadLaunchError>;
-  readonly finishStart: (
-    prepared: CodexPreparedFreshThreadFirstTurn,
-    response: TurnStartResponse,
-  ) => Effect.Effect<TurnStartResponse, CodexFreshThreadLaunchError>;
-  readonly rollbackStart: (
-    prepared: CodexPreparedFreshThreadFirstTurn,
-    cause: unknown,
-  ) => Effect.Effect<void>;
-  readonly abandon: (launch: CodexFreshThreadLaunch, reason: unknown) => void;
-}
-
 export interface CodexFreshThreadLaunchRuntimeService {
   readonly register: (launch: CodexFreshThreadLaunch) => void;
   readonly reservation: (threadId: string) => CodexFreshThreadLaunchReservation | null;
@@ -158,255 +122,238 @@ const operationError = (
   return new CodexFreshThreadLaunchError("operation-failed", identity, { cause });
 };
 
-export const make = (
-  options: CodexFreshThreadLaunchRuntimeOptions,
-): Effect.Effect<
+export const make: Effect.Effect<
   CodexFreshThreadLaunchRuntimeService,
   never,
-  | CodexGateway
   | CodexRendererConversationCoordinator
-  | ConversationRuntimeMap
-  | ProjectRuntimeLifecycleRuntime
+  | CodexThreadLaunchCompletion
+  | CodexTurnCommands
   | Scope.Scope
-> =>
-  Effect.gen(function* () {
-    const conversations = yield* ConversationRuntimeMap;
-    const gateway = yield* CodexGateway;
-    const projectLifecycle = yield* ProjectRuntimeLifecycleRuntime;
-    const rendererConversations = yield* CodexRendererConversationCoordinator;
-    const adoptions = yield* FiberMap.make<string, AdoptionResult, CodexFreshThreadLaunchError>();
-    const starts = yield* FiberMap.make<string, TurnStartResponse, CodexFreshThreadLaunchError>();
-    const runAdoption = yield* FiberMap.runtime(adoptions)();
-    const runStart = yield* FiberMap.runtime(starts)();
-    const admission = yield* Semaphore.make(1);
-    const entries = new Map<string, FreshLaunchEntry>();
-    let closed = false;
+> = Effect.gen(function* () {
+  const rendererConversations = yield* CodexRendererConversationCoordinator;
+  const completion = yield* CodexThreadLaunchCompletion;
+  const turns = yield* CodexTurnCommands;
+  const adoptions = yield* FiberMap.make<string, AdoptionResult, CodexFreshThreadLaunchError>();
+  const starts = yield* FiberMap.make<string, TurnStartResponse, CodexFreshThreadLaunchError>();
+  const runAdoption = yield* FiberMap.runtime(adoptions)();
+  const runStart = yield* FiberMap.runtime(starts)();
+  const admission = yield* Semaphore.make(1);
+  const entries = new Map<string, FreshLaunchEntry>();
+  let closed = false;
 
-    const adoptionError = (launch: CodexFreshThreadLaunch, cause: unknown) =>
-      new CodexFreshThreadLaunchError(
-        "operation-failed",
-        {
-          launchId: launch.launchId,
-          ownerClientId: launch.rendererClientId,
-          threadId: launch.threadId,
-        },
-        { cause },
-      );
-    const readAdopted = (launch: CodexFreshThreadLaunch) =>
-      Effect.try({
-        try: (): AdoptionResult => {
-          const state = rendererConversations.readRendererState(launch.threadId);
-          if (state.ownerClientId !== launch.rendererClientId || !state.acceptedConversation) {
-            throw new Error(`Fresh thread '${launch.threadId}' has no matching renderer owner`);
-          }
-          if (!state.checkpoint) {
-            throw new Error(`Fresh thread '${launch.threadId}' has no accepted owner replica`);
-          }
-          return {
-            role: "owner",
-            conversation: state.acceptedConversation,
-            revision: state.revision,
-            checkpoint: state.checkpoint,
-          };
-        },
-        catch: (cause) => adoptionError(launch, cause),
-      });
-    const adoptLaunch = (launch: CodexFreshThreadLaunch) => {
-      const state = rendererConversations.readRendererState(launch.threadId);
-      if (!state.acceptedConversation) {
-        return Effect.fail(
-          adoptionError(
-            launch,
-            new Error(`Fresh thread '${launch.threadId}' has no materialized conversation`),
-          ),
-        );
-      }
-      return rendererConversations
-        .adoptRendererOwner({
-          conversationId: launch.threadId,
-          ownerClientId: launch.rendererClientId,
+  const adoptionError = (launch: CodexFreshThreadLaunch, cause: unknown) =>
+    new CodexFreshThreadLaunchError(
+      "operation-failed",
+      {
+        launchId: launch.launchId,
+        ownerClientId: launch.rendererClientId,
+        threadId: launch.threadId,
+      },
+      { cause },
+    );
+  const readAdopted = (launch: CodexFreshThreadLaunch) =>
+    Effect.try({
+      try: (): AdoptionResult => {
+        const state = rendererConversations.readRendererState(launch.threadId);
+        if (state.ownerClientId !== launch.rendererClientId || !state.acceptedConversation) {
+          throw new Error(`Fresh thread '${launch.threadId}' has no matching renderer owner`);
+        }
+        if (!state.checkpoint) {
+          throw new Error(`Fresh thread '${launch.threadId}' has no accepted owner replica`);
+        }
+        return {
+          role: "owner",
           conversation: state.acceptedConversation,
-        })
-        .pipe(
-          Effect.flatMap(() => readAdopted(launch)),
-          Effect.mapError((cause) => adoptionError(launch, cause)),
-        );
-    };
-
-    const startFirstTurn = (launch: CodexFreshThreadLaunch) =>
-      conversations.runExclusive(
-        launch.threadId,
-        options.prepareStart(launch).pipe(
-          Effect.flatMap((prepared) =>
-            projectLifecycle.runExclusive(
-              prepared.projectId,
-              options.beginStart(prepared).pipe(
-                Effect.andThen(
-                  gateway.requestForThread(
-                    prepared.threadId,
-                    "turn/start",
-                    prepared.request as GatewayTurnStartParams,
-                  ),
-                ),
-                Effect.map((response) => response as unknown as TurnStartResponse),
-                Effect.flatMap((response) =>
-                  options.commitStart(prepared, response).pipe(Effect.uninterruptible),
-                ),
-                Effect.onExit((exit) =>
-                  Exit.isFailure(exit) ? options.rollbackStart(prepared, exit.cause) : Effect.void,
-                ),
-                Effect.flatMap((response) => options.finishStart(prepared, response)),
-              ),
-            ),
-          ),
+          revision: state.revision,
+          checkpoint: state.checkpoint,
+        };
+      },
+      catch: (cause) => adoptionError(launch, cause),
+    });
+  const adoptLaunch = (launch: CodexFreshThreadLaunch) => {
+    const state = rendererConversations.readRendererState(launch.threadId);
+    if (!state.acceptedConversation) {
+      return Effect.fail(
+        adoptionError(
+          launch,
+          new Error(`Fresh thread '${launch.threadId}' has no materialized conversation`),
         ),
       );
-
-    const lookup = (
-      identity: CodexFreshThreadLaunchIdentity,
-    ): Effect.Effect<FreshLaunchEntry, CodexFreshThreadLaunchError> =>
-      Effect.gen(function* () {
-        const entry = entries.get(identity.threadId);
-        if (!entry || entry.launch.launchId !== identity.launchId) {
-          return yield* Effect.fail(new CodexFreshThreadLaunchError("unavailable", identity));
-        }
-        if (entry.launch.rendererClientId !== identity.ownerClientId) {
-          return yield* Effect.fail(new CodexFreshThreadLaunchError("wrong-owner", identity));
-        }
-        return entry;
-      });
-
-    const acquireAdoption = (identity: CodexFreshThreadLaunchIdentity) =>
-      admission.withPermits(1)(
-        Effect.gen(function* () {
-          const entry = yield* lookup(identity);
-          const current = yield* FiberMap.get(adoptions, identity.threadId);
-          if (Option.isSome(current)) return { _tag: "Fiber", fiber: current.value } as const;
-          if (entry.state === "adopted" || entry.state === "starting") {
-            return { _tag: "Read", launch: entry.launch } as const;
-          }
-          if (entry.state === "adopting") entry.state = "prepared";
-
-          entry.state = "adopting";
-          const physical = adoptLaunch(entry.launch).pipe(
-            Effect.mapError((cause) => operationError(identity, cause)),
-            Effect.onExit((exit) =>
-              Effect.sync(() => {
-                if (entries.get(identity.threadId) !== entry) return;
-                entry.state = Exit.isSuccess(exit) ? "adopted" : "prepared";
-              }),
-            ),
-          );
-          const fiber = yield* FiberMap.run(adoptions, identity.threadId, physical, {
-            startImmediately: true,
-          });
-          return { _tag: "Fiber", fiber } as const;
-        }),
+    }
+    return rendererConversations
+      .adoptRendererOwner({
+        conversationId: launch.threadId,
+        ownerClientId: launch.rendererClientId,
+        conversation: state.acceptedConversation,
+      })
+      .pipe(
+        Effect.flatMap(() => readAdopted(launch)),
+        Effect.mapError((cause) => adoptionError(launch, cause)),
       );
+  };
 
-    const adopt = (
-      identity: CodexFreshThreadLaunchIdentity,
-    ): Effect.Effect<AdoptionResult, CodexFreshThreadLaunchError> =>
-      Effect.gen(function* () {
-        const acquired = yield* acquireAdoption(identity);
-        if (acquired._tag === "Fiber") return yield* Fiber.join(acquired.fiber);
-        return yield* readAdopted(acquired.launch).pipe(
-          Effect.mapError((cause) => operationError(identity, cause)),
-        );
-      });
-
-    const acquireStart = (identity: CodexFreshThreadLaunchIdentity) =>
-      admission.withPermits(1)(
-        Effect.gen(function* () {
-          const entry = yield* lookup(identity);
-          const activeStart = yield* FiberMap.get(starts, identity.threadId);
-          if (Option.isSome(activeStart)) {
-            return { _tag: "Start", fiber: activeStart.value } as const;
-          }
-          const activeAdoption = yield* FiberMap.get(adoptions, identity.threadId);
-          if (Option.isSome(activeAdoption)) {
-            return { _tag: "Adoption", fiber: activeAdoption.value } as const;
-          }
-          if (entry.state !== "adopted") {
-            return yield* Effect.fail(new CodexFreshThreadLaunchError("not-adopted", identity));
-          }
-
-          entry.state = "starting";
-          const physical = startFirstTurn(entry.launch).pipe(
-            Effect.mapError((cause) => operationError(identity, cause)),
-            Effect.ensuring(
-              Effect.sync(() => {
-                if (entries.get(identity.threadId) === entry) entries.delete(identity.threadId);
-              }),
-            ),
-          );
-          const fiber = yield* FiberMap.run(starts, identity.threadId, physical, {
-            startImmediately: true,
-          });
-          return { _tag: "Start", fiber } as const;
-        }),
+  const startFirstTurn = (launch: CodexFreshThreadLaunch) => {
+    const { attachments: _attachments, ...request } = launch.turnStartParams;
+    return turns
+      .acceptPreparedRendererTurn({
+        threadId: launch.threadId,
+        projectId: launch.projectId,
+        request,
+        clientUserMessageId: launch.clientUserMessageId,
+        verifiedBuiltinFullAccess: launch.verifiedBuiltinFullAccess,
+        startedAtMs: launch.startedAt,
+      })
+      .pipe(
+        Effect.tap(() => completion.accepted(launch)),
+        Effect.onExit((exit) =>
+          Exit.isFailure(exit) ? Effect.sync(() => completion.failed(launch)) : Effect.void,
+        ),
       );
+  };
 
-    const start = (
-      identity: CodexFreshThreadLaunchIdentity,
-    ): Effect.Effect<TurnStartResponse, CodexFreshThreadLaunchError> =>
-      Effect.gen(function* () {
-        for (;;) {
-          const acquired = yield* acquireStart(identity);
-          if (acquired._tag === "Start") return yield* Fiber.join(acquired.fiber);
-          yield* Fiber.join(acquired.fiber);
-        }
-      });
-
-    const interrupt = (threadId: string): void => {
-      runAdoption(threadId, Effect.interrupt);
-      runStart(threadId, Effect.interrupt);
-    };
-
-    const release = Effect.gen(function* () {
-      if (closed) return;
-      closed = true;
-      entries.clear();
-      yield* FiberMap.clear(adoptions);
-      yield* FiberMap.clear(starts);
+  const lookup = (
+    identity: CodexFreshThreadLaunchIdentity,
+  ): Effect.Effect<FreshLaunchEntry, CodexFreshThreadLaunchError> =>
+    Effect.gen(function* () {
+      const entry = entries.get(identity.threadId);
+      if (!entry || entry.launch.launchId !== identity.launchId) {
+        return yield* Effect.fail(new CodexFreshThreadLaunchError("unavailable", identity));
+      }
+      if (entry.launch.rendererClientId !== identity.ownerClientId) {
+        return yield* Effect.fail(new CodexFreshThreadLaunchError("wrong-owner", identity));
+      }
+      return entry;
     });
 
-    yield* Effect.addFinalizer(() => release);
+  const acquireAdoption = (identity: CodexFreshThreadLaunchIdentity) =>
+    admission.withPermits(1)(
+      Effect.gen(function* () {
+        const entry = yield* lookup(identity);
+        const current = yield* FiberMap.get(adoptions, identity.threadId);
+        if (Option.isSome(current)) return { _tag: "Fiber", fiber: current.value } as const;
+        if (entry.state === "adopted" || entry.state === "starting") {
+          return { _tag: "Read", launch: entry.launch } as const;
+        }
+        if (entry.state === "adopting") entry.state = "prepared";
 
-    return CodexFreshThreadLaunchRuntime.of({
-      register: (launch) => {
-        const identity = {
-          launchId: launch.launchId,
-          ownerClientId: launch.rendererClientId,
-          threadId: launch.threadId,
-        };
-        if (closed) throw new CodexFreshThreadLaunchError("unavailable", identity);
-        if (entries.has(launch.threadId)) {
-          throw new CodexFreshThreadLaunchError("duplicate", identity);
+        entry.state = "adopting";
+        const physical = adoptLaunch(entry.launch).pipe(
+          Effect.mapError((cause) => operationError(identity, cause)),
+          Effect.onExit((exit) =>
+            Effect.sync(() => {
+              if (entries.get(identity.threadId) !== entry) return;
+              entry.state = Exit.isSuccess(exit) ? "adopted" : "prepared";
+            }),
+          ),
+        );
+        const fiber = yield* FiberMap.run(adoptions, identity.threadId, physical, {
+          startImmediately: true,
+        });
+        return { _tag: "Fiber", fiber } as const;
+      }),
+    );
+
+  const adopt = (
+    identity: CodexFreshThreadLaunchIdentity,
+  ): Effect.Effect<AdoptionResult, CodexFreshThreadLaunchError> =>
+    Effect.gen(function* () {
+      const acquired = yield* acquireAdoption(identity);
+      if (acquired._tag === "Fiber") return yield* Fiber.join(acquired.fiber);
+      return yield* readAdopted(acquired.launch).pipe(
+        Effect.mapError((cause) => operationError(identity, cause)),
+      );
+    });
+
+  const acquireStart = (identity: CodexFreshThreadLaunchIdentity) =>
+    admission.withPermits(1)(
+      Effect.gen(function* () {
+        const entry = yield* lookup(identity);
+        const activeStart = yield* FiberMap.get(starts, identity.threadId);
+        if (Option.isSome(activeStart)) {
+          return { _tag: "Start", fiber: activeStart.value } as const;
         }
-        entries.set(launch.threadId, { launch, state: "prepared" });
-      },
-      reservation: (threadId) => {
-        const entry = entries.get(threadId);
-        return entry
-          ? { rendererClientId: entry.launch.rendererClientId, state: entry.state }
-          : null;
-      },
-      adopt,
-      start,
-      releaseRenderer: (rendererClientId, reason) => {
-        for (const [threadId, entry] of entries) {
-          if (entry.launch.rendererClientId !== rendererClientId || entry.state === "starting") {
-            continue;
-          }
-          entries.delete(threadId);
-          interrupt(threadId);
-          options.abandon(entry.launch, reason);
+        const activeAdoption = yield* FiberMap.get(adoptions, identity.threadId);
+        if (Option.isSome(activeAdoption)) {
+          return { _tag: "Adoption", fiber: activeAdoption.value } as const;
         }
-      },
-      clear: (threadId) => {
+        if (entry.state !== "adopted") {
+          return yield* Effect.fail(new CodexFreshThreadLaunchError("not-adopted", identity));
+        }
+
+        entry.state = "starting";
+        const physical = startFirstTurn(entry.launch).pipe(
+          Effect.mapError((cause) => operationError(identity, cause)),
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (entries.get(identity.threadId) === entry) entries.delete(identity.threadId);
+            }),
+          ),
+        );
+        const fiber = yield* FiberMap.run(starts, identity.threadId, physical, {
+          startImmediately: true,
+        });
+        return { _tag: "Start", fiber } as const;
+      }),
+    );
+
+  const start = (
+    identity: CodexFreshThreadLaunchIdentity,
+  ): Effect.Effect<TurnStartResponse, CodexFreshThreadLaunchError> =>
+    Effect.gen(function* () {
+      for (;;) {
+        const acquired = yield* acquireStart(identity);
+        if (acquired._tag === "Start") return yield* Fiber.join(acquired.fiber);
+        yield* Fiber.join(acquired.fiber);
+      }
+    });
+
+  const interrupt = (threadId: string): void => {
+    runAdoption(threadId, Effect.interrupt);
+    runStart(threadId, Effect.interrupt);
+  };
+
+  const release = Effect.gen(function* () {
+    if (closed) return;
+    closed = true;
+    entries.clear();
+    yield* FiberMap.clear(adoptions);
+    yield* FiberMap.clear(starts);
+  });
+
+  yield* Effect.addFinalizer(() => release);
+
+  return CodexFreshThreadLaunchRuntime.of({
+    register: (launch) => {
+      const identity = {
+        launchId: launch.launchId,
+        ownerClientId: launch.rendererClientId,
+        threadId: launch.threadId,
+      };
+      if (closed) throw new CodexFreshThreadLaunchError("unavailable", identity);
+      if (entries.has(launch.threadId)) {
+        throw new CodexFreshThreadLaunchError("duplicate", identity);
+      }
+      entries.set(launch.threadId, { launch, state: "prepared" });
+    },
+    reservation: (threadId) => {
+      const entry = entries.get(threadId);
+      return entry ? { rendererClientId: entry.launch.rendererClientId, state: entry.state } : null;
+    },
+    adopt,
+    start,
+    releaseRenderer: (rendererClientId, _reason) => {
+      for (const [threadId, entry] of entries) {
+        if (entry.launch.rendererClientId !== rendererClientId || entry.state === "starting") {
+          continue;
+        }
         entries.delete(threadId);
         interrupt(threadId);
-      },
-    });
+        completion.failed(entry.launch, "Message could not be sent because its window closed.");
+      }
+    },
+    clear: (threadId) => {
+      entries.delete(threadId);
+      interrupt(threadId);
+    },
   });
+});

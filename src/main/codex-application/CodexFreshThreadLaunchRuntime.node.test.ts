@@ -5,20 +5,17 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
-import * as Stream from "effect/Stream";
 import type { CodexConversationSnapshot } from "../../shared/types";
-import { CodexGateway } from "../codex-runtime/CodexGateway";
-import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
 import {
-  CodexFreshThreadLaunchError,
   make,
   type CodexFreshThreadLaunch,
   type CodexFreshThreadLaunchIdentity,
 } from "./CodexFreshThreadLaunchRuntime";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { makeCodexRendererConversationRegistryState } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { CodexThreadLaunchCompletion } from "./CodexThreadLaunchCompletion";
+import { CodexTurnCommands } from "./CodexTurnCommands";
 
 const launch = (): CodexFreshThreadLaunch =>
   ({
@@ -50,9 +47,6 @@ const turnStart = (): TurnStartResponse =>
 interface HarnessOptions {
   readonly beforeAdopt?: Effect.Effect<void>;
   readonly start?: Effect.Effect<TurnStartResponse>;
-  readonly finish?: (
-    response: TurnStartResponse,
-  ) => Effect.Effect<TurnStartResponse, CodexFreshThreadLaunchError>;
   readonly rollback?: () => void;
 }
 
@@ -63,6 +57,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     threadId: identity.threadId,
     resumeState: "resumed",
     requests: [],
+    queuedFollowUps: [],
   } as unknown as CodexConversationSnapshot;
   aggregates
     .acquire(identity.threadId)
@@ -93,49 +88,22 @@ const makeHarness = (options: HarnessOptions = {}) => {
         }),
       ),
   } as CodexRendererConversationCoordinator["Service"]);
-  const gateway = CodexGateway.of({
-    localHostId: "local",
-    requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
-    events: Stream.empty,
-    requestForThread: (() =>
-      options.start ?? Effect.succeed(turnStart())) as CodexGateway["Service"]["requestForThread"],
-  } as unknown as CodexGateway["Service"]);
-  const conversations = ConversationRuntimeMap.of({
-    conversation: aggregates.acquire,
-    currentConversation: aggregates.current,
-    requests: Stream.empty,
-    runtime: () => Effect.die("unused"),
-    runExclusive: (_threadId, operation) => operation,
-    close: () => Effect.void,
+  const turns = CodexTurnCommands.of({
+    acceptPreparedRendererTurn: () =>
+      (options.start ?? Effect.succeed(turnStart())).pipe(
+        Effect.onExit((exit) =>
+          Exit.isFailure(exit) ? Effect.sync(() => options.rollback?.()) : Effect.void,
+        ),
+      ),
+  } as unknown as CodexTurnCommands["Service"]);
+  const completion = CodexThreadLaunchCompletion.of({
+    accepted: () => Effect.void,
+    failed: () => undefined,
   });
-  const projectLifecycle = ProjectRuntimeLifecycleRuntime.of({
-    runExclusive: (_projectId, operation) => operation,
-  });
-  const runtime = make({
-    prepareStart: (entry) =>
-      Effect.sync(() => {
-        return {
-          launchId: entry.launchId,
-          ownerClientId: entry.rendererClientId,
-          projectId: entry.projectId,
-          threadId: entry.threadId,
-          request: entry.turnStartParams,
-          state: {},
-        };
-      }),
-    beginStart: () => Effect.void,
-    commitStart: (_prepared, response) => Effect.succeed(response),
-    finishStart: (_prepared, response) => options.finish?.(response) ?? Effect.succeed(response),
-    rollbackStart: () =>
-      Effect.sync(() => {
-        options.rollback?.();
-      }),
-    abandon: () => undefined,
-  }).pipe(
-    Effect.provideService(CodexGateway, gateway),
+  const runtime = make.pipe(
     Effect.provideService(CodexRendererConversationCoordinator, coordinator),
-    Effect.provideService(ConversationRuntimeMap, conversations),
-    Effect.provideService(ProjectRuntimeLifecycleRuntime, projectLifecycle),
+    Effect.provideService(CodexThreadLaunchCompletion, completion),
+    Effect.provideService(CodexTurnCommands, turns),
   );
   return { adoptionCalls: () => adoptionCalls, runtime };
 };
@@ -175,28 +143,6 @@ it.effect("single-flights renderer adoption and the first Turn start", () =>
     yield* Fiber.join(firstStart);
     yield* Fiber.join(secondStart);
     assert.isNull(service.reservation(identity.threadId));
-  }),
-);
-
-it.effect("does not roll back an accepted Turn when downstream completion fails", () =>
-  Effect.gen(function* () {
-    let rollbacks = 0;
-    const harness = makeHarness({
-      finish: () =>
-        Effect.fail(
-          new CodexFreshThreadLaunchError("operation-failed", identity, {
-            cause: new Error("projection failed"),
-          }),
-        ),
-      rollback: () => {
-        rollbacks += 1;
-      },
-    });
-    const service = yield* harness.runtime;
-    service.register(launch());
-    yield* service.adopt(identity);
-    assert.strictEqual((yield* service.start(identity).pipe(Effect.result))._tag, "Failure");
-    assert.strictEqual(rollbacks, 0);
   }),
 );
 

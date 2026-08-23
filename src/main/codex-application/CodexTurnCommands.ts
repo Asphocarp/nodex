@@ -45,6 +45,15 @@ export type CodexTurnStartOverrides = CodexTurnStartOptions & {
   readonly responsesapiClientMetadata?: TurnStartParams["responsesapiClientMetadata"];
 };
 
+export interface CodexPreparedRendererTurn {
+  readonly threadId: string;
+  readonly projectId: string | null;
+  readonly request: TurnStartParams;
+  readonly clientUserMessageId: string;
+  readonly verifiedBuiltinFullAccess: boolean;
+  readonly startedAtMs: number;
+}
+
 export class CodexTurnCommandError extends Schema.TaggedError<CodexTurnCommandError>()(
   "CodexTurnCommandError",
   {
@@ -66,6 +75,10 @@ export interface CodexTurnCommandsService {
     threadId: string,
     prompt: string,
     overrides?: CodexTurnStartOverrides,
+  ) => Effect.Effect<TurnStartResponse, CodexTurnCommandsError>;
+  /** Executes an already materialized renderer-owned first Turn without re-planning it. */
+  readonly acceptPreparedRendererTurn: (
+    plan: CodexPreparedRendererTurn,
   ) => Effect.Effect<TurnStartResponse, CodexTurnCommandsError>;
   readonly steer: (
     input: CodexSteerTurnInput,
@@ -488,6 +501,31 @@ export const make: Effect.Effect<
         ),
         Effect.withSpan("CodexTurnCommands.startRendererOwned", { attributes: { threadId } }),
       ),
+    acceptPreparedRendererTurn: (plan) =>
+      conversations
+        .runExclusive(
+          plan.threadId,
+          startTransaction({
+            ...plan,
+            canonicalParams: null,
+            currentCollaborationModel: "",
+            settings: {} as CodexTurnStartPlan["settings"],
+            permissionContext: null,
+            rendererOwnsState: true,
+            promptText: "",
+          }),
+        )
+        .pipe(
+          Effect.map((result) => result as TurnStartResponse),
+          Effect.mapError((cause) =>
+            cause instanceof Object && "_tag" in cause && cause._tag === "CodexRuntimeError"
+              ? (cause as CodexRuntimeError)
+              : commandError("start", plan.threadId, cause),
+          ),
+          Effect.withSpan("CodexTurnCommands.acceptPreparedRendererTurn", {
+            attributes: { threadId: plan.threadId },
+          }),
+        ),
     steer: (input) =>
       conversations.runExclusive(input.threadId, steerInLane(input)).pipe(
         Effect.withSpan("CodexTurnCommands.steer", {
