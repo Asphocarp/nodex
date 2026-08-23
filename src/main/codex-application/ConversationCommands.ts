@@ -1,33 +1,35 @@
-import * as Context from "effect/Context";
-import * as Data from "effect/Data";
-import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import type {
   ClientRequestParamsByMethod,
   ClientRequestResponsesByMethod,
 } from "@nodex/effect-codex-app-server/rpc";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import type { CodexThreadSummary } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import {
+  CodexConversationProjection,
+  type CodexConversationProjectionError,
+} from "./CodexConversationProjection";
+import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import {
   CodexServerRequestResponses,
   type CodexServerRequestResponseProjectionError,
 } from "./CodexServerRequestResponses";
+import { type CodexThreadGoalError, CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
+import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
 type BackgroundTerminal =
   ClientRequestResponsesByMethod["thread/backgroundTerminals/list"]["data"][number];
 
+/** Existing archive seam retained until archive is cut as one complete product transaction. */
 export class ConversationCommandProjectionError extends Data.TaggedError(
   "ConversationCommandProjectionError",
 )<{
-  readonly operation:
-    | "archive"
-    | "unarchive"
-    | "interrupt-prepare"
-    | "interrupt-apply"
-    | "background-terminal-turns"
-    | "background-terminals-cleaned";
+  readonly operation: "archive" | "unarchive";
   readonly threadId: string;
   readonly cause: unknown;
 }> {}
@@ -39,22 +41,14 @@ export interface ConversationCommandProjection {
   readonly unarchive: (
     threadId: string,
   ) => Effect.Effect<CodexThreadSummary | null, ConversationCommandProjectionError>;
-  readonly prepareInterrupt: (
-    threadId: string,
-    turnId?: string,
-  ) => Effect.Effect<string, ConversationCommandProjectionError>;
-  readonly applyInterrupt: (input: {
-    readonly threadId: string;
-    readonly turnId: string;
-    readonly syncDormantConversationUpdates: boolean;
-  }) => Effect.Effect<boolean, ConversationCommandProjectionError>;
-  readonly backgroundTerminalTurnIds: (
-    threadId: string,
-  ) => Effect.Effect<readonly string[] | null, ConversationCommandProjectionError>;
-  readonly backgroundTerminalsCleaned: (
-    threadId: string,
-  ) => Effect.Effect<void, ConversationCommandProjectionError>;
 }
+
+type ConversationCommandsError =
+  | CodexRuntimeError
+  | ConversationCommandProjectionError
+  | CodexConversationProjectionError
+  | CodexServerRequestResponseProjectionError
+  | CodexThreadGoalError;
 
 export class ConversationCommands extends Context.Service<
   ConversationCommands,
@@ -95,38 +89,27 @@ export class ConversationCommands extends Context.Service<
     readonly interrupt: (
       threadId: string,
       turnId?: string,
-      options?: { readonly syncDormantConversationUpdates?: boolean },
-    ) => Effect.Effect<
-      boolean,
-      | CodexRuntimeError
-      | ConversationCommandProjectionError
-      | CodexServerRequestResponseProjectionError
-    >;
+    ) => Effect.Effect<boolean, ConversationCommandsError>;
     readonly cleanBackgroundTerminals: (
       threadId: string,
-    ) => Effect.Effect<
-      boolean,
-      | CodexRuntimeError
-      | ConversationCommandProjectionError
-      | CodexServerRequestResponseProjectionError
-    >;
+    ) => Effect.Effect<boolean, ConversationCommandsError>;
     readonly cleanBackgroundTerminalsSilently: (
       threadId: string,
-    ) => Effect.Effect<
-      boolean,
-      | CodexRuntimeError
-      | ConversationCommandProjectionError
-      | CodexServerRequestResponseProjectionError
-    >;
+    ) => Effect.Effect<boolean, ConversationCommandsError>;
   }
 >()("nodex/main/codex-application/ConversationCommands") {}
 
 export const live = (
-  projection: ConversationCommandProjection,
+  archiveProjection: ConversationCommandProjection,
 ): Layer.Layer<
   ConversationCommands,
   never,
-  CodexGateway | ConversationRuntimeMap | CodexServerRequestResponses
+  | CodexConversationProjection
+  | CodexGateway
+  | CodexQueuedFollowUps
+  | CodexServerRequestResponses
+  | CodexThreadGoalRuntime
+  | ConversationRuntimeMap
 > =>
   Layer.effect(
     ConversationCommands,
@@ -134,10 +117,12 @@ export const live = (
       const gateway = yield* CodexGateway;
       const conversations = yield* ConversationRuntimeMap;
       const serverRequestResponses = yield* CodexServerRequestResponses;
-      const runSerial = <A, E>(
-        threadId: string,
-        operation: Effect.Effect<A, E>,
-      ): Effect.Effect<A, E> => conversations.runExclusive(threadId, operation);
+      const projection = yield* CodexConversationProjection;
+      const queuedFollowUps = yield* CodexQueuedFollowUps;
+      const threadGoals = yield* CodexThreadGoalRuntime;
+
+      const runSerial = <A, E>(threadId: string, operation: Effect.Effect<A, E>) =>
+        conversations.runExclusive(threadId, operation);
       const listBackgroundTerminalsPage = (
         threadId: string,
         options?: { readonly cursor?: string | null; readonly limit?: number },
@@ -160,50 +145,53 @@ export const live = (
               : Effect.succeed(next);
           }),
         );
+      const pauseActiveGoal = (threadId: string) =>
+        threadGoals
+          .get(threadId)
+          .pipe(
+            Effect.flatMap((goal) =>
+              goal?.status === "active"
+                ? threadGoals
+                    .set({ threadId, status: "paused", dismissResumeConfirmation: true })
+                    .pipe(Effect.asVoid)
+                : Effect.void,
+            ),
+          );
       const interruptInLane = (
         threadId: string,
-        turnId: string | undefined,
-        syncDormantConversationUpdates: boolean,
-      ): Effect.Effect<
-        boolean,
-        | CodexRuntimeError
-        | ConversationCommandProjectionError
-        | CodexServerRequestResponseProjectionError
-      > =>
-        projection.prepareInterrupt(threadId, turnId).pipe(
-          Effect.tap(() => serverRequestResponses.declineAllInTransaction(threadId)),
-          Effect.tap((resolvedTurnId) =>
-            Effect.logWarning("Interrupting Codex turn").pipe(
-              Effect.annotateLogs({
-                threadId,
-                requestedTurnId: turnId ?? null,
-                resolvedTurnId,
-              }),
-            ),
-          ),
-          Effect.flatMap((resolvedTurnId) =>
-            gateway
-              .requestForThread(threadId, "turn/interrupt", {
-                threadId,
-                turnId: resolvedTurnId,
-              })
-              .pipe(
-                Effect.andThen(
-                  projection.applyInterrupt({
-                    threadId,
-                    turnId: resolvedTurnId,
-                    syncDormantConversationUpdates,
-                  }),
+        turnId?: string,
+      ): Effect.Effect<boolean, ConversationCommandsError> =>
+        Effect.gen(function* () {
+          const resolvedTurnId = yield* projection.resolveInterruptTurn(threadId, turnId);
+          yield* pauseActiveGoal(threadId);
+          yield* serverRequestResponses.declineAllInTransaction(threadId);
+          yield* Effect.logWarning("Interrupting Codex Turn").pipe(
+            Effect.annotateLogs({ threadId, requestedTurnId: turnId ?? null, resolvedTurnId }),
+          );
+          yield* gateway.requestForThread(threadId, "turn/interrupt", {
+            threadId,
+            turnId: resolvedTurnId,
+          });
+          const observedAtMs = yield* Clock.currentTimeMillis;
+          yield* projection
+            .commitInterruptedTurn({ threadId, turnId: resolvedTurnId, observedAtMs })
+            .pipe(
+              Effect.catch((cause) =>
+                Effect.logError("Failed to reconcile an accepted Turn interruption").pipe(
+                  Effect.annotateLogs({ threadId, turnId: resolvedTurnId, cause }),
                 ),
               ),
-          ),
-        );
+            );
+          yield* queuedFollowUps.requestDispatch(threadId);
+          return true;
+        });
+
       return ConversationCommands.of({
         archive: (threadId) =>
           runSerial(
             threadId,
             gateway.requestForThread(threadId, "thread/archive", { threadId }).pipe(
-              Effect.andThen(projection.archive(threadId)),
+              Effect.andThen(archiveProjection.archive(threadId)),
               Effect.tap((archived) => (archived ? conversations.close(threadId) : Effect.void)),
             ),
           ),
@@ -212,7 +200,7 @@ export const live = (
             threadId,
             gateway
               .requestForThread(threadId, "thread/unarchive", { threadId })
-              .pipe(Effect.andThen(projection.unarchive(threadId))),
+              .pipe(Effect.andThen(archiveProjection.unarchive(threadId))),
           ),
         setMemoryMode: (threadId, mode) =>
           gateway
@@ -231,11 +219,7 @@ export const live = (
               processId,
             })
             .pipe(Effect.map((response) => response.terminated)),
-        interrupt: (threadId, turnId, options) =>
-          runSerial(
-            threadId,
-            interruptInLane(threadId, turnId, options?.syncDormantConversationUpdates ?? true),
-          ),
+        interrupt: (threadId, turnId) => runSerial(threadId, interruptInLane(threadId, turnId)),
         cleanBackgroundTerminals: (threadId) =>
           runSerial(
             threadId,
@@ -243,15 +227,9 @@ export const live = (
               Effect.flatMap((turnIds) => {
                 if (turnIds === null) return Effect.succeed(false);
                 if (turnIds.length === 0) return Effect.succeed(true);
-                return Effect.logWarning("Cleaning background terminals").pipe(
-                  Effect.annotateLogs({ threadId, turnIds }),
-                  Effect.andThen(
-                    Effect.forEach(turnIds, (turnId) => interruptInLane(threadId, turnId, true), {
-                      discard: true,
-                    }),
-                  ),
-                  Effect.as(true),
-                );
+                return Effect.forEach(turnIds, (turnId) => interruptInLane(threadId, turnId), {
+                  discard: true,
+                }).pipe(Effect.as(true));
               }),
             ),
           ),
@@ -261,7 +239,13 @@ export const live = (
             gateway
               .requestForThread(threadId, "thread/backgroundTerminals/clean", { threadId })
               .pipe(
-                Effect.andThen(projection.backgroundTerminalsCleaned(threadId)),
+                Effect.andThen(
+                  Clock.currentTimeMillis.pipe(
+                    Effect.flatMap((observedAtMs) =>
+                      projection.backgroundTerminalsCleaned(threadId, observedAtMs),
+                    ),
+                  ),
+                ),
                 Effect.as(true),
               ),
           ),

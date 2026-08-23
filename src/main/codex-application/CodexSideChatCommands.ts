@@ -13,7 +13,7 @@ import {
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import {
   CodexTurnCommands,
-  type CodexTurnCommandProjectionError,
+  type CodexTurnCommandsError,
   type CodexTurnStartOverrides,
 } from "./CodexTurnCommands";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
@@ -68,7 +68,7 @@ export interface CodexSideChatProjection {
 type CodexSideChatError =
   | CodexRuntimeError
   | CodexEphemeralThreadRoutingError
-  | CodexTurnCommandProjectionError
+  | CodexTurnCommandsError
   | CodexSideChatProjectionError;
 
 export interface CodexSideChatCommandsService {

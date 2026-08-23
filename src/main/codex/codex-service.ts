@@ -4,6 +4,7 @@ import { mkdir, open as openFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { produceWithPatches } from "immer";
+import * as Effect from "effect/Effect";
 import type {
   CollaborationMode as CodexAppServerCollaborationMode,
   GetAuthStatusResponse,
@@ -49,8 +50,6 @@ import type { ThreadTurnsListResponse } from "@nodex/codex-app-server-protocol/v
 import type { Turn } from "@nodex/codex-app-server-protocol/v2/Turn";
 import type { TurnStartParams } from "@nodex/codex-app-server-protocol/v2/TurnStartParams";
 import type { TurnStartResponse } from "@nodex/codex-app-server-protocol/v2/TurnStartResponse";
-import type { TurnSteerParams } from "@nodex/codex-app-server-protocol/v2/TurnSteerParams";
-import type { TurnSteerResponse } from "@nodex/codex-app-server-protocol/v2/TurnSteerResponse";
 import type { ToolRequestUserInputResponse } from "@nodex/codex-app-server-protocol/v2/ToolRequestUserInputResponse";
 import type {
   PageRunInTarget,
@@ -218,11 +217,10 @@ import type { CodexAttachments } from "../codex-application/CodexAttachments";
 import type { CodexBackgroundProcessConversationProjection } from "../codex-application/CodexBackgroundProcesses";
 import type { CodexPendingServerRequestRuntimeService } from "../codex-application/CodexPendingServerRequestRuntime";
 import type {
-  CodexPreparedTurnStart,
-  CodexPreparedTurnSteer,
+  CodexTurnCommandsService,
   CodexTurnStartOverrides,
 } from "../codex-application/CodexTurnCommands";
-import type { CodexTurnCommandsPromiseAdapter } from "../codex-application/CodexTurnCommandsPromiseAdapter";
+import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import { SIDE_CHAT_DEVELOPER_INSTRUCTIONS } from "../codex-application/CodexSideChatPolicy";
 import type {
   CodexCommittedSideChat,
@@ -317,7 +315,6 @@ import {
 } from "../../shared/codex-conversation-state/codex-conversation-state";
 import {
   appendCodexCanonicalOptimisticFirstTurn,
-  appendCodexCanonicalOptimisticTurn,
   bindCodexCanonicalOptimisticTurn,
   failCodexCanonicalOptimisticTurn,
 } from "../../shared/codex-conversation-state/codex-optimistic-turn";
@@ -330,10 +327,7 @@ import { appendCodexCanonicalThreadGoalTranscriptTurn } from "../../shared/codex
 import { reduceCodexBackgroundTerminalCleanup } from "../../shared/codex-conversation-state/codex-background-terminal-cleanup";
 import { projectCodexHistoryRequestViews } from "../../shared/codex-conversation-state/codex-history-request-projection";
 import { buildCodexSteeringCompareKey } from "../../shared/codex-conversation-state/codex-steering-compare";
-import {
-  removeCodexCanonicalSteeringItem,
-  upsertCodexCanonicalSteeringItem,
-} from "../../shared/codex-conversation-state/codex-steering-state";
+import { removeCodexCanonicalSteeringItem } from "../../shared/codex-conversation-state/codex-steering-state";
 import { applyCodexLifecycleProjectionDiff } from "../../shared/codex-conversation-state/codex-lifecycle-projection-diff";
 import { buildCodexTurnOccurrenceKey } from "../../shared/codex-turn-identity";
 import {
@@ -594,11 +588,12 @@ import {
   parseThreadStatus,
   resolveSidebarProjectIdForCwd,
 } from "../codex-application/CodexThreadCatalogProjection";
-import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
+import type { ConversationCommands } from "../codex-application/ConversationCommands";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
 import type { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
-import type { CodexQueuedFollowUpRuntimePromiseAdapter } from "../codex-application/CodexQueuedFollowUpRuntimePromiseAdapter";
+import type { CodexQueuedFollowUpDispatcher } from "../codex-application/CodexQueuedFollowUpDispatcher";
+import type { CodexQueuedFollowUps } from "../codex-application/CodexQueuedFollowUps";
 import type { CodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import type {
   CodexConversationResumeDemand,
@@ -631,7 +626,6 @@ import {
   buildCodexPendingFirstTurnAttachments,
   buildCodexPendingStartConversationParams,
   buildCodexPendingThreadStartConfig,
-  dedupeCodexLiveFileAttachments,
   projectCodexPendingThreadStart,
   projectCodexPendingWorktreeLaunchLocation,
   shouldSendCodexPendingPermissionOverrides,
@@ -914,14 +908,6 @@ interface DormantConversationSyncOptions {
   syncDormantConversationUpdates?: boolean;
 }
 
-interface MainOwnedStartTurnOptions extends DormantConversationSyncOptions {
-  stateOwner?: "main";
-}
-
-interface RendererOwnedStartTurnOptions {
-  stateOwner: "renderer";
-}
-
 interface ResolvedThreadRunLocation {
   cwd: string;
   workspaceRoots: string[];
@@ -1021,7 +1007,8 @@ type CodexServiceOptions = {
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
   pendingServerRequests: CodexPendingServerRequestRuntimeService;
-  turnCommands: CodexTurnCommandsPromiseAdapter;
+  controlPlane: Pick<ScopedCallbackRuntime["Service"], "fork" | "runPromise">;
+  turnCommands: CodexTurnCommandsService;
   persistedAtoms: PersistedAtomStore;
   sessionStore: CodexSessionStore;
   runtime: ResolvedCodexRuntime;
@@ -1048,11 +1035,12 @@ type CodexServiceOptions = {
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   threadCatalog: CodexThreadCatalogPromiseAdapter;
-  conversationCommands: ConversationCommandsPromiseAdapter;
+  conversationCommands: ConversationCommands["Service"];
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   subagentCatalog: CodexSubagentCatalog["Service"];
-  queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
+  queuedFollowUps: CodexQueuedFollowUps["Service"];
+  queuedFollowUpDispatcher: CodexQueuedFollowUpDispatcher["Service"];
   conversationDeltaBuffer: CodexConversationDeltaBufferRuntime["Service"];
   conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
@@ -1672,48 +1660,6 @@ interface PreparedPromptForTurn {
   };
 }
 
-interface CodexTurnStartTransactionState {
-  readonly threadId: string;
-  readonly projectId: string | null;
-  readonly rendererOwnsState: boolean;
-  readonly syncDormantConversationUpdates: boolean;
-  readonly record: CodexConversationRecord;
-  readonly promptText: string;
-  readonly permissionDecision: {
-    readonly state: CodexPermissionState;
-    readonly verifiedBuiltinFullAccess: boolean;
-  };
-  readonly permissionMode: CodexPermissionMode;
-  readonly effectiveModel: string | null;
-  readonly effectiveServiceTier: CodexServiceTier;
-  readonly effectiveReasoningEffort: CodexReasoningEffort | null | undefined;
-  readonly effectiveCollaborationMode: CodexCollaborationModeKind | null | undefined;
-  readonly reasoningSummary: TurnStartParams["summary"];
-  readonly collaborationMode: TurnStartParams["collaborationMode"] | null;
-  readonly clientUserMessageId: string;
-  canonicalParams: CodexCanonicalLiveTurnParams<
-    CodexLiveFileAttachment,
-    CodexReviewDiffCommentAttachment
-  > | null;
-  readonly startedAt: number;
-  workspacePath: string | null;
-  workspaceRoots: string[];
-  turnPermissionOverrides: Partial<TurnStartParams>;
-  authorityLaunch: NodexAgentTurnAuthorityLaunch | null | undefined;
-  optimisticStartedAt: number | null;
-  protocolCommitted: boolean;
-  readonly buildRequest: () => TurnStartParams;
-}
-
-interface CodexTurnSteerTransactionState {
-  readonly threadId: string;
-  readonly expectedTurnId: string;
-  readonly steerId: string;
-  readonly syncDormantConversationUpdates: boolean;
-  readonly canonicalSteer: CodexCanonicalSteeringUserMessageItem;
-  optimisticAdmitted: boolean;
-}
-
 interface CodexSideChatPreparationState {
   readonly input: CodexSideChatStartInput;
   readonly parentWorkspace: SideChatParentWorkspace;
@@ -2003,7 +1949,8 @@ export class CodexService {
   private readonly projectlessHomeDirectory: () => string;
   private readonly attachments: CodexAttachments["Service"]["legacy"];
   private readonly pendingServerRequests: CodexPendingServerRequestRuntimeService;
-  private readonly turnCommands: CodexTurnCommandsPromiseAdapter;
+  private readonly controlPlane: Pick<ScopedCallbackRuntime["Service"], "fork" | "runPromise">;
+  private readonly turnCommands: CodexTurnCommandsService;
   private readonly persistedAtoms: PersistedAtomStore;
   private readonly sessionStore: CodexSessionStore;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
@@ -2028,11 +1975,12 @@ export class CodexService {
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   private readonly threadCatalog: CodexThreadCatalogPromiseAdapter;
-  private readonly conversationCommands: ConversationCommandsPromiseAdapter;
+  private readonly conversationCommands: ConversationCommands["Service"];
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   private readonly subagentCatalog: CodexSubagentCatalog["Service"];
-  private readonly queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
+  private readonly queuedFollowUps: CodexQueuedFollowUps["Service"];
+  private readonly queuedFollowUpDispatcher: CodexQueuedFollowUpDispatcher["Service"];
   private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntime["Service"];
   private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   private readonly conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
@@ -2117,6 +2065,7 @@ export class CodexService {
     this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
     this.pendingServerRequests = options.pendingServerRequests;
+    this.controlPlane = options.controlPlane;
     this.turnCommands = options.turnCommands;
     this.persistedAtoms = options.persistedAtoms;
     this.sessionStore = options.sessionStore;
@@ -2141,6 +2090,7 @@ export class CodexService {
     this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
     this.subagentCatalog = options.subagentCatalog;
     this.queuedFollowUps = options.queuedFollowUps;
+    this.queuedFollowUpDispatcher = options.queuedFollowUpDispatcher;
     this.conversationDeltaBuffer = options.conversationDeltaBuffer;
     this.conversationResume = options.conversationResume;
     this.conversationEventBuffer = options.conversationEventBuffer;
@@ -4325,7 +4275,7 @@ export class CodexService {
   private pruneThreadTransientState(threadId: string, retainedTurnIds: ReadonlySet<string>): void {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return;
-    this.queuedFollowUps.reset(threadId);
+    this.conversationRuntimes.currentConversation(threadId)?.resetQueuedFollowUps(true);
 
     const nextSteers = this.listPendingSteers(threadId).filter((steer) =>
       retainedTurnIds.has(steer.turnId),
@@ -4385,7 +4335,11 @@ export class CodexService {
     this.freshThreadLaunch.clear(threadId);
     this.backgroundSubagentMetadataRepair.clear(threadId);
     this.subagentCatalog.clear(threadId);
-    this.queuedFollowUps.clear(threadId);
+    this.controlPlane.fork(
+      this.queuedFollowUpDispatcher
+        .cancel(threadId)
+        .pipe(Effect.andThen(this.queuedFollowUps.clear(threadId))),
+    );
   }
 
   private listQueuedFollowUps(threadId: string): CodexQueuedFollowUp[] {
@@ -4398,29 +4352,8 @@ export class CodexService {
     );
   }
 
-  private clearPausedQueuedFollowUps(threadId: string, broadcast = true): void {
-    this.queuedFollowUps.clearPaused(threadId, broadcast);
-  }
-
-  private hasActiveTurn(threadId: string): boolean {
-    return this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress");
-  }
-
-  /** Effect Module adapter operation; queue ordering and pause policy live in the runtime. */
-  isQueuedFollowUpSubmissionEligible(threadId: string): boolean {
-    return !this.hasActiveTurn(threadId);
-  }
-
   private maybeDispatchQueuedFollowUp(threadId: string): void {
-    this.queuedFollowUps.request(threadId);
-  }
-
-  /** Effect Module projection operation; the runtime has already committed the queue revision. */
-  projectQueuedFollowUps(threadId: string, entries: readonly CodexQueuedFollowUp[]): void {
-    if (this.isCommandOnlyAutomationThread(threadId)) return;
-    this.mutateAcceptedConversationDocument(threadId, (draft) => {
-      draft.queuedFollowUps = [...entries];
-    });
+    this.controlPlane.fork(this.queuedFollowUps.requestDispatch(threadId));
   }
 
   private recordPendingSteer(threadId: string, turnId: string, prompt: string): string {
@@ -4484,38 +4417,6 @@ export class CodexService {
     if (!broadcast) return;
     this.syncAcceptedConversationDocument(threadId, {
       syncPendingSteers: true,
-    });
-  }
-
-  /** Effect Module adapter operation; submits an already claimed follow-up. */
-  async submitQueuedFollowUp(threadId: string, followUp: CodexQueuedFollowUp): Promise<void> {
-    const knownTurns = this.listKnownTurns(threadId);
-    let activeTurnId: string | null = null;
-    for (let index = knownTurns.length - 1; index >= 0; index -= 1) {
-      const turn = knownTurns[index];
-      if (turn?.status !== "inProgress") continue;
-      activeTurnId = turn.turnId;
-      break;
-    }
-
-    if (activeTurnId) {
-      await this.steerTurn({
-        threadId,
-        expectedTurnId: activeTurnId,
-        prompt: followUp.prompt,
-        ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
-        collaborationMode: followUp.collaborationMode,
-        serviceTier: followUp.serviceTier,
-        summary: followUp.summary,
-      });
-      return;
-    }
-
-    await this.startTurn(threadId, followUp.prompt, {
-      collaborationMode: followUp.collaborationMode ?? undefined,
-      serviceTier: followUp.serviceTier,
-      summary: followUp.summary,
-      ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
     });
   }
 
@@ -7428,7 +7329,9 @@ export class CodexService {
       }
     }
     if (!activeTurn?.turnId) return;
-    await this.conversationCommands.interrupt(threadId, activeTurn.turnId);
+    await this.controlPlane.runPromise(
+      this.conversationCommands.interrupt(threadId, activeTurn.turnId),
+    );
     signal.throwIfAborted();
     const terminal = this.getKnownTurn(threadId, activeTurn.turnId);
     if (terminal?.status === "inProgress") {
@@ -10198,15 +10101,17 @@ export class CodexService {
       const restoreMessage = entry.steeringRestoreMessage;
       this.removeSteeringUserMessage(threadId, entry.entryId ?? entry.itemId);
       if (!restoreMessage?.prompt.trim()) continue;
-      await this.queuedFollowUps.enqueue({
-        threadId,
-        prompt: restoreMessage.prompt,
-        collaborationMode: restoreMessage.collaborationMode,
-        serviceTier: restoreMessage.serviceTier,
-        pausedReason: reason,
-        promptInput: restoreMessage.promptInput,
-        summary: restoreMessage.summary,
-      });
+      await this.controlPlane.runPromise(
+        this.queuedFollowUps.enqueue({
+          threadId,
+          prompt: restoreMessage.prompt,
+          collaborationMode: restoreMessage.collaborationMode,
+          serviceTier: restoreMessage.serviceTier,
+          pausedReason: reason,
+          promptInput: restoreMessage.promptInput,
+          summary: restoreMessage.summary,
+        }),
+      );
     }
   }
 
@@ -14454,688 +14359,17 @@ export class CodexService {
     });
   }
 
-  /** Prepares the isolated state consumed by one admitted Turn transaction. */
-  async prepareTurnStartForModule(input: {
-    readonly threadId: string;
-    readonly prompt: string;
-    readonly overrides?: StartTurnOverrides;
-    readonly rendererOwnsState: boolean;
-    readonly syncDormantConversationUpdates: boolean;
-    readonly signal: AbortSignal;
-  }): Promise<CodexPreparedTurnStart> {
-    input.signal.throwIfAborted();
-    await this.ensureClientReady();
-    await this.ensureAgentRuntimeCredentialReloaded();
-    await this.threadSettingsRuntime.awaitCurrent(input.threadId);
-    input.signal.throwIfAborted();
-
-    const preparedPrompt = input.overrides?.preparedPrompt
-      ? await this.usePreparedPromptForTurn(input.overrides.preparedPrompt)
-      : await this.preparePromptForTurn(input.prompt, input.overrides?.promptInput);
-    input.signal.throwIfAborted();
-    const promptText = preparedPrompt.promptText;
-    const record = this.getConversationRecord(input.threadId);
-    const latestThreadSettings = record.latestThreadSettings;
-    const fallbackCollaborationMode =
-      latestThreadSettings?.collaborationMode ?? record.latestCollaborationMode;
-    const effectiveModel =
-      normalizeThreadSettingsModel(preparedPrompt.agentConfigOverrides.model) ??
-      normalizeThreadSettingsModel(input.overrides?.model) ??
-      normalizeThreadSettingsModel(latestThreadSettings?.model) ??
-      normalizeThreadSettingsModel(fallbackCollaborationMode.settings.model);
-    const effectiveReasoningEffort =
-      preparedPrompt.agentConfigOverrides.reasoningEffort ??
-      input.overrides?.reasoningEffort ??
-      latestThreadSettings?.reasoningEffort ??
-      fallbackCollaborationMode.settings.reasoning_effort;
-    const hasExplicitServiceTier = Boolean(
-      input.overrides && hasOwnValue(input.overrides, "serviceTier"),
-    );
-    const effectiveServiceTier = hasExplicitServiceTier
-      ? normalizeCodexServiceTier(input.overrides?.serviceTier)
-      : normalizeCodexServiceTier(latestThreadSettings?.serviceTier);
-    const effectiveCollaborationMode =
-      preparedPrompt.agentConfigOverrides.collaborationMode ??
-      input.overrides?.collaborationMode ??
-      latestThreadSettings?.collaborationMode?.mode ??
-      fallbackCollaborationMode.mode;
-    const explicitReasoningSummary =
-      input.overrides && hasOwnValue(input.overrides, "summary")
-        ? parseCodexReasoningSummary(input.overrides.summary)
-        : undefined;
-    const reasoningSummary = resolveCodexReasoningSummary({
-      configuredSummary: latestThreadSettings?.summary,
-      explicitSummary: explicitReasoningSummary,
-    });
-
-    const threadRef = this.parseThreadRef(input.threadId);
-    const threadCwd = threadRef?.cwd?.trim() || null;
-    const projectRunContext =
-      !threadCwd && threadRef?.projectId
-        ? await this.maybeResolveProjectRuntimeContext(threadRef.projectId)
-        : null;
-    const fallbackWorkspacePath =
-      !threadCwd && !projectRunContext?.primaryWorkspaceRoot && threadRef?.projectId
-        ? await this.parseWorkspacePath(threadRef.projectId)
-        : null;
-    const workspacePath =
-      threadCwd || projectRunContext?.primaryWorkspaceRoot || fallbackWorkspacePath || null;
-    const workspaceRoots = threadCwd
-      ? [threadCwd]
-      : (projectRunContext?.workspaceRoots ??
-        (fallbackWorkspacePath ? [fallbackWorkspacePath] : []));
-    const permissionDecision = await this.resolvePermissionStateForRequest(
-      threadRef?.projectId ?? null,
-      input.overrides?.permissionMode,
-      workspaceRoots,
-    );
-    input.signal.throwIfAborted();
-    const permissionState = permissionDecision.state;
-    const turnPermissionOverrides = buildTurnPermissionOverrides({
-      permissionState,
-      workspaceRoots,
-    });
-    this.applyThreadPermissionState(input.threadId, permissionState);
-    const collaborationMode = await this.buildCollaborationModePayload({
-      collaborationMode: effectiveCollaborationMode,
-      model: effectiveModel ?? undefined,
-      reasoningEffort: effectiveReasoningEffort,
-    });
-    this.applyLatestThreadSettingsForThread(
-      input.threadId,
-      this.buildConversationThreadSettings({
-        model: effectiveModel,
-        modelProvider: threadRef?.executionProfile?.providerId,
-        serviceTier: effectiveServiceTier,
-        reasoningEffort: effectiveReasoningEffort ?? null,
-        summary: reasoningSummary,
-        collaborationMode: effectiveCollaborationMode,
-        fallback: latestThreadSettings,
-        fallbackCollaborationMode,
-      }),
-    );
-
-    let transaction!: CodexTurnStartTransactionState;
-    const buildRequest = (): TurnStartParams => ({
-      threadId: input.threadId,
-      clientUserMessageId: transaction.clientUserMessageId,
-      ...(transaction.workspacePath ? { cwd: transaction.workspacePath } : {}),
-      ...(preparedPrompt.additionalContext
-        ? { additionalContext: preparedPrompt.additionalContext }
-        : {}),
-      ...transaction.turnPermissionOverrides,
-      ...(effectiveModel ? { model: effectiveModel } : {}),
-      ...(effectiveServiceTier ? { serviceTier: effectiveServiceTier } : {}),
-      ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
-      summary: reasoningSummary,
-      ...(collaborationMode ? { collaborationMode } : {}),
-      ...(input.overrides?.responsesapiClientMetadata
-        ? { responsesapiClientMetadata: input.overrides.responsesapiClientMetadata }
-        : {}),
-      input: preparedPrompt.inputItems,
-    });
-    transaction = {
-      threadId: input.threadId,
-      projectId: threadRef?.projectId ?? null,
-      rendererOwnsState: input.rendererOwnsState,
-      syncDormantConversationUpdates: input.syncDormantConversationUpdates,
-      record,
-      promptText,
-      permissionDecision,
-      permissionMode: permissionState.mode,
-      effectiveModel,
-      effectiveServiceTier,
-      effectiveReasoningEffort,
-      effectiveCollaborationMode,
-      reasoningSummary,
-      collaborationMode,
-      clientUserMessageId: input.overrides?.clientUserMessageId ?? randomUUID(),
-      canonicalParams: null,
-      startedAt: Date.now(),
-      workspacePath,
-      workspaceRoots,
-      turnPermissionOverrides,
-      authorityLaunch: undefined,
-      optimisticStartedAt: null,
-      protocolCommitted: false,
-      buildRequest,
-    };
-
-    const canonicalState = this.readCanonicalConversationState(record.threadId);
-    const hydration = canonicalState?.sidecar.hydrationContext;
-    const canonicalPermissionContext = hydration
-      ? this.resolveCanonicalResumePermissionContext(
-          permissionState,
-          workspaceRoots,
-          hydration.currentPermissions,
-        )
-      : null;
-    transaction.canonicalParams =
-      canonicalState && hydration && canonicalPermissionContext
-        ? ({
-            ...buildRequest(),
-            cwd: workspacePath,
-            approvalPolicy: canonicalPermissionContext.approvalPolicy,
-            approvalsReviewer: canonicalPermissionContext.approvalsReviewer,
-            sandboxPolicy: canonicalPermissionContext.sandboxPolicy,
-            permissions: canonicalPermissionContext.activePermissionProfile?.id ?? null,
-            runtimeWorkspaceRoots: canonicalPermissionContext.activePermissionProfile
-              ? [...canonicalPermissionContext.runtimeWorkspaceRoots]
-              : null,
-            useAppServerPermissionDefault: permissionState.effectivePreset === "custom",
-            model: collaborationMode ? null : effectiveModel,
-            serviceTier: hasExplicitServiceTier
-              ? effectiveServiceTier
-              : latestThreadSettings?.serviceTier !== undefined
-                ? effectiveServiceTier
-                : (hydration.latestThreadSettings?.serviceTier ?? null),
-            effort: collaborationMode ? null : (effectiveReasoningEffort ?? null),
-            multiAgentMode: hydration.latestThreadSettings?.multiAgentMode ?? "explicitRequestOnly",
-            summary: reasoningSummary,
-            personality: latestThreadSettings?.personality ?? this.preferences.current(),
-            outputSchema: null,
-            collaborationMode,
-            attachments: dedupeCodexLiveFileAttachments([
-              ...preparedPrompt.fileAttachments,
-              ...preparedPrompt.addedFiles,
-            ]),
-            commentAttachments: [...preparedPrompt.commentAttachments],
-          } satisfies CodexCanonicalLiveTurnParams<
-            CodexLiveFileAttachment,
-            CodexReviewDiffCommentAttachment
-          >)
-        : null;
-
-    return {
-      threadId: input.threadId,
-      projectId: transaction.projectId,
-      request: buildRequest() as unknown as CodexPreparedTurnStart["request"],
-      rendererOwnsState: input.rendererOwnsState,
-      state: transaction,
-    };
-  }
-
-  private readTurnStartTransaction(
-    prepared: CodexPreparedTurnStart,
-  ): CodexTurnStartTransactionState {
-    const transaction = prepared.state as CodexTurnStartTransactionState;
-    if (transaction.threadId !== prepared.threadId) {
-      throw new Error("Turn start transaction identity changed");
-    }
-    return transaction;
-  }
-
-  async beginTurnStartForModule(prepared: CodexPreparedTurnStart): Promise<void> {
-    const transaction = this.readTurnStartTransaction(prepared);
-    if (transaction.projectId) {
-      const project = await this.projectWorkspace.getProject(transaction.projectId);
-      if (project?.lifecycle !== "active") {
-        throw new Error("Codex turns cannot be started for an inactive or removed project");
-      }
-    }
-    transaction.authorityLaunch = await this.beginNodexAgentTurnAuthority(
-      transaction.threadId,
-      transaction.permissionDecision.verifiedBuiltinFullAccess,
-    );
-    this.logger.info("Starting Codex turn", {
-      threadId: transaction.threadId,
-      projectId: transaction.projectId,
-      cwd: transaction.workspacePath,
-      permissionMode: transaction.permissionMode,
-      model: transaction.effectiveModel ?? null,
-      serviceTier: formatServiceTierForReporting(transaction.effectiveServiceTier),
-      reasoningEffort: transaction.effectiveReasoningEffort ?? null,
-      reasoningSummary: transaction.reasoningSummary,
-      collaborationMode: transaction.effectiveCollaborationMode ?? null,
-      promptLength: transaction.promptText.length,
-      promptPreview: previewText(transaction.promptText),
-    });
-    if (!transaction.canonicalParams || transaction.rendererOwnsState) return;
-
-    const beforeAppend = this.readCanonicalConversationState(transaction.threadId);
-    if (!beforeAppend) {
-      throw new Error("Cannot start a canonical turn before conversation hydration");
-    }
-    const optimisticStartedAt = Date.now();
-    transaction.optimisticStartedAt = optimisticStartedAt;
-    const afterAppend = appendCodexCanonicalOptimisticTurn(beforeAppend, {
-      params: transaction.canonicalParams,
-      currentCollaborationModel: transaction.record.latestCollaborationMode.settings.model,
-      startedAtMs: optimisticStartedAt,
-    });
-    this.commitCanonicalLocalTurnMutation({
-      threadId: transaction.threadId,
-      before: beforeAppend,
-      after: afterAppend,
-      observedAtMs: optimisticStartedAt,
-    });
-    this.conversationAggregate(transaction.threadId).setStreaming(true);
-    await this.markThreadAsActive(transaction.threadId);
-    this.syncDormantConversationFromRecord(transaction.threadId, "owner-unavailable");
-  }
-
-  async recoverTurnStartForModule(
-    prepared: CodexPreparedTurnStart,
-    signal: AbortSignal,
-  ): Promise<CodexPreparedTurnStart["request"]> {
-    const transaction = this.readTurnStartTransaction(prepared);
-    signal.throwIfAborted();
-    this.logger.warn("Codex turn start hit missing thread; attempting resume", {
-      threadId: transaction.threadId,
-    });
-    const recoveredDetail = await this.resumeThreadWithSeed(transaction.threadId, undefined, true);
-    if (!recoveredDetail) {
-      throw new Error(
-        `Thread '${transaction.threadId}' could not be resumed after turn/start failed`,
-      );
-    }
-    signal.throwIfAborted();
-    transaction.workspacePath = recoveredDetail.cwd;
-    transaction.workspaceRoots = [
-      ...(transaction.workspacePath ? [transaction.workspacePath] : []),
-      ...transaction.workspaceRoots,
-    ].filter((root, index, roots) => roots.indexOf(root) === index);
-    transaction.turnPermissionOverrides = buildTurnPermissionOverrides({
-      permissionState: transaction.permissionDecision.state,
-      workspaceRoots: transaction.workspaceRoots,
-    });
-    return transaction.buildRequest() as unknown as CodexPreparedTurnStart["request"];
-  }
-
-  async commitTurnStartForModule(
-    prepared: CodexPreparedTurnStart,
-    response: TurnStartResponse,
-  ): Promise<CodexTurnSummary | TurnStartResponse | null> {
-    const transaction = this.readTurnStartTransaction(prepared);
-    const usedCanonicalTransaction =
-      !transaction.rendererOwnsState && transaction.canonicalParams !== null;
-    if (usedCanonicalTransaction) {
-      if (!this.asTurnSummary(transaction.threadId, response.turn)) {
-        throw new Error("Codex turn/start returned an invalid turn payload");
-      }
-      await this.nodexAgentAuthorityRegistry.bindTurn(
-        transaction.authorityLaunch ?? null,
-        response.turn.id,
-      );
-      const beforeBind = this.readCanonicalConversationState(transaction.threadId);
-      if (!beforeBind || !transaction.canonicalParams) {
-        throw new Error("Canonical conversation state disappeared during turn/start");
-      }
-      const stateWithPendingTurn = beforeBind.turns.some(
-        (turn) => turn.sidecar.params.clientUserMessageId === transaction.clientUserMessageId,
-      )
-        ? beforeBind
-        : appendCodexCanonicalOptimisticTurn(beforeBind, {
-            params: transaction.canonicalParams,
-            currentCollaborationModel: transaction.record.latestCollaborationMode.settings.model,
-            startedAtMs: transaction.optimisticStartedAt ?? Date.now(),
-          });
-      const afterBind = bindCodexCanonicalOptimisticTurn(
-        stateWithPendingTurn,
-        transaction.clientUserMessageId,
-        response.turn,
-      );
-      if (!afterBind.turns.some((turn) => turn.protocol.id === response.turn.id)) {
-        throw new Error("Codex turn/start could not bind its canonical optimistic turn");
-      }
-      this.commitCanonicalLocalTurnMutation({
-        threadId: transaction.threadId,
-        before: beforeBind,
-        after: afterBind,
-        observedAtMs: Date.now(),
-      });
-    } else {
-      await this.nodexAgentAuthorityRegistry.bindTurn(
-        transaction.authorityLaunch ?? null,
-        response.turn.id,
-      );
-    }
-    transaction.protocolCommitted = true;
-
-    await this.markAutomationRunAcceptedForUserContinuation(transaction.threadId);
-    if (transaction.rendererOwnsState) {
-      await this.markThreadAsActive(transaction.threadId);
-      return response;
-    }
-
-    const startedTurn = this.asTurnSummary(transaction.threadId, response.turn);
-    if (startedTurn) {
-      const observedTurn: CodexTurnSummary & { turnId: string } = {
-        ...startedTurn,
-        turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
-      };
-      this.clearPausedQueuedFollowUps(transaction.threadId, false);
-      if (!usedCanonicalTransaction) {
-        this.mergeTurn(transaction.threadId, observedTurn);
-        await this.markThreadAsActive(transaction.threadId);
-      }
-      if (transaction.syncDormantConversationUpdates) {
-        this.syncDormantConversationFromRecord(transaction.threadId, "owner-unavailable");
-      }
-      this.logger.info("Started Codex turn", {
-        threadId: transaction.threadId,
-        turnId: observedTurn.turnId,
-        durationMs: Date.now() - transaction.startedAt,
-      });
-      return this.getKnownTurn(transaction.threadId, observedTurn.turnId) ?? observedTurn;
-    }
-
-    await this.markThreadAsActive(transaction.threadId);
-    this.clearPausedQueuedFollowUps(transaction.threadId, false);
-    if (transaction.syncDormantConversationUpdates) {
-      this.syncDormantConversationFromRecord(transaction.threadId, "owner-unavailable");
-    }
-    const detail = this.serializeThreadDetail(transaction.threadId);
-    if (!detail || detail.turns.length === 0) return null;
-    this.logger.info("Started Codex turn from canonical conversation state", {
-      threadId: transaction.threadId,
-      durationMs: Date.now() - transaction.startedAt,
-    });
-    return detail.turns[detail.turns.length - 1];
-  }
-
-  rollbackTurnStartForModule(prepared: CodexPreparedTurnStart): void {
-    const transaction = this.readTurnStartTransaction(prepared);
-    if (transaction.protocolCommitted) return;
-    this.nodexAgentAuthorityRegistry.abortTurn(transaction.authorityLaunch ?? null);
-    if (!transaction.canonicalParams || transaction.rendererOwnsState) return;
-    const beforeFailure = this.readCanonicalConversationState(transaction.threadId);
-    if (!beforeFailure) return;
-    const afterFailure = failCodexCanonicalOptimisticTurn(
-      beforeFailure,
-      transaction.clientUserMessageId,
-      randomUUID(),
-    );
-    this.commitCanonicalLocalTurnMutation({
-      threadId: transaction.threadId,
-      before: beforeFailure,
-      after: afterFailure,
-      observedAtMs: Date.now(),
-    });
-    this.syncDormantConversationFromRecord(transaction.threadId, "owner-unavailable");
-  }
-
-  async startTurn(
-    threadId: string,
-    prompt: string,
-    overrides: StartTurnOverrides | undefined,
-    options: RendererOwnedStartTurnOptions,
-  ): Promise<TurnStartResponse>;
+  /** Remaining app-server and dynamic-tool ingress delegates to the canonical Turn command. */
   async startTurn(
     threadId: string,
     prompt: string,
     overrides?: StartTurnOverrides,
-    options?: MainOwnedStartTurnOptions,
-  ): Promise<CodexTurnSummary | null>;
-  async startTurn(
-    threadId: string,
-    prompt: string,
-    overrides?: StartTurnOverrides,
-    options: MainOwnedStartTurnOptions | RendererOwnedStartTurnOptions = {},
-  ): Promise<CodexTurnSummary | TurnStartResponse | null> {
-    return options.stateOwner === "renderer"
-      ? await this.turnCommands.startRendererOwned(threadId, prompt, overrides)
-      : await this.turnCommands.start(threadId, prompt, overrides, {
-          syncDormantConversationUpdates: options.syncDormantConversationUpdates,
-        });
+  ): Promise<CodexTurnSummary | null> {
+    return await this.controlPlane.runPromise(this.turnCommands.start(threadId, prompt, overrides));
   }
 
-  async prepareTurnSteerForModule(input: {
-    readonly command: CodexSteerTurnInput;
-    readonly steerId: string;
-    readonly syncDormantConversationUpdates: boolean;
-    readonly signal: AbortSignal;
-  }): Promise<CodexPreparedTurnSteer> {
-    input.signal.throwIfAborted();
-    await this.ensureClientReady();
-    const command = input.command;
-    const threadId = command.threadId;
-    const preparedPrompt = await this.preparePromptForTurn(command.prompt, command.promptInput);
-    input.signal.throwIfAborted();
-    if (
-      preparedPrompt.agentConfigOverrides.collaborationMode ||
-      preparedPrompt.agentConfigOverrides.model ||
-      preparedPrompt.agentConfigOverrides.reasoningEffort
-    ) {
-      throw new Error(
-        "Agent config cannot be steered into a running turn. Wait for the turn to finish or queue a follow-up.",
-      );
-    }
-    const promptText = preparedPrompt.promptText.trim();
-    if (!promptText) {
-      throw new Error("Turn steer requires a non-empty prompt");
-    }
-    const activeTurn = command.expectedTurnId
-      ? this.getKnownTurn(threadId, command.expectedTurnId)
-      : ([...this.listKnownTurns(threadId)]
-          .reverse()
-          .find((turn) => turn.status === "inProgress") ?? null);
-    const expectedTurnId = command.expectedTurnId ?? activeTurn?.turnId ?? null;
-    if (!expectedTurnId) {
-      throw new Error(
-        "Nodex is already running. Wait for the active turn to load or queue the follow-up instead.",
-      );
-    }
-
-    this.logger.info("Steering Codex turn", {
-      threadId,
-      expectedTurnId,
-      promptLength: promptText.length,
-      promptPreview: previewText(promptText),
-    });
-
-    const steerParams: TurnSteerParams = {
-      threadId,
-      expectedTurnId,
-      clientUserMessageId: input.steerId,
-      input: preparedPrompt.inputItems,
-      ...(preparedPrompt.additionalContext
-        ? { additionalContext: preparedPrompt.additionalContext }
-        : {}),
-    };
-    const restoreMessage: CodexSteeringRestoreMessage = {
-      prompt: command.prompt,
-      ...(command.promptInput ? { promptInput: command.promptInput } : {}),
-      collaborationMode: command.collaborationMode ?? null,
-      serviceTier: normalizeCodexServiceTier(command.serviceTier),
-      ...(command.summary !== undefined ? { summary: command.summary } : {}),
-    };
-    const canonicalBefore = this.readCanonicalConversationState(threadId);
-    if (!canonicalBefore) {
-      throw new Error(`Cannot steer '${threadId}' before canonical conversation state is loaded`);
-    }
-    const canonicalSteer = this.buildCanonicalSteeringUserMessageItem({
-      turnId: expectedTurnId,
-      steerId: input.steerId,
-      clientUserMessageId: input.steerId,
-      inputItems: preparedPrompt.inputItems,
-      attachments: dedupeCodexLiveFileAttachments([
-        ...preparedPrompt.fileAttachments,
-        ...preparedPrompt.addedFiles,
-      ]),
-      commentAttachments: preparedPrompt.commentAttachments,
-      restoreMessage,
-      targetTurnStartedAtMs: activeTurn?.turnStartedAtMs ?? activeTurn?.startedAt ?? null,
-    });
-    const canonicalAfter = upsertCodexCanonicalSteeringItem(
-      canonicalBefore,
-      expectedTurnId,
-      canonicalSteer,
-    );
-    if (canonicalAfter === canonicalBefore) {
-      throw new Error(`Cannot steer missing canonical turn '${expectedTurnId}'`);
-    }
-
-    return {
-      threadId,
-      request: steerParams,
-      fallbackStart: {
-        prompt: command.prompt,
-        overrides: {
-          collaborationMode: command.collaborationMode ?? undefined,
-          serviceTier: command.serviceTier,
-          summary: command.summary,
-          ...(command.promptInput ? { promptInput: command.promptInput } : {}),
-        },
-        syncDormantConversationUpdates: input.syncDormantConversationUpdates,
-      },
-      state: {
-        threadId,
-        expectedTurnId,
-        steerId: input.steerId,
-        syncDormantConversationUpdates: input.syncDormantConversationUpdates,
-        canonicalSteer,
-        optimisticAdmitted: false,
-      } satisfies CodexTurnSteerTransactionState,
-    };
-  }
-
-  private readTurnSteerTransaction(
-    prepared: CodexPreparedTurnSteer,
-  ): CodexTurnSteerTransactionState {
-    const transaction = prepared.state as CodexTurnSteerTransactionState;
-    if (transaction.threadId !== prepared.threadId) {
-      throw new Error("Turn steer transaction identity changed");
-    }
-    return transaction;
-  }
-
-  beginTurnSteerForModule(prepared: CodexPreparedTurnSteer): void {
-    const transaction = this.readTurnSteerTransaction(prepared);
-    const record = this.getMaybeConversationRecord(transaction.threadId);
-    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
-    if (!record || !before) {
-      throw new Error(
-        `Cannot steer '${transaction.threadId}' before canonical conversation state is loaded`,
-      );
-    }
-    const after = upsertCodexCanonicalSteeringItem(
-      before,
-      transaction.expectedTurnId,
-      transaction.canonicalSteer,
-    );
-    if (after === before) {
-      throw new Error(`Cannot steer missing canonical turn '${transaction.expectedTurnId}'`);
-    }
-    transaction.optimisticAdmitted = true;
-    this.applyCanonicalTurnMutation({
-      threadId: transaction.threadId,
-      turnId: transaction.expectedTurnId,
-      before,
-      after,
-    });
-    if (!transaction.syncDormantConversationUpdates) return;
-    this.syncAcceptedConversationTurnState(transaction.threadId, transaction.expectedTurnId, {
-      syncBackgroundTerminalRows: true,
-      syncCapabilityFlags: true,
-    });
-  }
-
-  async commitTurnSteerForModule(
-    prepared: CodexPreparedTurnSteer,
-    response: TurnSteerResponse,
-  ): Promise<{ turnId: string } | null> {
-    const transaction = this.readTurnSteerTransaction(prepared);
-    if (typeof response.turnId !== "string") {
-      this.rollbackTurnSteerForModule(prepared);
-      this.logger.warn("Codex turn steer returned no turn id", {
-        threadId: transaction.threadId,
-        expectedTurnId: transaction.expectedTurnId,
-      });
-      return null;
-    }
-    this.clearPausedQueuedFollowUps(transaction.threadId);
-    this.logger.info("Steered Codex turn", {
-      threadId: transaction.threadId,
-      expectedTurnId: transaction.expectedTurnId,
-      turnId: response.turnId,
-    });
-    return { turnId: response.turnId };
-  }
-
-  rollbackTurnSteerForModule(prepared: CodexPreparedTurnSteer): void {
-    const transaction = this.readTurnSteerTransaction(prepared);
-    if (!transaction.optimisticAdmitted) return;
-    transaction.optimisticAdmitted = false;
-    const record = this.getMaybeConversationRecord(transaction.threadId);
-    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
-    if (record && before) {
-      const after = removeCodexCanonicalSteeringItem(
-        before,
-        transaction.expectedTurnId,
-        transaction.steerId,
-      );
-      if (after !== before) {
-        this.applyCanonicalTurnMutation({
-          threadId: transaction.threadId,
-          turnId: transaction.expectedTurnId,
-          before,
-          after,
-        });
-      }
-    }
-    if (!transaction.syncDormantConversationUpdates) return;
-    this.syncAcceptedConversationTurnState(transaction.threadId, transaction.expectedTurnId, {
-      syncBackgroundTerminalRows: true,
-      syncCapabilityFlags: true,
-    });
-  }
-
-  async steerTurn(
-    input: CodexSteerTurnInput,
-    options: DormantConversationSyncOptions = {},
-  ): Promise<{ turnId: string } | null> {
-    return await this.turnCommands.steer(input, options);
-  }
-
-  async prepareTurnInterruptForModule(threadId: string, turnId?: string): Promise<string> {
-    const resolvedTurnId = await this.resolveInterruptTurnId(threadId, turnId);
-    if (!resolvedTurnId) {
-      throw new Error("Could not determine which turn to interrupt");
-    }
-    await this.pauseActiveThreadGoalBeforeInterrupt(threadId);
-    return resolvedTurnId;
-  }
-
-  async applyTurnInterruptForModule(input: {
-    readonly threadId: string;
-    readonly turnId: string;
-    readonly syncDormantConversationUpdates: boolean;
-  }): Promise<boolean> {
-    const knownTurn = this.getKnownTurn(input.threadId, input.turnId);
-    if (!knownTurn || knownTurn.status !== "inProgress") {
-      return true;
-    }
-
-    const interruptedTurn: CodexTurnSummary = {
-      ...knownTurn,
-      status: "interrupted",
-      interruptedCommandExecutionItemIds: [
-        ...(knownTurn.interruptedCommandExecutionItemIds ?? []),
-        ...this.listRecordedInterruptedCommandExecutionItemIds(input.threadId, input.turnId),
-      ],
-    };
-    this.mergeTurn(input.threadId, interruptedTurn);
-    await this.syncThreadStatusFromKnownTurns(input.threadId);
-    this.reconcileTurnItemsToTerminalStatus(input.threadId, input.turnId, "interrupted");
-    this.emitEvent({ type: "turn", turn: interruptedTurn });
-    if (input.syncDormantConversationUpdates) {
-      this.syncDormantConversationFromRecord(input.threadId, "owner-unavailable");
-    }
-    this.maybeDispatchQueuedFollowUp(input.threadId);
-    return true;
-  }
-
-  readBackgroundTerminalTurnIdsForModule(threadId: string): readonly string[] | null {
-    const conversation = this.serializeConversationSnapshot(threadId);
-    if (!conversation) return null;
-    return [
-      ...new Set(this.collectBackgroundTerminalRows(conversation).map(({ turnId }) => turnId)),
-    ];
-  }
-
-  applyBackgroundTerminalsCleanedForModule(threadId: string): void {
-    this.markBackgroundTerminalsInterruptedSilently(threadId);
+  async steerTurn(input: CodexSteerTurnInput): Promise<{ turnId: string } | null> {
+    return await this.controlPlane.runPromise(this.turnCommands.steer(input));
   }
 
   /** Temporary read-only projection while the conversation replica remains in this class. */
@@ -17794,8 +17028,11 @@ export class CodexService {
           throw new Error("set_thread_archived requires threadId and archived");
         }
         await this.resolveDynamicThreadDetail(threadId);
-        if (args.archived) await this.conversationCommands.archive(threadId);
-        else await this.conversationCommands.unarchive(threadId);
+        if (args.archived) {
+          await this.controlPlane.runPromise(this.conversationCommands.archive(threadId));
+        } else {
+          await this.controlPlane.runPromise(this.conversationCommands.unarchive(threadId));
+        }
         return this.buildDynamicToolSuccess({ threadId, archived: args.archived });
       }
 

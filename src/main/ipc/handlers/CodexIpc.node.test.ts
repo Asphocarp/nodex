@@ -12,7 +12,8 @@ import { CodexThreadReadState } from "../../codex-application/CodexThreadReadSta
 import { AgentImportRuntime } from "../../codex-application/AgentImportRuntime";
 import { CodexConversationHistoryRuntime } from "../../codex-application/CodexConversationHistoryRuntime";
 import { CodexConversationResumeRuntime } from "../../codex-application/CodexConversationResumeRuntime";
-import { CodexQueuedFollowUpRuntime } from "../../codex-application/CodexQueuedFollowUpRuntime";
+import { CodexQueuedFollowUpDispatcher } from "../../codex-application/CodexQueuedFollowUpDispatcher";
+import { CodexQueuedFollowUps } from "../../codex-application/CodexQueuedFollowUps";
 import { CodexStructuredThreadTitle } from "../../codex-application/CodexStructuredThreadTitle";
 import { ManagedWorktreeCatalog } from "../../codex-application/ManagedWorktreeCatalog";
 import type { CodexFreshThreadLaunchRuntimeService } from "../../codex-application/CodexFreshThreadLaunchRuntime";
@@ -112,16 +113,22 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           releaseBuffer: () => Effect.die("unused"),
           clear: () => undefined,
         }),
-        queuedFollowUps: CodexQueuedFollowUpRuntime.of({
+        queuedFollowUps: CodexQueuedFollowUps.of({
           list: () => [],
           enqueue: () => Effect.die("unused"),
           remove: () => Effect.die("unused"),
           reorder: () => Effect.die("unused"),
+          clearPaused: () => Effect.die("unused"),
+          reset: () => Effect.die("unused"),
+          clear: () => Effect.die("unused"),
+          requestDispatch: () => Effect.die("unused"),
+          takeDispatchIntent: Effect.die("unused"),
+          claim: () => Effect.die("unused"),
+          restore: () => Effect.die("unused"),
+        }),
+        queuedFollowUpDispatcher: CodexQueuedFollowUpDispatcher.of({
           sendNow: () => Effect.die("unused"),
-          request: () => undefined,
-          clearPaused: () => false,
-          reset: () => undefined,
-          clear: () => undefined,
+          cancel: () => Effect.die("unused"),
         }),
         freshThreadLaunch: {
           adopt: () => Effect.die("unused"),

@@ -84,11 +84,10 @@ import {
 import { ComposerCatalog, live as composerCatalogLive } from "../codex-application/ComposerCatalog";
 import { makeComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import {
-  ConversationCommandProjectionError,
   ConversationCommands,
+  ConversationCommandProjectionError,
   live as conversationCommandsLive,
 } from "../codex-application/ConversationCommands";
-import { makeConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
 import {
   CodexBackgroundProcesses,
   make as makeCodexBackgroundProcesses,
@@ -113,10 +112,8 @@ import {
 } from "../codex-application/CodexServerRequestResponses";
 import {
   CodexTurnCommands,
-  CodexTurnCommandProjectionError,
   make as makeCodexTurnCommands,
 } from "../codex-application/CodexTurnCommands";
-import { makeCodexTurnCommandsPromiseAdapter } from "../codex-application/CodexTurnCommandsPromiseAdapter";
 import {
   CodexSideChatProjectionError,
   make as makeCodexSideChatCommands,
@@ -209,10 +206,34 @@ import {
   make as makeCodexSubagentCatalog,
 } from "../codex-application/CodexSubagentCatalog";
 import {
-  CodexQueuedFollowUpRuntimeError,
-  make as makeCodexQueuedFollowUpRuntime,
-} from "../codex-application/CodexQueuedFollowUpRuntime";
-import { makeCodexQueuedFollowUpRuntimePromiseAdapter } from "../codex-application/CodexQueuedFollowUpRuntimePromiseAdapter";
+  CodexConversationContext,
+  make as makeCodexConversationContext,
+} from "../codex-application/CodexConversationContext";
+import {
+  CodexConversationProjection,
+  make as makeCodexConversationProjection,
+} from "../codex-application/CodexConversationProjection";
+import {
+  CodexConversationMaterialization,
+  make as makeCodexConversationMaterialization,
+} from "../codex-application/CodexConversationMaterialization";
+import {
+  CodexAutomationRunAcceptance,
+  make as makeCodexAutomationRunAcceptance,
+} from "../codex-application/CodexAutomationRunAcceptance";
+import {
+  CodexQueuedFollowUps,
+  make as makeCodexQueuedFollowUps,
+} from "../codex-application/CodexQueuedFollowUps";
+import { make as makeCodexQueuedFollowUpDispatcher } from "../codex-application/CodexQueuedFollowUpDispatcher";
+import {
+  CodexTurnAuthority,
+  make as makeCodexTurnAuthority,
+} from "../codex-application/CodexTurnAuthority";
+import {
+  CodexTurnPreparation,
+  make as makeCodexTurnPreparation,
+} from "../codex-application/CodexTurnPreparation";
 import { make as makeCodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import {
   CodexConversationResumeError,
@@ -944,82 +965,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const conversationCommandsContext = yield* Layer.buildWithScope(
-          conversationCommandsLive({
-            archive: (threadId) =>
-              Effect.tryPromise({
-                try: () => requireCodexService().applyThreadArchiveProjection(threadId),
-                catch: (cause) =>
-                  new ConversationCommandProjectionError({
-                    operation: "archive",
-                    threadId,
-                    cause,
-                  }),
-              }),
-            unarchive: (threadId) =>
-              Effect.tryPromise({
-                try: () => requireCodexService().applyThreadUnarchiveProjection(threadId),
-                catch: (cause) =>
-                  new ConversationCommandProjectionError({
-                    operation: "unarchive",
-                    threadId,
-                    cause,
-                  }),
-              }),
-            prepareInterrupt: (threadId, turnId) =>
-              Effect.tryPromise({
-                try: () => requireCodexService().prepareTurnInterruptForModule(threadId, turnId),
-                catch: (cause) =>
-                  new ConversationCommandProjectionError({
-                    operation: "interrupt-prepare",
-                    threadId,
-                    cause,
-                  }),
-              }),
-            applyInterrupt: (input) =>
-              Effect.tryPromise({
-                try: () => requireCodexService().applyTurnInterruptForModule(input),
-                catch: (cause) =>
-                  new ConversationCommandProjectionError({
-                    operation: "interrupt-apply",
-                    threadId: input.threadId,
-                    cause,
-                  }),
-              }),
-            backgroundTerminalTurnIds: (threadId) =>
-              Effect.try({
-                try: () => requireCodexService().readBackgroundTerminalTurnIdsForModule(threadId),
-                catch: (cause) =>
-                  new ConversationCommandProjectionError({
-                    operation: "background-terminal-turns",
-                    threadId,
-                    cause,
-                  }),
-              }),
-            backgroundTerminalsCleaned: (threadId) =>
-              Effect.try({
-                try: () => requireCodexService().applyBackgroundTerminalsCleanedForModule(threadId),
-                catch: (cause) =>
-                  new ConversationCommandProjectionError({
-                    operation: "background-terminals-cleaned",
-                    threadId,
-                    cause,
-                  }),
-              }),
-          }).pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.merge(
-                  Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
-                  Layer.succeed(CodexServerRequestResponses, serverRequestResponses),
-                ),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const conversationCommands = Context.get(conversationCommandsContext, ConversationCommands);
         const preferencesContext = yield* Layer.buildWithScope(codexPreferencesLive, runtimeScope);
         const preferences = Context.get(preferencesContext, CodexPreferences);
         const attachmentsContext = yield* Layer.buildWithScope(
@@ -1320,28 +1265,6 @@ export const live: Layer.Layer<
         const externalSuggestions = Context.get(
           externalSuggestionsContext,
           ComposerExternalSuggestions,
-        );
-        yield* Layer.buildWithScope(
-          CodexApplicationIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(ElectronWindowHost, windowHost),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(AgentProviderRuntime, agentProviders),
-                Layer.succeed(CodexAccount, codexAccountService),
-                Layer.succeed(CodexConnection, codexConnectionService),
-                Layer.succeed(CodexMedia, codexMedia),
-                Layer.succeed(ComposerCatalog, composerCatalogService),
-                Layer.succeed(ConversationCommands, conversationCommands),
-                Layer.succeed(CodexPreferences, preferences),
-                Layer.succeed(CodexAttachments, attachments),
-                Layer.succeed(CodexToolRuntime, codexToolRuntimeService),
-                Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
-              ),
-            ),
-          ),
-          runtimeScope,
         );
         yield* terminals.events.pipe(
           Stream.runForEach((event) => {
@@ -2084,23 +2007,123 @@ export const live: Layer.Layer<
           Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const queuedFollowUps = yield* makeCodexQueuedFollowUpRuntime({
-          isSubmissionEligible: (threadId) =>
-            requireCodexService().isQueuedFollowUpSubmissionEligible(threadId),
-          submit: (threadId, followUp) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().submitQueuedFollowUp(threadId, followUp),
-              catch: (cause) =>
-                new CodexQueuedFollowUpRuntimeError({
-                  operation: "submit",
-                  threadId,
-                  followUpId: followUp.followUpId,
-                  cause,
-                }),
-            }),
-          project: (threadId, entries) =>
-            requireCodexService().projectQueuedFollowUps(threadId, entries),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const conversationContext = yield* makeCodexConversationContext.pipe(
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(CoreModules, coreModules),
+        );
+        const conversationProjection = yield* makeCodexConversationProjection.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(CoreModules, coreModules),
+        );
+        const conversationMaterialization = yield* makeCodexConversationMaterialization.pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+        );
+        const automationRunAcceptance = yield* makeCodexAutomationRunAcceptance.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CoreModules, coreModules),
+        );
+        const turnAuthority = yield* makeCodexTurnAuthority.pipe(
+          Effect.provideService(CodexConversationContext, conversationContext),
+          Effect.provideService(CoreAuthority, authority),
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const turnPreparation = yield* makeCodexTurnPreparation.pipe(
+          Effect.provideService(AgentProviderRuntime, agentProviders),
+          Effect.provideService(CodexAttachments, attachments),
+          Effect.provideService(CodexConversationContext, conversationContext),
+          Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexPermissions, codexPermissions),
+          Effect.provideService(CodexPreferences, preferences),
+          Effect.provideService(CodexThreadSettingsRuntime, threadSettingsRuntime),
+          Effect.provideService(ComposerCatalog, composerCatalogService),
+        );
+        const queuedFollowUps = yield* makeCodexQueuedFollowUps.pipe(
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const turnCommands = yield* makeCodexTurnCommands.pipe(
+          Effect.provideService(CodexAutomationRunAcceptance, automationRunAcceptance),
+          Effect.provideService(CodexConversationMaterialization, conversationMaterialization),
+          Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexQueuedFollowUps, queuedFollowUps),
+          Effect.provideService(CodexTurnAuthority, turnAuthority),
+          Effect.provideService(CodexTurnPreparation, turnPreparation),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const queuedFollowUpDispatcher = yield* makeCodexQueuedFollowUpDispatcher.pipe(
+          Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexQueuedFollowUps, queuedFollowUps),
+          Effect.provideService(CodexTurnCommands, turnCommands),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const conversationCommandsContext = yield* Layer.buildWithScope(
+          conversationCommandsLive({
+            archive: (threadId) =>
+              Effect.tryPromise({
+                try: () => requireCodexService().applyThreadArchiveProjection(threadId),
+                catch: (cause) =>
+                  new ConversationCommandProjectionError({
+                    operation: "archive",
+                    threadId,
+                    cause,
+                  }),
+              }),
+            unarchive: (threadId) =>
+              Effect.tryPromise({
+                try: () => requireCodexService().applyThreadUnarchiveProjection(threadId),
+                catch: (cause) =>
+                  new ConversationCommandProjectionError({
+                    operation: "unarchive",
+                    threadId,
+                    cause,
+                  }),
+              }),
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexConversationProjection, conversationProjection),
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(CodexQueuedFollowUps, queuedFollowUps),
+                Layer.succeed(CodexServerRequestResponses, serverRequestResponses),
+                Layer.succeed(CodexThreadGoalRuntime, threadGoals),
+                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const conversationCommands = Context.get(conversationCommandsContext, ConversationCommands);
+        yield* Layer.buildWithScope(
+          CodexApplicationIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(ElectronWindowHost, windowHost),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(AgentProviderRuntime, agentProviders),
+                Layer.succeed(CodexAccount, codexAccountService),
+                Layer.succeed(CodexConnection, codexConnectionService),
+                Layer.succeed(CodexMedia, codexMedia),
+                Layer.succeed(ComposerCatalog, composerCatalogService),
+                Layer.succeed(ConversationCommands, conversationCommands),
+                Layer.succeed(CodexPreferences, preferences),
+                Layer.succeed(CodexAttachments, attachments),
+                Layer.succeed(CodexToolRuntime, codexToolRuntimeService),
+                Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const conversationDeltaBuffer = yield* makeCodexConversationDeltaBufferRuntime().pipe(
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
@@ -2330,89 +2353,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const manualCompaction = Context.get(manualCompactionContext, CodexManualCompactionRuntime);
-        const turnCommands = yield* makeCodexTurnCommands({
-          prepareStart: (input) =>
-            Effect.tryPromise({
-              try: (signal) =>
-                requireCodexService().prepareTurnStartForModule({ ...input, signal }),
-              catch: (cause) =>
-                new CodexTurnCommandProjectionError({
-                  operation: "prepare-start",
-                  threadId: input.threadId,
-                  cause,
-                }),
-            }),
-          beginStart: (prepared) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().beginTurnStartForModule(prepared),
-              catch: (cause) =>
-                new CodexTurnCommandProjectionError({
-                  operation: "begin-start",
-                  threadId: prepared.threadId,
-                  cause,
-                }),
-            }),
-          recoverStart: (prepared) =>
-            Effect.tryPromise({
-              try: (signal) => requireCodexService().recoverTurnStartForModule(prepared, signal),
-              catch: (cause) =>
-                new CodexTurnCommandProjectionError({
-                  operation: "recover-start",
-                  threadId: prepared.threadId,
-                  cause,
-                }),
-            }),
-          commitStart: (prepared, response) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().commitTurnStartForModule(prepared, response),
-              catch: (cause) =>
-                new CodexTurnCommandProjectionError({
-                  operation: "commit-start",
-                  threadId: prepared.threadId,
-                  cause,
-                }),
-            }),
-          rollbackStart: (prepared) =>
-            Effect.sync(() => requireCodexService().rollbackTurnStartForModule(prepared)),
-          prepareSteer: (input) =>
-            Effect.tryPromise({
-              try: (signal) =>
-                requireCodexService().prepareTurnSteerForModule({ ...input, signal }),
-              catch: (cause) =>
-                new CodexTurnCommandProjectionError({
-                  operation: "prepare-steer",
-                  threadId: input.command.threadId,
-                  cause,
-                }),
-            }),
-          beginSteer: (prepared) =>
-            Effect.try({
-              try: () => requireCodexService().beginTurnSteerForModule(prepared),
-              catch: (cause) =>
-                new CodexTurnCommandProjectionError({
-                  operation: "begin-steer",
-                  threadId: prepared.threadId,
-                  cause,
-                }),
-            }),
-          commitSteer: (prepared, response) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().commitTurnSteerForModule(prepared, response),
-              catch: (cause) =>
-                new CodexTurnCommandProjectionError({
-                  operation: "commit-steer",
-                  threadId: prepared.threadId,
-                  cause,
-                }),
-            }),
-          rollbackSteer: (prepared) =>
-            Effect.sync(() => requireCodexService().rollbackTurnSteerForModule(prepared)),
-        }).pipe(
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
-          Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
         const threadRollbackCommands = yield* makeCodexThreadRollbackCommands({
           prepareLatestForEdit: (input) =>
             Effect.try({
@@ -2468,7 +2408,6 @@ export const live: Layer.Layer<
           Effect.provideService(CodexTurnCommands, turnCommands),
           Effect.provideService(ConversationCommands, conversationCommands),
         );
-        const turnCommandsAdapter = makeCodexTurnCommandsPromiseAdapter(turnCommands, callbacks);
         const sideChatCommands = yield* makeCodexSideChatCommands({
           prepare: (input) =>
             Effect.tryPromise({
@@ -2651,7 +2590,8 @@ export const live: Layer.Layer<
               persistedAtoms,
               attachments: attachments.legacy,
               pendingServerRequests,
-              turnCommands: turnCommandsAdapter,
+              controlPlane: callbacks,
+              turnCommands,
               activeGoalContinuation: activeGoalContinuationCallbacks,
               ownerNotificationDrain: makeCodexOwnerNotificationDrainRuntimePromiseAdapter(
                 ownerNotificationDrain,
@@ -2694,10 +2634,7 @@ export const live: Layer.Layer<
                 threadTitlePersistence,
                 callbacks,
               ),
-              conversationCommands: makeConversationCommandsPromiseAdapter(
-                conversationCommands,
-                callbacks,
-              ),
+              conversationCommands,
               threadCatalog: makeCodexThreadCatalogPromiseAdapter(threadCatalog, callbacks),
               postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
                 postResumeGoals,
@@ -2705,10 +2642,8 @@ export const live: Layer.Layer<
               ),
               backgroundSubagentMetadataRepair,
               subagentCatalog,
-              queuedFollowUps: makeCodexQueuedFollowUpRuntimePromiseAdapter(
-                queuedFollowUps,
-                callbacks,
-              ),
+              queuedFollowUps,
+              queuedFollowUpDispatcher,
               conversationDeltaBuffer,
               conversationResume: makeCodexConversationResumeRuntimePromiseAdapter(
                 conversationResume,
@@ -2926,8 +2861,10 @@ export const live: Layer.Layer<
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(ConversationCommands, conversationCommands),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
@@ -3008,10 +2945,6 @@ export const live: Layer.Layer<
           AutomationIpc.live({
             automation: automationModule,
             codex: codexService,
-            conversationCommands: makeConversationCommandsPromiseAdapter(
-              conversationCommands,
-              callbacks,
-            ),
             rendererClients,
             onHeartbeatAutomationsEnabledChanged: (input) => {
               callbacks.fork(scheduledAutomations.setHeartbeatAutomationsEnabled(input.enabled));
@@ -3027,8 +2960,10 @@ export const live: Layer.Layer<
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(ConversationCommands, conversationCommands),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
@@ -3451,6 +3386,7 @@ export const live: Layer.Layer<
             conversationHistory,
             conversationResume,
             queuedFollowUps,
+            queuedFollowUpDispatcher,
             freshThreadLaunch,
             structuredThreadTitle,
             backgroundProcesses,

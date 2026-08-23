@@ -21,7 +21,7 @@ import { projectTranscriptEntryToItemView } from "../codex/codex-transcript-proj
 const sameRequestId = (left: RequestId, right: RequestId): boolean =>
   typeof left === typeof right && left === right;
 
-const buildTurnSummary = (
+export const buildCodexCanonicalTurnSummary = (
   threadId: string,
   turn: CodexCanonicalTurnState,
   itemIds: readonly string[],
@@ -106,7 +106,11 @@ const projectTurn = (input: {
     preserveExistingUpdatedAt: true,
     isBackgroundSubagentsEnabled: true,
   });
-  const summary = buildTurnSummary(input.conversation.threadId, afterTurn, projection.itemIds);
+  const summary = buildCodexCanonicalTurnSummary(
+    input.conversation.threadId,
+    afterTurn,
+    projection.itemIds,
+  );
   return {
     ...(existing ?? summary),
     ...summary,

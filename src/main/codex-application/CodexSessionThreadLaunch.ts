@@ -19,7 +19,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import {
   CodexTurnCommands,
-  type CodexTurnCommandProjectionError,
+  type CodexTurnCommandsError,
   type CodexTurnStartOverrides,
 } from "./CodexTurnCommands";
 
@@ -123,7 +123,7 @@ export interface CodexSessionThreadLaunchProjection {
 
 type CodexSessionThreadLaunchError =
   | CodexRuntimeError
-  | CodexTurnCommandProjectionError
+  | CodexTurnCommandsError
   | CodexSessionThreadLaunchProjectionError;
 
 export interface CodexSessionThreadLaunchService {
@@ -239,9 +239,7 @@ export const make = (
                   Effect.flatMap((completion) => {
                     if (completion.kind === "complete") return Effect.succeed(completion.result);
                     return turns
-                      .start(completion.threadId, completion.prompt, completion.overrides, {
-                        syncDormantConversationUpdates: true,
-                      })
+                      .start(completion.threadId, completion.prompt, completion.overrides)
                       .pipe(
                         Effect.flatMap((turn) => {
                           if (turn) return projection.finishFirstTurn(completion, turn);

@@ -310,9 +310,7 @@ export const make = (
                 catch: (cause) => new CodexRendererOwnerCommandError({ method, threadId, cause }),
               }).pipe(Effect.flatMap(turnCommands.steerRendererOwned));
             case "turn/interrupt":
-              return conversations.interrupt(threadId, request.params.turnId, {
-                syncDormantConversationUpdates: false,
-              });
+              return conversations.interrupt(threadId, request.params.turnId);
             case "thread/settings/update":
               return threadSettings.update({
                 threadId,

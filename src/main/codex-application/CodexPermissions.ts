@@ -8,7 +8,11 @@ import * as Schema from "effect/Schema";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
-import type { CodexPermissionMode, CodexPermissionState } from "../../shared/types";
+import type {
+  CodexCanonicalHydratedPermissionContext,
+  CodexPermissionMode,
+  CodexPermissionState,
+} from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CoreModules } from "../core-runtime/CoreModules";
 import {
@@ -21,6 +25,30 @@ interface CodexPermissionConfigSnapshot {
   readonly origins: ConfigReadResponse["origins"];
   readonly requirements: ConfigRequirementsReadResponse["requirements"];
 }
+
+/** Reconciles the effective Nodex permission decision with app-server hydration provenance. */
+export const resolveCanonicalPermissionContext = (
+  permissionState: CodexPermissionState,
+  runtimeWorkspaceRoots: readonly string[],
+  fallback: CodexCanonicalHydratedPermissionContext,
+): CodexCanonicalHydratedPermissionContext => {
+  const activePermissionProfile =
+    permissionState.effectivePreset === "read-only"
+      ? { id: ":read-only", extends: null }
+      : permissionState.effectivePreset === "full-access"
+        ? { id: ":danger-full-access", extends: null }
+        : permissionState.effectivePreset === "auto" ||
+            permissionState.effectivePreset === "guardian-approvals"
+          ? { id: ":workspace", extends: null }
+          : fallback.activePermissionProfile;
+  return {
+    activePermissionProfile,
+    runtimeWorkspaceRoots: [...runtimeWorkspaceRoots],
+    approvalPolicy: permissionState.approvalPolicy ?? fallback.approvalPolicy,
+    approvalsReviewer: permissionState.approvalsReviewer ?? fallback.approvalsReviewer,
+    sandboxPolicy: permissionState.sandbox ?? fallback.sandboxPolicy,
+  };
+};
 
 export interface CodexPermissionDecision {
   readonly state: CodexPermissionState;

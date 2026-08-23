@@ -708,15 +708,17 @@ Thread materialization, Workspace read, and summary publication projection ports
 hydrate/open command or parallel membership Set. Metadata repair remains the separate keyed policy
 above because its retry/completion lifecycle differs from inventory and presentation fidelity.
 
-Queued follow-ups are owned by one Main-scoped keyed runtime. The Module owns creation with Effect
-Clock, queue order, pause state, remove/reorder, atomic claim, manual “send now”, failure restoration,
-and the physical submit fiber; accepted conversation state is a projection, not a second queue
-authority. Canonical turn state contributes only the current submission-eligibility capability.
-Duplicate automatic requests coalesce per Thread, a failed claim is restored exactly once, queue
-reset does not cancel an already admitted submit, and Thread removal or Main Scope close interrupts
-the physical fiber and fences stale restoration. Renderer IPC calls the typed Module directly;
-`CodexService` temporarily supplies turn submission and canonical projection but owns no queue array,
-ID/clock, mutation API, dispatch registry, detached Promise, or failure-finalizer path.
+Queued follow-up entries, ordering, pause state, and generation belong to the same
+`ConversationRuntimeMap` aggregate as their Thread. Accepted renderer-owner replica ingress
+reconciles that aggregate state, while Main-owned mutations project the accepted replica only when
+no renderer owner exists. `CodexQueuedFollowUps` is the typed, serialized façade for creation with
+Effect Clock, remove/reorder, atomic claim, restoration, reset, generation clear, and dispatch
+intent. A separate scoped dispatcher owns only keyed submit fibers and composes `CodexTurnCommands`.
+Duplicate automatic requests coalesce per Thread, paused heads remain ineligible for automatic
+dispatch, manual “send now” may steer an active Turn, a failed claim is restored exactly once, reset
+does not cancel an admitted submit, and Thread generation release cancels the fiber before clearing
+state so stale restoration is fenced. Renderer IPC calls these capabilities directly; no queue
+array, Promise adapter, callback submission port, or second queue authority exists in `CodexService`.
 
 Sidebar synchronization is owned by one Main-scoped runtime. It combines same-catalog callers behind
 one physical refresh fiber, fences completion with a monotonic generation, applies Effect-clock
@@ -770,37 +772,39 @@ Main Scope closure interrupts active and queued writes. Renderer ingress invokes
 directly; `CodexService` temporarily exposes only inspect, persistence, and projection ports and owns
 no public read-state command or write queue.
 
-Thread archive and unarchive are complete `ConversationCommands` transactions. The
-`ConversationRuntimeMap` Thread generation owns the shared application-command lane; archive,
-interrupt, background-terminal cleanup, request responses, and Turn commands therefore cannot
-interleave merely because they have different Module owners. Archive transitions
-combine the typed Gateway command with automation/worktree cleanup, Project Workspace persistence,
-canonical projection, sidebar publication, and conversation-runtime eviction. Interrupt resolves
-one target, pauses an active goal, declines pending interaction requests, sends the typed Gateway
-command, and applies the terminal Turn/item projection; cleanup either runs those complete interrupt
-transactions for the projected background Turns or uses the owner-mode clean command and commits its
-silent projection. Renderer, Project Session, scheduled-automation, owner-action, handoff, and
-dynamic-tool ingress all borrow this owner. `CodexService` temporarily supplies only prepare/apply
-domain projection operations while those state owners are split further; it owns no public archive,
-interrupt, or cleanup command and sends none of their protocol requests. The Module exposes only
-complete named commands, not a generic protocol request escape hatch.
+The `ConversationRuntimeMap` Thread generation owns the shared application-command lane, so
+interrupt, background-terminal cleanup, request responses, and Turn commands cannot interleave
+merely because they have different Module owners. Interrupt resolves one target, pauses an active
+goal, declines pending interaction requests, sends the typed Gateway command, durably reconciles
+Thread status, publishes the canonical terminal Turn, and requests queued-follow-up dispatch. A
+remote interrupt is the irreversible commit point: a later local projection failure is supervised
+and cannot report the accepted command as failed. Background-terminal recognition and cleanup share
+one canonical selector which excludes only the latest still-in-progress foreground Turn. Archive
+and unarchive continue to cross the existing full product projection seam until automation,
+worktree, unread, sidebar, authorization, and Thread-release effects can be extracted as one atomic
+archive command; they are not replaced by a partial direct implementation. The Module exposes only
+complete named commands, not staged prepare/apply methods or a generic protocol escape hatch.
 
 Starting a Turn on an existing Thread is a complete `CodexTurnCommands` transaction. The command
 holds the shared Thread-generation lane while it prepares the effective prompt, settings,
 permissions, workspace and authority plan, then enters the Project lifecycle gate before admitting
 the optimistic canonical mutation and the typed `turn/start` request. A Main-owned start may recover
 one missing app-server Thread and retry within that same transaction; a renderer-owned start never
-does so because its renderer remains the state authority. Response validation, authority binding,
-canonical binding and downstream projection commit precede success. Failure or Main Scope
-interruption before the protocol commit aborts pending authority and terminalizes the optimistic
-Turn exactly once; failure after an accepted and bound protocol response does not rewrite that Turn
-as failed. The Main-owned first Turn of a freshly materialized Session Thread enters this same
+does so because its renderer remains the state authority. Response validation is the protocol commit
+point; authority binding, canonical acceptance, durable status, and automation acceptance then
+reconcile that accepted fact without making the Turn resendable. Failure or Main Scope interruption
+before protocol acceptance aborts pending authority, terminalizes the optimistic Turn exactly once,
+and restores durable/public idle status. A missing app-server Thread is rematerialized and the
+complete plan is prepared again once before retrying. The Main-owned first Turn of a freshly
+materialized Session Thread enters this same
 transaction with its already compiled prompt and correlation metadata; it no longer has a second
 optimistic reducer, authority binding path, or direct `turn/start` request in the Session launcher.
-Renderer IPC invokes the Effect command directly. Transitional internal callers borrow a stateless
-Promise adapter, while `CodexService` supplies only the preparation and projection stages; it no
-longer owns the production request, missing-Thread retry policy, command lane or cancellation
-lifetime. Renderer-owned fresh-Thread launch remains a separate application transaction because it
+Renderer IPC invokes the Effect command directly. Transitional physical ingress inside the remaining
+conversation facade consumes the same constructed command through the scoped control-plane runtime;
+there is no Turn-specific Promise adapter, staged `*ForModule` protocol, or second request
+interpreter. `CodexService` no longer owns Turn preparation, optimistic admission, missing-Thread
+recovery, authority binding, projection commit, command lane, or cancellation lifetime.
+Renderer-owned fresh-Thread launch remains a separate application transaction because it
 additionally owns reservation, adoption and first-Turn admission.
 
 Creating a Thread for a Project Session is a complete `CodexSessionThreadLaunch` transaction keyed

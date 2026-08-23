@@ -28,7 +28,8 @@ import type { CodexThreadReadState } from "./codex-application/CodexThreadReadSt
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
 import type { CodexConversationHistoryRuntime } from "./codex-application/CodexConversationHistoryRuntime";
 import type { CodexConversationResumeRuntime } from "./codex-application/CodexConversationResumeRuntime";
-import type { CodexQueuedFollowUpRuntime } from "./codex-application/CodexQueuedFollowUpRuntime";
+import type { CodexQueuedFollowUps } from "./codex-application/CodexQueuedFollowUps";
+import type { CodexQueuedFollowUpDispatcher } from "./codex-application/CodexQueuedFollowUpDispatcher";
 import type { CodexFreshThreadLaunchRuntimeService } from "./codex-application/CodexFreshThreadLaunchRuntime";
 import type { CodexStructuredThreadTitle } from "./codex-application/CodexStructuredThreadTitle";
 import type { ManagedWorktreeCatalog } from "./codex-application/ManagedWorktreeCatalog";
@@ -121,7 +122,8 @@ interface CodexIpcOptions {
   agentImport: AgentImportRuntime["Service"];
   conversationHistory: CodexConversationHistoryRuntime["Service"];
   conversationResume: CodexConversationResumeRuntime["Service"];
-  queuedFollowUps: CodexQueuedFollowUpRuntime["Service"];
+  queuedFollowUps: CodexQueuedFollowUps["Service"];
+  queuedFollowUpDispatcher: CodexQueuedFollowUpDispatcher["Service"];
   freshThreadLaunch: CodexFreshThreadLaunchRuntimeService;
   structuredThreadTitle: CodexStructuredThreadTitle["Service"];
   backgroundProcesses: CodexBackgroundProcesses["Service"];
@@ -859,7 +861,7 @@ export const codexIpcLive = (
       registerEffectHandle(
         "codex:thread:follow-up:send-now",
         (_, threadId: string, followUpId: string) =>
-          options.queuedFollowUps
+          options.queuedFollowUpDispatcher
             .sendNow(threadId, followUpId)
             .pipe(
               Effect.mapError(

@@ -12,7 +12,8 @@ import type {
   PageOccurrenceUpdateInput,
 } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
-import type { ConversationCommandsPromiseAdapter } from "../../codex-application/ConversationCommandsPromiseAdapter";
+import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
+import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import {
@@ -29,7 +30,6 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 export interface AutomationIpcOptions {
   readonly automation: DesktopAutomationModulePort;
   readonly codex: CodexService;
-  readonly conversationCommands: Pick<ConversationCommandsPromiseAdapter, "unarchive">;
   readonly rendererClients: RendererClientRuntimeService;
   readonly onHeartbeatAutomationsEnabledChanged: (
     input: CodexHeartbeatAutomationsEnabledChangedInput,
@@ -112,9 +112,15 @@ const requireUpdateOccurrence = (input: PageOccurrenceUpdateInput): void => {
 
 export const live = (
   options: AutomationIpcOptions,
-): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
+): Layer.Layer<
+  never,
+  never,
+  ConversationCommands | ElectronIpc | MainConfig | ScopedCallbackRuntime | WindowRuntime
+> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
+      const callbacks = yield* ScopedCallbackRuntime;
+      const conversationCommands = yield* ConversationCommands;
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
       const windows = yield* WindowRuntime;
@@ -194,7 +200,8 @@ export const live = (
           options.codex.runScheduledAutomationNow(input, clientId, signal),
         resolveAutomationArchiveMessages: (threadId) =>
           options.codex.resolveAutomationArchiveMessages(threadId),
-        unarchiveThread: options.conversationCommands.unarchive,
+        unarchiveThread: (threadId) =>
+          callbacks.runPromise(conversationCommands.unarchive(threadId)),
         broadcastScheduledAutomationChanged: (automationId, targetThreadId, reason) => {
           safeBroadcastToWindows(windows.all(), "codex:scheduled-automations:changed", [
             { automationId, targetThreadId, reason },

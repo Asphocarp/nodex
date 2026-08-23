@@ -1,11 +1,31 @@
 import type {
+  CodexCanonicalLiveTurnParams,
+  CodexCanonicalHydratedPermissionContext,
   CodexCanonicalConversationState,
+  CodexConversationThreadSettings,
+  CodexThreadStatusType,
   CodexCanonicalServerRequest,
   CodexConversationTurnPagination,
   CodexConversationResumeState,
   CodexConversationSnapshot,
+  CodexQueuedFollowUp,
   CodexThreadStreamCheckpoint,
 } from "../../shared/types";
+import type { CodexCanonicalSteeringUserMessageItem } from "../../shared/codex-conversation-state/codex-conversation-state";
+import type { Turn } from "@nodex/codex-app-server-protocol/v2";
+import {
+  appendCodexCanonicalOptimisticTurn,
+  bindCodexCanonicalOptimisticTurn,
+  failCodexCanonicalOptimisticTurn,
+} from "../../shared/codex-conversation-state/codex-optimistic-turn";
+import {
+  removeCodexCanonicalSteeringItem,
+  upsertCodexCanonicalSteeringItem,
+} from "../../shared/codex-conversation-state/codex-steering-state";
+import {
+  listCodexBackgroundTerminalTurnIds,
+  reduceCodexBackgroundTerminalCleanup,
+} from "../../shared/codex-conversation-state/codex-background-terminal-cleanup";
 import type {
   CodexServerRequestLifecycleResult,
   CodexServerRequestRawLifecycleResult,
@@ -116,6 +136,13 @@ interface MutableCodexConversationAggregate {
   threadStartEventBuffer: CodexBufferedConversationEvent[] | null;
   threadStartDeferred: boolean;
   threadStartReady: boolean;
+  queuedFollowUps: readonly CodexQueuedFollowUp[];
+  queuedFollowUpGeneration: number;
+}
+
+export interface CodexQueuedFollowUpClaim {
+  readonly generation: number;
+  readonly followUp: CodexQueuedFollowUp;
 }
 
 export interface CodexConversationAggregate {
@@ -203,6 +230,89 @@ export interface CodexConversationAggregate {
     },
   ) => CodexConversationServerRequestCommitResult;
   readonly completePlanImplementation: (turnId: string, projectReplica: boolean) => boolean;
+  /** Admits one optimistic Main-owned turn into canonical state and every accepted projection. */
+  readonly admitOptimisticTurn: (input: {
+    readonly params: CodexCanonicalLiveTurnParams;
+    readonly currentCollaborationModel?: string;
+    readonly startedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  /** Binds an accepted app-server Turn to its exact optimistic client message. */
+  readonly acceptOptimisticTurn: (input: {
+    readonly clientUserMessageId: string;
+    readonly turn: Turn;
+    readonly recovery?: {
+      readonly params: CodexCanonicalLiveTurnParams;
+      readonly currentCollaborationModel?: string;
+      readonly startedAtMs: number;
+    };
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  /** Converts an unaccepted optimistic Turn into its canonical failed outcome. */
+  readonly rejectOptimisticTurn: (input: {
+    readonly clientUserMessageId: string;
+    readonly failureItemId: `${string}-${string}-${string}-${string}-${string}`;
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  /** Admits a steering user message only when its exact target Turn exists. */
+  readonly admitSteeringItem: (input: {
+    readonly turnId: string;
+    readonly item: CodexCanonicalSteeringUserMessageItem;
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  /** Removes one unaccepted steering message by its exact target and correlation id. */
+  readonly rejectSteeringItem: (input: {
+    readonly turnId: string;
+    readonly itemId: string;
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  /** Returns the requested Turn when known, otherwise the latest in-progress Turn. */
+  readonly resolveInterruptTurnId: (requestedTurnId?: string) => string | null;
+  /** Commits the accepted local interrupt outcome for one exact in-progress Turn. */
+  readonly interruptTurn: (input: {
+    readonly turnId: string;
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  /** Derives the Turns which still own running background terminal rows. */
+  readonly backgroundTerminalTurnIds: () => readonly string[] | null;
+  /** Marks every running background terminal row interrupted across canonical projections. */
+  readonly cleanBackgroundTerminals: (input: {
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  readonly applyTurnConfiguration: (input: {
+    readonly settings: CodexConversationThreadSettings;
+    readonly permissions: CodexCanonicalHydratedPermissionContext;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  readonly setThreadStatus: (statusType: CodexThreadStatusType, projectReplica: boolean) => boolean;
+  readonly listQueuedFollowUps: () => readonly CodexQueuedFollowUp[];
+  readonly appendQueuedFollowUp: (
+    followUp: CodexQueuedFollowUp,
+    projectReplica: boolean,
+  ) => boolean;
+  readonly removeQueuedFollowUp: (followUpId: string, projectReplica: boolean) => boolean;
+  readonly reorderQueuedFollowUps: (
+    orderedFollowUpIds: readonly string[],
+    projectReplica: boolean,
+  ) => boolean;
+  readonly clearPausedQueuedFollowUps: (projectReplica: boolean) => boolean;
+  readonly claimQueuedFollowUp: (
+    followUpId: string | null,
+    projectReplica: boolean,
+  ) => CodexQueuedFollowUpClaim | null;
+  readonly restoreQueuedFollowUp: (
+    claim: CodexQueuedFollowUpClaim,
+    reason: string,
+    projectReplica: boolean,
+  ) => boolean;
+  readonly resetQueuedFollowUps: (projectReplica: boolean) => void;
+  readonly clearQueuedFollowUps: () => void;
   readonly readStreamRole: () => CodexConversationStreamRole;
   readonly setStreamRole: (role: CodexConversationStreamRole) => void;
   readonly acceptCanonicalState: (
@@ -267,6 +377,8 @@ const initialAggregate = (generation: number): MutableCodexConversationAggregate
   threadStartEventBuffer: null,
   threadStartDeferred: false,
   threadStartReady: false,
+  queuedFollowUps: [],
+  queuedFollowUpGeneration: 0,
 });
 
 const snapshot = (
@@ -330,6 +442,8 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
     aggregate.threadStartEventBuffer = null;
     aggregate.threadStartDeferred = false;
     aggregate.threadStartReady = false;
+    aggregate.queuedFollowUps = [];
+    aggregate.queuedFollowUpGeneration += 1;
   };
 
   const makeCapability = (
@@ -349,9 +463,69 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
       const replica = { checkpoint, conversation: input.conversation };
       aggregate.acceptedReplica = replica;
       aggregate.snapshot = input.conversation;
+      aggregate.queuedFollowUps = [...input.conversation.queuedFollowUps];
       aggregate.revision = input.revision;
       aggregate.checkpoint = checkpoint;
       return replica;
+    };
+
+    const projectCanonicalState = (
+      state: CodexCanonicalConversationState,
+      observedAtMs: number,
+      projectReplica: boolean,
+    ): boolean => {
+      const before = aggregate.canonicalState;
+      if (!before || state === before) return false;
+      aggregate.canonicalState = state;
+      if (aggregate.snapshot) {
+        aggregate.snapshot = projectCodexConversationSnapshot({
+          conversation: aggregate.snapshot,
+          before,
+          after: state,
+          observedAtMs,
+        });
+      }
+      if (projectReplica && aggregate.acceptedReplica) {
+        acceptReplica({
+          conversation: projectCodexConversationSnapshot({
+            conversation: aggregate.acceptedReplica.conversation,
+            before,
+            after: state,
+            observedAtMs,
+          }),
+          ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+          revision: aggregate.revision + 1,
+        });
+      }
+      return true;
+    };
+
+    const projectQueuedFollowUps = (
+      entries: readonly CodexQueuedFollowUp[],
+      projectReplica: boolean,
+    ): boolean => {
+      const previous = aggregate.queuedFollowUps;
+      if (
+        previous.length === entries.length &&
+        previous.every((entry, index) => entry === entries[index])
+      ) {
+        return false;
+      }
+      aggregate.queuedFollowUps = [...entries];
+      if (aggregate.snapshot) {
+        aggregate.snapshot = { ...aggregate.snapshot, queuedFollowUps: [...entries] };
+      }
+      if (projectReplica && aggregate.acceptedReplica) {
+        acceptReplica({
+          conversation: {
+            ...aggregate.acceptedReplica.conversation,
+            queuedFollowUps: [...entries],
+          },
+          ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+          revision: aggregate.revision + 1,
+        });
+      }
+      return true;
     };
 
     return {
@@ -365,7 +539,13 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
         aggregate.canonicalState?.sidecar.hasUnreadTurn ?? aggregate.preHydrationHasUnreadTurn,
       readSnapshot: () => aggregate.snapshot,
       installSnapshot: (conversation) => {
-        aggregate.snapshot = conversation;
+        if (aggregate.queuedFollowUpGeneration === 0 && aggregate.queuedFollowUps.length === 0) {
+          aggregate.queuedFollowUps = [...conversation.queuedFollowUps];
+        }
+        aggregate.snapshot = {
+          ...conversation,
+          queuedFollowUps: [...aggregate.queuedFollowUps],
+        };
       },
       seedHasUnreadTurn: (hasUnreadTurn) => {
         if (aggregate.canonicalState) return;
@@ -827,6 +1007,278 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           });
         }
         return true;
+      },
+      admitOptimisticTurn: ({ params, currentCollaborationModel, startedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        const after = appendCodexCanonicalOptimisticTurn(before, {
+          params,
+          ...(currentCollaborationModel ? { currentCollaborationModel } : {}),
+          startedAtMs,
+        });
+        const changed = projectCanonicalState(after, startedAtMs, projectReplica);
+        if (changed) aggregate.isStreaming = true;
+        return changed;
+      },
+      acceptOptimisticTurn: ({
+        clientUserMessageId,
+        turn,
+        recovery,
+        observedAtMs,
+        projectReplica,
+      }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        if (before.turns.some((candidate) => candidate.protocol.id === turn.id)) return true;
+        const hasOptimisticTurn = before.turns.some(
+          (candidate) => candidate.sidecar.params.clientUserMessageId === clientUserMessageId,
+        );
+        const admitted =
+          !hasOptimisticTurn && recovery
+            ? appendCodexCanonicalOptimisticTurn(before, {
+                params: recovery.params,
+                ...(recovery.currentCollaborationModel
+                  ? { currentCollaborationModel: recovery.currentCollaborationModel }
+                  : {}),
+                startedAtMs: recovery.startedAtMs,
+              })
+            : before;
+        const accepted = bindCodexCanonicalOptimisticTurn(admitted, clientUserMessageId, turn);
+        if (!accepted.turns.some((candidate) => candidate.protocol.id === turn.id)) return false;
+        projectCanonicalState(accepted, observedAtMs, projectReplica);
+        return true;
+      },
+      rejectOptimisticTurn: ({
+        clientUserMessageId,
+        failureItemId,
+        observedAtMs,
+        projectReplica,
+      }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        return projectCanonicalState(
+          failCodexCanonicalOptimisticTurn(before, clientUserMessageId, failureItemId),
+          observedAtMs,
+          projectReplica,
+        );
+      },
+      admitSteeringItem: ({ turnId, item, observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        return projectCanonicalState(
+          upsertCodexCanonicalSteeringItem(before, turnId, item),
+          observedAtMs,
+          projectReplica,
+        );
+      },
+      rejectSteeringItem: ({ turnId, itemId, observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        return projectCanonicalState(
+          removeCodexCanonicalSteeringItem(before, turnId, itemId),
+          observedAtMs,
+          projectReplica,
+        );
+      },
+      resolveInterruptTurnId: (requestedTurnId) => {
+        const turns = aggregate.canonicalState?.turns ?? [];
+        if (requestedTurnId && turns.some((turn) => turn.protocol.id === requestedTurnId)) {
+          return requestedTurnId;
+        }
+        return (
+          turns.findLast(
+            (turn) => turn.protocol.status === "inProgress" && turn.protocol.id !== null,
+          )?.protocol.id ?? null
+        );
+      },
+      interruptTurn: ({ turnId, observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        const turnIndex = before.turns.findIndex((turn) => turn.protocol.id === turnId);
+        const turn = before.turns[turnIndex];
+        if (!turn || turn.protocol.status !== "inProgress") return false;
+        const interruptedCommandExecutionItemIds = [
+          ...new Set([
+            ...(turn.sidecar.interruptedCommandExecutionItemIds ?? []),
+            ...turn.items.flatMap((item) =>
+              item.type === "commandExecution" && item.status === "inProgress" ? [item.id] : [],
+            ),
+          ]),
+        ];
+        const turns = [...before.turns];
+        turns[turnIndex] = {
+          ...turn,
+          protocol: { ...turn.protocol, status: "interrupted" },
+          sidecar: { ...turn.sidecar, interruptedCommandExecutionItemIds },
+        };
+        return projectCanonicalState({ ...before, turns }, observedAtMs, projectReplica);
+      },
+      backgroundTerminalTurnIds: () => {
+        const conversation = aggregate.canonicalState;
+        if (!conversation) return null;
+        return listCodexBackgroundTerminalTurnIds(conversation);
+      },
+      cleanBackgroundTerminals: ({ observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        return projectCanonicalState(
+          reduceCodexBackgroundTerminalCleanup(before),
+          observedAtMs,
+          projectReplica,
+        );
+      },
+      applyTurnConfiguration: ({ settings, permissions, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        const hydration = before?.sidecar.hydrationContext;
+        if (!before || !hydration) return false;
+        const canonical = {
+          ...before,
+          sidecar: {
+            ...before.sidecar,
+            hydrationContext: {
+              ...hydration,
+              latestModel: settings.model ?? hydration.latestModel,
+              latestReasoningEffort: settings.reasoningEffort,
+              latestThreadSettings: {
+                ...(hydration.latestThreadSettings ?? {}),
+                model: settings.model ?? hydration.latestModel,
+                serviceTier: settings.serviceTier ?? null,
+                effort: settings.reasoningEffort,
+                summary: settings.summary ?? null,
+                personality: settings.personality,
+                collaborationMode: settings.collaborationMode,
+              },
+              currentPermissions: permissions,
+            },
+          },
+        };
+        aggregate.canonicalState = canonical;
+        const project = (conversation: CodexConversationSnapshot): CodexConversationSnapshot => ({
+          ...conversation,
+          latestCollaborationMode: settings.collaborationMode ?? undefined,
+          latestThreadSettings: settings,
+          approvalPolicy: permissions.approvalPolicy,
+          approvalsReviewer: permissions.approvalsReviewer,
+          sandbox: permissions.sandboxPolicy,
+          canonicalState: canonical,
+        });
+        if (aggregate.snapshot) aggregate.snapshot = project(aggregate.snapshot);
+        if (projectReplica && aggregate.acceptedReplica) {
+          acceptReplica({
+            conversation: project(aggregate.acceptedReplica.conversation),
+            ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+            revision: aggregate.revision + 1,
+          });
+        }
+        return true;
+      },
+      setThreadStatus: (statusType, projectReplica) => {
+        const beforeStatus = aggregate.canonicalState?.protocol.status.type ?? null;
+        if (aggregate.canonicalState && beforeStatus !== statusType) {
+          aggregate.canonicalState = {
+            ...aggregate.canonicalState,
+            protocol: {
+              ...aggregate.canonicalState.protocol,
+              status: { type: statusType, activeFlags: [] },
+            },
+          };
+        }
+        const snapshotChanged = aggregate.snapshot?.statusType !== statusType;
+        if (aggregate.snapshot && snapshotChanged) {
+          aggregate.snapshot = {
+            ...aggregate.snapshot,
+            statusType,
+            statusActiveFlags: [],
+            canonicalState: aggregate.canonicalState,
+          };
+        }
+        const replicaChanged = aggregate.acceptedReplica?.conversation.statusType !== statusType;
+        if (projectReplica && aggregate.acceptedReplica && replicaChanged) {
+          acceptReplica({
+            conversation: {
+              ...aggregate.acceptedReplica.conversation,
+              statusType,
+              statusActiveFlags: [],
+              canonicalState: aggregate.canonicalState,
+            },
+            ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+            revision: aggregate.revision + 1,
+          });
+        }
+        return beforeStatus !== statusType || snapshotChanged || (projectReplica && replicaChanged);
+      },
+      listQueuedFollowUps: () => [...aggregate.queuedFollowUps],
+      appendQueuedFollowUp: (followUp, projectReplica) =>
+        projectQueuedFollowUps(
+          [
+            ...aggregate.queuedFollowUps.filter(
+              (entry) => entry.followUpId !== followUp.followUpId,
+            ),
+            followUp,
+          ],
+          projectReplica,
+        ),
+      removeQueuedFollowUp: (followUpId, projectReplica) =>
+        projectQueuedFollowUps(
+          aggregate.queuedFollowUps.filter((entry) => entry.followUpId !== followUpId),
+          projectReplica,
+        ),
+      reorderQueuedFollowUps: (orderedFollowUpIds, projectReplica) => {
+        if (aggregate.queuedFollowUps.length <= 1) return false;
+        const byId = new Map(
+          aggregate.queuedFollowUps.map((entry) => [entry.followUpId, entry] as const),
+        );
+        const seen = new Set<string>();
+        const ordered: CodexQueuedFollowUp[] = [];
+        for (const rawId of orderedFollowUpIds) {
+          const followUpId = rawId.trim();
+          const entry = byId.get(followUpId);
+          if (!entry || seen.has(followUpId)) continue;
+          seen.add(followUpId);
+          ordered.push(entry);
+        }
+        return projectQueuedFollowUps(
+          [...ordered, ...aggregate.queuedFollowUps.filter((entry) => !seen.has(entry.followUpId))],
+          projectReplica,
+        );
+      },
+      clearPausedQueuedFollowUps: (projectReplica) =>
+        projectQueuedFollowUps(
+          aggregate.queuedFollowUps.map((entry) =>
+            entry.pausedReason ? { ...entry, pausedReason: null } : entry,
+          ),
+          projectReplica,
+        ),
+      claimQueuedFollowUp: (followUpId, projectReplica) => {
+        const index = followUpId
+          ? aggregate.queuedFollowUps.findIndex((entry) => entry.followUpId === followUpId)
+          : 0;
+        const followUp = aggregate.queuedFollowUps[index];
+        if (!followUp) return null;
+        projectQueuedFollowUps(
+          aggregate.queuedFollowUps.filter((_, entryIndex) => entryIndex !== index),
+          projectReplica,
+        );
+        return { generation: aggregate.queuedFollowUpGeneration, followUp };
+      },
+      restoreQueuedFollowUp: (claim, reason, projectReplica) => {
+        if (claim.generation !== aggregate.queuedFollowUpGeneration) return false;
+        return projectQueuedFollowUps(
+          [
+            { ...claim.followUp, pausedReason: reason },
+            ...aggregate.queuedFollowUps.filter(
+              (entry) => entry.followUpId !== claim.followUp.followUpId,
+            ),
+          ],
+          projectReplica,
+        );
+      },
+      resetQueuedFollowUps: (projectReplica) => {
+        projectQueuedFollowUps([], projectReplica);
+      },
+      clearQueuedFollowUps: () => {
+        aggregate.queuedFollowUpGeneration += 1;
+        aggregate.queuedFollowUps = [];
       },
       readStreamRole: () => aggregate.streamRole,
       setStreamRole: (role) => {

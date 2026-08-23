@@ -4,6 +4,8 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
+import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
+import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopAutomationModulePort } from "../../core-client/desktop-automation-module-bridge";
@@ -29,17 +31,27 @@ it.effect("owns calendar and scheduled automation ingress with the Main Scope", 
       live({
         automation: {} as DesktopAutomationModulePort,
         codex: {} as CodexService,
-        conversationCommands: {
-          unarchive: () => Promise.reject(new Error("unused")),
-        },
         rendererClients: {} as RendererClientRuntimeService,
         onHeartbeatAutomationsEnabledChanged: () => undefined,
         onHeartbeatAutomationThreadStateChanged: () => undefined,
       }).pipe(
         Layer.provide(
           Layer.mergeAll(
+            Layer.succeed(
+              ConversationCommands,
+              ConversationCommands.of({
+                unarchive: () => Effect.die("unused"),
+              } as unknown as ConversationCommands["Service"]),
+            ),
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
+            Layer.succeed(
+              ScopedCallbackRuntime,
+              ScopedCallbackRuntime.of({
+                fork: Effect.runFork,
+                runPromise: Effect.runPromise,
+              }),
+            ),
             Layer.succeed(WindowRuntime, {
               has: () => true,
               all: () => [],

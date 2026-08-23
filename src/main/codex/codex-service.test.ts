@@ -151,11 +151,13 @@ import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHo
 import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
 import { normalizeCodexThreadGoalSetAction } from "../codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
-import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
+import type { ConversationCommands } from "../codex-application/ConversationCommands";
+import type { CodexQueuedFollowUpDispatcher } from "../codex-application/CodexQueuedFollowUpDispatcher";
+import { CodexQueuedFollowUps } from "../codex-application/CodexQueuedFollowUps";
+import type { CodexTurnCommandsService } from "../codex-application/CodexTurnCommands";
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
 import { CodexPendingWorktreeRuntime } from "./codex-pending-worktree-runtime.test-support";
-import { makeCodexTurnCommandsTestAdapter } from "./codex-turn-commands.test-support";
 import {
   makeCodexConversationAggregateRegistry,
   type CodexConversationAggregate,
@@ -266,12 +268,6 @@ interface TestableCodexService {
   steerTurn: (input: CodexSteerTurnInput) => Promise<{ turnId: string } | null>;
   prepareSessionThreadLaunchForModule: CodexService["prepareSessionThreadLaunchForModule"];
   failSessionThreadLaunchForModule: CodexService["failSessionThreadLaunchForModule"];
-  prepareTurnInterruptForModule: (threadId: string, turnId?: string) => Promise<string>;
-  applyTurnInterruptForModule: (input: {
-    threadId: string;
-    turnId: string;
-    syncDormantConversationUpdates: boolean;
-  }) => Promise<boolean>;
   materializeSubagentThreadReadForModule: CodexService["materializeSubagentThreadReadForModule"];
   shouldRetrySubagentReadWithoutTurnsForModule: CodexService["shouldRetrySubagentReadWithoutTurnsForModule"];
   readSubagentWorkspaceThreadForModule: CodexService["readSubagentWorkspaceThreadForModule"];
@@ -1687,40 +1683,26 @@ function createService(options?: {
   });
   const threadSettingsRuntime = new TestCodexThreadSettingsRuntime();
   const conversationCommands = {
-    archive: async (threadId: string) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      const client = Reflect.get(service, "client") as {
-        request: (method: string, params: unknown) => Promise<unknown>;
-      };
-      await client.request("thread/archive", { threadId });
-      return await service.applyThreadArchiveProjection(threadId);
-    },
-    unarchive: async (threadId: string) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      const client = Reflect.get(service, "client") as {
-        request: (method: string, params: unknown) => Promise<unknown>;
-      };
-      await client.request("thread/unarchive", { threadId });
-      return await service.applyThreadUnarchiveProjection(threadId);
-    },
-    interrupt: async (
-      threadId: string,
-      turnId?: string,
-      interruptOptions?: { readonly syncDormantConversationUpdates?: boolean },
-    ) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      const resolvedTurnId = await service.prepareTurnInterruptForModule(threadId, turnId);
-      const client = Reflect.get(service, "client") as {
-        request: (method: string, params: unknown) => Promise<unknown>;
-      };
-      await client.request("turn/interrupt", { threadId, turnId: resolvedTurnId });
-      return await service.applyTurnInterruptForModule({
-        threadId,
-        turnId: resolvedTurnId,
-        syncDormantConversationUpdates: interruptOptions?.syncDormantConversationUpdates ?? true,
-      });
-    },
-  };
+    archive: (threadId: string) =>
+      Effect.tryPromise(async () => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        const client = Reflect.get(service, "client") as {
+          request: (method: string, params: unknown) => Promise<unknown>;
+        };
+        await client.request("thread/archive", { threadId });
+        return await service.applyThreadArchiveProjection(threadId);
+      }),
+    unarchive: (threadId: string) =>
+      Effect.tryPromise(async () => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        const client = Reflect.get(service, "client") as {
+          request: (method: string, params: unknown) => Promise<unknown>;
+        };
+        await client.request("thread/unarchive", { threadId });
+        return await service.applyThreadUnarchiveProjection(threadId);
+      }),
+    interrupt: () => Effect.die("Interrupt semantics are exercised by ConversationCommands"),
+  } as unknown as ConversationCommands["Service"];
   const threadTitlePersistence = new TestCodexThreadTitlePersistence({
     project: ({ threadId, name, syncDormantConversationUpdates }) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -1783,13 +1765,22 @@ function createService(options?: {
       fullFidelitySubagentThreadIds.delete(threadId);
     },
   });
-  const queuedFollowUps = {
+  const queuedFollowUps = CodexQueuedFollowUps.of({
     list: () => [],
-    enqueue: async () => "test-follow-up",
-    request: () => undefined,
-    clearPaused: () => false,
-    reset: () => undefined,
-    clear: () => undefined,
+    enqueue: () => Effect.succeed("test-follow-up"),
+    remove: () => Effect.succeed(false),
+    reorder: () => Effect.void,
+    clearPaused: () => Effect.succeed(false),
+    reset: () => Effect.void,
+    clear: () => Effect.void,
+    requestDispatch: () => Effect.void,
+    takeDispatchIntent: Effect.never,
+    claim: () => Effect.succeed(null),
+    restore: () => Effect.succeed(false),
+  });
+  const queuedFollowUpDispatcher: CodexQueuedFollowUpDispatcher["Service"] = {
+    sendNow: () => Effect.die("unused"),
+    cancel: () => Effect.void,
   };
   const conversationDeltaBuffer = CodexConversationDeltaBufferRuntime.of({
     enqueueFrameText: (update) => {
@@ -2003,42 +1994,14 @@ function createService(options?: {
     },
   });
   const testClient = new TestCodexGatewayPromiseClient();
-  const turnCommandsAdapter = makeCodexTurnCommandsTestAdapter({
-    client: testClient,
-    projectLifecycle: projectRuntimeLifecycleHarness.adapter,
-    projection: {
-      prepareStart: (input) => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        return service.prepareTurnStartForModule(input);
-      },
-      beginStart: (prepared) => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        return service.beginTurnStartForModule(prepared);
-      },
-      recoverStart: (prepared, signal) => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        return service.recoverTurnStartForModule(prepared, signal);
-      },
-      commitStart: (prepared, response) => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        return service.commitTurnStartForModule(prepared, response);
-      },
-      rollbackStart: (prepared) => service?.rollbackTurnStartForModule(prepared),
-      prepareSteer: (input) => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        return service.prepareTurnSteerForModule(input);
-      },
-      beginSteer: (prepared) => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        service.beginTurnSteerForModule(prepared);
-      },
-      commitSteer: (prepared, response) => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        return service.commitTurnSteerForModule(prepared, response);
-      },
-      rollbackSteer: (prepared) => service?.rollbackTurnSteerForModule(prepared),
-    },
-  });
+  const turnCommands: CodexTurnCommandsService = {
+    start: () => Effect.die("Turn commands are exercised by final semantic service tests"),
+    startRendererOwned: () =>
+      Effect.die("Renderer-owned Turn commands are unavailable in the CodexService fixture"),
+    steer: () => Effect.die("Turn commands are exercised by final semantic service tests"),
+    steerRendererOwned: () =>
+      Effect.die("Renderer-owned Turn commands are unavailable in the CodexService fixture"),
+  };
   const testService = new CodexService({
     conversationRuntimes,
     applicationEvents,
@@ -2109,7 +2072,11 @@ function createService(options?: {
     },
     attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },
     pendingServerRequests,
-    turnCommands: turnCommandsAdapter,
+    controlPlane: {
+      fork: Effect.runFork,
+      runPromise: Effect.runPromise,
+    },
+    turnCommands,
     userInputAutoResolution: {
       observeRequest: (conversationId, requestId) =>
         autoResolution.observeRequest(conversationId, requestId),
@@ -2187,6 +2154,7 @@ function createService(options?: {
     backgroundSubagentMetadataRepair,
     subagentCatalog,
     queuedFollowUps,
+    queuedFollowUpDispatcher,
     conversationDeltaBuffer,
     conversationResume,
     conversationEventBuffer,
@@ -2616,17 +2584,6 @@ function createService(options?: {
     syncCanonicalFixture(threadId);
     return upsertPlanImplementationRequest(threadId, turnId, planContent, itemCreatedAt);
   };
-  const steerService = testService as unknown as {
-    steerTurn: (
-      input: CodexSteerTurnInput,
-      options?: { syncDormantConversationUpdates?: boolean },
-    ) => Promise<{ turnId: string } | null>;
-  };
-  const steerTurn = steerService.steerTurn.bind(testService);
-  steerService.steerTurn = async (input, steerOptions) => {
-    syncCanonicalFixture(input.threadId);
-    return await steerTurn(input, steerOptions);
-  };
   return testService;
 }
 
@@ -2638,16 +2595,6 @@ const updateThreadSettingsForTest = (
   (
     Reflect.get(service as object, "threadSettingsRuntime") as TestCodexThreadSettingsRuntime
   ).update({ threadId, patch });
-
-const interruptTurnForTest = (
-  service: TestableCodexService,
-  threadId: string,
-  turnId?: string,
-  options?: { readonly syncDormantConversationUpdates?: boolean },
-): Promise<boolean> =>
-  (
-    Reflect.get(service as object, "conversationCommands") as ConversationCommandsPromiseAdapter
-  ).interrupt(threadId, turnId, options);
 
 const conversationResumeForTest = (
   service: TestableCodexService,
@@ -3985,16 +3932,6 @@ function getRecordedItem(
     if (item.itemId === itemId) return item;
   }
   return null;
-}
-
-function installTestPermissionState(
-  service: unknown,
-  projectId: string | null,
-  state: CodexPermissionState,
-): void {
-  const stateByProject = permissionStateByTestService.get(service as object);
-  if (!stateByProject) throw new Error("Codex permission fixture was not installed");
-  stateByProject.set(projectId, state);
 }
 
 function initializeGitRepository(repoPath: string): void {
@@ -5667,139 +5604,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 });
 
 describe("codex-service interrupt target resolution", () => {
-  test("interrupts the latest in-progress turn when turnId is omitted", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-      syncThreadStatusFromKnownTurns: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      return {};
-    };
-    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-
-    serviceInternals.mergeTurn("thr_interrupt", {
-      threadId: "thr_interrupt",
-      turnId: "turn_completed",
-      status: "completed",
-      itemIds: [],
-    });
-    serviceInternals.mergeTurn("thr_interrupt", {
-      threadId: "thr_interrupt",
-      turnId: "turn_in_progress",
-      status: "inProgress",
-      itemIds: [],
-    });
-
-    try {
-      const result = await interruptTurnForTest(service, "thr_interrupt");
-      const interruptRequest = requests.find((request) => request.method === "turn/interrupt");
-      expect(result).toBe(true);
-      expect(requests.length >= 1).toBe(true);
-      expect(Boolean(interruptRequest)).toBe(true);
-      expect((interruptRequest?.params as { threadId?: string })?.threadId).toBe("thr_interrupt");
-      expect((interruptRequest?.params as { turnId?: string })?.turnId).toBe("turn_in_progress");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("pauses an active thread goal before interrupting the no-owner fallback turn", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-      getConversationRecord: (threadId: string) => {
-        threadGoal: ThreadGoal | null;
-        completedThreadGoal: ThreadGoal | null;
-        threadGoalResumeConfirmation: ThreadGoal | null;
-      };
-      syncThreadStatusFromKnownTurns: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "thread/goal/set") {
-        const goalParams = params as ThreadGoalSetParams;
-        return {
-          goal: {
-            threadId: goalParams.threadId,
-            objective: "finish the migration",
-            status: goalParams.status ?? "active",
-            tokenBudget: goalParams.tokenBudget ?? null,
-            tokensUsed: 12,
-            timeUsedSeconds: 34,
-            createdAt: 1,
-            updatedAt: 2,
-          } satisfies ThreadGoal,
-        };
-      }
-      return {};
-    };
-    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-
-    serviceInternals.mergeTurn("thr_goal_interrupt", {
-      threadId: "thr_goal_interrupt",
-      turnId: "turn_in_progress",
-      status: "inProgress",
-      itemIds: [],
-    });
-    const record = serviceInternals.getConversationRecord("thr_goal_interrupt");
-    record.threadGoal = {
-      threadId: "thr_goal_interrupt",
-      objective: "finish the migration",
-      status: "active",
-      tokenBudget: null,
-      tokensUsed: 12,
-      timeUsedSeconds: 34,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-    record.threadGoalResumeConfirmation = {
-      threadId: "thr_goal_interrupt",
-      objective: "stale prompt",
-      status: "paused",
-      tokenBudget: null,
-      tokensUsed: 0,
-      timeUsedSeconds: 0,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    try {
-      const result = await interruptTurnForTest(service, "thr_goal_interrupt");
-      const snapshot = service.serializeConversationSnapshot("thr_goal_interrupt");
-
-      expect(result).toBe(true);
-      expect(requests[0]?.method).toBe("thread/goal/set");
-      expect((requests[0]?.params as { threadId?: string })?.threadId).toBe("thr_goal_interrupt");
-      expect((requests[0]?.params as { status?: string })?.status).toBe("paused");
-      expect(requests[1]?.method).toBe("turn/interrupt");
-      expect((requests[1]?.params as { turnId?: string })?.turnId).toBe("turn_in_progress");
-      expect(snapshot?.threadGoal?.status).toBe("paused");
-      expect(snapshot?.threadGoalResumeConfirmation ?? null).toBe(null);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test("continues active thread goal after idle status in no-owner fallback", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -6060,803 +5864,13 @@ describe("codex-service interrupt target resolution", () => {
       await service.shutdown();
     }
   });
-
-  test("prefers explicit turnId over inferred turn cache", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-      syncThreadStatusFromKnownTurns: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      return {};
-    };
-    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-
-    serviceInternals.mergeTurn("thr_explicit", {
-      threadId: "thr_explicit",
-      turnId: "turn_cached",
-      status: "inProgress",
-      itemIds: [],
-    });
-
-    try {
-      const result = await interruptTurnForTest(service, "thr_explicit", "turn_explicit");
-      expect(result).toBe(true);
-      expect(requests.length >= 1).toBe(true);
-      expect(requests[0]?.method).toBe("turn/interrupt");
-      expect((requests[0]?.params as { threadId?: string })?.threadId).toBe("thr_explicit");
-      expect((requests[0]?.params as { turnId?: string })?.turnId).toBe("turn_explicit");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("throws when no interrupt target can be resolved", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-
-    client.start = async () => undefined;
-    client.request = async () => ({});
-    service.readThread = async () => null;
-
-    try {
-      let failed = false;
-      let message = "";
-      try {
-        await interruptTurnForTest(service, "thr_missing");
-      } catch (error) {
-        failed = true;
-        message = error instanceof Error ? error.message : String(error);
-      }
-
-      expect(failed).toBe(true);
-      expect(message).toBe("Could not determine which turn to interrupt");
-    } finally {
-      await service.shutdown();
-    }
-  });
 });
 
-describe("codex-service steerTurn", () => {
-  test("removes the optimistic steering item when the protocol request fails", async () => {
-    const service = createService();
-    const threadId = "thr_steer_failure";
-    const turnId = "turn_steer_failure";
-    const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (
-        input: ThreadResumeResponse,
-      ) => CodexCanonicalConversationState;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string) => Promise<unknown>;
-    };
-    const activeTurn: Turn = {
-      ...makeCanonicalHydrationTurn(turnId),
-      status: "inProgress",
-      completedAt: null,
-      durationMs: null,
-    };
-    serviceInternals.hydrateCanonicalConversationState(
-      makeCanonicalResumeResponse({
-        threadId,
-        threadTurns: [activeTurn],
-        initialTurnsPage: { data: [activeTurn], nextCursor: null, backwardsCursor: null },
-      }),
-    );
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      if (method === "turn/steer") throw new Error("steer transport failed");
-      throw new Error(`Unexpected method: ${method}`);
-    };
+describe("codex-service steerTurn", () => {});
 
-    try {
-      await expect(
-        service.steerTurn({ threadId, expectedTurnId: turnId, prompt: "change course" }),
-      ).rejects.toThrow("steer transport failed");
-      const canonical = getCanonicalConversationState(service, threadId);
-      expect(canonical?.turns[0]?.items.some((item) => item.type === "steeringUserMessage")).toBe(
-        false,
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
-
-describe("codex-service startTurn", () => {
-  test("keeps an accepted canonical turn when a post-commit projection fails", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => Promise<void>;
-      hydrateCanonicalConversationState: (
-        input: ThreadResumeResponse,
-      ) => CodexCanonicalConversationState;
-      markAutomationRunAcceptedForUserContinuation: (threadId: string) => Promise<void>;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = async () => undefined;
-    serviceInternals.hydrateCanonicalConversationState(
-      makeCanonicalResumeResponse({
-        threadId: "thr_post_commit_failure",
-        initialTurnsPage: { data: [], nextCursor: null, backwardsCursor: null },
-      }),
-    );
-    serviceInternals.markAutomationRunAcceptedForUserContinuation = async () => {
-      throw new Error("post-commit projection failed");
-    };
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      if (method !== "turn/start") throw new Error(`Unexpected method: ${method}`);
-      return {
-        turn: {
-          id: "turn_accepted",
-          items: [],
-          itemsView: "full",
-          status: "inProgress",
-          error: null,
-          startedAt: 1,
-          completedAt: null,
-          durationMs: null,
-        },
-      };
-    };
-
-    try {
-      await expect(
-        service.startTurn("thr_post_commit_failure", "Keep the accepted turn"),
-      ).rejects.toThrow("post-commit projection failed");
-      const canonical = getCanonicalConversationState(service, "thr_post_commit_failure");
-      expect(canonical?.turns).toHaveLength(1);
-      expect(canonical?.turns[0]?.protocol.id).toBe("turn_accepted");
-      expect(canonical?.turns[0]?.protocol.status).toBe("inProgress");
-      expect(canonical?.turns[0]?.protocol.error).toBeNull();
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("returns the immediate started turn payload without waiting for thread/read", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const markedActive: string[] = [];
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = (threadId: string) => {
-      markedActive.push(threadId);
-    };
-    serviceInternals.persistThreadSnapshot = () => {};
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "turn/start") {
-        return {
-          turn: {
-            id: "turn_new",
-            status: "in_progress",
-            transcript: [],
-          },
-        };
-      }
-      if (method === "thread/read") {
-        throw new Error("thread/read should not be called when turn/start returns a turn");
-      }
-      return {};
-    };
-
-    try {
-      const startedTurn = await service.startTurn("thr_start", "Ship the fix");
-      expect(startedTurn?.turnId).toBe("turn_new");
-      expect(startedTurn?.status).toBe("inProgress");
-      expect(typeof startedTurn?.turnStartedAtMs).toBe("number");
-      expect((startedTurn?.turnStartedAtMs ?? 0) > 0).toBe(true);
-      const turnStartRequests = requests.filter((request) => request.method === "turn/start");
-      expect(turnStartRequests.length).toBe(1);
-      expect(turnStartRequests[0]?.method).toBe("turn/start");
-      expect((turnStartRequests[0]?.params as { summary?: unknown })?.summary).toBe("detailed");
-      expect(markedActive.length).toBe(1);
-      expect(markedActive[0]).toBe("thr_start");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("forwards an explicit fast service tier to turn/start", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "turn/start") {
-        return {
-          turn: {
-            id: "turn_fast",
-            status: "in_progress",
-            transcript: [],
-          },
-        };
-      }
-      throw new Error(`Unexpected method: ${method}`);
-    };
-
-    try {
-      await service.startTurn("thr_fast", "Ship it faster", {
-        serviceTier: "fast",
-        summary: "none",
-      });
-
-      const turnStartRequest = requests.find((request) => request.method === "turn/start");
-      expect(turnStartRequest).toBeDefined();
-      expect((turnStartRequest?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
-      expect((turnStartRequest?.params as { summary?: unknown })?.summary).toBe("none");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("starts a follow-up for projectless thread metadata without forcing a workspace cwd", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (
-        threadId: string,
-      ) => { projectId: string | null | null; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    serviceInternals.parseThreadRef = () => ({ projectId: null, cwd: null });
-    serviceInternals.markThreadAsActive = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "turn/start") {
-        return {
-          turn: {
-            id: "turn_projectless",
-            status: "in_progress",
-            transcript: [],
-          },
-        };
-      }
-      throw new Error(`Unexpected method: ${method}`);
-    };
-
-    try {
-      const turn = await service.startTurn("thr_projectless", "Continue without project");
-      expect(turn?.turnId).toBe("turn_projectless");
-      const turnStartRequest = requests.find((request) => request.method === "turn/start");
-      expect(turnStartRequest).toBeDefined();
-      expect(JSON.stringify(turnStartRequest?.params).includes('"cwd"')).toBe(false);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("applies the selected projectless permission scope to the next turn", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string | null; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    installTestPermissionState(service, null, {
-      mode: "full-access",
-      effectivePreset: "full-access",
-      availableModes: ["auto", "full-access", "custom"],
-      approvalPolicy: "never",
-      approvalsReviewer: "user",
-      sandboxMode: "danger-full-access",
-      sandbox: { type: "dangerFullAccess" },
-      autoReviewAvailable: true,
-      configTarget: { source: "none", filePath: null },
-      customDescription: null,
-    });
-
-    serviceInternals.parseThreadRef = () => ({
-      projectId: null,
-      cwd: "/workspace/projectless",
-    });
-    serviceInternals.markThreadAsActive = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "turn/start") {
-        return {
-          turn: {
-            id: "turn_projectless_full_access",
-            status: "in_progress",
-            transcript: [],
-          },
-        };
-      }
-      throw new Error(`Unexpected app-server request: ${method}`);
-    };
-
-    try {
-      const startedTurn = await service.startTurn("thread-projectless", "Use the selected mode");
-      expect(startedTurn?.turnId).toBe("turn_projectless_full_access");
-      const turnStartRequest = requests.find((request) => request.method === "turn/start");
-      expect(turnStartRequest?.params).toMatchObject({
-        approvalPolicy: "never",
-        sandboxPolicy: { type: "dangerFullAccess" },
-      });
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("omits serviceTier from turn/start when standard is requested explicitly", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "turn/start") {
-        return {
-          turn: {
-            id: "turn_standard",
-            status: "in_progress",
-            transcript: [],
-          },
-        };
-      }
-      throw new Error(`Unexpected method: ${method}`);
-    };
-
-    try {
-      await service.startTurn("thr_standard", "Use the default tier", { serviceTier: null });
-
-      const turnStartRequest = requests.find((request) => request.method === "turn/start");
-      const params = (turnStartRequest?.params as Record<string, unknown>) ?? {};
-      expect(turnStartRequest).toBeDefined();
-      expect(Object.prototype.hasOwnProperty.call(params, "serviceTier")).toBe(false);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("restores the params-owned turn when turn/start recovery rehydrates the thread", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      upsertLinkFromThread: () => null;
-      buildThreadDetailFromCanonicalState: () => CodexThreadDetail;
-      persistThreadDetailSummary: (detail: CodexThreadDetail) => void;
-      handleNotification: (
-        notification: CodexTestServerNotification,
-        options?: { bypassResumeBuffer?: boolean },
-      ) => Promise<void>;
-      hasResumeNotificationBuffer: (id: string) => boolean;
-      hydrateCanonicalConversationState: (
-        input: ThreadResumeResponse,
-      ) => CodexCanonicalConversationState;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-      emit: (eventName: string, payload: unknown) => boolean;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const resumeOrder: string[] = [];
-    let turnStartAttempts = 0;
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = () => {};
-    serviceInternals.upsertLinkFromThread = () => null;
-    serviceInternals.buildThreadDetailFromCanonicalState = () => ({
-      ...makeThreadDetail("thr_start"),
-      cwd: "/workspace/project",
-    });
-    serviceInternals.persistThreadDetailSummary = () => {};
-    serviceInternals.hydrateCanonicalConversationState(
-      makeCanonicalResumeResponse({
-        threadId: "thr_start",
-        initialTurnsPage: {
-          data: [],
-          nextCursor: null,
-          backwardsCursor: null,
-        },
-      }),
-    );
-    const originalHandleNotification = serviceInternals.handleNotification.bind(service);
-    serviceInternals.handleNotification = async (notification, options) => {
-      if (
-        notification.method === "item/agentMessage/delta" &&
-        !serviceInternals.hasResumeNotificationBuffer("thr_start")
-      ) {
-        const canonical = getCanonicalConversationState(service, "thr_start");
-        resumeOrder.push(canonical ? "replay-after-hydration" : "replay-before-hydration");
-      }
-      await originalHandleNotification(notification, options);
-    };
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "turn/start") {
-        turnStartAttempts += 1;
-        if (turnStartAttempts === 1) {
-          throw new CodexRpcError("thread not found", -32600);
-        }
-
-        resumeOrder.push("turn-retry");
-        return {
-          turn: {
-            id: "turn_retry",
-            items: [],
-            itemsView: "full",
-            status: "inProgress",
-            error: null,
-            startedAt: 1,
-            completedAt: null,
-            durationMs: null,
-          },
-        };
-      }
-
-      if (method === "thread/resume") {
-        await service.routeAppServerNotification({
-          method: "item/agentMessage/delta",
-          params: {
-            threadId: "thr_start",
-            turnId: "turn_hydrated",
-            itemId: "item_hydrated",
-            delta: " buffered",
-          },
-        });
-        return makeCanonicalResumeResponse({
-          threadId: "thr_start",
-          initialTurnsPage: {
-            data: [],
-            nextCursor: null,
-            backwardsCursor: null,
-          },
-        });
-      }
-
-      if (method === "thread/read") {
-        return {
-          thread: makeProtocolThread("thr_start", "/workspace/project", []),
-        };
-      }
-
-      throw new Error(`Unexpected method: ${method}`);
-    };
-
-    try {
-      const startedTurn = await service.startTurn("thr_start", "Ship the fix");
-      expect(startedTurn?.turnId).toBe("turn_retry");
-      expect(requests.map((request) => request.method).join(",")).toBe(
-        "turn/start,thread/read,thread/resume,thread/goal/get,turn/start",
-      );
-      expect(resumeOrder.join(",")).toBe("replay-after-hydration,turn-retry");
-      const resumeRequest = requests.find((request) => request.method === "thread/resume");
-      expect(resumeRequest).toBeDefined();
-      expect((resumeRequest?.params as { threadId?: string }).threadId).toBe("thr_start");
-      const resumeConfig =
-        (resumeRequest?.params as { config?: Record<string, unknown> })?.config ?? {};
-      expect(resumeConfig["features.apply_patch_streaming_events"]).toBe(true);
-      const snapshot = service.serializeConversationSnapshot("thr_start");
-      const userItems =
-        snapshot?.turns.flatMap((turn) => turn.items.filter((item) => item.role === "user")) ?? [];
-      expect(userItems).toHaveLength(1);
-      expect(userItems[0]?.markdownText).toBe("Ship the fix");
-      expect(snapshot?.canonicalState?.turns).toHaveLength(1);
-      expect(snapshot?.canonicalState?.turns[0]?.sidecar.params.input[0]).toMatchObject({
-        type: "text",
-        text: "Ship the fix",
-      });
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("passes full-access permission overrides through to turn/start", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "turn/start") {
-        return {
-          turn: {
-            id: "turn_full_access",
-            status: "in_progress",
-            transcript: [],
-          },
-        };
-      }
-      return {};
-    };
-
-    try {
-      const startedTurn = await service.startTurn("thr_start", "Ship the fix", {
-        permissionMode: "full-access",
-      });
-      const turnStartRequests = requests.filter((request) => request.method === "turn/start");
-      expect(startedTurn?.turnId).toBe("turn_full_access");
-      expect(turnStartRequests.length).toBe(1);
-      expect((turnStartRequests[0]?.params as { approvalPolicy?: string })?.approvalPolicy).toBe(
-        "never",
-      );
-      expect(
-        JSON.stringify(
-          (turnStartRequests[0]?.params as { sandboxPolicy?: { type?: string } })?.sandboxPolicy,
-        ),
-      ).toBe(
-        JSON.stringify({
-          type: "dangerFullAccess",
-        }),
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("omits explicit permission overrides for custom mode", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "turn/start") {
-        return {
-          turn: {
-            id: "turn_custom",
-            status: "in_progress",
-            transcript: [],
-          },
-        };
-      }
-      return {};
-    };
-
-    try {
-      const startedTurn = await service.startTurn("thr_start", "Ship the fix", {
-        permissionMode: "custom",
-      });
-      expect(startedTurn?.turnId).toBe("turn_custom");
-      const turnStartRequest = requests.find((request) => request.method === "turn/start");
-      expect(turnStartRequest).toBeDefined();
-      expect((turnStartRequest?.params as { approvalPolicy?: unknown })?.approvalPolicy).toBe(
-        undefined,
-      );
-      expect((turnStartRequest?.params as { sandboxPolicy?: unknown })?.sandboxPolicy).toBe(
-        undefined,
-      );
-      expect((turnStartRequest?.params as { model?: unknown })?.model).toBe(undefined);
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
+describe("codex-service startTurn", () => {});
 
 describe("codex-service collaboration modes", () => {
-  test("startTurn prefers explicit overrides over latest thread settings and legacy mode", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
-      parseThreadRef: (threadId: string) => { projectId: string | null; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-    client.start = async () => undefined;
-    client.request = async (method, params) => {
-      requests.push({ method, params: params as Record<string, unknown> });
-      if (method === "thread/settings/update") return {};
-      if (method === "turn/start") {
-        return {
-          turn: {
-            id: `turn_${requests.length}`,
-            status: "in_progress",
-            transcript: [],
-          },
-        };
-      }
-      return {};
-    };
-    serviceInternals.ensureConversationDetail("thr_start_settings_priority");
-
-    try {
-      await updateThreadSettingsForTest(service, "thr_start_settings_priority", {
-        model: "gpt-settings",
-        reasoningEffort: "medium",
-        serviceTier: "fast",
-        collaborationMode: "plan",
-      });
-      await service.startTurn("thr_start_settings_priority", "Use settings");
-      await service.startTurn("thr_start_settings_priority", "Use explicit", {
-        model: "gpt-explicit",
-        reasoningEffort: "high",
-        collaborationMode: "default",
-      });
-
-      const turnRequests = requests.filter((request) => request.method === "turn/start");
-      const firstTurn = turnRequests[0]?.params;
-      const secondTurn = turnRequests[1]?.params;
-      const firstMode = firstTurn?.collaborationMode as { mode?: string } | undefined;
-      const secondMode = secondTurn?.collaborationMode as { mode?: string } | undefined;
-
-      expect(firstTurn?.model).toBe("gpt-settings");
-      expect(firstTurn?.effort).toBe("medium");
-      expect(firstTurn?.serviceTier).toBe("fast");
-      expect(firstMode?.mode).toBe("plan");
-      expect(firstTurn?.summary).toBe("detailed");
-      expect(secondTurn?.model).toBe("gpt-explicit");
-      expect(secondTurn?.effort).toBe("high");
-      expect(secondMode?.mode).toBe("default");
-
-      await service.startTurn("thr_start_settings_priority", "Suppress summaries", {
-        summary: "none",
-      });
-      const thirdTurn = requests.filter((request) => request.method === "turn/start")[2]?.params;
-      expect(thirdTurn?.summary).toBe("none");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("keeps next-turn settings when app-server has unloaded the task", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      ensureConversationDetail: (threadId: string) => CodexThreadDetail | null;
-      parseThreadRef: (threadId: string) => { projectId: string | null; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const turnStarts: Array<Record<string, unknown>> = [];
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-    client.start = async () => undefined;
-    client.request = async (method, params) => {
-      if (method === "thread/settings/update") {
-        throw new CodexRpcError("thread not found: thr_unloaded_settings", -32600);
-      }
-      if (method === "turn/start") {
-        turnStarts.push(params as Record<string, unknown>);
-        return {
-          turn: {
-            id: "turn_unloaded_settings",
-            status: "in_progress",
-            transcript: [],
-          },
-        };
-      }
-      return {};
-    };
-    serviceInternals.ensureConversationDetail("thr_unloaded_settings");
-
-    try {
-      const settings = await updateThreadSettingsForTest(service, "thr_unloaded_settings", {
-        model: "gpt-settings",
-        reasoningEffort: "high",
-      });
-      await service.startTurn("thr_unloaded_settings", "Use persisted settings");
-
-      expect(settings.model).toBe("gpt-settings");
-      expect(turnStarts).toEqual([
-        expect.objectContaining({
-          threadId: "thr_unloaded_settings",
-          model: "gpt-settings",
-          effort: "high",
-        }),
-      ]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test("validates active-task identity and persists compatible intelligence updates", async () => {
     const service = createService();
     const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
@@ -10564,86 +9578,6 @@ describe("codex-service terminal turn reconciliation", () => {
       );
       expect(mcpItem?.status).toBe("completed");
       expect(mcpItem?.mcpToolCall?.completed).toBe(true);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("interruptTurn immediately marks known in-progress turn/items as interrupted", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      getConversationRecord: (threadId: string) => {
-        itemsByTurn: Map<string, Map<string, CodexItemView>>;
-      };
-      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-      mergeItem: (entry: CodexItemView) => void;
-      syncThreadStatusFromKnownTurns: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-      on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const events: CodexEvent[] = [];
-
-    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
-    serviceInternals.persistThreadSnapshot = () => {};
-    serviceInternals.on("event", (event) => {
-      events.push(event);
-    });
-
-    client.start = async () => undefined;
-    client.request = async () => ({});
-
-    try {
-      serviceInternals.mergeTurn("thr_interrupt_terminal", {
-        threadId: "thr_interrupt_terminal",
-        turnId: "turn_interrupt_terminal",
-        status: "inProgress",
-        itemIds: ["item_tool"],
-      });
-      serviceInternals.mergeItem({
-        threadId: "thr_interrupt_terminal",
-        turnId: "turn_interrupt_terminal",
-        itemId: "item_tool",
-        type: "commandExecution",
-        normalizedKind: "commandExecution",
-        semanticKind: "exec",
-        status: "inProgress",
-        toolCall: {
-          subtype: "command",
-          toolName: "bash",
-          args: {
-            command: "ls",
-          },
-        },
-        createdAt: 10,
-        updatedAt: 10,
-      });
-
-      const interrupted = await interruptTurnForTest(
-        service,
-        "thr_interrupt_terminal",
-        "turn_interrupt_terminal",
-      );
-      expect(interrupted).toBe(true);
-
-      const turnEvents = events.filter(
-        (event): event is Extract<CodexEvent, { type: "turn" }> => event.type === "turn",
-      );
-      expect(turnEvents.some((event) => event.turn.status === "interrupted")).toBe(true);
-      const interruptedTurn = turnEvents.find(
-        (event) => event.turn.turnId === "turn_interrupt_terminal",
-      )?.turn;
-      expect(interruptedTurn?.interruptedCommandExecutionItemIds?.[0]).toBe("item_tool");
-      const item = getRecordedItem(
-        serviceInternals,
-        "thr_interrupt_terminal",
-        "turn_interrupt_terminal",
-        "item_tool",
-      );
-      expect(item?.status).toBe("interrupted");
     } finally {
       await service.shutdown();
     }
