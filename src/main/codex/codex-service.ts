@@ -119,7 +119,6 @@ import type {
   CodexReviewDiffCommentAttachment,
   CodexReasoningEffort,
   CodexRendererConversationResumeResult,
-  CodexSidebarRefreshPolicy,
   CodexSidebarRefreshReason,
   CodexSidebarSnapshot,
   CodexSidebarSyncResult,
@@ -2584,7 +2583,7 @@ export class CodexService {
     this.emitEvent({ type: "connection", connection });
     if (connection.status !== "connected" || connection.retries <= 0 || wasConnected) return;
     this.markConversationsNeedResumeAfterReconnect();
-    void this.syncSidebarThreadsDetailed({
+    void this.sidebarSync.sync({
       policy: "stale",
       reason: "app-server-reconnect",
     });
@@ -6000,7 +5999,7 @@ export class CodexService {
         });
       }
     }
-    await this.syncSidebarThreadsDetailed({ policy: "force", reason: "host-message" });
+    await this.sidebarSync.sync({ policy: "force", reason: "host-message" });
   }
 
   async importRolloutSession(session: NativeSessionCandidate): Promise<string> {
@@ -6391,30 +6390,6 @@ export class CodexService {
         ];
       }),
     };
-  }
-
-  async syncSidebarThreads(
-    input: {
-      includeArchived?: boolean;
-      refresh?: boolean;
-    } = {},
-  ): Promise<CodexSidebarSnapshot> {
-    const result = await this.syncSidebarThreadsDetailed({
-      includeArchived: input.includeArchived,
-      policy: input.refresh ? "force" : "read",
-      reason: "manual",
-    });
-    return result.snapshot;
-  }
-
-  async syncSidebarThreadsDetailed(
-    input: {
-      includeArchived?: boolean;
-      policy?: CodexSidebarRefreshPolicy;
-      reason?: CodexSidebarRefreshReason;
-    } = {},
-  ): Promise<CodexSidebarSyncResult> {
-    return await this.sidebarSync.sync(input);
   }
 
   /** Effect Module adapter operation; materializes the first app-server window. */

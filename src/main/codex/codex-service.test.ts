@@ -204,15 +204,7 @@ interface TestableCodexService {
       first?: number;
     },
   ) => Promise<import("../../shared/types").CodexThreadSummaryWindow>;
-  syncSidebarThreads: (input?: {
-    includeArchived?: boolean;
-    refresh?: boolean;
-  }) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
-  syncSidebarThreadsDetailed: (input?: {
-    includeArchived?: boolean;
-    policy?: import("../../shared/types").CodexSidebarRefreshPolicy;
-    reason?: import("../../shared/types").CodexSidebarRefreshReason;
-  }) => Promise<import("../../shared/types").CodexSidebarSyncResult>;
+  sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
   threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
   listCommandPaletteThreads: (input: {
     scope: "sidebar";
@@ -2933,7 +2925,8 @@ test("keeps parent-linked child threads out of workspace sidebar snapshots", asy
   const service = createService({ projectWorkspace });
 
   try {
-    const snapshot = await service.syncSidebarThreads({ refresh: false });
+    const snapshot = (await service.sidebarSync.sync({ policy: "read", reason: "manual" }))
+      .snapshot;
 
     expect(snapshot.items.map((item) => item.threadId)).toEqual(["thread:root"]);
     expect(snapshot.projectlessThreadIds).toEqual(["thread:root"]);
@@ -2973,11 +2966,11 @@ test("returns the last-known sidebar without repeating a failed Core read", asyn
   };
 
   try {
-    const initial = await service.syncSidebarThreadsDetailed({ policy: "read" });
+    const initial = await service.sidebarSync.sync({ policy: "read" });
     expect(initial.snapshot.items.map((item) => item.threadId)).toEqual(["thread:cached-sidebar"]);
     coreBusy = true;
 
-    const degraded = await service.syncSidebarThreadsDetailed({
+    const degraded = await service.sidebarSync.sync({
       policy: "force",
       reason: "manual",
     });
@@ -3032,7 +3025,7 @@ test("does not mask a sidebar invalidation that lands during a Core read", async
   };
 
   try {
-    const initialSync = service.syncSidebarThreadsDetailed({
+    const initialSync = service.sidebarSync.sync({
       policy: "force",
       reason: "manual",
     });
@@ -3050,7 +3043,7 @@ test("does not mask a sidebar invalidation that lands during a Core read", async
     expect(initial.snapshot.items.map((item) => item.threadId)).toEqual([
       "thread:before-invalidation",
     ]);
-    const refreshed = await service.syncSidebarThreadsDetailed({ policy: "stale" });
+    const refreshed = await service.sidebarSync.sync({ policy: "stale" });
     expect(reads).toBe(2);
     expect(refreshed.snapshot.items.map((item) => item.threadId)).toEqual([
       "thread:before-invalidation",
@@ -3084,7 +3077,7 @@ test("propagates a cold-start Core busy failure instead of fabricating an empty 
 
   try {
     await expect(
-      service.syncSidebarThreadsDetailed({
+      service.sidebarSync.sync({
         policy: "force",
         reason: "manual",
       }),
@@ -3118,7 +3111,8 @@ test("projects durable local and remote managed worktree identities into the sid
   const service = createService({ projectWorkspace });
 
   try {
-    const snapshot = await service.syncSidebarThreads({ refresh: false });
+    const snapshot = (await service.sidebarSync.sync({ policy: "read", reason: "manual" }))
+      .snapshot;
     const local = snapshot.items.find((item) => item.threadId === "thread:local-worktree");
     const remote = snapshot.items.find((item) => item.threadId === "thread:remote-worktree");
 
@@ -3219,7 +3213,7 @@ test("returns after the first sidebar page and serializes a forced refresh at th
   };
 
   try {
-    const first = await service.syncSidebarThreadsDetailed({
+    const first = await service.sidebarSync.sync({
       policy: "force",
       reason: "manual",
     });
@@ -3227,8 +3221,8 @@ test("returns after the first sidebar page and serializes a forced refresh at th
     await waitForCondition(() => threadListRequests.length === 2, 1_000);
 
     let secondResolved = false;
-    const second = service
-      .syncSidebarThreadsDetailed({
+    const second = service.sidebarSync
+      .sync({
         policy: "force",
         reason: "manual",
       })
@@ -3341,7 +3335,7 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
   };
 
   try {
-    const staleSync = service.syncSidebarThreadsDetailed({
+    const staleSync = service.sidebarSync.sync({
       policy: "force",
       reason: "manual",
     });
@@ -3365,7 +3359,7 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
     releaseStaleRequest();
     await staleSync;
     await freshRequestStarted;
-    await service.syncSidebarThreadsDetailed({ policy: "force", reason: "host-message" });
+    await service.sidebarSync.sync({ policy: "force", reason: "host-message" });
 
     expect(threadListRequests).toBe(2);
     expect((await projectWorkspace.getThread(threadId))?.recencyAt).toBe(20_000);
@@ -3410,7 +3404,7 @@ test("does not reconcile an incomplete sidebar sweep before a fresh replacement"
   };
 
   try {
-    await service.syncSidebarThreadsDetailed({
+    await service.sidebarSync.sync({
       policy: "force",
       reason: "manual",
     });
@@ -3422,7 +3416,7 @@ test("does not reconcile an incomplete sidebar sweep before a fresh replacement"
     expect(requests).toHaveLength(2);
     expect(reconcileCalls).toBe(0);
 
-    await service.syncSidebarThreadsDetailed({
+    await service.sidebarSync.sync({
       policy: "force",
       reason: "manual",
     });

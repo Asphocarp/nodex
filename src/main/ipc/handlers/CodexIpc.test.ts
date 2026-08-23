@@ -11,6 +11,7 @@ import { CodexThreadSettingsRuntime } from "../../codex-application/CodexThreadS
 import { CodexThreadCatalog } from "../../codex-application/CodexThreadCatalog";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
+import { CodexSidebarSyncRuntime } from "../../codex-application/CodexSidebarSyncRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
@@ -63,6 +64,12 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           setPinned: () => Effect.die("unused"),
           reorderPinned: () => Effect.die("unused"),
           move: () => Effect.die("unused"),
+        }),
+        sidebarSync: CodexSidebarSyncRuntime.of({
+          sync: () => Effect.die("unused"),
+          publish: () => Effect.die("unused"),
+          invalidate: () => undefined,
+          scheduleNotification: () => undefined,
         }),
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),

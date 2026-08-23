@@ -2670,6 +2670,7 @@ export const live: Layer.Layer<
             threadTitles: threadTitlePersistence,
             conversationCommands,
             threadCatalog,
+            sidebarSync,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

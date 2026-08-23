@@ -666,7 +666,9 @@ revision captured before each Core read. The database invalidation subscription,
 trailing debounce, minimum-generation repair, active refreshes, and cache all close with Main Scope.
 `CodexService` retains only first-window materialization and snapshot construction operations; it
 owns no refresh Promise, generation/freshness/backoff fields, cache, notification timer, or listener
-cleanup. The later paginated sweep publishes through the same revisioned projection boundary.
+cleanup, and exposes no public snapshot/sync forwarding API. Renderer ingress invokes the typed
+runtime directly. The later paginated sweep publishes through the same revisioned projection
+boundary.
 
 The paginated background sidebar sweep is a separate Main-scoped runtime. It owns the single active
 sweep, cooperative replacement at the current physical page boundary, Effect-clock exponential

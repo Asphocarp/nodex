@@ -18,6 +18,7 @@ import type { CodexThreadSettingsRuntime } from "./codex-application/CodexThread
 import type { CodexThreadCatalog } from "./codex-application/CodexThreadCatalog";
 import type { CodexThreadTitlePersistence } from "./codex-application/CodexThreadTitlePersistence";
 import type { ConversationCommands } from "./codex-application/ConversationCommands";
+import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -106,6 +107,7 @@ interface CodexIpcOptions {
   threadCatalog: CodexThreadCatalog["Service"];
   threadTitles: CodexThreadTitlePersistence["Service"];
   conversationCommands: ConversationCommands["Service"];
+  sidebarSync: CodexSidebarSyncRuntime["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -216,56 +218,75 @@ export const codexIpcLive = (
           codexService.listProjectThreads(projectId, opts),
       );
 
-      registerHandle("codex:sidebar:snapshot", async (_, input) => {
+      registerEffectHandle("codex:sidebar:snapshot", (_, input) => {
         const startedAt = getDevRuntimeMetricStart();
-        const snapshot = await codexService.syncSidebarThreads(input);
-        logDevRuntimeMetric("ipc.codex_sidebar_snapshot", {
-          refresh: input?.refresh === true,
-          includeArchived: input?.includeArchived === true,
-          itemCount: snapshot.items.length,
-          pinnedThreadCount: snapshot.pinnedThreadIds.length,
-          projectAssignmentCount: Object.keys(snapshot.projectAssignments).length,
-          projectlessThreadCount: snapshot.projectlessThreadIds.length,
-          approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
-          durationMs: getDevRuntimeMetricDurationMs(startedAt),
-        });
-        return snapshot;
+        return options.sidebarSync
+          .sync({
+            includeArchived: input?.includeArchived,
+            policy: input?.refresh ? "force" : "read",
+            reason: "manual",
+          })
+          .pipe(
+            Effect.map((result) => result.snapshot),
+            Effect.tap((snapshot) =>
+              Effect.sync(() =>
+                logDevRuntimeMetric("ipc.codex_sidebar_snapshot", {
+                  refresh: input?.refresh === true,
+                  includeArchived: input?.includeArchived === true,
+                  itemCount: snapshot.items.length,
+                  pinnedThreadCount: snapshot.pinnedThreadIds.length,
+                  projectAssignmentCount: Object.keys(snapshot.projectAssignments).length,
+                  projectlessThreadCount: snapshot.projectlessThreadIds.length,
+                  approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
+                  durationMs: getDevRuntimeMetricDurationMs(startedAt),
+                }),
+              ),
+            ),
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:sidebar:snapshot", cause }),
+            ),
+          );
       });
 
-      registerHandle("codex:sidebar:sync", async (_, input) => {
+      registerEffectHandle("codex:sidebar:sync", (_, input) => {
         const startedAt = getDevRuntimeMetricStart();
-        const result = await codexService.syncSidebarThreadsDetailed(input);
-        const approxPayloadBytes = approximateJsonPayloadBytes(result);
-        logDevRuntimeMetric("ipc.codex_sidebar_sync", {
-          policy: input?.policy ?? "stale",
-          reason: input?.reason ?? "manual",
-          includeArchived: input?.includeArchived === true,
-          source: result.source,
-          refreshed: result.refreshed,
-          itemCount: result.snapshot.items.length,
-          changedProjectCount: result.changedProjectIds.length,
-          projectlessChanged: result.projectlessChanged,
-          materializedSessionCount: result.materializedSessionIds.length,
-          failedThreadCount: result.failedThreadIds.length,
-          approxPayloadBytes,
-          durationMs: getDevRuntimeMetricDurationMs(startedAt),
-        });
-        recordDevRuntimeMetricCounter(
-          "ipc.codex_sidebar_sync.burst_window",
-          {
-            policy: input?.policy ?? "stale",
-            reason: input?.reason ?? "manual",
-            includeArchived: input?.includeArchived === true,
-            approxPayloadBytes,
-          },
-          {
-            groupBy: ["policy", "reason", "includeArchived"],
-            windowMs: 1_000,
-            burstThreshold: 5,
-            burstMetric: "ipc.codex_sidebar_sync.burst",
-          },
+        return options.sidebarSync.sync(input).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              const approxPayloadBytes = approximateJsonPayloadBytes(result);
+              logDevRuntimeMetric("ipc.codex_sidebar_sync", {
+                policy: input?.policy ?? "stale",
+                reason: input?.reason ?? "manual",
+                includeArchived: input?.includeArchived === true,
+                source: result.source,
+                refreshed: result.refreshed,
+                itemCount: result.snapshot.items.length,
+                changedProjectCount: result.changedProjectIds.length,
+                projectlessChanged: result.projectlessChanged,
+                materializedSessionCount: result.materializedSessionIds.length,
+                failedThreadCount: result.failedThreadIds.length,
+                approxPayloadBytes,
+                durationMs: getDevRuntimeMetricDurationMs(startedAt),
+              });
+              recordDevRuntimeMetricCounter(
+                "ipc.codex_sidebar_sync.burst_window",
+                {
+                  policy: input?.policy ?? "stale",
+                  reason: input?.reason ?? "manual",
+                  includeArchived: input?.includeArchived === true,
+                  approxPayloadBytes,
+                },
+                {
+                  groupBy: ["policy", "reason", "includeArchived"],
+                  windowMs: 1_000,
+                  burstThreshold: 5,
+                  burstMetric: "ipc.codex_sidebar_sync.burst",
+                },
+              );
+            }),
+          ),
+          Effect.mapError((cause) => new CodexIpcError({ operation: "codex:sidebar:sync", cause })),
         );
-        return result;
       });
 
       registerEffectHandle("codex:sidebar:thread:move", (_, input) =>
