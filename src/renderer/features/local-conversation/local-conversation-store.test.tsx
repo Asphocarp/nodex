@@ -401,6 +401,7 @@ vi.mock("./local-conversation-deps", () => ({
       }
     };
   },
+  subscribeCodexEvents: () => () => undefined,
   subscribeCodexRendererClientRequests: (listener: (message: unknown) => void) => {
     rendererClientRequestListener = listener;
     return () => {

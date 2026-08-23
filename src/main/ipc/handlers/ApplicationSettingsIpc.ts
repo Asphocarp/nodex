@@ -31,11 +31,11 @@ import {
   getTelemetrySettings,
   getThreadNotificationSettings,
   getWindowRestoreSettings,
-  resetCommandKeybindings,
+  prepareCommandKeybindingUpdate,
+  prepareCommandKeybindingsReset,
   updateBackupSettings,
   updateCodexDeveloperInstructionSettings,
   updateCodexGitSettings,
-  updateCommandKeybinding,
   updateDiagnosticsSettings,
   updateHistorySettings,
   updateTelemetrySettings,
@@ -46,6 +46,7 @@ import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { readThirdPartyNotices } from "../../third-party-notices";
 import { isTrustedAppRendererIpcSender } from "../../app-renderer-ipc-authorization";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
+import { DictationRuntime } from "../../host-runtime/DictationRuntime";
 
 export class ApplicationSettingsIpcError extends Schema.TaggedError<ApplicationSettingsIpcError>()(
   "ApplicationSettingsIpcError",
@@ -117,6 +118,7 @@ export const live: Layer.Layer<
   never,
   never,
   | ApplicationMenuRuntime
+  | DictationRuntime
   | StoreAdministrationSchedulerRuntime
   | ElectronIpc
   | MainConfig
@@ -124,6 +126,7 @@ export const live: Layer.Layer<
 > = Layer.effectDiscard(
   Effect.gen(function* () {
     const config = yield* MainConfig;
+    const dictation = yield* DictationRuntime;
     const ipc = yield* ElectronIpc;
     const menus = yield* ApplicationMenuRuntime;
     const schedulers = yield* StoreAdministrationSchedulerRuntime;
@@ -159,6 +162,17 @@ export const live: Layer.Layer<
       menus.refresh(state);
       safeBroadcastToWindows(windows.all(), COMMAND_KEYBINDINGS_CHANGED_CHANNEL, [state]);
     };
+    const commitKeymap = (
+      mutation: ReturnType<typeof prepareCommandKeybindingUpdate>,
+    ): Effect.Effect<ReturnType<typeof getCommandKeymapState>, unknown> =>
+      dictation.syncCommandKeymap(mutation.nextState).pipe(
+        Effect.andThen(run("commit-command-keybindings", mutation.commit)),
+        Effect.catch((cause) =>
+          dictation
+            .syncCommandKeymap(mutation.previousState)
+            .pipe(Effect.ignore, Effect.andThen(Effect.fail(cause))),
+        ),
+      );
 
     yield* handleRead("settings:backup:get", "Backup settings", getBackupSettings);
     yield* ipc.handle("settings:backup:update", (event, input: unknown) =>
@@ -270,22 +284,24 @@ export const live: Layer.Layer<
       (event, commandId: unknown, update: unknown) =>
         authorize(event, "Command keybindings").pipe(
           Effect.andThen(
-            run("update-command-keybinding", () => {
+            run("prepare-command-keybinding", () => {
               if (typeof commandId !== "string") throw new Error("commandId must be a string");
-              return updateCommandKeybinding(commandId, CommandKeybindingMutation.parse(update));
+              return prepareCommandKeybindingUpdate(
+                commandId,
+                CommandKeybindingMutation.parse(update),
+              );
             }),
           ),
+          Effect.flatMap(commitKeymap),
           Effect.tap((state) => Effect.sync(() => broadcastKeymap(state))),
         ),
     );
     yield* ipc.handle("reset-codex-command-keybindings", (event) =>
       authorize(event, "Command keybindings").pipe(
-        Effect.andThen(run("reset-command-keybindings", resetCommandKeybindings)),
+        Effect.andThen(run("prepare-command-keybindings-reset", prepareCommandKeybindingsReset)),
+        Effect.flatMap(commitKeymap),
         Effect.tap((state) => Effect.sync(() => broadcastKeymap(state))),
       ),
-    );
-    yield* ipc.handle("global-dictation-capture-fn-hotkey", (event) =>
-      authorize(event, "Global dictation shortcut").pipe(Effect.as(null)),
     );
   }),
 );

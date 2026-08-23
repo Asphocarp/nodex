@@ -386,6 +386,7 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
       });
     },
     subscribeCodexEvents(callback: (event: CodexEvent) => void) {
+      if (!bridge.on) return () => {};
       return bridge.on("codex:event", (...args: unknown[]) => {
         const payload = args[0] as CodexEvent | undefined;
         if (!payload || typeof payload.type !== "string") return;

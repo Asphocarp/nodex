@@ -1,61 +1,67 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { transcribeDictationBlob } from "./composer-dictation-transport";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import {
-  COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR,
-  COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ,
-  consumeComposerDictationWaveformSamples,
-  normalizeComposerDictationWaveformSamples,
-  resolveComposerDictationWaveformGeometry,
-} from "./composer-dictation-waveform";
+  createCommandKeymapState,
+  matchesKeyboardEventToCommand,
+  type CommandKeymapState,
+} from "../../../../../shared/command-keybindings";
+import type { DictationError, DictationStopAction } from "../../../../../shared/dictation";
+import type {
+  GlobalDictationRendererCommand,
+  GlobalDictationRendererEvent,
+} from "../../../../../shared/global-dictation";
+import {
+  acquireDictationMicrophoneLease,
+  invoke,
+  readBuiltInMicrophoneRouteHint,
+  readDictationSettings,
+  requestMicrophoneAccess,
+  releaseDictationMicrophoneLease,
+} from "@/lib/api";
+import { acquireMicrophone } from "@/features/dictation/microphone-acquirer";
+import { browserDictationRecorderFactory } from "@/features/dictation/dictation-recorder";
+import { mainDictationHistoryPort } from "@/features/dictation/dictation-history-client";
+import { mainDictationStreamingPort } from "@/features/dictation/dictation-streaming-client";
+import {
+  DictationSessionController,
+  type DictationControllerPorts,
+} from "@/features/dictation/dictation-session-controller";
+import { browserDictationWaveformPort } from "@/features/dictation/dictation-waveform";
+import { useDictationSession } from "@/features/dictation/use-dictation-session";
+import { transcribeDictationBlob } from "@/features/dictation/dictation-buffered-client";
 
-type DictationStopMode = "insert" | "send";
-
-const MINIMUM_DICTATION_DURATION_MS = 250;
+type DictationStopMode = Extract<DictationStopAction, "insert" | "send">;
 
 export interface ComposerDictationController {
-  isDictating: boolean;
-  isTranscribing: boolean;
-  recordingDurationMs: number;
-  waveformCanvasRef: RefObject<HTMLCanvasElement | null>;
-  startDictation: () => Promise<void>;
-  stopDictation: (mode: DictationStopMode) => void;
+  readonly isDictating: boolean;
+  readonly isTranscribing: boolean;
+  readonly recordingDurationMs: number;
+  readonly waveformCanvasRef: RefObject<HTMLCanvasElement | null>;
+  readonly startDictation: () => Promise<void>;
+  readonly stopDictation: (mode: DictationStopMode) => void;
+  readonly retryDictation: () => Promise<void>;
+  readonly cancelDictation: () => void;
+  readonly retryableError: DictationError | null;
 }
 
 interface UseComposerDictationInput {
-  enabled: boolean;
-  onTranscriptInsert: (text: string) => void;
-  onTranscriptSend: (text: string) => void;
-  onStartError: (error: unknown) => void;
-  onTranscribeError: (error: unknown) => void;
-  onUnsupported: () => void;
+  readonly enabled: boolean;
+  readonly onTranscriptInsert: (text: string) => void;
+  readonly onTranscriptSend: (text: string) => void;
+  readonly onStartError: (error: DictationError) => void;
+  readonly onTranscribeError: (error: DictationError) => void;
+  readonly onUnsupported: () => void;
 }
 
-interface DictationWaveformController {
-  getCurrentRecordingDurationMs: () => number;
-  recordingDurationMs: number;
-  waveformCanvasRef: RefObject<HTMLCanvasElement | null>;
-  startWaveformCapture: (stream: MediaStream) => void;
-  stopWaveformCapture: () => void;
-  resetWaveformDisplay: () => void;
-}
-
-export function isComposerDictationShortcut(event: globalThis.KeyboardEvent): boolean {
-  if (event.defaultPrevented) {
-    return false;
-  }
-
-  if (event.altKey || event.metaKey || event.shiftKey || !event.ctrlKey) {
-    return false;
-  }
-
-  return event.key.toLowerCase() === "m";
+export function isComposerDictationShortcut(
+  event: globalThis.KeyboardEvent,
+  commandKeymapState: CommandKeymapState = createCommandKeymapState(),
+): boolean {
+  if (event.defaultPrevented) return false;
+  return matchesKeyboardEventToCommand(event, commandKeymapState, "composerDictationHold");
 }
 
 export function isComposerDictationShortcutTargetBlocked(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
+  if (!(target instanceof HTMLElement)) return false;
   return Boolean(target.closest("[data-codex-terminal]"));
 }
 
@@ -66,447 +72,232 @@ export function formatComposerDictationDuration(durationMs: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function useComposerDictationWaveform(): DictationWaveformController {
-  const [recordingDurationMs, setRecordingDurationMs] = useState(0);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const recordingStartedAtRef = useRef<number | null>(null);
-  const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const waveformLevelsRef = useRef<number[]>([]);
-  const pendingSamplesRef = useRef<Float32Array>(new Float32Array());
-  const waveformBucketSizeRef = useRef(1);
-  const waveformSampleRateRef = useRef(COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ);
-  const lastDurationSecondRef = useRef(-1);
+const defaultClock: DictationControllerPorts["clock"] = {
+  now: () => performance.now(),
+  setTimeout: (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
+  clearTimeout: (timer) => globalThis.clearTimeout(timer),
+};
 
-  const resetWaveformDimensions = useCallback((canvas: HTMLCanvasElement | null): boolean => {
-    if (!canvas || canvas.clientWidth <= 0) {
-      return false;
-    }
+const invokeGlobalDictationEvent = async (event: GlobalDictationRendererEvent): Promise<boolean> =>
+  await invoke("global-dictation:event", event);
 
-    const { bucketCount, bucketSize } = resolveComposerDictationWaveformGeometry(
-      canvas.clientWidth,
-      waveformSampleRateRef.current,
-    );
-    waveformLevelsRef.current = Array.from(
-      { length: bucketCount },
-      () => COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR,
-    );
-    waveformBucketSizeRef.current = bucketSize;
-    pendingSamplesRef.current = new Float32Array();
-    return true;
-  }, []);
-
-  const clearWaveformCanvas = useCallback(() => {
-    const canvas = waveformCanvasRef.current;
-    canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
-  }, []);
-
-  const stopWaveformCapture = useCallback(() => {
-    if (scriptProcessorRef.current) {
-      scriptProcessorRef.current.onaudioprocess = null;
-      scriptProcessorRef.current.disconnect();
-      scriptProcessorRef.current = null;
-    }
-
-    if (mediaStreamSourceRef.current) {
-      mediaStreamSourceRef.current.disconnect();
-      mediaStreamSourceRef.current = null;
-    }
-
-    if (audioContextRef.current) {
-      void audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-
-    recordingStartedAtRef.current = null;
-    waveformLevelsRef.current = [];
-    pendingSamplesRef.current = new Float32Array();
-    waveformBucketSizeRef.current = 1;
-    waveformSampleRateRef.current = COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
-    lastDurationSecondRef.current = -1;
-    clearWaveformCanvas();
-  }, [clearWaveformCanvas]);
-
-  const resetWaveformDisplay = useCallback(() => {
-    waveformLevelsRef.current = [];
-    pendingSamplesRef.current = new Float32Array();
-    waveformBucketSizeRef.current = 1;
-    setRecordingDurationMs(0);
-    lastDurationSecondRef.current = -1;
-  }, []);
-
-  const drawWaveform = useCallback(() => {
-    const canvas = waveformCanvasRef.current;
-    if (!canvas) {
-      return;
-    }
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return;
-    }
-
-    const { clientHeight, clientWidth } = canvas;
-    if (clientHeight === 0 || clientWidth === 0) {
-      return;
-    }
-
-    const { bucketCount } = resolveComposerDictationWaveformGeometry(
-      clientWidth,
-      waveformSampleRateRef.current,
-    );
-    if (waveformLevelsRef.current.length !== bucketCount) {
-      resetWaveformDimensions(canvas);
-    }
-
-    const waveformLevels = waveformLevelsRef.current;
-    if (waveformLevels.length === 0) {
-      return;
-    }
-
-    let firstActiveIndex = -1;
-    for (let index = 0; index < waveformLevels.length; index += 1) {
-      if ((waveformLevels[index] ?? 0) > COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR) {
-        firstActiveIndex = index;
-        break;
-      }
-    }
-
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    canvas.width = clientWidth * devicePixelRatio;
-    canvas.height = clientHeight * devicePixelRatio;
-
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.save();
-
-    const halfHeight = canvas.height * 0.5;
-    context.translate(0, halfHeight);
-
-    const barWidth = canvas.width / waveformLevels.length;
-    const color = getComputedStyle(canvas).color || "#000";
-    for (let index = 0; index < waveformLevels.length; index += 1) {
-      const level = (waveformLevels[index] ?? 0) * 10;
-      const barHeight = level * halfHeight;
-      const x = index * barWidth;
-      context.globalAlpha = firstActiveIndex === -1 || index < firstActiveIndex ? 0.35 : 1;
-      context.fillStyle = color;
-      context.fillRect(x, -barHeight, barWidth / 2, barHeight * 2);
-    }
-
-    context.restore();
-  }, [resetWaveformDimensions]);
-
-  const startWaveformCapture = useCallback(
-    (stream: MediaStream) => {
-      stopWaveformCapture();
-      resetWaveformDisplay();
-      resetWaveformDimensions(waveformCanvasRef.current);
-      drawWaveform();
-
-      if (typeof AudioContext === "undefined") {
-        return;
-      }
-
-      const audioContext = new AudioContext();
-      audioContextRef.current = audioContext;
-      waveformSampleRateRef.current =
-        audioContext.sampleRate || COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
-      resetWaveformDimensions(waveformCanvasRef.current);
-      drawWaveform();
-
-      const mediaStreamSource = audioContext.createMediaStreamSource(stream);
-      mediaStreamSourceRef.current = mediaStreamSource;
-
-      const scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
-      scriptProcessorRef.current = scriptProcessor;
-      recordingStartedAtRef.current = performance.now();
-
-      scriptProcessor.onaudioprocess = (event) => {
-        const input = event.inputBuffer.getChannelData(0);
-        normalizeComposerDictationWaveformSamples(input);
-
-        if (waveformLevelsRef.current.length === 0) {
-          resetWaveformDimensions(waveformCanvasRef.current);
-        }
-
-        const maxBuckets = waveformLevelsRef.current.length;
-        const bucketSize = waveformBucketSizeRef.current;
-        if (maxBuckets > 0) {
-          const result = consumeComposerDictationWaveformSamples({
-            bucketSize,
-            levels: waveformLevelsRef.current,
-            maxLevelCount: maxBuckets,
-            pendingSamples: pendingSamplesRef.current,
-            samples: input,
-          });
-          pendingSamplesRef.current = result.pendingSamples;
-
-          if (result.appendedLevelCount > 0) {
-            drawWaveform();
-          }
-        }
-
-        if (recordingStartedAtRef.current === null) {
-          return;
-        }
-
-        const elapsedSeconds = Math.max(
-          0,
-          Math.floor((performance.now() - recordingStartedAtRef.current) / 1000),
-        );
-        if (elapsedSeconds !== lastDurationSecondRef.current) {
-          lastDurationSecondRef.current = elapsedSeconds;
-          setRecordingDurationMs(elapsedSeconds * 1000);
-        }
-      };
-
-      mediaStreamSource.connect(scriptProcessor);
-      scriptProcessor.connect(audioContext.destination);
-    },
-    [drawWaveform, resetWaveformDimensions, resetWaveformDisplay, stopWaveformCapture],
-  );
-
-  useEffect(
-    () => () => {
-      stopWaveformCapture();
-    },
-    [stopWaveformCapture],
-  );
-
-  return {
-    getCurrentRecordingDurationMs: () =>
-      recordingStartedAtRef.current === null
-        ? recordingDurationMs
-        : Math.max(0, performance.now() - recordingStartedAtRef.current),
-    recordingDurationMs,
-    waveformCanvasRef,
-    startWaveformCapture,
-    stopWaveformCapture,
-    resetWaveformDisplay,
-  };
-}
+const drawWaveform = (canvas: HTMLCanvasElement, waveform: readonly number[]): void => {
+  const context = canvas.getContext("2d");
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (!context || width <= 0 || height <= 0) return;
+  const pixelRatio = window.devicePixelRatio || 1;
+  canvas.width = width * pixelRatio;
+  canvas.height = height * pixelRatio;
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  if (waveform.length === 0) return;
+  const barStep = width / waveform.length;
+  const barWidth = Math.max(1, barStep * 0.45);
+  context.fillStyle = getComputedStyle(canvas).color || "currentColor";
+  for (let index = 0; index < waveform.length; index += 1) {
+    const level = Math.max(0.04, Math.min(1, waveform[index] ?? 0.04));
+    const barHeight = Math.max(2, level * height);
+    context.globalAlpha = 0.45 + level * 0.55;
+    context.fillRect(index * barStep, (height - barHeight) / 2, barWidth, barHeight);
+  }
+};
 
 export function useComposerDictation(
   input: UseComposerDictationInput,
 ): ComposerDictationController {
-  const [isDictating, setIsDictating] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const stopModeRef = useRef<DictationStopMode | null>(null);
-  const isMountedRef = useRef(true);
-  const startAttemptRef = useRef(0);
   const callbacksRef = useRef(input);
-  const {
-    getCurrentRecordingDurationMs,
-    recordingDurationMs,
-    waveformCanvasRef,
-    startWaveformCapture,
-    stopWaveformCapture,
-    resetWaveformDisplay,
-  } = useComposerDictationWaveform();
-
   callbacksRef.current = input;
-
-  const cleanupStream = useCallback(() => {
-    if (!streamRef.current) {
-      return;
-    }
-
-    for (const track of streamRef.current.getTracks()) {
-      track.stop();
-    }
-
-    streamRef.current = null;
-  }, []);
-
-  const cleanupRecorder = useCallback(() => {
-    const recorder = recorderRef.current;
-    if (!recorder) {
-      return;
-    }
-
-    recorder.ondataavailable = null;
-    recorder.onstop = null;
-    if (recorder.state !== "inactive") {
-      recorder.stop();
-    }
-    recorderRef.current = null;
-  }, []);
-
-  const finalizeDictation = useCallback(async () => {
-    const stopMode = stopModeRef.current ?? "insert";
-    stopModeRef.current = null;
-
-    const recordingDuration = Math.max(recordingDurationMs, getCurrentRecordingDurationMs());
-    const recorder = recorderRef.current;
-    const audioChunks = audioChunksRef.current;
-
-    audioChunksRef.current = [];
-    if (recorder) {
-      recorder.ondataavailable = null;
-      recorder.onstop = null;
-    }
-    recorderRef.current = null;
-
-    stopWaveformCapture();
-    cleanupStream();
-    setIsDictating(false);
-    resetWaveformDisplay();
-
-    if (audioChunks.length === 0 || recordingDuration < MINIMUM_DICTATION_DURATION_MS) {
-      return;
-    }
-
-    const contentType = recorder?.mimeType || audioChunks[0]?.type || "audio/webm";
-    const blob = new Blob(audioChunks, { type: contentType });
-
-    setIsTranscribing(true);
-    try {
-      const transcript = (await transcribeDictationBlob(blob)).trim();
-      if (transcript.length === 0) {
-        return;
-      }
-
-      if (stopMode === "send") {
-        callbacksRef.current.onTranscriptSend(transcript);
-        return;
-      }
-
-      callbacksRef.current.onTranscriptInsert(transcript);
-    } catch (error) {
-      callbacksRef.current.onTranscribeError(error);
-    } finally {
-      setIsTranscribing(false);
-    }
-  }, [
-    cleanupStream,
-    getCurrentRecordingDurationMs,
-    recordingDurationMs,
-    resetWaveformDisplay,
-    stopWaveformCapture,
-  ]);
+  const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const reportedErrorRef = useRef<string | null>(null);
+  const globalSessionIdRef = useRef<string | null>(null);
+  const globalCompletionReportedRef = useRef(false);
+  const lastGlobalStateRef = useRef<string | null>(null);
+  const appliedCompletionIdsRef = useRef(new Set<string>());
+  const [controller] = useState(
+    () =>
+      new DictationSessionController({
+        lease: {
+          acquire: acquireDictationMicrophoneLease,
+          release: async (sessionId) => void (await releaseDictationMicrophoneLease(sessionId)),
+        },
+        permissions: { request: requestMicrophoneAccess },
+        devices: {
+          acquire: async () => {
+            const [settings, builtInMicrophoneLabelHint] = await Promise.all([
+              readDictationSettings().catch(() => ({
+                microphoneInputDeviceId: null,
+                keepGlobalBarVisible: false,
+                playStartSound: true,
+                playStopSound: true,
+                globalShortcutNudgeDismissed: false,
+              })),
+              readBuiltInMicrophoneRouteHint().catch(() => null),
+            ]);
+            return await acquireMicrophone({
+              mediaDevices: navigator.mediaDevices,
+              selectedDeviceId: settings.microphoneInputDeviceId,
+              builtInMicrophoneLabelHint,
+            });
+          },
+        },
+        recorder: browserDictationRecorderFactory,
+        waveform: browserDictationWaveformPort,
+        streaming: mainDictationStreamingPort,
+        buffered: {
+          transcribe: async (blob, signal) => {
+            if (signal.aborted) throw new DOMException("Dictation was aborted", "AbortError");
+            const result = await transcribeDictationBlob(blob, { signal });
+            if (signal.aborted) throw new DOMException("Dictation was aborted", "AbortError");
+            return result;
+          },
+        },
+        history: mainDictationHistoryPort,
+        completion: {
+          apply: async ({ sessionId, action, transcript }) => {
+            if (appliedCompletionIdsRef.current.has(sessionId)) return;
+            appliedCompletionIdsRef.current.add(sessionId);
+            const globalSessionId = globalSessionIdRef.current;
+            if (globalSessionId) {
+              callbacksRef.current.onTranscriptInsert(transcript);
+              globalCompletionReportedRef.current = true;
+              await invokeGlobalDictationEvent({
+                type: "completed",
+                sessionId: globalSessionId,
+                transcript,
+              }).catch(() => false);
+              globalSessionIdRef.current = null;
+              return;
+            }
+            if (action === "send") {
+              callbacksRef.current.onTranscriptSend(transcript);
+              return;
+            }
+            callbacksRef.current.onTranscriptInsert(transcript);
+          },
+        },
+        clock: defaultClock,
+        createId: () => crypto.randomUUID(),
+      }),
+  );
+  const snapshot = useDictationSession(controller);
 
   useEffect(() => {
-    isMountedRef.current = true;
+    if (input.enabled) return;
+    controller.cancel();
+  }, [controller, input.enabled]);
 
-    return () => {
-      isMountedRef.current = false;
-      startAttemptRef.current += 1;
-      stopWaveformCapture();
-      cleanupRecorder();
-      cleanupStream();
-      audioChunksRef.current = [];
-    };
-  }, [cleanupRecorder, cleanupStream, stopWaveformCapture]);
+  useEffect(() => {
+    if (!window.api) return;
+    return window.api.on("global-dictation:command", (value) => {
+      const command = value as GlobalDictationRendererCommand;
+      if (!command || typeof command !== "object" || !("sessionId" in command)) return;
+      if (command.type === "start") {
+        if (!callbacksRef.current.enabled || controller.getSnapshot().kind !== "idle") return;
+        globalSessionIdRef.current = command.sessionId;
+        globalCompletionReportedRef.current = false;
+        lastGlobalStateRef.current = null;
+        void invokeGlobalDictationEvent({ type: "accepted", sessionId: command.sessionId }).then(
+          async (accepted) => {
+            if (!accepted || globalSessionIdRef.current !== command.sessionId) {
+              if (globalSessionIdRef.current === command.sessionId)
+                globalSessionIdRef.current = null;
+              return;
+            }
+            await controller.start({ surface: "global", gesture: command.gesture });
+          },
+        );
+        return;
+      }
+      if (command.sessionId !== globalSessionIdRef.current) return;
+      if (command.type === "stop") controller.stop("insert");
+      else if (command.type === "cancel") controller.cancel();
+    });
+  }, [controller]);
 
-  const startDictation = useCallback(async () => {
-    if (isDictating || isTranscribing) {
+  useEffect(() => {
+    if (snapshot.kind !== "recording") return;
+    const canvas = waveformCanvasRef.current;
+    if (canvas) drawWaveform(canvas, snapshot.waveform);
+  }, [snapshot]);
+
+  useEffect(() => {
+    if (snapshot.kind !== "retryable-error") {
+      reportedErrorRef.current = null;
       return;
     }
+    const identity = `${snapshot.sessionId}:${snapshot.error.kind}:${snapshot.canRetryRecording}`;
+    if (reportedErrorRef.current === identity) return;
+    reportedErrorRef.current = identity;
+    if (!snapshot.canRetryRecording) {
+      callbacksRef.current.onStartError(snapshot.error);
+      return;
+    }
+    callbacksRef.current.onTranscribeError(snapshot.error);
+  }, [snapshot]);
 
+  useEffect(() => {
+    const sessionId = globalSessionIdRef.current;
+    if (!sessionId) return;
+    const nextState =
+      snapshot.kind === "recording"
+        ? "listening"
+        : snapshot.kind === "transcribing"
+          ? "transcribing"
+          : null;
+    if (nextState && lastGlobalStateRef.current !== nextState) {
+      lastGlobalStateRef.current = nextState;
+      void invokeGlobalDictationEvent({ type: "state", sessionId, state: nextState });
+      return;
+    }
+    if (snapshot.kind === "retryable-error") {
+      const identity = `failed:${snapshot.error.kind}`;
+      if (lastGlobalStateRef.current === identity) return;
+      lastGlobalStateRef.current = identity;
+      void invokeGlobalDictationEvent({ type: "failed", sessionId, error: snapshot.error });
+      return;
+    }
+    if (snapshot.kind === "idle" && !globalCompletionReportedRef.current) {
+      globalSessionIdRef.current = null;
+      void invokeGlobalDictationEvent({ type: "cancelled", sessionId });
+    }
+  }, [snapshot]);
+
+  const startDictation = async (): Promise<void> => {
     if (
-      !input.enabled ||
-      typeof navigator === "undefined" ||
+      !callbacksRef.current.enabled ||
       typeof navigator.mediaDevices?.getUserMedia !== "function" ||
       typeof MediaRecorder === "undefined"
     ) {
       callbacksRef.current.onUnsupported();
       return;
     }
+    globalSessionIdRef.current = null;
+    await controller.start({ surface: "composer", gesture: "click" });
+  };
 
-    const startAttempt = startAttemptRef.current + 1;
-    startAttemptRef.current = startAttempt;
-
-    try {
-      stopWaveformCapture();
-      stopModeRef.current = "insert";
-      window.api?.requestMicrophonePermission?.();
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-        },
-      });
-      if (!isMountedRef.current || startAttempt !== startAttemptRef.current) {
-        for (const track of stream.getTracks()) {
-          track.stop();
-        }
-        return;
-      }
-
-      streamRef.current = stream;
-      startWaveformCapture(stream);
-
-      const recorder = new MediaRecorder(stream);
-      recorderRef.current = recorder;
-      audioChunksRef.current = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-      recorder.onstop = () => {
-        void finalizeDictation();
-      };
-      recorder.start();
-      setIsDictating(true);
-    } catch (error) {
-      if (!isMountedRef.current || startAttempt !== startAttemptRef.current) {
-        return;
-      }
-
-      callbacksRef.current.onStartError(error);
-      const recorder = recorderRef.current;
-      if (recorder) {
-        recorder.ondataavailable = null;
-        recorder.onstop = null;
-      }
-      recorderRef.current = null;
-      stopWaveformCapture();
-      resetWaveformDisplay();
-      cleanupStream();
-      audioChunksRef.current = [];
-    }
-  }, [
-    cleanupStream,
-    finalizeDictation,
-    input.enabled,
-    isDictating,
-    isTranscribing,
-    resetWaveformDisplay,
-    startWaveformCapture,
-    stopWaveformCapture,
-  ]);
-
-  const stopDictation = useCallback(
-    (mode: DictationStopMode) => {
-      stopModeRef.current = mode;
-      const recorder = recorderRef.current;
-      if (!recorder) {
-        void finalizeDictation();
-        return;
-      }
-
-      if (recorder.state === "inactive") {
-        void finalizeDictation();
-        return;
-      }
-
-      recorder.stop();
-    },
-    [finalizeDictation],
-  );
+  const isDictating = [
+    "requesting-permission",
+    "acquiring-stream",
+    "recording",
+    "stopping",
+  ].includes(snapshot.kind);
+  const recordingDurationMs =
+    snapshot.kind === "recording" ||
+    snapshot.kind === "stopping" ||
+    snapshot.kind === "transcribing"
+      ? snapshot.durationMs
+      : 0;
 
   return {
     isDictating,
-    isTranscribing,
+    isTranscribing: snapshot.kind === "transcribing",
     recordingDurationMs,
     waveformCanvasRef,
     startDictation,
-    stopDictation,
+    stopDictation: (mode) => controller.stop(mode),
+    retryDictation: () => controller.retry(),
+    cancelDictation: () => controller.cancel(),
+    retryableError: snapshot.kind === "retryable-error" ? snapshot.error : null,
   };
 }

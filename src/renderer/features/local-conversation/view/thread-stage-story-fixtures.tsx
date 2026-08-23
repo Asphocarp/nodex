@@ -224,8 +224,16 @@ const DEFAULT_REASONING_OPTIONS: CodexReasoningEffortOption[] = [
 const DEFAULT_DICTATION_STATE: CodexDictationStateSnapshot = {
   isEnabled: true,
   authMethod: "chatgpt",
-  isRealtimeVoiceActive: false,
   shortcutLabel: "Ctrl+M",
+  capabilities: {
+    composer: true,
+    global: true,
+    history: true,
+    streaming: "available",
+    semanticCleanup: false,
+    microphoneOwner: "none",
+    auth: "chatgpt",
+  },
 };
 
 type StoryUserInputQuestion = CodexUserInputRequest["questions"][number];

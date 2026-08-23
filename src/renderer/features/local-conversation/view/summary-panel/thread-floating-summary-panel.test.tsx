@@ -61,6 +61,7 @@ vi.mock("../../../../lib/api", () => ({
   subscribeProjectSessionChanges: () => () => undefined,
   subscribeProjectChanges: () => () => undefined,
   subscribeCodexHostMessages: () => () => undefined,
+  subscribeCodexEvents: () => () => undefined,
   subscribeDesktopNotificationActions: () => () => undefined,
   subscribeAppUpdateStatus: () => () => undefined,
   getWindowFocusState: async () => true,

@@ -1876,8 +1876,8 @@ export interface CodexRateLimitResetResult {
 export interface CodexDictationStateSnapshot {
   isEnabled: boolean;
   authMethod: "chatgpt" | "apiKey" | null;
-  isRealtimeVoiceActive: boolean;
   shortcutLabel: string;
+  capabilities: import("./dictation").DictationCapabilitySnapshot;
 }
 
 export interface CodexConversationImageAssetResolveInput {
@@ -4363,6 +4363,7 @@ export type CodexThreadStartProgressStream = "info" | "stdout" | "stderr";
 export type CodexEvent =
   | { type: "connection"; connection: CodexConnectionState }
   | { type: "account"; account: CodexAccountSnapshot }
+  | { type: "dictationState"; state: CodexDictationStateSnapshot }
   | { type: "rateLimits"; rateLimits: CodexRateLimitsSnapshot | null }
   | { type: "appsUpdated"; apps: ProtocolAppInfo[] }
   | { type: "threadSummary"; thread: CodexThreadSummary }

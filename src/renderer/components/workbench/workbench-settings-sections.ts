@@ -4,6 +4,7 @@ import {
   ArchiveIcon,
   HooksIcon,
   KeyboardShortcutsIcon,
+  MicIcon,
   PageIcon,
   SettingsAgentIcon,
   SettingsAppearanceIcon,
@@ -22,6 +23,7 @@ export type SettingsSectionId =
   | "general-settings"
   | "agent-import"
   | "appearance"
+  | "voice"
   | "agent"
   | "keyboard-shortcuts"
   | "browser"
@@ -89,6 +91,14 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     icon: SettingsAppearanceIcon,
     groupKey: "personal",
     searchMessages: SETTINGS_SEARCH_CATALOG.appearance.messages,
+  },
+  {
+    id: "voice",
+    label: "Voice",
+    pageKey: "voice",
+    icon: MicIcon,
+    groupKey: "personal",
+    searchMessages: SETTINGS_SEARCH_CATALOG.voice.messages,
   },
   {
     id: "agent",

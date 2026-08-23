@@ -461,6 +461,7 @@ import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import * as WorktreeEnvironmentIpc from "../ipc/handlers/WorktreeEnvironmentIpc";
 import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
 import * as CodexWorkspaceIpc from "../ipc/handlers/CodexWorkspaceIpc";
+import * as DictationIpc from "../ipc/handlers/DictationIpc";
 import {
   ComputerUseRuntime,
   live as computerUseRuntimeLive,
@@ -536,6 +537,7 @@ import {
   RendererClientRuntime,
   live as rendererClientRuntimeLive,
 } from "../host-runtime/RendererClientRuntime";
+import { DictationRuntime, live as dictationRuntimeLive } from "../host-runtime/DictationRuntime";
 import {
   ComposerAppshotRuntime,
   live as composerAppshotRuntimeLive,
@@ -600,6 +602,7 @@ import * as ElectronNet from "../platform/electron/ElectronNet";
 import * as ProviderCredentials from "../platform/electron/ProviderCredentials";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
+import { ElectronPrivacy, live as electronPrivacyLive } from "../platform/electron/ElectronPrivacy";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import * as CodexSessionTransport from "../platform/node/CodexSessionTransport";
 import { resolveCodexProcessEnvironment } from "../platform/node/CodexProcessEnvironment";
@@ -955,7 +958,12 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           SessionPolicyRuntime.live.pipe(
-            Layer.provide(Layer.succeed(ElectronSessionHost, sessionHost)),
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(ElectronSessionHost, sessionHost),
+                Layer.succeed(MainConfig, config),
+              ),
+            ),
           ),
           runtimeScope,
         );
@@ -982,6 +990,27 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const rendererClients = Context.get(rendererClientContext, RendererClientRuntime);
+        const electronPrivacyContext = yield* Layer.buildWithScope(
+          electronPrivacyLive,
+          runtimeScope,
+        );
+        const electronPrivacy = Context.get(electronPrivacyContext, ElectronPrivacy);
+        const dictationContext = yield* Layer.buildWithScope(
+          dictationRuntimeLive({
+            preloadPath: `${__dirname}/../preload/global-dictation.js`,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronPrivacy, electronPrivacy),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(RendererClientRuntime, rendererClients),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const dictation = Context.get(dictationContext, DictationRuntime);
         const databaseNotifierContext = yield* Layer.buildWithScope(
           DatabaseNotifierRuntime.live.pipe(Layer.provide(Layer.succeed(WindowRuntime, windows))),
           runtimeScope,
@@ -1279,6 +1308,10 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(CodexGateway, codexGateway),
                 Layer.succeed(ChatGptDesktop, chatGpt),
+                Layer.succeed(CodexAccount, codexAccountService),
+                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
+                Layer.succeed(CodexConnection, codexConnectionService),
+                Layer.succeed(DictationRuntime, dictation),
                 Layer.succeed(ElectronNet.ElectronNet, electronNet),
               ),
             ),
@@ -1286,6 +1319,22 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const codexMedia = Context.get(codexMediaContext, CodexMedia);
+        yield* Layer.buildWithScope(
+          DictationIpc.live().pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexMedia, codexMedia),
+                Layer.succeed(DictationRuntime, dictation),
+                Layer.succeed(ElectronDesktop, desktop),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const externalSuggestionsContext = yield* Layer.buildWithScope(
           composerExternalSuggestionsLive.pipe(
             Layer.provide(
@@ -2866,6 +2915,7 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ApplicationMenuRuntime, applicationMenus),
+                Layer.succeed(DictationRuntime, dictation),
                 Layer.succeed(StoreAdministrationSchedulerRuntime, storeSchedulers),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),

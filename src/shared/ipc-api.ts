@@ -148,6 +148,22 @@ import type {
   CodexUserInputAutoResolutionEntry,
   CodexUserInputAutoResolutionTarget,
 } from "./codex-user-input-auto-resolution";
+import type {
+  DictationSurface,
+  DictationSettings,
+  DictationSettingsPatch,
+  GlobalDictationPermissionSnapshot,
+  MicrophoneAccessResult,
+  MicrophoneAccessStatus,
+} from "./dictation";
+import type {
+  DictationRecordingAppendInput,
+  DictationRecordingAudio,
+  DictationRecordingCreateInput,
+  DictationRecordingFinalizeInput,
+  DictationRecordingMetadata,
+  DictationRecordingSetTranscriptInput,
+} from "./dictation-history";
 
 import type {
   BackupRecord,
@@ -414,6 +430,7 @@ import type {
 } from "./window-session";
 import type { FileLinkOpenerId, FileLinkTarget } from "./file-link-openers";
 import type { CommandKeybindingUpdate, CommandKeymapState } from "./command-keybindings";
+import type { GlobalDictationRendererEvent } from "./global-dictation";
 import type {
   BrowserBrowsingDataClearResult,
   BrowserBrowsingDataKind,
@@ -1048,6 +1065,7 @@ export interface IpcApi {
   };
   "reset-codex-command-keybindings": { args: []; result: CommandKeymapState };
   "global-dictation-capture-fn-hotkey": { args: []; result: string | null };
+  "global-dictation:event": { args: [event: GlobalDictationRendererEvent]; result: boolean };
   "app:update:status": { args: []; result: AppUpdateStatus };
   "app:update:check": { args: []; result: AppUpdateStatus };
   "app:update:install": { args: []; result: boolean };
@@ -1425,9 +1443,101 @@ export interface IpcApi {
     args: [];
     result: CodexDictationStateSnapshot;
   };
+  "codex:dictation:microphone-access:read": {
+    args: [];
+    result: MicrophoneAccessStatus;
+  };
+  "codex:dictation:microphone-access:request": {
+    args: [];
+    result: MicrophoneAccessResult;
+  };
+  "codex:dictation:microphone-lease:acquire": {
+    args: [input: { readonly sessionId: string; readonly surface: DictationSurface }];
+    result: boolean;
+  };
+  "codex:dictation:microphone-lease:release": {
+    args: [sessionId: string];
+    result: boolean;
+  };
+  "codex:dictation:microphone-access:open-settings": {
+    args: [];
+    result: void;
+  };
+  "codex:dictation:microphone-route-hint:read": {
+    args: [];
+    result: string | null;
+  };
+  "codex:dictation:global-permissions:read": {
+    args: [];
+    result: GlobalDictationPermissionSnapshot;
+  };
+  "codex:dictation:global-permissions:request-input-monitoring": {
+    args: [];
+    result: GlobalDictationPermissionSnapshot;
+  };
+  "codex:dictation:global-permissions:request-accessibility": {
+    args: [];
+    result: GlobalDictationPermissionSnapshot;
+  };
+  "codex:dictation:global-permissions:open-input-monitoring-settings": {
+    args: [];
+    result: void;
+  };
+  "codex:dictation:global-permissions:open-accessibility-settings": {
+    args: [];
+    result: void;
+  };
+  "codex:dictation:settings:read": {
+    args: [];
+    result: DictationSettings;
+  };
+  "codex:dictation:settings:update": {
+    args: [patch: DictationSettingsPatch];
+    result: DictationSettings;
+  };
+  "codex:dictation:settings:consume-global-shortcut-nudge": {
+    args: [];
+    result: boolean;
+  };
+  "codex:dictation:history:create": {
+    args: [input: DictationRecordingCreateInput];
+    result: DictationRecordingMetadata;
+  };
+  "codex:dictation:history:append": {
+    args: [input: DictationRecordingAppendInput];
+    result: DictationRecordingMetadata;
+  };
+  "codex:dictation:history:finalize": {
+    args: [input: DictationRecordingFinalizeInput];
+    result: DictationRecordingMetadata;
+  };
+  "codex:dictation:history:set-transcript": {
+    args: [input: DictationRecordingSetTranscriptInput];
+    result: DictationRecordingMetadata;
+  };
+  "codex:dictation:history:list": {
+    args: [];
+    result: DictationRecordingMetadata[];
+  };
+  "codex:dictation:history:read-audio": {
+    args: [id: string];
+    result: DictationRecordingAudio;
+  };
+  "codex:dictation:history:download": {
+    args: [id: string];
+    result: { readonly status: "cancelled" | "saved" };
+  };
+  "codex:dictation:history:delete": {
+    args: [id: string];
+    result: void;
+  };
   "codex:dictation:transcribe": {
-    args: [input: { contentType: string; base64Payload: string }];
+    args: [input: { contentType: string; base64Payload: string; requestId: string }];
     result: string;
+  };
+  "codex:dictation:transcribe:cancel": {
+    args: [requestId: string];
+    result: boolean;
   };
   "codex:conversation-image-asset:resolve": {
     args: [input: CodexConversationImageAssetResolveInput];
@@ -2085,6 +2195,7 @@ export interface IpcApi {
 }
 
 export interface IpcEvents {
+  "global-dictation:command": import("./global-dictation").GlobalDictationRendererCommand;
   "agent-import:progress": AgentImportProgress;
   "workspace-file:changed": import("./types").WorkspaceFileChangedEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;

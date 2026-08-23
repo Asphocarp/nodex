@@ -16,6 +16,10 @@ import type {
   StructuralClipboardWriteInput,
   StructuralClipboardWriteResult,
 } from "../shared/clipboard-paste";
+import type {
+  GlobalDictationRendererCommand,
+  GlobalDictationRendererEvent,
+} from "../shared/global-dictation";
 
 declare module "*.css";
 
@@ -59,7 +63,6 @@ declare global {
       onWorkbenchCommand?: (
         callback: (invocation: WorkbenchCommandInvocation) => void,
       ) => () => void;
-      requestMicrophonePermission?: () => void;
       resolveManagedAssetPath?: (source: string) => string | null;
       inspectPasteClipboard?: () => ClipboardPasteInspectionResult;
       readPasteClipboard?: () => Promise<ClipboardPastePayload>;
@@ -83,6 +86,11 @@ declare global {
         items: NativeContextMenuItem[],
         options?: NativeContextMenuOptions,
       ) => Promise<string | null>;
+    };
+    globalDictation?: {
+      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+      onCommand: (callback: (command: GlobalDictationRendererCommand) => void) => () => void;
+      sendEvent: (event: GlobalDictationRendererEvent) => Promise<boolean>;
     };
   }
 }

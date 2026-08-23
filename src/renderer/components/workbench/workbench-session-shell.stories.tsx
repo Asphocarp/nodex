@@ -1603,7 +1603,6 @@ function installStoryApi(readSessionsByProject: () => Record<string, ProjectSess
       awaitInitialization: async () => undefined,
       onInitializationStep: () => () => undefined,
       reportInitializationReady: () => undefined,
-      requestMicrophonePermission: () => undefined,
       inspectPasteClipboard: () => ({ items: [] }),
       readPasteClipboard: async () => ({}),
       getPathInfoForFile: () => null,

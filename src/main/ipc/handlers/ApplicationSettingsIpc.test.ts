@@ -6,6 +6,7 @@ import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { ApplicationMenuRuntime } from "../../host-runtime/ApplicationMenuRuntime";
+import { DictationRuntime } from "../../host-runtime/DictationRuntime";
 import { StoreAdministrationSchedulerRuntime } from "../../host-runtime/StoreAdministrationSchedulerRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
@@ -28,6 +29,9 @@ it.effect("owns the complete application settings ingress with the Main Scope", 
       on: () => Effect.void,
     } as ElectronIpc["Service"]);
     const menus = ApplicationMenuRuntime.of({ refresh: () => undefined });
+    const dictation = DictationRuntime.of({
+      syncCommandKeymap: () => Effect.void,
+    } as unknown as DictationRuntime["Service"]);
     const schedulers = StoreAdministrationSchedulerRuntime.of({
       configureBackup: () => Effect.void,
     } as unknown as StoreAdministrationSchedulerRuntime["Service"]);
@@ -41,6 +45,7 @@ it.effect("owns the complete application settings ingress with the Main Scope", 
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ApplicationMenuRuntime, menus),
+            Layer.succeed(DictationRuntime, dictation),
             Layer.succeed(StoreAdministrationSchedulerRuntime, schedulers),
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
@@ -53,7 +58,6 @@ it.effect("owns the complete application settings ingress with the Main Scope", 
 
     assert.deepEqual([...handlers.keys()].sort(), [
       "codex-command-keymap-state",
-      "global-dictation-capture-fn-hotkey",
       "reset-codex-command-keybindings",
       "set-codex-command-keybinding",
       "settings:backup:get",

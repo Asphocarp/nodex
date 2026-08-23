@@ -26,6 +26,12 @@ export interface ChatGptDesktopRequestInput {
   action: string;
   refreshOn401?: boolean;
   missingAuthErrorMessage?: string;
+  signal?: AbortSignal;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The request was aborted", "AbortError");
 }
 
 function isChatGptAuthMethod(value: string | null | undefined): boolean {
@@ -128,6 +134,7 @@ async function readChatGptAuthToken(
   refreshToken: boolean,
 ): Promise<string> {
   const authStatus = await deps.readAuthStatus({ includeToken: true, refreshToken });
+  throwIfAborted(input.signal);
   const authToken = typeof authStatus.authToken === "string" ? authStatus.authToken.trim() : "";
   if (!isChatGptAuthMethod(authStatus.authMethod) || authToken.length === 0) {
     throw new Error(resolveMissingAuthErrorMessage(input));
@@ -153,6 +160,7 @@ async function performRequest(
       deps.getAppVersion,
     ),
     body: toChatGptDesktopFetchBody(prepared.body),
+    signal: input.signal,
   });
 }
 
@@ -160,8 +168,10 @@ export async function requestChatGptDesktop(
   deps: ChatGptDesktopRequestDependencies,
   input: ChatGptDesktopRequestInput,
 ): Promise<Response> {
+  throwIfAborted(input.signal);
   const authToken = await readChatGptAuthToken(deps, input, false);
   const response = await performRequest(deps, input, authToken);
+  throwIfAborted(input.signal);
   if (response.status !== 401 || input.refreshOn401 === false) {
     return response;
   }
