@@ -12,9 +12,10 @@ import type {
   CodexThreadStreamCheckpoint,
 } from "../../shared/types";
 import type { CodexCanonicalSteeringUserMessageItem } from "../../shared/codex-conversation-state/codex-conversation-state";
-import type { Turn } from "@nodex/codex-app-server-protocol/v2";
+import type { ThreadGoal, Turn } from "@nodex/codex-app-server-protocol/v2";
 import {
   reduceCodexConversationEventWithEffects,
+  type CodexConversationReducerContext,
   type CodexConversationReducerEffect,
 } from "../../shared/codex-conversation-state/codex-conversation-reducer";
 import {
@@ -46,7 +47,9 @@ import {
 } from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
 import {
   reduceCodexConversationCommandOutput,
+  reduceCodexConversationTerminalCommands,
   type CodexCommandExecutionMutationDisposition,
+  type CodexTerminalCommandUpdate,
 } from "../../shared/codex-conversation-state/codex-command-execution-stream";
 import {
   appendCodexCommandOutputTail,
@@ -222,6 +225,11 @@ export interface CodexConversationAggregate {
     readonly observedAtMs: number;
     readonly projectReplica: boolean;
   }) => readonly CodexCommandExecutionMutationDisposition[];
+  readonly commitTerminalCommands: (input: {
+    readonly update: CodexTerminalCommandUpdate;
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => CodexCommandExecutionMutationDisposition;
   readonly commitServerRequestLifecycle: (
     input: CodexConversationServerRequestLifecycleCommit & {
       readonly observedAtMs: number;
@@ -234,8 +242,17 @@ export interface CodexConversationAggregate {
     readonly observedAtMs: number;
     readonly projectReplica: boolean;
     readonly createId: () => `${string}-${string}-${string}-${string}-${string}`;
+    readonly reducerContext?: Pick<
+      CodexConversationReducerContext,
+      "consumeContextCompactionSource" | "resolveCollabReceiverThread"
+    >;
   }) => CodexConversationProtocolEventCommitResult;
   readonly completePlanImplementation: (turnId: string, projectReplica: boolean) => boolean;
+  /** Revision-fences and projects the goal observed after one completed Thread resume. */
+  readonly commitPostResumeGoalHydration: (input: {
+    readonly expectedRevision: number;
+    readonly goal: ThreadGoal | null;
+  }) => boolean;
   /** Admits one optimistic Main-owned turn into canonical state and every accepted projection. */
   readonly admitOptimisticTurn: (input: {
     readonly params: CodexCanonicalLiveTurnParams;
@@ -912,6 +929,34 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
         }
         return dispositions;
       },
+      commitTerminalCommands: ({ update, observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return "noTurns";
+        const result = reduceCodexConversationTerminalCommands(before, update);
+        if (!result.stateChanged) return result.disposition;
+        aggregate.canonicalState = result.state;
+        if (aggregate.snapshot) {
+          aggregate.snapshot = projectCodexConversationSnapshot({
+            conversation: aggregate.snapshot,
+            before,
+            after: result.state,
+            observedAtMs,
+          });
+        }
+        if (projectReplica && aggregate.acceptedReplica) {
+          acceptReplica({
+            conversation: projectCodexConversationSnapshot({
+              conversation: aggregate.acceptedReplica.conversation,
+              before,
+              after: result.state,
+              observedAtMs,
+            }),
+            ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+            revision: aggregate.revision + 1,
+          });
+        }
+        return result.disposition;
+      },
       readServerRequestState: () => {
         const canonicalState = aggregate.canonicalState;
         return {
@@ -989,13 +1034,19 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           hasUnreadTurn,
         };
       },
-      commitProtocolNotification: ({ notification, observedAtMs, projectReplica, createId }) => {
+      commitProtocolNotification: ({
+        notification,
+        observedAtMs,
+        projectReplica,
+        createId,
+        reducerContext,
+      }) => {
         const before = aggregate.canonicalState;
         if (!before) return { effects: [], stateChanged: false };
         const reduced = reduceCodexConversationEventWithEffects(
           before,
           { type: "notification", notification },
-          { now: () => observedAtMs, createId },
+          { now: () => observedAtMs, createId, ...reducerContext },
         );
         return {
           effects: reduced.effects,
@@ -1018,6 +1069,44 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
             conversation,
             ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
             revision: aggregate.revision + 1,
+          });
+        }
+        return true;
+      },
+      commitPostResumeGoalHydration: ({ expectedRevision, goal }) => {
+        if (aggregate.revision !== expectedRevision) return false;
+
+        const project = (conversation: CodexConversationSnapshot): CodexConversationSnapshot => ({
+          ...conversation,
+          threadGoal: goal,
+          completedThreadGoal: goal?.status === "complete" ? goal : null,
+          threadGoalResumeConfirmation: null,
+        });
+        if (aggregate.canonicalState) {
+          aggregate.canonicalState = {
+            ...aggregate.canonicalState,
+            sidecar: {
+              ...aggregate.canonicalState.sidecar,
+              threadGoal: goal,
+              completedThreadGoal: goal?.status === "complete" ? goal : null,
+              threadGoalResumeConfirmation: null,
+            },
+          };
+        }
+        if (aggregate.snapshot) {
+          aggregate.snapshot = {
+            ...project(aggregate.snapshot),
+            canonicalState: aggregate.canonicalState,
+          };
+        }
+        if (aggregate.acceptedReplica) {
+          acceptReplica({
+            conversation: {
+              ...project(aggregate.acceptedReplica.conversation),
+              canonicalState: aggregate.canonicalState,
+            },
+            ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+            revision: aggregate.revision,
           });
         }
         return true;

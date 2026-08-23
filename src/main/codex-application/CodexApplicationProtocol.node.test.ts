@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
+import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -25,10 +26,7 @@ import {
   CodexPendingServerRequestRuntime,
   make as makePending,
 } from "./CodexPendingServerRequestRuntime";
-import {
-  CodexProtocolNotificationProjection,
-  live as protocolNotificationProjectionLive,
-} from "./CodexProtocolNotificationProjection";
+import { CodexProtocolNotificationEffects } from "./CodexProtocolNotificationEffects";
 import {
   CodexRendererConversationCoordinator,
   type CodexRendererConversationCoordinatorService,
@@ -101,16 +99,6 @@ const withProtocol = <A, E>(
     );
     const oneShotContext = yield* Layer.buildWithScope(oneShotServerRequestsLive, rootScope);
     const oneShot = Context.get(oneShotContext, CodexOneShotServerRequests);
-    const notificationContext = yield* Layer.buildWithScope(
-      protocolNotificationProjectionLive({ supportsChatGptApps: true }).pipe(
-        Layer.provide(Layer.succeed(CodexApplicationEventHub, applicationEvents)),
-      ),
-      rootScope,
-    );
-    const notificationProjection = Context.get(
-      notificationContext,
-      CodexProtocolNotificationProjection,
-    );
     const rendererRegistry = yield* makeRendererRegistry().pipe(
       Effect.provideService(Scope.Scope, rootScope),
     );
@@ -141,6 +129,18 @@ const withProtocol = <A, E>(
           contentItems: [{ type: "inputText", text: params.tool }],
         }),
     });
+    const notificationEffects = CodexProtocolNotificationEffects.of({
+      apply: ({ notification }) =>
+        Effect.sync(() => {
+          if (notification.method !== "serverRequest/resolved") return;
+          const entries = pending.takeAll(
+            "user-input",
+            notification.params.requestId,
+            (entry) => entry.threadId === notification.params.threadId,
+          );
+          for (const entry of entries) pending.complete(entry, CodexAppServerNoResponse);
+        }),
+    });
 
     const protocol = yield* makeProtocol.pipe(
       Effect.provideService(CodexApplicationEventHub, applicationEvents),
@@ -148,7 +148,7 @@ const withProtocol = <A, E>(
       Effect.provideService(CodexAutomationInbox, automationInbox),
       Effect.provideService(CodexOneShotServerRequests, oneShot),
       Effect.provideService(CodexPendingServerRequestRuntime, pending),
-      Effect.provideService(CodexProtocolNotificationProjection, notificationProjection),
+      Effect.provideService(CodexProtocolNotificationEffects, notificationEffects),
       Effect.provideService(CodexRendererConversationCoordinator, coordinator),
       Effect.provideService(CodexRendererConversationRegistry, rendererRegistry),
       Effect.provideService(CodexUserInputAutoResolution, autoResolution),
@@ -311,7 +311,7 @@ it.effect("keeps one-shot requests outside a blocked Thread command lane", () =>
 );
 
 it.effect("commits a request before the following resolution notification in the same Thread", () =>
-  withProtocol(({ inbox, conversations }) =>
+  withProtocol(({ inbox }) =>
     Effect.gen(function* () {
       const generationScope = yield* Scope.make();
       const generation = yield* inbox
@@ -336,7 +336,6 @@ it.effect("commits a request before the following resolution notification in the
         assert.strictEqual(settlement.value.occurrence, request);
         assert.strictEqual(settlement.value.outcome.kind, "result");
       }
-      assert.deepEqual(conversations.conversation("thread-a").readServerRequests(), []);
       yield* Scope.close(generationScope, Exit.void);
     }),
   ),

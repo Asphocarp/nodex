@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { RequestId } from "@nodex/codex-app-server-protocol";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
@@ -18,19 +17,12 @@ import type { CodexNotificationConversationFacts } from "../../shared/codex-thre
 import { extractCodexThreadSpawnMetadata } from "../../shared/codex-subagent-metadata";
 import type { CodexCanonicalServerRequest } from "../../shared/codex-conversation-state/codex-conversation-state";
 import {
-  reduceCodexConversationServerRequestResolved,
   reduceCodexConversationServerRequest,
-  reduceCodexServerRequestResolvedRawState,
   reduceCodexServerRequestRawState,
   type CodexServerRequestLifecycleResult,
   type CodexServerRequestRawLifecycleResult,
 } from "../../shared/codex-conversation-state/codex-server-request-lifecycle";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
-import {
-  getCodexThreadOwnerNotificationThreadId,
-  isCodexThreadOwnerNotification,
-} from "../../shared/types";
-import { parseThreadStatus } from "./CodexThreadCatalogProjection";
 import { parseCodexAppServerMessage } from "../codex/codex-app-server-message-parser";
 import {
   CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
@@ -50,7 +42,10 @@ import {
   isCodexOneShotServerRequest,
 } from "./CodexOneShotServerRequests";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
-import { CodexProtocolNotificationProjection } from "./CodexProtocolNotificationProjection";
+import {
+  codexProtocolNotificationThreadId,
+  CodexProtocolNotificationEffects,
+} from "./CodexProtocolNotificationEffects";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
@@ -288,7 +283,7 @@ export const make: Effect.Effect<
   | CodexAutomationInbox
   | CodexOneShotServerRequests
   | CodexPendingServerRequestRuntime
-  | CodexProtocolNotificationProjection
+  | CodexProtocolNotificationEffects
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
   | CodexUserInputAutoResolution
@@ -301,7 +296,7 @@ export const make: Effect.Effect<
   const automationInbox = yield* CodexAutomationInbox;
   const oneShot = yield* CodexOneShotServerRequests;
   const pending = yield* CodexPendingServerRequestRuntime;
-  const notificationProjection = yield* CodexProtocolNotificationProjection;
+  const notificationEffects = yield* CodexProtocolNotificationEffects;
   const renderer = yield* CodexRendererConversationCoordinator;
   const rendererRegistry = yield* CodexRendererConversationRegistry;
   const autoResolution = yield* CodexUserInputAutoResolution;
@@ -514,88 +509,10 @@ export const make: Effect.Effect<
     return ProtocolRequestPending;
   });
 
-  const settleResolvedRequest = Effect.fn("CodexApplicationProtocol.settleResolvedRequest")(
-    function* (threadId: string, requestId: RequestId) {
-      renderer.clearRequestDelivery(threadId, requestId);
-      yield* autoResolution.observeServerResolution(threadId, requestId);
-      applicationEvents.publish({
-        kind: "threadNotification",
-        value: {
-          type: "request-resolved",
-          hostId: DEFAULT_CODEX_HOST_ID,
-          conversationId: threadId,
-          requestId,
-        },
-      });
-      const complete = <Kind extends Parameters<typeof pending.takeAll>[0]>(kind: Kind) => {
-        const entries = pending.takeAll(kind, requestId, (entry) => entry.threadId === threadId);
-        for (const entry of entries)
-          pending.complete(entry as never, CodexAppServerNoResponse as never);
-      };
-      complete("approval");
-      complete("dynamic-tool");
-      complete("mcp-elicitation");
-      complete("permission");
-      complete("private");
-      complete("user-input");
-    },
-  );
-
-  const observeNotification = Effect.fn("CodexApplicationProtocol.observeNotification")(function* (
+  const observeNotification = (
     notification: CodexServerNotification,
-  ) {
-    if (yield* notificationProjection.observe(notification)) return;
-    if (!isCodexThreadOwnerNotification(notification)) return;
-    const threadId = getCodexThreadOwnerNotificationThreadId(notification);
-    const ownerRouted = renderer.forwardNotificationForConversation(threadId, notification);
-    const observedAtMs = yield* Clock.currentTimeMillis;
-    const aggregate = conversations.currentConversation(threadId);
-    if (notification.method === "serverRequest/resolved" && aggregate) {
-      const state = aggregate.readServerRequestState();
-      if (state.canonicalState) {
-        const lifecycle = reduceCodexConversationServerRequestResolved(
-          state.canonicalState,
-          notification,
-          { now: () => observedAtMs },
-        );
-        aggregate.commitServerRequestLifecycle({
-          kind: "canonical",
-          before: state.canonicalState,
-          lifecycle,
-          observedAtMs,
-          projectReplica: !ownerRouted,
-        });
-      } else {
-        aggregate.commitServerRequestLifecycle({
-          kind: "raw",
-          lifecycle: reduceCodexServerRequestResolvedRawState(state.rawState, notification, {
-            now: () => observedAtMs,
-          }),
-          observedAtMs,
-          projectReplica: !ownerRouted,
-        });
-      }
-      yield* settleResolvedRequest(threadId, notification.params.requestId);
-      return;
-    }
-    aggregate?.commitProtocolNotification({
-      notification,
-      observedAtMs,
-      projectReplica: !ownerRouted,
-      createId: () => randomUUID(),
-    });
-    if (notification.method !== "thread/status/changed") return;
-    const status = parseThreadStatus(notification.params.status);
-    applicationEvents.publish({
-      kind: "codex",
-      value: {
-        type: "threadStatus",
-        threadId,
-        statusType: status.statusType,
-        statusActiveFlags: status.statusActiveFlags,
-      },
-    });
-  });
+    occurrenceToken: number,
+  ): Effect.Effect<void> => notificationEffects.apply({ notification, occurrenceToken });
 
   const interpretOperation = (
     occurrence: CodexApplicationRequestOccurrence,
@@ -678,12 +595,15 @@ export const make: Effect.Effect<
   const observe: CodexApplicationProtocol["Service"]["observe"] = (occurrence) => {
     const notification = parseNotification(occurrence);
     if (!notification) return Effect.void;
-    if (!isCodexThreadOwnerNotification(notification)) {
+    const threadId = codexProtocolNotificationThreadId(notification);
+    if (!threadId) {
       return inbox
-        .interpretNotification(occurrence, observeNotification(notification))
+        .interpretNotification(
+          occurrence,
+          observeNotification(notification, occurrence.occurrenceToken),
+        )
         .pipe(Effect.asVoid);
     }
-    const threadId = getCodexThreadOwnerNotificationThreadId(notification);
     return inbox
       .interpretNotification(
         occurrence,
@@ -702,7 +622,9 @@ export const make: Effect.Effect<
             return buffered;
           }).pipe(
             Effect.flatMap((buffered) =>
-              buffered ? Effect.void : observeNotification(notification),
+              buffered
+                ? Effect.void
+                : observeNotification(notification, occurrence.occurrenceToken),
             ),
           ),
         ),
@@ -736,7 +658,10 @@ export const make: Effect.Effect<
     const notification = parseNotification(occurrence);
     if (!notification) return Effect.void;
     return inbox
-      .interpretNotification(occurrence, observeNotification(notification))
+      .interpretNotification(
+        occurrence,
+        observeNotification(notification, occurrence.occurrenceToken),
+      )
       .pipe(Effect.asVoid);
   };
 
@@ -867,7 +792,7 @@ export const live: Layer.Layer<
   | CodexAutomationInbox
   | CodexOneShotServerRequests
   | CodexPendingServerRequestRuntime
-  | CodexProtocolNotificationProjection
+  | CodexProtocolNotificationEffects
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
   | CodexUserInputAutoResolution
