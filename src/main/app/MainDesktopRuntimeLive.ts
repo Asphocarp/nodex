@@ -3239,10 +3239,10 @@ export const live: Layer.Layer<
 
         controller = {
           activate: Effect.sync(applicationWindows.focusLast),
-          prepareQuit: Effect.tryPromise({
-            try: applicationWindows.prepareQuit,
-            catch: (cause) => runtimeError("prepare-quit", cause),
-          }).pipe(Effect.as("continue" as const)),
+          prepareQuit: applicationWindows.prepareQuit.pipe(
+            Effect.mapError((cause) => runtimeError("prepare-quit", cause)),
+            Effect.as("continue" as const),
+          ),
           handleBootstrapEvent: (event) => {
             if (event.type === "open-url") {
               return deepLinks.handle(event.url).pipe(

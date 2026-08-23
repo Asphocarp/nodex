@@ -1,4 +1,6 @@
 import type { BrowserWindow } from "electron";
+import { it } from "@effect/vitest";
+import { Effect } from "effect";
 import { describe, expect, test, vi } from "vite-plus/test";
 import type { WindowSessionRecord } from "../../shared/window-session";
 import type { AcquiredWindowSession } from "../window-session-state";
@@ -26,7 +28,7 @@ describe("application window coordinator", () => {
     const source = browserWindow(7, sent);
     const create = vi.fn();
     const coordinator = createApplicationWindowCoordinator({
-      closeAll: async () => undefined,
+      closeAll: () => Effect.void,
       create,
       focusedWindow: () => source,
       reportFailure: vi.fn(),
@@ -58,7 +60,7 @@ describe("application window coordinator", () => {
     const rollback = vi.fn();
     const reportFailure = vi.fn();
     const coordinator = createApplicationWindowCoordinator({
-      closeAll: async () => undefined,
+      closeAll: () => Effect.void,
       create: () => {
         throw new Error("native creation failed");
       },
@@ -83,39 +85,41 @@ describe("application window coordinator", () => {
     });
   });
 
-  test("clones explicit Project context and owns quit preparation", async () => {
-    const cloned = session("window-cloned");
-    const created = browserWindow(9);
-    const create = vi.fn(() => created);
-    const beginApplicationQuit = vi.fn();
-    const closeAll = vi.fn(async () => undefined);
-    const all = [created];
-    const cloneSessionForWindow = vi.fn(() => cloned);
-    const coordinator = createApplicationWindowCoordinator({
-      closeAll,
-      create,
-      focusedWindow: () => null,
-      reportFailure: vi.fn(),
-      syncTitle: vi.fn(),
-      windows: {
-        all: () => all,
-        beginApplicationQuit,
-        cloneSessionForWindow,
-      } as unknown as WindowRuntimeService,
-    });
+  it.effect("clones explicit Project context and owns quit preparation", () =>
+    Effect.gen(function* () {
+      const cloned = session("window-cloned");
+      const created = browserWindow(9);
+      const create = vi.fn(() => created);
+      const beginApplicationQuit = vi.fn();
+      const closeAll = vi.fn(() => Effect.void);
+      const all = [created];
+      const cloneSessionForWindow = vi.fn(() => cloned);
+      const coordinator = createApplicationWindowCoordinator({
+        closeAll,
+        create,
+        focusedWindow: () => null,
+        reportFailure: vi.fn(),
+        syncTitle: vi.fn(),
+        windows: {
+          all: () => all,
+          beginApplicationQuit,
+          cloneSessionForWindow,
+        } as unknown as WindowRuntimeService,
+      });
 
-    coordinator.openForRequest(3, { activeProjectSessionId: "session-1" });
-    expect(cloneSessionForWindow).toHaveBeenCalledWith(3, {
-      activeProjectSessionId: "session-1",
-    });
-    expect(create).toHaveBeenCalledWith(cloned);
-    expect(created.show).toHaveBeenCalledOnce();
-    expect(created.focus).toHaveBeenCalledOnce();
+      coordinator.openForRequest(3, { activeProjectSessionId: "session-1" });
+      expect(cloneSessionForWindow).toHaveBeenCalledWith(3, {
+        activeProjectSessionId: "session-1",
+      });
+      expect(create).toHaveBeenCalledWith(cloned);
+      expect(created.show).toHaveBeenCalledOnce();
+      expect(created.focus).toHaveBeenCalledOnce();
 
-    await coordinator.prepareQuit();
-    expect(beginApplicationQuit).toHaveBeenCalledOnce();
-    expect(closeAll).toHaveBeenCalledWith(all);
-    coordinator.openForRequest(3, { activeProjectSessionId: "session-1" });
-    expect(create).toHaveBeenCalledOnce();
-  });
+      yield* coordinator.prepareQuit;
+      expect(beginApplicationQuit).toHaveBeenCalledOnce();
+      expect(closeAll).toHaveBeenCalledWith(all);
+      coordinator.openForRequest(3, { activeProjectSessionId: "session-1" });
+      expect(create).toHaveBeenCalledOnce();
+    }),
+  );
 });

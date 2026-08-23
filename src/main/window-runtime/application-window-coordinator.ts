@@ -1,4 +1,5 @@
 import type { BrowserWindow } from "electron";
+import { Effect } from "effect";
 import type { InitialProjectPresentation } from "../../shared/initial-project-welcome";
 import type {
   WindowRestorePolicy,
@@ -9,11 +10,14 @@ import type {
 } from "../../shared/window-session";
 import { REQUEST_NEW_WINDOW_HOST_CHANNEL } from "../../shared/window-navigation";
 import { safeSendToWindow } from "../ipc-safe-send";
+import type { RuntimeWindowShutdownError } from "../runtime-quit-coordinator";
 import type { AcquiredWindowSession } from "../window-session-state";
 import { captureWindowSessionBounds, type WindowRuntimeService } from "./WindowRuntime";
 
 export interface ApplicationWindowCoordinatorOptions {
-  readonly closeAll: (windows: readonly BrowserWindow[]) => Promise<void>;
+  readonly closeAll: (
+    windows: readonly BrowserWindow[],
+  ) => Effect.Effect<void, RuntimeWindowShutdownError>;
   readonly create: (session: WindowSessionRecord) => BrowserWindow;
   readonly focusedWindow: () => BrowserWindow | null;
   readonly reportFailure: (input: {
@@ -34,7 +38,7 @@ export interface ApplicationWindowCoordinator {
     request: WindowSessionNewWindowRequest,
   ) => void;
   readonly openStartup: (policy: WindowRestorePolicy) => void;
-  readonly prepareQuit: () => Promise<void>;
+  readonly prepareQuit: Effect.Effect<void, RuntimeWindowShutdownError>;
   readonly requestNew: () => void;
   readonly resolveSessionId: (webContentsId: number) => string | null;
   readonly saveLayout: (
@@ -157,11 +161,11 @@ export const createApplicationWindowCoordinator = (
         options.create(session);
       }
     },
-    prepareQuit: async () => {
+    prepareQuit: Effect.suspend(() => {
       accepting = false;
       options.windows.beginApplicationQuit();
-      await options.closeAll(options.windows.all());
-    },
+      return options.closeAll(options.windows.all());
+    }),
     requestNew,
     resolveSessionId: options.windows.resolveSessionId,
     saveLayout,

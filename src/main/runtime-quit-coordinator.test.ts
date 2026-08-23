@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, test } from "vite-plus/test";
+import { it } from "@effect/vitest";
+import { Effect, Fiber, Option } from "effect";
+import { describe, expect } from "vite-plus/test";
 
 import {
   closeWindowsBeforeRuntimeShutdown,
@@ -25,30 +27,31 @@ class FakeWindow extends EventEmitter implements FlushableRuntimeWindow {
 }
 
 describe("closeWindowsBeforeRuntimeShutdown", () => {
-  test("waits for every renderer-driven close before allowing shutdown", async () => {
-    const first = new FakeWindow();
-    const second = new FakeWindow();
-    let settled = false;
-    const pending = closeWindowsBeforeRuntimeShutdown([first, second]).then(() => {
-      settled = true;
-    });
+  it.effect("waits for every renderer-driven close before allowing shutdown", () =>
+    Effect.gen(function* () {
+      const first = new FakeWindow();
+      const second = new FakeWindow();
+      const fiber = yield* Effect.forkChild(closeWindowsBeforeRuntimeShutdown([first, second]));
+      yield* Effect.yieldNow;
 
-    expect(first.closeCalls).toBe(1);
-    expect(second.closeCalls).toBe(1);
-    first.finishClose();
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    second.finishClose();
-    await pending;
-    expect(settled).toBe(true);
-  });
+      expect(first.closeCalls).toBe(1);
+      expect(second.closeCalls).toBe(1);
+      first.finishClose();
+      yield* Effect.yieldNow;
+      expect(Option.isNone(yield* Fiber.join(fiber).pipe(Effect.timeoutOption(0)))).toBe(true);
+      second.finishClose();
+      yield* Fiber.join(fiber);
+    }),
+  );
 
-  test("skips windows that are already destroyed", async () => {
-    const window = new FakeWindow();
-    window.destroyed = true;
+  it.effect("skips windows that are already destroyed", () =>
+    Effect.gen(function* () {
+      const window = new FakeWindow();
+      window.destroyed = true;
 
-    await closeWindowsBeforeRuntimeShutdown([window]);
+      yield* closeWindowsBeforeRuntimeShutdown([window]);
 
-    expect(window.closeCalls).toBe(0);
-  });
+      expect(window.closeCalls).toBe(0);
+    }),
+  );
 });
