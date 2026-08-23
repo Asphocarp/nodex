@@ -5,52 +5,80 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
+import type { CodexConversationSnapshot } from "../../shared/types";
+import { CodexActiveGoalContinuation } from "./CodexActiveGoalContinuation";
+import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
 import { CodexConversationHistoryRuntime } from "./CodexConversationHistoryRuntime";
-import {
-  make,
-  type CodexPostResumeGoalLoadResult,
-  type CodexPostResumeGoalRuntimeOptions,
-} from "./CodexPostResumeGoalRuntime";
+import { make } from "./CodexPostResumeGoalRuntime";
+import { CodexThreadGoalRuntime, type CodexThreadGoalLoadResult } from "./CodexThreadGoalRuntime";
+import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
-const goal = (threadId = "thread-1"): ThreadGoal => ({
+const threadId = "thread-goal";
+
+const goal: ThreadGoal = {
   threadId,
-  objective: "Finish the cut-over",
+  objective: "Finish the final Effect cut-over",
   status: "active",
   tokenBudget: null,
   tokensUsed: 1,
   timeUsedSeconds: 2,
   createdAt: 1,
   updatedAt: 2,
-});
+};
 
-const loaded = (threadId = "thread-1"): CodexPostResumeGoalLoadResult => ({
-  ok: true,
-  goal: goal(threadId),
-});
+const conversation = (): CodexConversationSnapshot =>
+  ({
+    threadId,
+    resumeState: "resumed",
+    requests: [],
+    queuedFollowUps: [],
+  }) as unknown as CodexConversationSnapshot;
 
-const options = (
-  overrides: Partial<CodexPostResumeGoalRuntimeOptions> = {},
-): CodexPostResumeGoalRuntimeOptions => ({
-  load: (threadId) => Effect.succeed(loaded(threadId)),
-  commit: () => true,
-  requestContinuation: () => {},
-  ...overrides,
-});
+const makeConversations = (revision = 1) => {
+  const aggregates = makeCodexConversationAggregateRegistry();
+  const aggregate = aggregates.acquire(threadId);
+  aggregate.acceptReplica({ conversation: conversation(), revision, ownerEpoch: 0 });
+  return {
+    aggregate,
+    service: ConversationRuntimeMap.of({
+      conversation: aggregates.acquire,
+      currentConversation: aggregates.current,
+    } as unknown as ConversationRuntimeMap["Service"]),
+  };
+};
 
-const makeRuntime = (
-  overrides: Partial<CodexPostResumeGoalRuntimeOptions> = {},
-  requestRemaining: (threadId: string) => void = () => {},
-) =>
-  make(options(overrides)).pipe(
+const makeRuntime = (input: {
+  readonly conversations: ConversationRuntimeMap["Service"];
+  readonly load: (threadId: string) => Effect.Effect<CodexThreadGoalLoadResult>;
+  readonly onContinuation?: (threadId: string) => void;
+  readonly onContinuationClear?: (threadId: string) => void;
+  readonly onHistoryRequest?: (threadId: string) => void;
+  readonly onHistoryClear?: (threadId: string) => void;
+}) =>
+  make.pipe(
+    Effect.provideService(
+      CodexThreadGoalRuntime,
+      CodexThreadGoalRuntime.of({
+        load: input.load,
+      } as unknown as CodexThreadGoalRuntime["Service"]),
+    ),
+    Effect.provideService(
+      CodexActiveGoalContinuation,
+      CodexActiveGoalContinuation.of({
+        request: (id) => Effect.sync(() => input.onContinuation?.(id)),
+        clear: (id) => Effect.sync(() => input.onContinuationClear?.(id)),
+      }),
+    ),
     Effect.provideService(
       CodexConversationHistoryRuntime,
       CodexConversationHistoryRuntime.of({
         loadPage: () => Effect.die("unused"),
         loadComplete: () => Effect.die("unused"),
-        requestRemaining,
-        clear: () => {},
+        requestRemaining: (id) => input.onHistoryRequest?.(id),
+        clear: (id) => input.onHistoryClear?.(id),
       }),
     ),
+    Effect.provideService(ConversationRuntimeMap, input.conversations),
   );
 
 const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void> =>
@@ -62,14 +90,15 @@ const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void>
     return yield* Effect.die(new Error(`Post-resume goal test did not settle: ${label}`));
   });
 
-it.effect("shares one goal load while each hydration keeps its own revision fence", () =>
+it.effect("shares one load while the aggregate enforces each caller's revision fence", () =>
   Effect.gen(function* () {
     const started = yield* Deferred.make<void>();
-    const release = yield* Deferred.make<CodexPostResumeGoalLoadResult>();
+    const release = yield* Deferred.make<CodexThreadGoalLoadResult>();
+    const conversations = makeConversations();
     let loads = 0;
-    const committedRevisions: number[] = [];
     let continuations = 0;
     const runtime = yield* makeRuntime({
+      conversations: conversations.service,
       load: () =>
         Effect.sync(() => {
           loads += 1;
@@ -77,112 +106,87 @@ it.effect("shares one goal load while each hydration keeps its own revision fenc
           Effect.andThen(Deferred.succeed(started, undefined)),
           Effect.andThen(Deferred.await(release)),
         ),
-      commit: (_threadId, expectedRevision) => {
-        committedRevisions.push(expectedRevision);
-        return expectedRevision === 2;
-      },
-      requestContinuation: () => {
+      onContinuation: () => {
         continuations += 1;
       },
     });
-    const stale = yield* Effect.forkChild(runtime.hydrate("thread-1", 1));
+
+    const stale = yield* runtime.hydrate(threadId, 1).pipe(Effect.forkChild);
     yield* Deferred.await(started);
-    const current = yield* Effect.forkChild(runtime.hydrate("thread-1", 2));
+    conversations.aggregate.acceptReplica({
+      conversation: conversation(),
+      revision: 2,
+      ownerEpoch: 0,
+    });
+    const current = yield* runtime.hydrate(threadId, 2).pipe(Effect.forkChild);
     yield* Effect.yieldNow;
-    assert.strictEqual(loads, 1);
-    yield* Deferred.succeed(release, loaded());
+    yield* Deferred.succeed(release, { ok: true, goal });
     yield* Fiber.join(stale);
     yield* Fiber.join(current);
-    assert.deepEqual(committedRevisions, [1, 2]);
+
+    assert.strictEqual(loads, 1);
+    assert.strictEqual(conversations.aggregate.readSnapshot()?.threadGoal, goal);
+    assert.strictEqual(
+      conversations.aggregate.read().acceptedReplica?.conversation.threadGoal,
+      goal,
+    );
+    assert.strictEqual(conversations.aggregate.read().revision, 2);
     assert.strictEqual(continuations, 1);
   }),
 );
 
-it.effect("coalesces background requests and commits their latest revision", () =>
+it.effect("coalesces background demand to the latest revision and schedules the history tail", () =>
   Effect.gen(function* () {
     const started = yield* Deferred.make<void>();
-    const release = yield* Deferred.make<CodexPostResumeGoalLoadResult>();
-    const committedRevisions: number[] = [];
+    const release = yield* Deferred.make<CodexThreadGoalLoadResult>();
+    const conversations = makeConversations();
     let continuations = 0;
-    let tailSchedules = 0;
-    const runtime = yield* makeRuntime(
-      {
-        load: () =>
-          Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release))),
-        commit: (_threadId, expectedRevision) => {
-          committedRevisions.push(expectedRevision);
-          return true;
-        },
-        requestContinuation: () => {
-          continuations += 1;
-        },
+    let historyRequests = 0;
+    const runtime = yield* makeRuntime({
+      conversations: conversations.service,
+      load: () =>
+        Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release))),
+      onContinuation: () => {
+        continuations += 1;
       },
-      () => {
-        tailSchedules += 1;
+      onHistoryRequest: () => {
+        historyRequests += 1;
       },
-    );
-    runtime.request("thread-1", 1);
-    yield* Deferred.await(started);
-    runtime.request("thread-1", 2);
-    yield* Deferred.succeed(release, loaded());
-    yield* waitUntil("background request", () => tailSchedules === 1);
-    assert.deepEqual(committedRevisions, [2]);
-    assert.strictEqual(continuations, 3);
-  }),
-);
-
-it.effect("releases one deferred post-resume flow exactly once", () =>
-  Effect.gen(function* () {
-    let tailSchedules = 0;
-    const runtime = yield* makeRuntime({}, () => {
-      tailSchedules += 1;
     });
-    runtime.defer("thread-1");
-    assert.isTrue(runtime.release("thread-1", 4));
-    assert.isFalse(runtime.release("thread-1", 4));
-    yield* waitUntil("deferred release", () => tailSchedules === 1);
-  }),
-);
 
-it.effect("clear interrupts an active load and suppresses its tail", () =>
-  Effect.gen(function* () {
-    const started = yield* Deferred.make<void>();
-    const interrupted = yield* Deferred.make<void>();
-    let tailSchedules = 0;
-    const runtime = yield* makeRuntime(
-      {
-        load: () =>
-          Deferred.succeed(started, undefined).pipe(
-            Effect.andThen(Effect.never),
-            Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
-          ),
-      },
-      () => {
-        tailSchedules += 1;
-      },
-    );
-    runtime.request("thread-1", 1);
+    runtime.request(threadId, 1);
     yield* Deferred.await(started);
-    runtime.clear("thread-1");
-    yield* Deferred.await(interrupted);
-    yield* Effect.yieldNow;
-    assert.strictEqual(tailSchedules, 0);
+    conversations.aggregate.acceptReplica({
+      conversation: conversation(),
+      revision: 2,
+      ownerEpoch: 0,
+    });
+    runtime.request(threadId, 2);
+    yield* Deferred.succeed(release, { ok: true, goal });
+    yield* waitUntil("background flow", () => historyRequests === 1);
+
+    assert.strictEqual(conversations.aggregate.readSnapshot()?.threadGoal, goal);
+    assert.strictEqual(conversations.aggregate.read().revision, 2);
+    assert.strictEqual(continuations, 2);
   }),
 );
 
-it.effect("Main Scope close interrupts every post-resume goal fiber", () =>
+it.effect("Main Scope close interrupts the shared physical load", () =>
   Effect.gen(function* () {
     const ownerScope = yield* Scope.make();
     const started = yield* Deferred.make<void>();
     const interrupted = yield* Deferred.make<void>();
+    const conversations = makeConversations();
     const runtime = yield* makeRuntime({
+      conversations: conversations.service,
       load: () =>
         Deferred.succeed(started, undefined).pipe(
           Effect.andThen(Effect.never),
           Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
         ),
     }).pipe(Effect.provideService(Scope.Scope, ownerScope));
-    runtime.request("thread-1", 1);
+
+    runtime.request(threadId, 1);
     yield* Deferred.await(started);
     yield* Scope.close(ownerScope, Exit.void);
     yield* Deferred.await(interrupted);
