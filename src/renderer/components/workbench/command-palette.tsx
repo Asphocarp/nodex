@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   NodexDialog as Dialog,
   NodexDialogContent as DialogContent,
@@ -22,7 +22,7 @@ import { useCommandPaletteThreadSearchIndex } from "@/lib/use-command-palette-th
 import { configureInteractivePageSearch } from "@/lib/interactive-page-search";
 import type { Project } from "@/lib/types";
 import type { RecentPageSession } from "@/lib/use-workbench-profile-preferences";
-import { CommandPaletteSurface } from "./command-palette-surface";
+import { CommandPaletteSurface, type CommandPaletteSurfaceHandle } from "./command-palette-surface";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -66,6 +66,7 @@ export function CommandPalette({
     refreshKey: openTriggerTick,
   });
   const [mode, setMode] = useState<CommandMenuMode>(initialMode);
+  const surfaceRef = useRef<CommandPaletteSurfaceHandle>(null);
   const threadSearchIndex = useCommandPaletteThreadSearchIndex(threads);
   const recentPageIds = useMemo(
     () => recentPageSessions.map((session) => session.pageId),
@@ -127,10 +128,15 @@ export function CommandPalette({
         showCloseButton={false}
         overlayClassName="bg-transparent"
         onOpenAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (!surfaceRef.current?.consumeEscape()) return;
+          event.preventDefault();
+        }}
         className="command-menu-dialog global-command-menu-dialog w-[min(520px,92vw)] max-w-none border-none bg-transparent p-0 shadow-none"
       >
         <DialogTitle className="sr-only">Command palette</DialogTitle>
         <CommandPaletteSurface
+          ref={surfaceRef}
           open={open}
           openTriggerTick={openTriggerTick}
           mode={mode}

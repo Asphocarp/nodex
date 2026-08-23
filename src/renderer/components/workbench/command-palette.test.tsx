@@ -1,5 +1,5 @@
 import { describe, expect, vi, test } from "vite-plus/test";
-import { createElement } from "react";
+import { createElement, createRef } from "react";
 import { act, fireEvent } from "@testing-library/react";
 import type {
   CommandPalettePage,
@@ -24,6 +24,7 @@ import {
 } from "../../../shared/window-navigation";
 import { TOGGLE_BOTTOM_PANEL_COMMAND_ID } from "../../../shared/workbench-commands";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../../shared/project-appearance";
+import type { CommandPaletteSurfaceHandle } from "./command-palette-surface";
 
 vi.mock("./threads-icon", () => ({
   ThreadsIcon: ({ className }: { className?: string }) => createElement("span", { className }, "T"),
@@ -421,6 +422,41 @@ function makePageSearchResult(
 }
 
 describe("CommandPaletteSurface", () => {
+  test("lets the dialog consume a non-empty query before closing", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const surfaceRef = createRef<CommandPaletteSurfaceHandle>();
+    const { getByLabelText } = render(
+      <CommandPaletteSurface
+        ref={surfaceRef}
+        open
+        openTriggerTick={1}
+        mode="root"
+        initialQuery="settings"
+        commands={[]}
+        loading={false}
+        pagesLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+    const input = getByLabelText("Command palette search") as HTMLInputElement;
+    expect(input.value).toBe("settings");
+
+    let consumed = false;
+    await act(async () => {
+      consumed = surfaceRef.current?.consumeEscape() ?? false;
+      await Promise.resolve();
+    });
+
+    expect(consumed).toBe(true);
+    expect(input.value).toBe("");
+    expect(surfaceRef.current?.consumeEscape()).toBe(false);
+  });
+
   test("opens the top fuzzy description match when the selected result is activated", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
     const executedItems: CommandPalettePage[] = [];

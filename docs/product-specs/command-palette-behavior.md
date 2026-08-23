@@ -76,7 +76,7 @@ Page mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode 
 - Query-fresh metadata rows appear in the input event. While Core body enrichment is pending, the final result slot is reserved for `Loading more Pages…`; `No matching pages.` appears only after the current query, filters, Project scope, and projection revision have settled with no matches.
 - Typing a newer query or closing the palette cancels obsolete body enrichment as normal control flow. Superseded work never produces a Main-process error or changes the current query to an unavailable state.
 - A failed enrichment keeps synchronous metadata rows and shows `Full Page search is unavailable`. It never falls back to an incomplete corpus assembled from mounted Boards.
-- Clicking `Filter` opens a transient popover with property filters for status, priority, tags, assignee, and project.
+- Clicking `Filter` opens a transient popover with property filters for status, priority, tags, assignee, and project. Closing it returns focus to the Page search field so typing and progressive Escape handling resume without an intervening tooltip layer.
 - When any palette filters are active, the palette shows a compact summary row directly under the input, using the same compact pill language as the DB view toolbar.
 - Palette Page filters persist across palette reopen and app reload, but the free-text query still clears on close.
 
