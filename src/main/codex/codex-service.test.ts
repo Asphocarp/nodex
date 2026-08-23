@@ -1846,6 +1846,7 @@ function createService(options?: {
     ) => {
       if (!service) throw new Error("Codex test service is not constructed");
       const resolvedTurnId = await service.prepareTurnInterruptForModule(threadId, turnId);
+      await serverRequestResponseAdapter.declineAll(threadId);
       const client = Reflect.get(service, "client") as {
         request: (method: string, params: unknown) => Promise<unknown>;
       };
@@ -8923,6 +8924,63 @@ describe("codex-service interrupt target resolution", () => {
 });
 
 describe("codex-service startTurn", () => {
+  test("keeps an accepted canonical turn when a post-commit projection fails", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+      markThreadAsActive: (threadId: string) => Promise<void>;
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
+      markAutomationRunAcceptedForUserContinuation: (threadId: string) => Promise<void>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+
+    serviceInternals.parseThreadRef = () => null;
+    serviceInternals.markThreadAsActive = async () => undefined;
+    serviceInternals.hydrateCanonicalConversationState(
+      makeCanonicalResumeResponse({
+        threadId: "thr_post_commit_failure",
+        initialTurnsPage: { data: [], nextCursor: null, backwardsCursor: null },
+      }),
+    );
+    serviceInternals.markAutomationRunAcceptedForUserContinuation = async () => {
+      throw new Error("post-commit projection failed");
+    };
+    client.start = async () => undefined;
+    client.request = async (method) => {
+      if (method !== "turn/start") throw new Error(`Unexpected method: ${method}`);
+      return {
+        turn: {
+          id: "turn_accepted",
+          items: [],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: 1,
+          completedAt: null,
+          durationMs: null,
+        },
+      };
+    };
+
+    try {
+      await expect(
+        service.startTurn("thr_post_commit_failure", "Keep the accepted turn"),
+      ).rejects.toThrow("post-commit projection failed");
+      const canonical = getCanonicalConversationState(service, "thr_post_commit_failure");
+      expect(canonical?.turns).toHaveLength(1);
+      expect(canonical?.turns[0]?.protocol.id).toBe("turn_accepted");
+      expect(canonical?.turns[0]?.protocol.status).toBe("inProgress");
+      expect(canonical?.turns[0]?.protocol.error).toBeNull();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("returns the immediate started turn payload without waiting for thread/read", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {

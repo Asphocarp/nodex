@@ -752,6 +752,21 @@ domain projection operations while those state owners are split further; it owns
 interrupt, or cleanup command and sends none of their protocol requests. The Module exposes only
 complete named commands, not a generic protocol request escape hatch.
 
+Starting a Turn on an existing Thread is a complete `CodexTurnCommands` transaction. The command
+holds the shared Thread-generation lane while it prepares the effective prompt, settings,
+permissions, workspace and authority plan, then enters the Project lifecycle gate before admitting
+the optimistic canonical mutation and the typed `turn/start` request. A Main-owned start may recover
+one missing app-server Thread and retry within that same transaction; a renderer-owned start never
+does so because its renderer remains the state authority. Response validation, authority binding,
+canonical binding and downstream projection commit precede success. Failure or Main Scope
+interruption before the protocol commit aborts pending authority and terminalizes the optimistic
+Turn exactly once; failure after an accepted and bound protocol response does not rewrite that Turn
+as failed. Renderer IPC invokes the Effect command directly. Transitional internal callers borrow a
+stateless Promise adapter, while `CodexService` supplies only the preparation and projection stages;
+it no longer owns the production request, missing-Thread retry policy, command lane or cancellation
+lifetime. Fresh-Thread launch remains a separate application transaction because it additionally
+owns reservation, adoption and first-Turn admission.
+
 Background-process discovery and local terminal actions are owned by `CodexBackgroundProcesses`.
 One owner-scoped read drains the typed app-server terminal cursor, degrades a failed live observation
 to the durable Project Workspace catalog, records successful observations, refreshes local PTY
@@ -988,14 +1003,15 @@ until their exact occurrence token is completed. Disconnect, history pruning,
 Thread cleanup, and Main Scope close all settle the same inbox. Canonical
 conversation reducers remain the sole owner of transcript/request truth.
 `CodexServerRequestResponses` is the only application command owner for renderer,
-automatic, interrupt-time, and synthetic plan-implementation responses. The shared Thread-generation lane serializes
-target resolution, follower-host forwarding, canonical transition, projection
-cleanup, and exact occurrence settlement. Its pure response kernel is shared by
-the legacy reducer test harness, but production concurrency and I/O remain in the
-Effect Module. A failed follower decision leaves the occurrence queued and the
-canonical request unchanged; duplicate physical occurrences receive one protocol
-response and explicit no-response settlement for the rest. Synthetic request
-completion uses the same lane even though it needs no transport occurrence.
+automatic, interrupt-time, and synthetic plan-implementation responses. The shared
+Thread-generation lane serializes target resolution, follower-host forwarding, canonical
+transition, projection cleanup, and exact occurrence settlement. A complete command that already
+holds that lane, such as Turn interruption, composes the explicitly internal in-transaction decline
+step rather than recursively acquiring the non-reentrant lane. Its pure response kernel is shared
+by the legacy reducer test harness, but production concurrency and I/O remain in the Effect Module.
+A failed follower decision leaves the occurrence queued and the canonical request unchanged;
+duplicate physical occurrences receive one protocol response and explicit no-response settlement
+for the rest. Synthetic request completion uses the same lane even though it needs no transport occurrence.
 Renderer IPC never calls responder methods on `CodexService`, and the class owns no response facade,
 completion callback, pending map, or shutdown path.
 

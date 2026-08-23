@@ -76,6 +76,10 @@ export interface CodexServerRequestResponsesService {
   readonly declineAll: (
     threadId: string,
   ) => Effect.Effect<void, CodexServerRequestResponseProjectionError>;
+  /** Internal composition step for a caller already holding the shared Thread command lane. */
+  readonly declineAllInTransaction: (
+    threadId: string,
+  ) => Effect.Effect<void, CodexServerRequestResponseProjectionError>;
 }
 
 export class CodexServerRequestResponses extends Context.Service<
@@ -106,46 +110,41 @@ export const make = (
     ): Effect.Effect<A, CodexServerRequestResponseProjectionError> =>
       Effect.try({ try: evaluate, catch: transactionError });
 
-    const approval: CodexServerRequestResponsesService["approval"] = (input) =>
+    const approvalInTransaction = (input: CodexApprovalResponseInput) =>
       sync(() => kernel.approvalTarget(input)).pipe(
-        Effect.flatMap((initial) => {
-          if (!initial) return Effect.succeed(false);
-          return runSerial(
-            initial.threadId,
-            sync(() => kernel.approvalTarget(input)).pipe(
-              Effect.flatMap((target) => {
-                if (!target) return Effect.succeed(false);
-                const normalized = { ...input, threadId: target.threadId };
-                return (
-                  target.follower
-                    ? options.projection.respondFollowerApproval(normalized)
-                    : Effect.void
-                ).pipe(Effect.andThen(sync(() => kernel.approval(normalized))));
-              }),
-            ),
-          );
+        Effect.flatMap((target) => {
+          if (!target) return Effect.succeed(false);
+          const normalized = { ...input, threadId: target.threadId };
+          return (
+            target.follower ? options.projection.respondFollowerApproval(normalized) : Effect.void
+          ).pipe(Effect.andThen(sync(() => kernel.approval(normalized))));
         }),
       );
+    const approval: CodexServerRequestResponsesService["approval"] = (input) =>
+      sync(() => kernel.approvalTarget(input)).pipe(
+        Effect.flatMap((target) =>
+          target ? runSerial(target.threadId, approvalInTransaction(input)) : Effect.succeed(false),
+        ),
+      );
 
+    const userInputInTransaction = (input: CodexUserInputResponseInput) =>
+      sync(() => kernel.userInput(input)).pipe(
+        Effect.flatMap((result) => {
+          if (!result.accepted || !result.observeResponse || !result.threadId) {
+            return Effect.succeed(result.accepted);
+          }
+          return options.projection
+            .observeUserInputResponse(result.threadId, input.requestId)
+            .pipe(Effect.as(true));
+        }),
+      );
     const userInput: CodexServerRequestResponsesService["userInput"] = (input) =>
       sync(
         () => input.threadId?.trim() || options.projection.resolveThreadId(input.requestId),
       ).pipe(
         Effect.flatMap((threadId) => {
           if (!threadId) return Effect.succeed(false);
-          return runSerial(
-            threadId,
-            sync(() => kernel.userInput({ ...input, threadId })).pipe(
-              Effect.flatMap((result) => {
-                if (!result.accepted || !result.observeResponse || !result.threadId) {
-                  return Effect.succeed(result.accepted);
-                }
-                return options.projection
-                  .observeUserInputResponse(result.threadId, input.requestId)
-                  .pipe(Effect.as(true));
-              }),
-            ),
-          );
+          return runSerial(threadId, userInputInTransaction({ ...input, threadId }));
         }),
       );
 
@@ -160,44 +159,103 @@ export const make = (
         (candidate) => requestedThreadId === undefined || candidate.threadId === requestedThreadId,
       )?.threadId ?? null;
 
+    const mcpElicitationInTransaction = (input: CodexMcpElicitationResponseInput) =>
+      sync(() => kernel.mcpElicitation(input));
     const mcpElicitation: CodexServerRequestResponsesService["mcpElicitation"] = (input) =>
       sync(() => pendingThreadId("mcp-elicitation", input.requestId, input.threadId)).pipe(
         Effect.flatMap((threadId) =>
           threadId
-            ? runSerial(
-                threadId,
-                sync(() => kernel.mcpElicitation({ ...input, threadId })),
-              )
+            ? runSerial(threadId, mcpElicitationInTransaction({ ...input, threadId }))
             : Effect.succeed(false),
         ),
       );
 
+    const permissionInTransaction = (input: CodexPermissionResponseInput) =>
+      sync(() => kernel.permission(input));
     const permission: CodexServerRequestResponsesService["permission"] = (input) =>
       sync(() => pendingThreadId("permission", input.requestId, input.threadId)).pipe(
         Effect.flatMap((threadId) =>
           threadId
-            ? runSerial(
-                threadId,
-                sync(() => kernel.permission({ ...input, threadId })),
-              )
+            ? runSerial(threadId, permissionInTransaction({ ...input, threadId }))
             : Effect.succeed(false),
         ),
       );
 
+    const optionPickerInTransaction = (input: CodexOptionPickerResponseInput) =>
+      sync(() => kernel.optionPicker(input));
     const optionPicker: CodexServerRequestResponsesService["optionPicker"] = (input) =>
-      runSerial(
-        input.threadId,
-        sync(() => kernel.optionPicker(input)),
-      );
+      runSerial(input.threadId, optionPickerInTransaction(input));
+    const setupContextPickerInTransaction = (input: CodexSetupContextPickerResponseInput) =>
+      sync(() => kernel.setupContextPicker(input));
     const setupContextPicker: CodexServerRequestResponsesService["setupContextPicker"] = (input) =>
-      runSerial(
-        input.threadId,
-        sync(() => kernel.setupContextPicker(input)),
-      );
+      runSerial(input.threadId, setupContextPickerInTransaction(input));
+    const setupCodexStepInTransaction = (input: CodexSetupCodexStepResponseInput) =>
+      sync(() => kernel.setupCodexStep(input));
     const setupCodexStep: CodexServerRequestResponsesService["setupCodexStep"] = (input) =>
-      runSerial(
-        input.threadId,
-        sync(() => kernel.setupCodexStep(input)),
+      runSerial(input.threadId, setupCodexStepInTransaction(input));
+
+    const declineAllInTransaction = (
+      threadId: string,
+    ): Effect.Effect<void, CodexServerRequestResponseProjectionError> =>
+      sync(() => [...kernel.requests(threadId)]).pipe(
+        Effect.flatMap((requests) =>
+          Effect.forEach(
+            requests,
+            (request) => {
+              switch (request.method) {
+                case "item/commandExecution/requestApproval":
+                  return approvalInTransaction({
+                    threadId,
+                    requestId: request.id,
+                    response: { kind: "command", decision: "decline" },
+                  }).pipe(Effect.asVoid);
+                case "item/fileChange/requestApproval":
+                  return approvalInTransaction({
+                    threadId,
+                    requestId: request.id,
+                    response: { kind: "file", decision: "decline" },
+                  }).pipe(Effect.asVoid);
+                case "item/permissions/requestApproval":
+                  return permissionInTransaction({
+                    threadId,
+                    requestId: request.id,
+                    response: { permissions: {}, scope: "turn" },
+                  }).pipe(Effect.asVoid);
+                case "item/tool/requestUserInput":
+                  return userInputInTransaction({
+                    threadId,
+                    requestId: request.id,
+                    answers: {},
+                  }).pipe(Effect.asVoid);
+                case "item/tool/requestOptionPicker":
+                  return optionPickerInTransaction({
+                    threadId,
+                    requestId: request.id,
+                    response: {
+                      action: "dismiss",
+                      selectedOptions: [],
+                      freeformAnswer: null,
+                    },
+                  }).pipe(Effect.asVoid);
+                case "item/tool/requestSetupCodexContextPicker":
+                  return setupContextPickerInTransaction({
+                    threadId,
+                    requestId: request.id,
+                    response: { action: "dismiss", selectedSources: [] },
+                  }).pipe(Effect.asVoid);
+                case "mcpServer/elicitation/request":
+                  return mcpElicitationInTransaction({
+                    threadId,
+                    requestId: request.id,
+                    response: "decline" as CodexMcpServerElicitationAction,
+                  }).pipe(Effect.asVoid);
+                default:
+                  return Effect.void;
+              }
+            },
+            { concurrency: 1, discard: true },
+          ),
+        ),
       );
 
     const service = CodexServerRequestResponses.of({
@@ -216,65 +274,8 @@ export const make = (
             return true;
           }),
         ),
-      declineAll: (threadId) =>
-        sync(() => [...kernel.requests(threadId)]).pipe(
-          Effect.flatMap((requests) =>
-            Effect.forEach(
-              requests,
-              (request) => {
-                switch (request.method) {
-                  case "item/commandExecution/requestApproval":
-                    return approval({
-                      threadId,
-                      requestId: request.id,
-                      response: { kind: "command", decision: "decline" },
-                    }).pipe(Effect.asVoid);
-                  case "item/fileChange/requestApproval":
-                    return approval({
-                      threadId,
-                      requestId: request.id,
-                      response: { kind: "file", decision: "decline" },
-                    }).pipe(Effect.asVoid);
-                  case "item/permissions/requestApproval":
-                    return permission({
-                      threadId,
-                      requestId: request.id,
-                      response: { permissions: {}, scope: "turn" },
-                    }).pipe(Effect.asVoid);
-                  case "item/tool/requestUserInput":
-                    return userInput({ threadId, requestId: request.id, answers: {} }).pipe(
-                      Effect.asVoid,
-                    );
-                  case "item/tool/requestOptionPicker":
-                    return optionPicker({
-                      threadId,
-                      requestId: request.id,
-                      response: {
-                        action: "dismiss",
-                        selectedOptions: [],
-                        freeformAnswer: null,
-                      },
-                    }).pipe(Effect.asVoid);
-                  case "item/tool/requestSetupCodexContextPicker":
-                    return setupContextPicker({
-                      threadId,
-                      requestId: request.id,
-                      response: { action: "dismiss", selectedSources: [] },
-                    }).pipe(Effect.asVoid);
-                  case "mcpServer/elicitation/request":
-                    return mcpElicitation({
-                      threadId,
-                      requestId: request.id,
-                      response: "decline" as CodexMcpServerElicitationAction,
-                    }).pipe(Effect.asVoid);
-                  default:
-                    return Effect.void;
-                }
-              },
-              { concurrency: 1, discard: true },
-            ),
-          ),
-        ),
+      declineAll: (threadId) => runSerial(threadId, declineAllInTransaction(threadId)),
+      declineAllInTransaction,
     });
     return service;
   });

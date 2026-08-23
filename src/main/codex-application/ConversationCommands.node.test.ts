@@ -13,6 +13,20 @@ import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
+import { CodexServerRequestResponses } from "./CodexServerRequestResponses";
+
+const serverRequestResponses = CodexServerRequestResponses.of({
+  approval: () => Effect.die("unused"),
+  userInput: () => Effect.die("unused"),
+  mcpElicitation: () => Effect.die("unused"),
+  permission: () => Effect.die("unused"),
+  optionPicker: () => Effect.die("unused"),
+  setupContextPicker: () => Effect.die("unused"),
+  setupCodexStep: () => Effect.die("unused"),
+  planImplementation: () => Effect.die("unused"),
+  declineAll: () => Effect.die("unused"),
+  declineAllInTransaction: () => Effect.void,
+});
 import { ConversationCommands, live as conversationCommandsLive } from "./ConversationCommands";
 
 it.effect("routes direct thread operations and drains background-terminal pages", () =>
@@ -119,11 +133,19 @@ it.effect("routes direct thread operations and drains background-terminal pages"
           }),
       }).pipe(
         Layer.provide(
-          Layer.merge(
+          Layer.mergeAll(
             Layer.succeed(CodexGateway, gateway),
             Layer.succeed(
               ConversationRuntimeMap,
               Context.get(runtimeContext, ConversationRuntimeMap),
+            ),
+            Layer.succeed(
+              CodexServerRequestResponses,
+              CodexServerRequestResponses.of({
+                ...serverRequestResponses,
+                declineAllInTransaction: (threadId) =>
+                  Effect.sync(() => projections.push(`decline-requests:${threadId}`)),
+              }),
             ),
           ),
         ),
@@ -173,9 +195,11 @@ it.effect("routes direct thread operations and drains background-terminal pages"
     );
     assert.deepEqual(projections, [
       "prepare-interrupt:thread-a:turn-explicit",
+      "decline-requests:thread-a",
       "apply-interrupt:thread-a:turn-explicit:true",
       "background-turns:thread-a",
       "prepare-interrupt:thread-a:turn-background",
+      "decline-requests:thread-a",
       "apply-interrupt:thread-a:turn-background:true",
       "background-cleaned:thread-a",
       "archive:thread-a",
@@ -224,12 +248,13 @@ it.effect("interrupts an active archive command when its owning Scope closes", (
         backgroundTerminalsCleaned: () => Effect.void,
       }).pipe(
         Layer.provide(
-          Layer.merge(
+          Layer.mergeAll(
             Layer.succeed(CodexGateway, gateway),
             Layer.succeed(
               ConversationRuntimeMap,
               Context.get(runtimeContext, ConversationRuntimeMap),
             ),
+            Layer.succeed(CodexServerRequestResponses, serverRequestResponses),
           ),
         ),
       ),

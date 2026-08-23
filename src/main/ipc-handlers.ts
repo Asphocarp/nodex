@@ -20,6 +20,7 @@ import type { ConversationCommands } from "./codex-application/ConversationComma
 import type { CodexBackgroundProcesses } from "./codex-application/CodexBackgroundProcesses";
 import type { CodexSubagentCatalog } from "./codex-application/CodexSubagentCatalog";
 import type { CodexServerRequestResponsesService } from "./codex-application/CodexServerRequestResponses";
+import type { CodexTurnCommandsService } from "./codex-application/CodexTurnCommands";
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
@@ -124,6 +125,7 @@ interface CodexIpcOptions {
   backgroundProcesses: CodexBackgroundProcesses["Service"];
   subagentCatalog: CodexSubagentCatalog["Service"];
   serverRequestResponses: CodexServerRequestResponsesService;
+  turnCommands: CodexTurnCommandsService;
   rendererClientRouter: RendererClientRuntimeService;
 }
 
@@ -760,11 +762,16 @@ export const codexIpcLive = (
           ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:turn:start",
-        (_, threadId: string, prompt: string, opts?: CodexTurnStartOptions) => {
-          return codexService.startTurn(threadId, prompt, opts);
-        },
+        (_, threadId: string, prompt: string, opts?: CodexTurnStartOptions) =>
+          options.turnCommands
+            .start(threadId, prompt, opts)
+            .pipe(
+              Effect.mapError(
+                (cause) => new CodexIpcError({ operation: "codex:turn:start", cause }),
+              ),
+            ),
       );
 
       registerEffectHandle(

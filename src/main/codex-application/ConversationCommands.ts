@@ -10,6 +10,10 @@ import type { CodexThreadSummary } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import {
+  CodexServerRequestResponses,
+  type CodexServerRequestResponseProjectionError,
+} from "./CodexServerRequestResponses";
 
 type BackgroundTerminal =
   ClientRequestResponsesByMethod["thread/backgroundTerminals/list"]["data"][number];
@@ -85,24 +89,44 @@ export class ConversationCommands extends Context.Service<
       threadId: string,
       turnId?: string,
       options?: { readonly syncDormantConversationUpdates?: boolean },
-    ) => Effect.Effect<boolean, CodexRuntimeError | ConversationCommandProjectionError>;
+    ) => Effect.Effect<
+      boolean,
+      | CodexRuntimeError
+      | ConversationCommandProjectionError
+      | CodexServerRequestResponseProjectionError
+    >;
     readonly cleanBackgroundTerminals: (
       threadId: string,
-    ) => Effect.Effect<boolean, CodexRuntimeError | ConversationCommandProjectionError>;
+    ) => Effect.Effect<
+      boolean,
+      | CodexRuntimeError
+      | ConversationCommandProjectionError
+      | CodexServerRequestResponseProjectionError
+    >;
     readonly cleanBackgroundTerminalsSilently: (
       threadId: string,
-    ) => Effect.Effect<boolean, CodexRuntimeError | ConversationCommandProjectionError>;
+    ) => Effect.Effect<
+      boolean,
+      | CodexRuntimeError
+      | ConversationCommandProjectionError
+      | CodexServerRequestResponseProjectionError
+    >;
   }
 >()("nodex/main/codex-application/ConversationCommands") {}
 
 export const live = (
   projection: ConversationCommandProjection,
-): Layer.Layer<ConversationCommands, never, CodexGateway | ConversationRuntimeMap> =>
+): Layer.Layer<
+  ConversationCommands,
+  never,
+  CodexGateway | ConversationRuntimeMap | CodexServerRequestResponses
+> =>
   Layer.effect(
     ConversationCommands,
     Effect.gen(function* () {
       const gateway = yield* CodexGateway;
       const conversations = yield* ConversationRuntimeMap;
+      const serverRequestResponses = yield* CodexServerRequestResponses;
       const runSerial = <A, E>(
         threadId: string,
         operation: Effect.Effect<A, E>,
@@ -130,8 +154,14 @@ export const live = (
         threadId: string,
         turnId: string | undefined,
         syncDormantConversationUpdates: boolean,
-      ): Effect.Effect<boolean, CodexRuntimeError | ConversationCommandProjectionError> =>
+      ): Effect.Effect<
+        boolean,
+        | CodexRuntimeError
+        | ConversationCommandProjectionError
+        | CodexServerRequestResponseProjectionError
+      > =>
         projection.prepareInterrupt(threadId, turnId).pipe(
+          Effect.tap(() => serverRequestResponses.declineAllInTransaction(threadId)),
           Effect.tap((resolvedTurnId) =>
             Effect.logWarning("Interrupting Codex turn").pipe(
               Effect.annotateLogs({

@@ -153,7 +153,12 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           setupCodexStep: () => Effect.die("unused"),
           planImplementation: () => Effect.die("unused"),
           declineAll: () => Effect.die("unused"),
+          declineAllInTransaction: () => Effect.die("unused"),
         }),
+        turnCommands: {
+          start: () => Effect.die("unused"),
+          startRendererOwned: () => Effect.die("unused"),
+        },
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),
           unarchive: () => Effect.die("unused"),
