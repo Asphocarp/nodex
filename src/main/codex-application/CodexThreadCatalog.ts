@@ -4,12 +4,17 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import {
+  CodexSidebarThreadMoveInputSchema,
+  type CodexSidebarThreadMoveInput,
+  type CodexSidebarThreadMoveResult,
+} from "../../shared/codex-sidebar-thread-move";
 import type { CodexSidebarSnapshot, ProjectSessionSummaryWindow } from "../../shared/types";
 import type { DesktopProjectWorkspaceSidebar } from "../core-client/project-workspace-adapter";
 import { CodexSidebarSyncRuntime, type CodexSidebarSyncMetadata } from "./CodexSidebarSyncRuntime";
 
 export class CodexThreadCatalogError extends Data.TaggedError("CodexThreadCatalogError")<{
-  readonly operation: "list-pinned" | "set-pinned" | "reorder-pinned" | "publish";
+  readonly operation: "list-pinned" | "set-pinned" | "reorder-pinned" | "move" | "publish";
   readonly cause: unknown;
 }> {}
 
@@ -25,6 +30,9 @@ export interface CodexThreadCatalogOptions {
   readonly reorderPinnedThreads: (
     orderedThreadIds: readonly string[],
   ) => Effect.Effect<void, CodexThreadCatalogError>;
+  readonly move: (
+    input: CodexSidebarThreadMoveInput,
+  ) => Effect.Effect<CodexSidebarThreadMoveResult, CodexThreadCatalogError>;
 }
 
 export class CodexThreadCatalog extends Context.Service<
@@ -39,6 +47,9 @@ export class CodexThreadCatalog extends Context.Service<
     readonly reorderPinned: (
       orderedThreadIds: readonly string[],
     ) => Effect.Effect<CodexSidebarSnapshot, CodexThreadCatalogError>;
+    readonly move: (
+      input: CodexSidebarThreadMoveInput,
+    ) => Effect.Effect<CodexSidebarThreadMoveResult, CodexThreadCatalogError>;
   }
 >()("nodex/main/codex-application/CodexThreadCatalog") {}
 
@@ -134,6 +145,13 @@ export const make = (
           options
             .reorderPinnedThreads(orderedThreadIds)
             .pipe(Effect.andThen(publish(emptyMetadata, true))),
+        ),
+      move: (input) =>
+        runMutation(
+          Effect.try({
+            try: () => CodexSidebarThreadMoveInputSchema.parse(input),
+            catch: (cause) => new CodexThreadCatalogError({ operation: "move", cause }),
+          }).pipe(Effect.flatMap(options.move)),
         ),
     });
   });

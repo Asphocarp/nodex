@@ -1,4 +1,8 @@
 import type { CodexSidebarSnapshot } from "../../shared/types";
+import type {
+  CodexSidebarThreadMoveInput,
+  CodexSidebarThreadMoveResult,
+} from "../../shared/codex-sidebar-thread-move";
 import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import { CodexThreadCatalogError, type CodexThreadCatalog } from "./CodexThreadCatalog";
 
@@ -10,6 +14,7 @@ export interface CodexThreadCatalogPromiseAdapter {
     beforeThreadId?: string | null,
   ) => Promise<CodexSidebarSnapshot>;
   readonly reorderPinned: (orderedThreadIds: readonly string[]) => Promise<CodexSidebarSnapshot>;
+  readonly move: (input: CodexSidebarThreadMoveInput) => Promise<CodexSidebarThreadMoveResult>;
 }
 
 const unwrapCatalogError = (error: unknown): never => {
@@ -29,4 +34,5 @@ export const makeCodexThreadCatalogPromiseAdapter = (
       .catch(unwrapCatalogError),
   reorderPinned: (orderedThreadIds) =>
     callbacks.runPromise(catalog.reorderPinned(orderedThreadIds)).catch(unwrapCatalogError),
+  move: (input) => callbacks.runPromise(catalog.move(input)).catch(unwrapCatalogError),
 });

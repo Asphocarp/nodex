@@ -71,6 +71,18 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
         }),
       reorderPinnedThreads: (threadIds) =>
         Effect.sync(() => void calls.push(`reorder:${threadIds.join(",")}`)),
+      move: (input) =>
+        Effect.sync(() => {
+          calls.push(`move:${input.threadId}`);
+          return {
+            status: "moved" as const,
+            threadId: input.threadId,
+            source: { projectId: null },
+            destination: { projectId: null },
+            operationId: "move-1",
+            projectionRevision: 2,
+          };
+        }),
     }).pipe(
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
       Effect.provideService(Scope.Scope, scope),
@@ -80,6 +92,17 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
     assert.deepEqual((yield* catalog.setPinned(" ", true)).pinnedThreadIds, []);
     assert.deepEqual((yield* catalog.setPinned(" thread-a ", true)).pinnedThreadIds, ["thread-a"]);
     assert.deepEqual((yield* catalog.reorderPinned(["thread-a"])).pinnedThreadIds, ["thread-a"]);
+    assert.strictEqual(
+      (yield* catalog.move({
+        hostId: "local",
+        threadId: "thread-a",
+        sourceContainerId: "chats",
+        targetContainerId: "pinned",
+        beforeThreadId: null,
+        useDefaultOrder: true,
+      })).status,
+      "moved",
+    );
     assert.deepEqual(calls, [
       "invalidate",
       "sync",
@@ -89,6 +112,7 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
       "reorder:thread-a",
       "invalidate",
       "publish::true",
+      "move:thread-a",
     ]);
 
     yield* Scope.close(scope, Exit.void);
@@ -118,6 +142,7 @@ it.effect("interrupts active and queued pin mutations with its owning Scope", ()
         Effect.sync(() => {
           reordered = true;
         }),
+      move: () => Effect.die("unused"),
     }).pipe(
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
       Effect.provideService(Scope.Scope, scope),

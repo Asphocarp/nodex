@@ -675,18 +675,15 @@ domain step that materializes one app-server page or one reconciliation batch an
 immutable cursor state. A temporary Promise adapter drains the current non-cancellable page before
 a forced refresh starts, but it owns no timer, retry counter, generation fence, or in-flight queue.
 
-Sidebar Thread moves across Project Workspace, app-server settings, and renderer projection pass
-through one global Effect semaphore. The semaphore is the sole single-writer admission owner;
-failure releases the permit, queued caller interruption removes that operation, and Main shutdown
-interrupts active and waiting projections through the application callback runtime. `CodexService`
-keeps the move's domain validation and state transition but owns no Promise chain or recovery tail.
-
-Thread Catalog pin state is owned by `CodexThreadCatalog`. Paginated pin reads, pin/unpin placement,
-and full pinned-order replacement share the Project Workspace source of truth; mutations pass through
-one Main-scoped semaphore and publish the exact Project/projectless invalidation through
+Thread Catalog placement is owned by `CodexThreadCatalog`. Paginated pin reads, pin/unpin placement,
+full pinned-order replacement, and cross-Project/sidebar-lane moves share the Project Workspace source
+of truth. All mutations pass through one Main-scoped semaphore; moves include validation, Project
+access confirmation, Workspace/settings/canonical consequences, and exact sidebar publication before
+releasing admission. Pin mutations publish the exact Project/projectless invalidation through
 `CodexSidebarSyncRuntime` only after Core commits. Renderer ingress calls the typed Module directly,
 while pending-worktree and dynamic-tool flows use a stateless tracked projection. Scope closure
-interrupts active and queued mutations. `CodexService` owns no public pin query or mutation command.
+interrupts active and queued mutations. `CodexService` owns no public placement command, Promise
+chain, semaphore, or recovery tail; it temporarily supplies only the move domain projection.
 
 Thread archive and unarchive are complete `ConversationCommands` transactions. A reference-counted
 per-Thread lane serializes the typed Gateway transition with automation/worktree cleanup, Project

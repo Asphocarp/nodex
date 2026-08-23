@@ -62,6 +62,7 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           listPinned: Effect.die("unused"),
           setPinned: () => Effect.die("unused"),
           reorderPinned: () => Effect.die("unused"),
+          move: () => Effect.die("unused"),
         }),
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),

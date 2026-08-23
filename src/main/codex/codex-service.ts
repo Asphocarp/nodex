@@ -212,7 +212,6 @@ import type { CodexExternalAgentImportRuntimePromiseAdapter } from "../codex-app
 import type { CodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
 import type { CodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import type { CodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
-import type { CodexSidebarThreadMoveRuntimePromiseAdapter } from "../codex-application/CodexSidebarThreadMoveRuntimePromiseAdapter";
 import type {
   CodexThreadHandoffPromiseEffects,
   CodexThreadHandoffRuntimePromiseAdapter,
@@ -235,7 +234,6 @@ import {
 import { stripCodexRemarkDirectiveLines } from "../../shared/codex-remark-directives";
 import { CODEX_CLIENT_THREAD_ID_PREFIX } from "../../shared/codex-client-thread";
 import {
-  CodexSidebarThreadMoveInputSchema,
   readCodexSidebarThreadContainerLocation,
   type CodexSidebarThreadMoveInput,
   type CodexSidebarThreadMoveResult,
@@ -1226,7 +1224,6 @@ type CodexServiceOptions = {
   heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
   dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
-  sidebarThreadMoveRuntime: CodexSidebarThreadMoveRuntimePromiseAdapter;
   threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
   pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
@@ -2370,7 +2367,6 @@ export class CodexService {
   private readonly heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   private readonly structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
   private readonly dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
-  private readonly sidebarThreadMoveRuntime: CodexSidebarThreadMoveRuntimePromiseAdapter;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
   private readonly gitSettingsResolver: () => CodexGitSettings;
@@ -2527,7 +2523,6 @@ export class CodexService {
     this.heartbeatTurnCompletion = options.heartbeatTurnCompletion;
     this.structuredThreadTitle = options.structuredThreadTitle;
     this.dynamicToolsLaunch = options.dynamicToolsLaunch;
-    this.sidebarThreadMoveRuntime = options.sidebarThreadMoveRuntime;
     this.threadHandoffRuntime = options.threadHandoffRuntime;
     this.pendingWorktreeRuntime = options.pendingWorktrees;
     this.threadSettingsRuntime = options.threadSettingsRuntime;
@@ -6761,7 +6756,8 @@ export class CodexService {
     return linked;
   }
 
-  private async runSidebarThreadMove(
+  /** Effect Module projection operation; callers use CodexThreadCatalog.move. */
+  async applySidebarThreadMove(
     input: CodexSidebarThreadMoveInput,
   ): Promise<CodexSidebarThreadMoveResult> {
     const threadId = input.threadId.trim();
@@ -6947,13 +6943,6 @@ export class CodexService {
       operationId: moved.operationId,
       projectionRevision: moved.projectionRevision,
     });
-  }
-
-  async moveSidebarThread(
-    input: CodexSidebarThreadMoveInput,
-  ): Promise<CodexSidebarThreadMoveResult> {
-    const parsed = CodexSidebarThreadMoveInputSchema.parse(input);
-    return await this.sidebarThreadMoveRuntime.run(() => this.runSidebarThreadMove(parsed));
   }
 
   async ensureSidebarThreadSession(threadId: string): Promise<ProjectSession | null> {

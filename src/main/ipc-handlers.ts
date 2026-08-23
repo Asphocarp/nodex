@@ -268,8 +268,14 @@ export const codexIpcLive = (
         return result;
       });
 
-      registerHandle("codex:sidebar:thread:move", (_, input) =>
-        codexService.moveSidebarThread(input),
+      registerEffectHandle("codex:sidebar:thread:move", (_, input) =>
+        options.threadCatalog
+          .move(input)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:sidebar:thread:move", cause }),
+            ),
+          ),
       );
 
       registerEffectHandle("codex:threads:pinned:list", () =>

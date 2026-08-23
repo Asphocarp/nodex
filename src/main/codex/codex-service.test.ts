@@ -213,9 +213,7 @@ interface TestableCodexService {
     policy?: import("../../shared/types").CodexSidebarRefreshPolicy;
     reason?: import("../../shared/types").CodexSidebarRefreshReason;
   }) => Promise<import("../../shared/types").CodexSidebarSyncResult>;
-  moveSidebarThread: (
-    input: import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveInput,
-  ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveResult>;
+  threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
   listCommandPaletteThreads: (input: {
     scope: "sidebar";
   }) => Promise<CommandPaletteThreadSummary[]>;
@@ -1820,6 +1818,12 @@ function createService(options?: {
         generatedAt: 1,
       };
     },
+    move: async (
+      input: import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveInput,
+    ) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.applySidebarThreadMove(input);
+    },
   };
   const pendingWorktrees = new CodexPendingWorktreeRuntime({
     createWorktree: async (entry, context) => {
@@ -2189,9 +2193,6 @@ function createService(options?: {
     },
     dynamicToolsLaunch: {
       load: (operation) => operation(),
-    },
-    sidebarThreadMoveRuntime: {
-      run: (operation) => operation(),
     },
     threadHandoffRuntime: threadHandoffRuntimeAdapter,
     pendingWorktrees,
@@ -2709,7 +2710,7 @@ describe("codex-service sidebar Thread Project moves", () => {
     };
 
     try {
-      const confirmation = await service.moveSidebarThread(moveInput);
+      const confirmation = await service.threadCatalog.move(moveInput);
       expect(confirmation).toEqual({
         status: "confirmation-required",
         reason: "target-project-needs-source-access",
@@ -2724,7 +2725,7 @@ describe("codex-service sidebar Thread Project moves", () => {
         throw new Error("Expected Project access confirmation");
       }
 
-      const moved = await service.moveSidebarThread({
+      const moved = await service.threadCatalog.move({
         ...moveInput,
         projectAccessGrant: {
           targetProjectId: confirmation.targetProjectId,
@@ -2751,7 +2752,7 @@ describe("codex-service sidebar Thread Project moves", () => {
         },
       });
 
-      const reordered = await service.moveSidebarThread({
+      const reordered = await service.threadCatalog.move({
         hostId: "local",
         threadId: "thread:move",
         sourceContainerId: "project:project:target",
@@ -2767,7 +2768,7 @@ describe("codex-service sidebar Thread Project moves", () => {
         afterThreadId: "thread:anchor",
       });
 
-      const removed = await service.moveSidebarThread({
+      const removed = await service.threadCatalog.move({
         hostId: "local",
         threadId: "thread:move",
         sourceContainerId: "project:project:target",
@@ -2854,7 +2855,7 @@ describe("codex-service sidebar Thread Project moves", () => {
     };
 
     try {
-      const moved = await service.moveSidebarThread({
+      const moved = await service.threadCatalog.move({
         hostId: "local",
         threadId: "thread:dormant-move",
         sourceContainerId: "project:project:source",

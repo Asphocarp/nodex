@@ -138,8 +138,6 @@ import {
 import { makeCodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import { make as makeCodexDynamicToolsLaunch } from "../codex-application/CodexDynamicToolsLaunch";
 import { makeCodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
-import { make as makeCodexSidebarThreadMoveRuntime } from "../codex-application/CodexSidebarThreadMoveRuntime";
-import { makeCodexSidebarThreadMoveRuntimePromiseAdapter } from "../codex-application/CodexSidebarThreadMoveRuntimePromiseAdapter";
 import { make as makeCodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
 import { makeCodexThreadHandoffRuntimePromiseAdapter } from "../codex-application/CodexThreadHandoffRuntimePromiseAdapter";
 import {
@@ -1427,6 +1425,11 @@ export const live: Layer.Layer<
               try: () => projectWorkspace.reorderPinnedThreads(orderedThreadIds),
               catch: (cause) => new CodexThreadCatalogError({ operation: "reorder-pinned", cause }),
             }).pipe(Effect.asVoid),
+          move: (input) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().applySidebarThreadMove(input),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "move", cause }),
+            }),
         }).pipe(
           Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
           Effect.provideService(Scope.Scope, runtimeScope),
@@ -1541,7 +1544,6 @@ export const live: Layer.Layer<
             Effect.sync(() => requireCodexService().releaseStructuredThreadTitleThread(threadId)),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
-        const sidebarThreadMoveRuntime = yield* makeCodexSidebarThreadMoveRuntime;
         const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime({
           prepare: (input) =>
             Effect.tryPromise({
@@ -1959,10 +1961,6 @@ export const live: Layer.Layer<
               ),
               dynamicToolsLaunch: makeCodexDynamicToolsLaunchPromiseAdapter(
                 dynamicToolsLaunch,
-                callbacks,
-              ),
-              sidebarThreadMoveRuntime: makeCodexSidebarThreadMoveRuntimePromiseAdapter(
-                sidebarThreadMoveRuntime,
                 callbacks,
               ),
               threadHandoffRuntime: makeCodexThreadHandoffRuntimePromiseAdapter(
