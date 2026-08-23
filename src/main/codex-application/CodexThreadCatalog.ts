@@ -364,6 +364,12 @@ export const make = (
       ) {
         return yield* error("move", new Error("Project access grant does not match its target"));
       }
+      if (input.projectAccessGrant && target.projectId === current.projectId) {
+        return yield* error(
+          "move",
+          new Error("Project access grant requires a cross-Project move"),
+        );
+      }
 
       const projects = yield* readProjects();
       const sourceProject = current.projectId
@@ -495,7 +501,7 @@ export const make = (
       if (!movedRaw) {
         return yield* error("move", new Error("Moved Task disappeared from Core"));
       }
-      if (workspaceMove.next.cwd) {
+      if (current.projectId !== target.projectId && workspaceMove.next.cwd) {
         yield* execution
           .relocate({
             threadId: input.threadId,

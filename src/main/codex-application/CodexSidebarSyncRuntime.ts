@@ -743,7 +743,7 @@ export const make = (
 
     const continueSweep = (initial: SweepState): Effect.Effect<void> => {
       const loop = (state: SweepState): Effect.Effect<void, CodexSidebarSyncError> =>
-        advanceSweep(state).pipe(
+        mutations.withPermit(advanceSweep(state)).pipe(
           Effect.tapCause((cause) =>
             Effect.logWarning("Could not continue background sidebar reconciliation").pipe(
               Effect.annotateLogs({
@@ -818,7 +818,9 @@ export const make = (
       readonly generation: number;
     }): Effect.Effect<CodexSidebarSyncResult, CodexSidebarSyncError> =>
       Effect.gen(function* () {
-        const attempt = yield* refresh(input).pipe(Effect.mapError(fail), Effect.result);
+        const attempt = yield* mutations
+          .withPermit(refresh(input))
+          .pipe(Effect.mapError(fail), Effect.result);
         if (attempt._tag === "Failure") {
           const failedAt = yield* Clock.currentTimeMillis;
           const state = stateFor(input.includeArchived);
