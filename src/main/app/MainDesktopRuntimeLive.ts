@@ -64,7 +64,6 @@ import {
   AgentImportOperationsError,
   make as makeAgentImportRuntime,
 } from "../codex-application/AgentImportRuntime";
-import { makeAgentImportRuntimePromiseAdapter } from "../codex-application/AgentImportRuntimePromiseAdapter";
 import {
   NodexAgentAuthorizationPersistenceError,
   NodexAgentAuthorizationRuntime,
@@ -1952,7 +1951,6 @@ export const live: Layer.Layer<
                 forkSidePanelTransfers,
                 callbacks,
               ),
-              agentImport: makeAgentImportRuntimePromiseAdapter(agentImport, callbacks),
               agentProviderRuntime,
               composerCatalog,
               desktopTools,
@@ -2697,6 +2695,7 @@ export const live: Layer.Layer<
             threadCatalog,
             sidebarSync,
             threadReadState,
+            agentImport,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

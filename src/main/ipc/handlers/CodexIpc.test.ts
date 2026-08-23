@@ -10,6 +10,7 @@ import { CodexThreadGoalRuntime } from "../../codex-application/CodexThreadGoalR
 import { CodexThreadSettingsRuntime } from "../../codex-application/CodexThreadSettingsRuntime";
 import { CodexThreadCatalog } from "../../codex-application/CodexThreadCatalog";
 import { CodexThreadReadState } from "../../codex-application/CodexThreadReadState";
+import { AgentImportRuntime } from "../../codex-application/AgentImportRuntime";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { CodexSidebarSyncRuntime } from "../../codex-application/CodexSidebarSyncRuntime";
@@ -75,6 +76,11 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         threadReadState: CodexThreadReadState.of({
           set: () => Effect.die("unused"),
           persistProjected: () => Effect.die("unused"),
+        }),
+        agentImport: AgentImportRuntime.of({
+          scan: () => Effect.die("unused"),
+          apply: () => Effect.die("unused"),
+          snapshot: Effect.die("unused"),
         }),
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),

@@ -2021,14 +2021,6 @@ function createService(options?: {
   });
   const testService = new CodexService({
     applicationEvents,
-    agentImport: {
-      scan: async () => {
-        throw new Error("Agent import is unavailable in this fixture");
-      },
-      apply: async () => {
-        throw new Error("Agent import is unavailable in this fixture");
-      },
-    },
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
       resolveExecutionProfile: async (requested) => requested,

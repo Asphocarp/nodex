@@ -20,6 +20,7 @@ import type { CodexThreadTitlePersistence } from "./codex-application/CodexThrea
 import type { ConversationCommands } from "./codex-application/ConversationCommands";
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
+import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -110,6 +111,7 @@ interface CodexIpcOptions {
   conversationCommands: ConversationCommands["Service"];
   sidebarSync: CodexSidebarSyncRuntime["Service"];
   threadReadState: CodexThreadReadState["Service"];
+  agentImport: AgentImportRuntime["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -356,42 +358,81 @@ export const codexIpcLive = (
         }
         throw new Error("Invalid agent import source");
       };
-      registerHandle("agent-import:scan", (_, input: AgentImportScanInput) => {
-        const sourceKind = parseAgentImportSourceKind(input?.sourceKind);
-        return codexService.scanAgentImport(sourceKind);
-      });
-      registerHandle(
-        "agent-import:scan-picked-home",
-        async (event, input: AgentImportScanInput) => {
-          const sourceKind = parseAgentImportSourceKind(input?.sourceKind);
-          if (sourceKind === "claude-code") {
-            throw new Error("Claude Code imports use its standard home directory");
-          }
-          const sourceHome = await showDirectoryPicker(event, {
-            buttonLabel: "Scan",
-            message: "The selected directory is read-only during import.",
-            properties: ["openDirectory"],
-            title: `Select ${sourceKind === "codex" ? "Codex" : "Open Interpreter"} home`,
-          });
-          if (!sourceHome) return null;
-          return await codexService.scanAgentImport(sourceKind, sourceHome);
-        },
+      registerEffectHandle("agent-import:scan", (_, input: AgentImportScanInput) =>
+        Effect.try({
+          try: () => parseAgentImportSourceKind(input?.sourceKind),
+          catch: (cause) => new CodexIpcError({ operation: "agent-import:scan", cause }),
+        }).pipe(
+          Effect.flatMap(options.agentImport.scan),
+          Effect.mapError((cause) =>
+            cause instanceof CodexIpcError
+              ? cause
+              : new CodexIpcError({ operation: "agent-import:scan", cause }),
+          ),
+        ),
       );
-      registerHandle("agent-import:apply", (_, input: AgentImportApplyInput) => {
-        if (
-          typeof input !== "object" ||
-          input === null ||
-          typeof input.scanId !== "string" ||
-          !Array.isArray(input.itemIds) ||
-          !input.itemIds.every((itemId) => typeof itemId === "string")
-        ) {
-          throw new Error("Invalid agent import selection");
-        }
-        return codexService.applyAgentImport({
-          itemIds: input.itemIds,
-          scanId: input.scanId,
-        });
-      });
+      registerEffectHandle("agent-import:scan-picked-home", (event, input: AgentImportScanInput) =>
+        Effect.try({
+          try: () => {
+            const sourceKind = parseAgentImportSourceKind(input?.sourceKind);
+            if (sourceKind === "claude-code") {
+              throw new Error("Claude Code imports use its standard home directory");
+            }
+            return sourceKind;
+          },
+          catch: (cause) =>
+            new CodexIpcError({ operation: "agent-import:scan-picked-home", cause }),
+        }).pipe(
+          Effect.flatMap((sourceKind) =>
+            Effect.tryPromise({
+              try: () =>
+                showDirectoryPicker(event, {
+                  buttonLabel: "Scan",
+                  message: "The selected directory is read-only during import.",
+                  properties: ["openDirectory"],
+                  title: `Select ${sourceKind === "codex" ? "Codex" : "Open Interpreter"} home`,
+                }),
+              catch: (cause) =>
+                new CodexIpcError({ operation: "agent-import:scan-picked-home", cause }),
+            }).pipe(
+              Effect.flatMap((sourceHome) =>
+                sourceHome
+                  ? options.agentImport.scan(sourceKind, sourceHome)
+                  : Effect.succeed(null),
+              ),
+            ),
+          ),
+          Effect.mapError((cause) =>
+            cause instanceof CodexIpcError
+              ? cause
+              : new CodexIpcError({ operation: "agent-import:scan-picked-home", cause }),
+          ),
+        ),
+      );
+      registerEffectHandle("agent-import:apply", (_, input: AgentImportApplyInput) =>
+        Effect.try({
+          try: () => {
+            if (
+              typeof input !== "object" ||
+              input === null ||
+              typeof input.scanId !== "string" ||
+              !Array.isArray(input.itemIds) ||
+              !input.itemIds.every((itemId) => typeof itemId === "string")
+            ) {
+              throw new Error("Invalid agent import selection");
+            }
+            return { itemIds: input.itemIds, scanId: input.scanId };
+          },
+          catch: (cause) => new CodexIpcError({ operation: "agent-import:apply", cause }),
+        }).pipe(
+          Effect.flatMap(options.agentImport.apply),
+          Effect.mapError((cause) =>
+            cause instanceof CodexIpcError
+              ? cause
+              : new CodexIpcError({ operation: "agent-import:apply", cause }),
+          ),
+        ),
+      );
 
       registerHandle("codex:projectless-thread-cwd", (_, rawInput) => {
         const input = parseCodexProjectlessThreadCwdInput(rawInput);

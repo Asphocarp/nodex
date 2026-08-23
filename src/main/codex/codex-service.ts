@@ -501,15 +501,8 @@ import type {
   AgentModelOption,
   AgentProviderCatalog,
 } from "../../shared/agent-runtime";
-import type {
-  AgentImportApplyInput,
-  AgentImportProgress,
-  AgentImportResult,
-  AgentImportScan,
-  AgentImportSourceKind,
-} from "../../shared/agent-import";
+import type { AgentImportProgress } from "../../shared/agent-import";
 import type { NativeSessionCandidate } from "./agent-import-operations";
-import type { AgentImportRuntimePromiseAdapter } from "../codex-application/AgentImportRuntimePromiseAdapter";
 import {
   cleanCodexAutoTitlePrompt,
   CODEX_THREAD_TITLE_PROMPT_MAX_CHARS,
@@ -1202,7 +1195,6 @@ type CodexServiceOptions = {
   composerCatalog: ComposerCatalogPromiseAdapter;
   preferences: Pick<CodexPreferences["Service"], "current">;
   permissions: CodexPermissionsPromiseAdapter;
-  agentImport: AgentImportRuntimePromiseAdapter;
   client: CodexGatewayPromiseClient;
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
@@ -2352,7 +2344,6 @@ export class CodexService {
   private readonly composerCatalog: ComposerCatalogPromiseAdapter;
   private readonly preferences: Pick<CodexPreferences["Service"], "current">;
   private readonly permissions: CodexPermissionsPromiseAdapter;
-  private readonly agentImport: AgentImportRuntimePromiseAdapter;
   private readonly runtimeStateHome: string;
   private readonly nodexAgentDynamicService: NodexAgentV3DynamicService | null;
   private readonly runtimeVersion: string | null;
@@ -2495,7 +2486,6 @@ export class CodexService {
     this.composerCatalog = options.composerCatalog;
     this.preferences = options.preferences;
     this.permissions = options.permissions;
-    this.agentImport = options.agentImport;
     const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
     this.desktopTools = options.desktopTools;
@@ -5962,17 +5952,6 @@ export class CodexService {
     readonly verifiedBuiltinFullAccess: boolean;
   }> {
     return await this.permissions.resolve({ projectId, requestedMode: mode, workspaceRoots });
-  }
-
-  async scanAgentImport(
-    sourceKind: AgentImportSourceKind,
-    selectedSourceHome?: string,
-  ): Promise<AgentImportScan> {
-    return await this.agentImport.scan(sourceKind, selectedSourceHome);
-  }
-
-  async applyAgentImport(input: AgentImportApplyInput): Promise<AgentImportResult> {
-    return await this.agentImport.apply(input);
   }
 
   projectAgentImportProgress(progress: AgentImportProgress): void {

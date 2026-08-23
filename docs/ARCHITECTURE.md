@@ -731,7 +731,9 @@ Codex Promise result from publishing state; progress callbacks enter a Module-ow
 late native callback cannot reach a replacement/closed application. The large import operations
 adapter is deliberately stateless: it performs source discovery, safe-copy/config policy, ledger
 publication, and Thread materialization callbacks, but owns no scan Map, in-flight Promise, clock,
-or shutdown path.
+or shutdown path. All three renderer import channels execute the typed owner directly; the directory
+picker remains the sole Electron Promise seam. `CodexService` receives only progress projections and
+owns no import command, runtime adapter, or lifecycle state.
 
 Heartbeat turn completion is one Main-scoped request/correlation capability. It subscribes to the
 generation-fenced Gateway stream before resolving the Thread host and starting the turn on that exact
