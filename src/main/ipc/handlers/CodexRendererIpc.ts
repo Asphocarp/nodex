@@ -8,10 +8,10 @@ import {
   parseCodexUserInputAutoResolutionTarget,
 } from "../../../shared/codex-user-input-auto-resolution";
 import { MainConfig } from "../../app/MainConfig";
+import { CodexAppProtocolTools } from "../../codex-application/CodexAppProtocolTools";
 import { CodexRendererConversationCoordinator } from "../../codex-application/CodexRendererConversationCoordinator";
 import { CodexRendererConversationRegistry } from "../../codex-application/CodexRendererConversationRegistry";
 import { CodexUserInputAutoResolution } from "../../codex-application/CodexUserInputAutoResolution";
-import type { CodexService } from "../../codex/codex-service";
 import type {
   RendererClientRuntimeService,
   RendererClientWebContents,
@@ -21,7 +21,6 @@ import { requireTrustedAppRendererSender } from "../../platform/electron/Trusted
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface CodexRendererIpcOptions {
-  readonly codex: CodexService;
   readonly rendererClients: RendererClientRuntimeService;
 }
 
@@ -42,6 +41,7 @@ export const live = (
   never,
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
+  | CodexAppProtocolTools
   | CodexUserInputAutoResolution
   | ElectronIpc
   | MainConfig
@@ -52,6 +52,7 @@ export const live = (
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
       const coordinator = yield* CodexRendererConversationCoordinator;
+      const codexAppTools = yield* CodexAppProtocolTools;
       const rendererConversations = yield* CodexRendererConversationRegistry;
       const userInputAutoResolution = yield* CodexUserInputAutoResolution;
       const windows = yield* WindowRuntime;
@@ -73,12 +74,6 @@ export const live = (
           },
           catch: (cause) => new CodexRendererIpcError({ operation: "authorize-renderer", cause }),
         });
-      const invoke = <A>(operation: string, task: () => A | Promise<A>) =>
-        Effect.tryPromise({
-          try: () => Promise.resolve(task()),
-          catch: (cause) => new CodexRendererIpcError({ operation, cause }),
-        });
-
       yield* handle("codex:renderer-client:id", (event) => authorize(event));
       yield* handle("codex:renderer-client:response", (event, response) =>
         authorize(event).pipe(
@@ -198,11 +193,7 @@ export const live = (
         "codex:dynamic-tool-call:respond",
         (event, conversationId, requestId, context) =>
           authorize(event).pipe(
-            Effect.flatMap(() =>
-              invoke("respond-dynamic-tool", () =>
-                options.codex.respondToDynamicToolCall(requestId, conversationId, context),
-              ),
-            ),
+            Effect.flatMap(() => codexAppTools.respond(requestId, conversationId, context)),
           ),
       );
       yield* handle("codex:user-input:auto-resolution:snapshot", (event) =>

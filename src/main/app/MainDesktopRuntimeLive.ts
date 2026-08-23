@@ -124,6 +124,14 @@ import {
   make as makeCodexPendingServerRequestRuntime,
 } from "../codex-application/CodexPendingServerRequestRuntime";
 import {
+  CodexAppProtocolTools,
+  make as makeCodexAppProtocolTools,
+} from "../codex-application/CodexAppProtocolTools";
+import {
+  CodexAutomationDefinitions,
+  fromDesktopModule as codexAutomationDefinitionsFromDesktopModule,
+} from "../codex-application/CodexAutomationDefinitions";
+import {
   CodexServerRequestResponses,
   make as makeCodexServerRequestResponses,
 } from "../codex-application/CodexServerRequestResponses";
@@ -132,7 +140,10 @@ import {
   make as makeCodexTurnCommands,
 } from "../codex-application/CodexTurnCommands";
 import { make as makeCodexSideChatCommands } from "../codex-application/CodexSideChatCommands";
-import { make as makeCodexSessionThreadLaunch } from "../codex-application/CodexSessionThreadLaunch";
+import {
+  CodexSessionThreadLaunch,
+  make as makeCodexSessionThreadLaunch,
+} from "../codex-application/CodexSessionThreadLaunch";
 import {
   CodexConversationFork,
   make as makeCodexConversationFork,
@@ -209,7 +220,10 @@ import {
 import { makeCodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import { make as makeCodexDynamicToolsLaunch } from "../codex-application/CodexDynamicToolsLaunch";
 import { makeCodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
-import { make as makeCodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
+import {
+  CodexThreadHandoffRuntime,
+  make as makeCodexThreadHandoffRuntime,
+} from "../codex-application/CodexThreadHandoffRuntime";
 import {
   CodexThreadExecution,
   live as codexThreadExecutionLive,
@@ -2445,6 +2459,23 @@ export const live: Layer.Layer<
           Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const automationDefinitions = codexAutomationDefinitionsFromDesktopModule(automationModule);
+        const codexAppProtocolTools = yield* makeCodexAppProtocolTools.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexAutomationDefinitions, automationDefinitions),
+          Effect.provideService(CodexConversationFork, conversationFork),
+          Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
+          Effect.provideService(CodexProjectSessionFork, projectSessionFork),
+          Effect.provideService(CodexSessionThreadLaunch, sessionThreadLaunch),
+          Effect.provideService(CodexThreadCatalog, threadCatalog),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadHandoffRuntime, threadHandoffRuntime),
+          Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
+          Effect.provideService(CodexTurnCommands, turnCommands),
+          Effect.provideService(ConversationCommands, conversationCommands),
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(TerminalSessions, terminals),
+        );
         const automationInboxContext = yield* Layer.buildWithScope(
           codexAutomationInboxLive.pipe(
             Layer.provide(
@@ -2574,6 +2605,7 @@ export const live: Layer.Layer<
         );
         const applicationProtocol = yield* makeCodexApplicationProtocol.pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexAppProtocolTools, codexAppProtocolTools),
           Effect.provideService(CodexApplicationRequestInbox, applicationRequestInbox),
           Effect.provideService(CodexAutomationInbox, automationInbox),
           Effect.provideService(CodexOneShotServerRequests, oneShotServerRequests),
@@ -2808,7 +2840,6 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           CodexRendererIpc.live({
-            codex: codexService,
             rendererClients,
           }).pipe(
             Layer.provide(
@@ -2818,6 +2849,7 @@ export const live: Layer.Layer<
                   CodexRendererConversationCoordinator,
                   rendererConversationCoordinator,
                 ),
+                Layer.succeed(CodexAppProtocolTools, codexAppProtocolTools),
                 Layer.succeed(CodexRendererConversationRegistry, rendererConversations),
                 Layer.succeed(CodexUserInputAutoResolution, userInputAutoResolution),
                 Layer.succeed(MainConfig, config),

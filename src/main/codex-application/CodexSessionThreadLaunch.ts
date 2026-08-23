@@ -200,7 +200,10 @@ export const make: Effect.Effect<
           reasoningEffort: input.reasoningEffort ?? null,
           collaborationMode: null,
           config: {},
-          threadSource: "user",
+          threadSource:
+            input.threadSource === "subagent" || input.threadSource === "system"
+              ? input.threadSource
+              : "user",
           workspaceKind: "project",
         },
       } as unknown as CodexPendingWorktreeRequest);
@@ -231,7 +234,7 @@ export const make: Effect.Effect<
       serviceTier: executionProfile?.serviceTier ?? input.serviceTier ?? null,
       baseInstructions: input.baseInstructions ?? null,
       developerInstructions: input.additionalDeveloperInstructions ?? null,
-      threadSource: "user",
+      threadSource: input.threadSource ?? "user",
       config: {
         ...(executionProfile?.harnessId ? { harness: executionProfile.harnessId } : {}),
         ...((executionProfile?.reasoningEffort ?? input.reasoningEffort)

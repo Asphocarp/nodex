@@ -238,6 +238,7 @@ it.effect("captures browser state before publishing a pending worktree fork", ()
         turnId: "turn-a",
         collaborationMode: "plan",
       },
+      threadSource: "subagent",
       sourceSceneContext: scene,
     });
 
@@ -277,7 +278,7 @@ it.effect("captures browser state before publishing a pending worktree fork", ()
         },
       },
       targetTurnId: "turn-a",
-      threadSource: "user",
+      threadSource: "subagent",
     });
   }),
 );

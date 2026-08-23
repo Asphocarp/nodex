@@ -2315,6 +2315,8 @@ export interface CodexThreadStartForSessionInput {
   runInEnvironmentPath?: string | null;
   worktreeStartingState?: CodexPendingWorktreeStartingState;
   heartbeatAutomation?: CodexThreadStartHeartbeatAutomationInput | null;
+  /** Classifies the new Thread's origin without coupling launch to its caller. */
+  threadSource?: CodexAppServerThreadSource;
   /** Surface that must own Browser Use before the first turn can start. */
   browserUsePresentationOrigin?: BrowserUsePresentationOrigin;
 }

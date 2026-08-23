@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import type { CodexPendingWorktreeRequest } from "../../shared/codex-pending-worktree";
+import type {
+  CodexPendingThreadSource,
+  CodexPendingWorktreeRequest,
+} from "../../shared/codex-pending-worktree";
 import type { CodexForkBrowserSceneContext } from "../../shared/codex-fork-browser-transfer";
 import { ProjectSessionForkInputSchema } from "../../shared/schemas/project-sessions";
 import type {
@@ -26,6 +29,8 @@ export interface CodexProjectSessionForkCommand {
   readonly sessionId: string;
   readonly input: ProjectSessionForkInput;
   readonly sourceSceneContext?: CodexForkBrowserSceneContext;
+  /** Protocol-originated forks may classify their child without changing Session semantics. */
+  readonly threadSource?: CodexPendingThreadSource;
 }
 
 export class CodexProjectSessionForkError extends Data.TaggedError("CodexProjectSessionForkError")<{
@@ -195,6 +200,7 @@ export const make: Effect.Effect<
       source: AdmittedSource,
       full: CodexThreadDirectoryEntry,
       parsed: ProjectSessionForkInput,
+      threadSource: CodexPendingThreadSource,
       sourceSceneContext?: CodexForkBrowserSceneContext,
     ): Effect.fn.Return<ProjectSessionForkResult, CodexProjectSessionForkError> {
       if (source.directory.durable.executionHostId !== gateway.localHostId) {
@@ -267,7 +273,7 @@ export const make: Effect.Effect<
         sourceConversationId: source.threadId,
         sourceCollaborationMode: collaborationMode(full, parsed.collaborationMode),
         targetTurnId: parsed.turnId ?? null,
-        threadSource: "user",
+        threadSource,
       };
       yield* sidePanelTransfers
         .capturePending({
@@ -293,6 +299,7 @@ export const make: Effect.Effect<
     sessionId: string,
     source: AdmittedSource,
     parsed: ProjectSessionForkInput,
+    threadSource: CodexPendingThreadSource,
     sourceSceneContext?: CodexForkBrowserSceneContext,
   ): Effect.fn.Return<ProjectSessionForkResult, CodexProjectSessionForkError> {
     yield* projection.read(source.threadId).pipe(
@@ -340,6 +347,7 @@ export const make: Effect.Effect<
             snapshot: current.snapshot,
           },
           parsed,
+          threadSource,
           sourceSceneContext,
         );
       }),
@@ -356,13 +364,19 @@ export const make: Effect.Effect<
         });
         const source = yield* admit(sessionId, command.sourceSceneContext);
         if (parsed.target === "newWorktree") {
-          return yield* enqueuePending(sessionId, source, parsed, command.sourceSceneContext);
+          return yield* enqueuePending(
+            sessionId,
+            source,
+            parsed,
+            command.threadSource ?? "user",
+            command.sourceSceneContext,
+          );
         }
         const forked = yield* conversationFork
           .fork({
             sourceThreadId: source.threadId,
             lastTurnId: parsed.turnId ?? null,
-            threadSource: "user",
+            threadSource: command.threadSource ?? "user",
             ...(command.sourceSceneContext
               ? { sourceSceneContext: command.sourceSceneContext }
               : {}),

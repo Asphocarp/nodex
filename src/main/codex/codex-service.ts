@@ -10,7 +10,6 @@ import type {
   GetAuthStatusResponse,
   RequestId,
 } from "@nodex/codex-app-server-protocol";
-import type { ConfigReadParams } from "@nodex/codex-app-server-protocol/v2/ConfigReadParams";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { ExternalAgentConfigImportCompletedNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportCompletedNotification";
@@ -103,10 +102,6 @@ import type {
   CodexScheduledAutomation,
   CodexScheduledAutomationChangedEvent,
   CodexScheduledAutomationCreateInput,
-  CodexScheduledAutomationDeleteStatus,
-  CodexScheduledAutomationExecutionEnvironment,
-  CodexScheduledAutomationReasoningEffort,
-  CodexScheduledAutomationStatus,
   CodexScheduledAutomationUpdateInput,
   CodexScheduledAutomationRunNowInput,
   CodexThreadStartForSessionInput,
@@ -174,12 +169,10 @@ import {
   canCreateCodexPendingWorktreeSetupRepair,
   CODEX_PENDING_WORKTREE_SETUP_REPAIR_LABEL,
   extractCodexUserRequestSection,
-  summarizeCodexPendingWorktreeLabel,
   type CodexPendingStartConversationParamsInput,
   type CodexPendingWorktreeCreateInput,
   type CodexPendingWorktreeCreateResult,
   type CodexPendingWorktreeEntry,
-  type CodexPendingWorktreeStartingState,
   type CodexPendingWorktreeThreadResolution,
 } from "../../shared/codex-pending-worktree";
 import {
@@ -334,7 +327,6 @@ import {
 } from "../codex-runtime/CodexApplicationProtocol";
 import { CodexRpcError } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import { CodexSessionStore } from "./codex-session-store";
-import { resolveManagedWorktreeDefaultStartingState } from "./git-worktree-service";
 import { buildCodexDesktopDeveloperInstructions } from "./codex-developer-instructions";
 import {
   applyLiveTranscriptMutation,
@@ -380,7 +372,6 @@ import {
 } from "../../shared/codex-thread-title";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
-import { isCodexAppDynamicTool } from "../../shared/codex-dynamic-tool-identity";
 import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
 import type { NodexAgentAccess } from "../../shared/nodex-agent-tools/read-runtime";
 import { resolveDynamicToolCatalogBindings } from "./codex-dynamic-tool-catalog-bindings";
@@ -391,17 +382,8 @@ import {
   type NodexAgentDynamicTools,
 } from "../nodex-agent-application/NodexAgentDynamicTools";
 import {
-  buildCodexAppDynamicToolFailure,
-  buildCodexAppDynamicToolSuccess,
   buildCodexAppMetaThreadToolSpecs,
-  AUTOMATION_UPDATE_TOOL_NAME,
-  CODEX_APP_HANDOFF_MAX_WAIT_MS,
-  CODEX_APP_LOCAL_HOST_DISPLAY_NAME,
   CODEX_APP_LOCAL_HOST_ID,
-  CODEX_APP_READ_THREAD_DEFAULT_MAX_OUTPUT_CHARS,
-  CODEX_APP_READ_THREAD_DEFAULT_TURN_LIMIT,
-  CODEX_APP_READ_THREAD_MAX_OUTPUT_CHARS,
-  CODEX_APP_READ_THREAD_MAX_TURN_LIMIT,
 } from "./codex-app-meta-thread-tools";
 import {
   getCodexClientThreadId,
@@ -465,27 +447,16 @@ import {
   type CodexSidebarThreadWorkspaceState,
 } from "./codex-sidebar-thread-move";
 import {
-  parseCodexDynamicCreateThreadInput,
-  projectCodexDynamicCreateModel,
-  validateCodexDynamicCreateModelReasoning,
   type CodexDynamicCreateModelProjection,
   type CodexDynamicCreateThreadInput,
 } from "./codex-dynamic-thread-create";
+import type { CodexResolvedDynamicDirectThreadTarget } from "./codex-dynamic-thread-target";
 import {
-  resolveCodexDynamicCreateTarget,
-  type CodexResolvedDynamicDirectThreadTarget,
-  type CodexResolvedDynamicThreadTarget,
-} from "./codex-dynamic-thread-target";
-import {
-  buildCodexDynamicCreatePermissionContextForMode,
   buildCodexDynamicPendingPermissionSelection,
-  inferCodexDynamicCreatePermissionMode,
-  isCodexDynamicCreatePermissionMode,
   resolveCodexDynamicCreatePermissionSelection,
   type CodexDynamicCreatePermissionContext,
   type CodexDynamicCreatePermissionMode,
   type CodexDynamicCreatePermissionSelection,
-  type CodexDynamicCreatePermissionSource,
 } from "./codex-dynamic-create-permissions";
 import {
   resolveCodexCreateThreadServiceTier,
@@ -523,7 +494,6 @@ import { rewriteExecutionWorkspaceRoots } from "./codex-execution-workspace-root
 import {
   allocateCodexPendingWorktreeRequest,
   buildCodexPendingFirstTurnAttachments,
-  buildCodexPendingStartConversationParams,
   buildCodexPendingThreadStartConfig,
   projectCodexPendingThreadStart,
   projectCodexPendingWorktreeLaunchLocation,
@@ -593,16 +563,6 @@ interface CodexDynamicDirectConversationLaunchInput {
   readonly skipAutoTitleGeneration?: boolean;
   readonly target: CodexResolvedDynamicDirectThreadTarget;
   readonly worktreeInit?: CodexCanonicalWorktreeInitItem;
-}
-
-interface CodexDynamicCreateDestinationSnapshot {
-  readonly rawConfig: ConfigReadResponse["config"];
-  readonly expandedConfig: ConfigReadResponse["config"];
-}
-
-interface CodexDynamicToolExecutionContext {
-  readonly permissionMode?: CodexDynamicCreatePermissionMode;
-  readonly serviceTierSelector?: CodexCreateThreadServiceTierSelector;
 }
 
 interface CodexScheduledAutomationHeartbeatRendererStateContext {
@@ -725,51 +685,6 @@ function mergeSidebarThreadMaterialization(
 
   if (!result.changed && !result.materialized) return;
   markSidebarSyncScopeChanged(metadata, result.projectId);
-}
-
-type AutomationUpdateMode =
-  | "list"
-  | "view"
-  | "create"
-  | "suggested_create"
-  | "update"
-  | "suggested_update"
-  | "delete";
-
-type AutomationUpdateDestination = "local" | "worktree" | "thread";
-
-type ParsedAutomationUpdateArgs =
-  | { mode: "list"; query: string | null; limit: number }
-  | { mode: "view"; id: string }
-  | { mode: "delete"; id: string }
-  | ParsedAutomationUpdateUpsertArgs;
-
-interface ParsedAutomationUpdateUpsertArgs {
-  mode: "create" | "suggested_create" | "update" | "suggested_update";
-  id?: string;
-  kind: "cron" | "heartbeat";
-  name: string;
-  prompt: string;
-  rrule: string;
-  status: CodexScheduledAutomationStatus;
-  cwds?: string[];
-  destination?: AutomationUpdateDestination;
-  executionEnvironment?: CodexScheduledAutomationExecutionEnvironment;
-  localEnvironmentConfigPath?: string | null;
-  model?: string | null;
-  reasoningEffort?: CodexScheduledAutomationReasoningEffort | null;
-  targetThreadId?: string;
-}
-
-interface AutomationUpdateToolResult {
-  automationId: string;
-  mode?: "create" | "update" | "delete";
-  deleteStatus?: "deleted" | "not_found";
-  snapshot?: {
-    kind: "cron" | "heartbeat";
-    name: string;
-    rrule: string | null;
-  } | null;
 }
 
 type DormantConversationSyncReason =
@@ -1135,8 +1050,6 @@ function resolveAutomationArchiveMessagesFromProtocolTurns(
 }
 
 const THREAD_START_EXPERIMENTAL_RAW_EVENTS = false;
-const CODEX_SAME_DIRECTORY_FORK_CONTINUATION =
-  "The fork contains completed history only. If the source thread was running, the active turn and unfinished response are not in the child. Send a follow-up message to threadId only if the task requires work to continue there.";
 
 function normalizeTimestamp(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return Date.now();
@@ -1820,6 +1733,56 @@ export class CodexService {
 
   notifyScheduledAutomationChanged(event: CodexScheduledAutomationChangedEvent): void {
     this.emitEvent({ type: "scheduledAutomationChanged", event });
+  }
+
+  private emitScheduledAutomationChanged(event: CodexScheduledAutomationChangedEvent): void {
+    this.notifyScheduledAutomationChanged(event);
+  }
+
+  private async createHeartbeatAutomationForStartedWorktreeThread(input: {
+    projectId: string;
+    sessionId: string;
+    threadId: string;
+    heartbeatAutomation?: CodexThreadStartForSessionInput["heartbeatAutomation"];
+    emitStartProgress?: boolean;
+  }): Promise<"not-requested" | "created" | "failed"> {
+    const seed = input.heartbeatAutomation;
+    if (!seed) return "not-requested";
+    try {
+      const automation = await this.automationModule.createDefinition({
+        kind: "heartbeat",
+        name: seed.name,
+        prompt: seed.prompt,
+        rrule: seed.rrule,
+        targetThreadId: input.threadId,
+        model: null,
+        reasoningEffort: null,
+      });
+      this.emitScheduledAutomationChanged({
+        automationId: automation.id,
+        targetThreadId: automation.targetThreadId,
+        reason: "upsert",
+      });
+      return "created";
+    } catch (error) {
+      this.logger.warn("Started worktree chat but could not create heartbeat automation", {
+        threadId: input.threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (input.emitStartProgress !== false) {
+        this.emitThreadStartProgress({
+          projectId: input.projectId,
+          sessionId: input.sessionId,
+          runInTarget: "newWorktree",
+          threadId: input.threadId,
+          phase: "startingThread",
+          message: "Started task, but could not create the heartbeat",
+          stream: "stderr",
+          outputDelta: "[stderr] Started task, but could not create the heartbeat\n",
+        });
+      }
+      return "failed";
+    }
   }
 
   private notifyAutomationRunThreadUpdated(
@@ -10708,562 +10671,6 @@ export class CodexService {
     }
   }
 
-  private buildDynamicToolSuccess(value: unknown): DynamicToolCallResponse {
-    return buildCodexAppDynamicToolSuccess(value);
-  }
-
-  private buildDynamicToolTextSuccess(text: string): DynamicToolCallResponse {
-    return {
-      contentItems: [{ type: "inputText", text }],
-      success: true,
-    };
-  }
-
-  private buildDynamicToolFailure(message: string): DynamicToolCallResponse {
-    return buildCodexAppDynamicToolFailure(message);
-  }
-
-  private buildAutomationUpdateToolResponse(
-    result?: AutomationUpdateToolResult,
-  ): DynamicToolCallResponse {
-    const text =
-      result == null
-        ? "Rendered automation card in the app."
-        : result.mode === "create"
-          ? "Created automation in the app."
-          : result.mode === "update"
-            ? "Updated automation in the app."
-            : result.deleteStatus === "not_found"
-              ? "Automation already does not exist in the app."
-              : "Deleted automation in the app.";
-
-    return {
-      contentItems: [
-        { type: "inputText", text },
-        ...(result == null ? [] : [{ type: "inputText" as const, text: JSON.stringify(result) }]),
-      ],
-      success: true,
-    };
-  }
-
-  private clampDynamicInt(value: unknown, fallback: number, min: number, max: number): number {
-    if (typeof value !== "number" || !Number.isInteger(value)) return fallback;
-    return Math.min(max, Math.max(min, value));
-  }
-
-  private truncateDynamicOutput(value: string, maxChars: number): string {
-    if (maxChars <= 0) return "";
-    if (value.length <= maxChars) return value;
-    return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
-  }
-
-  private parseDynamicString(value: unknown): string | null {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-
-  private parseDynamicReasoningEffort(value: unknown): CodexReasoningEffort | undefined {
-    if (value === "low" || value === "medium" || value === "high" || value === "xhigh")
-      return value;
-    return undefined;
-  }
-
-  private parseAutomationUpdateMode(value: unknown): AutomationUpdateMode | null {
-    if (
-      value === "view" ||
-      value === "list" ||
-      value === "create" ||
-      value === "suggested_create" ||
-      value === "update" ||
-      value === "suggested_update" ||
-      value === "delete"
-    ) {
-      return value;
-    }
-    return null;
-  }
-
-  private parseAutomationUpdateStatus(value: unknown): CodexScheduledAutomationStatus | null {
-    if (value === "ACTIVE" || value === "PAUSED") return value;
-    return null;
-  }
-
-  private parseAutomationExecutionEnvironment(
-    value: unknown,
-  ): CodexScheduledAutomationExecutionEnvironment | null {
-    if (value === "local" || value === "worktree") return value;
-    return null;
-  }
-
-  private parseAutomationDestination(value: unknown): AutomationUpdateDestination | undefined {
-    if (value === undefined) return undefined;
-    if (value === "local" || value === "worktree" || value === "thread") return value;
-    throw new Error("destination is invalid");
-  }
-
-  private parseAutomationReasoningEffort(
-    value: unknown,
-  ): CodexScheduledAutomationReasoningEffort | null {
-    if (
-      value === "none" ||
-      value === "minimal" ||
-      value === "low" ||
-      value === "medium" ||
-      value === "high" ||
-      value === "xhigh" ||
-      value === "max"
-    ) {
-      return value;
-    }
-    return null;
-  }
-
-  private parseAutomationCwds(value: unknown): string[] | null {
-    const normalizeItems = (items: unknown[]): string[] =>
-      items
-        .filter((item): item is string => typeof item === "string")
-        .map((item) => item.trim())
-        .filter((item, index, array) => item.length > 0 && array.indexOf(item) === index);
-
-    if (Array.isArray(value)) {
-      return normalizeItems(value);
-    }
-
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-
-    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-      try {
-        const parsed = JSON.parse(trimmed) as unknown;
-        return Array.isArray(parsed) ? normalizeItems(parsed) : null;
-      } catch {
-        return null;
-      }
-    }
-
-    return normalizeItems(trimmed.split(","));
-  }
-
-  private parseAutomationLocalEnvironmentConfigPath(
-    args: Record<string, unknown>,
-  ): string | null | undefined {
-    if (!Object.prototype.hasOwnProperty.call(args, "localEnvironmentConfigPath")) return undefined;
-    const value = args.localEnvironmentConfigPath;
-    if (value === null) return null;
-    const normalized = this.parseDynamicString(value);
-    if (normalized) return normalized;
-    throw new Error("localEnvironmentConfigPath is invalid");
-  }
-
-  private parseAutomationUpdateArgs(args: Record<string, unknown>): ParsedAutomationUpdateArgs {
-    const mode = this.parseAutomationUpdateMode(args.mode);
-    if (!mode) throw new Error("mode is invalid");
-
-    if (mode === "list") {
-      return {
-        mode,
-        query: this.parseDynamicString(args.query),
-        limit: this.clampDynamicInt(args.limit, 20, 1, 100),
-      };
-    }
-
-    if (mode === "view" || mode === "delete") {
-      const id = this.parseDynamicString(args.id);
-      if (!id) throw new Error("id is required");
-      return { mode, id };
-    }
-
-    const kind = args.kind;
-    if (kind !== "cron" && kind !== "heartbeat") throw new Error("kind is invalid");
-
-    const name = this.parseDynamicString(args.name);
-    const prompt = this.parseDynamicString(args.prompt);
-    const rrule = this.parseDynamicString(args.rrule);
-    const status = this.parseAutomationUpdateStatus(args.status);
-    if (!name) throw new Error("name is required");
-    if (!prompt) throw new Error("prompt is required");
-    if (!rrule) throw new Error("rrule is required");
-    if (!status) throw new Error("status is invalid");
-
-    const destination = this.parseAutomationDestination(args.destination);
-    const id =
-      mode === "update" || mode === "suggested_update"
-        ? this.parseDynamicString(args.id)
-        : undefined;
-    if ((mode === "update" || mode === "suggested_update") && !id) {
-      throw new Error("id is required");
-    }
-
-    if (kind === "heartbeat") {
-      const targetThreadId = this.parseDynamicString(args.targetThreadId) ?? undefined;
-      if (!targetThreadId && destination !== "thread") {
-        throw new Error("Missing targetThreadId or destination=thread");
-      }
-      return {
-        mode,
-        id: id ?? undefined,
-        kind,
-        name,
-        prompt,
-        rrule,
-        status,
-        destination,
-        targetThreadId,
-      };
-    }
-
-    const cwds = this.parseAutomationCwds(args.cwds);
-    const executionEnvironment = this.parseAutomationExecutionEnvironment(
-      args.executionEnvironment,
-    );
-    const model = this.parseDynamicString(args.model);
-    const reasoningEffort = this.parseAutomationReasoningEffort(args.reasoningEffort);
-    const localEnvironmentConfigPath = this.parseAutomationLocalEnvironmentConfigPath(args);
-    if (cwds === null) throw new Error("cwds is invalid");
-    if (!executionEnvironment) throw new Error("executionEnvironment is invalid");
-    if (!model) throw new Error("model is required");
-    if (!reasoningEffort) throw new Error("reasoningEffort is invalid");
-
-    return {
-      mode,
-      id: id ?? undefined,
-      kind,
-      name,
-      prompt,
-      rrule,
-      status,
-      cwds,
-      destination,
-      executionEnvironment,
-      localEnvironmentConfigPath,
-      model,
-      reasoningEffort,
-    };
-  }
-
-  private automationUpdateArgsUseUnsafeImmediateSetup(args: ParsedAutomationUpdateArgs): boolean {
-    if (args.mode !== "create" && args.mode !== "update") return false;
-    if (args.kind !== "cron" || args.executionEnvironment !== "worktree") return false;
-    if (args.mode === "create") return args.localEnvironmentConfigPath != null;
-    return (
-      args.localEnvironmentConfigPath === undefined || args.localEnvironmentConfigPath !== null
-    );
-  }
-
-  private async assertAutomationUpdateHeartbeatTargetIsLocalThread(
-    args: ParsedAutomationUpdateArgs,
-    currentThreadId: string,
-  ): Promise<void> {
-    if (args.mode !== "create" && args.mode !== "update") return;
-    if (args.kind !== "heartbeat") return;
-
-    const targetThreadId = (args.targetThreadId ?? currentThreadId).trim();
-    if (!targetThreadId) {
-      throw new Error("Automations are only supported for local threads.");
-    }
-
-    if (targetThreadId === currentThreadId) return;
-    if (await this.readWorkspaceThread(targetThreadId)) return;
-    if (this.serializeThreadDetail(targetThreadId)) return;
-
-    throw new Error("Automations are only supported for local threads.");
-  }
-
-  private buildAutomationCreateInput(
-    args: ParsedAutomationUpdateUpsertArgs,
-    currentThreadId: string,
-  ): CodexScheduledAutomationCreateInput {
-    if (args.kind === "heartbeat") {
-      return {
-        kind: "heartbeat",
-        name: args.name,
-        prompt: args.prompt,
-        rrule: args.rrule,
-        targetThreadId: args.targetThreadId ?? currentThreadId,
-        model: null,
-        reasoningEffort: null,
-      };
-    }
-
-    return {
-      kind: "cron",
-      name: args.name,
-      prompt: args.prompt,
-      rrule: args.rrule,
-      cwds: args.cwds ?? [],
-      executionEnvironment: args.executionEnvironment ?? "worktree",
-      localEnvironmentConfigPath: args.localEnvironmentConfigPath ?? null,
-      model: args.model ?? null,
-      reasoningEffort: args.reasoningEffort ?? null,
-    };
-  }
-
-  private buildAutomationUpdateInput(
-    args: ParsedAutomationUpdateUpsertArgs & { id: string },
-    currentThreadId: string,
-  ): CodexScheduledAutomationUpdateInput {
-    if (args.kind === "heartbeat") {
-      return {
-        id: args.id,
-        kind: "heartbeat",
-        status: args.status,
-        name: args.name,
-        prompt: args.prompt,
-        rrule: args.rrule,
-        targetThreadId: args.targetThreadId ?? currentThreadId,
-        model: null,
-        reasoningEffort: null,
-      };
-    }
-
-    return {
-      id: args.id,
-      kind: "cron",
-      status: args.status,
-      name: args.name,
-      prompt: args.prompt,
-      rrule: args.rrule,
-      cwds: args.cwds ?? [],
-      executionEnvironment: args.executionEnvironment ?? "worktree",
-      ...(args.localEnvironmentConfigPath === undefined
-        ? {}
-        : { localEnvironmentConfigPath: args.localEnvironmentConfigPath }),
-      model: args.model ?? null,
-      reasoningEffort: args.reasoningEffort ?? null,
-    };
-  }
-
-  private emitScheduledAutomationChanged(event: CodexScheduledAutomationChangedEvent): void {
-    this.notifyScheduledAutomationChanged(event);
-  }
-
-  private async createHeartbeatAutomationForStartedWorktreeThread(input: {
-    projectId: string;
-    sessionId: string;
-    threadId: string;
-    heartbeatAutomation?: CodexThreadStartForSessionInput["heartbeatAutomation"];
-    emitStartProgress?: boolean;
-  }): Promise<"not-requested" | "created" | "failed"> {
-    const seed = input.heartbeatAutomation;
-    if (!seed) return "not-requested";
-
-    try {
-      const automation = await this.automationModule.createDefinition({
-        kind: "heartbeat",
-        name: seed.name,
-        prompt: seed.prompt,
-        rrule: seed.rrule,
-        targetThreadId: input.threadId,
-        model: null,
-        reasoningEffort: null,
-      });
-      this.emitScheduledAutomationChanged({
-        automationId: automation.id,
-        targetThreadId: automation.targetThreadId,
-        reason: "upsert",
-      });
-      return "created";
-    } catch (error) {
-      this.logger.warn("Started worktree chat but could not create heartbeat automation", {
-        threadId: input.threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      if (input.emitStartProgress !== false) {
-        this.emitThreadStartProgress({
-          projectId: input.projectId,
-          sessionId: input.sessionId,
-          runInTarget: "newWorktree",
-          threadId: input.threadId,
-          phase: "startingThread",
-          message: "Started task, but could not create the heartbeat",
-          stream: "stderr",
-          outputDelta: "[stderr] Started task, but could not create the heartbeat\n",
-        });
-      }
-      return "failed";
-    }
-  }
-
-  private buildAutomationDeleteFailureMessage(
-    status: CodexScheduledAutomationDeleteStatus,
-  ): string {
-    switch (status) {
-      case "invalid_id":
-        return "Automation id was invalid.";
-      case "store_unavailable":
-        return "Automation storage is unavailable.";
-      case "state_cleanup_failed":
-        return "Automation scheduling state could not be updated.";
-      case "remove_failed":
-        return "Automation still exists after the app tried to delete it.";
-      case "deleted":
-      case "not_found":
-        return "Automation was not deleted.";
-    }
-  }
-
-  private buildAutomationUpdateErrorMessage(error: unknown, mode: AutomationUpdateMode): string {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === "That thread already has an active heartbeat.") {
-      return "This thread already has an active heartbeat automation. Only one automation can be attached to this thread. Either update the existing automation, or confirm with the user what they would like you to do. Don't make a workaround cron automation unless the user explicitly asked for that.";
-    }
-    if (
-      message ===
-      "Automation does not exist in the app and could not be updated. It may have been deleted manually by the user."
-    ) {
-      return message;
-    }
-    if (message) return message;
-    return `Failed to ${mode} automation.`;
-  }
-
-  private async handleAutomationUpdateDynamicToolCall(
-    params: DynamicToolCallParams,
-    args: Record<string, unknown>,
-  ): Promise<DynamicToolCallResponse> {
-    let parsed: ParsedAutomationUpdateArgs;
-    try {
-      parsed = this.parseAutomationUpdateArgs(args);
-    } catch (error) {
-      return this.buildDynamicToolFailure(
-        `${AUTOMATION_UPDATE_TOOL_NAME} received invalid arguments: ${error instanceof Error ? error.message : String(error)}.`,
-      );
-    }
-
-    if (this.automationUpdateArgsUseUnsafeImmediateSetup(parsed)) {
-      return this.buildDynamicToolFailure(
-        "For safety, automations created by the model cannot immediately run a worktree local environment setup script. Use suggested_create or suggested_update so the user can review and approve the setup-capable automation, or set localEnvironmentConfigPath to null.",
-      );
-    }
-
-    try {
-      await this.assertAutomationUpdateHeartbeatTargetIsLocalThread(parsed, params.threadId);
-
-      if (parsed.mode === "list") {
-        const query = parsed.query?.toLowerCase() ?? "";
-        const definitions = (await this.automationModule.listDefinitions())
-          .filter((automation) => {
-            if (!query) return true;
-            return [automation.id, automation.name, automation.prompt]
-              .join(" ")
-              .toLowerCase()
-              .includes(query);
-          })
-          .slice(0, parsed.limit)
-          .map((automation) => ({
-            id: automation.id,
-            kind: automation.kind,
-            status: automation.status,
-            name: automation.name,
-            prompt: automation.prompt,
-            rrule: automation.rrule,
-            targetThreadId: automation.targetThreadId,
-            nextRunAt: automation.nextRunAt,
-          }));
-        return this.buildDynamicToolSuccess({
-          query: parsed.query,
-          automations: definitions,
-        });
-      }
-
-      if (
-        parsed.mode === "view" ||
-        parsed.mode === "suggested_create" ||
-        parsed.mode === "suggested_update"
-      ) {
-        return this.buildAutomationUpdateToolResponse();
-      }
-
-      if (parsed.mode === "create") {
-        const automation = await this.automationModule.createDefinition(
-          this.buildAutomationCreateInput(parsed, params.threadId),
-        );
-        this.emitScheduledAutomationChanged({
-          automationId: automation.id,
-          targetThreadId: automation.targetThreadId,
-          reason: "upsert",
-        });
-        return this.buildAutomationUpdateToolResponse({
-          automationId: automation.id,
-          mode: "create",
-        });
-      }
-
-      if (parsed.mode === "update") {
-        if (!parsed.id) throw new Error("id is required");
-        const current = await this.automationModule.getDefinition(parsed.id);
-        if (!current) {
-          throw new Error(
-            "Automation does not exist in the app and could not be updated. It may have been deleted manually by the user.",
-          );
-        }
-        const updateInput = await this.prepareScheduledAutomationInput(
-          this.buildAutomationUpdateInput({ ...parsed, id: parsed.id }, params.threadId),
-          current,
-        );
-        const automation = await this.automationModule.updateDefinition(updateInput);
-        if (!automation) {
-          throw new Error(
-            "Automation does not exist in the app and could not be updated. It may have been deleted manually by the user.",
-          );
-        }
-        this.emitScheduledAutomationChanged({
-          automationId: automation.id,
-          targetThreadId: automation.targetThreadId,
-          reason: "upsert",
-        });
-        return this.buildAutomationUpdateToolResponse({
-          automationId: automation.id,
-          mode: "update",
-        });
-      }
-
-      if (parsed.mode === "delete") {
-        const automationId = parsed.id;
-        const result = await this.automationModule.deleteDefinition(automationId);
-        if (!result.success) {
-          return this.buildDynamicToolFailure(
-            this.buildAutomationDeleteFailureMessage(result.status),
-          );
-        }
-        const existing = result.item;
-        if (result.deletedRunCount > 0) {
-          this.notifyAutomationRunsUpdated({
-            automationId: existing?.id ?? automationId,
-            threadId: null,
-            reason: "delete",
-          });
-        }
-        this.emitScheduledAutomationChanged({
-          automationId: existing?.id ?? automationId,
-          targetThreadId: existing?.targetThreadId ?? null,
-          reason: "delete",
-        });
-        return this.buildAutomationUpdateToolResponse({
-          automationId,
-          mode: "delete",
-          deleteStatus: result.status === "not_found" ? "not_found" : "deleted",
-          snapshot:
-            existing == null
-              ? null
-              : {
-                  kind: existing.kind,
-                  name: existing.name,
-                  rrule: existing.rrule,
-                },
-        });
-      }
-
-      return this.buildAutomationUpdateToolResponse();
-    } catch (error) {
-      return this.buildDynamicToolFailure(
-        this.buildAutomationUpdateErrorMessage(error, parsed.mode),
-      );
-    }
-  }
-
   private async resolveDynamicThreadDetail(threadId: string): Promise<CodexThreadDetail> {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) throw new Error("Thread id is required");
@@ -11280,313 +10687,6 @@ export class CodexService {
     const reloaded = this.serializeThreadDetail(normalizedThreadId);
     if (reloaded) return reloaded;
     throw new Error(`Thread '${normalizedThreadId}' was not found`);
-  }
-
-  private listDynamicThreadSummaries(): CodexThreadSummary[] {
-    const byId = new Map<string, CodexThreadSummary>();
-    for (const summary of this.listThreadLinksSafely()) {
-      byId.set(summary.threadId, summary);
-    }
-    for (const threadId of this.conversationRecords.keys()) {
-      const detail = this.serializeThreadDetail(threadId);
-      if (!detail) continue;
-      byId.set(detail.threadId, {
-        threadId: detail.threadId,
-        projectId: detail.projectId,
-        source: detail.source,
-        ephemeral: detail.ephemeral,
-        threadSource: detail.threadSource ?? null,
-        threadName: detail.threadName,
-        threadPreview: detail.threadPreview,
-        modelProvider: detail.modelProvider,
-        executionProfile: detail.executionProfile,
-        cwd: detail.cwd,
-        approvalPolicy: detail.approvalPolicy,
-        approvalsReviewer: detail.approvalsReviewer,
-        sandbox: detail.sandbox,
-        statusType: detail.statusType,
-        statusActiveFlags: detail.statusActiveFlags,
-        archived: detail.archived,
-        pinned: detail.pinned,
-        hasUnreadTurn: detail.hasUnreadTurn,
-        createdAt: detail.createdAt,
-        updatedAt: detail.updatedAt,
-        linkedAt: detail.linkedAt,
-      });
-    }
-    return Array.from(byId.values()).sort((left, right) => right.updatedAt - left.updatedAt);
-  }
-
-  private serializeDynamicThreadItem(
-    item: CodexTranscriptEntry,
-    includeOutputs: boolean,
-    maxOutputCharsPerItem: number,
-  ): Record<string, unknown> {
-    if (item.semanticKind === "userMessage" || item.kind === "userMessage") {
-      return {
-        type: "userMessage",
-        id: item.itemId,
-        text: item.markdownText ?? "",
-      };
-    }
-
-    if (item.semanticKind === "assistantMessage" || item.kind === "assistantMessage") {
-      return {
-        type: "agentMessage",
-        id: item.itemId,
-        text: item.markdownText ?? "",
-        phase: item.assistantPhase ?? null,
-      };
-    }
-
-    if (item.semanticKind === "reasoning") {
-      return {
-        type: "reasoning",
-        id: item.itemId,
-        summary: item.markdownText ?? "",
-        ...(includeOutputs
-          ? { content: this.truncateDynamicOutput(item.markdownText ?? "", maxOutputCharsPerItem) }
-          : {}),
-      };
-    }
-
-    if (item.kind === "commandExecution") {
-      return {
-        type: "commandExecution",
-        id: item.itemId,
-        command: item.command ?? null,
-        cwd: item.cwd ?? null,
-        status: item.status ?? null,
-        exitCode: item.exitCode ?? null,
-        durationMs: item.durationMs ?? null,
-        ...(includeOutputs && item.aggregatedOutput != null
-          ? { output: this.truncateDynamicOutput(item.aggregatedOutput, maxOutputCharsPerItem) }
-          : {}),
-      };
-    }
-
-    if (item.kind === "fileChange") {
-      return {
-        type: "fileChange",
-        id: item.itemId,
-        status: item.status ?? null,
-        changes: getCodexFileChangeList(item.fileChange?.changes).map((change) => {
-          const diff =
-            change.type === "update"
-              ? change.unifiedDiff
-              : change.type === "nonRenderable"
-                ? ""
-                : change.content;
-          return {
-            path: change.path,
-            kind: change.type === "nonRenderable" ? change.originalType : change.type,
-            ...(includeOutputs
-              ? {
-                  diff: this.truncateDynamicOutput(diff, maxOutputCharsPerItem),
-                }
-              : {}),
-          };
-        }),
-      };
-    }
-
-    if (item.semanticKind === "mcpToolCall" && item.mcpToolCall) {
-      return {
-        type: "mcpToolCall",
-        id: item.itemId,
-        server: item.mcpToolCall.invocation.server,
-        tool: item.mcpToolCall.invocation.tool,
-        arguments: item.mcpToolCall.invocation.arguments,
-        status: item.status ?? null,
-        durationMs: item.mcpToolCall.durationMs,
-      };
-    }
-
-    if (item.semanticKind === "dynamicToolCall" && item.dynamicToolCall) {
-      return {
-        type: "dynamicToolCall",
-        id: item.itemId,
-        tool: item.dynamicToolCall.tool,
-        arguments: item.dynamicToolCall.arguments,
-        status: item.dynamicToolCall.status,
-        success: item.dynamicToolCall.success,
-        durationMs: item.dynamicToolCall.durationMs,
-        text: item.markdownText ?? null,
-      };
-    }
-
-    return {
-      type: item.semanticKind ?? item.kind,
-      id: item.itemId,
-      status: item.status ?? null,
-      text: item.markdownText ?? null,
-    };
-  }
-
-  private async buildDynamicReadThreadResponse(
-    args: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
-    const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
-    if (!threadId) throw new Error("read_thread requires threadId");
-
-    const detail = await this.resolveDynamicThreadDetail(threadId);
-    const executionHostId =
-      (await this.readWorkspaceThread(threadId))?.executionHostId ?? CODEX_APP_LOCAL_HOST_ID;
-
-    const cursor =
-      typeof args.cursor === "string" && args.cursor.trim() ? args.cursor.trim() : null;
-    const turnLimit = this.clampDynamicInt(
-      args.turnLimit,
-      CODEX_APP_READ_THREAD_DEFAULT_TURN_LIMIT,
-      1,
-      CODEX_APP_READ_THREAD_MAX_TURN_LIMIT,
-    );
-    const includeOutputs = args.includeOutputs === true;
-    const maxOutputCharsPerItem = this.clampDynamicInt(
-      args.maxOutputCharsPerItem,
-      CODEX_APP_READ_THREAD_DEFAULT_MAX_OUTPUT_CHARS,
-      0,
-      CODEX_APP_READ_THREAD_MAX_OUTPUT_CHARS,
-    );
-    const cursorIndex =
-      cursor === null
-        ? detail.turns.length
-        : detail.turns.findIndex((turn) => turn.turnId === cursor);
-    if (cursorIndex < 0) throw new Error(`Unknown cursor for thread ${threadId}: ${cursor}`);
-
-    const precedingTurns = detail.turns.slice(0, cursorIndex);
-    const pageTurns = precedingTurns
-      .filter((turn): turn is CodexTurnSummary & { turnId: string } => turn.turnId !== null)
-      .slice(-turnLimit)
-      .reverse();
-    const pageTurnIds = new Set(pageTurns.map((turn) => turn.turnId));
-    const entriesByTurn = detail.transcript.reduce<Map<string, CodexTranscriptEntry[]>>(
-      (acc, entry) => {
-        if (entry.turnId === null) return acc;
-        if (!pageTurnIds.has(entry.turnId)) return acc;
-        const entries = acc.get(entry.turnId) ?? [];
-        entries.push(entry);
-        acc.set(entry.turnId, entries);
-        return acc;
-      },
-      new Map(),
-    );
-
-    return {
-      schemaVersion: 1,
-      thread: {
-        id: detail.threadId,
-        hostId: executionHostId,
-        title: detail.threadName,
-        preview: detail.threadPreview,
-        status: {
-          type: detail.statusType,
-          ...(detail.statusActiveFlags.length > 0 ? { activeFlags: detail.statusActiveFlags } : {}),
-        },
-        cwd: detail.cwd,
-        createdAt: detail.createdAt,
-        updatedAt: detail.updatedAt,
-      },
-      page: {
-        order: "newest_first",
-        limit: turnLimit,
-        nextCursor:
-          precedingTurns.length > pageTurns.length ? (pageTurns.at(-1)?.turnId ?? null) : null,
-        hasMore: precedingTurns.length > pageTurns.length,
-      },
-      turns: pageTurns.map((turn) => ({
-        id: turn.turnId,
-        status: turn.status,
-        error: turn.errorMessage ? { message: turn.errorMessage, additionalDetails: null } : null,
-        startedAt: turn.startedAt ?? turn.turnStartedAtMs ?? null,
-        firstTurnWorkItemStartedAtMs: turn.firstTurnWorkItemStartedAtMs ?? null,
-        completedAt: turn.completedAt ?? null,
-        durationMs: turn.durationMs ?? null,
-        items: (entriesByTurn.get(turn.turnId) ?? []).map((entry) =>
-          this.serializeDynamicThreadItem(entry, includeOutputs, maxOutputCharsPerItem),
-        ),
-      })),
-    };
-  }
-
-  private async buildDynamicReadThreadTerminalResponse(threadId: string): Promise<string> {
-    const snapshot = await this.terminalRuntime.getThreadSnapshot(threadId);
-    if (!snapshot) {
-      return "No app terminal session is attached to this thread yet.";
-    }
-
-    const lines = [
-      `cwd: ${snapshot.cwd ?? "(unknown)"}`,
-      `shell: ${snapshot.shell ?? "(unknown)"}`,
-    ];
-    if (snapshot.truncated) {
-      lines.push(`[showing latest ${snapshot.buffer.length.toLocaleString()} characters]`);
-    }
-    lines.push("```terminal", snapshot.buffer, "```");
-    return lines.join("\n");
-  }
-
-  private async resolveDynamicCreatePermissions(
-    sourceThreadId: string,
-    target: CodexResolvedDynamicThreadTarget,
-    destinationSnapshot?: CodexDynamicCreateDestinationSnapshot,
-    hostMode: CodexDynamicCreatePermissionMode = "auto",
-  ): Promise<CodexDynamicCreatePermissionSelection> {
-    const sourceRecord = this.getMaybeConversationRecord(sourceThreadId);
-    const sourceHydration = sourceRecord
-      ? (this.readCanonicalConversationState(sourceRecord.threadId)?.sidecar.hydrationContext ??
-        null)
-      : null;
-    const sourceContext = sourceHydration?.currentPermissions ?? null;
-    const sourceMode = sourceContext ? inferCodexDynamicCreatePermissionMode(sourceContext) : null;
-    const source: CodexDynamicCreatePermissionSource | null =
-      sourceContext && sourceMode
-        ? {
-            hostId: CODEX_APP_LOCAL_HOST_ID,
-            cwd:
-              sourceHydration?.cwd ??
-              sourceRecord?.detail?.cwd ??
-              this.getThreadLinkSafely(sourceThreadId)?.cwd ??
-              null,
-            mode: sourceMode,
-            context: sourceContext,
-          }
-        : null;
-    const snapshot =
-      destinationSnapshot ?? (await this.readDynamicCreateDestinationSnapshot(target));
-    const destinationContext = buildCodexDynamicCreatePermissionContextForMode({
-      mode: hostMode,
-      workspaceRoots: target.workspaceRoots,
-      config: snapshot.rawConfig,
-    });
-
-    return resolveCodexDynamicCreatePermissionSelection({
-      source,
-      destination: {
-        hostId: CODEX_APP_LOCAL_HOST_ID,
-        cwd: target.cwd,
-        defaultMode: hostMode,
-        defaultContext: destinationContext,
-        workspaceRoots: target.workspaceRoots,
-      },
-    });
-  }
-
-  private async readDynamicCreateDestinationSnapshot(
-    target: CodexResolvedDynamicThreadTarget,
-  ): Promise<CodexDynamicCreateDestinationSnapshot> {
-    await this.ensureClientReady();
-    const configResult = await this.client.request<"config/read", ConfigReadResponse>(
-      "config/read",
-      {
-        includeLayers: false,
-        cwd: target.cwd,
-      } satisfies ConfigReadParams,
-    );
-    return {
-      rawConfig: configResult.config,
-      expandedConfig: expandCodexDynamicCreateConfigProfile(configResult.config),
-    };
   }
 
   private async resolveDynamicCreateServiceTier(
@@ -11637,96 +10737,6 @@ export class CodexService {
         },
       },
     );
-  }
-
-  private buildDynamicPendingStartConversationParams(input: {
-    readonly destinationSnapshot: CodexDynamicCreateDestinationSnapshot;
-    readonly modelProjection: CodexDynamicCreateModelProjection;
-    readonly permissionSelection: CodexDynamicCreatePermissionSelection;
-    readonly prompt: string;
-    readonly projectId: string;
-    readonly serviceName?: string;
-    readonly serviceTier: string | null;
-    readonly sourceThreadId: string;
-    readonly targetCwd: string;
-    readonly targetWorkspaceRoots: readonly string[];
-  }): CodexPendingStartConversationParamsInput {
-    return buildCodexPendingStartConversationParams({
-      input: buildCodexDelegationInput({
-        sourceThreadId: input.sourceThreadId,
-        input: input.prompt,
-      }),
-      commentAttachments: [],
-      sourceWorkspaceRoot: input.targetCwd,
-      sourceWorkspaceRoots: input.targetWorkspaceRoots,
-      fileAttachments: [],
-      addedFiles: [],
-      agentMode: input.permissionSelection.mode,
-      permissionProfileId: input.permissionSelection.sourcePermissionProfileId,
-      shouldSendPermissionOverrides: true,
-      model: null,
-      executionProfile: null,
-      serviceTier: input.serviceTier,
-      reasoningEffort: null,
-      collaborationMode: input.modelProjection.collaborationMode,
-      config: {
-        ...input.destinationSnapshot.expandedConfig,
-      } as CodexPendingStartConversationParamsInput["config"],
-      ...(input.modelProjection.configOverrides === null
-        ? {}
-        : { configOverrides: input.modelProjection.configOverrides }),
-      threadSource: "subagent",
-      workspaceKind: "project",
-      projectAssignment: {
-        projectKind: "local",
-        projectId: input.projectId,
-        pendingCoreUpdate: false,
-      },
-      serviceName: input.serviceName,
-    });
-  }
-
-  private enqueueDynamicPendingWorktree(input: {
-    readonly createInput: CodexDynamicCreateThreadInput;
-    readonly destinationSnapshot: CodexDynamicCreateDestinationSnapshot;
-    readonly modelProjection: CodexDynamicCreateModelProjection;
-    readonly permissionSelection: CodexDynamicCreatePermissionSelection;
-    readonly serviceTier: string | null;
-    readonly serviceName?: string;
-    readonly sourceThreadId: string;
-    readonly startingState: CodexPendingWorktreeStartingState;
-    readonly target: Extract<CodexResolvedDynamicThreadTarget, { launchMode: "worktree" }>;
-  }): { readonly clientThreadId: string } {
-    const startConversationParamsInput = this.buildDynamicPendingStartConversationParams({
-      destinationSnapshot: input.destinationSnapshot,
-      modelProjection: input.modelProjection,
-      permissionSelection: input.permissionSelection,
-      prompt: input.createInput.prompt,
-      projectId: input.target.projectId,
-      ...(input.serviceName === undefined ? {} : { serviceName: input.serviceName }),
-      serviceTier: input.serviceTier,
-      sourceThreadId: input.sourceThreadId,
-      targetCwd: input.target.cwd,
-      targetWorkspaceRoots: input.target.workspaceRoots,
-    });
-
-    const created = this.createPendingWorktree({
-      hostId: CODEX_APP_LOCAL_HOST_ID,
-      label: summarizeCodexPendingWorktreeLabel(input.createInput.prompt),
-      initialThreadTitle: undefined,
-      sourceWorkspaceRoot: input.target.cwd,
-      startingState: input.startingState,
-      localEnvironmentConfigPath: null,
-      launchMode: "start-conversation",
-      prompt: input.createInput.prompt,
-      startConversationParamsInput,
-      sourceConversationId: null,
-      sourceCollaborationMode: null,
-    });
-    if (!created.clientThreadId) {
-      throw new Error("Pending conversation did not allocate a client thread id");
-    }
-    return { clientThreadId: created.clientThreadId };
   }
 
   async createPendingManagedWorktree(
@@ -13074,430 +12084,6 @@ export class CodexService {
           }),
       }),
     );
-  }
-
-  private async handleDynamicToolCall(
-    params: DynamicToolCallParams,
-    context: CodexDynamicToolExecutionContext = {},
-    frozenNodexAuthority?: FrozenNodexAgentTurnAuthority | null,
-  ): Promise<DynamicToolCallResponse> {
-    const args = asRecord(params.arguments) ?? {};
-
-    try {
-      if (params.namespace === NODEX_APP_TOOL_NAMESPACE) {
-        return await this.handleNodexAgentDynamicToolCall(params, frozenNodexAuthority);
-      }
-      if (!isCodexAppDynamicTool(params)) {
-        const namespace = params.namespace ?? "<none>";
-        return this.buildDynamicToolFailure(`Unsupported dynamic tool namespace: ${namespace}`);
-      }
-
-      if (params.tool === "setup_codex_step") {
-        const isValidStep =
-          Object.keys(args).length === 1 &&
-          (args.step === "role" ||
-            args.step === "task" ||
-            args.step === "context" ||
-            args.step === "complete");
-        if (!isValidStep) {
-          return this.buildDynamicToolFailure("setup_codex_step received invalid arguments.");
-        }
-        if (args.step !== "complete") {
-          return this.buildDynamicToolFailure(
-            "setup_codex_step interactive steps must be handled by the app.",
-          );
-        }
-        return this.buildDynamicToolSuccess({ completed: true });
-      }
-
-      if (params.tool === AUTOMATION_UPDATE_TOOL_NAME) {
-        return await this.handleAutomationUpdateDynamicToolCall(params, args);
-      }
-
-      if (params.tool === "read_thread_terminal") {
-        return this.buildDynamicToolTextSuccess(
-          await this.buildDynamicReadThreadTerminalResponse(params.threadId),
-        );
-      }
-
-      if (params.tool === "list_projects") {
-        if (Object.keys(args).length > 0)
-          throw new Error("list_projects received invalid arguments.");
-        const projects = (await this.projectWorkspace.listProjects()).map((project) => ({
-          projectId: project.id,
-          projectKind: "local",
-          label: project.name,
-          ...(project.primaryWorkspaceRoot ? { path: project.primaryWorkspaceRoot } : {}),
-          hostId: CODEX_APP_LOCAL_HOST_ID,
-          hostDisplayName: CODEX_APP_LOCAL_HOST_DISPLAY_NAME,
-        }));
-        return this.buildDynamicToolSuccess({ schemaVersion: 1, projects });
-      }
-
-      if (params.tool === "list_threads") {
-        const limit = this.clampDynamicInt(args.limit, 10, 1, 50);
-        const rawQuery = typeof args.query === "string" ? args.query.trim() : "";
-        const query = rawQuery.toLowerCase();
-        const threads = this.listDynamicThreadSummaries()
-          .filter((thread) => {
-            if (!query) return true;
-            return [
-              thread.threadId,
-              thread.threadName ?? "",
-              thread.threadPreview,
-              thread.cwd ?? "",
-            ]
-              .join(" ")
-              .toLowerCase()
-              .includes(query);
-          })
-          .slice(0, limit)
-          .map((thread) => ({
-            id: thread.threadId,
-            hostId: CODEX_APP_LOCAL_HOST_ID,
-            title: thread.threadName?.trim() || thread.threadPreview.trim() || thread.threadId,
-            preview: thread.threadPreview,
-            status: thread.statusType,
-            cwd: thread.cwd,
-            createdAt: thread.createdAt,
-            updatedAt: thread.updatedAt,
-          }));
-        return this.buildDynamicToolSuccess({
-          schemaVersion: 1,
-          query: rawQuery.length > 0 ? rawQuery : null,
-          threads,
-        });
-      }
-
-      if (params.tool === "read_thread") {
-        return this.buildDynamicToolSuccess(await this.buildDynamicReadThreadResponse(args));
-      }
-
-      if (params.tool === "send_message_to_thread") {
-        const threadId = this.parseDynamicString(args.threadId) ?? "";
-        const prompt = this.parseDynamicString(args.prompt) ?? "";
-        if (!threadId || !prompt)
-          throw new Error("send_message_to_thread requires threadId and prompt");
-        await this.resolveDynamicThreadDetail(threadId);
-        await this.startTurn(threadId, prompt, {
-          model: this.parseDynamicString(args.model) ?? undefined,
-          reasoningEffort: this.parseDynamicReasoningEffort(args.thinking),
-        });
-        return this.buildDynamicToolSuccess({ threadId });
-      }
-
-      if (params.tool === "set_thread_title") {
-        const threadId = this.parseDynamicString(args.threadId) ?? "";
-        const title = this.parseDynamicString(args.title) ?? "";
-        if (!threadId || !title) throw new Error("set_thread_title requires threadId and title");
-        await this.resolveDynamicThreadDetail(threadId);
-        await this.threadTitlePersistence.set({
-          threadId,
-          name: title,
-          normalization: "manual",
-        });
-        return this.buildDynamicToolSuccess({ threadId, title });
-      }
-
-      if (params.tool === "set_thread_archived") {
-        const threadId = this.parseDynamicString(args.threadId) ?? params.threadId;
-        if (!threadId || typeof args.archived !== "boolean") {
-          throw new Error("set_thread_archived requires threadId and archived");
-        }
-        await this.resolveDynamicThreadDetail(threadId);
-        if (args.archived) {
-          await this.controlPlane.runPromise(this.conversationCommands.archive(threadId));
-        } else {
-          await this.controlPlane.runPromise(this.conversationCommands.unarchive(threadId));
-        }
-        return this.buildDynamicToolSuccess({ threadId, archived: args.archived });
-      }
-
-      if (params.tool === "set_thread_pinned") {
-        const threadId = this.parseDynamicString(args.threadId) ?? "";
-        if (!threadId || typeof args.pinned !== "boolean") {
-          throw new Error("set_thread_pinned requires threadId and pinned");
-        }
-        await this.threadCatalog.setPinned(threadId, args.pinned);
-        return this.buildDynamicToolSuccess({ threadId, pinned: args.pinned });
-      }
-
-      if (params.tool === "fork_thread") {
-        const sourceThreadId = this.parseDynamicString(args.threadId) ?? params.threadId;
-        const sourceDetail = await this.resolveDynamicThreadDetail(sourceThreadId);
-        const environment = asRecord(args.environment);
-        if (environment?.type === "worktree") {
-          if (!sourceDetail.cwd) {
-            throw new Error("A Git repository is required to continue in a new worktree");
-          }
-          const sourceRef = this.parseThreadRef(sourceThreadId);
-          const initialThreadTitle = this.resolveUserFacingForkThreadTitle(sourceDetail);
-          const sourceWorkspaceRoots = await this.resolvePendingWorktreeSourceWorkspaceRoots({
-            projectId: sourceRef?.projectId ?? null,
-            sourceThreadId,
-            sourceWorkspaceRoot: sourceDetail.cwd,
-          });
-          const created = this.createPendingWorktree({
-            hostId: CODEX_APP_LOCAL_HOST_ID,
-            label: initialThreadTitle ?? "New task",
-            ...(initialThreadTitle ? { initialThreadTitle } : {}),
-            sourceWorkspaceRoot: sourceDetail.cwd,
-            sourceWorkspaceRoots,
-            startingState: { type: "working-tree" },
-            localEnvironmentConfigPath: null,
-            launchMode: "fork-conversation",
-            projectAssignment: sourceRef?.projectId
-              ? {
-                  projectKind: "local",
-                  projectId: sourceRef.projectId,
-                  path: sourceDetail.cwd,
-                  pendingCoreUpdate: false,
-                }
-              : null,
-            prompt: "Continue this task in a new worktree",
-            startConversationParamsInput: null,
-            sourceConversationId: sourceThreadId,
-            sourceCollaborationMode: sourceDetail.latestCollaborationMode ?? null,
-            targetTurnId: null,
-            threadSource: "subagent",
-          });
-          await this.forkSidePanelTransferLifecycle?.capturePending({
-            pendingWorktreeId: created.pendingWorktreeId,
-            sourceConversationId: sourceThreadId,
-            sourceWorkspaceRoot: sourceDetail.cwd,
-          });
-          return this.buildDynamicToolSuccess({
-            pendingWorktreeId: created.pendingWorktreeId,
-          });
-        }
-        if (environment && environment.type !== "same-directory") {
-          throw new Error("fork_thread received invalid arguments.");
-        }
-        const sourceRef = this.parseThreadRef(sourceThreadId);
-        const sourceWorkspaceRoots = sourceRef?.projectId
-          ? ((await this.maybeResolveProjectRuntimeContext(sourceRef.projectId))?.workspaceRoots ??
-            [])
-          : [sourceDetail.cwd].filter((cwd): cwd is string => cwd !== null);
-        let detail: CodexThreadDetail;
-        let summary: CodexThreadSummary | null;
-        const fork = await this.forkAndResumePersistentConversation({
-          sourceThreadId,
-          requestedCwd: sourceDetail.cwd,
-          workspaceRoots: sourceWorkspaceRoots,
-          threadSource: "subagent",
-          materialize: (projectedThread, resolvedCwd) =>
-            this.materializeThreadDetailFromThreadPayload(
-              projectedThread,
-              sourceRef,
-              resolvedCwd ?? sourceDetail.cwd,
-              { preserveExistingTimeline: true },
-            ),
-        });
-        const forkedThreadId = fork.threadId;
-        detail = fork.detail;
-        summary = fork.summary;
-        this.appendForkedFromConversationMarker(
-          forkedThreadId,
-          sourceThreadId,
-          this.resolveForkedFromConversationTitle(sourceDetail),
-        );
-        this.syncDormantConversationFromRecord(forkedThreadId, "owner-unavailable");
-        if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
-        await this.forkSidePanelTransferLifecycle?.stageDirect({
-          sourceConversationId: sourceThreadId,
-          targetConversationId: detail.threadId,
-        });
-        return this.buildDynamicToolSuccess({
-          environment: { type: "same-directory" },
-          sourceThreadId,
-          threadId: detail.threadId,
-          continuation: CODEX_SAME_DIRECTORY_FORK_CONTINUATION,
-        });
-      }
-
-      if (params.tool === "create_thread") {
-        const createInput = parseCodexDynamicCreateThreadInput(args);
-        if (!createInput) throw new Error("create_thread received invalid arguments.");
-        if (createInput.model !== undefined && createInput.thinking !== undefined) {
-          const validationError = validateCodexDynamicCreateModelReasoning(
-            createInput.model,
-            createInput.thinking,
-            await this.listModels(),
-          );
-          if (validationError) throw new Error(validationError);
-        }
-        const target = await resolveCodexDynamicCreateTarget(
-          {
-            prompt: createInput.prompt,
-            target: createInput.target,
-          },
-          {
-            getProject: async (projectId) => await this.projectWorkspace.getProject(projectId),
-            createProjectlessWorkspace: async (workspaceInput) =>
-              await createCodexProjectlessWorkspace(workspaceInput),
-          },
-        );
-        const modelProjection = projectCodexDynamicCreateModel(
-          createInput.model,
-          createInput.thinking,
-        );
-        const sourceServiceName = await this.resolveThreadServiceName(params.threadId);
-        const destinationSnapshot = await this.readDynamicCreateDestinationSnapshot(target);
-        const hostPermissionMode = isCodexDynamicCreatePermissionMode(context.permissionMode)
-          ? context.permissionMode
-          : "auto";
-        const [permissionSelection, serviceTier, pendingStartingState] = await Promise.all([
-          this.resolveDynamicCreatePermissions(
-            params.threadId,
-            target,
-            destinationSnapshot,
-            hostPermissionMode,
-          ),
-          this.resolveDynamicCreateServiceTier(
-            {
-              cwd: target.cwd,
-              model: modelProjection.collaborationMode?.settings.model ?? null,
-            },
-            context.serviceTierSelector,
-          ),
-          target.launchMode === "worktree"
-            ? target.startingState
-              ? Promise.resolve(target.startingState)
-              : resolveManagedWorktreeDefaultStartingState(target.cwd)
-            : Promise.resolve(null),
-        ]);
-        if (target.launchMode === "worktree") {
-          if (!pendingStartingState) {
-            throw new Error("Worktree create_thread requires a starting state");
-          }
-          return this.buildDynamicToolSuccess(
-            this.enqueueDynamicPendingWorktree({
-              createInput,
-              destinationSnapshot,
-              modelProjection,
-              permissionSelection,
-              ...(sourceServiceName === undefined ? {} : { serviceName: sourceServiceName }),
-              serviceTier,
-              sourceThreadId: params.threadId,
-              startingState: pendingStartingState,
-              target,
-            }),
-          );
-        }
-        return this.buildDynamicToolSuccess(
-          await this.startDynamicCreatedConversation({
-            createInput,
-            modelProjection,
-            permissionSelection,
-            ...(sourceServiceName === undefined ? {} : { serviceName: sourceServiceName }),
-            serviceTier,
-            sourceThreadId: params.threadId,
-            target,
-          }),
-        );
-      }
-
-      if (params.tool === "handoff_thread") {
-        const threadId = this.parseDynamicString(args.threadId) ?? "";
-        if (!threadId) throw new Error("handoff_thread requires threadId");
-        if (threadId === params.threadId) {
-          throw new Error("A thread cannot hand itself off. Choose another thread.");
-        }
-        const requestedDestinationHostId = this.parseDynamicString(args.destinationHostId);
-        if (!requestedDestinationHostId) {
-          const localCapability = await this.evaluateLocalThreadHandoffCapability();
-          if (localCapability.status !== "available") {
-            throw new Error(
-              `Task handoff is unavailable because its transactional runtime is not ready (${localCapability.reasons.join(", ")}).`,
-            );
-          }
-        }
-        await this.resolveDynamicThreadDetail(threadId);
-        const targetThread = await this.readWorkspaceThread(threadId);
-        if (!targetThread) throw new Error(`No task found for handoff: ${threadId}`);
-        const destinationHostId = requestedDestinationHostId ?? targetThread.executionHostId;
-        const destinationHost = await this.controlPlane.runPromise(
-          this.executionHosts.get(destinationHostId),
-        );
-        if (!destinationHost) {
-          throw new Error(`Host ${destinationHostId} is not available for task handoff.`);
-        }
-        const capability = await this.evaluateThreadHandoffCapability(
-          targetThread.executionHostId,
-          destinationHostId,
-        );
-        if (capability.status !== "available") {
-          throw new Error(
-            `Task handoff is unavailable because its transactional runtime is not ready (${capability.reasons.join(", ")}).`,
-          );
-        }
-        const operationId = params.callId || randomUUID();
-        const existing = await this.controlPlane.runPromise(
-          this.threadHandoffRuntime.get(operationId),
-        );
-        if (existing) return this.buildDynamicToolSuccess(existing);
-        const operation = await this.controlPlane.runPromise(
-          this.threadHandoffRuntime.launch({
-            operationId,
-            threadId,
-            destinationHostId: requestedDestinationHostId,
-            followUpPrompt: this.parseDynamicString(args.followUpPrompt),
-          }),
-        );
-        return this.buildDynamicToolSuccess(operation);
-      }
-
-      if (params.tool === "get_handoff_status") {
-        const operationId = this.parseDynamicString(args.operationId) ?? "";
-        if (!operationId) throw new Error("get_handoff_status requires operationId");
-        const afterRevision =
-          typeof args.afterRevision === "number" &&
-          Number.isInteger(args.afterRevision) &&
-          args.afterRevision >= 0
-            ? args.afterRevision
-            : null;
-        const waitMs = this.clampDynamicInt(args.waitMs, 0, 0, CODEX_APP_HANDOFF_MAX_WAIT_MS);
-        const operation = await this.controlPlane.runPromise(
-          this.threadHandoffRuntime.waitForRevision(operationId, afterRevision, waitMs),
-        );
-        if (!operation) {
-          throw new Error(`No thread handoff operation found for operationId ${operationId}.`);
-        }
-        return this.buildDynamicToolSuccess(operation);
-      }
-
-      return this.buildDynamicToolFailure(`Unsupported dynamic tool: ${params.tool}`);
-    } catch (error) {
-      return this.buildDynamicToolFailure(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async respondToDynamicToolCall(
-    requestId: RequestId,
-    conversationId?: string,
-    context: CodexDynamicToolExecutionContext = {},
-  ): Promise<DynamicToolCallResponse | null> {
-    const pending = this.pendingServerRequests.takeFirst(
-      "dynamic-tool",
-      requestId,
-      (candidate) =>
-        candidate.disposition === "dispatched" &&
-        (conversationId === undefined || candidate.request.params.threadId === conversationId),
-    );
-    if (!pending) return null;
-
-    try {
-      const response = await this.handleDynamicToolCall(
-        pending.request.params,
-        context,
-        pending.nodexAuthority,
-      );
-      this.pendingServerRequests.complete(pending, response);
-      return response;
-    } catch (error) {
-      this.pendingServerRequests.reject(pending, error);
-      throw error;
-    }
   }
 
   private clearApprovalRequestAttachment(

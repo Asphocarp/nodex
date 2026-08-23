@@ -35,6 +35,7 @@ import {
   type CodexApplicationRequestOccurrence,
 } from "../codex-runtime/CodexApplicationRequestInbox";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
+import { CodexAppProtocolTools } from "./CodexAppProtocolTools";
 import { CodexAutomationInbox } from "./CodexAutomationInbox";
 import { compactCodexApplicationProtocolOccurrences } from "./CodexConversationEventProjection";
 import { CodexNotificationAdmission } from "./CodexNotificationAdmission";
@@ -280,6 +281,7 @@ export const make: Effect.Effect<
   CodexApplicationProtocol["Service"],
   never,
   | CodexApplicationEventHub
+  | CodexAppProtocolTools
   | CodexApplicationRequestInbox
   | CodexAutomationInbox
   | CodexNotificationAdmission
@@ -294,6 +296,7 @@ export const make: Effect.Effect<
   | Scope.Scope
 > = Effect.gen(function* () {
   const applicationEvents = yield* CodexApplicationEventHub;
+  const codexAppTools = yield* CodexAppProtocolTools;
   const inbox = yield* CodexApplicationRequestInbox;
   const automationInbox = yield* CodexAutomationInbox;
   const notificationAdmission = yield* CodexNotificationAdmission;
@@ -494,15 +497,20 @@ export const make: Effect.Effect<
       if (request.params.namespace === NODEX_APP_TOOL_NAMESPACE) {
         return yield* nodexAgentTools.execute(request.params);
       }
-      if (!rendererRegistry.hasOwner(threadId)) return CodexAppServerNoResponse;
-      pending.register({
+      if (!rendererRegistry.hasOwner(threadId)) {
+        return yield* codexAppTools.execute(request.params);
+      }
+      const entry = pending.register({
         kind: "dynamic-tool",
         request,
         occurrenceToken: request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
         nodexAuthority: null,
         disposition: "dispatched",
       });
-      if (!renderer.forwardServerRequest(request)) return CodexAppServerNoResponse;
+      if (!renderer.forwardServerRequest(request)) {
+        pending.discard(entry);
+        return yield* codexAppTools.execute(request.params);
+      }
       renderer.reconcileOwnership(threadId);
       return ProtocolRequestPending;
     }
@@ -802,6 +810,7 @@ export const live: Layer.Layer<
   CodexApplicationProtocol,
   never,
   | CodexApplicationEventHub
+  | CodexAppProtocolTools
   | CodexApplicationRequestInbox
   | CodexAutomationInbox
   | CodexNotificationAdmission

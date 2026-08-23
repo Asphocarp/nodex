@@ -44,15 +44,17 @@ const harness = (
   } = {},
 ) => {
   const events: string[] = [];
+  const threadStartParams: Array<Record<string, unknown>> = [];
   let attempt = 0;
   const gateway = CodexGateway.of({
     localHostId: "local",
-    requestLocal: ((method: string, params: { readonly threadId?: string }) => {
+    requestLocal: ((method: string, params: Record<string, unknown>) => {
       if (method === "thread/delete") {
         events.push(`delete:${params.threadId}`);
         return Effect.succeed({});
       }
       attempt += 1;
+      threadStartParams.push(params);
       events.push(`start:${attempt}`);
       return (options.start ?? Effect.void).pipe(
         Effect.as({ thread: { id: `thread-${attempt}` } }),
@@ -106,6 +108,7 @@ const harness = (
   });
   return {
     events,
+    threadStartParams,
     effect: make.pipe(
       Effect.provideService(CodexGateway, gateway),
       Effect.provideService(CoreModules, core),
@@ -148,6 +151,19 @@ it.effect("commits the Session link before admitting its first Turn", () =>
       "turn:thread-1",
       "complete:thread-1",
     ]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("preserves the semantic source of protocol-created child Threads", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const test = harness(scope);
+    const service = yield* test.effect;
+
+    yield* service.start({ ...input(), threadSource: "subagent" }, context);
+
+    assert.strictEqual(test.threadStartParams[0]?.threadSource, "subagent");
     yield* Scope.close(scope, Exit.void);
   }),
 );

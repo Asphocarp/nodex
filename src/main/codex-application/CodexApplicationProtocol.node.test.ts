@@ -17,6 +17,7 @@ import {
   CodexApplicationEventHub,
   make as makeApplicationEvents,
 } from "./CodexApplicationEventHub";
+import { CodexAppProtocolTools } from "./CodexAppProtocolTools";
 import { CodexAutomationInbox } from "./CodexAutomationInbox";
 import {
   CodexOneShotServerRequests,
@@ -74,13 +75,13 @@ const userInputParams = (threadId: string) => ({
   turnId: `turn-${threadId}`,
 });
 
-const invalidPickerParams = (threadId: string) => ({
+const directCodexAppParams = (threadId: string) => ({
   threadId,
   turnId: `turn-${threadId}`,
   callId: `call-${threadId}`,
   namespace: "codex_app",
-  tool: "request_option_picker",
-  arguments: { question: "Missing options" },
+  tool: "setup_codex_step",
+  arguments: { step: "complete" },
 });
 
 const withProtocol = <A, E>(
@@ -130,6 +131,14 @@ const withProtocol = <A, E>(
           contentItems: [{ type: "inputText", text: params.tool }],
         }),
     });
+    const codexAppTools = CodexAppProtocolTools.of({
+      execute: (params) =>
+        Effect.succeed({
+          success: true,
+          contentItems: [{ type: "inputText", text: params.tool }],
+        }),
+      respond: () => Effect.succeed(null),
+    });
     const notificationEffects = CodexProtocolNotificationEffects.of({
       apply: ({ notification }) =>
         Effect.sync(() => {
@@ -148,6 +157,7 @@ const withProtocol = <A, E>(
 
     const protocol = yield* makeProtocol.pipe(
       Effect.provideService(CodexApplicationEventHub, applicationEvents),
+      Effect.provideService(CodexAppProtocolTools, codexAppTools),
       Effect.provideService(CodexApplicationRequestInbox, inbox),
       Effect.provideService(CodexAutomationInbox, automationInbox),
       Effect.provideService(CodexNotificationAdmission, notificationAdmission),
@@ -262,13 +272,19 @@ it.effect("lets another Thread respond while the first Thread command lane is oc
       yield* generation.admit({
         requestId: "fast",
         method: "item/tool/call",
-        params: invalidPickerParams("thread-b"),
+        params: directCodexAppParams("thread-b"),
       });
 
       const response = yield* Fiber.join(responseFiber);
       assert.strictEqual(response._tag, "Some");
       if (response._tag === "Some") {
-        assert.strictEqual(response.value.outcome.kind, "result");
+        assert.deepEqual(response.value.outcome, {
+          kind: "result",
+          value: {
+            success: true,
+            contentItems: [{ type: "inputText", text: "setup_codex_step" }],
+          },
+        });
       }
       assert.deepEqual(conversations.conversation("thread-a").readServerRequests(), []);
       yield* Deferred.succeed(releaseLane, undefined);
