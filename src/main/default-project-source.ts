@@ -33,23 +33,24 @@ const attempt = <A, Error, Requirements>(
 ): Effect.Effect<A, DefaultProjectSourceError, Requirements> =>
   effect.pipe(Effect.mapError((cause) => new DefaultProjectSourceError({ operation, cause })));
 
-function runGit(args: string[], cwd: string): Promise<void> {
-  return new Promise((resolve, reject) => {
+function runGit(args: string[], cwd: string): Effect.Effect<void, Error> {
+  return Effect.callback((resume, signal) => {
     execFile(
       "git",
       args,
       {
         cwd,
         encoding: "utf8",
+        signal,
         timeout: 5_000,
         windowsHide: true,
       },
       (error) => {
         if (error) {
-          reject(error);
+          resume(Effect.fail(error));
           return;
         }
-        resolve();
+        resume(Effect.void);
       },
     );
   });
@@ -65,9 +66,7 @@ const defaultCreateDirectory = (path: string): Effect.Effect<void, unknown> =>
   Effect.tryPromise(() => mkdir(path, { recursive: true })).pipe(Effect.asVoid);
 
 const defaultInitializeRepository = (path: string): Effect.Effect<void, unknown> =>
-  Effect.tryPromise(() => runGit(["--version"], path)).pipe(
-    Effect.andThen(Effect.tryPromise(() => runGit(["init"], path))),
-  );
+  runGit(["--version"], path).pipe(Effect.andThen(runGit(["init"], path)));
 
 export function sanitizeDefaultProjectDirectoryName(name: string): string {
   const sanitized = Array.from(basename(name).trim(), (character) => {
