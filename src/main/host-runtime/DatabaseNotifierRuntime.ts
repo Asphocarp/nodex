@@ -10,7 +10,7 @@ import {
   LIBRARY_NAVIGATION_EVENT_VERSION,
   type LibraryNavigationChangedEvent,
 } from "../../shared/library-events";
-import { recordDevRuntimeMetricCounter } from "../dev-runtime-metrics";
+import { logDevRuntimeMetric } from "../dev-runtime-metrics";
 import { safeBroadcastToWindows } from "../ipc-safe-send";
 import { WindowRuntime } from "../window-runtime/WindowRuntime";
 
@@ -91,38 +91,17 @@ export const live: Layer.Layer<DatabaseNotifierRuntime, never, WindowRuntime> = 
         const scopeKey = event.summaryScopes
           .map((scope) => (scope.kind === "project" ? scope.projectId : scope.kind))
           .join(",");
-        recordDevRuntimeMetricCounter(
-          "project_sessions_changed.burst_window",
-          {
-            scopeKey,
-            changeType: event.changeType,
-            detailScope: event.detailInvalidation.kind,
-            detailCount:
-              event.detailInvalidation.kind === "sessions"
-                ? event.detailInvalidation.sessionIds.length
-                : 0,
-          },
-          {
-            groupBy: ["scopeKey", "changeType"],
-            windowMs: 1_000,
-            burstThreshold: 20,
-            burstMetric: "project_sessions_changed.burst",
-          },
-        );
-        recordDevRuntimeMetricCounter(
-          "db.project_sessions_changed.broadcast",
-          {
-            summaryScopeCount: event.summaryScopes.length,
-            changeType: event.changeType,
-            detailScope: event.detailInvalidation.kind,
-            detailSessionCount:
-              event.detailInvalidation.kind === "sessions"
-                ? event.detailInvalidation.sessionIds.length
-                : 0,
-            windowCount: windows.count(),
-          },
-          { groupBy: ["changeType", "windowCount"] },
-        );
+        logDevRuntimeMetric("project_sessions_changed.notification", {
+          scopeKey,
+          summaryScopeCount: event.summaryScopes.length,
+          changeType: event.changeType,
+          detailScope: event.detailInvalidation.kind,
+          detailSessionCount:
+            event.detailInvalidation.kind === "sessions"
+              ? event.detailInvalidation.sessionIds.length
+              : 0,
+          windowCount: windows.count(),
+        });
       });
       yield* broadcast("project-sessions-changed", event);
       yield* PubSub.publish(projectSessionInvalidations, event);

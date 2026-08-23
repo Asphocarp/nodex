@@ -74,7 +74,6 @@ import {
   getDevRuntimeMetricDurationMs,
   getDevRuntimeMetricStart,
   logDevRuntimeMetric,
-  recordDevRuntimeMetricCounter,
 } from "./dev-runtime-metrics";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
@@ -293,21 +292,12 @@ export const codexIpcLive = (
                 approxPayloadBytes,
                 durationMs: getDevRuntimeMetricDurationMs(startedAt),
               });
-              recordDevRuntimeMetricCounter(
-                "ipc.codex_sidebar_sync.burst_window",
-                {
-                  policy: input?.policy ?? "stale",
-                  reason: input?.reason ?? "manual",
-                  includeArchived: input?.includeArchived === true,
-                  approxPayloadBytes,
-                },
-                {
-                  groupBy: ["policy", "reason", "includeArchived"],
-                  windowMs: 1_000,
-                  burstThreshold: 5,
-                  burstMetric: "ipc.codex_sidebar_sync.burst",
-                },
-              );
+              logDevRuntimeMetric("ipc.codex_sidebar_sync.request", {
+                policy: input?.policy ?? "stale",
+                reason: input?.reason ?? "manual",
+                includeArchived: input?.includeArchived === true,
+                approxPayloadBytes,
+              });
             }),
           ),
           Effect.mapError((cause) => new CodexIpcError({ operation: "codex:sidebar:sync", cause })),
