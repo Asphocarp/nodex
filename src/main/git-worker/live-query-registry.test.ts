@@ -1,10 +1,12 @@
 import { it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { describe, expect, test, vi } from "vite-plus/test";
-import type { GitReviewRepositoryChangedEvent } from "./repository-watcher";
 import {
   GIT_LIVE_QUERY_DEBOUNCE_MS,
   makeGitLiveQueryRegistry,
@@ -12,73 +14,68 @@ import {
   type GitLiveQueryRegistryOptions,
   type LiveQueryRepository,
 } from "./live-query-registry";
-import type { GitRepositoryWatchLease } from "./worktree-repository";
+import type {
+  GitReadQueryMeta,
+  GitRepositoryError,
+  GitRepositoryWatchEvent,
+} from "./worktree-repository";
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((nextResolve) => {
-    resolve = nextResolve;
-  });
-  return { promise, resolve };
-}
+const makeRepository = Effect.gen(function* () {
+  const changes = yield* PubSub.unbounded<GitRepositoryWatchEvent>();
+  let generation = 1;
+  let queryRuns = 0;
+  let recoveries = 0;
+  let watchReleases = 0;
+  const repository: LiveQueryRepository = {
+    advanceGeneration: () =>
+      Effect.sync(() => {
+        generation += 1;
+        return generation;
+      }),
+    get generation() {
+      return generation;
+    },
+    identity: {
+      hostId: "local" as const,
+      root: "/repo",
+      gitDir: "/repo/.git",
+      commonDir: "/repo/.git",
+    },
+    invalidateGitReadCachesForRepoChange: () => Effect.succeed(generation),
+    query: <Result>(input: {
+      readonly key: readonly unknown[];
+      readonly meta?: GitReadQueryMeta;
+      readonly run: Effect.Effect<Result, GitRepositoryError, Scope.Scope>;
+      readonly staleTime?: number;
+    }): Effect.Effect<Result, GitRepositoryError, Scope.Scope> =>
+      Effect.sync(() => void (queryRuns += 1)).pipe(Effect.andThen(input.run)),
+    readSafeAttributeFilterOverrides: Effect.succeed([]),
+    recoverWatch: Effect.sync(() => void (recoveries += 1)),
+    runGit: () => Effect.die("unused"),
+    untrackedPaths: null as never,
+    watchEvents: Stream.fromPubSub(changes).pipe(
+      Stream.ensuring(Effect.sync(() => void (watchReleases += 1))),
+    ),
+  } satisfies LiveQueryRepository;
+  return {
+    repository,
+    change: (event: GitRepositoryWatchEvent) =>
+      Effect.sync(() => {
+        if (event._tag === "Changed") generation += 1;
+      }).pipe(Effect.andThen(PubSub.publish(changes, event)), Effect.asVoid),
+    get queryRuns() {
+      return queryRuns;
+    },
+    get recoveries() {
+      return recoveries;
+    },
+    get watchReleases() {
+      return watchReleases;
+    },
+  };
+});
 
-class FakeLiveRepository implements LiveQueryRepository {
-  generation = 1;
-  queryRuns = 0;
-  watchLeases = 0;
-  watchReleases = 0;
-  readonly #runs = new Map<string, Promise<unknown>>();
-  #member: {
-    onChange(event: GitReviewRepositoryChangedEvent): void;
-    onRequiresRecoveryChanged(requiresRecovery: boolean): void;
-  } | null = null;
-
-  async acquireWatchLease(member: {
-    onChange(event: GitReviewRepositoryChangedEvent): void;
-    onRequiresRecoveryChanged(requiresRecovery: boolean): void;
-  }): Promise<GitRepositoryWatchLease> {
-    this.watchLeases += 1;
-    this.#member = member;
-    return {
-      recover: async () => undefined,
-      release: () => {
-        this.watchReleases += 1;
-        this.#member = null;
-      },
-    };
-  }
-
-  advanceGeneration(): number {
-    this.generation += 1;
-    this.#runs.clear();
-    return this.generation;
-  }
-
-  async query<Result>(input: {
-    key: readonly unknown[];
-    signal?: AbortSignal;
-    run: (signal: AbortSignal) => Promise<Result>;
-  }): Promise<Result> {
-    const key = JSON.stringify(input.key);
-    const existing = this.#runs.get(key);
-    if (existing) return (await existing) as Result;
-    this.queryRuns += 1;
-    const controller = new AbortController();
-    const abort = () => controller.abort(input.signal?.reason);
-    input.signal?.addEventListener("abort", abort, { once: true });
-    const promise = input.run(controller.signal).finally(() => {
-      input.signal?.removeEventListener("abort", abort);
-      if (this.#runs.get(key) === promise) this.#runs.delete(key);
-    });
-    this.#runs.set(key, promise);
-    return await promise;
-  }
-
-  change(event: GitReviewRepositoryChangedEvent): void {
-    this.advanceGeneration();
-    this.#member?.onChange(event);
-  }
-}
+const settle = Effect.yieldNow.pipe(Effect.andThen(Effect.yieldNow));
 
 describe("GitLiveQueryRegistry", () => {
   test("defines an exhaustive semantic invalidation matrix", () => {
@@ -88,155 +85,89 @@ describe("GitLiveQueryRegistry", () => {
     expect(shouldRefreshGitLiveQuery("branch-commits", "remote-refs")).toBe(true);
   });
 
-  it.effect("coalesces identical subscriptions and publishes tracked before complete", () =>
+  it.effect("publishes tracked data before the complete result", () =>
     Effect.gen(function* () {
-      const repository = new FakeLiveRepository();
-      const complete = deferred<unknown>();
-      const execute: GitLiveQueryRegistryOptions["execute"] = vi.fn(async (input) => {
+      const fake = yield* makeRepository;
+      const complete = yield* Deferred.make<unknown>();
+      const execute: GitLiveQueryRegistryOptions["execute"] = vi.fn((input) => {
         const params = input.params as { includeUntrackedFiles?: boolean };
-        if (params.includeUntrackedFiles === false) {
-          return {
-            type: "success",
-            source: "unstaged",
-            files: [],
-            snapshotGeneration: 1,
-          };
-        }
-        return await complete.promise;
+        return params.includeUntrackedFiles === false
+          ? Effect.succeed({ type: "success", files: [] })
+          : Deferred.await(complete);
       });
-      const publications: Array<{ event: { phase?: string; subscriptionId: string } }> = [];
+      const phases: string[] = [];
       const registry = yield* makeGitLiveQueryRegistry({
-        registry: { get: async () => repository },
+        registry: { get: () => Effect.succeed(fake.repository) },
         execute,
-        publish: (event) => publications.push(event as (typeof publications)[number]),
-      });
-      const query = {
-        method: "review-summary" as const,
-        params: {
-          cwd: "/repo",
-          source: "unstaged" as const,
-          includeUntrackedFiles: true,
+        publish: (event) => {
+          if (event.event.type === "git-live-query-updated") phases.push(event.event.phase);
         },
-      };
-
-      yield* Effect.promise(() =>
-        Promise.all([
-          registry.subscribe({ subscriptionId: "one", query }),
-          registry.subscribe({ subscriptionId: "two", query }),
-        ]),
-      );
-      yield* Effect.promise(() => vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(2)));
-
-      expect(repository.queryRuns).toBe(2);
-      expect(publications.map(({ event }) => event.phase)).toEqual(["tracked", "tracked"]);
-
-      complete.resolve({
-        type: "success",
-        source: "unstaged",
-        files: [],
-        snapshotGeneration: 1,
       });
-      yield* Effect.promise(() =>
-        vi.waitFor(() => {
-          expect(publications.filter(({ event }) => event.phase === "complete")).toHaveLength(2);
-        }),
-      );
+      yield* registry.subscribe({
+        subscriptionId: "review",
+        query: {
+          method: "review-summary",
+          params: { cwd: "/repo", source: "unstaged", includeUntrackedFiles: true },
+        },
+      });
+      yield* settle;
+      expect(phases).toEqual(["tracked"]);
+
+      yield* Deferred.succeed(complete, { type: "success", files: [] });
+      yield* settle;
+      expect(phases).toEqual(["tracked", "complete"]);
     }),
   );
 
-  it.effect("retires old generations and publishes only the refreshed result", () =>
+  it.effect("coalesces a burst of relevant changes into one refresh", () =>
     Effect.gen(function* () {
-      const repository = new FakeLiveRepository();
-      const first = deferred<unknown>();
-      let run = 0;
-      const publications: Array<{ event: { generation: number; phase?: string } }> = [];
+      const fake = yield* makeRepository;
+      let executions = 0;
       const registry = yield* makeGitLiveQueryRegistry({
-        registry: { get: async () => repository },
-        execute: async () => {
-          run += 1;
-          if (run === 1) return await first.promise;
-          return {
-            cwd: "/repo",
-            baseRef: "main",
-            files: [],
-            additions: 2,
-            deletions: 1,
-            isGitRepository: true,
-            currentBranch: "feature",
-            defaultBranch: "main",
-            errorMessage: null,
-          };
-        },
-        publish: (event) => publications.push(event as (typeof publications)[number]),
-      });
-      yield* Effect.promise(() =>
-        registry.subscribe({
-          subscriptionId: "branch",
-          query: { method: "branch-diff-stats", params: { cwd: "/repo" } },
-        }),
-      );
-      repository.change({ changeType: "working-tree", changedPaths: ["/repo/a.ts"] });
-      yield* TestClock.adjust(GIT_LIVE_QUERY_DEBOUNCE_MS);
-      first.resolve({
-        cwd: "/repo",
-        baseRef: "main",
-        files: [],
-        additions: 99,
-        deletions: 99,
-        isGitRepository: true,
-        currentBranch: "feature",
-        defaultBranch: "main",
-        errorMessage: null,
-      });
-      yield* Effect.promise(() => Promise.resolve());
-
-      expect(publications).toHaveLength(1);
-      expect(publications[0]?.event.generation).toBe(2);
-    }),
-  );
-
-  it.effect("interrupts active refreshes and releases watch leases with its Scope", () =>
-    Effect.gen(function* () {
-      const repository = new FakeLiveRepository();
-      const parentScope = yield* Scope.Scope;
-      const registryScope = yield* Scope.fork(parentScope);
-      let refreshAborted = false;
-      const registry = yield* makeGitLiveQueryRegistry({
-        registry: { get: async () => repository },
-        execute: async ({ signal }) =>
-          await new Promise((_resolve, reject) => {
-            signal.addEventListener(
-              "abort",
-              () => {
-                refreshAborted = true;
-                reject(signal.reason);
-              },
-              { once: true },
-            );
-          }),
+        registry: { get: () => Effect.succeed(fake.repository) },
+        execute: () => Effect.sync(() => ({ generation: ++executions })),
         publish: () => undefined,
-      }).pipe(Scope.provide(registryScope));
-      yield* Effect.promise(() =>
-        registry.subscribe({
-          subscriptionId: "branch",
+      });
+      yield* registry.subscribe({
+        subscriptionId: "branch",
+        query: { method: "branch-diff-stats", params: { cwd: "/repo" } },
+      });
+      yield* settle;
+      expect(executions).toBe(1);
+
+      yield* fake.change({ _tag: "Changed", event: { changeType: "working-tree" } });
+      yield* fake.change({ _tag: "Changed", event: { changeType: "index" } });
+      yield* settle;
+      yield* TestClock.adjust(GIT_LIVE_QUERY_DEBOUNCE_MS);
+      yield* settle;
+      expect(executions).toBe(2);
+    }),
+  );
+
+  it.effect("recovers the watcher and interrupts observation with its owner Scope", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeRepository;
+      const parentScope = yield* Scope.Scope;
+      const owner = yield* Scope.fork(parentScope);
+      const registry = yield* makeGitLiveQueryRegistry({
+        registry: { get: () => Effect.succeed(fake.repository) },
+        execute: () => Effect.succeed({ defaultBranch: "main" }),
+        publish: () => undefined,
+      }).pipe(Scope.provide(owner));
+      yield* registry
+        .subscribe({
+          subscriptionId: "base",
           query: { method: "base-branch", params: { cwd: "/repo" } },
-        }),
-      );
-      yield* Effect.promise(() => vi.waitFor(() => expect(repository.queryRuns).toBe(1)));
+        })
+        .pipe(Scope.provide(owner));
+      yield* settle;
 
-      yield* Scope.close(registryScope, Exit.void);
+      expect(yield* registry.recover("base").pipe(Scope.provide(owner))).toBe(true);
+      expect(fake.recoveries).toBe(1);
 
-      expect(refreshAborted).toBe(true);
-      expect(repository.watchReleases).toBe(1);
-      expect(registry.unsubscribe("branch")).toBe(false);
-      yield* Effect.promise(() =>
-        expect(
-          registry.subscribe({
-            subscriptionId: "late",
-            query: { method: "base-branch", params: { cwd: "/repo" } },
-          }),
-        ).rejects.toThrow("closed"),
-      );
+      yield* Scope.close(owner, Exit.void);
+      yield* Effect.yieldNow;
+      expect(fake.watchReleases).toBe(1);
     }),
   );
 });

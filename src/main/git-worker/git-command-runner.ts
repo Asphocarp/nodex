@@ -1,8 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { devNull } from "node:os";
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FiberSet from "effect/FiberSet";
 import * as RcMap from "effect/RcMap";
 import type * as Scope from "effect/Scope";
@@ -83,51 +86,70 @@ interface GitPerformanceOperationRuntime {
 }
 
 const gitPerformanceOperationContext = new AsyncLocalStorage<GitPerformanceOperationRuntime>();
+const CurrentGitPerformanceOperation = Context.Reference<GitPerformanceOperationRuntime | null>(
+  "nodex/main/git-worker/CurrentGitPerformanceOperation",
+  { defaultValue: () => null },
+);
 
-export function recordGitQueryCacheOutcome(outcome: "hit" | "miss" | "coalesced"): void {
-  const runtime = gitPerformanceOperationContext.getStore();
-  if (!runtime) return;
-  if (outcome === "hit") runtime.cacheHits += 1;
-  if (outcome === "miss") runtime.cacheMisses += 1;
-  if (outcome === "coalesced") runtime.coalescedQueries += 1;
-}
+export const recordGitQueryCacheOutcomeEffect = (
+  outcome: "hit" | "miss" | "coalesced",
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const runtime = yield* CurrentGitPerformanceOperation;
+    if (!runtime) return;
+    if (outcome === "hit") runtime.cacheHits += 1;
+    if (outcome === "miss") runtime.cacheMisses += 1;
+    if (outcome === "coalesced") runtime.coalescedQueries += 1;
+  });
 
-export async function runGitPerformanceOperation<Result>(input: {
+export const gitPerformancePromise = <Result>(
+  run: (signal: AbortSignal) => Promise<Result>,
+): Effect.Effect<Result> =>
+  Effect.gen(function* () {
+    const runtime = yield* CurrentGitPerformanceOperation;
+    return yield* Effect.promise((signal) =>
+      runtime ? gitPerformanceOperationContext.run(runtime, () => run(signal)) : run(signal),
+    );
+  });
+
+export const runGitPerformanceOperationEffect = <Result, Error, Requirements>(input: {
   operation: string;
   trigger: GitPerformanceOperationTrigger;
   classifyOutcome(result: Result): GitPerformanceOperationOutcome;
   publish(metric: GitPerformanceOperationMetric): void;
-  run(): Promise<Result>;
-}): Promise<Result> {
-  const startedAt = performance.now();
-  const runtime: GitPerformanceOperationRuntime = {
-    cacheHits: 0,
-    cacheMisses: 0,
-    canceled: false,
-    coalescedQueries: 0,
-    commandCount: 0,
-    fullUntrackedScanCount: 0,
-    unscopedAllStatusCount: 0,
-    outputLimitExceeded: false,
-    peakConcurrency: 0,
-    queueDurationMs: 0,
-    statusCommandCount: 0,
-    timedOut: false,
-  };
-  let outcome: GitPerformanceOperationOutcome = "infrastructure-error";
-  try {
-    return await gitPerformanceOperationContext.run(runtime, async () => {
-      const result = await input.run();
-      outcome = input.classifyOutcome(result);
-      return result;
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
+  run: Effect.Effect<Result, Error, Requirements>;
+}): Effect.Effect<Result, Error, Requirements> =>
+  Effect.gen(function* () {
+    const startedAt = performance.now();
+    const runtime: GitPerformanceOperationRuntime = {
+      cacheHits: 0,
+      cacheMisses: 0,
+      canceled: false,
+      coalescedQueries: 0,
+      commandCount: 0,
+      fullUntrackedScanCount: 0,
+      unscopedAllStatusCount: 0,
+      outputLimitExceeded: false,
+      peakConcurrency: 0,
+      queueDurationMs: 0,
+      statusCommandCount: 0,
+      timedOut: false,
+    };
+    let outcome: GitPerformanceOperationOutcome = "infrastructure-error";
+    const exit = yield* Effect.exit(
+      input.run.pipe(
+        Effect.tap((result) => Effect.sync(() => void (outcome = input.classifyOutcome(result)))),
+        Effect.provideService(CurrentGitPerformanceOperation, runtime),
+      ),
+    );
+    if (
+      Exit.isFailure(exit) &&
+      exit.cause.reasons.length > 0 &&
+      exit.cause.reasons.every(Cause.isInterruptReason)
+    ) {
       outcome = "canceled";
       runtime.canceled = true;
     }
-    throw error;
-  } finally {
     const durationMs = Math.max(0, performance.now() - startedAt);
     input.publish({
       operation: input.operation,
@@ -149,8 +171,9 @@ export async function runGitPerformanceOperation<Result>(input: {
       outputLimitExceeded: runtime.outputLimitExceeded,
       repoIndexSizeBucket: "unknown",
     });
-  }
-}
+    if (Exit.isSuccess(exit)) return exit.value;
+    return yield* Effect.failCause(exit.cause);
+  });
 
 const GIT_CONFIG_OVERRIDES = [
   "-c",

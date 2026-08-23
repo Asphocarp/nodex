@@ -70,16 +70,19 @@ describe("UntrackedPathCache", () => {
         const runner = new RecordingRunner(delegate);
         return registryFor(runner).pipe(
           Effect.flatMap((registry) =>
-            Effect.promise(async () => {
-              const root = await createRepository();
-              await mkdir(path.join(root, "nested"));
-              await writeFile(path.join(root, "nested", "first.txt"), "first\n", "utf8");
-              await writeFile(path.join(root, "nested", "second.txt"), "second\n", "utf8");
-              await writeFile(path.join(root, "ignored.txt"), "ignored\n", "utf8");
-              const repository = await registry.get(root);
+            Effect.gen(function* () {
+              const root = yield* Effect.promise(async () => {
+                const created = await createRepository();
+                await mkdir(path.join(created, "nested"));
+                await writeFile(path.join(created, "nested", "first.txt"), "first\n", "utf8");
+                await writeFile(path.join(created, "nested", "second.txt"), "second\n", "utf8");
+                await writeFile(path.join(created, "ignored.txt"), "ignored\n", "utf8");
+                return created;
+              });
+              const repository = yield* registry.get(root);
               if (!repository) throw new Error("Expected Git repository");
 
-              const result = await repository.untrackedPaths.read();
+              const result = yield* repository.untrackedPaths.read();
 
               expect(result).toEqual({
                 success: true,
@@ -107,22 +110,25 @@ describe("UntrackedPathCache", () => {
         const runner = new RecordingRunner(delegate);
         return registryFor(runner).pipe(
           Effect.flatMap((registry) =>
-            Effect.promise(async () => {
-              const root = await createRepository();
-              await writeFile(path.join(root, "first.txt"), "first\n", "utf8");
-              const repository = await registry.get(root);
+            Effect.gen(function* () {
+              const root = yield* Effect.promise(async () => {
+                const created = await createRepository();
+                await writeFile(path.join(created, "first.txt"), "first\n", "utf8");
+                return created;
+              });
+              const repository = yield* registry.get(root);
               if (!repository) throw new Error("Expected Git repository");
-              await repository.untrackedPaths.read();
+              yield* repository.untrackedPaths.read();
               const secondPath = path.join(repository.identity.root, "second.txt");
-              await writeFile(secondPath, "second\n", "utf8");
+              yield* Effect.promise(() => writeFile(secondPath, "second\n", "utf8"));
 
-              const invalidation = await repository.untrackedPaths.invalidatePaths([secondPath]);
+              const invalidation = yield* repository.untrackedPaths.invalidatePaths([secondPath]);
               const scopedStatus = runner.results.find(
                 ({ args }) => args[0] === "status" && args.includes("--untracked-files=all"),
               );
               expect(scopedStatus?.result).toMatchObject({ success: true, code: 0 });
               expect(invalidation).toBe("filtered");
-              const result = await repository.untrackedPaths.read();
+              const result = yield* repository.untrackedPaths.read();
 
               expect(result.paths).toEqual(["first.txt", "second.txt"]);
               const allStatus = runner.commands.filter(
@@ -144,22 +150,25 @@ describe("UntrackedPathCache", () => {
       Effect.flatMap((runner) =>
         registryFor(runner).pipe(
           Effect.flatMap((registry) =>
-            Effect.promise(async () => {
-              const root = await createRepository();
-              await mkdir(path.join(root, "large"));
-              await Promise.all(
-                Array.from({ length: 260 }, async (_, index) => {
-                  await writeFile(
-                    path.join(root, "large", `${String(index).padStart(3, "0")}.txt`),
-                    `${String(index)}\n`,
-                    "utf8",
-                  );
-                }),
-              );
-              const repository = await registry.get(root);
+            Effect.gen(function* () {
+              const root = yield* Effect.promise(async () => {
+                const created = await createRepository();
+                await mkdir(path.join(created, "large"));
+                await Promise.all(
+                  Array.from({ length: 260 }, async (_, index) => {
+                    await writeFile(
+                      path.join(created, "large", `${String(index).padStart(3, "0")}.txt`),
+                      `${String(index)}\n`,
+                      "utf8",
+                    );
+                  }),
+                );
+                return created;
+              });
+              const repository = yield* registry.get(root);
               if (!repository) throw new Error("Expected Git repository");
 
-              const result = await repository.untrackedPaths.read();
+              const result = yield* repository.untrackedPaths.read();
 
               expect(result.success).toBe(true);
               expect(result.paths).toHaveLength(GIT_UNTRACKED_MATERIALIZED_PATH_LIMIT);

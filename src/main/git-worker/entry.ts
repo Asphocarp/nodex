@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as FiberMap from "effect/FiberMap";
 import * as FiberSet from "effect/FiberSet";
 import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
 import {
   GIT_WORKER_PROTOCOL_VERSION,
   isGitWorkerMessageFromHost,
@@ -54,7 +55,7 @@ const program = Effect.scoped(
     });
     const shutdown = yield* Deferred.make<void, GitWorkerEntryError>();
     const requests = yield* FiberMap.make<string, void>();
-    const runRequest = yield* FiberMap.runtime(requests)();
+    const runRequest = yield* FiberMap.runtime(requests)<Scope.Scope>();
     const runControl = yield* FiberSet.makeRuntime<never, void, never>();
     const post = (message: GitWorkerMessageFromThread): void => port.postMessage(message);
     const fail = (cause: unknown): void => {
@@ -65,7 +66,7 @@ const program = Effect.scoped(
       runControl(Deferred.fail(shutdown, error));
     };
     const execute = (message: Extract<GitWorkerMessageFromHost, { type: "worker-request" }>) =>
-      Effect.promise((signal) => worker.execute(message.request, signal)).pipe(
+      worker.execute(message.request).pipe(
         Effect.tap((value) =>
           Effect.sync(() =>
             post({

@@ -34,19 +34,21 @@ describe("GitRepositoryRegistry", () => {
   it.effect("canonicalizes cwd aliases to one worktree owner", () =>
     makeRegistry.pipe(
       Effect.flatMap((registry) =>
-        Effect.promise(async () => {
-          const root = await mkdtemp(path.join(tmpdir(), "nodex-git-registry-"));
+        Effect.gen(function* () {
+          const root = yield* Effect.promise(() =>
+            mkdtemp(path.join(tmpdir(), "nodex-git-registry-")),
+          );
           temporaryDirectories.push(root);
           const nested = path.join(root, "nested", "directory");
-          await mkdir(nested, { recursive: true });
-          await execFileAsync("git", ["init", "-q", root]);
+          yield* Effect.promise(() => mkdir(nested, { recursive: true }));
+          yield* Effect.promise(() => execFileAsync("git", ["init", "-q", root]));
 
-          const fromRoot = await registry.get(root);
-          const fromNested = await registry.get(nested);
+          const fromRoot = yield* registry.get(root);
+          const fromNested = yield* registry.get(nested);
 
           expect(fromRoot).not.toBeNull();
           expect(fromNested).toBe(fromRoot);
-          expect(fromRoot?.identity.root).toBe(await realpath(root));
+          expect(fromRoot?.identity.root).toBe(yield* Effect.promise(() => realpath(root)));
         }),
       ),
     ),
@@ -55,11 +57,11 @@ describe("GitRepositoryRegistry", () => {
   it.effect("returns null for an ordinary directory", () =>
     makeRegistry.pipe(
       Effect.flatMap((registry) =>
-        Effect.promise(async () => {
-          const root = await mkdtemp(path.join(tmpdir(), "nodex-not-git-"));
+        Effect.gen(function* () {
+          const root = yield* Effect.promise(() => mkdtemp(path.join(tmpdir(), "nodex-not-git-")));
           temporaryDirectories.push(root);
 
-          await expect(registry.get(root)).resolves.toBeNull();
+          expect(yield* registry.get(root)).toBeNull();
         }),
       ),
     ),

@@ -48,59 +48,57 @@ describe("Git review read wave stress", () => {
           if (event.type === "git-performance-operation") metrics.push(event.metric);
         },
       });
-      yield* Effect.promise(async () => {
-        const root = await mkdtemp(path.join(tmpdir(), "nodex-git-review-stress-"));
-        temporaryDirectories.push(root);
-        await execFileAsync("git", ["init", "-q", "-b", "main", root]);
-        await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
-        await execFileAsync("git", ["-C", root, "config", "user.name", "Nodex Test"]);
-        await writeFile(path.join(root, "tracked.txt"), "initial\n", "utf8");
-        await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-        await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
-        const bulk = path.join(root, "bulk");
+      const root = yield* Effect.promise(async () => {
+        const created = await mkdtemp(path.join(tmpdir(), "nodex-git-review-stress-"));
+        temporaryDirectories.push(created);
+        await execFileAsync("git", ["init", "-q", "-b", "main", created]);
+        await execFileAsync("git", ["-C", created, "config", "user.email", "test@example.com"]);
+        await execFileAsync("git", ["-C", created, "config", "user.name", "Nodex Test"]);
+        await writeFile(path.join(created, "tracked.txt"), "initial\n", "utf8");
+        await execFileAsync("git", ["-C", created, "add", "tracked.txt"]);
+        await execFileAsync("git", ["-C", created, "commit", "-q", "-m", "initial"]);
+        const bulk = path.join(created, "bulk");
         await mkdir(bulk);
         await Promise.all(
           Array.from({ length: 270 }, (_, index) =>
             writeFile(path.join(bulk, `file-${index}.txt`), `${index}\n`, "utf8"),
           ),
         );
-        const signal = new AbortController().signal;
-        const [status, summary, branchStats] = await Promise.all([
-          module.execute(
-            request("status-summary", { cwd: root, includeUntrackedFiles: true }),
-            signal,
-          ),
+        return created;
+      });
+      const [status, summary, branchStats] = yield* Effect.all(
+        [
+          module.execute(request("status-summary", { cwd: root, includeUntrackedFiles: true })),
           module.execute(
             request("review-summary", {
               cwd: root,
               source: "unstaged",
               includeUntrackedFiles: true,
             }),
-            signal,
           ),
           module.execute(
             request("branch-diff-stats", {
               cwd: root,
               includeUntrackedFiles: true,
             }),
-            signal,
           ),
-        ]);
+        ] as const,
+        { concurrency: "unbounded" },
+      );
 
-        expect(status).toMatchObject({ type: "success", untrackedCount: 270 });
-        expect(summary).toMatchObject({
-          type: "success",
-          untrackedFilesOmitted: 14,
-        });
-        expect(branchStats).toMatchObject({
-          fileCount: 270,
-          untrackedFilesOmitted: 14,
-        });
-        expect(metrics.reduce((total, metric) => total + metric.fullUntrackedScanCount, 0)).toBe(1);
-        expect(metrics.reduce((total, metric) => total + metric.unscopedAllStatusCount, 0)).toBe(0);
-        expect(Math.max(...metrics.map((metric) => metric.peakConcurrency))).toBe(1);
-        expect(metrics.some((metric) => metric.coalescedQueries > 0)).toBe(true);
+      expect(status).toMatchObject({ type: "success", untrackedCount: 270 });
+      expect(summary).toMatchObject({
+        type: "success",
+        untrackedFilesOmitted: 14,
       });
+      expect(branchStats).toMatchObject({
+        fileCount: 270,
+        untrackedFilesOmitted: 14,
+      });
+      expect(metrics.reduce((total, metric) => total + metric.fullUntrackedScanCount, 0)).toBe(1);
+      expect(metrics.reduce((total, metric) => total + metric.unscopedAllStatusCount, 0)).toBe(0);
+      expect(Math.max(...metrics.map((metric) => metric.peakConcurrency))).toBe(1);
+      expect(metrics.some((metric) => metric.coalescedQueries > 0)).toBe(true);
     }).pipe(
       // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the stress-test application root.
       Effect.provide(GitCommandPlatformNode.nodeLive),

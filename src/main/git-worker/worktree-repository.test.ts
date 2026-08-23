@@ -1,8 +1,8 @@
 import { it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
-import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { describe, expect, vi } from "vite-plus/test";
 import type {
@@ -12,7 +12,7 @@ import type {
   FileWatchInput,
 } from "../file-watch-host";
 import type { GitCommandResult, GitCommandRunner } from "./git-command-runner";
-import { makeWorktreeRepository, type WorktreeRepository } from "./worktree-repository";
+import { makeWorktreeRepository } from "./worktree-repository";
 
 const identity = {
   hostId: "local" as const,
@@ -21,9 +21,21 @@ const identity = {
   commonDir: "/repo/common",
 };
 
-const unusedRunner: GitCommandRunner = {
-  run: vi.fn(),
-};
+const commandResult = (stdout: string): GitCommandResult => ({
+  success: true,
+  code: 0,
+  signal: null,
+  stdout,
+  stderr: "",
+  stdoutBytes: Buffer.byteLength(stdout),
+  stderrBytes: 0,
+  failureReason: null,
+  aborted: false,
+  timedOut: false,
+  outputLimitExceeded: false,
+});
+
+const unusedRunner: GitCommandRunner = { run: vi.fn() };
 
 class CountingWatchHost implements FileWatchHost {
   starts = 0;
@@ -40,109 +52,48 @@ class CountingWatchHost implements FileWatchHost {
             path: input.path,
           });
         }),
-        () =>
-          Effect.sync(() => {
-            this.disposals += 1;
-          }),
+        () => Effect.sync(() => void (this.disposals += 1)),
       ),
     );
 }
 
-function isAborted(signal: AbortSignal | null): boolean {
-  return signal?.aborted ?? false;
-}
-
-function deferred<Result>(): {
-  promise: Promise<Result>;
-  resolve: (value: Result) => void;
-} {
-  let resolve: (value: Result) => void = () => undefined;
-  const promise = new Promise<Result>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-function commandResult(stdout: string): GitCommandResult {
-  return {
-    success: true,
-    code: 0,
-    signal: null,
-    stdout,
-    stderr: "",
-    stdoutBytes: Buffer.byteLength(stdout),
-    stderrBytes: 0,
-    failureReason: null,
-    aborted: false,
-    timedOut: false,
-    outputLimitExceeded: false,
-  };
-}
-
-const withRepository = <A>(
-  runner: GitCommandRunner,
-  run: (repository: WorktreeRepository) => Promise<A>,
-) =>
-  makeWorktreeRepository(identity, runner).pipe(
-    Effect.flatMap((repository) => Effect.promise(() => run(repository))),
-  );
-
 describe("WorktreeRepository", () => {
-  it.effect("shares one query run and aborts only after the last consumer leaves", () =>
-    withRepository(unusedRunner, async (repository) => {
-      const execution = deferred<string>();
-      let runSignal: AbortSignal | null = null;
-      const run = vi.fn(async (signal: AbortSignal) => {
-        runSignal = signal;
-        return await execution.promise;
-      });
-      const firstController = new AbortController();
-      const secondController = new AbortController();
-      const first = repository.query({
-        key: ["status"],
-        run,
-        signal: firstController.signal,
-      });
-      const second = repository.query({
-        key: ["status"],
-        run,
-        signal: secondController.signal,
-      });
-      await Promise.resolve();
-      expect(run).toHaveBeenCalledTimes(1);
+  it.effect("shares one keyed read while consumers retain independent interruption", () =>
+    Effect.gen(function* () {
+      const repository = yield* makeWorktreeRepository(identity, unusedRunner);
+      const completed = yield* Deferred.make<string>();
+      let runs = 0;
+      const read = () =>
+        repository.query({
+          key: ["status"],
+          run: Effect.sync(() => void (runs += 1)).pipe(Effect.andThen(Deferred.await(completed))),
+        });
+      const first = yield* Effect.forkChild(read());
+      const second = yield* Effect.forkChild(read());
+      yield* Effect.yieldNow;
+      expect(runs).toBe(1);
 
-      firstController.abort(new Error("first canceled"));
-      await expect(first).rejects.toThrow("first canceled");
-      expect(isAborted(runSignal)).toBe(false);
-
-      execution.resolve("done");
-      await expect(second).resolves.toBe("done");
-      expect(isAborted(runSignal)).toBe(false);
+      yield* Fiber.interrupt(first);
+      yield* Deferred.succeed(completed, "done");
+      expect(yield* Fiber.join(second)).toBe("done");
+      expect(runs).toBe(1);
     }),
   );
 
-  it.effect("retires generation-bound work", () =>
-    withRepository(unusedRunner, async (repository) => {
-      const controller = new AbortController();
-      const started = deferred<void>();
-      let querySignal: AbortSignal | null = null;
-      const result = repository.query({
-        key: ["review-summary", 1],
-        meta: { gitReadDomains: ["working-tree"] },
-        run: async (signal) => {
-          querySignal = signal;
-          await started.promise;
-          signal.throwIfAborted();
-          return "obsolete";
-        },
-        signal: controller.signal,
-      });
-      await Promise.resolve();
+  it.effect("retires generation-bound cache entries", () =>
+    Effect.gen(function* () {
+      const repository = yield* makeWorktreeRepository(identity, unusedRunner);
+      let runs = 0;
+      const read = () =>
+        repository.query({
+          key: ["review-summary", 1],
+          meta: { gitReadDomains: ["working-tree"] },
+          run: Effect.sync(() => ++runs),
+        });
+      expect(yield* read()).toBe(1);
 
-      expect(repository.advanceGeneration()).toBe(2);
-      started.resolve();
-      await expect(result).rejects.toMatchObject({ message: "CancelledError" });
-      expect(isAborted(querySignal)).toBe(true);
+      expect(yield* repository.advanceGeneration()).toBe(2);
+      expect(yield* read()).toBe(2);
     }),
   );
 
@@ -154,12 +105,15 @@ describe("WorktreeRepository", () => {
         ),
       ),
     };
-    return withRepository(runner, async (repository) => {
-      const [first, second] = await Promise.all([
-        repository.readSafeAttributeFilterOverrides(),
-        repository.readSafeAttributeFilterOverrides(),
-      ]);
-
+    return Effect.gen(function* () {
+      const repository = yield* makeWorktreeRepository(identity, runner);
+      const [first, second] = yield* Effect.all(
+        [
+          repository.readSafeAttributeFilterOverrides,
+          repository.readSafeAttributeFilterOverrides,
+        ] as const,
+        { concurrency: "unbounded" },
+      );
       expect(runner.run).toHaveBeenCalledTimes(1);
       expect(first).toEqual(second);
       expect(first).toEqual([
@@ -177,62 +131,24 @@ describe("WorktreeRepository", () => {
     });
   });
 
-  it.effect("shares one lazy watcher until the last live lease releases", () =>
+  it.effect("shares a lazy watcher and releases it after the final Stream consumer", () =>
     Effect.gen(function* () {
       const host = new CountingWatchHost();
       const repository = yield* makeWorktreeRepository(identity, unusedRunner, { watchHost: host });
-      const member = () => ({
-        onChange: () => undefined,
-        onRequiresRecoveryChanged: () => undefined,
-      });
-
-      const first = yield* Effect.promise(() => repository.acquireWatchLease(member()));
+      const first = yield* Effect.forkChild(Stream.runDrain(repository.watchEvents));
+      while (host.starts === 0) yield* Effect.yieldNow;
       const started = host.starts;
       expect(started).toBeGreaterThan(0);
-      const second = yield* Effect.promise(() => repository.acquireWatchLease(member()));
+      const second = yield* Effect.forkChild(Stream.runDrain(repository.watchEvents));
+      yield* Effect.yieldNow;
       expect(host.starts).toBe(started);
 
-      first.release();
+      yield* Fiber.interrupt(first);
       yield* Effect.yieldNow;
       expect(host.disposals).toBe(0);
-
-      second.release();
-      yield* Effect.yieldNow;
+      yield* Fiber.interrupt(second);
       yield* Effect.yieldNow;
       expect(host.disposals).toBe(started);
-    }),
-  );
-
-  it.effect("cancels shared reads and fences admission with its owner Scope", () =>
-    Effect.gen(function* () {
-      const parentScope = yield* Scope.Scope;
-      const repositoryScope = yield* Scope.fork(parentScope);
-      const repository = yield* makeWorktreeRepository(identity, unusedRunner).pipe(
-        Scope.provide(repositoryScope),
-      );
-      let querySignal: AbortSignal | null = null;
-      const pending = repository.query({
-        key: ["scope-bound-read"],
-        run: async (signal) => {
-          querySignal = signal;
-          return await new Promise<never>((_resolve, reject) => {
-            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-          });
-        },
-      });
-      yield* Effect.promise(() => Promise.resolve());
-
-      yield* Scope.close(repositoryScope, Exit.void);
-
-      yield* Effect.promise(() =>
-        expect(pending).rejects.toMatchObject({ message: "CancelledError" }),
-      );
-      expect(isAborted(querySignal)).toBe(true);
-      yield* Effect.promise(() =>
-        expect(repository.query({ key: ["after-close"], run: async () => "late" })).rejects.toThrow(
-          "Git repository is closed",
-        ),
-      );
     }),
   );
 });

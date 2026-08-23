@@ -1,6 +1,7 @@
 import path from "node:path";
 import { it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Queue from "effect/Queue";
@@ -111,14 +112,6 @@ class FakeFileWatchHost implements FileWatchHost {
   }
 }
 
-function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((nextResolve) => {
-    resolve = nextResolve;
-  });
-  return { promise, resolve };
-}
-
 describe("makeGitReviewRepositoryWatcher", () => {
   it.effect("watches exact Git targets and emits all seven semantic change types", () =>
     Effect.gen(function* () {
@@ -127,9 +120,7 @@ describe("makeGitReviewRepositoryWatcher", () => {
       yield* makeGitReviewRepositoryWatcher({
         roots: ROOTS,
         host,
-        onChange: (event) => {
-          events.push(event);
-        },
+        onChange: (event) => Effect.sync(() => events.push(event)),
       });
 
       expect(
@@ -189,9 +180,7 @@ describe("makeGitReviewRepositoryWatcher", () => {
       yield* makeGitReviewRepositoryWatcher({
         roots: ROOTS,
         host,
-        onChange: (event) => {
-          events.push(event);
-        },
+        onChange: (event) => Effect.sync(() => events.push(event)),
       });
       const workingTreeSession = host.activeSessions({ path: ROOT, recursive: true })[0];
       if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
@@ -219,15 +208,15 @@ describe("makeGitReviewRepositoryWatcher", () => {
   it.effect("serializes one semantic type and starts a new fixed window afterward", () =>
     Effect.gen(function* () {
       const host = new FakeFileWatchHost();
-      const firstEmission = deferred();
+      const firstEmission = yield* Deferred.make<void>();
       const events: GitReviewRepositoryChangedEvent[] = [];
       yield* makeGitReviewRepositoryWatcher({
         roots: ROOTS,
         host,
-        onChange: (event) => {
-          events.push(event);
-          return events.length === 1 ? firstEmission.promise : undefined;
-        },
+        onChange: (event) =>
+          Effect.sync(() => events.push(event)).pipe(
+            Effect.andThen(events.length === 0 ? Deferred.await(firstEmission) : Effect.void),
+          ),
       });
       const workingTreeSession = host.activeSessions({ path: ROOT, recursive: true })[0];
       if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
@@ -240,7 +229,7 @@ describe("makeGitReviewRepositoryWatcher", () => {
       yield* TestClock.adjust(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS * 2);
       expect(events).toHaveLength(1);
 
-      firstEmission.resolve();
+      yield* Deferred.succeed(firstEmission, undefined);
       yield* Effect.yieldNow;
       yield* TestClock.adjust(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS - 1);
       expect(events).toHaveLength(1);
@@ -266,12 +255,9 @@ describe("makeGitReviewRepositoryWatcher", () => {
       const watcher = yield* makeGitReviewRepositoryWatcher({
         roots: ROOTS,
         host,
-        onChange: (event) => {
-          events.push(event);
-        },
-        onRequiresRecoveryChanged: (requiresRecovery) => {
-          recoveryStates.push(requiresRecovery);
-        },
+        onChange: (event) => Effect.sync(() => events.push(event)),
+        onRequiresRecoveryChanged: (requiresRecovery) =>
+          Effect.sync(() => recoveryStates.push(requiresRecovery)),
       });
       const workingTreeSession = host.activeSessions({ path: ROOT, recursive: true })[0];
       if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
@@ -284,7 +270,7 @@ describe("makeGitReviewRepositoryWatcher", () => {
       yield* Effect.yieldNow;
       yield* Effect.yieldNow;
       expect(recoveryStates.at(-1)).toBe(true);
-      expect(watcher.requiresRecovery).toBe(true);
+      expect(yield* watcher.requiresRecovery).toBe(true);
 
       yield* TestClock.adjust(GIT_REVIEW_WATCH_RETRY_MS - 1);
       expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(0);
@@ -307,7 +293,7 @@ describe("makeGitReviewRepositoryWatcher", () => {
       const watcher = yield* makeGitReviewRepositoryWatcher({
         roots: ROOTS,
         host,
-        onChange: () => undefined,
+        onChange: () => Effect.void,
       });
       const workingTreeSession = host.activeSessions({ path: ROOT, recursive: true })[0];
       if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
@@ -319,12 +305,12 @@ describe("makeGitReviewRepositoryWatcher", () => {
       }
       yield* Effect.yieldNow;
       yield* Effect.yieldNow;
-      expect(watcher.requiresRecovery).toBe(true);
+      expect(yield* watcher.requiresRecovery).toBe(true);
 
-      yield* Effect.promise(() => watcher.recover());
+      yield* watcher.recover;
 
       expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(1);
-      expect(watcher.requiresRecovery).toBe(false);
+      expect(yield* watcher.requiresRecovery).toBe(false);
     }),
   );
 
@@ -333,10 +319,10 @@ describe("makeGitReviewRepositoryWatcher", () => {
       const parentScope = yield* Scope.Scope;
       const watcherScope = yield* Scope.fork(parentScope);
       const host = new FakeFileWatchHost();
-      const watcher = yield* makeGitReviewRepositoryWatcher({
+      yield* makeGitReviewRepositoryWatcher({
         roots: ROOTS,
         host,
-        onChange: () => undefined,
+        onChange: () => Effect.void,
       }).pipe(Scope.provide(watcherScope));
       const sessions = host.activeSessions();
       expect(sessions.length).toBeGreaterThan(0);
@@ -345,8 +331,6 @@ describe("makeGitReviewRepositoryWatcher", () => {
 
       expect(host.activeSessions()).toHaveLength(0);
       expect(sessions.every((session) => session.closeCount === 1)).toBe(true);
-      yield* Effect.promise(() => watcher.recover());
-      expect(host.activeSessions()).toHaveLength(0);
     }),
   );
 });

@@ -1,11 +1,10 @@
 import path from "node:path";
 import * as Deferred from "effect/Deferred";
-import * as Data from "effect/Data";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FiberMap from "effect/FiberMap";
-import * as FiberSet from "effect/FiberSet";
 import * as Queue from "effect/Queue";
+import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { FileWatchHost } from "../file-watch-host";
@@ -56,15 +55,19 @@ export interface GitReviewRepositoryChangedEvent {
 }
 
 export interface GitReviewRepositoryWatcher {
-  readonly requiresRecovery: boolean;
-  recover(): Promise<void>;
+  readonly recover: Effect.Effect<void>;
+  readonly requiresRecovery: Effect.Effect<boolean>;
 }
 
 export interface GitReviewRepositoryWatcherOptions {
   readonly roots: GitReviewWatchRoots;
   readonly host: FileWatchHost;
-  readonly onChange: (event: GitReviewRepositoryChangedEvent) => void | Promise<void>;
-  readonly onRequiresRecoveryChanged?: (requiresRecovery: boolean) => void;
+  readonly onChange: (
+    event: GitReviewRepositoryChangedEvent,
+  ) => Effect.Effect<void, never, Scope.Scope>;
+  readonly onRequiresRecoveryChanged?: (
+    requiresRecovery: boolean,
+  ) => Effect.Effect<void, never, Scope.Scope>;
 }
 
 interface WatchTarget {
@@ -88,11 +91,6 @@ interface ChangeState {
   active: boolean;
   pending: boolean;
 }
-
-class GitRepositoryWatcherError extends Data.TaggedError("GitRepositoryWatcherError")<{
-  readonly operation: "emit-change";
-  readonly cause: unknown;
-}> {}
 
 function isPathInside(directory: string, candidate: string): boolean {
   const relative = path.relative(directory, candidate);
@@ -249,13 +247,11 @@ export const makeGitReviewRepositoryWatcher = (
   options: GitReviewRepositoryWatcherOptions,
 ): Effect.Effect<GitReviewRepositoryWatcher, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const runRecovery = yield* FiberSet.makeRuntimePromise<never, unknown, never>();
     const changeFibers = yield* FiberMap.make<GitReviewRepositoryChange>();
-    const runChange = yield* FiberMap.runtimePromise(changeFibers)();
+    const recoveryLock = yield* Semaphore.make(1);
     const targets = watchTargets(options.roots);
     const states = new Map<WatchTarget, WatchTargetState>();
     const changeStates = new Map<GitReviewRepositoryChange, ChangeState>();
-    let closed = false;
     let lastRequiresRecovery: boolean | null = null;
     let pendingWorkingTreePaths: Set<string> | null = new Set();
 
@@ -277,12 +273,16 @@ export const makeGitReviewRepositoryWatcher = (
       [...states.entries()].some(
         ([target, state]) => !state.available || (target.recursive && !state.recursiveCoverage),
       );
-    const updateRequiresRecovery = () => {
-      const next = requiresRecovery();
-      if (lastRequiresRecovery === next) return;
-      lastRequiresRecovery = next;
-      options.onRequiresRecoveryChanged?.(next);
-    };
+    const updateRequiresRecovery = Effect.fn("GitReviewRepositoryWatcher.updateRequiresRecovery")(
+      function* () {
+        const next = requiresRecovery();
+        if (lastRequiresRecovery === next) return;
+        lastRequiresRecovery = next;
+        if (options.onRequiresRecoveryChanged) {
+          yield* options.onRequiresRecoveryChanged(next);
+        }
+      },
+    );
     const settleRecovery = (state: WatchTargetState) => {
       const waiters = [...state.recoveryWaiters];
       state.recoveryWaiters.clear();
@@ -290,8 +290,10 @@ export const makeGitReviewRepositoryWatcher = (
         discard: true,
       });
     };
-    const signalChange = (target: WatchTarget, changedPaths?: readonly string[]): void => {
-      if (closed) return;
+    const signalChange = Effect.fn("GitReviewRepositoryWatcher.signalChange")(function* (
+      target: WatchTarget,
+      changedPaths?: readonly string[],
+    ) {
       if (target.changeType === "working-tree") {
         if (changedPaths === undefined) {
           pendingWorkingTreePaths = null;
@@ -312,7 +314,8 @@ export const makeGitReviewRepositoryWatcher = (
       state.pending = true;
       if (state.active) return;
       state.active = true;
-      const run = runChange(
+      yield* FiberMap.run(
+        changeFibers,
         changeType,
         Effect.gen(function* () {
           while (true) {
@@ -329,15 +332,12 @@ export const makeGitReviewRepositoryWatcher = (
                 ...(changedPaths === undefined ? {} : { changedPaths }),
               };
             });
-            yield* Effect.tryPromise({
-              try: () => Promise.resolve(options.onChange(event)),
-              catch: (cause) => new GitRepositoryWatcherError({ operation: "emit-change", cause }),
-            }).pipe(
-              Effect.catch((error) =>
+            yield* options.onChange(event).pipe(
+              Effect.catchCause((cause) =>
                 Effect.sync(() =>
                   logWatchFailure("Could not publish Git repository change", {
                     changeType,
-                    error,
+                    cause,
                   }),
                 ),
               ),
@@ -346,12 +346,16 @@ export const makeGitReviewRepositoryWatcher = (
             state.active = false;
             return;
           }
-        }),
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              state.active = false;
+            }),
+          ),
+        ),
+        { onlyIfMissing: true, startImmediately: true },
       );
-      void run.catch(() => {
-        state.active = false;
-      });
-    };
+    });
 
     for (const target of targets) {
       const state = states.get(target);
@@ -379,12 +383,11 @@ export const makeGitReviewRepositoryWatcher = (
                       yield* Deferred.succeed(state.firstAttempt, undefined);
                     }
                     yield* settleRecovery(state);
-                    updateRequiresRecovery();
-                    if (recovering) signalChange(target);
+                    yield* updateRequiresRecovery();
+                    if (recovering) yield* signalChange(target);
                   });
                 }
 
-                if (closed) return Effect.void;
                 const acceptedPaths = event.changedPaths.flatMap((changedPath) => {
                   if (!target.shouldHandleChangedPath(changedPath)) return [];
                   if (target.changeType !== "working-tree") return [changedPath];
@@ -397,11 +400,9 @@ export const makeGitReviewRepositoryWatcher = (
                 const includesRoot =
                   target.changeType === "working-tree" &&
                   acceptedPaths.includes(options.roots.root);
-                return Effect.sync(() =>
-                  signalChange(
-                    target,
-                    event.changedPaths.length === 0 || includesRoot ? undefined : acceptedPaths,
-                  ),
+                return signalChange(
+                  target,
+                  event.changedPaths.length === 0 || includesRoot ? undefined : acceptedPaths,
                 );
               }),
             );
@@ -416,7 +417,7 @@ export const makeGitReviewRepositoryWatcher = (
                 yield* Deferred.succeed(state.firstAttempt, undefined);
               }
               yield* settleRecovery(state);
-              updateRequiresRecovery();
+              yield* updateRequiresRecovery();
               logWatchFailure("Could not watch Git repository path", {
                 path: target.path,
                 error,
@@ -437,35 +438,24 @@ export const makeGitReviewRepositoryWatcher = (
       discard: true,
     });
 
-    const watcher: GitReviewRepositoryWatcher = {
-      get requiresRecovery() {
-        return requiresRecovery();
-      },
-      recover: async () => {
-        if (closed) return;
-        await runRecovery(
-          Effect.gen(function* () {
-            const waiters: Deferred.Deferred<void>[] = [];
-            for (const state of states.values()) {
-              if (state.available) continue;
-              const waiter = yield* Deferred.make<void>();
-              if (state.available) continue;
-              state.recoveryWaiters.add(waiter);
-              waiters.push(waiter);
-              yield* Queue.offer(state.retryWake, undefined);
-            }
-            yield* Effect.forEach(waiters, Deferred.await, {
-              concurrency: "unbounded",
-              discard: true,
-            });
-          }),
-        );
-      },
+    return {
+      requiresRecovery: Effect.sync(requiresRecovery),
+      recover: recoveryLock.withPermits(1)(
+        Effect.gen(function* () {
+          const waiters: Deferred.Deferred<void>[] = [];
+          for (const state of states.values()) {
+            if (state.available) continue;
+            const waiter = yield* Deferred.make<void>();
+            if (state.available) continue;
+            state.recoveryWaiters.add(waiter);
+            waiters.push(waiter);
+            yield* Queue.offer(state.retryWake, undefined);
+          }
+          yield* Effect.forEach(waiters, Deferred.await, {
+            concurrency: "unbounded",
+            discard: true,
+          });
+        }),
+      ),
     };
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        closed = true;
-      }),
-    );
-    return watcher;
   });
