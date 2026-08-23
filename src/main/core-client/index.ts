@@ -24,16 +24,6 @@ export { connectOrStartCore, resolveCoreExecutable } from "./core-launcher";
 export { initializeStandaloneDataAuthority } from "./standalone-data-authority";
 export { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 export {
-  createDesktopAutomationModuleBridge,
-  mapCoreAutomationEvent,
-  type AutomationArchiveMessages,
-  type CoreAutomationInvalidation,
-  type DesktopAutomationClaim,
-  type DesktopAutomationDefinitionDeleteResult,
-  type DesktopAutomationModuleBridgeInput,
-  type DesktopAutomationModulePort,
-} from "./desktop-automation-module-bridge";
-export {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
   type CoreDatabaseModuleAdapter,

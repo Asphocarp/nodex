@@ -28,7 +28,6 @@ import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-node
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { makeDesktopDocumentSessionHarness } from "./core-client/testing/desktop-document-session-harness.integration";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
-import { createDesktopAutomationModuleBridge } from "./core-client/desktop-automation-module-bridge";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { parseDataSourcePropertyId } from "../shared/database-identities";
@@ -42,6 +41,14 @@ import {
 } from "./core-runtime/CoreAuthority";
 import { CoreModules, live as coreModulesLive } from "./core-runtime/CoreModules";
 import { classifyCoreOperationFailure } from "./core-runtime/CoreRuntimeError";
+import {
+  AutomationRoutingIndex,
+  live as automationRoutingIndexLive,
+} from "./core-runtime/AutomationRoutingIndex";
+import {
+  AutomationApplication,
+  make as makeAutomationApplication,
+} from "./automation-application/AutomationApplication";
 import {
   make as makeProjectWorkspace,
   ProjectWorkspace,
@@ -66,6 +73,7 @@ const temporaryDirectories: string[] = [];
 const withFinalDataApplications = <A, E>(
   runtime: RustDataAuthorityRuntime,
   use: (services: {
+    readonly automation: AutomationApplication["Service"];
     readonly database: DatabaseModule["Service"];
     readonly dynamicTools: NodexAgentDynamicTools["Service"];
     readonly resourceAccess: NodexAgentResourceAccess["Service"];
@@ -111,6 +119,16 @@ const withFinalDataApplications = <A, E>(
         const authorityLayer = Layer.succeed(CoreAuthority, authority);
         const coreContext = yield* Layer.build(coreModulesLive.pipe(Layer.provide(accessLayer)));
         const core = Context.get(coreContext, CoreModules);
+        const routingContext = yield* Layer.build(
+          automationRoutingIndexLive.pipe(Layer.provide(Layer.succeed(CoreModules, core))),
+        );
+        const automation = yield* makeAutomationApplication.pipe(
+          Effect.provideService(CoreModules, core),
+          Effect.provideService(
+            AutomationRoutingIndex,
+            Context.get(routingContext, AutomationRoutingIndex),
+          ),
+        );
         const workspace = yield* makeProjectWorkspace.pipe(
           Effect.provideService(CoreModules, core),
         );
@@ -142,6 +160,7 @@ const withFinalDataApplications = <A, E>(
           ),
         );
         return yield* use({
+          automation,
           database,
           dynamicTools: Context.get(dynamicToolsContext, NodexAgentDynamicTools),
           resourceAccess: Context.get(resourceAccessContext, NodexAgentResourceAccess),
@@ -1880,99 +1899,93 @@ describe("Electron native data authority", () => {
       );
       expect(nativeDuplicateReplay).toEqual(nativeDuplicate);
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
-      const automation = createDesktopAutomationModuleBridge({
-        authority: Promise.resolve(runtime),
-        routing: { commit: () => undefined },
-      });
-      const automationDefinition = await automation.createDefinition({
-        kind: "cron",
-        name: "Electron Automation Adapter",
-        prompt: "Exercise the native Automation boundary.",
-        rrule: "FREQ=DAILY;BYHOUR=9",
-        cwds: [nodexHome],
-        executionEnvironment: "worktree",
-      });
-      expect(automationDefinition).toMatchObject({
-        id: "electron-automation-adapter",
-        status: "ACTIVE",
-        prompt: "Exercise the native Automation boundary.",
-      });
-      await expect(automation.listDefinitions()).resolves.toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: automationDefinition.id })]),
-      );
-      await expect(
-        automation.dispatchDefinitionNow(automationDefinition.id),
-      ).resolves.toMatchObject({
-        id: automationDefinition.id,
-        lastRunAt: expect.any(Number),
-      });
-      await expect(
-        automation.beginRun({
-          threadId: "thread:electron-session",
-          automationId: automationDefinition.id,
-          threadTitle: "Electron Automation run",
-          sourceCwd: nodexHome,
-        }),
-      ).resolves.toBe(true);
-      await expect(
-        automation.completeRunForReview({
-          threadId: "thread:electron-session",
-          inboxTitle: "Native report ready",
-          inboxSummary: "Review the native Automation run.",
-        }),
-      ).resolves.toBe(true);
-      await expect(automation.readInbox(10)).resolves.toMatchObject({
-        items: [
-          {
-            automationId: automationDefinition.id,
+      await withFinalDataApplications(runtime, ({ automation }) =>
+        Effect.gen(function* () {
+          const definition = yield* automation.definitions.create({
+            kind: "cron",
+            name: "Electron Automation Application",
+            prompt: "Exercise the native Automation boundary.",
+            rrule: "FREQ=DAILY;BYHOUR=9",
+            cwds: [nodexHome],
+            executionEnvironment: "worktree",
+          });
+          expect(definition).toMatchObject({
+            id: "electron-automation-application",
+            status: "ACTIVE",
+            prompt: "Exercise the native Automation boundary.",
+          });
+          expect(yield* automation.definitions.list()).toEqual(
+            expect.arrayContaining([expect.objectContaining({ id: definition.id })]),
+          );
+          expect(yield* automation.definitions.dispatchNow(definition.id)).toMatchObject({
+            id: definition.id,
+            lastRunAt: expect.any(Number),
+          });
+          expect(
+            yield* automation.runs.begin({
+              threadId: "thread:electron-session",
+              automationId: definition.id,
+              threadTitle: "Electron Automation run",
+              sourceCwd: nodexHome,
+            }),
+          ).toBe(true);
+          expect(
+            yield* automation.runs.completeForReview({
+              threadId: "thread:electron-session",
+              inboxTitle: "Native report ready",
+              inboxSummary: "Review the native Automation run.",
+            }),
+          ).toBe(true);
+          expect(yield* automation.inbox.read(10)).toMatchObject({
+            items: [
+              {
+                automationId: definition.id,
+                threadId: "thread:electron-session",
+                description: "Review the native Automation run.",
+              },
+            ],
+            unreadRunCounts: { total: 1 },
+          });
+          expect(
+            yield* automation.inbox.setReadState({
+              threadId: "thread:electron-session",
+              readAt: Date.now(),
+            }),
+          ).toMatchObject({
             threadId: "thread:electron-session",
-            description: "Review the native Automation run.",
-          },
-        ],
-        unreadRunCounts: { total: 1 },
-      });
-      await expect(
-        automation.setRunReadState({
-          threadId: "thread:electron-session",
-          readAt: Date.now(),
-        }),
-      ).resolves.toMatchObject({
-        threadId: "thread:electron-session",
-        readAt: expect.any(Number),
-      });
-      await expect(
-        automation.archiveRun(
-          {
-            threadId: "thread:electron-session",
-            archivedReason: "manual",
-          },
-          {
+            readAt: expect.any(Number),
+          });
+          expect(
+            yield* automation.runs.archive({
+              threadId: "thread:electron-session",
+              archivedReason: "manual",
+              archivedUserMessage: "Run the native report.",
+              archivedAssistantMessage: "Native report complete.",
+            }),
+          ).toBe(true);
+          expect(yield* automation.runs.get("thread:electron-session")).toMatchObject({
+            status: "ARCHIVED",
             archivedUserMessage: "Run the native report.",
             archivedAssistantMessage: "Native report complete.",
-          },
-        ),
-      ).resolves.toBe(true);
-      await expect(automation.getRun("thread:electron-session")).resolves.toMatchObject({
-        status: "ARCHIVED",
-        archivedUserMessage: "Run the native report.",
-        archivedAssistantMessage: "Native report complete.",
-        archivedReason: "manual",
-      });
-      await expect(automation.unarchiveRun("thread:electron-session")).resolves.toBe(true);
-      await expect(automation.deleteRun("thread:electron-session")).resolves.toBe(true);
-      await expect(
-        automation.listPageOccurrences(
-          createdProject.id,
-          new Date("2026-07-19T00:00:00.000Z"),
-          new Date("2026-07-21T00:00:00.000Z"),
-        ),
-      ).resolves.toEqual({ items: [], nextCursor: null });
-      await expect(automation.claimDueReminders(10, 120_000)).resolves.toEqual([]);
-      await expect(automation.deleteDefinition(automationDefinition.id)).resolves.toMatchObject({
-        success: true,
-        status: "deleted",
-        deletedRunCount: 0,
-      });
+            archivedReason: "manual",
+          });
+          expect(yield* automation.runs.unarchive("thread:electron-session")).toBe(true);
+          expect(yield* automation.runs.delete("thread:electron-session")).toBe(true);
+          expect(
+            yield* automation.occurrences.list({
+              projectId: createdProject.id,
+              windowStart: new Date("2026-07-19T00:00:00.000Z"),
+              windowEnd: new Date("2026-07-21T00:00:00.000Z"),
+            }),
+          ).toEqual({ items: [], nextCursor: null });
+          expect(yield* automation.reminders.claimDue(10, 120_000)).toEqual([]);
+          expect(yield* automation.definitions.delete(definition.id)).toMatchObject({
+            success: true,
+            status: "deleted",
+            deletedRunCount: 0,
+          });
+        }),
+      );
       const createdBackup = await runtime.rootClient.administrationApply({
         operationId: randomUUID(),
         intent: {
