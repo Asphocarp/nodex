@@ -100,7 +100,6 @@ const makeCatalog = (
   managed: ManagedWorktreeRuntime["Service"],
   options: {
     readonly executionHosts?: ExecutionHostRuntime["Service"];
-    readonly projectThread?: (thread: DesktopProjectWorkspaceThread) => void;
     readonly publish?: (event: CodexApplicationEvent) => void;
     readonly retention?: ManagedWorktreeRetentionRuntime["Service"];
     readonly settings?: {
@@ -118,10 +117,7 @@ const makeCatalog = (
     read: () => defaultSettings,
     update: () => defaultSettings,
   };
-  return make({
-    defaultManagedRoot: "/managed",
-    projectThread: options.projectThread ?? (() => undefined),
-  }).pipe(
+  return make({ defaultManagedRoot: "/managed" }).pipe(
     Effect.provideService(
       CodexApplicationEventHub,
       CodexApplicationEventHub.of({
@@ -431,7 +427,6 @@ it.effect("commits settings side effects and archives every consumer before dele
   Effect.gen(function* () {
     const worktreePath = "/managed/shared/repository";
     const calls: string[] = [];
-    const projected: string[] = [];
     let settings: ManagedWorktreeSettings = {
       worktreeRoot: null,
       autoDeleteEnabled: true,
@@ -483,7 +478,6 @@ it.effect("commits settings side effects and archives every consumer before dele
     const scope = yield* Scope.make();
     const catalog = yield* makeCatalog(scope, projectWorkspace, managed, {
       executionHosts: makeExecutionHosts((_hostId, root) => roots.push(root)),
-      projectThread: (thread) => projected.push(thread.threadId),
       retention: ManagedWorktreeRetentionRuntime.of({
         request: Effect.sync(() => {
           retentionRequests += 1;
@@ -519,8 +513,6 @@ it.effect("commits settings side effects and archives every consumer before dele
       "archive:thread-two:true",
       "remove:local:settings-delete",
     ]);
-    assert.deepEqual(projected, ["thread-one", "thread-two"]);
-
     yield* Scope.close(scope, Exit.void);
   }),
 );

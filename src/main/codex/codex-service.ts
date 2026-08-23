@@ -3353,11 +3353,6 @@ export class CodexService {
     }
   }
 
-  /** Temporary synchronous projection seam for application Modules committing Core Threads. */
-  projectWorkspaceThreadFromModule(thread: DesktopProjectWorkspaceThread): void {
-    this.rememberWorkspaceThread(thread);
-  }
-
   private rememberWorkspaceThread(
     thread: DesktopProjectWorkspaceThread,
   ): DesktopProjectWorkspaceThread {

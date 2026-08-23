@@ -17,7 +17,6 @@ import {
 } from "../codex/codex-managed-worktree-effects";
 import {
   ProjectWorkspace,
-  type DesktopProjectWorkspaceThread,
   type ProjectWorkspaceError,
 } from "../project-application/ProjectWorkspace";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
@@ -40,7 +39,6 @@ export class ManagedWorktreeCatalogError extends Data.TaggedError("ManagedWorktr
 
 export interface ManagedWorktreeCatalogOptions {
   readonly defaultManagedRoot: string;
-  readonly projectThread: (thread: DesktopProjectWorkspaceThread) => void;
 }
 
 export class ManagedWorktreeCatalog extends Context.Service<
@@ -357,11 +355,9 @@ export const make = (
                 normalizeWorktreePathForIdentity(consumer.managedWorktreePath) === normalizedPath,
             );
             for (const consumer of consumers) {
-              const sidebar = yield* project(
-                "delete",
-                workspace.setThreadArchived(consumer.threadId, true),
+              yield* project("delete", workspace.setThreadArchived(consumer.threadId, true)).pipe(
+                Effect.asVoid,
               );
-              for (const thread of sidebar.threads) options.projectThread(thread);
             }
             const result = yield* managed
               .remove({

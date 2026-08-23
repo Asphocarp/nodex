@@ -48,10 +48,17 @@ import {
   desktopDocumentSessionRuntimeLive,
   createDesktopProjectWorkspaceBridge,
 } from "../core-client";
+import {
+  ProjectWorkspace,
+  live as projectWorkspaceLive,
+} from "../project-application/ProjectWorkspace";
+import {
+  AutomationApplication,
+  live as automationApplicationLive,
+} from "../automation-application/AutomationApplication";
 import { DatabaseModule, live as databaseModuleLive } from "../database-application/DatabaseModule";
 import { LibraryModule, live as libraryModuleLive } from "../library-application/LibraryModule";
 import { createDesktopNodexAgentAuthorityPort } from "../core-client/desktop-nodex-agent-authority";
-import { createDesktopNodexAgentResourceAuthorityPort } from "../core-client/desktop-nodex-agent-resource-authority";
 import {
   NodexAgentApplication,
   live as nodexAgentApplicationLive,
@@ -68,7 +75,6 @@ import {
   NodexAgentResourceAccess,
   live as nodexAgentResourceAccessLive,
 } from "../nodex-agent-application/NodexAgentResourceAccess";
-import { makeDocumentLiveRuntimeAdapter } from "../core-client/document-live-runtime-adapter";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { CodexService } from "../codex/codex-service";
 import { CodexSessionStore } from "../codex/codex-session-store";
@@ -81,7 +87,6 @@ import {
 import { makeAgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import { make as makeAgentImportRuntime } from "../codex-application/AgentImportRuntime";
 import {
-  NodexAgentAuthorizationPersistenceError,
   NodexAgentAuthorizationRuntime,
   live as nodexAgentAuthorizationRuntimeLive,
 } from "../codex-application/NodexAgentAuthorizationRuntime";
@@ -121,10 +126,6 @@ import {
   CodexAppProtocolTools,
   make as makeCodexAppProtocolTools,
 } from "../codex-application/CodexAppProtocolTools";
-import {
-  CodexAutomationDefinitions,
-  fromDesktopModule as codexAutomationDefinitionsFromDesktopModule,
-} from "../codex-application/CodexAutomationDefinitions";
 import {
   CodexServerRequestResponses,
   make as makeCodexServerRequestResponses,
@@ -729,12 +730,17 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const coreModules = Context.get(coreModulesContext, CoreModules);
+        const projectWorkspaceContext = yield* Layer.buildWithScope(
+          projectWorkspaceLive.pipe(Layer.provide(Layer.succeed(CoreModules, coreModules))),
+          runtimeScope,
+        );
+        const projectWorkspace = Context.get(projectWorkspaceContext, ProjectWorkspace);
         const dataAuthority = yield* makeDesktopDataAuthority(callbacks).pipe(
           Effect.provideService(CoreAuthority, authority),
           Effect.provideService(CoreSessionAccess, access),
         );
         const legacyDataAuthority = Promise.resolve(dataAuthority);
-        const projectWorkspace = createDesktopProjectWorkspaceBridge({
+        const legacyProjectWorkspace = createDesktopProjectWorkspaceBridge({
           authority: legacyDataAuthority,
         });
         const projectRuntimeLifecycleContext = yield* Layer.buildWithScope(
@@ -848,10 +854,11 @@ export const live: Layer.Layer<
         const rendererConversations = yield* makeCodexRendererConversationRegistry().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const threadReadState = yield* makeCodexThreadReadState(projectWorkspace).pipe(
+        const threadReadState = yield* makeCodexThreadReadState.pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
           Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(ProjectWorkspace, projectWorkspace),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const userInputAutoResolution = yield* makeCodexUserInputAutoResolution.pipe(
@@ -1332,9 +1339,7 @@ export const live: Layer.Layer<
             if (event.channel !== "terminal-data") return Effect.void;
             const projectSessionId = projectSessionIdFromTerminalSessionId(event.payload.sessionId);
             if (!projectSessionId) return Effect.void;
-            return Effect.tryPromise(() =>
-              projectWorkspace.getProjectSession(projectSessionId),
-            ).pipe(
+            return projectWorkspace.getProjectSession(projectSessionId).pipe(
               Effect.flatMap((session) =>
                 typeof session?.projectId === "string"
                   ? browserSidebar.localServers.observePtyData(
@@ -1451,6 +1456,21 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const automationRouting = Context.get(automationRoutingContext, AutomationRoutingIndex);
+        const automationApplicationContext = yield* Layer.buildWithScope(
+          automationApplicationLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(AutomationRoutingIndex, automationRouting),
+                Layer.succeed(CoreModules, coreModules),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const automationApplication = Context.get(
+          automationApplicationContext,
+          AutomationApplication,
+        );
         const applicationDataModulesContext = yield* Layer.buildWithScope(
           Layer.merge(libraryModuleLive, databaseModuleLive).pipe(
             Layer.provide(
@@ -1506,7 +1526,7 @@ export const live: Layer.Layer<
           worktreeEnvironmentContext,
           WorktreeEnvironmentRuntime,
         );
-        const automationModule = createDesktopAutomationModuleBridge({
+        const legacyAutomationModule = createDesktopAutomationModuleBridge({
           authority: legacyDataAuthority,
           routing: automationRouting,
         });
@@ -1522,10 +1542,17 @@ export const live: Layer.Layer<
         const documentLive = Context.get(documentLiveContext, DocumentLiveRuntime);
         const documentSessionContext = yield* Layer.buildWithScope(
           desktopDocumentSessionRuntimeLive({
-            authority: dataAuthority,
             canvasPresenceHub: canvasPresence.hub,
-            documentLive: makeDocumentLiveRuntimeAdapter(documentLive, callbacks),
-          }),
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(CoreModules, coreModules),
+                Layer.succeed(CoreSessionAccess, access),
+                Layer.succeed(DocumentLiveRuntime, documentLive),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const documentSync = Context.get(documentSessionContext, DesktopDocumentSessionRuntime);
@@ -1988,18 +2015,21 @@ export const live: Layer.Layer<
                 }),
             }),
           registerStableProject: (workspaceRoots, label) =>
-            Effect.tryPromise({
-              try: () =>
-                projectWorkspace.createProject({
-                  name: label,
-                  sources: [...workspaceRoots],
-                }),
-              catch: (cause) =>
-                new CodexPendingWorktreeEffectError({
-                  operation: "register-stable-project",
-                  cause,
-                }),
-            }).pipe(Effect.asVoid),
+            projectWorkspace
+              .createProject({
+                name: label,
+                sources: [...workspaceRoots],
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new CodexPendingWorktreeEffectError({
+                      operation: "register-stable-project",
+                      cause,
+                    }),
+                ),
+                Effect.asVoid,
+              ),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         yield* pendingWorktrees.changes.pipe(
           Stream.runForEach((entries) =>
@@ -2010,16 +2040,17 @@ export const live: Layer.Layer<
         );
         const managedWorktreeRetentionContext = yield* Layer.buildWithScope(
           managedWorktreeRetentionRuntimeLive({
-            projectWorkspace,
             isAutomationProtected: (threadId) =>
-              Effect.tryPromise({
-                try: () => automationModule.getRun(threadId),
-                catch: (cause) =>
-                  new ManagedWorktreeRetentionRuntimeError({
-                    operation: "read-automation-protection",
-                    cause,
-                  }),
-              }).pipe(Effect.map((run) => run !== null)),
+              automationApplication.runs.get(threadId).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ManagedWorktreeRetentionRuntimeError({
+                      operation: "read-automation-protection",
+                      cause,
+                    }),
+                ),
+                Effect.map((run) => run !== null),
+              ),
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -2027,6 +2058,7 @@ export const live: Layer.Layer<
                 Layer.succeed(ExecutionHostRuntime, executionHosts),
                 Layer.succeed(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
                 Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
+                Layer.succeed(ProjectWorkspace, projectWorkspace),
               ),
             ),
           ),
@@ -2114,7 +2146,7 @@ export const live: Layer.Layer<
         );
         const forkBrowserSnapshotAdapter = createCodexForkBrowserSnapshotAdapter({
           getProjectSession: (projectSessionId) =>
-            projectWorkspace.getProjectSession(projectSessionId),
+            callbacks.runPromise(projectWorkspace.getProjectSession(projectSessionId)),
           resolveBrowserConversationId: (conversationId) =>
             requireCodexService().resolveForkBrowserConversationId(conversationId),
           runtime: browserSidebarService,
@@ -2146,19 +2178,32 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const nodexAgentResourceAccessContext = yield* Layer.buildWithScope(
+          nodexAgentResourceAccessLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(CoreModules, coreModules),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const nodexAgentResourceAccess = Context.get(
+          nodexAgentResourceAccessContext,
+          NodexAgentResourceAccess,
+        );
         const dataAuthorityPromise = Promise.resolve(dataAuthority);
-        const nodexAgentResourceAuthority = createDesktopNodexAgentResourceAuthorityPort({
-          authority: dataAuthorityPromise,
-        });
         const nodexAgentAuthorizationContext = yield* Layer.buildWithScope(
-          nodexAgentAuthorizationRuntimeLive({
-            readStoreEpoch: () => dataAuthority.identity.storeEpoch,
-            persistProjectGrants: (input) =>
-              Effect.tryPromise({
-                try: () => nodexAgentResourceAuthority.persistProjectGrants(input),
-                catch: (cause) => new NodexAgentAuthorizationPersistenceError({ cause }),
-              }),
-          }).pipe(Layer.provide(Layer.succeed(RendererClientRuntime, rendererClients))),
+          nodexAgentAuthorizationRuntimeLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(NodexAgentResourceAccess, nodexAgentResourceAccess),
+                Layer.succeed(RendererClientRuntime, rendererClients),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const nodexAgentAuthorization = Context.get(
@@ -2249,10 +2294,9 @@ export const live: Layer.Layer<
           Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const automationDefinitions = codexAutomationDefinitionsFromDesktopModule(automationModule);
         const codexAppProtocolTools = yield* makeCodexAppProtocolTools.pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
-          Effect.provideService(CodexAutomationDefinitions, automationDefinitions),
+          Effect.provideService(AutomationApplication, automationApplication),
           Effect.provideService(CodexConversationFork, conversationFork),
           Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
           Effect.provideService(CodexProjectSessionFork, projectSessionFork),
@@ -2357,21 +2401,6 @@ export const live: Layer.Layer<
           Effect.provideService(CodexUserInputAutoResolution, userInputAutoResolution),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(DesktopToolRuntime, desktopToolRuntime),
-        );
-        const nodexAgentResourceAccessContext = yield* Layer.buildWithScope(
-          nodexAgentResourceAccessLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(CoreModules, coreModules),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const nodexAgentResourceAccess = Context.get(
-          nodexAgentResourceAccessContext,
-          NodexAgentResourceAccess,
         );
         const nodexAgentProtocolToolsContext = yield* Layer.buildWithScope(
           nodexAgentProtocolToolsLive.pipe(
@@ -2521,9 +2550,9 @@ export const live: Layer.Layer<
                 nodexAgentAuthorization,
                 callbacks,
               ),
-              automationModule,
+              automationModule: legacyAutomationModule,
               automationRouting,
-              projectWorkspace,
+              projectWorkspace: legacyProjectWorkspace,
               executionHosts,
               managedWorktrees,
               managedWorktreeRetention,
@@ -2568,12 +2597,13 @@ export const live: Layer.Layer<
           ProjectArchiveBlockers,
         );
         const projectLifecycleCommandsContext = yield* Layer.buildWithScope(
-          projectLifecycleCommandsLive({ projectWorkspace }).pipe(
+          projectLifecycleCommandsLive.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(BrowserSidebarRuntime, browserSidebar),
                 Layer.succeed(ProjectArchiveBlockers, projectArchiveBlockers),
                 Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+                Layer.succeed(ProjectWorkspace, projectWorkspace),
                 Layer.succeed(TerminalSessions, terminals),
               ),
             ),
@@ -2585,15 +2615,14 @@ export const live: Layer.Layer<
           ProjectLifecycleCommands,
         );
         const managedWorktreeCatalog = yield* makeManagedWorktreeCatalog({
-          projectWorkspace,
           defaultManagedRoot: `${config.nodexHome}/worktrees`,
-          projectThread: (thread) => codexService.projectWorkspaceThreadFromModule(thread),
         }).pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
           Effect.provideService(ExecutionHostRuntime, executionHosts),
           Effect.provideService(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
           Effect.provideService(ManagedWorktreeRetentionRuntime, managedWorktreeRetention),
           Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
+          Effect.provideService(ProjectWorkspace, projectWorkspace),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         yield* SubscriptionRef.changes(executionHosts.activeSshHosts).pipe(
@@ -2648,13 +2677,12 @@ export const live: Layer.Layer<
         );
         const initialProjectBootstrapContext = yield* Layer.buildWithScope(
           initialProjectBootstrapRuntimeLive({
-            projectWorkspace,
             projectsDirectory: resolveInitialProjectProjectsDirectory({
               configuredDirectory: config.initialProjectsDirectory ?? undefined,
               documentsDirectory: config.documentsPath,
             }),
             journalPath: resolveInitialProjectJournalPath(config.nodexHome),
-          }),
+          }).pipe(Layer.provide(Layer.succeed(ProjectWorkspace, projectWorkspace))),
           runtimeScope,
         );
         const initialProjectBootstrap = Context.get(
@@ -2711,19 +2739,18 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
-          ProjectWorkspaceIpc.live({
-            conversationCommands,
-            projects: projectWorkspace,
-            threadTitles: threadTitlePersistence,
-          }).pipe(
+          ProjectWorkspaceIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(BrowserSidebarRuntime, browserSidebar),
                 Layer.succeed(CodexProjectSessionFork, projectSessionFork),
+                Layer.succeed(CodexThreadTitlePersistence, threadTitlePersistence),
+                Layer.succeed(ConversationCommands, conversationCommands),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(ProjectLifecycleCommands, projectLifecycleCommands),
+                Layer.succeed(ProjectWorkspace, projectWorkspace),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
@@ -2733,17 +2760,17 @@ export const live: Layer.Layer<
         );
         const scheduledAutomationContext = yield* Layer.buildWithScope(
           scheduledAutomationRuntimeLive({
-            automation: automationModule,
             run: (automation, context, signal) =>
               codexService.runScheduledAutomation(automation, context, signal),
-            notifyRunsUpdated: () => {
-              codexService.notifyAutomationRunsUpdated({
-                automationId: null,
-                threadId: null,
-                reason: "settle",
-              });
-            },
-          }).pipe(Layer.provide(Layer.succeed(CoreAuthority, authority))),
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(AutomationApplication, automationApplication),
+                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
+                Layer.succeed(CoreAuthority, authority),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const scheduledAutomations = Context.get(
@@ -2752,27 +2779,17 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           AutomationIpc.live({
-            automation: automationModule,
             codex: codexService,
             rendererClients,
-            onHeartbeatAutomationsEnabledChanged: (input) => {
-              callbacks.fork(scheduledAutomations.setHeartbeatAutomationsEnabled(input.enabled));
-            },
-            onHeartbeatAutomationThreadStateChanged: (input, rendererClientId) => {
-              callbacks.fork(
-                scheduledAutomations.setHeartbeatThreadRendererState({
-                  ...input,
-                  rendererClientId,
-                }),
-              );
-            },
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(AutomationApplication, automationApplication),
                 Layer.succeed(ConversationCommands, conversationCommands),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
+                Layer.succeed(ScheduledAutomationRuntime, scheduledAutomations),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
@@ -2917,9 +2934,15 @@ export const live: Layer.Layer<
         const deepLinkContext = yield* Layer.buildWithScope(
           deepLinkRuntimeLive({
             focusWindow: applicationWindows.focusLast,
-            projectWorkspace,
             windows,
-          }).pipe(Layer.provide(Layer.succeed(LibraryModule, libraryModule))),
+          }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(LibraryModule, libraryModule),
+                Layer.succeed(ProjectWorkspace, projectWorkspace),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const deepLinks = Context.get(deepLinkContext, DeepLinkRuntime);
@@ -2998,9 +3021,10 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const reminderSchedulerContext = yield* Layer.buildWithScope(
-          reminderSchedulerRuntimeLive({ automation: automationModule }).pipe(
+          reminderSchedulerRuntimeLive({}).pipe(
             Layer.provide(
-              Layer.merge(
+              Layer.mergeAll(
+                Layer.succeed(AutomationApplication, automationApplication),
                 Layer.succeed(CoreAuthority, authority),
                 Layer.succeed(ElectronDesktop, desktop),
               ),
