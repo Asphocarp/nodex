@@ -14,6 +14,7 @@ import {
   type NodexAgentResourceIntent,
   type PersistNodexAgentProjectResourceGrantsInput,
 } from "../../shared/nodex-agent-resource-access";
+import { toCoreAgentTurnProvenance } from "../core-client/core-agent-execution-authorization";
 import { applyResultStoreEpoch } from "../core-client/types";
 import { CoreAuthority } from "../core-runtime/CoreAuthority";
 import { CoreModules } from "../core-runtime/CoreModules";
@@ -42,20 +43,6 @@ export class NodexAgentResourceAccess extends Context.Service<
     ) => Effect.Effect<void, NodexAgentResourceAccessError>;
   }
 >()("nodex/main/nodex-agent-application/NodexAgentResourceAccess") {}
-
-const provenance = (profileId: string, authority: FrozenNodexAgentTurnAuthority) => ({
-  profile_id: profileId,
-  authority: {
-    thread_id: authority.threadId,
-    turn_id: authority.turnId,
-    root_thread_id: authority.rootThreadId,
-    actor_project_id: authority.actorProjectId,
-    library_id: authority.libraryId,
-    store_epoch: authority.storeEpoch,
-    scope: authority.scope,
-    source: authority.source,
-  },
-});
 
 const toTarget = (target: NodexAgentAuthorizationTarget): CoreTarget => {
   switch (target.kind) {
@@ -266,7 +253,10 @@ export const live: Layer.Layer<NodexAgentResourceAccess, never, CoreAuthority | 
             .read(
               {
                 kind: "plan_agent_resource_access",
-                provenance: provenance(authority.identity.profileId, input.authority),
+                provenance: toCoreAgentTurnProvenance(
+                  authority.identity.profileId,
+                  input.authority,
+                ),
                 call_id: input.callId,
                 intents: input.intents.map((intent) => ({
                   target: toTarget(intent.target),
@@ -305,7 +295,10 @@ export const live: Layer.Layer<NodexAgentResourceAccess, never, CoreAuthority | 
                 operationId: input.operationId,
                 intent: {
                   kind: "persist_agent_project_resource_grants",
-                  provenance: provenance(authority.identity.profileId, input.authority),
+                  provenance: toCoreAgentTurnProvenance(
+                    authority.identity.profileId,
+                    input.authority,
+                  ),
                   grants: canonicalizeNodexAgentResourceGrantSpecs(input.grants).map(toGrant),
                 },
               },

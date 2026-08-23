@@ -15,7 +15,7 @@ import {
   projectCoreDataSourceQuery,
 } from "../../shared/database-page-projection";
 import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import { toCoreAgentExecutionAuthorization } from "./core-agent-execution-authorization";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 import { createCoreDatabaseModuleAdapter } from "./database-module-adapter";
 

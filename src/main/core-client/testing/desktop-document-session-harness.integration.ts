@@ -89,14 +89,19 @@ export const makeDesktopDocumentSessionHarness = Effect.fn("DesktopDocumentSessi
         const request = omitProjectScope(args[0]);
         switch (channel) {
           case "document-sync:subscribe":
+          case "library-document-sync:subscribe":
             return runPromise(session.subscribe(scope, target, request as never));
           case "document-sync:unsubscribe":
+          case "library-document-sync:unsubscribe":
             return runPromise(session.unsubscribe(scope, target, request as never));
           case "document-sync:sync":
+          case "library-document-sync:sync":
             return runPromise(session.sync(scope, target, request as never));
           case "document-sync:apply":
+          case "library-document-sync:apply":
             return runPromise(session.applyUpdate(scope, target, request as never));
           case "document-sync:awareness:publish":
+          case "library-document-sync:awareness:publish":
             return runPromise(session.publishAwareness(scope, target, request as never));
           default:
             return Promise.reject(new Error(`Unexpected Electron harness channel: ${channel}`));

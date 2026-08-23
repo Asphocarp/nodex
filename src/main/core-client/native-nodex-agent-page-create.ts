@@ -11,7 +11,7 @@ import type {
 import { CreatePagesV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { CreateInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
 import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import { toCoreAgentExecutionAuthorization } from "./core-agent-execution-authorization";
 import {
   hasExactNativeAgentDocumentHeads,
   nativeAgentDocumentCommits,

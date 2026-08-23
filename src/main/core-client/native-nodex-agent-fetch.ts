@@ -9,7 +9,7 @@ import { FetchV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { serializeInlineMarkdownTitle } from "../../shared/nfm/agent-title";
 import { extractPlainText } from "../../shared/nfm/extract-text";
 import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import { toCoreAgentExecutionAuthorization } from "./core-agent-execution-authorization";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 
 type FetchRequest = Extract<NodexAgentV3ReadRequest, { readonly tool: "fetch" }>;

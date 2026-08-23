@@ -25,7 +25,6 @@ import {
   createCoreLibraryDatabaseModuleAdapter,
 } from "./core-client/database-module-adapter";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
-import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { makeDesktopDocumentSessionHarness } from "./core-client/testing/desktop-document-session-harness.integration";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
@@ -56,6 +55,10 @@ import {
   NodexAgentDynamicTools,
   live as nodexAgentDynamicToolsLive,
 } from "./nodex-agent-application/NodexAgentDynamicTools";
+import {
+  NodexAgentResourceAccess,
+  live as nodexAgentResourceAccessLive,
+} from "./nodex-agent-application/NodexAgentResourceAccess";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
@@ -65,6 +68,7 @@ const withFinalDataApplications = <A, E>(
   use: (services: {
     readonly database: DatabaseModule["Service"];
     readonly dynamicTools: NodexAgentDynamicTools["Service"];
+    readonly resourceAccess: NodexAgentResourceAccess["Service"];
     readonly workspace: ProjectWorkspace["Service"];
   }) => Effect.Effect<A, E>,
 ): Promise<A> => {
@@ -127,6 +131,11 @@ const withFinalDataApplications = <A, E>(
           ),
         );
         const agent = Context.get(agentContext, NodexAgentApplication);
+        const resourceAccessContext = yield* Layer.build(
+          nodexAgentResourceAccessLive.pipe(
+            Layer.provide(Layer.merge(authorityLayer, Layer.succeed(CoreModules, core))),
+          ),
+        );
         const dynamicToolsContext = yield* Layer.build(
           nodexAgentDynamicToolsLive.pipe(
             Layer.provide(Layer.succeed(NodexAgentApplication, agent)),
@@ -135,6 +144,7 @@ const withFinalDataApplications = <A, E>(
         return yield* use({
           database,
           dynamicTools: Context.get(dynamicToolsContext, NodexAgentDynamicTools),
+          resourceAccess: Context.get(resourceAccessContext, NodexAgentResourceAccess),
           workspace,
         });
       }),
@@ -1566,10 +1576,15 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         libraryId: runtime.rootClient.handshake.library_id,
       });
-      const agentResources = createDesktopNodexAgentResourceAuthorityPort({
-        authority: Promise.resolve(runtime),
-      });
-      const consentPlan = await agentResources.plan({
+      const agentResources = await withFinalDataApplications(runtime, ({ resourceAccess }) =>
+        Effect.succeed(resourceAccess),
+      );
+      const planAgentResources = (input: Parameters<typeof agentResources.plan>[0]) =>
+        Effect.runPromise(agentResources.plan(input));
+      const persistAgentProjectGrants = (
+        input: Parameters<typeof agentResources.persistProjectGrants>[0],
+      ) => Effect.runPromise(agentResources.persistProjectGrants(input));
+      const consentPlan = await planAgentResources({
         authority: frozenAuthority,
         callId: "call:electron-session",
         intents: [
@@ -1594,13 +1609,13 @@ describe("Electron native data authority", () => {
       if (consentPlan.kind !== "consent_required") {
         throw new Error("Foreign Page did not require Project consent");
       }
-      await agentResources.persistProjectGrants({
+      await persistAgentProjectGrants({
         operationId: "electron-agent-project-grants",
         authority: frozenAuthority,
         grants: consentPlan.requirements.map((requirement) => requirement.grant),
       });
       await expect(
-        agentResources.plan({
+        planAgentResources({
           authority: frozenAuthority,
           callId: "call:electron-session-after-grant",
           intents: [
@@ -1624,25 +1639,25 @@ describe("Electron native data authority", () => {
           )[],
         },
         resolveResourceAccess: (intents: Parameters<typeof agentResources.plan>[0]["intents"]) =>
-          Effect.promise(() =>
-            agentResources.plan({
+          agentResources
+            .plan({
               authority: frozenAuthority,
               callId: "call:electron-native-duplicate",
               intents,
-            }),
-          ),
+            })
+            .pipe(Effect.orDie),
         authorize: () => Effect.succeed("deny" as const),
       };
       const nativeCreateContext = {
         ...nativeDuplicateContext,
         resolveResourceAccess: (intents: Parameters<typeof agentResources.plan>[0]["intents"]) =>
-          Effect.promise(() =>
-            agentResources.plan({
+          agentResources
+            .plan({
               authority: frozenAuthority,
               callId: "call:electron-native-create-pages",
               intents,
-            }),
-          ),
+            })
+            .pipe(Effect.orDie),
       };
       const nativeCreateInput = {
         destination: {
@@ -1727,15 +1742,15 @@ describe("Electron native data authority", () => {
       const nativeMoveContext = {
         ...nativeDuplicateContext,
         resolveResourceAccess: (intents: Parameters<typeof agentResources.plan>[0]["intents"]) =>
-          Effect.promise(() =>
-            agentResources.plan({
+          agentResources
+            .plan({
               authority: frozenAuthority,
               callId: "call:electron-native-move-pages",
               intents,
-            }),
-          ),
+            })
+            .pipe(Effect.orDie),
       };
-      const moveTargetConsent = await agentResources.plan({
+      const moveTargetConsent = await planAgentResources({
         authority: frozenAuthority,
         callId: "call:electron-native-move-target-consent",
         intents: [
@@ -1746,7 +1761,7 @@ describe("Electron native data authority", () => {
         ],
       });
       if (moveTargetConsent.kind === "consent_required") {
-        await agentResources.persistProjectGrants({
+        await persistAgentProjectGrants({
           operationId: "electron-agent-move-target-grant",
           authority: frozenAuthority,
           grants: moveTargetConsent.requirements.map((requirement) => requirement.grant),
@@ -2019,10 +2034,8 @@ describe("Electron native data authority", () => {
         libraryId: runtime.identity.libraryId,
         accessContext: canvasAccessContext,
       };
-      const firstCanvas = createCoreCanvasSceneAdapter(
-        runtime.clientForProject(projectId),
-        canvasBinding,
-      );
+      const firstCanvasClient = runtime.clientForProject(projectId);
+      const firstCanvas = createCoreCanvasSceneAdapter(firstCanvasClient, canvasBinding);
       const secondCanvasClient = runtime.clientForProject(projectId);
       const secondCanvas = createCoreCanvasSceneAdapter(secondCanvasClient, canvasBinding);
       const firstCanvasRequest = {
@@ -2035,6 +2048,15 @@ describe("Electron native data authority", () => {
         clientSessionId: "renderer:electron-canvas:second",
       } as const;
       const secondCanvasEvents: CanvasSceneRealtimeEvent[] = [];
+      const firstCanvasSubscription = await firstCanvasClient.openDocumentEventStream(
+        {
+          documentId: firstCanvasRequest.documentId,
+          clientSessionId: firstCanvasRequest.clientSessionId,
+        },
+        () => undefined,
+        () => undefined,
+        () => undefined,
+      );
       const secondCanvasSubscription = await secondCanvasClient.openDocumentEventStream(
         {
           documentId: secondCanvasRequest.documentId,
@@ -2148,6 +2170,7 @@ describe("Electron native data authority", () => {
         });
         expect(listCurrentProcessFiles()).not.toContain(databasePath);
       } finally {
+        firstCanvasSubscription.close();
         secondCanvasSubscription.close();
       }
 

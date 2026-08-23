@@ -5,7 +5,7 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { SearchV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import { toCoreAgentExecutionAuthorization } from "./core-agent-execution-authorization";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 
 type SearchRequest = Extract<NodexAgentV3ReadRequest, { readonly tool: "search" }>;
