@@ -368,7 +368,7 @@ export interface DesktopProjectWorkspacePort {
 const isNotFound = (error: unknown): boolean =>
   error instanceof CoreModuleResponseError && error.coreError.code === "not_found";
 
-const fromCoreProject = (project: CoreProject): Project => ({
+export const projectWorkspaceProjectFromCore = (project: CoreProject): Project => ({
   id: project.id,
   libraryId: project.library_id,
   databaseId: project.database_id,
@@ -389,7 +389,7 @@ const fromCoreProject = (project: CoreProject): Project => ({
   updated: new Date(project.updated_at),
 });
 
-const fromCoreThread = (
+export const projectWorkspaceSessionThreadFromCore = (
   thread: CoreThread,
   sessionId: string,
   sessionProjectId: string | null,
@@ -459,7 +459,7 @@ const fromCoreTaskThread = (
   linkedAt: thread.linked_at,
 });
 
-const fromCoreBackgroundProcess = (
+export const projectWorkspaceBackgroundProcessFromCore = (
   process: CoreBackgroundProcess,
 ): CodexBackgroundProcessRecord => ({
   id: process.id,
@@ -477,7 +477,9 @@ const fromCoreBackgroundProcess = (
   updatedAtMs: process.updated_at_ms,
 });
 
-const fromCoreWorkspaceThread = (thread: CoreThread): DesktopProjectWorkspaceThread => ({
+export const projectWorkspaceThreadFromCore = (
+  thread: CoreThread,
+): DesktopProjectWorkspaceThread => ({
   threadId: thread.thread_id,
   projectId: thread.project_id ?? null,
   sessionId: thread.session_id ?? null,
@@ -516,7 +518,9 @@ const fromCoreWorkspaceThread = (thread: CoreThread): DesktopProjectWorkspaceThr
   linkedAt: thread.linked_at,
 });
 
-const toCoreExecutionProfilePatch = (profile: AgentExecutionProfile | null) =>
+export const projectWorkspaceExecutionProfilePatchToCore = (
+  profile: AgentExecutionProfile | null,
+) =>
   profile
     ? {
         model_provider: profile.providerId,
@@ -532,7 +536,7 @@ const toCoreExecutionProfilePatch = (profile: AgentExecutionProfile | null) =>
         service_tier: null,
       };
 
-const toCoreThreadPatch = (patch: DesktopProjectWorkspaceThreadPatch) => ({
+export const projectWorkspaceThreadPatchToCore = (patch: DesktopProjectWorkspaceThreadPatch) => ({
   ...(Object.prototype.hasOwnProperty.call(patch, "projectId")
     ? { project_id: patch.projectId ?? null }
     : {}),
@@ -563,7 +567,7 @@ const toCoreThreadPatch = (patch: DesktopProjectWorkspaceThreadPatch) => ({
   ...(patch.threadPreview === undefined ? {} : { thread_preview: patch.threadPreview }),
   ...(patch.modelProvider === undefined ? {} : { model_provider: patch.modelProvider }),
   ...(Object.prototype.hasOwnProperty.call(patch, "executionProfile")
-    ? toCoreExecutionProfilePatch(patch.executionProfile ?? null)
+    ? projectWorkspaceExecutionProfilePatchToCore(patch.executionProfile ?? null)
     : {}),
   ...(patch.executionHostId === undefined ? {} : { execution_host_id: patch.executionHostId }),
   ...(Object.prototype.hasOwnProperty.call(patch, "cwd") ? { cwd: patch.cwd ?? null } : {}),
@@ -593,12 +597,14 @@ const toCoreThreadPatch = (patch: DesktopProjectWorkspaceThreadPatch) => ({
   ...(patch.linkedAt === undefined ? {} : { linked_at: patch.linkedAt }),
 });
 
-const toCoreThreadLane = (projectId: string | null) =>
+export const projectWorkspaceThreadLaneToCore = (projectId: string | null) =>
   projectId === null
     ? { kind: "projectless" as const }
     : { kind: "project" as const, project_id: projectId };
 
-const toCoreThreadMovePlacement = (input: DesktopProjectWorkspaceThreadMoveInput) => {
+export const projectWorkspaceThreadMovePlacementToCore = (
+  input: DesktopProjectWorkspaceThreadMoveInput,
+) => {
   const movedThreadId = input.threadId.trim();
   const beforeThreadId = input.beforeThreadId?.trim() || null;
   const afterThreadId = input.afterThreadId?.trim() || null;
@@ -629,7 +635,7 @@ const toCoreThreadMovePlacement = (input: DesktopProjectWorkspaceThreadMoveInput
   return { kind: "start" as const };
 };
 
-const toCoreThreadMoveMetadata = (
+export const projectWorkspaceThreadMoveMetadataToCore = (
   metadata: DesktopProjectWorkspaceThreadMoveInput["metadata"],
 ) => ({
   ...(metadata?.executionHostId === undefined
@@ -670,7 +676,7 @@ const fromCoreSessionSummary = (
   updatedAt: session.updated_at,
 });
 
-const fromCoreSessionDetail = (
+export const projectWorkspaceSessionFromCore = (
   session: CoreSessionSummary,
   thread: ProjectSessionThreadLink | null,
 ): ProjectSession => ({
@@ -678,7 +684,7 @@ const fromCoreSessionDetail = (
   thread,
 });
 
-const fromCoreTask = (task: CoreTask): ProjectSessionSummary =>
+export const projectWorkspaceTaskFromCore = (task: CoreTask): ProjectSessionSummary =>
   fromCoreSessionSummary(
     task.session,
     task.thread
@@ -758,7 +764,7 @@ export function createCoreProjectWorkspaceAdapter(
 
   const getThread = async (threadId: string): Promise<DesktopProjectWorkspaceThread | null> => {
     const thread = await readCoreThread(threadId);
-    return thread ? fromCoreWorkspaceThread(thread) : null;
+    return thread ? projectWorkspaceThreadFromCore(thread) : null;
   };
 
   const readThread = async (
@@ -768,7 +774,7 @@ export function createCoreProjectWorkspaceAdapter(
     if (!threadId) return null;
     const thread = await readCoreThread(threadId);
     if (!thread) throw new Error(`Linked Core Thread not found: ${threadId}`);
-    return fromCoreThread(thread, summary.id, summary.project_id ?? null);
+    return projectWorkspaceSessionThreadFromCore(thread, summary.id, summary.project_id ?? null);
   };
 
   const readSession = async (sessionId: string): Promise<ProjectSession | null> => {
@@ -787,7 +793,7 @@ export function createCoreProjectWorkspaceAdapter(
     }
     const summary = snapshot.value.session;
     const thread = await readThread(summary);
-    return fromCoreSessionDetail(summary, thread);
+    return projectWorkspaceSessionFromCore(summary, thread);
   };
 
   const listSummaryWindow = async (
@@ -808,7 +814,7 @@ export function createCoreProjectWorkspaceAdapter(
     }
     const tasks = snapshot.value.tasks;
     return {
-      items: tasks.items.map(fromCoreTask),
+      items: tasks.items.map(projectWorkspaceTaskFromCore),
       nextCursor: tasks.next_cursor ?? null,
       hasMore: tasks.next_cursor !== null && tasks.next_cursor !== undefined,
       projectionRevision: tasks.authority.projection_revision,
@@ -832,7 +838,7 @@ export function createCoreProjectWorkspaceAdapter(
     }
     const tasks = snapshot.value.pinned_tasks;
     return {
-      items: tasks.items.map(fromCoreTask),
+      items: tasks.items.map(projectWorkspaceTaskFromCore),
       nextCursor: tasks.next_cursor ?? null,
       hasMore: tasks.next_cursor !== null && tasks.next_cursor !== undefined,
       projectionRevision: tasks.authority.projection_revision,
@@ -852,7 +858,7 @@ export function createCoreProjectWorkspaceAdapter(
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
     return {
-      items: snapshot.value.projects.items.map(fromCoreProject),
+      items: snapshot.value.projects.items.map(projectWorkspaceProjectFromCore),
       nextCursor: snapshot.value.projects.next_cursor ?? null,
       hasMore:
         snapshot.value.projects.next_cursor !== null &&
@@ -954,7 +960,7 @@ export function createCoreProjectWorkspaceAdapter(
     if (snapshot.value.processes.next_cursor) {
       throw new Error("Background process collection exceeded its fixed Core bound");
     }
-    return snapshot.value.processes.items.map(fromCoreBackgroundProcess);
+    return snapshot.value.processes.items.map(projectWorkspaceBackgroundProcessFromCore);
   };
 
   const listManagedWorktreeWindow = async (
@@ -1052,7 +1058,7 @@ export function createCoreProjectWorkspaceAdapter(
     if (snapshot.value.kind !== "project") {
       throw new Error("Core returned the wrong Project Workspace read variant");
     }
-    return fromCoreProject(snapshot.value.project);
+    return projectWorkspaceProjectFromCore(snapshot.value.project);
   };
 
   return {
@@ -1335,7 +1341,7 @@ export function createCoreProjectWorkspaceAdapter(
               existing?.model_provider ??
               "",
             ...(hasExecutionProfile
-              ? toCoreExecutionProfilePatch(parsed.executionProfile ?? null)
+              ? projectWorkspaceExecutionProfilePatchToCore(parsed.executionProfile ?? null)
               : {}),
             ...(parsed.runtimeWorkspaceRoots === undefined
               ? {
@@ -1409,7 +1415,7 @@ export function createCoreProjectWorkspaceAdapter(
       await apply({
         kind: "upsert_thread",
         thread_id: threadId,
-        patch: toCoreThreadPatch(patch),
+        patch: projectWorkspaceThreadPatchToCore(patch),
       });
       const thread = await getThread(threadId);
       if (!thread) {
@@ -1422,7 +1428,7 @@ export function createCoreProjectWorkspaceAdapter(
         await apply({
           kind: "update_thread",
           thread_id: threadId,
-          patch: toCoreThreadPatch(patch),
+          patch: projectWorkspaceThreadPatchToCore(patch),
         });
       } catch (error) {
         if (!isNotFound(error)) throw error;
@@ -1457,10 +1463,10 @@ export function createCoreProjectWorkspaceAdapter(
         intent: {
           kind: "move_thread",
           thread_id: input.threadId,
-          source: toCoreThreadLane(input.sourceProjectId),
-          target: toCoreThreadLane(input.targetProjectId),
-          placement: toCoreThreadMovePlacement(input),
-          metadata: toCoreThreadMoveMetadata(input.metadata),
+          source: projectWorkspaceThreadLaneToCore(input.sourceProjectId),
+          target: projectWorkspaceThreadLaneToCore(input.targetProjectId),
+          placement: projectWorkspaceThreadMovePlacementToCore(input),
+          metadata: projectWorkspaceThreadMoveMetadataToCore(input.metadata),
           ...(input.runtimeWorkspaceRoots === undefined
             ? {}
             : { runtime_workspace_roots: [...input.runtimeWorkspaceRoots] }),
