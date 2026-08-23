@@ -24,7 +24,6 @@ import {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
 } from "./core-client/database-module-adapter";
-import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { makeDesktopDocumentSessionHarness } from "./core-client/testing/desktop-document-session-harness.integration";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
@@ -66,6 +65,18 @@ import {
   NodexAgentResourceAccess,
   live as nodexAgentResourceAccessLive,
 } from "./nodex-agent-application/NodexAgentResourceAccess";
+import {
+  CodexConversationContext,
+  make as makeCodexConversationContext,
+} from "./codex-application/CodexConversationContext";
+import {
+  CodexTurnAuthority,
+  make as makeCodexTurnAuthority,
+} from "./codex-application/CodexTurnAuthority";
+import {
+  ConversationRuntimeMap,
+  live as conversationRuntimeMapLive,
+} from "./codex-application/ConversationRuntimeMap";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
@@ -77,6 +88,7 @@ const withFinalDataApplications = <A, E>(
     readonly database: DatabaseModule["Service"];
     readonly dynamicTools: NodexAgentDynamicTools["Service"];
     readonly resourceAccess: NodexAgentResourceAccess["Service"];
+    readonly turnAuthority: CodexTurnAuthority["Service"];
     readonly workspace: ProjectWorkspace["Service"];
   }) => Effect.Effect<A, E>,
 ): Promise<A> => {
@@ -132,6 +144,19 @@ const withFinalDataApplications = <A, E>(
         const workspace = yield* makeProjectWorkspace.pipe(
           Effect.provideService(CoreModules, core),
         );
+        const conversationRuntimeContext = yield* Layer.build(conversationRuntimeMapLive);
+        const conversationContext = yield* makeCodexConversationContext.pipe(
+          Effect.provideService(
+            ConversationRuntimeMap,
+            Context.get(conversationRuntimeContext, ConversationRuntimeMap),
+          ),
+          Effect.provideService(CoreModules, core),
+        );
+        const turnAuthority = yield* makeCodexTurnAuthority.pipe(
+          Effect.provideService(CodexConversationContext, conversationContext),
+          Effect.provideService(CoreAuthority, authority),
+          Effect.provideService(CoreModules, core),
+        );
         const databaseContext = yield* Layer.build(
           databaseModuleLive.pipe(Layer.provide(Layer.merge(authorityLayer, accessLayer))),
         );
@@ -164,6 +189,7 @@ const withFinalDataApplications = <A, E>(
           database,
           dynamicTools: Context.get(dynamicToolsContext, NodexAgentDynamicTools),
           resourceAccess: Context.get(resourceAccessContext, NodexAgentResourceAccess),
+          turnAuthority,
           workspace,
         });
       }),
@@ -1522,56 +1548,58 @@ describe("Electron native data authority", () => {
       });
       databaseEventSubscription.close();
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
-      const createdProject = await withFinalDataApplications(runtime, ({ workspace }) =>
-        Effect.gen(function* () {
-          const project = yield* workspace.createProject({
-            name: "Electron Workspace Module",
-            sources: [nodexHome],
-          });
-          const session = yield* workspace.createProjectSession({
-            projectId: project.id,
-            noThreadFallbackTitle: "Electron Session",
-          });
-          const threadTimestamp = Date.now();
-          yield* workspace.upsertProjectSessionThreadLink({
-            sessionId: session.id,
-            projectId: project.id,
-            threadId: "thread:electron-session",
-            threadSource: "user",
-            serviceName: "electron-session",
-            agentNickname: "@Session",
-            agentRole: "launcher",
-            agentPath: "agents/session-launcher",
-            threadName: "Electron linked Thread",
-            threadPreview: "Native Session attach",
-            modelProvider: "openai",
-            cwd: nodexHome,
-            statusType: "idle",
-            statusActiveFlags: [],
-            createdAt: threadTimestamp,
-            updatedAt: threadTimestamp,
-          });
-          expect(
-            yield* workspace.readThreadExecutionContext("thread:electron-session"),
-          ).toMatchObject({
-            threadId: "thread:electron-session",
-            projectId: project.id,
-          });
-          return project;
-        }),
-      );
-      const turnAuthority = createDesktopNodexAgentAuthorityPort({
-        authority: Promise.resolve(runtime),
-      });
-      const authorityLaunch = await turnAuthority.beginTurn({
-        threadId: "thread:electron-session",
-        rootThreadId: "thread:electron-session",
-        actorProjectId: createdProject.id,
-        builtinFullAccess: false,
-      });
-      const frozenAuthority = await turnAuthority.bindTurn(
-        authorityLaunch,
-        "turn:electron-session",
+      const { createdProject, frozenAuthority } = await withFinalDataApplications(
+        runtime,
+        ({ turnAuthority, workspace }) =>
+          Effect.gen(function* () {
+            const project = yield* workspace.createProject({
+              name: "Electron Workspace Module",
+              sources: [nodexHome],
+            });
+            const session = yield* workspace.createProjectSession({
+              projectId: project.id,
+              noThreadFallbackTitle: "Electron Session",
+            });
+            const threadTimestamp = Date.now();
+            yield* workspace.upsertProjectSessionThreadLink({
+              sessionId: session.id,
+              projectId: project.id,
+              threadId: "thread:electron-session",
+              threadSource: "user",
+              serviceName: "electron-session",
+              agentNickname: "@Session",
+              agentRole: "launcher",
+              agentPath: "agents/session-launcher",
+              threadName: "Electron linked Thread",
+              threadPreview: "Native Session attach",
+              modelProvider: "openai",
+              cwd: nodexHome,
+              statusType: "idle",
+              statusActiveFlags: [],
+              createdAt: threadTimestamp,
+              updatedAt: threadTimestamp,
+            });
+            expect(
+              yield* workspace.readThreadExecutionContext("thread:electron-session"),
+            ).toMatchObject({
+              threadId: "thread:electron-session",
+              projectId: project.id,
+            });
+            const authorityLaunch = yield* turnAuthority.begin("thread:electron-session", false);
+            yield* turnAuthority.bind(
+              "thread:electron-session",
+              authorityLaunch,
+              "turn:electron-session",
+            );
+            const frozenAuthority = yield* turnAuthority.capture(
+              "thread:electron-session",
+              "turn:electron-session",
+            );
+            if (!frozenAuthority) {
+              return yield* Effect.die(new Error("Core did not freeze the Agent Turn authority"));
+            }
+            return { createdProject: project, frozenAuthority };
+          }),
       );
       expect(frozenAuthority).toMatchObject({
         threadId: "thread:electron-session",
@@ -1581,17 +1609,7 @@ describe("Electron native data authority", () => {
         scope: "project",
         source: "project_turn",
       });
-      if (!frozenAuthority) {
-        throw new Error("Core did not freeze the Agent Turn authority");
-      }
-      await expect(
-        turnAuthority.capturePersisted({
-          threadId: "thread:electron-session",
-          turnId: "turn:electron-session",
-          rootThreadId: "thread:electron-session",
-          actorProjectId: createdProject.id,
-        }),
-      ).resolves.toMatchObject({
+      expect(frozenAuthority).toMatchObject({
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         libraryId: runtime.rootClient.handshake.library_id,
       });
