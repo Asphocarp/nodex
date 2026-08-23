@@ -77,7 +77,7 @@ export class CodexThreadDirectory extends Context.Service<
      * The Directory commits durable identity and refreshes the canonical aggregate as one
      * application projection outcome.
      */
-    readonly acceptMutationResult: (input: {
+    readonly acceptRollbackResult: (input: {
       readonly expectedThreadId: string;
       readonly thread: Thread;
       readonly executionHostId?: string;
@@ -226,6 +226,7 @@ export const make: Effect.Effect<
       readonly lineageRootThreadId?: string;
       readonly executionHostId?: string;
       readonly fallbackCwd?: string | null;
+      readonly hasUnreadTurn?: boolean;
     }): Effect.fn.Return<DurableThread, CodexThreadDirectoryError> {
       const record = input.thread as unknown as Record<string, unknown>;
       const threadId = typeof record.id === "string" ? record.id.trim() : "";
@@ -259,13 +260,17 @@ export const make: Effect.Effect<
           new Error("App-server Thread could not be materialized"),
         );
       }
+      const patch = {
+        ...materialization.patch,
+        ...(input.hasUnreadTurn !== undefined ? { has_unread_turn: input.hasUnreadTurn } : {}),
+      };
       yield* core.workspace
         .apply({
           operationId: `electron:thread-directory:${threadId}:${randomUUID()}`,
           intent: {
             kind: "upsert_thread",
             thread_id: threadId,
-            patch: materialization.patch,
+            patch,
           },
         })
         .pipe(Effect.mapError((cause) => error("materialize", threadId, cause)));
@@ -291,6 +296,8 @@ export const make: Effect.Effect<
     readonly thread: Thread;
     readonly context?: ThreadResumeResponse;
     readonly pagination: CodexConversationTurnPagination;
+    readonly pendingRequests?: readonly [];
+    readonly hasUnreadTurn?: boolean;
   }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
     const threadId = input.durable.thread.threadId;
     const aggregate = conversations.conversation(threadId);
@@ -325,8 +332,8 @@ export const make: Effect.Effect<
           sandboxPolicy: permissions.sandboxPolicy,
           activePermissionProfile: permissions.activePermissionProfile,
           runtimeWorkspaceRoots: [...permissions.runtimeWorkspaceRoots],
-          pendingRequests: aggregate.readServerRequests(),
-          hasUnreadTurn: input.durable.thread.hasUnreadTurn,
+          pendingRequests: input.pendingRequests ?? aggregate.readServerRequests(),
+          hasUnreadTurn: input.hasUnreadTurn ?? input.durable.thread.hasUnreadTurn,
         }),
       catch: (cause) => error("materialize", threadId, cause),
     });
@@ -555,7 +562,7 @@ export const make: Effect.Effect<
       ),
     );
 
-  const acceptMutationResult = Effect.fn("CodexThreadDirectory.acceptMutationResult")(
+  const acceptRollbackResult = Effect.fn("CodexThreadDirectory.acceptRollbackResult")(
     function* (input: {
       readonly expectedThreadId: string;
       readonly thread: Thread;
@@ -575,14 +582,21 @@ export const make: Effect.Effect<
         thread,
         ...(input.executionHostId ? { executionHostId: input.executionHostId } : {}),
         ...(input.fallbackCwd !== undefined ? { fallbackCwd: input.fallbackCwd } : {}),
+        hasUnreadTurn: false,
       });
-      return yield* hydrate({ durable, thread, pagination: fullPagination(thread) });
+      return yield* hydrate({
+        durable,
+        thread,
+        pagination: fullPagination(thread),
+        pendingRequests: [],
+        hasUnreadTurn: false,
+      });
     },
   );
 
   return CodexThreadDirectory.of({
     resolve: (input) => runOwned(resolvePhysical(input)),
     descendants,
-    acceptMutationResult: (input) => runOwned(acceptMutationResult(input)),
+    acceptRollbackResult: (input) => runOwned(acceptRollbackResult(input)),
   });
 });

@@ -130,7 +130,7 @@ const directoryFor = (
         return durable ? directoryEntry(durable) : null;
       }),
     descendants: () => Effect.die("unused"),
-    acceptMutationResult: () => Effect.die("unused"),
+    acceptRollbackResult: () => Effect.die("unused"),
   });
 
 const unusedDirectory = directoryFor();

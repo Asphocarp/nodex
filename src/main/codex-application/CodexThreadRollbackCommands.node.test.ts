@@ -74,7 +74,7 @@ it.effect("runs owner drain, validation, Gateway, and projection commit in the T
   Effect.gen(function* () {
     const events: string[] = [];
     const directory = CodexThreadDirectory.of({
-      acceptMutationResult: ({ expectedThreadId }: { readonly expectedThreadId: string }) =>
+      acceptRollbackResult: ({ expectedThreadId }: { readonly expectedThreadId: string }) =>
         Effect.sync(() => {
           events.push(`commit:${expectedThreadId}`);
           return {} as never;
@@ -117,7 +117,7 @@ it.effect("rejects a mismatched response before committing canonical state", () 
     let commits = 0;
     const events: string[] = [];
     const directory = CodexThreadDirectory.of({
-      acceptMutationResult: () =>
+      acceptRollbackResult: () =>
         Effect.sync(() => {
           commits += 1;
           return {} as never;

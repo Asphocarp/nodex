@@ -160,6 +160,54 @@ const makeConversations = () => {
   } as unknown as ConversationRuntimeMap["Service"]);
 };
 
+it.effect("accepts rollback as one durable and canonical replacement", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const threads = new Map([["thread-a", coreThread("thread-a", { has_unread_turn: true })]]);
+      const core = makeCore(threads);
+      const conversations = makeConversations();
+      conversations.conversation("thread-a").seedHasUnreadTurn(true);
+      const eventHub = CodexApplicationEventHub.of({
+        events: Stream.empty,
+        publish: () => undefined,
+      });
+      const projection = yield* makeConversationProjection.pipe(
+        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(
+          CodexRendererConversationRegistry,
+          makeCodexRendererConversationRegistryState(),
+        ),
+        Effect.provideService(CodexApplicationEventHub, eventHub),
+        Effect.provideService(CoreModules, core),
+      );
+      const directory = yield* makeDirectory.pipe(
+        Effect.provideService(CodexApplicationEventHub, eventHub),
+        Effect.provideService(CodexConversationProjection, projection),
+        Effect.provideService(
+          CodexGateway,
+          makeGateway((() => Effect.die("unused")) as RequestOnHost),
+        ),
+        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(CoreModules, core),
+      );
+
+      const accepted = yield* directory.acceptRollbackResult({
+        expectedThreadId: "thread-a",
+        thread: appThread("thread-a"),
+        fallbackCwd: "/repo",
+      });
+
+      assert.isFalse(accepted.durable.hasUnreadTurn);
+      assert.isFalse(accepted.canonical?.sidecar.hasUnreadTurn ?? true);
+      assert.deepEqual(accepted.canonical?.requests, []);
+      assert.deepEqual(
+        conversations.currentConversation("thread-a")?.readSnapshot(),
+        accepted.snapshot,
+      );
+    }),
+  ),
+);
+
 it.effect(
   "materializes the full canonical transcript while durable execution-host ownership wins",
   () =>

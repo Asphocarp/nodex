@@ -61,7 +61,7 @@ it.effect("deduplicates background hydration and requests the final fidelity", (
             reads.push(input);
             return input.threadIds?.map((threadId) => entry(threadId, input.fidelity)) ?? [];
           }),
-        acceptMutationResult: () => Effect.die("unused"),
+        acceptRollbackResult: () => Effect.die("unused"),
       });
       const runtime = yield* make.pipe(Effect.provideService(CodexThreadDirectory, directory));
 
@@ -97,7 +97,7 @@ it.effect("delegates panel lineage and fidelity to the authoritative Directory",
             calls.push(input);
             return [entry("child-2", "metadata")];
           }),
-        acceptMutationResult: () => Effect.die("unused"),
+        acceptRollbackResult: () => Effect.die("unused"),
       });
       const runtime = yield* make.pipe(Effect.provideService(CodexThreadDirectory, directory));
 
@@ -124,7 +124,7 @@ it.effect("opens full-fidelity delivery and clears both subagent indexes", () =>
       const directory = CodexThreadDirectory.of({
         resolve: () => Effect.die("unused"),
         descendants: () => Effect.die("unused"),
-        acceptMutationResult: () => Effect.die("unused"),
+        acceptRollbackResult: () => Effect.die("unused"),
       });
       const runtime = yield* make.pipe(Effect.provideService(CodexThreadDirectory, directory));
       runtime.observe("child-1");
@@ -146,7 +146,7 @@ it.effect("owner Scope close interrupts active Directory hydration", () =>
       resolve: () => Effect.die("unused"),
       descendants: () =>
         Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => (interrupted = true)))),
-      acceptMutationResult: () => Effect.die("unused"),
+      acceptRollbackResult: () => Effect.die("unused"),
     });
     const runtime = yield* make.pipe(
       Effect.provideService(CodexThreadDirectory, directory),

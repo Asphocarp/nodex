@@ -117,10 +117,10 @@ export const make: Effect.Effect<
               }),
             );
           }
-          yield* directory.acceptMutationResult({
+          yield* directory.acceptRollbackResult({
             expectedThreadId: input.threadId,
             thread: response.thread as unknown as Parameters<
-              CodexThreadDirectory["Service"]["acceptMutationResult"]
+              CodexThreadDirectory["Service"]["acceptRollbackResult"]
             >[0]["thread"],
             fallbackCwd: current.snapshot?.cwd ?? null,
           });
