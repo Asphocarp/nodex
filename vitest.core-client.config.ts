@@ -8,6 +8,7 @@ const testFiles = selectTieredTestFiles({
     "src/main/core-runtime/**/*.node.test.ts",
     "src/main/library-application/**/*.node.test.ts",
     "src/main/database-application/**/*.node.test.ts",
+    "src/main/nodex-agent-application/**/*.node.test.ts",
     "src/main/codex-runtime/**/*.node.test.ts",
     "src/main/codex-application/**/*.node.test.ts",
     "src/main/ipc/handlers/**/*.node.test.ts",

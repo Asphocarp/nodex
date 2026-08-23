@@ -22,15 +22,16 @@ import {
   toCoreAgentPageDestination,
 } from "./native-nodex-agent-page-destination";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
+import type { NativeNodexAgentMutationStep } from "./native-nodex-agent-mutation-step";
 import { applyResultCursor } from "./types";
 
-type CoreCreateRequest = components["schemas"]["LibraryAgentCreatePagesRequest"];
-type CoreCreateResult = components["schemas"]["LibraryAgentCreatePagesResult"];
-type CoreCreatePreparation = components["schemas"]["LibraryAgentCreatePagesPreparation"];
+export type CoreCreateRequest = components["schemas"]["LibraryAgentCreatePagesRequest"];
+export type CoreCreateResult = components["schemas"]["LibraryAgentCreatePagesResult"];
+export type CoreCreatePreparation = components["schemas"]["LibraryAgentCreatePagesPreparation"];
 
 const MAX_PENDING_NATIVE_PAGE_CREATES = 1_024;
 
-interface PendingNativePageCreate {
+export interface PendingNativePageCreate {
   readonly request: PrepareNodexAgentCreatePagesRequest;
   readonly operationId: string;
   readonly token: string;
@@ -176,62 +177,67 @@ const command = (
   };
 };
 
-export class NativeNodexAgentPageCreateRuntime {
-  private readonly pending = new Map<string, PendingNativePageCreate>();
-
-  constructor(private readonly runtime: RustDataAuthorityRuntime) {}
-
-  async prepare(
-    request: PrepareNodexAgentCreatePagesRequest,
-  ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentCreatePagesResult>> {
-    const operationId = operationIdFor(request);
-    try {
-      if (!request.authority) {
-        throw new Error("Native Agent Page creation requires frozen Turn authority");
-      }
-      const createRequest = coreRequest(request);
-      const snapshot = await this.runtime.clientForProject(request.projectId).libraryRead({
+export const prepareNativeNodexAgentPageCreate = async (
+  runtime: RustDataAuthorityRuntime,
+  request: PrepareNodexAgentCreatePagesRequest,
+  signal?: AbortSignal,
+): Promise<
+  NativeNodexAgentMutationStep<
+    NodexAgentMutationEnvelope<PrepareNodexAgentCreatePagesResult>,
+    PendingNativePageCreate
+  >
+> => {
+  const operationId = operationIdFor(request);
+  try {
+    if (!request.authority) {
+      throw new Error("Native Agent Page creation requires frozen Turn authority");
+    }
+    const createRequest = coreRequest(request);
+    const snapshot = await runtime.clientForProject(request.projectId).libraryRead(
+      {
         kind: "prepare_agent_create_pages",
         operation_id: operationId,
         store_epoch: request.authority.storeEpoch,
         authorization: toCoreAgentExecutionAuthorization(
-          this.runtime.identity.profileId,
+          runtime.identity.profileId,
           request.authority,
           request.callId,
           request.resourceAccess,
         ),
         request: createRequest,
-      });
-      if (snapshot.value.kind !== "agent_create_pages_preparation") {
-        throw new Error("Core returned the wrong Agent Page-create preparation variant");
-      }
-      const preparation = snapshot.value.value;
-      if (preparation.preparation.state === "committed_replay") {
-        const committed = preparation.committed?.outcome.agent_create_pages;
-        if (!committed) throw new Error("Core Agent Page-create replay omitted its result");
-        this.pending.delete(operationId);
-        return envelope(
+      },
+      { class: "background", signal },
+    );
+    if (snapshot.value.kind !== "agent_create_pages_preparation") {
+      throw new Error("Core returned the wrong Agent Page-create preparation variant");
+    }
+    const preparation = snapshot.value.value;
+    if (preparation.preparation.state === "committed_replay") {
+      const committed = preparation.committed?.outcome.agent_create_pages;
+      if (!committed) throw new Error("Core Agent Page-create replay omitted its result");
+      return {
+        result: envelope(
           {
             ok: true,
             value: { kind: "completed", output: output(committed, request) },
           },
           operationId,
-        );
-      }
-      const token = preparation.preparation.token;
-      if (!token) throw new Error("Core Agent Page-create preparation omitted its token");
-      if (!this.pending.has(operationId) && this.pending.size >= MAX_PENDING_NATIVE_PAGE_CREATES) {
-        throw new Error("Native Agent Page-create preparation capacity is exhausted");
-      }
-      const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
-      this.pending.set(operationId, {
-        request,
-        operationId,
-        token,
-        coreRequest: createRequest,
-        documentHeads,
-      });
-      return envelope(
+        ),
+        transition: { kind: "clear", operationId },
+      };
+    }
+    const token = preparation.preparation.token;
+    if (!token) throw new Error("Core Agent Page-create preparation omitted its token");
+    const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
+    const pending: PendingNativePageCreate = {
+      request,
+      operationId,
+      token,
+      coreRequest: createRequest,
+      documentHeads,
+    };
+    return {
+      result: envelope(
         {
           ok: true,
           value: {
@@ -251,26 +257,36 @@ export class NativeNodexAgentPageCreateRuntime {
           },
         },
         operationId,
-      );
-    } catch (error) {
-      return envelope({ ok: false, error: mapNativeNodexAgentCoreError(error) }, operationId);
-    }
+      ),
+      transition: { kind: "retain", pending },
+    };
+  } catch (error) {
+    return {
+      result: envelope({ ok: false, error: mapNativeNodexAgentCoreError(error) }, operationId),
+      transition: { kind: "keep" },
+    };
   }
+};
 
-  async execute(
-    command: NodexAgentCreatePagesCommand,
-    documentHeads: readonly NodexAgentDocumentHead[],
-  ): Promise<ExecuteNodexAgentCreatePagesResult> {
-    const pending = this.pending.get(command.mutationId);
-    if (
-      !pending ||
-      pending.request.projectId !== command.projectId ||
-      pending.request.callId !== command.callId ||
-      pending.request.threadId !== command.threadId ||
-      pending.request.authority?.storeEpoch !== command.storeEpoch ||
-      !hasExactNativeAgentDocumentHeads(pending.documentHeads, documentHeads)
-    ) {
-      return {
+export const executeNativeNodexAgentPageCreate = async (
+  runtime: RustDataAuthorityRuntime,
+  pending: PendingNativePageCreate | undefined,
+  command: NodexAgentCreatePagesCommand,
+  documentHeads: readonly NodexAgentDocumentHead[],
+  signal?: AbortSignal,
+): Promise<
+  NativeNodexAgentMutationStep<ExecuteNodexAgentCreatePagesResult, PendingNativePageCreate>
+> => {
+  if (
+    !pending ||
+    pending.request.projectId !== command.projectId ||
+    pending.request.callId !== command.callId ||
+    pending.request.threadId !== command.threadId ||
+    pending.request.authority?.storeEpoch !== command.storeEpoch ||
+    !hasExactNativeAgentDocumentHeads(pending.documentHeads, documentHeads)
+  ) {
+    return {
+      result: {
         ok: false,
         error: {
           code: "idempotency_collision",
@@ -278,11 +294,14 @@ export class NativeNodexAgentPageCreateRuntime {
           retryable: false,
           recovery: "none",
         },
-      };
-    }
-    const authority = pending.request.authority;
-    if (!authority) {
-      return {
+      },
+      transition: { kind: "keep" },
+    };
+  }
+  const authority = pending.request.authority;
+  if (!authority) {
+    return {
+      result: {
         ok: false,
         error: {
           code: "authorization_denied",
@@ -290,31 +309,34 @@ export class NativeNodexAgentPageCreateRuntime {
           retryable: false,
           recovery: "start_new_task",
         },
-      };
-    }
-    try {
-      const committed = await this.runtime
-        .clientForProject(pending.request.projectId)
-        .libraryApply({
-          operationId: pending.operationId,
-          intent: {
-            kind: "execute_prepared_agent_create_pages",
-            authorization: {
-              authorization: toCoreAgentExecutionAuthorization(
-                this.runtime.identity.profileId,
-                authority,
-                pending.request.callId,
-                pending.request.resourceAccess,
-              ),
-              token: pending.token,
-            },
-            request: pending.coreRequest,
+      },
+      transition: { kind: "keep" },
+    };
+  }
+  try {
+    const committed = await runtime.clientForProject(pending.request.projectId).libraryApply(
+      {
+        operationId: pending.operationId,
+        intent: {
+          kind: "execute_prepared_agent_create_pages",
+          authorization: {
+            authorization: toCoreAgentExecutionAuthorization(
+              runtime.identity.profileId,
+              authority,
+              pending.request.callId,
+              pending.request.resourceAccess,
+            ),
+            token: pending.token,
           },
-        });
-      const result = committed.outcome.agent_create_pages;
-      if (!result) throw new Error("Core Agent Page-create commit omitted its result");
-      this.pending.delete(command.mutationId);
-      return {
+          request: pending.coreRequest,
+        },
+      },
+      { signal },
+    );
+    const result = committed.outcome.agent_create_pages;
+    if (!result) throw new Error("Core Agent Page-create commit omitted its result");
+    return {
+      result: {
         ok: true,
         value: {
           output: output(result, pending.request),
@@ -323,9 +345,62 @@ export class NativeNodexAgentPageCreateRuntime {
           affectedDatabaseBlockIds: [...result.affected_database_ids],
           commitSeq: applyResultCursor(committed),
         },
-      };
-    } catch (error) {
-      return { ok: false, error: mapNativeNodexAgentCoreError(error) };
+      },
+      transition: { kind: "clear", operationId: command.mutationId },
+    };
+  } catch (error) {
+    return {
+      result: { ok: false, error: mapNativeNodexAgentCoreError(error) },
+      transition: { kind: "keep" },
+    };
+  }
+};
+
+export class NativeNodexAgentPageCreateRuntime {
+  private readonly pending = new Map<string, PendingNativePageCreate>();
+
+  constructor(private readonly runtime: RustDataAuthorityRuntime) {}
+
+  async prepare(
+    request: PrepareNodexAgentCreatePagesRequest,
+  ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentCreatePagesResult>> {
+    const step = await prepareNativeNodexAgentPageCreate(this.runtime, request);
+    if (step.transition.kind === "clear") {
+      this.pending.delete(step.transition.operationId);
+    } else if (step.transition.kind === "retain") {
+      const pending = step.transition.pending;
+      if (
+        !this.pending.has(pending.operationId) &&
+        this.pending.size >= MAX_PENDING_NATIVE_PAGE_CREATES
+      ) {
+        return envelope(
+          {
+            ok: false,
+            error: mapNativeNodexAgentCoreError(
+              new Error("Native Agent Page-create preparation capacity is exhausted"),
+            ),
+          },
+          pending.operationId,
+        );
+      }
+      this.pending.set(pending.operationId, pending);
     }
+    return step.result;
+  }
+
+  async execute(
+    command: NodexAgentCreatePagesCommand,
+    documentHeads: readonly NodexAgentDocumentHead[],
+  ): Promise<ExecuteNodexAgentCreatePagesResult> {
+    const step = await executeNativeNodexAgentPageCreate(
+      this.runtime,
+      this.pending.get(command.mutationId),
+      command,
+      documentHeads,
+    );
+    if (step.transition.kind === "clear") {
+      this.pending.delete(step.transition.operationId);
+    }
+    return step.result;
   }
 }

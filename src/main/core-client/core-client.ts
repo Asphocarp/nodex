@@ -227,7 +227,10 @@ export class CoreClient implements CoreClientPort {
     throw new CoreModuleResponseError(response.payload);
   }
 
-  async libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult> {
+  async libraryApply(
+    input: LibraryApplyInput,
+    options: CoreRequestOptions = {},
+  ): Promise<LibraryApplyResult> {
     const response = await this.#transport.requestJson<LibraryApplyResponse>(
       "POST",
       "/core/v1/modules/library/apply",
@@ -238,6 +241,7 @@ export class CoreClient implements CoreClientPort {
         intent: input.intent,
       },
       this.#moduleHeaders(),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -258,18 +262,25 @@ export class CoreClient implements CoreClientPort {
     throw new Error("Core returned an invalid Projection impact authorization result");
   }
 
-  async databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot> {
+  async databaseRead(
+    read: DatabaseRead,
+    options: CoreRequestOptions = {},
+  ): Promise<DatabaseReadSnapshot> {
     const response = await this.#transport.requestJson<DatabaseReadResponse>(
       "POST",
       "/core/v1/modules/database/read",
       { contract_version: MODULE_CONTRACT_VERSIONS.database, read },
       this.#databaseHeaders(),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
   }
 
-  async databaseApply(input: DatabaseApplyInput): Promise<DatabaseApplyResult> {
+  async databaseApply(
+    input: DatabaseApplyInput,
+    options: CoreRequestOptions = {},
+  ): Promise<DatabaseApplyResult> {
     const response = await this.#transport.requestJson<DatabaseApplyResponse>(
       "POST",
       "/core/v1/modules/database/apply",
@@ -280,6 +291,7 @@ export class CoreClient implements CoreClientPort {
         intent: input.intent,
       },
       this.#databaseHeaders(),
+      options,
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);

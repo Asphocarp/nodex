@@ -149,25 +149,27 @@ export const live: Layer.Layer<DatabaseModule, never, CoreAuthority | CoreSessio
         access: Access,
       ): ProjectScope<Access> =>
         (access.kind === "project" ? access.projectId : null) as ProjectScope<Access>;
-      const projectAdapter = (client: CoreClientPort, projectId: string) =>
+      const projectAdapter = (client: CoreClientPort, projectId: string, signal: AbortSignal) =>
         createCoreDatabaseModuleAdapter({
           client,
           projectId,
           libraryId: identity.libraryId,
           storeEpoch: identity.storeEpoch,
+          requestOptions: { signal },
         });
-      const libraryAdapter = (client: CoreClientPort) =>
+      const libraryAdapter = (client: CoreClientPort, signal: AbortSignal) =>
         createCoreLibraryDatabaseModuleAdapter({
           client,
           libraryId: identity.libraryId,
           storeEpoch: identity.storeEpoch,
+          requestOptions: { signal },
         });
       const read = (
         request: DatabaseModuleReadRequestV2,
       ): DatabaseEffect<DatabaseModuleReadResultV2> => {
         const minimumCommitSeq = request.read.minimumCommitSeq ?? 0;
-        const attempt = use("database.read", request.projectId, (client) =>
-          projectAdapter(client, request.projectId).read({
+        const attempt = use("database.read", request.projectId, (client, signal) =>
+          projectAdapter(client, request.projectId, signal).read({
             ...request,
             read: { ...request.read, minimumCommitSeq: 0 },
           }),
@@ -189,8 +191,8 @@ export const live: Layer.Layer<DatabaseModule, never, CoreAuthority | CoreSessio
         request: LibraryDatabaseModuleReadRequestV2,
       ): DatabaseEffect<LibraryDatabaseModuleReadResultV2> => {
         const minimumCommitSeq = request.read.minimumCommitSeq ?? 0;
-        const attempt = use("database.readLibrary", undefined, (client) =>
-          libraryAdapter(client).read({
+        const attempt = use("database.readLibrary", undefined, (client, signal) =>
+          libraryAdapter(client, signal).read({
             read: { ...request.read, minimumCommitSeq: 0 } as LibraryDatabaseReadV2,
           }),
         );
@@ -215,7 +217,7 @@ export const live: Layer.Layer<DatabaseModule, never, CoreAuthority | CoreSessio
       ): DatabaseEffect<DatabaseReadSnapshot> => {
         const projectId = projectIdForAccess(access);
         return readCoreSnapshotAtLeast(
-          use(operation, projectId, (client) => client.databaseRead(coreRead)),
+          use(operation, projectId, (client, signal) => client.databaseRead(coreRead, { signal })),
           identity.storeEpoch,
           minimumCommitSeq,
         );
@@ -300,13 +302,13 @@ export const live: Layer.Layer<DatabaseModule, never, CoreAuthority | CoreSessio
       return DatabaseModule.of({
         read,
         apply: (request) =>
-          use("database.apply", request.projectId, (client) =>
-            projectAdapter(client, request.projectId).apply(request),
+          use("database.apply", request.projectId, (client, signal) =>
+            projectAdapter(client, request.projectId, signal).apply(request),
           ),
         readLibrary,
         applyLibrary: (request) =>
-          use("database.applyLibrary", undefined, (client) =>
-            libraryAdapter(client).apply(request),
+          use("database.applyLibrary", undefined, (client, signal) =>
+            libraryAdapter(client, signal).apply(request),
           ),
         viewWindow,
         listWindow: (access, input) =>

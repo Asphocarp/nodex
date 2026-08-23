@@ -84,6 +84,7 @@ const dataSource = (detail: CorePageDetail) => {
 export async function readNativeFetch(
   request: FetchRequest,
   runtime: RustDataAuthorityRuntime,
+  signal?: AbortSignal,
 ): Promise<NodexAgentV3ReadCommandResult> {
   if (!request.authority) {
     return {
@@ -110,7 +111,7 @@ export async function readNativeFetch(
         block_id: request.input.id,
         authorization,
       },
-      { class: "background" },
+      { class: "background", signal },
     );
     if (targetRead.value.kind !== "agent_block_target") {
       throw new Error("Core returned the wrong Agent Block target variant");
@@ -157,7 +158,7 @@ export async function readNativeFetch(
         cursor: request.input.page?.cursor ?? null,
         limit: request.input.page?.limit ?? null,
       },
-      { class: "background" },
+      { class: "background", signal },
     );
     if (snapshotRead.value.kind !== "agent_semantic_snapshot") {
       throw new Error("Core returned the wrong Agent Document snapshot variant");

@@ -157,7 +157,7 @@ export const live: Layer.Layer<CoreModules, never, CoreSessionAccess> = Layer.ef
           ),
         ),
         apply: Effect.fn("CoreModules.library.apply")((input) =>
-          access.use("library.apply", (client) => client.libraryApply(input)),
+          access.use("library.apply", (client, signal) => client.libraryApply(input, { signal })),
         ),
         filterProjectionImpactForProject: Effect.fn(
           "CoreModules.library.filterProjectionImpactForProject",
@@ -171,10 +171,16 @@ export const live: Layer.Layer<CoreModules, never, CoreSessionAccess> = Layer.ef
       },
       database: {
         read: Effect.fn("CoreModules.database.read")((read, projectId) =>
-          access.use("database.read", (client) => client.databaseRead(read), { projectId }),
+          access.use("database.read", (client, signal) => client.databaseRead(read, { signal }), {
+            projectId,
+          }),
         ),
         apply: Effect.fn("CoreModules.database.apply")((input, projectId) =>
-          access.use("database.apply", (client) => client.databaseApply(input), { projectId }),
+          access.use(
+            "database.apply",
+            (client, signal) => client.databaseApply(input, { signal }),
+            { projectId },
+          ),
         ),
       },
       workspace: {

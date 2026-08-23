@@ -29,6 +29,7 @@ type QueryRequest = Extract<
 export async function readNativeDatabaseQuery(
   request: QueryRequest,
   runtime: RustDataAuthorityRuntime,
+  signal?: AbortSignal,
 ): Promise<NodexAgentV3ReadCommandResult> {
   if (!request.authority) {
     return {
@@ -55,15 +56,15 @@ export async function readNativeDatabaseQuery(
       limit: request.input.page?.limit ?? null,
       projection_property_ids: request.input.select?.propertyIds ?? null,
     };
-    const snapshot = await runtime.clientForProject(request.projectId).databaseRead(
+    const read =
       request.tool === "query_database_view"
         ? {
-            kind: "agent_view_query",
+            kind: "agent_view_query" as const,
             view_id: request.input.viewId,
             query: commonQuery,
           }
         : {
-            kind: "agent_data_source_query",
+            kind: "agent_data_source_query" as const,
             data_source_id: request.input.dataSourceId,
             query: {
               ...commonQuery,
@@ -74,8 +75,11 @@ export async function readNativeDatabaseQuery(
               },
               sort: request.input.sort ?? [],
             },
-          },
-    );
+          };
+    const client = runtime.clientForProject(request.projectId);
+    const snapshot = signal
+      ? await client.databaseRead(read, { class: "background", signal })
+      : await client.databaseRead(read);
     if (
       snapshot.value.kind !== "agent_view_query" &&
       snapshot.value.kind !== "agent_data_source_query"
@@ -88,6 +92,7 @@ export async function readNativeDatabaseQuery(
       projectId: request.projectId,
       libraryId: authority.libraryId,
       storeEpoch: snapshot.store_epoch,
+      ...(signal ? { requestOptions: { class: "background" as const, signal } } : {}),
     });
     const [databaseResult, sourceResult] = await Promise.all([
       descriptorAdapter.read({
