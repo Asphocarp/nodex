@@ -28,7 +28,6 @@ import type {
   CommandPaletteThreadSummary,
   Project,
   ProjectSession,
-  ProjectSessionForkResult,
 } from "../../shared/types";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import {
@@ -47,7 +46,6 @@ import { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog"
 import { CodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import { TestCodexConversationResumeRuntime } from "./codex-conversation-resume-runtime.test-support";
 import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
-import { TestCodexConversationEventBufferRuntime } from "./codex-conversation-event-buffer-runtime.test-support";
 import { TestCodexPendingServerRequestRuntime } from "./codex-pending-server-request-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
@@ -216,16 +214,6 @@ interface TestableCodexService {
     turnId: string,
     message: string,
   ) => Promise<CodexThreadActionResult>;
-  forkProjectSessionThread: (
-    sessionId: string,
-    input: {
-      target: "local" | "newWorktree";
-      turnId?: string;
-      message?: string;
-      collaborationMode?: "default" | "plan";
-      localEnvironmentConfigPath?: string | null;
-    },
-  ) => Promise<ProjectSessionForkResult>;
   startTurn: (
     threadId: string,
     prompt: string,
@@ -503,30 +491,6 @@ function buildCanonicalHistoryTimeline(
   return internals.buildThreadTimelineFromCanonicalState(canonicalState);
 }
 
-function makeCanonicalStateDetailFixture(
-  state: CodexCanonicalConversationState,
-  overrides: Partial<CodexThreadDetail> = {},
-): CodexThreadDetail {
-  return {
-    ...makeThreadDetail(state.protocol.id),
-    threadName: state.protocol.name,
-    cwd: state.sidecar.hydrationContext?.cwd ?? state.protocol.cwd,
-    turns: state.turns.flatMap((turn): CodexTurnSummary[] => {
-      if (turn.protocol.id === null) return [];
-      return [
-        {
-          threadId: state.protocol.id,
-          turnId: turn.protocol.id,
-          status: turn.protocol.status,
-          itemIds: turn.items.map((item) => item.id),
-        },
-      ];
-    }),
-    transcript: [],
-    ...overrides,
-  };
-}
-
 function completeLegacyProtocolTurnFixture(value: unknown): Turn {
   const turn = value as Partial<Turn> & { id?: unknown };
   if (typeof turn.id !== "string") {
@@ -577,23 +541,6 @@ function makeCanonicalForkResponse(input: {
     activePermissionProfile: input.activePermissionProfile ?? null,
     reasoningEffort: input.reasoningEffort ?? "high",
     multiAgentMode: "explicitRequestOnly",
-  };
-}
-
-function makeCanonicalForkResumeResponse(response: ThreadForkResponse): ThreadResumeResponse {
-  return {
-    ...response,
-    thread: {
-      ...response.thread,
-      turns: [],
-    },
-    initialTurnsPage: {
-      data: [...response.thread.turns].reverse(),
-      nextCursor: null,
-      backwardsCursor: null,
-    },
-    turnsBackwardsCursor: null,
-    itemsBackwardsCursor: null,
   };
 }
 
@@ -1721,7 +1668,8 @@ function createService(options?: {
   const conversationResume = new TestCodexConversationResumeRuntime({
     run: async (input) => {
       if (!service) throw new Error("Codex test service is not constructed");
-      return await service.runConversationResume(input);
+      const detail = await service.resumeThread(input.threadId);
+      return detail ? service.serializeConversationSnapshot(input.threadId) : null;
     },
     snapshot: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -1750,31 +1698,7 @@ function createService(options?: {
     },
     isRendererClientDisposed: rendererConversations.isClientDisposed,
     adoptRenderer: adoptRendererConversation,
-    releaseBuffer: async (threadId) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      const testService = service as unknown as {
-        hasResumeNotificationBuffer: (id: string) => boolean;
-        releaseConversationResumeBufferCore: (id: string) => Promise<void>;
-      };
-      const hadBuffer = testService.hasResumeNotificationBuffer(threadId);
-      await testService.releaseConversationResumeBufferCore(threadId);
-      return hadBuffer;
-    },
-  });
-  const conversationEventBuffer = new TestCodexConversationEventBufferRuntime({
-    compact: (threadId, events) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      return service.compactBufferedConversationEvents(threadId, events);
-    },
-    replayNotification: async (input) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      await service.replayBufferedConversationNotification(input);
-    },
-    replayRequest: async (input) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      await service.replayBufferedConversationRequest(input);
-    },
-    reportThreadStartReplayFailure: (input) => service?.recordThreadStartReplayFailure(input),
+    releaseBuffer: async () => false,
   });
   const turnCommands: CodexTurnCommandsService = {
     start: () => Effect.die("Turn commands are exercised by final semantic service tests"),
@@ -2018,7 +1942,6 @@ function createService(options?: {
     queuedFollowUpDispatcher,
     conversationDeltaBuffer,
     conversationResume,
-    conversationEventBuffer,
     manualCompaction: {
       start: async () => {
         throw new Error("Manual compaction is unavailable in the legacy CodexService fixture");
@@ -2138,7 +2061,6 @@ function createService(options?: {
       sidebarSync.dispose();
       pendingWorktrees.shutdown();
       conversationResume.dispose();
-      await conversationEventBuffer.shutdown(new Error("Codex test service is shutting down"));
       await sidebarSweep.cancel();
       await pendingServerRequests.shutdown(new Error("Codex test service is shutting down"));
     } finally {
@@ -4122,7 +4044,6 @@ describe("codex-service session-backed transcript recovery", () => {
     const hostMessages: CodexHostMessage[] = [];
     let goalFlows = 0;
     const serviceInternals = service as unknown as {
-      hasResumeNotificationBuffer: (id: string) => boolean;
       startPostResumeGoalFlow: (id: string, revision: number) => Promise<void>;
     };
     const client = Reflect.get(service as object, "client") as {
@@ -4144,7 +4065,6 @@ describe("codex-service session-backed transcript recovery", () => {
 
       expect(detail?.threadId ?? "").toBe(threadId);
       expect(requests.length).toBe(0);
-      expect(serviceInternals.hasResumeNotificationBuffer(threadId)).toBe(false);
       expect(goalFlows).toBe(0);
       expect(hostMessages.length).toBe(0);
       expect(service.serializeConversationSnapshot(threadId)?.resumeState ?? "").toBe("resumed");
@@ -4414,278 +4334,6 @@ describe("codex-service session-backed transcript recovery", () => {
     }
   });
 
-  test("answers currentTime immediately while resume notifications remain buffered", async () => {
-    const service = createService();
-    const threadId = "thr_resume_request_order";
-    const order: string[] = [];
-    const serviceInternals = service as unknown as {
-      beginResumeNotificationBuffer: (threadId: string) => void;
-      replayBufferedResumeNotifications: (threadId: string) => Promise<void>;
-      handleNotification: (
-        notification: CodexTestServerNotification,
-        options?: { bypassResumeBuffer?: boolean },
-      ) => Promise<void>;
-      handleServerRequest: (request: {
-        id: string | number;
-        method: string;
-        params: unknown;
-      }) => Promise<unknown>;
-      handleServerRequestNow: (request: {
-        id: string | number;
-        method: string;
-        params: unknown;
-      }) => Promise<unknown>;
-      hasResumeNotificationBuffer: (id: string) => boolean;
-    };
-    const originalHandleNotification = serviceInternals.handleNotification.bind(service);
-    const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
-
-    serviceInternals.handleNotification = async (notification, options) => {
-      if (!serviceInternals.hasResumeNotificationBuffer(threadId)) {
-        order.push(`notification:${notification.method}`);
-      }
-      return originalHandleNotification(notification, options);
-    };
-    serviceInternals.handleServerRequestNow = async (request) => {
-      order.push(`request:${request.method}`);
-      return originalHandleServerRequestNow(request);
-    };
-
-    try {
-      serviceInternals.beginResumeNotificationBuffer(threadId);
-      await serviceInternals.handleNotification({
-        method: "item/reasoning/summaryPartAdded",
-        params: {
-          threadId,
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          summaryIndex: 0,
-        },
-      });
-      const requestPromise = serviceInternals.handleServerRequest({
-        id: "time_req",
-        method: "currentTime/read",
-        params: { threadId },
-      });
-      await serviceInternals.handleNotification({
-        method: "item/mcpToolCall/progress",
-        params: {
-          threadId,
-          turnId: "turn-1",
-          itemId: "mcp-1",
-          message: "Still working",
-        },
-      });
-
-      const result = await requestPromise;
-      expect((result as { currentTimeAt?: number }).currentTimeAt !== undefined).toBe(true);
-      expect(order.join(",")).toBe("request:currentTime/read");
-
-      await serviceInternals.replayBufferedResumeNotifications(threadId);
-
-      expect(order.join(",")).toBe(
-        "request:currentTime/read,notification:item/reasoning/summaryPartAdded,notification:item/mcpToolCall/progress",
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("removes the resume buffer before replay so nested notifications dispatch live", async () => {
-    const service = createService();
-    const threadId = "thr_resume_live_nested";
-    const order: string[] = [];
-    const serviceInternals = service as unknown as {
-      beginResumeNotificationBuffer: (id: string) => void;
-      replayBufferedResumeNotifications: (id: string) => Promise<void>;
-      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-      hasResumeNotificationBuffer: (id: string) => boolean;
-    };
-
-    try {
-      serviceInternals.beginResumeNotificationBuffer(threadId);
-      await serviceInternals.handleNotification({
-        method: "item/reasoning/summaryPartAdded",
-        params: {
-          threadId,
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          summaryIndex: 0,
-        },
-      });
-      await serviceInternals.handleNotification({
-        method: "item/mcpToolCall/progress",
-        params: {
-          threadId,
-          turnId: "turn-1",
-          itemId: "mcp-old-tail",
-          message: "old tail",
-        },
-      });
-
-      const originalHandleNotification = serviceInternals.handleNotification.bind(service);
-      let didInjectNestedNotification = false;
-      serviceInternals.handleNotification = async (notification) => {
-        if (!serviceInternals.hasResumeNotificationBuffer(threadId)) {
-          order.push(
-            `${notification.method}:${(notification.params as { itemId?: string }).itemId ?? ""}`,
-          );
-        }
-        await originalHandleNotification(notification);
-        if (
-          notification.method !== "item/reasoning/summaryPartAdded" ||
-          didInjectNestedNotification
-        )
-          return;
-
-        didInjectNestedNotification = true;
-        await serviceInternals.handleNotification({
-          method: "item/mcpToolCall/progress",
-          params: {
-            threadId,
-            turnId: "turn-1",
-            itemId: "mcp-live-nested",
-            message: "live nested",
-          },
-        });
-      };
-
-      await serviceInternals.replayBufferedResumeNotifications(threadId);
-
-      expect(order.join(",")).toBe(
-        "item/reasoning/summaryPartAdded:reasoning-1," +
-          "item/mcpToolCall/progress:mcp-live-nested," +
-          "item/mcpToolCall/progress:mcp-old-tail",
-      );
-      expect(serviceInternals.hasResumeNotificationBuffer(threadId)).toBe(false);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("resume replay dedupe aggregates full deltas and reads the first exact canonical raw slot", async () => {
-    const service = createService();
-    const threadId = "thr_exact_resume_dedupe";
-    const turn: Turn = {
-      id: "turn-exact-resume-dedupe",
-      itemsView: "full",
-      status: "inProgress",
-      error: null,
-      startedAt: null,
-      completedAt: null,
-      durationMs: null,
-      items: [
-        {
-          id: "shared-agent",
-          type: "enteredReviewMode",
-          review: "same id, different type",
-        },
-        {
-          id: "shared-agent",
-          type: "agentMessage",
-          text: "a",
-          phase: null,
-          memoryCitation: null,
-        },
-        {
-          id: "shared-agent",
-          type: "agentMessage",
-          text: "ends-with-abc",
-          phase: null,
-          memoryCitation: null,
-        },
-        {
-          id: "command-1",
-          type: "commandExecution",
-          pluginId: null,
-          scriptPath: null,
-          command: "printf hello",
-          cwd: "/workspace/project",
-          processId: null,
-          source: "agent",
-          status: "inProgress",
-          commandActions: [],
-          aggregatedOutput: "prefix-hello",
-          exitCode: null,
-          durationMs: null,
-        },
-      ],
-    };
-    const response = makeCanonicalResumeResponse({
-      threadId,
-      threadTurns: [turn],
-      initialTurnsPage: null,
-    });
-    const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (
-        input: ThreadResumeResponse,
-        options?: Record<string, unknown>,
-      ) => CodexCanonicalConversationState;
-      compactBufferedConversationEvents: (
-        id: string,
-        events: Array<{ type: "notification"; notification: CodexTestServerNotification }>,
-      ) => Array<{ type: "notification"; notification: CodexTestServerNotification }>;
-    };
-    serviceInternals.hydrateCanonicalConversationState(response);
-
-    const replay = serviceInternals.compactBufferedConversationEvents(threadId, [
-      {
-        type: "notification",
-        notification: {
-          method: "item/agentMessage/delta",
-          params: {
-            threadId,
-            turnId: turn.id,
-            itemId: "shared-agent",
-            delta: "a",
-          },
-        },
-      },
-      {
-        type: "notification",
-        notification: {
-          method: "item/agentMessage/delta",
-          params: {
-            threadId,
-            turnId: turn.id,
-            itemId: "shared-agent",
-            delta: "bc",
-          },
-        },
-      },
-      {
-        type: "notification",
-        notification: {
-          method: "item/commandExecution/outputDelta",
-          params: {
-            threadId,
-            turnId: turn.id,
-            itemId: "command-1",
-            delta: "he",
-          },
-        },
-      },
-      {
-        type: "notification",
-        notification: {
-          method: "item/commandExecution/outputDelta",
-          params: {
-            threadId,
-            turnId: turn.id,
-            itemId: "command-1",
-            delta: "llo",
-          },
-        },
-      },
-    ]);
-    const replayedDeltas = replay.map(
-      (event) => (event.notification.params as { delta?: string }).delta ?? "",
-    );
-    expect(replayedDeltas.join("|")).toBe("a|bc");
-
-    await service.shutdown();
-  });
-
   test("resume keeps the initial page on pre-resume model context while advancing latest settings", async () => {
     const service = createService();
     const threadId = "thr_resume_model_context_split";
@@ -4727,170 +4375,6 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(canonical.sidecar.latestThreadSettings?.modelProvider ?? "").toBe("openai");
       expect(canonical.sidecar.latestThreadSettings?.effort ?? null).toBe("high");
     } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("defers early thread-started notifications until creation context is ready from bundle 46730-47020 and 50470-50520", async () => {
-    const service = createService();
-    const replayedThreadIds: string[] = [];
-    const serviceInternals = service as unknown as {
-      beginThreadStartNotificationDeferral: () => void;
-      completeThreadStartNotificationDeferral: (threadId: string | null) => Promise<void>;
-      endThreadStartNotificationDeferral: () => Promise<void>;
-      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-      handleServerRequest: (request: {
-        id: string | number;
-        method: string;
-        params: unknown;
-      }) => Promise<unknown>;
-      replayBufferedConversationNotification: (input: {
-        phase: "resume" | "thread-start";
-        threadId: string;
-        notification: CodexTestServerNotification;
-      }) => Promise<void>;
-    };
-    const originalReplay = serviceInternals.replayBufferedConversationNotification.bind(service);
-
-    serviceInternals.replayBufferedConversationNotification = async (input) => {
-      if (input.phase === "thread-start") replayedThreadIds.push(input.threadId);
-    };
-
-    try {
-      serviceInternals.beginThreadStartNotificationDeferral();
-      await serviceInternals.handleNotification({
-        method: "thread/started",
-        params: {
-          thread: {
-            id: "thr_deferred_creation_context",
-            parentThreadId: null,
-            preview: "Started before creation context is ready",
-            ephemeral: false,
-            cwd: "/tmp/codex",
-          },
-        },
-      });
-
-      expect(replayedThreadIds.join(",")).toBe("");
-      const currentTime = await serviceInternals.handleServerRequest({
-        id: "time-during-thread-start-deferral",
-        method: "currentTime/read",
-        params: { threadId: "thr_deferred_creation_context" },
-      });
-      expect((currentTime as { currentTimeAt?: number }).currentTimeAt !== undefined).toBe(true);
-      expect(replayedThreadIds.join(",")).toBe("");
-
-      await serviceInternals.completeThreadStartNotificationDeferral(
-        "thr_deferred_creation_context",
-      );
-
-      expect(replayedThreadIds.join(",")).toBe("thr_deferred_creation_context");
-    } finally {
-      serviceInternals.replayBufferedConversationNotification = originalReplay;
-      await serviceInternals.endThreadStartNotificationDeferral();
-      await service.shutdown();
-    }
-  });
-
-  test("nested resume release moves notifications and requests into the outer thread-start deferral", async () => {
-    const service = createService();
-    const threadId = "thr_nested_resume_deferral";
-    const order: string[] = [];
-    const serviceInternals = service as unknown as {
-      beginThreadStartNotificationDeferral: () => void;
-      completeThreadStartNotificationDeferral: (id: string | null) => Promise<void>;
-      endThreadStartNotificationDeferral: () => Promise<void>;
-      beginResumeNotificationBuffer: (id: string) => void;
-      replayBufferedResumeNotifications: (id: string) => Promise<void>;
-      handleNotification: (
-        notification: CodexTestServerNotification,
-        options?: { bypassResumeBuffer?: boolean },
-      ) => Promise<void>;
-      handleServerRequest: (request: {
-        id: string;
-        method: string;
-        params: { threadId: string };
-      }) => Promise<unknown>;
-      handleServerRequestNow: (request: {
-        id: string;
-        method: string;
-        params: { threadId: string };
-      }) => Promise<unknown>;
-      upsertSidebarThreadFromAppServerThread: () => null;
-      replayBufferedConversationNotification: (input: {
-        phase: "resume" | "thread-start";
-        threadId: string;
-        notification: CodexTestServerNotification;
-      }) => Promise<void>;
-    };
-    const originalReplayNotification =
-      serviceInternals.replayBufferedConversationNotification.bind(service);
-    const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
-    serviceInternals.upsertSidebarThreadFromAppServerThread = () => null;
-    serviceInternals.replayBufferedConversationNotification = async (input) => {
-      await originalReplayNotification(input);
-      if (input.phase === "thread-start" && input.notification.method !== "thread/started") {
-        order.push(`notification:${input.notification.method}`);
-      }
-    };
-    serviceInternals.handleServerRequestNow = async (request) => {
-      if (request.method === "currentTime/read") {
-        return originalHandleServerRequestNow(request);
-      }
-      order.push(`request:${request.method}`);
-      return { handled: true };
-    };
-
-    try {
-      serviceInternals.beginThreadStartNotificationDeferral();
-      await serviceInternals.handleNotification({
-        method: "thread/started",
-        params: {
-          thread: {
-            ...makeProtocolThread(threadId, "/workspace/project", []),
-          },
-        },
-      });
-      serviceInternals.beginResumeNotificationBuffer(threadId);
-      await serviceInternals.handleNotification({
-        method: "item/reasoning/summaryPartAdded",
-        params: {
-          threadId,
-          turnId: "turn-1",
-          itemId: "reasoning-1",
-          summaryIndex: 0,
-        },
-      });
-      let ordinaryRequestSettled = false;
-      const ordinaryRequest = serviceInternals
-        .handleServerRequest({
-          id: "ordinary-request",
-          method: "item/tool/requestUserInput",
-          params: { threadId },
-        })
-        .then((value) => {
-          ordinaryRequestSettled = true;
-          return value;
-        });
-      const currentTime = await serviceInternals.handleServerRequest({
-        id: "current-time-request",
-        method: "currentTime/read",
-        params: { threadId },
-      });
-      expect((currentTime as { currentTimeAt?: number }).currentTimeAt !== undefined).toBe(true);
-
-      await serviceInternals.replayBufferedResumeNotifications(threadId);
-      await Promise.resolve();
-      expect(ordinaryRequestSettled).toBe(false);
-      expect(order.join(",")).toBe("");
-
-      await serviceInternals.completeThreadStartNotificationDeferral(threadId);
-      await ordinaryRequest;
-      expect(order.join(",")).toBe(
-        "notification:item/reasoning/summaryPartAdded,request:item/tool/requestUserInput",
-      );
-    } finally {
-      await serviceInternals.endThreadStartNotificationDeferral();
       await service.shutdown();
     }
   });
@@ -5288,201 +4772,6 @@ describe("codex-service Session Thread launch projections", () => {
 
       expect(appliedTitles[0]).toBe("Build a refined migration plan with careful details careful…");
       expect((requests[0]?.params as { name?: string } | undefined)?.name).toBe(appliedTitles[0]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
-
-describe("codex-service pending worktree conversation ownership", () => {
-  test("binds the started Thread to its reserved Project Session before replaying thread/started", async () => {
-    const projectId = "project-pending-session-owner";
-    const reservedSessionId = "session-pending-session-owner";
-    const sourceWorkspaceRoot = "/workspace/pending-session-owner";
-    const worktreeWorkspaceRoot = `${sourceWorkspaceRoot}/.nodex/worktrees/abcd/repo`;
-    const threadId = "thread-pending-session-owner";
-    const project = makeProject({
-      id: projectId,
-      name: "Pending session owner",
-      sources: [{ root: sourceWorkspaceRoot, order: 0 }],
-      primaryWorkspaceRoot: sourceWorkspaceRoot,
-    });
-    const baseWorkspace = createTestProjectWorkspace();
-    const sessions = new Map<string, ProjectSession>();
-    const ownerByThreadId = new Map<string, string>();
-    const automaticallyCreatedSessionIds: string[] = [];
-    const now = "2026-08-13T00:00:00.000Z";
-    const makeSession = (
-      id: string,
-      input: { projectId: string | null; noThreadFallbackTitle: string },
-    ): ProjectSession => ({
-      id,
-      projectId: input.projectId,
-      noThreadFallbackTitle: input.noThreadFallbackTitle,
-      displayTitle: input.noThreadFallbackTitle,
-      order: sessions.size,
-      pinned: false,
-      pinnedOrder: null,
-      archived: false,
-      archivedAt: null,
-      unread: false,
-      thread: null,
-      createdAt: now,
-      updatedAt: now,
-    });
-    sessions.set(
-      reservedSessionId,
-      makeSession(reservedSessionId, {
-        projectId,
-        noThreadFallbackTitle: "New thread",
-      }),
-    );
-    const projectWorkspace = {
-      ...baseWorkspace,
-      listProjects: async () => [project],
-      getProject: async (candidateProjectId: string) =>
-        candidateProjectId === projectId ? project : null,
-      getProjectSession: async (sessionId: string) => sessions.get(sessionId) ?? null,
-      createProjectSession: async (input: {
-        projectId: string | null;
-        noThreadFallbackTitle: string;
-      }) => {
-        const sessionId = `session-auto-${automaticallyCreatedSessionIds.length + 1}`;
-        const session = makeSession(sessionId, input);
-        automaticallyCreatedSessionIds.push(sessionId);
-        sessions.set(sessionId, session);
-        return session;
-      },
-      deleteProjectSession: async (sessionId: string) => sessions.delete(sessionId),
-      getThread: async (candidateThreadId: string) => {
-        const thread = await baseWorkspace.getThread(candidateThreadId);
-        if (!thread) return null;
-        return {
-          ...thread,
-          sessionId: ownerByThreadId.get(candidateThreadId) ?? null,
-        };
-      },
-      upsertProjectSessionThreadLink: async (
-        input: Parameters<DesktopProjectWorkspacePort["upsertProjectSessionThreadLink"]>[0],
-      ) => {
-        const existingOwner = ownerByThreadId.get(input.threadId);
-        if (existingOwner && existingOwner !== input.sessionId) {
-          throw new Error("Codex Thread is already linked to another Project Session");
-        }
-        const session = sessions.get(input.sessionId);
-        if (!session) throw new Error(`Project session not found: ${input.sessionId}`);
-        const link = await baseWorkspace.upsertProjectSessionThreadLink(input);
-        ownerByThreadId.set(input.threadId, input.sessionId);
-        sessions.set(input.sessionId, {
-          ...session,
-          thread: link,
-          displayTitle: (link.threadName ?? link.threadPreview) || session.displayTitle,
-          updatedAt: now,
-        });
-        return link;
-      },
-    } as DesktopProjectWorkspacePort;
-    const service = createService({ projectWorkspace });
-    const runtime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
-      readonly dependencies: {
-        createWorktree: () => Promise<{
-          readonly worktreeGitRoot: string;
-          readonly worktreeWorkspaceRoot: string;
-        }>;
-      };
-      resolveThread: (
-        clientThreadId: string,
-      ) => { readonly state: "waiting" | "failed" | "succeeded" } | null;
-    };
-    runtime.dependencies.createWorktree = async () => ({
-      worktreeGitRoot: worktreeWorkspaceRoot,
-      worktreeWorkspaceRoot,
-    });
-    const serviceInternals = service as unknown as {
-      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: string[] = [];
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      requests.push(method);
-      if (method === "thread/start") {
-        const response = makeCanonicalForkResponse({
-          threadId,
-          cwd: worktreeWorkspaceRoot,
-          turns: [],
-          runtimeWorkspaceRoots: [worktreeWorkspaceRoot],
-        });
-        await serviceInternals.handleNotification({
-          method: "thread/started",
-          params: { thread: response.thread },
-        });
-        return response;
-      }
-      if (method === "turn/start") {
-        return { turn: makeCanonicalHydrationTurn("turn-pending-session-owner") };
-      }
-      throw new Error(`Unexpected request: ${method}`);
-    };
-
-    try {
-      const created = service.createPendingWorktree({
-        hostId: "local",
-        label: "Pending session owner",
-        sourceWorkspaceRoot,
-        startingState: { type: "branch", branchName: "main" },
-        localEnvironmentConfigPath: null,
-        launchMode: "start-conversation",
-        prompt: "Start in the reserved session",
-        startConversationParamsInput: {
-          input: [
-            {
-              type: "text",
-              text: "Start in the reserved session",
-              text_elements: [],
-            },
-          ],
-          commentAttachments: [],
-          workspaceRoots: [sourceWorkspaceRoot],
-          cwd: sourceWorkspaceRoot,
-          fileAttachments: [],
-          addedFiles: [],
-          agentMode: "auto",
-          shouldSendPermissionOverrides: false,
-          model: null,
-          serviceTier: null,
-          reasoningEffort: null,
-          collaborationMode: null,
-          config: {},
-          threadSource: "user",
-          workspaceKind: "project",
-          projectAssignment: {
-            projectKind: "local",
-            projectId,
-            pendingCoreUpdate: false,
-          },
-        },
-        projectSessionId: reservedSessionId,
-        skipAutoTitleGeneration: true,
-        sourceConversationId: null,
-        sourceCollaborationMode: null,
-      });
-      if (!created.clientThreadId) throw new Error("Expected a pending client Thread id");
-      await waitForCondition(
-        () =>
-          requests.includes("turn/start") ||
-          runtime.resolveThread(created.clientThreadId ?? "")?.state === "failed",
-        2_000,
-      );
-
-      expect(requests.includes("turn/start")).toBe(true);
-      expect(ownerByThreadId.get(threadId)).toBe(reservedSessionId);
-      expect(automaticallyCreatedSessionIds).toEqual([]);
-      expect(sessions.get(reservedSessionId)?.thread?.threadId).toBe(threadId);
-      expect(sessions.get(reservedSessionId)?.thread?.executionHostId).toBe("local");
     } finally {
       await service.shutdown();
     }

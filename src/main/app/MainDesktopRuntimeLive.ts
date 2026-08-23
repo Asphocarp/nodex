@@ -138,6 +138,14 @@ import {
   make as makeCodexConversationFork,
 } from "../codex-application/CodexConversationFork";
 import {
+  CodexForkTitlePolicy,
+  make as makeCodexForkTitlePolicy,
+} from "../codex-application/CodexForkTitlePolicy";
+import {
+  CodexProjectSessionFork,
+  make as makeCodexProjectSessionFork,
+} from "../codex-application/CodexProjectSessionFork";
+import {
   CodexActiveGoalContinuation,
   make as makeCodexActiveGoalContinuation,
 } from "../codex-application/CodexActiveGoalContinuation";
@@ -263,11 +271,6 @@ import {
 } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import { make as makeCodexConversationResumeRuntime } from "../codex-application/CodexConversationResumeRuntime";
 import { makeCodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
-import {
-  CodexConversationEventBufferError,
-  make as makeCodexConversationEventBufferRuntime,
-} from "../codex-application/CodexConversationEventBufferRuntime";
-import { makeCodexConversationEventBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationEventBufferRuntimePromiseAdapter";
 import {
   CodexFreshThreadLaunchRuntime,
   make as makeCodexFreshThreadLaunchRuntime,
@@ -1918,24 +1921,6 @@ export const live: Layer.Layer<
           Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const conversationEventBuffer = yield* makeCodexConversationEventBufferRuntime({
-          compact: (threadId, events) =>
-            requireCodexService().compactBufferedConversationEvents(threadId, events),
-          replayNotification: (input) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().replayBufferedConversationNotification(input),
-              catch: (cause) =>
-                new CodexConversationEventBufferError({
-                  cause,
-                  phase: input.phase,
-                  threadId: input.threadId,
-                }),
-            }),
-          replayRequest: (input) =>
-            Effect.promise(() => requireCodexService().replayBufferedConversationRequest(input)),
-          reportThreadStartReplayFailure: (input) =>
-            requireCodexService().recordThreadStartReplayFailure(input),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const backgroundSubagentMetadataRepair = yield* makeCodexBackgroundSubagentMetadataRepair({
           isRepairNeeded: (parentThreadId, childThreadId) =>
             requireCodexService().isBackgroundSubagentMetadataRepairNeeded(
@@ -2375,12 +2360,16 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadDirectory, threadDirectory),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
         );
+        const forkTitlePolicy = yield* makeCodexForkTitlePolicy.pipe(
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(CodexPendingWorktreeRuntime, pendingWorktrees),
+        );
         const conversationFork = yield* makeCodexConversationFork.pipe(
           Effect.provideService(CoreModules, coreModules),
           Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexForkTitlePolicy, forkTitlePolicy),
           Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
-          Effect.provideService(CodexPendingWorktreeRuntime, pendingWorktrees),
           Effect.provideService(
             CodexRendererConversationCoordinator,
             rendererConversationCoordinator,
@@ -2390,6 +2379,19 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadDirectory, threadDirectory),
           Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+        );
+        const projectSessionFork = yield* makeCodexProjectSessionFork.pipe(
+          Effect.provideService(CodexConversationFork, conversationFork),
+          Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexForkSidePanelTransfer, forkSidePanelTransfers),
+          Effect.provideService(CodexForkTitlePolicy, forkTitlePolicy),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
+          Effect.provideService(CodexPendingWorktreeRuntime, pendingWorktrees),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadSettingsRuntime, threadSettingsRuntime),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(CoreModules, coreModules),
         );
         const rendererOwnerCommands = yield* makeCodexRendererOwnerCommands.pipe(
           Effect.provideService(CodexConversationFork, conversationFork),
@@ -2667,10 +2669,6 @@ export const live: Layer.Layer<
                 conversationResume,
                 callbacks,
               ),
-              conversationEventBuffer: makeCodexConversationEventBufferRuntimePromiseAdapter(
-                conversationEventBuffer,
-                callbacks,
-              ),
               manualCompaction: makeCodexManualCompactionRuntimePromiseAdapter(
                 manualCompaction,
                 callbacks,
@@ -2886,7 +2884,6 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           ProjectWorkspaceIpc.live({
-            codex: codexService,
             conversationCommands,
             projects: projectWorkspace,
             threadTitles: threadTitlePersistence,
@@ -2896,6 +2893,7 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(CodexProjectSessionFork, projectSessionFork),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(ProjectLifecycleCommands, projectLifecycleCommands),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),

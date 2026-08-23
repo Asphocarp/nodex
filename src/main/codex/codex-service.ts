@@ -133,8 +133,6 @@ import type {
   Project,
   ProjectSession,
   ProjectSessionSummary,
-  ProjectSessionForkInput,
-  ProjectSessionForkResult,
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
@@ -166,7 +164,6 @@ import type { CodexThreadHandoffRuntime } from "../codex-application/CodexThread
 import type {
   CodexForkBrowserSidePanelSnapshot,
   CodexForkBrowserTransferConsumeInput,
-  CodexForkBrowserSceneContext,
 } from "../../shared/codex-fork-browser-transfer";
 import { parseAssetSource } from "../../shared/assets";
 import {
@@ -201,7 +198,6 @@ import {
   prepareCodexPrompt,
 } from "../../shared/codex-prompt-preparation";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
-import { ProjectSessionForkInputSchema } from "../../shared/schemas/project-sessions";
 import {
   PastedTextAttachmentManager,
   ThreadGoalAttachmentDirectoryManager,
@@ -369,7 +365,6 @@ import { CodexRpcError } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import { CodexSessionStore } from "./codex-session-store";
 import { resolveManagedWorktreeDefaultStartingState } from "./git-worktree-service";
 import { buildCodexDesktopDeveloperInstructions } from "./codex-developer-instructions";
-import { resolveCodexForkWorkspaceInheritance } from "./codex-fork-workspace-inheritance";
 import {
   applyLiveTranscriptMutation,
   buildTranscriptFromBootstrapEvents,
@@ -551,17 +546,8 @@ import type { CodexSubagentCatalog } from "../codex-application/CodexSubagentCat
 import type { CodexQueuedFollowUpDispatcher } from "../codex-application/CodexQueuedFollowUpDispatcher";
 import type { CodexQueuedFollowUps } from "../codex-application/CodexQueuedFollowUps";
 import type { CodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
-import type {
-  CodexConversationResumeDemand,
-  CodexConversationResumeOutcome,
-} from "../codex-application/CodexConversationResumeRuntime";
+import type { CodexConversationResumeDemand } from "../codex-application/CodexConversationResumeRuntime";
 import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
-import type {
-  CodexBufferedConversationEvent,
-  CodexBufferedConversationRequest,
-  CodexConversationEventBufferPhase,
-} from "../codex-application/CodexConversationEventBufferRuntime";
-import type { CodexConversationEventBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationEventBufferRuntimePromiseAdapter";
 import { rewriteExecutionWorkspaceRoots } from "./codex-execution-workspace-roots";
 import {
   allocateCodexPendingWorktreeRequest,
@@ -838,10 +824,6 @@ interface CodexResumePermissionSelection {
   readonly shouldSendApprovalsReviewer: boolean;
 }
 
-interface HandleNotificationOptions {
-  bypassResumeBuffer?: boolean;
-}
-
 type StartTurnOverrides = CodexTurnStartOverrides;
 
 interface DormantConversationSyncOptions {
@@ -964,7 +946,6 @@ type CodexServiceOptions = {
   queuedFollowUpDispatcher: CodexQueuedFollowUpDispatcher["Service"];
   conversationDeltaBuffer: CodexConversationDeltaBufferRuntime["Service"];
   conversationResume: CodexConversationResumeRuntimePromiseAdapter;
-  conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   manualCompaction: CodexManualCompactionRuntimePromiseAdapter;
   threadGoals: CodexThreadGoalRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
@@ -1336,15 +1317,6 @@ function isThreadNotFoundError(error: unknown): boolean {
   );
 }
 
-function isThreadArchivedError(error: unknown): boolean {
-  if (!(error instanceof CodexRpcError)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes(" is archived") ||
-    (message.includes("session") && message.includes("archived"))
-  );
-}
-
 function isUnsupportedStateDbOnlyThreadListError(error: unknown): boolean {
   if (!(error instanceof CodexRpcError)) return false;
   const message = error.message.toLowerCase();
@@ -1709,7 +1681,6 @@ export class CodexService {
   private readonly queuedFollowUpDispatcher: CodexQueuedFollowUpDispatcher["Service"];
   private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntime["Service"];
   private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
-  private readonly conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   private readonly manualCompaction: CodexManualCompactionRuntimePromiseAdapter;
   private readonly threadGoals: CodexThreadGoalRuntimePromiseAdapter;
   private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
@@ -1818,7 +1789,6 @@ export class CodexService {
     this.queuedFollowUpDispatcher = options.queuedFollowUpDispatcher;
     this.conversationDeltaBuffer = options.conversationDeltaBuffer;
     this.conversationResume = options.conversationResume;
-    this.conversationEventBuffer = options.conversationEventBuffer;
     this.manualCompaction = options.manualCompaction;
     this.threadGoals = options.threadGoals;
     this.supportsChatGptApps =
@@ -2101,237 +2071,6 @@ export class CodexService {
 
   private emitHostMessage(message: CodexHostMessage): void {
     this.applicationEvents.publish({ kind: "hostMessage", value: message });
-  }
-
-  private beginResumeNotificationBuffer(threadId: string): boolean {
-    return this.conversationEventBuffer.beginResume(threadId);
-  }
-
-  private hasResumeNotificationBuffer(threadId: string): boolean {
-    return this.conversationEventBuffer.hasResume(threadId);
-  }
-
-  private beginThreadStartNotificationDeferral(): void {
-    this.conversationEventBuffer.beginThreadStartDeferral();
-  }
-
-  private bufferNotificationForReplayIfNeeded(
-    notification: CodexServerNotification,
-    options: HandleNotificationOptions = {},
-  ): boolean {
-    const threadId = parseEventThreadId(asRecord(notification.params));
-    if (!threadId) return false;
-    return this.conversationEventBuffer.offerNotification({
-      threadId,
-      notification,
-      bypassResume: options.bypassResumeBuffer,
-      startsThread: notification.method === "thread/started",
-    });
-  }
-
-  private async completeThreadStartNotificationDeferral(threadId: string | null): Promise<void> {
-    await this.conversationEventBuffer.completeThreadStartDeferral(threadId);
-  }
-
-  private async endThreadStartNotificationDeferral(): Promise<void> {
-    await this.conversationEventBuffer.endThreadStartDeferral();
-  }
-
-  private bufferServerRequestForReplayIfNeeded(request: CodexServerRequest): boolean {
-    const threadId = this.resolveServerRequestThreadId(request);
-    if (!threadId) return false;
-    return this.conversationEventBuffer.offerRequest({
-      threadId,
-      request,
-      completion: () =>
-        this.pendingServerRequests.completion(
-          threadId,
-          request.id,
-          request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
-        ),
-    });
-  }
-
-  private async replayBufferedResumeNotifications(threadId: string): Promise<void> {
-    await this.conversationEventBuffer.releaseResume(threadId);
-  }
-
-  private async releaseConversationResumeBufferCore(threadId: string): Promise<void> {
-    await this.replayBufferedResumeNotifications(threadId);
-    await this.waitForRendererOwnerNotificationDrain(threadId);
-    this.rendererConversationCoordinator.reconcileOwnership(threadId);
-  }
-
-  private discardConversationResumeBuffer(threadId: string, reason: unknown): void {
-    this.conversationEventBuffer.discardResume(threadId, reason);
-    this.rendererConversationCoordinator.reconcileOwnership(threadId);
-  }
-
-  /** Effect Module adapter operation; replays one request after its lifecycle fence opens. */
-  async replayBufferedConversationRequest(input: {
-    readonly phase: CodexConversationEventBufferPhase;
-    readonly threadId: string;
-    readonly event: CodexBufferedConversationRequest;
-  }): Promise<void> {
-    try {
-      const response = await this.handleServerRequestNow(input.event.request);
-      if (response !== CodexApplicationRequestPending) input.event.resolve(response);
-    } catch (error) {
-      input.event.reject(error);
-    }
-  }
-
-  /** Effect Module adapter operation; re-enters canonical notification handling. */
-  async replayBufferedConversationNotification(input: {
-    readonly phase: CodexConversationEventBufferPhase;
-    readonly threadId: string;
-    readonly notification: CodexServerNotification;
-  }): Promise<void> {
-    await this.handleNotification(input.notification);
-  }
-
-  recordThreadStartReplayFailure(input: {
-    readonly threadId: string;
-    readonly cause: unknown;
-  }): void {
-    this.logger.error("Failed to replay deferred thread-start event", {
-      threadId: input.threadId,
-      error: input.cause,
-    });
-  }
-
-  /** Effect Module adapter operation; compacts replay without duplicating canonical raw deltas. */
-  compactBufferedConversationEvents(
-    threadId: string,
-    events: readonly CodexBufferedConversationEvent[],
-  ): CodexBufferedConversationEvent[] {
-    const buildKey = (method: string, turnId: string | null, itemId: string): string =>
-      `${method}:${turnId ?? ""}:${itemId}`;
-    const completedAgentDeltaKeys = new Set<string>();
-    const bufferedDeltasByKey = new Map<
-      string,
-      {
-        method: "item/agentMessage/delta" | "item/commandExecution/outputDelta";
-        turnId: string | null;
-        itemId: string;
-        text: string[];
-      }
-    >();
-
-    for (const event of events) {
-      if (event.type !== "notification") continue;
-      const payload = asRecord(event.notification.params);
-      if (parseEventThreadId(payload) !== threadId) continue;
-
-      if (event.notification.method === "item/completed") {
-        const item = asRecord(payload?.item);
-        if (item?.type !== "agentMessage" || typeof item.id !== "string") continue;
-        completedAgentDeltaKeys.add(
-          buildKey("item/agentMessage/delta", parseEventTurnId(payload), item.id),
-        );
-        continue;
-      }
-      if (
-        event.notification.method !== "item/agentMessage/delta" &&
-        event.notification.method !== "item/commandExecution/outputDelta"
-      ) {
-        continue;
-      }
-      const itemId = typeof payload?.itemId === "string" ? payload.itemId : null;
-      const delta = typeof payload?.delta === "string" ? payload.delta : null;
-      if (!itemId || delta === null) continue;
-      const turnId = parseEventTurnId(payload);
-      const key = buildKey(event.notification.method, turnId, itemId);
-      const existing = bufferedDeltasByKey.get(key);
-      if (existing) {
-        existing.text.push(delta);
-      } else {
-        bufferedDeltasByKey.set(key, {
-          method: event.notification.method,
-          turnId,
-          itemId,
-          text: [delta],
-        });
-      }
-    }
-
-    const duplicateCharactersByKey = new Map<string, number>();
-    const canonicalTurns = this.readCanonicalConversationState(threadId)?.turns ?? [];
-    for (const [key, buffered] of bufferedDeltasByKey) {
-      const turn = canonicalTurns.find((candidate) => candidate.protocol.id === buffered.turnId);
-      const item = turn?.items.find(
-        (candidate) =>
-          candidate.id === buffered.itemId &&
-          (buffered.method === "item/agentMessage/delta"
-            ? candidate.type === "agentMessage"
-            : candidate.type === "commandExecution"),
-      );
-      const existingText =
-        buffered.method === "item/agentMessage/delta" && item?.type === "agentMessage"
-          ? item.text
-          : buffered.method === "item/commandExecution/outputDelta" &&
-              item?.type === "commandExecution"
-            ? item.aggregatedOutput
-            : null;
-      const fullDelta = buffered.text.join("");
-      duplicateCharactersByKey.set(
-        key,
-        existingText !== null && existingText.endsWith(fullDelta) ? fullDelta.length : 0,
-      );
-    }
-
-    const deduped: CodexBufferedConversationEvent[] = [];
-    for (const event of events) {
-      if (event.type === "request") {
-        deduped.push(event);
-        continue;
-      }
-      if (
-        event.notification.method !== "item/agentMessage/delta" &&
-        event.notification.method !== "item/commandExecution/outputDelta"
-      ) {
-        deduped.push(event);
-        continue;
-      }
-      const payload = asRecord(event.notification.params);
-      const itemId = typeof payload?.itemId === "string" ? payload.itemId : null;
-      const delta = typeof payload?.delta === "string" ? payload.delta : null;
-      if (!itemId || delta === null) continue;
-      const key = buildKey(event.notification.method, parseEventTurnId(payload), itemId);
-      if (
-        event.notification.method === "item/agentMessage/delta" &&
-        completedAgentDeltaKeys.has(key)
-      ) {
-        continue;
-      }
-      const duplicateCharacters = duplicateCharactersByKey.get(key) ?? 0;
-      const consumedCharacters = Math.min(duplicateCharacters, delta.length);
-      duplicateCharactersByKey.set(key, duplicateCharacters - consumedCharacters);
-      const remainingDelta = delta.slice(consumedCharacters);
-      if (!remainingDelta) continue;
-      if (remainingDelta === delta) {
-        deduped.push(event);
-        continue;
-      }
-      if (event.notification.method === "item/agentMessage/delta") {
-        deduped.push({
-          type: "notification",
-          notification: {
-            ...event.notification,
-            params: { ...event.notification.params, delta: remainingDelta },
-          },
-        });
-        continue;
-      }
-      deduped.push({
-        type: "notification",
-        notification: {
-          ...event.notification,
-          params: { ...event.notification.params, delta: remainingDelta },
-        },
-      });
-    }
-    return deduped;
   }
 
   private resolveServerRequestThreadId(request: CodexServerRequest): string | null {
@@ -3971,10 +3710,6 @@ export class CodexService {
     this.activeGoalContinuation.clear(threadId);
     this.postResumeGoals.clear(threadId);
     this.conversationResume.clear(threadId);
-    this.conversationEventBuffer.clear(
-      threadId,
-      new Error(`Codex Thread '${threadId}' local state was cleared`),
-    );
     this.backgroundSubagentMetadataRepair.clear(threadId);
     this.subagentCatalog.clear(threadId);
     this.controlPlane.fork(
@@ -6315,104 +6050,95 @@ export class CodexService {
       };
       let effectiveCwd = runLocation.cwd;
 
-      this.beginThreadStartNotificationDeferral();
-      try {
-        threadStart = await this.client.request<"thread/start", ThreadStartResponse>(
-          "thread/start",
-          threadStartParams,
-          { signal: input.signal },
-        );
-        effectiveCwd =
-          resolveCodexCanonicalHydratedCwd({
-            requestedCwd: runLocation.cwd,
-            responseCwd: threadStart.cwd,
-            threadCwd: threadStart.thread.cwd,
-            fallbackCwd: runLocation.cwd,
-          }) ?? runLocation.cwd;
-        const projectedThread = { ...threadStart.thread, cwd: effectiveCwd };
-        link = await this.upsertLinkFromThread(
-          projectedThread,
-          {
-            projectId: null,
-            cwd: effectiveCwd,
-            managedWorktreePath,
-            projectlessOutputDirectory,
-            projectlessWorkspaceBrowserRoot: runLocation.projectlessWorkspaceBrowserRoot,
-          },
-          effectiveCwd,
-        );
-        if (!link) {
-          throw new Error("Codex thread/start returned an invalid thread payload");
+      threadStart = await this.client.request<"thread/start", ThreadStartResponse>(
+        "thread/start",
+        threadStartParams,
+        { signal: input.signal },
+      );
+      effectiveCwd =
+        resolveCodexCanonicalHydratedCwd({
+          requestedCwd: runLocation.cwd,
+          responseCwd: threadStart.cwd,
+          threadCwd: threadStart.thread.cwd,
+          fallbackCwd: runLocation.cwd,
+        }) ?? runLocation.cwd;
+      const projectedThread = { ...threadStart.thread, cwd: effectiveCwd };
+      link = await this.upsertLinkFromThread(
+        projectedThread,
+        {
+          projectId: null,
+          cwd: effectiveCwd,
+          managedWorktreePath,
+          projectlessOutputDirectory,
+          projectlessWorkspaceBrowserRoot: runLocation.projectlessWorkspaceBrowserRoot,
+        },
+        effectiveCwd,
+      );
+      if (!link) {
+        throw new Error("Codex thread/start returned an invalid thread payload");
+      }
+      await this.projectWorkspace.replaceThreadWritableRoots(link.threadId, turnWorkspaceRoots);
+      if (managedWorktreePath) {
+        try {
+          await this.controlPlane.runPromise(
+            this.managedWorktreeLifecycle.setOwner({
+              hostId: CODEX_APP_LOCAL_HOST_ID,
+              worktreeGitRoot: managedWorktreePath,
+              ownerThreadId: link.threadId,
+            }),
+          );
+        } catch (error) {
+          this.logger.warn("Scheduled automation worktree has no owner metadata", {
+            automationId: input.automation.id,
+            threadId: link.threadId,
+            error,
+          });
+        } finally {
+          await this.controlPlane.runPromise(
+            this.managedWorktreeLifecycle.releaseNewborn({
+              hostId: CODEX_APP_LOCAL_HOST_ID,
+              worktreeGitRoot: managedWorktreePath,
+            }),
+          );
+          this.scheduleManagedWorktreeRetention();
         }
-        await this.projectWorkspace.replaceThreadWritableRoots(link.threadId, turnWorkspaceRoots);
-        if (managedWorktreePath) {
-          try {
-            await this.controlPlane.runPromise(
-              this.managedWorktreeLifecycle.setOwner({
-                hostId: CODEX_APP_LOCAL_HOST_ID,
-                worktreeGitRoot: managedWorktreePath,
-                ownerThreadId: link.threadId,
-              }),
-            );
-          } catch (error) {
-            this.logger.warn("Scheduled automation worktree has no owner metadata", {
-              automationId: input.automation.id,
-              threadId: link.threadId,
-              error,
-            });
-          } finally {
-            await this.controlPlane.runPromise(
-              this.managedWorktreeLifecycle.releaseNewborn({
-                hostId: CODEX_APP_LOCAL_HOST_ID,
-                worktreeGitRoot: managedWorktreePath,
-              }),
-            );
-            this.scheduleManagedWorktreeRetention();
-          }
-        }
-        if (executionProfile) {
-          link =
-            (await this.updateWorkspaceThreadSummary(link.threadId, {
-              modelProvider: executionProfile.providerId,
-              executionProfile,
-            })) ?? link;
-        }
-        threadStart = await this.reconcileThreadStartWritableRoots(
-          threadStart,
-          threadPermissionState.sandbox,
-        );
-        await this.persistDynamicToolCatalogsForLaunch(
-          link.threadId,
-          threadStartParams.dynamicTools,
-        );
-        const replacedPendingRun = await this.automationModule.replacePendingRunThread({
-          pendingThreadId,
+      }
+      if (executionProfile) {
+        link =
+          (await this.updateWorkspaceThreadSummary(link.threadId, {
+            modelProvider: executionProfile.providerId,
+            executionProfile,
+          })) ?? link;
+      }
+      threadStart = await this.reconcileThreadStartWritableRoots(
+        threadStart,
+        threadPermissionState.sandbox,
+      );
+      await this.persistDynamicToolCatalogsForLaunch(link.threadId, threadStartParams.dynamicTools);
+      const replacedPendingRun = await this.automationModule.replacePendingRunThread({
+        pendingThreadId,
+        threadId: link.threadId,
+      });
+      if (replacedPendingRun) {
+        this.notifyAutomationRunsUpdated({
+          automationId: input.automation.id,
           threadId: link.threadId,
+          reason: "pending-replace",
         });
-        if (replacedPendingRun) {
+      } else {
+        const realRunInserted = await this.automationModule.beginRun({
+          threadId: link.threadId,
+          automationId: input.automation.id,
+          threadTitle: input.automation.name,
+          sourceCwd: input.cwd,
+        });
+        if (realRunInserted) {
           this.notifyAutomationRunsUpdated({
             automationId: input.automation.id,
             threadId: link.threadId,
-            reason: "pending-replace",
+            reason: "pending-insert",
           });
-        } else {
-          const realRunInserted = await this.automationModule.beginRun({
-            threadId: link.threadId,
-            automationId: input.automation.id,
-            threadTitle: input.automation.name,
-            sourceCwd: input.cwd,
-          });
-          if (realRunInserted) {
-            this.notifyAutomationRunsUpdated({
-              automationId: input.automation.id,
-              threadId: link.threadId,
-              reason: "pending-insert",
-            });
-          }
         }
-        await this.completeThreadStartNotificationDeferral(link.threadId);
-      } finally {
-        await this.endThreadStartNotificationDeferral();
       }
       await this.automationModule.setRunThreadTitle(link.threadId, input.automation.name);
 
@@ -9865,270 +9591,6 @@ export class CodexService {
     });
   }
 
-  async forkProjectSessionThread(
-    sessionId: string,
-    input: ProjectSessionForkInput,
-    sourceSceneContext?: CodexForkBrowserSceneContext,
-  ): Promise<ProjectSessionForkResult> {
-    await this.ensureClientReady();
-
-    const parsed = ProjectSessionForkInputSchema.parse(input);
-    const sourceSession = await this.projectWorkspace.getProjectSession(sessionId);
-    if (!sourceSession) {
-      throw new Error(`Project session not found: ${sessionId}`);
-    }
-    if (!sourceSession.thread) {
-      throw new Error("Session has no Codex thread to fork");
-    }
-    if (
-      sourceSceneContext &&
-      (sourceSceneContext.scene.owner.kind !== "session" ||
-        sourceSceneContext.scene.owner.sessionId !== sourceSession.id)
-    ) {
-      throw new Error("Fork source Scene does not belong to the source session");
-    }
-    const sourceThread = sourceSession.thread;
-    const sourceWorkspaceInheritance = resolveCodexForkWorkspaceInheritance(sourceThread);
-    if (!sourceThread.cwd) {
-      throw new Error("Session thread has no working directory to fork");
-    }
-    const sourceProjectId = sourceSession.projectId;
-    const sourceThreadId = sourceThread.threadId;
-    let sourceDetail = parsed.turnId
-      ? (this.serializeThreadDetail(sourceThreadId) ??
-        (await this.readThread(sourceThreadId, true)))
-      : null;
-    if (parsed.turnId && !sourceDetail) {
-      throw new Error(`Thread '${sourceThreadId}' could not be loaded for turn-scoped fork`);
-    }
-    if (parsed.turnId) {
-      sourceDetail = this.serializeThreadDetail(sourceThreadId) ?? sourceDetail;
-    }
-    const sourceTurn =
-      parsed.turnId && sourceDetail
-        ? sourceDetail.turns.find((turn) => turn.turnId === parsed.turnId)
-        : null;
-    if (parsed.turnId && !sourceTurn) {
-      throw new Error(`Turn '${parsed.turnId}' was not found in thread '${sourceThreadId}'`);
-    }
-    const sourceTurnIndex =
-      parsed.turnId && sourceDetail
-        ? sourceDetail.turns.findIndex((turn) => turn.turnId === parsed.turnId)
-        : -1;
-    const trailingTurnCount =
-      sourceTurnIndex < 0 || !sourceDetail ? 0 : sourceDetail.turns.length - sourceTurnIndex - 1;
-    const sourceTitle = this.resolveForkedFromConversationTitle(sourceDetail ?? sourceThread);
-    const forkThreadTitle = this.resolveUserFacingForkThreadTitle(sourceDetail ?? sourceThread);
-    if (parsed.target === "newWorktree") {
-      const sourceWorkspaceRoots = await this.resolvePendingWorktreeSourceWorkspaceRoots({
-        projectId: sourceProjectId,
-        sourceThreadId,
-        sourceWorkspaceRoot: sourceThread.cwd,
-      });
-      const created = this.createPendingWorktree({
-        hostId: CODEX_APP_LOCAL_HOST_ID,
-        label: forkThreadTitle ?? "New task",
-        ...(forkThreadTitle ? { initialThreadTitle: forkThreadTitle } : {}),
-        sourceWorkspaceRoot: sourceThread.cwd,
-        sourceWorkspaceRoots,
-        startingState: { type: "working-tree" },
-        localEnvironmentConfigPath: parsed.localEnvironmentConfigPath ?? null,
-        launchMode: "fork-conversation",
-        projectAssignment:
-          sourceProjectId === null
-            ? null
-            : {
-                projectKind: "local",
-                projectId: sourceProjectId,
-                path: sourceThread.cwd,
-                pendingCoreUpdate: false,
-              },
-        prompt: "Continue this task in a new worktree",
-        startConversationParamsInput: null,
-        sourceConversationId: sourceThreadId,
-        sourceCollaborationMode:
-          sourceDetail?.latestCollaborationMode ??
-          this.serializeThreadDetail(sourceThreadId)?.latestCollaborationMode ??
-          null,
-        targetTurnId: parsed.turnId ?? null,
-        threadSource: "user",
-      });
-      await this.forkSidePanelTransferLifecycle?.capturePending({
-        pendingWorktreeId: created.pendingWorktreeId,
-        sourceConversationId: sourceThreadId,
-        sourceWorkspaceRoot: sourceThread.cwd,
-        ...(sourceSceneContext ? { sourceSceneContext } : {}),
-      });
-      if (!created.clientThreadId) {
-        throw new Error("Pending fork did not allocate a client thread id");
-      }
-      return {
-        pendingWorktreeId: created.pendingWorktreeId,
-        clientThreadId: created.clientThreadId,
-      };
-    }
-    const runLocation = {
-      cwd: sourceThread.cwd,
-      workspaceRoots: [sourceThread.cwd],
-      runInTarget: "localProject" as const,
-      managedWorktreePath: null,
-    };
-
-    const shouldDeferThreadStarted = sourceProjectId !== null;
-    if (shouldDeferThreadStarted) {
-      this.beginThreadStartNotificationDeferral();
-    }
-    let threadStartDeferralOpen = shouldDeferThreadStarted;
-    const nextSessionBox: {
-      value: ProjectSession | null;
-    } = { value: null };
-    let createdSessionId: string | null = null;
-    let summary: CodexThreadSummary;
-    let detail: CodexThreadDetail;
-    let worktreeOwnershipTransferred = false;
-    const materializeSessionFork = async (
-      projectedThread: Thread,
-      resolvedCwd: string | null,
-    ): Promise<CodexPersistentForkMaterialization> => {
-      const nextSession =
-        nextSessionBox.value ??
-        (await this.projectWorkspace.createProjectSession({
-          projectId: sourceProjectId,
-          noThreadFallbackTitle: sourceSession.displayTitle,
-        }));
-      if (nextSessionBox.value === null) createdSessionId = nextSession.id;
-      nextSessionBox.value = nextSession;
-      const attachedSummary = await this.upsertWorkspaceSessionLinkFromThread(
-        projectedThread,
-        {
-          projectId: sourceProjectId,
-          sessionId: nextSession.id,
-        },
-        {
-          executionHostId: CODEX_APP_LOCAL_HOST_ID,
-          fallbackCwd: resolvedCwd ?? runLocation.cwd,
-          managedWorktreePath: runLocation.managedWorktreePath,
-          runtimeWorkspaceRoots: runLocation.workspaceRoots,
-          projectlessOutputDirectory: sourceWorkspaceInheritance.projectlessOutputDirectory,
-          projectlessWorkspaceBrowserRoot:
-            sourceWorkspaceInheritance.projectlessWorkspaceBrowserRoot,
-        },
-      );
-      if (!attachedSummary) {
-        throw new Error("Thread fork completed but could not be attached to a project session");
-      }
-      worktreeOwnershipTransferred = true;
-      this.scheduleManagedWorktreeRetention();
-      const projectedDetail =
-        this.buildThreadDetailFromRead(projectedThread, {
-          preserveExistingTimeline: true,
-        }) ?? this.serializeThreadDetail(projectedThread.id);
-      if (!projectedDetail) {
-        throw new Error(
-          `Thread fork completed but canonical conversation '${projectedThread.id}' is unavailable`,
-        );
-      }
-      return { detail: projectedDetail, summary: attachedSummary };
-    };
-    try {
-      const fork = await this.forkAndResumePersistentConversation({
-        sourceThreadId,
-        requestedCwd: runLocation.cwd,
-        workspaceRoots: runLocation.workspaceRoots,
-        threadSource: "user",
-        materialize: materializeSessionFork,
-      });
-      const forkedThreadId = fork.threadId;
-      const resolvedCwd = fork.resolvedCwd;
-      detail = fork.detail;
-      if (!fork.summary) {
-        throw new Error("Thread fork completed without a project-session summary");
-      }
-      summary = fork.summary;
-      if (threadStartDeferralOpen) {
-        await this.completeThreadStartNotificationDeferral(forkedThreadId);
-        await this.endThreadStartNotificationDeferral();
-        threadStartDeferralOpen = false;
-      }
-      if (trailingTurnCount > 0) {
-        const rollbackResponse = await this.client.request<
-          "thread/rollback",
-          ThreadRollbackResponse
-        >("thread/rollback", {
-          threadId: forkedThreadId,
-          numTurns: trailingTurnCount,
-        });
-        const rollbackMaterialized = await this.applyForkRollbackResponse({
-          threadId: forkedThreadId,
-          response: rollbackResponse,
-          fallbackRef: this.parseThreadRef(forkedThreadId),
-          fallbackCwd: resolvedCwd ?? runLocation.cwd,
-          materialize: materializeSessionFork,
-        });
-        detail = rollbackMaterialized.detail;
-        summary = rollbackMaterialized.summary ?? summary;
-      }
-      if (parsed.collaborationMode) {
-        const latestCollaborationMode = this.buildCollaborationModeState({
-          collaborationMode: parsed.collaborationMode,
-          fallback: detail.latestCollaborationMode,
-        });
-        this.setLatestCollaborationModeForThread(detail.threadId, latestCollaborationMode);
-      }
-      this.appendForkedFromConversationMarker(forkedThreadId, sourceThreadId, sourceTitle);
-      this.syncDormantConversationFromRecord(forkedThreadId, "owner-unavailable");
-    } catch (error) {
-      if (createdSessionId && !worktreeOwnershipTransferred) {
-        await this.projectWorkspace.deleteProjectSession(createdSessionId).catch(() => undefined);
-        nextSessionBox.value = null;
-      }
-      if (runLocation.managedWorktreePath && !worktreeOwnershipTransferred) {
-        await this.controlPlane
-          .runPromise(
-            this.managedWorktreeLifecycle.remove({
-              hostId: CODEX_APP_LOCAL_HOST_ID,
-              worktreeGitRoot: runLocation.managedWorktreePath,
-              reason: "failed-create",
-            }),
-          )
-          .catch(() => undefined);
-      }
-      throw error;
-    } finally {
-      if (threadStartDeferralOpen) {
-        await this.endThreadStartNotificationDeferral();
-      }
-    }
-    this.emitEvent({ type: "threadSummary", thread: summary });
-    if (forkThreadTitle) {
-      await this.threadTitlePersistence.set({
-        threadId: detail.threadId,
-        name: forkThreadTitle,
-        normalization: "manual",
-      });
-    }
-    await this.forkSidePanelTransferLifecycle?.stageDirect({
-      sourceConversationId: sourceThreadId,
-      targetConversationId: detail.threadId,
-      ...(sourceSceneContext ? { sourceSceneContext } : {}),
-    });
-
-    const nextSession = nextSessionBox.value;
-    if (!nextSession) {
-      throw new Error("Forked project session was not created");
-    }
-    const session = await this.projectWorkspace.getProjectSession(nextSession.id);
-    if (!session) {
-      throw new Error("Forked project session could not be loaded");
-    }
-
-    return {
-      session,
-      threadId: summary.threadId,
-      ...(parsed.turnId ? { composerIntent: this.buildComposerIntent("") } : {}),
-    };
-  }
-
   async readThread(threadId: string, includeTurns = true): Promise<CodexThreadDetail | null> {
     await this.ensureClientReady();
     try {
@@ -10697,33 +10159,27 @@ export class CodexService {
       return this.serializeThreadDetail(threadId);
     }
 
-    const ownsResumeBuffer = this.beginResumeNotificationBuffer(threadId);
-    if (ownsResumeBuffer) {
-      this.setConversationResumeState(threadId, "resuming");
-    }
+    this.setConversationResumeState(threadId, "resuming");
 
     try {
       const detail = await this.resumeConversationRecord(threadId, seed, force);
-      if (ownsResumeBuffer) {
-        this.setConversationResumeState(threadId, detail ? "resumed" : "needs_resume");
-        await this.releaseConversationResumeBufferCore(threadId);
-        if (detail) {
-          let revision: number;
-          if (seed?.syncDormantConversationSnapshot === false) {
-            revision = this.syncAcceptedConversationDocumentSilently(threadId);
-          } else {
-            this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-            revision = this.readConversationAggregate(threadId)?.revision ?? 0;
-          }
-          this.startPostResumeGoalFlow(threadId, revision);
+      this.setConversationResumeState(threadId, detail ? "resumed" : "needs_resume");
+      await this.waitForRendererOwnerNotificationDrain(threadId);
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
+      if (detail) {
+        let revision: number;
+        if (seed?.syncDormantConversationSnapshot === false) {
+          revision = this.syncAcceptedConversationDocumentSilently(threadId);
+        } else {
+          this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
+          revision = this.readConversationAggregate(threadId)?.revision ?? 0;
         }
+        this.startPostResumeGoalFlow(threadId, revision);
       }
       return detail;
     } catch (error) {
-      if (ownsResumeBuffer) {
-        this.setConversationResumeState(threadId, "needs_resume");
-        this.discardConversationResumeBuffer(threadId, error);
-      }
+      this.setConversationResumeState(threadId, "needs_resume");
+      this.rendererConversationCoordinator.reconcileOwnership(threadId);
       throw error;
     }
   }
@@ -10733,140 +10189,6 @@ export class CodexService {
     options: RequestConversationResumeOptions = {},
   ): Promise<CodexConversationSnapshot | null> {
     return await this.conversationResume.resume({ threadId, ...options });
-  }
-
-  recordConversationResumeOutcome(outcome: CodexConversationResumeOutcome): void {
-    const result = outcome.result;
-    if (outcome.join && outcome.error === undefined) {
-      this.logger.debug("Joined in-flight Codex thread resume", {
-        threadId: outcome.input.threadId,
-      });
-    }
-    logDevRuntimeMetric("codex.thread.resume.request", {
-      threadId: outcome.input.threadId,
-      outcome: outcome.error === undefined ? "success" : "error",
-      join: outcome.join,
-      syncDormantConversationSnapshots: outcome.input.syncDormantConversationSnapshots,
-      replayBufferedNotifications: outcome.input.replayBufferedNotifications,
-      ...(outcome.error === undefined
-        ? {
-            hasSnapshot: result != null,
-            turnCount: result?.turns.length ?? null,
-            childMembershipCount: result?.childMemberships.length ?? null,
-            approxPayloadBytes: result ? approximateJsonPayloadBytes(result) : null,
-          }
-        : {
-            error: outcome.error instanceof Error ? outcome.error.message : String(outcome.error),
-          }),
-      durationMs: outcome.durationMs,
-    });
-  }
-
-  /** Effect Module adapter operation; runs one admitted resume demand. */
-  async runConversationResume(
-    input: CodexConversationResumeDemand,
-  ): Promise<CodexConversationSnapshot | null> {
-    const { threadId } = input;
-    await this.readWorkspaceThread(threadId);
-    const syncDormantConversationSnapshots = input.syncDormantConversationSnapshots;
-    const replayBufferedNotifications = input.replayBufferedNotifications;
-    const syncOrEmitSnapshot = (): number => {
-      if (syncDormantConversationSnapshots) {
-        this.syncDormantConversationFromRecord(threadId, "explicit-resync");
-        return this.readConversationAggregate(threadId)?.revision ?? 0;
-      }
-
-      return this.syncAcceptedConversationDocumentSilently(threadId);
-    };
-
-    const existingLink = this.getThreadLinkSafely(threadId);
-    if (existingLink?.archived) {
-      this.ensureConversationDetail(threadId);
-      this.setConversationResumeState(threadId, "needs_resume");
-      syncOrEmitSnapshot();
-      this.rendererConversationCoordinator.reconcileOwnership(threadId);
-      return this.serializeConversationSnapshotIncludingArchived(threadId);
-    }
-
-    const existingRecord = this.getMaybeConversationRecord(threadId);
-    if (
-      existingRecord &&
-      this.readConversationStreamRole(threadId) !== null &&
-      (this.resolveConversationResumeState(threadId) !== "needs_resume" ||
-        this.conversationAggregate(threadId).isStreaming())
-    ) {
-      const hadDeferredBuffer = this.hasResumeNotificationBuffer(threadId);
-      if (replayBufferedNotifications && hadDeferredBuffer) {
-        await this.releaseConversationResumeBufferCore(threadId);
-      }
-      const revision = syncOrEmitSnapshot();
-      if (replayBufferedNotifications && hadDeferredBuffer) {
-        if (!this.postResumeGoals.release(threadId, revision)) {
-          this.startPostResumeGoalFlow(threadId, revision);
-        }
-      }
-      return this.serializeConversationSnapshot(threadId);
-    }
-
-    this.beginResumeNotificationBuffer(threadId);
-    this.setConversationResumeState(threadId, "resuming");
-    this.ensureConversationDetail(threadId);
-    syncOrEmitSnapshot();
-
-    try {
-      const detail = await this.resumeThreadWithSeed(threadId, undefined, true);
-      if (!detail) {
-        await this.releaseConversationResumeBufferCore(threadId);
-        this.setConversationResumeState(threadId, "needs_resume");
-        syncOrEmitSnapshot();
-        this.rendererConversationCoordinator.reconcileOwnership(threadId);
-        return null;
-      }
-
-      this.setConversationResumeState(threadId, "resumed");
-      if (replayBufferedNotifications) {
-        await this.releaseConversationResumeBufferCore(threadId);
-      }
-      const revision = syncOrEmitSnapshot();
-      if (replayBufferedNotifications) {
-        this.startPostResumeGoalFlow(threadId, revision);
-      } else {
-        this.postResumeGoals.defer(threadId);
-      }
-      return this.serializeConversationSnapshot(threadId);
-    } catch (error) {
-      this.discardConversationResumeBuffer(threadId, error);
-      this.postResumeGoals.clear(threadId);
-      this.setConversationResumeState(threadId, "needs_resume");
-      this.ensureConversationRecord(threadId);
-      this.setConversationStreamRole(threadId, null);
-      this.conversationAggregate(threadId).setStreaming(false);
-      this.rendererConversationCoordinator.reconcileOwnership(threadId);
-      if (isThreadArchivedError(error)) {
-        this.rememberWorkspaceSidebar(
-          await this.projectWorkspace.setThreadArchived(threadId, true),
-        );
-        const persisted = await this.readWorkspaceThread(threadId);
-        if (persisted) {
-          this.emitEvent({
-            type: "threadSummary",
-            thread: this.buildWorkspaceThreadSummary(persisted),
-          });
-        }
-        const detail = this.ensureConversationDetail(threadId);
-        if (detail) {
-          detail.archived = true;
-        }
-        this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
-        const metadata = createSidebarThreadSyncMetadata();
-        markSidebarSyncScopeChanged(metadata, persisted?.projectId ?? detail?.projectId ?? null);
-        await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "host-message");
-        syncOrEmitSnapshot();
-        return this.serializeConversationSnapshotIncludingArchived(threadId);
-      }
-      syncOrEmitSnapshot();
-      throw error;
-    }
   }
 
   private resolveLatestEditableTurn(detail: CodexThreadDetail): CodexTurnSummary | null {
@@ -13446,110 +12768,92 @@ export class CodexService {
       ),
       runtimeWorkspaceRoots: [...input.target.workspaceRoots],
     };
-    const shouldDeferThreadStarted = input.target.projectId !== null;
-    if (shouldDeferThreadStarted) this.beginThreadStartNotificationDeferral();
-
     let threadStart: ThreadStartResponse;
     let detail: CodexThreadDetail;
     let effectiveCwd = input.target.cwd;
     let projectedThread: Thread | null = null;
     let responsePermissionContext: CodexDynamicCreatePermissionContext | null = null;
-    try {
-      threadStart = await this.client.request<"thread/start", ThreadStartResponse>(
-        "thread/start",
-        threadStartParams,
-      );
-      effectiveCwd =
-        resolveCodexCanonicalHydratedCwd({
-          requestedCwd: input.target.cwd,
-          responseCwd: threadStart.cwd,
-          threadCwd: threadStart.thread.cwd,
-          fallbackCwd: input.target.cwd,
-        }) ?? input.target.cwd;
-      projectedThread = {
-        ...threadStart.thread,
-        cwd: effectiveCwd,
-        ...(input.serviceName === undefined ? {} : { serviceName: input.serviceName }),
-      };
-      const fallbackRef: ThreadRef = {
-        projectId: input.target.projectId,
-        cwd: effectiveCwd,
-        managedWorktreePath: input.managedWorktreePath ?? null,
-        projectlessOutputDirectory: input.target.projectlessOutputDirectory,
-        projectlessWorkspaceBrowserRoot: input.target.projectlessWorkspaceBrowserRoot,
-      };
-      ({ detail } = await this.materializeThreadDetailFromThreadPayload(
-        projectedThread,
-        fallbackRef,
-        effectiveCwd,
-      ));
-      if (input.executionProfile) {
-        await this.updateWorkspaceThreadSummary(detail.threadId, {
-          modelProvider: input.executionProfile.providerId,
-          executionProfile: input.executionProfile,
-        });
-        detail = {
-          ...detail,
-          modelProvider: input.executionProfile.providerId,
-          executionProfile: input.executionProfile,
-        };
-      }
-      if (input.permissionSelection) {
-        threadStart = await this.reconcileThreadStartWritableRoots(
-          threadStart,
-          input.permissionSelection.context.sandboxPolicy,
-        );
-      }
-      responsePermissionContext = this.resolveDynamicCreateResponsePermissionContext(
-        threadStart,
-        input.permissionSelection?.context ?? null,
-      );
-      await this.persistDynamicToolCatalogsForLaunch(
-        detail.threadId,
-        threadStartParams.dynamicTools,
-      );
-      await this.projectWorkspace.replaceThreadWritableRoots(
-        detail.threadId,
-        input.target.workspaceRoots,
-      );
-      this.setConversationRecordDetail(detail);
-      this.hydrateCanonicalConversationState(threadStart, {
+    threadStart = await this.client.request<"thread/start", ThreadStartResponse>(
+      "thread/start",
+      threadStartParams,
+    );
+    effectiveCwd =
+      resolveCodexCanonicalHydratedCwd({
+        requestedCwd: input.target.cwd,
+        responseCwd: threadStart.cwd,
+        threadCwd: threadStart.thread.cwd,
         fallbackCwd: input.target.cwd,
-        resolvedCwd: effectiveCwd,
-        responsePermissionFallback: {
-          ...responsePermissionContext,
-          runtimeWorkspaceRoots: [...(responsePermissionContext.runtimeWorkspaceRoots ?? [])],
-        },
+      }) ?? input.target.cwd;
+    projectedThread = {
+      ...threadStart.thread,
+      cwd: effectiveCwd,
+      ...(input.serviceName === undefined ? {} : { serviceName: input.serviceName }),
+    };
+    const fallbackRef: ThreadRef = {
+      projectId: input.target.projectId,
+      cwd: effectiveCwd,
+      managedWorktreePath: input.managedWorktreePath ?? null,
+      projectlessOutputDirectory: input.target.projectlessOutputDirectory,
+      projectlessWorkspaceBrowserRoot: input.target.projectlessWorkspaceBrowserRoot,
+    };
+    ({ detail } = await this.materializeThreadDetailFromThreadPayload(
+      projectedThread,
+      fallbackRef,
+      effectiveCwd,
+    ));
+    if (input.executionProfile) {
+      await this.updateWorkspaceThreadSummary(detail.threadId, {
+        modelProvider: input.executionProfile.providerId,
+        executionProfile: input.executionProfile,
       });
-      if (input.projectSessionId) {
-        const attachedSummary = await this.upsertWorkspaceSessionLinkFromThread(
-          projectedThread,
-          {
-            projectId: input.target.projectId,
-            sessionId: input.projectSessionId,
-          },
-          {
-            executionHostId: CODEX_APP_LOCAL_HOST_ID,
-            fallbackCwd: effectiveCwd,
-            managedWorktreePath: input.managedWorktreePath ?? null,
-            runtimeWorkspaceRoots: input.target.workspaceRoots,
-          },
-        );
-        if (!attachedSummary) {
-          throw new Error("Pending thread could not be attached to its project session");
-        }
-      }
-      if (shouldDeferThreadStarted) {
-        // The deferred notification runs the generic sidebar materializer. A
-        // caller-provided Session must already own the Thread before replay,
-        // otherwise that fallback creates a second Session and wins the Core
-        // uniqueness race.
-        await this.completeThreadStartNotificationDeferral(detail.threadId);
-      }
-    } finally {
-      if (shouldDeferThreadStarted) await this.endThreadStartNotificationDeferral();
+      detail = {
+        ...detail,
+        modelProvider: input.executionProfile.providerId,
+        executionProfile: input.executionProfile,
+      };
     }
-
+    if (input.permissionSelection) {
+      threadStart = await this.reconcileThreadStartWritableRoots(
+        threadStart,
+        input.permissionSelection.context.sandboxPolicy,
+      );
+    }
+    responsePermissionContext = this.resolveDynamicCreateResponsePermissionContext(
+      threadStart,
+      input.permissionSelection?.context ?? null,
+    );
+    await this.persistDynamicToolCatalogsForLaunch(detail.threadId, threadStartParams.dynamicTools);
+    await this.projectWorkspace.replaceThreadWritableRoots(
+      detail.threadId,
+      input.target.workspaceRoots,
+    );
+    this.setConversationRecordDetail(detail);
+    this.hydrateCanonicalConversationState(threadStart, {
+      fallbackCwd: input.target.cwd,
+      resolvedCwd: effectiveCwd,
+      responsePermissionFallback: {
+        ...responsePermissionContext,
+        runtimeWorkspaceRoots: [...(responsePermissionContext.runtimeWorkspaceRoots ?? [])],
+      },
+    });
+    if (input.projectSessionId) {
+      const attachedSummary = await this.upsertWorkspaceSessionLinkFromThread(
+        projectedThread,
+        {
+          projectId: input.target.projectId,
+          sessionId: input.projectSessionId,
+        },
+        {
+          executionHostId: CODEX_APP_LOCAL_HOST_ID,
+          fallbackCwd: effectiveCwd,
+          managedWorktreePath: input.managedWorktreePath ?? null,
+          runtimeWorkspaceRoots: input.target.workspaceRoots,
+        },
+      );
+      if (!attachedSummary) {
+        throw new Error("Pending thread could not be attached to its project session");
+      }
+    }
     const threadId = detail.threadId;
     if (input.initialTitle?.trim()) {
       await this.threadTitlePersistence.set({
@@ -14175,44 +13479,30 @@ export class CodexService {
           ? ((await this.maybeResolveProjectRuntimeContext(sourceRef.projectId))?.workspaceRoots ??
             [])
           : [sourceDetail.cwd].filter((cwd): cwd is string => cwd !== null);
-        const shouldDeferThreadStarted =
-          sourceRef?.projectId !== null && sourceRef?.projectId !== undefined;
-        if (shouldDeferThreadStarted) {
-          this.beginThreadStartNotificationDeferral();
-        }
         let detail: CodexThreadDetail;
         let summary: CodexThreadSummary | null;
-        try {
-          const fork = await this.forkAndResumePersistentConversation({
-            sourceThreadId,
-            requestedCwd: sourceDetail.cwd,
-            workspaceRoots: sourceWorkspaceRoots,
-            threadSource: "subagent",
-            materialize: (projectedThread, resolvedCwd) =>
-              this.materializeThreadDetailFromThreadPayload(
-                projectedThread,
-                sourceRef,
-                resolvedCwd ?? sourceDetail.cwd,
-                { preserveExistingTimeline: true },
-              ),
-          });
-          const forkedThreadId = fork.threadId;
-          detail = fork.detail;
-          summary = fork.summary;
-          this.appendForkedFromConversationMarker(
-            forkedThreadId,
-            sourceThreadId,
-            this.resolveForkedFromConversationTitle(sourceDetail),
-          );
-          this.syncDormantConversationFromRecord(forkedThreadId, "owner-unavailable");
-          if (shouldDeferThreadStarted) {
-            await this.completeThreadStartNotificationDeferral(forkedThreadId);
-          }
-        } finally {
-          if (shouldDeferThreadStarted) {
-            await this.endThreadStartNotificationDeferral();
-          }
-        }
+        const fork = await this.forkAndResumePersistentConversation({
+          sourceThreadId,
+          requestedCwd: sourceDetail.cwd,
+          workspaceRoots: sourceWorkspaceRoots,
+          threadSource: "subagent",
+          materialize: (projectedThread, resolvedCwd) =>
+            this.materializeThreadDetailFromThreadPayload(
+              projectedThread,
+              sourceRef,
+              resolvedCwd ?? sourceDetail.cwd,
+              { preserveExistingTimeline: true },
+            ),
+        });
+        const forkedThreadId = fork.threadId;
+        detail = fork.detail;
+        summary = fork.summary;
+        this.appendForkedFromConversationMarker(
+          forkedThreadId,
+          sourceThreadId,
+          this.resolveForkedFromConversationTitle(sourceDetail),
+        );
+        this.syncDormantConversationFromRecord(forkedThreadId, "owner-unavailable");
         if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
         await this.forkSidePanelTransferLifecycle?.stageDirect({
           sourceConversationId: sourceThreadId,
@@ -14512,10 +13802,6 @@ export class CodexService {
 
     if (request.method === "currentTime/read") {
       return this.handleServerRequestNow(request);
-    }
-
-    if (this.bufferServerRequestForReplayIfNeeded(request)) {
-      return CodexApplicationRequestPending;
     }
 
     return this.handleServerRequestNow(request);
@@ -15479,13 +14765,7 @@ export class CodexService {
     });
   }
 
-  private async handleNotification(
-    notification: CodexServerNotification,
-    options: HandleNotificationOptions = {},
-  ): Promise<void> {
-    if (this.bufferNotificationForReplayIfNeeded(notification, options)) {
-      return;
-    }
+  private async handleNotification(notification: CodexServerNotification): Promise<void> {
     const { method, params } = notification;
     const commandOnlyThreadId = this.resolveNotificationThreadId(notification);
     if (commandOnlyThreadId && this.isCommandOnlyAutomationThread(commandOnlyThreadId)) {
