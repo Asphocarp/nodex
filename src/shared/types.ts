@@ -4327,6 +4327,7 @@ export interface CodexConversationSnapshot extends CodexThreadSummary {
 }
 
 export interface CodexBackgroundSubagentThreadsHydrateInput {
+  rootThreadId: string;
   threadIds: string[];
   includeTurns?: boolean;
 }

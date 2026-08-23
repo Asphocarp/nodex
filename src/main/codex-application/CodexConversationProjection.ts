@@ -10,6 +10,7 @@ import type {
   CodexCanonicalLiveTurnParams,
   CodexConversationThreadSettings,
   CodexConversationSnapshot,
+  CodexConversationTurnPagination,
   CodexThreadSummary,
   CodexThreadStatusType,
 } from "../../shared/types";
@@ -22,6 +23,7 @@ import { CodexRendererConversationRegistry } from "./CodexRendererConversationRe
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 import { buildCodexCanonicalTurnSummary } from "./CodexConversationServerRequestProjection";
 import { buildCoreWorkspaceThreadSummary } from "./CodexThreadCatalogProjection";
+import { projectCodexThreadDirectorySnapshot } from "./CodexThreadDirectoryProjection";
 
 export interface CodexConversationProjectionState {
   readonly canonical: CodexCanonicalConversationState;
@@ -41,6 +43,13 @@ export interface CodexConversationProjectionService {
   readonly read: (
     threadId: string,
   ) => Effect.Effect<CodexConversationProjectionState, CodexConversationProjectionError>;
+  readonly hydrate: (input: {
+    readonly threadId: string;
+    readonly summary: CodexThreadSummary;
+    readonly canonical: CodexCanonicalConversationState;
+    readonly pagination: CodexConversationTurnPagination;
+    readonly observedAtMs: number;
+  }) => Effect.Effect<CodexConversationSnapshot, CodexConversationProjectionError>;
   readonly admitTurn: (input: {
     readonly threadId: string;
     readonly params: CodexCanonicalLiveTurnParams;
@@ -258,6 +267,39 @@ export const make: Effect.Effect<
               );
         }),
       ),
+    hydrate: (input) =>
+      Effect.try({
+        try: () => {
+          const conversation = conversations.conversation(input.threadId);
+          const before = conversation.readCanonicalState();
+          const accepted = conversation.read().acceptedReplica;
+          conversation.acceptCanonicalState(input.canonical);
+          conversation.setResumeState("resumed");
+          conversation.initializeHistory(input.pagination, input.canonical.turns.length);
+          const snapshot = projectCodexThreadDirectorySnapshot({
+            summary: input.summary,
+            current: conversation.readSnapshot(),
+            before,
+            after: input.canonical,
+            pagination: conversation.readTurnPagination(),
+            observedAtMs: input.observedAtMs,
+          });
+          conversation.installSnapshot(snapshot);
+          if (projectReplica(input.threadId) && accepted) {
+            return conversation.advanceReplica({
+              conversation: snapshot,
+              ownerEpoch: accepted.checkpoint.ownerEpoch,
+            }).replica.conversation;
+          }
+          return snapshot;
+        },
+        catch: (cause) =>
+          new CodexConversationProjectionError({
+            operation: "hydrate",
+            threadId: input.threadId,
+            cause,
+          }),
+      }),
     admitTurn: (input) =>
       requireChanged("admit-turn", input.threadId, (conversation) =>
         conversation.admitOptimisticTurn({

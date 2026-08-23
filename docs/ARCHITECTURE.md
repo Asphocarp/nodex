@@ -695,18 +695,21 @@ the fixed interval. Thread removal clears its repair generation, and Main Scope 
 physical reads. `CodexService` owns no repair Promise map, retry timestamp map, completed Set, or
 detached finalizer.
 
-Subagent inventory and renderer fidelity are owned by one Main-scoped catalog. The catalog owns
-known/full-fidelity membership, deduplicated explicit hydration, ancestor-chain authorization,
-app-server descendant pagination, Workspace-authored summaries, and the background-delta delivery
-gate. Hydration reads through the typed Effect Gateway and crosses into the transitional canonical
-reducer through one mechanical projection between the readonly Effect-generated DTO and the
-transport-neutral protocol type; it does not reopen the Promise client. Opening a child moves it to
-full-fidelity delivery before its complete read; Thread removal
-clears both indexes, and Main Scope release clears the whole generation and interrupts active
-hydration. Renderer IPC invokes the catalog directly. `CodexService` supplies only canonical parent,
-Thread materialization, Workspace read, and summary publication projection ports; it owns no public
-hydrate/open command or parallel membership Set. Metadata repair remains the separate keyed policy
-above because its retry/completion lifecycle differs from inventory and presentation fidelity.
+Durable Thread identity and canonical hydration are owned by `CodexThreadDirectory`. One scoped
+resolve reads or commits the Core Workspace identity, selects the durable execution host, reads the
+required app-server fidelity, and commits canonical aggregate, transcript snapshot, pagination, and
+summary projection as one serialized Thread operation. Unknown remote children are never guessed as
+local: descendant hydration is rooted in an already durable ancestor, pages on that ancestor's host,
+persists parent lineage, and then resolves requested children on the inherited durable host. Repeated
+cursors are fenced and Scope release interrupts discovery or hydration. The sole generated-protocol
+projection is mechanical and lives beside `CodexGateway`.
+
+`CodexSubagentCatalog` therefore owns only known/full-fidelity presentation membership and the
+background-delta delivery gate; its background and panel reads delegate root-scoped authorization,
+discovery, materialization, and hydration to the Directory. Opening a child moves it to full-fidelity
+delivery, Thread removal clears both indexes, and Main Scope release clears the generation. Metadata
+repair remains the separate keyed policy above because its retry/completion lifecycle differs from
+inventory and presentation fidelity.
 
 Queued follow-up entries, ordering, pause state, and generation belong to the same
 `ConversationRuntimeMap` aggregate as their Thread. Accepted renderer-owner replica ingress
@@ -744,9 +747,9 @@ latter merges the sidebar overview, projectless sessions, and Project windows, d
 Thread, and applies the same recency ordering in one owner-scoped Effect. Full-text palette search
 uses the typed local Codex Gateway directly, pages past filtered child/internal Threads with a
 repeated-cursor fence, and merges server results with the same local Project, pin, and runtime-status
-projection. Point resolution reads Project Workspace first; a miss performs one typed `thread/read`,
-rejects identity drift, materializes through the Workspace projection port, and publishes only the
-changed Project/projectless sidebar scope. Paginated pin reads, pin/unpin placement, full pinned-order
+projection. Point resolution delegates durable identity and local app-server materialization to
+`CodexThreadDirectory`, then publishes only a changed Project/projectless sidebar scope. Paginated
+pin reads, pin/unpin placement, full pinned-order
 replacement, and cross-Project/sidebar-lane moves share that source of truth. All
 mutations pass through one Main-scoped semaphore; reads remain concurrent but close with Main Scope.
 Ensuring a sidebar Session and preparing a move use that same mutation lane. Child Threads repair
@@ -757,10 +760,10 @@ Moves include validation, Project access confirmation, Workspace/settings/canoni
 and exact sidebar publication before releasing admission. Pin mutations publish the exact
 Project/projectless invalidation through `CodexSidebarSyncRuntime` only after Core commits. Renderer
 ingress calls the typed Module directly, while internal launch flows use a stateless tracked
-projection. `CodexService` owns no public Project/palette read/search, point-resolution, or placement
-command, Session creation algorithm, Promise chain, semaphore, or recovery tail; it temporarily
-supplies only Workspace materialization, non-sidebar hiding policy/projection, cached runtime fields,
-and the move domain projection.
+projection. `CodexService` owns no public Project/palette read/search, point-resolution, Thread
+materialization, or placement command, Session creation algorithm, Promise chain, semaphore, or
+recovery tail; it temporarily supplies only non-sidebar hiding policy/projection, cached runtime
+fields, and the move domain projection.
 
 Thread read state is owned by `CodexThreadReadState`. Manual read/unread transitions inspect the
 canonical and Project Workspace projections, reject archived or unknown Threads, persist to Project

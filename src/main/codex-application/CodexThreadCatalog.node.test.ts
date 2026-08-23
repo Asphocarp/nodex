@@ -19,6 +19,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { codexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
 import { CodexThreadCatalogError, make } from "./CodexThreadCatalog";
+import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
 import {
   buildWorkspaceThreadSummary,
   resolveSidebarProjectIdForCwd,
@@ -111,6 +112,28 @@ const workspaceThread = (
     ...overrides,
   }) as unknown as DesktopProjectWorkspaceThread;
 
+const directoryEntry = (durable: DesktopProjectWorkspaceThread): CodexThreadDirectoryEntry => ({
+  fidelity: "durable",
+  durable,
+  summary: buildWorkspaceThreadSummary(durable),
+  canonical: null,
+  snapshot: null,
+});
+
+const directoryFor = (
+  read: (threadId: string) => DesktopProjectWorkspaceThread | null = () => null,
+): CodexThreadDirectory["Service"] =>
+  CodexThreadDirectory.of({
+    resolve: ({ threadId }) =>
+      Effect.sync(() => {
+        const durable = read(threadId);
+        return durable ? directoryEntry(durable) : null;
+      }),
+    descendants: () => Effect.die("unused"),
+  });
+
+const unusedDirectory = directoryFor();
+
 const projectSession = (threadId: string | null = null): ProjectSession =>
   ({
     id: "session-created",
@@ -153,8 +176,6 @@ const makeSearchCatalog = (
     listProjectWindow: () => Effect.succeed(emptyWindow()),
     listProjects: Effect.succeed(projects),
     readThreadProjection: () => null,
-    readThread: () => Effect.succeed(null),
-    materializeThread: () => Effect.die("unused"),
     ...unusedSessionOperations,
     setThreadPinned: () => Effect.die("unused"),
     reorderPinnedThreads: () => Effect.die("unused"),
@@ -162,6 +183,7 @@ const makeSearchCatalog = (
   }).pipe(
     Effect.provideService(CodexGateway, makeGateway(requestLocal)),
     Effect.provideService(CodexSidebarSyncRuntime, searchSidebar),
+    Effect.provideService(CodexThreadDirectory, unusedDirectory),
     Effect.provideService(Scope.Scope, scope),
   );
 
@@ -193,9 +215,7 @@ it.effect("resolves cached Threads without touching the app-server", () =>
       readSidebarOverview: () => Effect.die("unused"),
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.die("unused"),
-      readThreadProjection: () => null,
-      readThread: () => Effect.succeed(workspaceThread()),
-      materializeThread: () => Effect.die("unused"),
+      readThreadProjection: () => workspaceThread(),
       ...unusedSessionOperations,
       setThreadPinned: () => Effect.die("unused"),
       reorderPinnedThreads: () => Effect.die("unused"),
@@ -203,6 +223,10 @@ it.effect("resolves cached Threads without touching the app-server", () =>
     }).pipe(
       Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, searchSidebar),
+      Effect.provideService(
+        CodexThreadDirectory,
+        directoryFor(() => workspaceThread()),
+      ),
       Effect.provideService(Scope.Scope, scope),
     );
 
@@ -215,20 +239,8 @@ it.effect("resolves cached Threads without touching the app-server", () =>
   }),
 );
 
-it.effect("materializes remote Threads and publishes their exact sidebar scope", () =>
+it.effect("publishes the exact sidebar scope for a newly resolved durable Thread", () =>
   Effect.gen(function* () {
-    const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
-    const requestLocal = ((method: string, params: unknown) => {
-      requests.push({ method, params });
-      return Effect.succeed({
-        thread: {
-          id: "thread-remote",
-          name: "Remote Thread",
-          preview: "Remote preview",
-          status: { type: "idle" },
-        },
-      });
-    }) as RequestLocal;
     const publications: Array<{ readonly projectIds: readonly string[]; readonly reason: string }> =
       [];
     const sidebar = CodexSidebarSyncRuntime.of({
@@ -251,26 +263,23 @@ it.effect("materializes remote Threads and publishes their exact sidebar scope",
       threadName: "Remote Thread",
       threadPreview: "Remote preview",
     });
-    let readCount = 0;
     const catalog = yield* make({
       foldPathCase: false,
       readSidebarOverview: () => Effect.die("unused"),
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.die("unused"),
       readThreadProjection: () => null,
-      readThread: () =>
-        Effect.sync(() => {
-          readCount += 1;
-          return null;
-        }),
-      materializeThread: () => Effect.succeed(buildWorkspaceThreadSummary(materialized)),
       ...unusedSessionOperations,
       setThreadPinned: () => Effect.die("unused"),
       reorderPinnedThreads: () => Effect.die("unused"),
       move: () => Effect.die("unused"),
     }).pipe(
-      Effect.provideService(CodexGateway, makeGateway(requestLocal)),
+      Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
+      Effect.provideService(
+        CodexThreadDirectory,
+        directoryFor(() => materialized),
+      ),
       Effect.provideService(Scope.Scope, scope),
     );
 
@@ -278,30 +287,7 @@ it.effect("materializes remote Threads and publishes their exact sidebar scope",
       yield* catalog.resolve(" thread-remote "),
       buildWorkspaceThreadSummary(materialized),
     );
-    assert.strictEqual(readCount, 2);
-    assert.deepEqual(requests, [
-      {
-        method: "thread/read",
-        params: { threadId: "thread-remote", includeTurns: false },
-      },
-    ]);
     assert.deepEqual(publications, [{ projectIds: ["project-remote"], reason: "host-message" }]);
-    yield* Scope.close(scope, Exit.void);
-  }),
-);
-
-it.effect("rejects a remote Thread resolved under a different identity", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const requestLocal = (() =>
-      Effect.succeed({
-        thread: { id: "thread-other" },
-      })) as RequestLocal;
-    const catalog = yield* makeSearchCatalog(scope, requestLocal);
-
-    const error = yield* Effect.flip(catalog.resolve("thread-requested"));
-    assert.strictEqual(error.operation, "resolve");
-    assert.match(String(error.cause), /expected 'thread-requested'.*'thread-other'/);
     yield* Scope.close(scope, Exit.void);
   }),
 );
@@ -325,15 +311,6 @@ it.effect("repairs leaked child Sessions inside the Catalog mutation lane", () =
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.die("unused"),
       readThreadProjection: () => null,
-      readThread: () =>
-        Effect.succeed(
-          workspaceThread({
-            threadId: "thread-child",
-            parentThreadId: "thread-root",
-            sessionId: "session-leaked",
-          }),
-        ),
-      materializeThread: () => Effect.die("unused"),
       ...unusedSessionOperations,
       repairChild: (threadId, parentThreadId) =>
         Effect.sync(() => {
@@ -346,6 +323,16 @@ it.effect("repairs leaked child Sessions inside the Catalog mutation lane", () =
     }).pipe(
       Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
+      Effect.provideService(
+        CodexThreadDirectory,
+        directoryFor(() =>
+          workspaceThread({
+            threadId: "thread-child",
+            parentThreadId: "thread-root",
+            sessionId: "session-leaked",
+          }),
+        ),
+      ),
       Effect.provideService(Scope.Scope, scope),
     );
 
@@ -368,8 +355,6 @@ it.effect("creates and links one complete sidebar Session", () =>
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.die("unused"),
       readThreadProjection: () => null,
-      readThread: () => Effect.succeed(thread),
-      materializeThread: () => Effect.die("unused"),
       ...unusedSessionOperations,
       getSession: () => Effect.sync(() => (calls.push("get"), linked)),
       createSession: (projectId, fallbackTitle) =>
@@ -391,6 +376,10 @@ it.effect("creates and links one complete sidebar Session", () =>
     }).pipe(
       Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, searchSidebar),
+      Effect.provideService(
+        CodexThreadDirectory,
+        directoryFor(() => thread),
+      ),
       Effect.provideService(Scope.Scope, scope),
     );
 
@@ -416,8 +405,6 @@ it.effect("compensates a partially created sidebar Session", () =>
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.die("unused"),
       readThreadProjection: () => null,
-      readThread: () => Effect.succeed(workspaceThread()),
-      materializeThread: () => Effect.die("unused"),
       ...unusedSessionOperations,
       createSession: () => Effect.succeed(projectSession()),
       deleteSession: (sessionId) => Effect.sync(() => void calls.push(`delete:${sessionId}`)),
@@ -435,6 +422,10 @@ it.effect("compensates a partially created sidebar Session", () =>
     }).pipe(
       Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, searchSidebar),
+      Effect.provideService(
+        CodexThreadDirectory,
+        directoryFor(() => workspaceThread()),
+      ),
       Effect.provideService(Scope.Scope, scope),
     );
 
@@ -478,14 +469,6 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.succeed([]),
       readThreadProjection: () => null,
-      readThread: () =>
-        Effect.succeed(
-          workspaceThread({
-            threadId: "thread-a",
-            sessionId: "session-a",
-          }),
-        ),
-      materializeThread: () => Effect.die("unused"),
       ...unusedSessionOperations,
       getSession: () => Effect.succeed(projectSession("thread-a")),
       setThreadPinned: (threadId, pinned) =>
@@ -512,6 +495,15 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
     }).pipe(
       Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
+      Effect.provideService(
+        CodexThreadDirectory,
+        directoryFor(() =>
+          workspaceThread({
+            threadId: "thread-a",
+            sessionId: "session-a",
+          }),
+        ),
+      ),
       Effect.provideService(Scope.Scope, scope),
     );
 
@@ -564,8 +556,6 @@ it.effect("interrupts active and queued pin mutations with its owning Scope", ()
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.die("unused"),
       readThreadProjection: () => null,
-      readThread: () => Effect.succeed(null),
-      materializeThread: () => Effect.die("unused"),
       ...unusedSessionOperations,
       setThreadPinned: () =>
         Deferred.succeed(started, undefined).pipe(
@@ -580,6 +570,7 @@ it.effect("interrupts active and queued pin mutations with its owning Scope", ()
     }).pipe(
       Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
+      Effect.provideService(CodexThreadDirectory, unusedDirectory),
       Effect.provideService(Scope.Scope, scope),
     );
     const active = yield* Effect.forkChild(catalog.setPinned("thread-a", true));
@@ -664,8 +655,6 @@ it.effect("owns Project and command-palette Thread projections", () =>
           projectlessOutputDirectory: null,
           projectlessWorkspaceBrowserRoot: null,
         }) as unknown as import("../core-client/project-workspace-adapter").DesktopProjectWorkspaceThread,
-      readThread: () => Effect.succeed(null),
-      materializeThread: () => Effect.die("unused"),
       ...unusedSessionOperations,
       setThreadPinned: () => Effect.die("unused"),
       reorderPinnedThreads: () => Effect.die("unused"),
@@ -673,6 +662,7 @@ it.effect("owns Project and command-palette Thread projections", () =>
     }).pipe(
       Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
+      Effect.provideService(CodexThreadDirectory, unusedDirectory),
       Effect.provideService(Scope.Scope, scope),
     );
 

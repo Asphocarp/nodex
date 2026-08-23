@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import { createCodexCanonicalWorkspacePermissionContext } from "../../shared/codex-conversation-state/codex-conversation-state";
 import type { CodexCanonicalHydratedPermissionContext } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { projectCodexGatewayThreadResumeResponse } from "../codex-runtime/CodexGatewayProtocolProjection";
 import { buildCodexThreadConfigOverrides } from "../codex/codex-thread-capabilities";
 import { rewriteExecutionWorkspaceRoots } from "../codex/codex-execution-workspace-roots";
 import type { CodexThreadExecutionLocation } from "../codex/codex-thread-handoff-journal";
@@ -20,6 +21,7 @@ import type { ManagedWorktreeHandoffPreparation } from "./ManagedWorktreeHandoff
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexTurnCommands } from "./CodexTurnCommands";
 import { ConversationCommands } from "./ConversationCommands";
+import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 
 export class CodexThreadExecutionError extends Schema.TaggedError<CodexThreadExecutionError>()(
@@ -119,6 +121,7 @@ export const live: Layer.Layer<
   | CodexGateway
   | CodexTurnCommands
   | ConversationCommands
+  | ConversationRuntimeMap
   | CoreModules
   | DesktopToolRuntime
   | ExecutionHostRuntime
@@ -129,6 +132,7 @@ export const live: Layer.Layer<
     const gateway = yield* CodexGateway;
     const turns = yield* CodexTurnCommands;
     const conversations = yield* ConversationCommands;
+    const conversationRuntimes = yield* ConversationRuntimeMap;
     const core = yield* CoreModules;
     const tools = yield* DesktopToolRuntime;
     const executionHosts = yield* ExecutionHostRuntime;
@@ -168,34 +172,36 @@ export const live: Layer.Layer<
               ),
             );
           }
-          return executionHosts.get(thread.execution_host_id).pipe(
-            Effect.flatMap((host) =>
-              host
-                ? Effect.succeed({
-                    hostId: thread.execution_host_id,
-                    cwd,
-                    workspaceRoots: rewriteExecutionWorkspaceRoots({
-                      sourcePrimary: primary,
-                      targetPrimary: primary,
-                      workspaceRoots: [primary, ...thread.writable_roots],
-                    }),
-                    managedWorktreePath: thread.managed_worktree_path ?? null,
-                    projectId: thread.project_id ?? null,
-                    projectlessOutputDirectory: thread.projectless_output_directory ?? null,
-                    projectlessWorkspaceBrowserRoot:
-                      thread.projectless_workspace_browser_root ?? null,
-                  })
-                : Effect.fail(
-                    error(
-                      "read",
-                      threadId,
-                      new Error(
-                        `Execution host ${thread.execution_host_id} is unavailable for task handoff`,
-                      ),
-                    ),
-                  ),
-            ),
-          );
+          return Effect.gen(function* () {
+            const workspaceRoots = yield* Effect.try({
+              try: () =>
+                rewriteExecutionWorkspaceRoots({
+                  sourcePrimary: primary,
+                  targetPrimary: primary,
+                  workspaceRoots: [primary, ...thread.writable_roots],
+                }),
+              catch: (cause) => error("read", threadId, cause),
+            });
+            const host = yield* executionHosts.get(thread.execution_host_id);
+            if (!host) {
+              return yield* error(
+                "read",
+                threadId,
+                new Error(
+                  `Execution host ${thread.execution_host_id} is unavailable for task handoff`,
+                ),
+              );
+            }
+            return {
+              hostId: thread.execution_host_id,
+              cwd,
+              workspaceRoots,
+              managedWorktreePath: thread.managed_worktree_path ?? null,
+              projectId: thread.project_id ?? null,
+              projectlessOutputDirectory: thread.projectless_output_directory ?? null,
+              projectlessWorkspaceBrowserRoot: thread.projectless_workspace_browser_root ?? null,
+            };
+          });
         }),
         Effect.mapError((cause) =>
           cause instanceof CodexThreadExecutionError ? cause : error("read", threadId, cause),
@@ -203,23 +209,19 @@ export const live: Layer.Layer<
       );
 
     const permissionContext = (threadId: string, workspaceRoots: readonly string[]) =>
-      projection.read(threadId).pipe(
-        Effect.map(({ canonical }) => {
-          const existing = canonical.sidecar.hydrationContext?.currentPermissions;
-          if (!existing) return createCodexCanonicalWorkspacePermissionContext(workspaceRoots);
-          return {
-            ...existing,
-            runtimeWorkspaceRoots: [...workspaceRoots],
-            sandboxPolicy:
-              existing.sandboxPolicy.type === "workspaceWrite"
-                ? { ...existing.sandboxPolicy, writableRoots: [...workspaceRoots] }
-                : existing.sandboxPolicy,
-          } satisfies CodexCanonicalHydratedPermissionContext;
-        }),
-        Effect.catch(() =>
-          Effect.succeed(createCodexCanonicalWorkspacePermissionContext(workspaceRoots)),
-        ),
-      );
+      Effect.sync(() => {
+        const existing = conversationRuntimes.currentConversation(threadId)?.readCanonicalState()
+          ?.sidecar.hydrationContext?.currentPermissions;
+        if (!existing) return createCodexCanonicalWorkspacePermissionContext(workspaceRoots);
+        return {
+          ...existing,
+          runtimeWorkspaceRoots: [...workspaceRoots],
+          sandboxPolicy:
+            existing.sandboxPolicy.type === "workspaceWrite"
+              ? { ...existing.sandboxPolicy, writableRoots: [...workspaceRoots] }
+              : existing.sandboxPolicy,
+        } satisfies CodexCanonicalHydratedPermissionContext;
+      });
 
     const switchRuntime = (
       threadId: string,
@@ -264,19 +266,25 @@ export const live: Layer.Layer<
           }
         }
         const toolConfig = yield* tools.threadConfig;
-        const config = normalizeJson({
-          ...(toolConfig ?? {}),
-          ...buildCodexThreadConfigOverrides(),
-        }) as Schema.JsonObject;
-        const response = (yield* gateway.requestOnHost(location.hostId, "thread/resume", {
-          threadId,
-          history: null,
-          path: rolloutPath,
-          cwd: location.cwd,
-          config,
-          excludeTurns: true,
-          ...resumePermissions(permissions),
-        })) as unknown as ThreadResumeResponse;
+        const config = yield* Effect.try({
+          try: () =>
+            normalizeJson({
+              ...(toolConfig ?? {}),
+              ...buildCodexThreadConfigOverrides(),
+            }) as Schema.JsonObject,
+          catch: (cause) => error("switch-runtime", threadId, cause),
+        });
+        const response = projectCodexGatewayThreadResumeResponse(
+          yield* gateway.requestOnHost(location.hostId, "thread/resume", {
+            threadId,
+            history: null,
+            path: rolloutPath,
+            cwd: location.cwd,
+            config,
+            excludeTurns: true,
+            ...resumePermissions(permissions),
+          }),
+        );
         yield* Effect.try({
           try: () => assertResumeLocation(threadId, location, response),
           catch: (cause) => error("switch-runtime", threadId, cause),

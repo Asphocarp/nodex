@@ -34,6 +34,7 @@ const effectFreeRoots = [
 const effectApplicationRoots = [
   "src/main/app/",
   "src/main/codex-application/",
+  "src/main/codex-runtime/",
   "src/main/core-runtime/",
   "src/main/database-application/",
   "src/main/git-application/",

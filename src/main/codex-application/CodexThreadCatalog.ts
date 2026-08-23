@@ -32,6 +32,7 @@ import type {
 } from "../core-client/project-workspace-adapter";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexSidebarSyncRuntime, type CodexSidebarSyncMetadata } from "./CodexSidebarSyncRuntime";
+import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import {
   buildWorkspaceThreadSummary,
   hasSidebarThreadSummaryChanged,
@@ -68,12 +69,6 @@ export interface CodexThreadCatalogOptions {
   ) => Effect.Effect<ProjectSessionSummaryWindow, CodexThreadCatalogError>;
   readonly listProjects: Effect.Effect<readonly Project[], CodexThreadCatalogError>;
   readonly readThreadProjection: (threadId: string) => DesktopProjectWorkspaceThread | null;
-  readonly readThread: (
-    threadId: string,
-  ) => Effect.Effect<DesktopProjectWorkspaceThread | null, CodexThreadCatalogError>;
-  readonly materializeThread: (
-    thread: ClientRequestResponsesByMethod["thread/read"]["thread"],
-  ) => Effect.Effect<CodexThreadSummary | null, CodexThreadCatalogError>;
   readonly getSession: (
     sessionId: string,
   ) => Effect.Effect<ProjectSession | null, CodexThreadCatalogError>;
@@ -212,12 +207,13 @@ export const make = (
 ): Effect.Effect<
   CodexThreadCatalog["Service"],
   never,
-  CodexGateway | CodexSidebarSyncRuntime | Scope.Scope
+  CodexGateway | CodexSidebarSyncRuntime | CodexThreadDirectory | Scope.Scope
 > =>
   Effect.gen(function* () {
     const ownerScope = yield* Scope.Scope;
     const gateway = yield* CodexGateway;
     const sidebar = yield* CodexSidebarSyncRuntime;
+    const directory = yield* CodexThreadDirectory;
     const mutations = yield* Semaphore.make(1);
     const runOwned = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
       Effect.acquireUseRelease(
@@ -258,33 +254,20 @@ export const make = (
       normalizedThreadId: string,
     ): Effect.Effect<CodexThreadSummary | null, CodexThreadCatalogError> =>
       Effect.gen(function* () {
-        const cached = yield* options.readThread(normalizedThreadId);
-        if (cached) return buildWorkspaceThreadSummary(cached);
-
-        const result = yield* gateway
-          .requestLocal("thread/read", {
+        const previousThread = options.readThreadProjection(normalizedThreadId);
+        const previous = previousThread ? buildWorkspaceThreadSummary(previousThread) : null;
+        const resolved = yield* directory
+          .resolve({
             threadId: normalizedThreadId,
-            includeTurns: false,
+            fidelity: "durable",
+            hostId: gateway.localHostId,
           })
           .pipe(
             Effect.mapError(
               (cause) => new CodexThreadCatalogError({ operation: "resolve", cause }),
             ),
           );
-        if (result.thread.id !== normalizedThreadId) {
-          return yield* Effect.fail(
-            new CodexThreadCatalogError({
-              operation: "resolve",
-              cause: new Error(
-                `Codex thread/read expected '${normalizedThreadId}' but received '${result.thread.id}'`,
-              ),
-            }),
-          );
-        }
-
-        const previousThread = yield* options.readThread(normalizedThreadId);
-        const previous = previousThread ? buildWorkspaceThreadSummary(previousThread) : null;
-        const summary = (yield* options.materializeThread(result.thread)) ?? previous;
+        const summary = resolved?.summary ?? previous;
         if (summary && hasSidebarThreadSummaryChanged(previous, summary)) {
           yield* publish(metadataForProject(summary.projectId), false, "host-message");
         }
@@ -336,12 +319,16 @@ export const make = (
     const prepareMoveSession = (threadId: string): Effect.Effect<void, CodexThreadCatalogError> =>
       Effect.gen(function* () {
         const normalizedThreadId = threadId.trim();
-        let thread = yield* options.readThread(normalizedThreadId);
-        if (!thread) {
-          yield* resolveThread(normalizedThreadId);
-          thread = yield* options.readThread(normalizedThreadId);
-        }
-        if (!thread) {
+        const resolved = yield* directory
+          .resolve({
+            threadId: normalizedThreadId,
+            fidelity: "durable",
+            hostId: gateway.localHostId,
+          })
+          .pipe(
+            Effect.mapError((cause) => new CodexThreadCatalogError({ operation: "move", cause })),
+          );
+        if (!resolved) {
           return yield* Effect.fail(
             new CodexThreadCatalogError({
               operation: "move",
@@ -349,7 +336,7 @@ export const make = (
             }),
           );
         }
-        yield* ensureWorkspaceSession(thread);
+        yield* ensureWorkspaceSession(resolved.durable);
       });
 
     const listPalette = (
@@ -568,12 +555,19 @@ export const make = (
         if (!normalizedThreadId) return Effect.succeed(null);
         return runMutation(
           Effect.gen(function* () {
-            let thread = yield* options.readThread(normalizedThreadId);
-            if (!thread) {
-              yield* resolveThread(normalizedThreadId);
-              thread = yield* options.readThread(normalizedThreadId);
-            }
-            if (!thread) return null;
+            const resolved = yield* directory
+              .resolve({
+                threadId: normalizedThreadId,
+                fidelity: "durable",
+                hostId: gateway.localHostId,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
+                ),
+              );
+            if (!resolved) return null;
+            const thread = resolved.durable;
 
             const summary = buildWorkspaceThreadSummary(thread);
             if (thread.parentThreadId) {

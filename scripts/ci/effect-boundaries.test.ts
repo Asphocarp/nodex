@@ -64,6 +64,7 @@ describe("Effect architecture boundaries", () => {
     ]);
 
     const applicationRoots = [
+      "src/main/codex-runtime/CodexEndpoint.ts",
       "src/main/database-application/DatabaseModule.ts",
       "src/main/git-application/GitActions.ts",
       "src/main/initial-project/InitialProjectBootstrapRuntime.ts",

@@ -7955,6 +7955,7 @@ export class CodexAppServerManager {
           }
           if (effect.type !== "hydrateCollabThreads") continue;
           void this.hydrateBackgroundSubagentThreads({
+            rootThreadId: payload.threadId,
             threadIds: [...effect.receiverThreadIds],
             includeTurns: true,
           }).catch((error) => {
