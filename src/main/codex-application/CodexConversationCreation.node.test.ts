@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import type { CodexPendingWorktreeEntry } from "../../shared/codex-pending-worktree";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
-import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
+import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import { CodexAttachments } from "./CodexAttachments";
 import { CodexClientThreadIdentity } from "./CodexClientThreadIdentity";
@@ -139,8 +139,8 @@ it.effect("keeps an accepted first Turn when later launch metadata fails", () =>
         CodexTurnCommands.of({ start: () => Effect.succeed({ id: "turn-1" } as never) } as never),
       ),
       Effect.provideService(
-        DesktopToolRuntime,
-        DesktopToolRuntime.of({ promoteBrowserUseRoute: unsupported } as never),
+        BrowserUseRuntime,
+        BrowserUseRuntime.of({ promoteRoute: unsupported } as never),
       ),
       Effect.provideService(ManagedWorktreeRuntime, ManagedWorktreeRuntime.of({} as never)),
       Effect.provideService(ProjectWorkspace, ProjectWorkspace.of({} as never)),

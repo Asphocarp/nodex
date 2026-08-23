@@ -5,7 +5,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import type { CodexConversationSnapshot } from "../../shared/types";
-import { DesktopToolRuntime, DesktopToolRuntimeError } from "../host-runtime/DesktopToolRuntime";
+import { BrowserUseRuntime, BrowserUseRuntimeError } from "../host-runtime/BrowserUseRuntime";
 import { CodexActiveGoalContinuation } from "./CodexActiveGoalContinuation";
 import { make as makeCodexConversationLifecycle } from "./CodexConversationLifecycle";
 import { CodexConversationDeltaBufferRuntime } from "./CodexConversationDeltaBufferRuntime";
@@ -75,21 +75,21 @@ it.effect("retires every conversation resource from inside its current causal la
           calls.push(`goal:${candidate}`);
         }),
     } as unknown as CodexActiveGoalContinuation["Service"]);
-    const desktopTools = DesktopToolRuntime.of({
-      releaseBrowserUseSession: (candidate: string) =>
+    const browserUse = BrowserUseRuntime.of({
+      releaseSession: (candidate: string) =>
         Effect.sync(() => {
           calls.push(`browser:${candidate}`);
         }).pipe(
           Effect.andThen(
             Effect.fail(
-              new DesktopToolRuntimeError({
-                operation: "browser-use-release-session",
+              new BrowserUseRuntimeError({
+                operation: "release-session",
                 cause: new Error("browser already gone"),
               }),
             ),
           ),
         ),
-    } as unknown as DesktopToolRuntime["Service"]);
+    } as unknown as BrowserUseRuntime["Service"]);
     const lifecycle = yield* makeCodexConversationLifecycle.pipe(
       Effect.provideService(CodexActiveGoalContinuation, activeGoal),
       Effect.provideService(CodexConversationDeltaBufferRuntime, deltas),
@@ -98,7 +98,7 @@ it.effect("retires every conversation resource from inside its current causal la
       Effect.provideService(CodexQueuedFollowUpDispatcher, queuedDispatcher),
       Effect.provideService(CodexRendererConversationCoordinator, renderer),
       Effect.provideService(ConversationRuntimeMap, conversations),
-      Effect.provideService(DesktopToolRuntime, desktopTools),
+      Effect.provideService(BrowserUseRuntime, browserUse),
     );
 
     const aggregate = conversations.conversation(threadId);

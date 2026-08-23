@@ -1250,7 +1250,6 @@ function buildStorySideChatStartResult(
       queuedFollowUps: [],
       pendingSteers: [],
       backgroundTerminalRows: [],
-      childMemberships: [],
       capabilityFlags: {
         canEditLastUserTurn: false,
         canForkFromTurn: false,

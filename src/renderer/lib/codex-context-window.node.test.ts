@@ -23,7 +23,6 @@ function makeConversation(): CodexConversationSnapshot {
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canEditLastUserTurn: true,
       canForkFromTurn: true,

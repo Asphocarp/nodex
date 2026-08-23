@@ -374,29 +374,6 @@ function generateConfigPath(
   }
 }
 
-function defaultEnvironmentName(workspacePath: string): string {
-  const fallback = path.basename(path.resolve(workspacePath));
-  return fallback.trim().length > 0 ? fallback.trim() : "local";
-}
-
-export function createEmptyWorktreeEnvironmentDefinition(
-  workspacePath: string,
-): WorktreeEnvironmentDefinition {
-  return {
-    version: 1,
-    name: defaultEnvironmentName(workspacePath),
-    setup: {
-      script: null,
-      platformScripts: {},
-    },
-    cleanup: {
-      script: null,
-      platformScripts: {},
-    },
-    actions: [],
-  };
-}
-
 export async function listWorktreeEnvironmentConfigs(
   workspacePath: string,
 ): Promise<WorktreeEnvironmentConfigRecord[]> {

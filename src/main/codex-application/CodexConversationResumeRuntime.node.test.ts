@@ -9,6 +9,7 @@ import * as Scope from "effect/Scope";
 import type { CodexConversationSnapshot } from "../../shared/types";
 import { CodexApplicationProtocol } from "./CodexApplicationProtocol";
 import { CodexConversationHistoryRuntime } from "./CodexConversationHistoryRuntime";
+import { CodexConversationRelationships } from "./CodexConversationRelationships";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { CodexPostResumeGoalRuntime } from "./CodexPostResumeGoalRuntime";
@@ -52,6 +53,9 @@ const entry = (
 const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
   scope: Scope.Scope,
   resolve: CodexThreadDirectory["Service"]["resolve"],
+  relationships: CodexConversationRelationships["Service"] = CodexConversationRelationships.of({
+    refresh: () => Effect.succeed([]),
+  }),
 ) {
   const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
   const conversations = Context.get(context, ConversationRuntimeMap);
@@ -120,6 +124,7 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
         clear: () => undefined,
       }),
     ),
+    Effect.provideService(CodexConversationRelationships, relationships),
     Effect.provideService(
       CodexFreshThreadLaunchRuntime,
       CodexFreshThreadLaunchRuntime.of({
@@ -203,6 +208,21 @@ it.effect("serializes renderer adoption so a racing client becomes a follower", 
     assert.strictEqual(owner?.role, "owner");
     assert.strictEqual(follower?.role, "follower");
     if (follower?.role === "follower") assert.strictEqual(follower.ownerClientId, "owner-a");
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("returns a hydrated snapshot when relationship projection fails", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const snapshot = conversation();
+    const harness = yield* build(
+      scope,
+      ({ fidelity }) => Effect.succeed(entry(snapshot, fidelity)),
+      CodexConversationRelationships.of({ refresh: () => Effect.die("projection unavailable") }),
+    );
+
+    assert.strictEqual((yield* harness.runtime.snapshot(threadId))?.threadId, threadId);
     yield* Scope.close(scope, Exit.void);
   }),
 );

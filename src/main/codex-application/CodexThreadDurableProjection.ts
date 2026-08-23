@@ -214,6 +214,7 @@ export const make: Effect.Effect<
   ) {
     const notification = input.notification;
     const id = threadId(notification);
+    const before = yield* read(id);
     if (notification.method === "thread/started") {
       yield* observeStarted({ ...input, notification });
     } else if (notification.method === "thread/deleted") {
@@ -280,6 +281,23 @@ export const make: Effect.Effect<
         .pipe(Effect.mapError((cause) => error("name", id, cause)));
       const persisted = yield* read(id);
       if (persisted) publishSummary(persisted);
+    }
+
+    const after = notification.method === "thread/deleted" ? null : yield* read(id);
+    const affectedParents = new Set(
+      [before?.parent_thread_id, after?.parent_thread_id].filter(
+        (parentThreadId): parentThreadId is string => Boolean(parentThreadId?.trim()),
+      ),
+    );
+    if (affectedParents.size > 0) {
+      events.publish({
+        kind: "conversationRelationshipsInvalidated",
+        value: {
+          parentThreadIds: [...affectedParents],
+          ...(notification.method === "thread/deleted" ? { removedThreadIds: [id] } : {}),
+          ...(notification.method === "thread/started" ? { restoredThreadIds: [id] } : {}),
+        },
+      });
     }
 
     sidebar.scheduleNotification({ notificationMethod: notification.method, threadId: id });

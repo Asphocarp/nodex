@@ -277,7 +277,6 @@ function buildConversation(
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canEditLastUserTurn: true,
       canForkFromTurn: true,
@@ -328,7 +327,7 @@ function buildModel(overrides?: {
     },
     body,
     parentTurns: [],
-    childMemberships: conversation?.childMemberships ?? [],
+    childMemberships: [],
     projectWorkspacePath: overrides?.projectWorkspacePath ?? "/tmp/project",
     searchOpenTick: overrides?.searchOpenTick ?? 0,
     threadStartProgress: overrides?.threadStartProgress ?? null,

@@ -58,12 +58,15 @@ it.effect(
                 Layer.succeed(
                   BrowserUseRuntime,
                   BrowserUseRuntime.of({
+                    availableBackends: () => [],
                     captureRoute: (route) =>
                       Effect.sync(() => {
                         capturedSessions.push(route.codexSessionId);
                       }),
-                    install: () => Effect.void,
                     promoteRoute: () => Effect.void,
+                    releaseSession: () => Effect.void,
+                    turnEnded: () => Effect.void,
+                    turnStarted: () => Effect.void,
                   }),
                 ),
               ),

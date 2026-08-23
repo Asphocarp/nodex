@@ -336,19 +336,3 @@ export const make: Effect.Effect<
     handleDisconnect: clearAll("disconnected"),
   });
 });
-
-export interface CodexUserInputAutoResolutionLegacyPort {
-  readonly observeRequest: (conversationId: string, requestId: CodexProtocolRequestId) => void;
-  readonly observeResponse: (conversationId: string, requestId: CodexProtocolRequestId) => void;
-  readonly observeServerResolution: (
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-  ) => void;
-  readonly reevaluatePresentation: (conversationId: string) => void;
-  readonly clearConversation: (conversationId: string) => void;
-  readonly reconcilePendingRequests: (
-    conversationId: string,
-    requestIds: readonly CodexProtocolRequestId[],
-  ) => void;
-  readonly handleDisconnect: () => void;
-}

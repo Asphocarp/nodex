@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vite-plus/test";
-import type { CodexConversationSnapshot } from "../../../lib/types";
+import type {
+  CodexConversationChildMembership,
+  CodexConversationSnapshot,
+} from "../../../lib/types";
 import { buildComposerShellModel } from "./build-composer-shell-model";
 
 type AgentStatus =
@@ -35,7 +38,6 @@ function buildConversationSnapshot(
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canEditLastUserTurn: true,
       canForkFromTurn: true,
@@ -122,21 +124,21 @@ function buildModelWithChild({
 }: {
   parentTurns?: CodexConversationSnapshot["turns"];
   child?: Partial<CodexConversationSnapshot>;
-  membershipOverrides?: Partial<CodexConversationSnapshot["childMemberships"][number]>;
+  membershipOverrides?: Partial<CodexConversationChildMembership>;
 }) {
   return buildComposerShellModel({
     conversation: buildConversationSnapshot({
       turns: parentTurns ?? [],
-      childMemberships: [
-        {
-          threadId: "thread_child",
-          parentThreadId: "thread_1",
-          role: "backgroundChild",
-          actorName: "Fallback worker",
-          ...membershipOverrides,
-        },
-      ],
     }),
+    childMemberships: [
+      {
+        threadId: "thread_child",
+        parentThreadId: "thread_1",
+        role: "backgroundChild",
+        actorName: "Fallback worker",
+        ...membershipOverrides,
+      },
+    ],
     knownConversationsById: child
       ? {
           thread_child: buildConversationSnapshot({
@@ -204,15 +206,15 @@ describe("buildComposerShellModel", () => {
             processId: 4001,
           },
         ],
-        childMemberships: [
-          {
-            threadId: "thread_2",
-            parentThreadId: "thread_1",
-            role: "backgroundChild",
-            actorName: "Worker 1",
-          },
-        ],
       }),
+      childMemberships: [
+        {
+          threadId: "thread_2",
+          parentThreadId: "thread_1",
+          role: "backgroundChild",
+          actorName: "Worker 1",
+        },
+      ],
       knownConversationsById: {
         thread_1: buildConversationSnapshot(),
         thread_2: buildConversationSnapshot({
@@ -279,15 +281,15 @@ describe("buildComposerShellModel", () => {
             },
           },
         ],
-        childMemberships: [
-          {
-            threadId: "thread_child",
-            parentThreadId: "thread_1",
-            role: "childApproval",
-            actorName: "Worker",
-          },
-        ],
       }),
+      childMemberships: [
+        {
+          threadId: "thread_child",
+          parentThreadId: "thread_1",
+          role: "childApproval",
+          actorName: "Worker",
+        },
+      ],
       knownConversationsById: {
         thread_child: buildConversationSnapshot({
           threadId: "thread_child",
@@ -341,22 +343,21 @@ describe("buildComposerShellModel", () => {
 
   test("keeps child approval selection in membership order", () => {
     const model = buildComposerShellModel({
-      conversation: buildConversationSnapshot({
-        childMemberships: [
-          {
-            threadId: "thread_b",
-            parentThreadId: "thread_1",
-            role: "childApproval",
-            actorName: "Worker B",
-          },
-          {
-            threadId: "thread_a",
-            parentThreadId: "thread_1",
-            role: "childApproval",
-            actorName: "Worker A",
-          },
-        ],
-      }),
+      conversation: buildConversationSnapshot(),
+      childMemberships: [
+        {
+          threadId: "thread_b",
+          parentThreadId: "thread_1",
+          role: "childApproval",
+          actorName: "Worker B",
+        },
+        {
+          threadId: "thread_a",
+          parentThreadId: "thread_1",
+          role: "childApproval",
+          actorName: "Worker A",
+        },
+      ],
       knownConversationsById: {
         thread_b: buildConversationSnapshot({
           threadId: "thread_b",
@@ -461,15 +462,15 @@ describe("buildComposerShellModel", () => {
             ],
           },
         ],
-        childMemberships: [
-          {
-            threadId: "thread_child",
-            parentThreadId: "thread_1",
-            role: "backgroundChild",
-            actorName: "Fallback worker",
-          },
-        ],
       }),
+      childMemberships: [
+        {
+          threadId: "thread_child",
+          parentThreadId: "thread_1",
+          role: "backgroundChild",
+          actorName: "Fallback worker",
+        },
+      ],
       knownConversationsById: {
         thread_child: buildConversationSnapshot({
           threadId: "thread_child",
@@ -743,16 +744,15 @@ describe("buildComposerShellModel", () => {
 
   test("hides terminal errored child statuses from background rows", () => {
     const model = buildComposerShellModel({
-      conversation: buildConversationSnapshot({
-        childMemberships: [
-          {
-            threadId: "thread_child",
-            parentThreadId: "thread_1",
-            role: "backgroundChild",
-            actorName: "Worker",
-          },
-        ],
-      }),
+      conversation: buildConversationSnapshot(),
+      childMemberships: [
+        {
+          threadId: "thread_child",
+          parentThreadId: "thread_1",
+          role: "backgroundChild",
+          actorName: "Worker",
+        },
+      ],
       knownConversationsById: {
         thread_child: buildConversationSnapshot({
           threadId: "thread_child",
@@ -766,15 +766,14 @@ describe("buildComposerShellModel", () => {
 
   test("uses child nickname and role fallback with one leading at sign stripped", () => {
     const model = buildComposerShellModel({
-      conversation: buildConversationSnapshot({
-        childMemberships: [
-          {
-            threadId: "thread_child",
-            parentThreadId: "thread_1",
-            role: "backgroundChild",
-          },
-        ],
-      }),
+      conversation: buildConversationSnapshot(),
+      childMemberships: [
+        {
+          threadId: "thread_child",
+          parentThreadId: "thread_1",
+          role: "backgroundChild",
+        },
+      ],
       knownConversationsById: {
         thread_child: buildConversationSnapshot({
           threadId: "thread_child",
@@ -825,20 +824,19 @@ describe("buildComposerShellModel", () => {
       ],
     });
     const model = buildComposerShellModel({
-      conversation: buildConversationSnapshot({
-        childMemberships: [
-          {
-            threadId: "thread_child",
-            parentThreadId: "thread_1",
-            role: "backgroundChild",
-            agentPath: "agents/scout",
-            createdAtMs: 100,
-            updatedAtMs: 200,
-            statusType: "notLoaded",
-            showInlineActivity: true,
-          },
-        ],
-      }),
+      conversation: buildConversationSnapshot(),
+      childMemberships: [
+        {
+          threadId: "thread_child",
+          parentThreadId: "thread_1",
+          role: "backgroundChild",
+          agentPath: "agents/scout",
+          createdAtMs: 100,
+          updatedAtMs: 200,
+          statusType: "notLoaded",
+          showInlineActivity: true,
+        },
+      ],
       knownConversationsById: { thread_child: child },
     });
 
@@ -854,18 +852,17 @@ describe("buildComposerShellModel", () => {
 
   test("treats not-loaded source metadata as completed instead of pending", () => {
     const model = buildComposerShellModel({
-      conversation: buildConversationSnapshot({
-        childMemberships: [
-          {
-            threadId: "thread_child",
-            parentThreadId: "thread_1",
-            role: "backgroundChild",
-            agentPath: "agents/scout",
-            statusType: "notLoaded",
-            showInlineActivity: true,
-          },
-        ],
-      }),
+      conversation: buildConversationSnapshot(),
+      childMemberships: [
+        {
+          threadId: "thread_child",
+          parentThreadId: "thread_1",
+          role: "backgroundChild",
+          agentPath: "agents/scout",
+          statusType: "notLoaded",
+          showInlineActivity: true,
+        },
+      ],
       knownConversationsById: {},
     });
 

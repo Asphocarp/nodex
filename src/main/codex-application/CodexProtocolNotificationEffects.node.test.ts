@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import type { CodexServerNotification } from "../codex-runtime/CodexApplicationProtocol";
-import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
+import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
 import { CodexActiveGoalContinuation } from "./CodexActiveGoalContinuation";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexAutomationTurnCompletion } from "./CodexAutomationTurnCompletion";
@@ -114,10 +114,10 @@ it.effect("drains frame text before terminal turn consequences", () =>
         } as unknown as ConversationRuntimeMap["Service"]),
       ),
       Effect.provideService(
-        DesktopToolRuntime,
-        DesktopToolRuntime.of({
+        BrowserUseRuntime,
+        BrowserUseRuntime.of({
           turnEnded: () => Effect.sync(() => trace.push("browser")),
-        } as unknown as DesktopToolRuntime["Service"]),
+        } as unknown as BrowserUseRuntime["Service"]),
       ),
     );
     const notification = {

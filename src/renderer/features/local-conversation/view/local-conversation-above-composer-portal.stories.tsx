@@ -270,13 +270,13 @@ function buildPortalContentModel({
               type: "turn-diff",
               cwd: "/workspace/nodex",
               unifiedDiff: [
-                "--- a/src/main/codex/codex-service.ts",
-                "+++ b/src/main/codex/codex-service.ts",
+                "--- a/src/main/codex-application/ConversationCommands.ts",
+                "+++ b/src/main/codex-application/ConversationCommands.ts",
                 "@@ -1 +1 @@",
                 "-old",
                 "+new",
-                "--- a/src/main/codex/codex-session-store.ts",
-                "+++ b/src/main/codex/codex-session-store.ts",
+                "--- a/src/main/codex-application/CodexTurnCommands.ts",
+                "+++ b/src/main/codex-application/CodexTurnCommands.ts",
                 "@@ -1 +1 @@",
                 "-old",
                 "+new",
@@ -310,7 +310,6 @@ function buildPortalContentModel({
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     requests: [],
   });
 
@@ -441,7 +440,6 @@ function buildLiveDraftedEditDiffModel({
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     requests: [],
   });
 
@@ -505,7 +503,6 @@ function buildProjectlessScopedDiffModel() {
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     requests: [],
   });
 

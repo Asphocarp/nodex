@@ -6,6 +6,7 @@ import type {
   CodexCommandAction,
   CodexComposerIntent,
   CodexDictationStateSnapshot,
+  CodexConversationChildMembership,
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexConversationTurn,
@@ -89,6 +90,7 @@ export interface ThreadStageStoryRuntimeState {
   activeThreadId: string | null;
   activeThreadSummary: CodexThreadSummary | null;
   conversation: CodexConversationSnapshot | null;
+  childMemberships: readonly CodexConversationChildMembership[];
   knownConversationsById: Record<string, CodexConversationSnapshot>;
   searchOpenTick: number;
   composerIntent: CodexComposerIntent | null;
@@ -480,7 +482,6 @@ export function buildStoryConversation(
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canEditLastUserTurn: true,
       canForkFromTurn: true,
@@ -955,11 +956,48 @@ function buildImplementPlanConversation(): CodexConversationSnapshot {
 
 function buildBackgroundConversation(): {
   conversation: CodexConversationSnapshot;
+  childMemberships: readonly CodexConversationChildMembership[];
   knownConversationsById: Record<string, CodexConversationSnapshot>;
 } {
   const backgroundThreadId = "thread_story_background_worker";
   const waitingBackgroundThreadId = "thread_story_background_planner";
   const doneBackgroundThreadId = "thread_story_background_finisher";
+  const childMemberships: CodexConversationChildMembership[] = [
+    {
+      threadId: backgroundThreadId,
+      parentThreadId: STORY_THREAD_ID,
+      role: "backgroundChild",
+      actorName: "Worker 1",
+      showInlineActivity: true,
+      thread: {
+        nickname: "Worker 1",
+        model: null,
+        agentRole: null,
+      },
+    },
+    {
+      threadId: waitingBackgroundThreadId,
+      parentThreadId: STORY_THREAD_ID,
+      role: "backgroundChild",
+      actorName: "Planner",
+      thread: {
+        nickname: "Planner",
+        model: null,
+        agentRole: null,
+      },
+    },
+    {
+      threadId: doneBackgroundThreadId,
+      parentThreadId: STORY_THREAD_ID,
+      role: "backgroundChild",
+      actorName: "Finisher",
+      thread: {
+        nickname: "Finisher",
+        model: null,
+        agentRole: null,
+      },
+    },
+  ];
   const conversation = buildStoryConversation({
     statusType: "active",
     statusActiveFlags: [],
@@ -979,42 +1017,6 @@ function buildBackgroundConversation(): {
       },
     ],
     turns: buildStreamingConversation().turns,
-    childMemberships: [
-      {
-        threadId: backgroundThreadId,
-        parentThreadId: STORY_THREAD_ID,
-        role: "backgroundChild",
-        actorName: "Worker 1",
-        showInlineActivity: true,
-        thread: {
-          nickname: "Worker 1",
-          model: null,
-          agentRole: null,
-        },
-      },
-      {
-        threadId: waitingBackgroundThreadId,
-        parentThreadId: STORY_THREAD_ID,
-        role: "backgroundChild",
-        actorName: "Planner",
-        thread: {
-          nickname: "Planner",
-          model: null,
-          agentRole: null,
-        },
-      },
-      {
-        threadId: doneBackgroundThreadId,
-        parentThreadId: STORY_THREAD_ID,
-        role: "backgroundChild",
-        actorName: "Finisher",
-        thread: {
-          nickname: "Finisher",
-          model: null,
-          agentRole: null,
-        },
-      },
-    ],
     pendingSteers: [
       {
         steerId: "steer_story_1",
@@ -1132,6 +1134,7 @@ function buildBackgroundConversation(): {
 
   return {
     conversation,
+    childMemberships,
     knownConversationsById: {
       [STORY_THREAD_ID]: conversation,
       [backgroundThreadId]: backgroundConversation,
@@ -2677,10 +2680,11 @@ function buildAutoReviewNudgeConversation(): CodexConversationSnapshot {
 
 function buildBackgroundPermissionOptionConversation(): {
   conversation: CodexConversationSnapshot;
+  childMemberships: readonly CodexConversationChildMembership[];
   knownConversationsById: Record<string, CodexConversationSnapshot>;
 } {
   const background = buildBackgroundConversation();
-  const childId = background.conversation.childMemberships[0]?.threadId;
+  const childId = background.childMemberships[0]?.threadId;
   if (!childId) return background;
   const childConversation = background.knownConversationsById[childId];
   if (!childConversation) return background;
@@ -2705,6 +2709,7 @@ function buildBackgroundPermissionOptionConversation(): {
   };
   return {
     conversation,
+    childMemberships: background.childMemberships,
     knownConversationsById: {
       ...background.knownConversationsById,
       [conversation.threadId]: conversation,
@@ -2732,6 +2737,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
     activeThreadId: STORY_THREAD_ID,
     activeThreadSummary: completedConversation,
     conversation: completedConversation,
+    childMemberships: [],
     knownConversationsById: {
       [STORY_THREAD_ID]: completedConversation,
     },
@@ -3130,6 +3136,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         ...baseRuntime,
         activeThreadSummary: background.conversation,
         conversation: background.conversation,
+        childMemberships: background.childMemberships,
         knownConversationsById: background.knownConversationsById,
       },
       initialUiState: { collapsedAgentBodyByTurnId },
@@ -3146,6 +3153,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         ...baseRuntime,
         activeThreadSummary: background.conversation,
         conversation: background.conversation,
+        childMemberships: background.childMemberships,
         knownConversationsById: background.knownConversationsById,
       },
       initialUiState: { collapsedAgentBodyByTurnId },
@@ -3291,7 +3299,7 @@ export function buildThreadStageStorySurfaceModels(
     pendingSteers: conversation?.pendingSteers ?? [],
     queuedFollowUps: conversation?.queuedFollowUps ?? [],
     backgroundTerminalRows: conversation?.backgroundTerminalRows ?? [],
-    childMemberships: conversation?.childMemberships ?? [],
+    childMemberships: [...runtime.childMemberships],
     statusType,
     statusActiveFlags: conversation?.statusActiveFlags ?? [],
     knownConversationsById: runtime.knownConversationsById,
@@ -3380,7 +3388,7 @@ export function buildThreadStageStorySurfaceModels(
     capabilityFlags,
     body,
     parentTurns,
-    childMemberships: conversation?.childMemberships ?? [],
+    childMemberships: runtime.childMemberships,
     backgroundAgentRows: composerShell.backgroundAgentRows,
     projectWorkspacePath: STORY_WORKSPACE_PATH,
     searchOpenTick: runtime.searchOpenTick,

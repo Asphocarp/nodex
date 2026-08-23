@@ -213,6 +213,41 @@ the local composition of the same integrated check and repository contracts.
 The complete severity rationale, scoped overrides, remediation paths, and
 upgrade review process live in [Lint governance](LINTING.md).
 
+### Working on Effect Main modules
+
+The repository-installed Effect version is the API authority. Before changing
+an Effect application Module:
+
+1. Read [ADR 0048](adr/0048-effect-main-application-kernel.md) and the nearest
+   production capability and semantic tests. Nodex's authority and dependency
+   boundaries take precedence over a generic library example.
+2. Read `node_modules/effect/AGENTS.md` completely, plus the `AGENTS.md` of any
+   installed companion package being used, such as
+   `node_modules/@effect/vitest/AGENTS.md`.
+3. Search `node_modules/effect/ai-docs/src` for the relevant service, resource,
+   concurrency, Stream, Schedule, or testing topic, then verify the exact API
+   and semantics in `node_modules/effect/src` or the companion package's
+   installed `src` directory. Context7, web documentation, and Effect `main`
+   are secondary references and must not override the installed version.
+
+Effect behavior tests use `@effect/vitest`. Prefer `it.effect` so the managed
+test runtime supplies Scope and test services; use `layer(...)` or nested
+`it.layer(...)` when the public capability requires a Layer and its acquisition
+and release are part of the contract. A shared `layer(...)` block intentionally
+shares its service instance between tests; use it for safe shared fixtures, reset
+mutable test state explicitly, or provide a per-test Layer when isolation is the
+contract. Import `TestClock` from `effect/testing` for
+deadlines, retries, schedules, and sleeps: fork the waiting Effect, advance the
+virtual clock, and observe its semantic result. Reserve `it.live` for an
+intentional real-runtime integration boundary.
+
+Do not construct a manual Effect runtime or Scope in an application unit test,
+and do not replace lifecycle behavior with real sleeps or Promise-shaped test
+facades. Test the final capability's admission, interruption, generation fence,
+and release semantics. Run the nearest runtime-specific test command while
+iterating, then the normal typecheck and Effect-boundary gate for changed Main
+source.
+
 `vp run test` invokes Nodex's standard multi-runtime test aggregate. The
 aggregate delegates ordinary Node, CoreClient, Renderer, and Browser suites to
 `vp test`, while Main and Integration keep their Electron-hosted Vitest adapter

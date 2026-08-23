@@ -15,7 +15,8 @@ import {
 } from "../platform/electron/ElectronApp";
 import { program } from "./MainApp";
 import { testLayer as configLayer } from "./MainConfig";
-import { fromHooks, MainRuntimeError } from "./MainRuntimeLive";
+import { mainRuntimeTestLayer } from "./MainRuntimeLive.test-support";
+import { MainRuntimeError } from "./MainRuntimeLive";
 import { MainShutdown, layer as shutdownLayer } from "./MainShutdown";
 
 const fakeElectronLayer = (events: string[]) =>
@@ -52,7 +53,7 @@ it.effect("starts, replays bootstrap events, closes runtime, then quits", () =>
       { type: "open-url", url: "nodex://pages/one" },
       { type: "second-instance", argv: ["--new-window"] },
     ];
-    const runtimeLayer = fromHooks({
+    const runtimeLayer = mainRuntimeTestLayer({
       start: Effect.sync(() => events.push("start")).pipe(
         Effect.andThen(Deferred.succeed(started, undefined)),
         Effect.asVoid,
@@ -99,7 +100,7 @@ it.effect("rolls back an acquired runtime and publishes the startup failure exit
       operation: "startup",
       cause: new Error("failed startup"),
     });
-    const runtimeLayer = fromHooks({
+    const runtimeLayer = mainRuntimeTestLayer({
       start: Effect.fail(runtimeError),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
@@ -127,7 +128,7 @@ it.effect("relaunches only after an authority-drift shutdown has released the ru
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = fromHooks({
+    const runtimeLayer = mainRuntimeTestLayer({
       start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
@@ -153,7 +154,7 @@ it.effect("relaunches after a Store restore only once the Main Scope is released
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = fromHooks({
+    const runtimeLayer = mainRuntimeTestLayer({
       start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
@@ -201,7 +202,7 @@ it.effect("routes Electron activation through the scoped Main runtime", () =>
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = fromHooks({
+    const runtimeLayer = mainRuntimeTestLayer({
       activate: Effect.sync(() => events.push("activate")),
       start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       handleBootstrapEvent: () => Effect.void,
@@ -256,7 +257,7 @@ it.effect("routes process termination signals through Main shutdown before quitt
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = fromHooks({
+    const runtimeLayer = mainRuntimeTestLayer({
       start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
@@ -307,7 +308,7 @@ it.effect("defers a system-owned quit without closing the Main runtime", () =>
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = fromHooks({
+    const runtimeLayer = mainRuntimeTestLayer({
       start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       prepareQuit: Effect.sync(() => {
         events.push("defer");

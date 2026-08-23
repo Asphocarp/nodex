@@ -39,6 +39,14 @@ export type CodexApplicationEvent =
       readonly value: { readonly threadId: string; readonly hasUnreadTurn: boolean };
     }
   | {
+      readonly kind: "conversationRelationshipsInvalidated";
+      readonly value: {
+        readonly parentThreadIds: readonly string[];
+        readonly removedThreadIds?: readonly string[];
+        readonly restoredThreadIds?: readonly string[];
+      };
+    }
+  | {
       readonly kind: "pendingWorktreesChanged";
       readonly value: IpcEvents["codex:pending-worktrees:changed"];
     }
@@ -77,8 +85,8 @@ export const make: Effect.Effect<CodexApplicationEventHub["Service"], never, Sco
       events: Stream.fromPubSub(events),
       publish: (event) => {
         if (!accepting) return;
-        // CodexService reducer callbacks are synchronous. Publishing inline preserves their
-        // causal order; subscription fibers remain owned and interrupted by the Main Scope.
+        // Protocol ingress is synchronous. Publishing inline preserves causal order while
+        // subscription fibers remain owned and interrupted by the Main Scope.
         PubSub.publishUnsafe(events, event);
       },
     });

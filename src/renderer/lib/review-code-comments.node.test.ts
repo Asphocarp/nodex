@@ -48,7 +48,6 @@ function buildConversationWithComment(text: string): CodexConversationSnapshot {
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canEditLastUserTurn: true,
       canForkFromTurn: true,

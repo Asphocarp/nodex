@@ -192,7 +192,7 @@ class GitWorkerModuleState implements GitWorkerModule {
                     { concurrency: "unbounded" },
                   )
                 : [null, null];
-              return yield* this.#runLegacy(() =>
+              return yield* this.#runOperation(() =>
                 readGitReviewSummary({
                   ...request.params,
                   requestId: request.id,
@@ -229,7 +229,7 @@ class GitWorkerModuleState implements GitWorkerModule {
               const includeUntracked = request.params.includeUntrackedFiles === true;
               const untracked =
                 includeUntracked && repository ? yield* repository.untrackedPaths.read() : null;
-              return yield* this.#runLegacy(() =>
+              return yield* this.#runOperation(() =>
                 readBranchDiffStats({
                   ...request.params,
                   requestId: request.id,
@@ -250,13 +250,15 @@ class GitWorkerModuleState implements GitWorkerModule {
           cwd: request.params.cwd,
           source: request.params.source,
           operation: () =>
-            this.#runLegacy(() => readGitReviewDiff({ ...request.params, requestId: request.id })),
+            this.#runOperation(() =>
+              readGitReviewDiff({ ...request.params, requestId: request.id }),
+            ),
         });
       case "review-cat-file":
         yield* this.#registry.get(request.params.cwd);
         return {
           type: "success",
-          value: yield* this.#runLegacy(() => readGitReviewCatFile(request.params)),
+          value: yield* this.#runOperation(() => readGitReviewCatFile(request.params)),
         } satisfies GitWorkerMethodMap["review-cat-file"]["result"];
       case "review-search":
         return yield* this.#runReviewRequest({
@@ -265,7 +267,7 @@ class GitWorkerModuleState implements GitWorkerModule {
           cwd: request.params.cwd,
           source: request.params.source,
           operation: () =>
-            this.#runLegacy(() => searchGitReview({ ...request.params, requestId: request.id })),
+            this.#runOperation(() => searchGitReview({ ...request.params, requestId: request.id })),
         });
       case "review-patch":
         return yield* this.#runReviewRequest({
@@ -274,11 +276,13 @@ class GitWorkerModuleState implements GitWorkerModule {
           cwd: request.params.cwd,
           source: request.params.source,
           operation: () =>
-            this.#runLegacy(() => readGitReviewPatch({ ...request.params, requestId: request.id })),
+            this.#runOperation(() =>
+              readGitReviewPatch({ ...request.params, requestId: request.id }),
+            ),
         });
       case "blame-file":
         yield* this.#registry.get(request.params.cwd);
-        return yield* this.#runLegacy(() => readGitReviewBlameFile(request.params));
+        return yield* this.#runOperation(() => readGitReviewBlameFile(request.params));
       case "base-branch":
         return yield* this.#runReviewRequest({
           method: request.method,
@@ -286,7 +290,7 @@ class GitWorkerModuleState implements GitWorkerModule {
           cwd: request.params.cwd,
           source: "branch",
           operation: () =>
-            this.#runLegacy(() =>
+            this.#runOperation(() =>
               readGitReviewBaseBranch({ ...request.params, requestId: request.id }),
             ),
         });
@@ -297,13 +301,13 @@ class GitWorkerModuleState implements GitWorkerModule {
           cwd: request.params.cwd,
           source: "branch",
           operation: () =>
-            this.#runLegacy(() =>
+            this.#runOperation(() =>
               readGitReviewBranchCommits({ ...request.params, requestId: request.id }),
             ),
         });
       case "merge-base":
         yield* this.#registry.get(request.params.cwd);
-        return yield* this.#runLegacy(() => resolveGitMergeBase(request.params));
+        return yield* this.#runOperation(() => resolveGitMergeBase(request.params));
       case "refresh-repository": {
         const repository = yield* this.#registry.get(request.params.cwd);
         if (!repository) return { type: "error", failureReason: "not-a-repository" };
@@ -329,13 +333,13 @@ class GitWorkerModuleState implements GitWorkerModule {
           };
         }
         yield* repository.invalidateGitReadCachesForRepoChange("head");
-        return yield* this.#runLegacy(() =>
+        return yield* this.#runOperation(() =>
           readGitReviewSnapshot({ cwd: repository.identity.root, source: "unstaged" }),
         );
       }
       case "apply-patch": {
         const repository = yield* this.#registry.get(request.params.cwd);
-        const result = yield* this.#runLegacy(() => applyGitReviewPatch(request.params));
+        const result = yield* this.#runOperation(() => applyGitReviewPatch(request.params));
         if (result.status !== "error" && repository) {
           yield* repository.invalidateGitReadCachesForRepoChange(
             request.params.target === "staged" ? "index" : "working-tree",
@@ -365,7 +369,7 @@ class GitWorkerModuleState implements GitWorkerModule {
     }
   });
 
-  readonly #runLegacy = <Result>(operation: () => Promise<Result>): Effect.Effect<Result> =>
+  readonly #runOperation = <Result>(operation: () => Promise<Result>): Effect.Effect<Result> =>
     gitPerformancePromise((signal) =>
       runGitReviewOperationWithSignal(this.#reviewRuntime, signal, operation),
     );

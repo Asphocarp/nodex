@@ -131,7 +131,7 @@ const projectTurn = (input: {
 
 /**
  * Pure canonical-to-application projection. The aggregate owns the resulting snapshot;
- * runtimes never need a mutable CodexService record to apply history or delta changes.
+ * runtimes never need a mutable application facade to apply history or delta changes.
  */
 export const projectCodexConversationSnapshot = (input: {
   readonly conversation: CodexConversationSnapshot;

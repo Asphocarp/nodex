@@ -1124,18 +1124,6 @@ export function updateWindowRestoreSettings(
   return getWindowRestoreSettings(source);
 }
 
-export function getBackupAutoEnabled(source = currentProcessSettingsSource()): boolean {
-  return getBackupSettings(source).autoEnabled;
-}
-
-export function getBackupIntervalHours(source = currentProcessSettingsSource()): number {
-  return getBackupSettings(source).intervalHours;
-}
-
-export function getBackupRetention(source = currentProcessSettingsSource()): number {
-  return getBackupSettings(source).retentionCount;
-}
-
 export function getHistoryRetention(source = currentProcessSettingsSource()): number {
   return getHistorySettings(source).retentionCount;
 }

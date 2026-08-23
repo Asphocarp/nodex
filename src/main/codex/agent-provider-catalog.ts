@@ -1,18 +1,11 @@
 import type {
   InterpreterHarness,
-  InterpreterHarnessListResponse,
-  InterpreterModelListResponse,
   InterpreterProvider,
-  InterpreterProviderListResponse,
   Model,
 } from "@nodex/codex-app-server-protocol/v2";
 import {
   formatAgentReasoningEffortLabel,
-  type AgentExecutionProfile,
   type AgentModelOption,
-  type AgentProviderCatalog,
-  type AgentProviderCredentialStatus,
-  type AgentProviderOption,
   type AgentWireApi,
 } from "../../shared/agent-runtime";
 
@@ -24,17 +17,8 @@ export const SUPPORTED_PROVIDER_IDS = [
   "openrouter",
 ] as const;
 
-const SUPPORTED_PROVIDER_ID_SET = new Set<string>(SUPPORTED_PROVIDER_IDS);
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/u;
 const MAX_CATALOG_STRING_LENGTH = 512;
-
-export interface AgentProviderCatalogClient {
-  request(method: string, params: unknown): Promise<unknown>;
-}
-
-export interface AgentProviderCredentialStatusReader {
-  status(providerId: string): Promise<AgentProviderCredentialStatus>;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -193,98 +177,6 @@ export function recommendedHarnessId(harnesses: readonly InterpreterHarness[]): 
   return recommended.id ?? null;
 }
 
-export async function resolveAgentHarnessId(input: {
-  client: AgentProviderCatalogClient;
-  providerId: string;
-  modelId: string;
-  requestedHarnessId: string | null;
-  fallbackHarnessId: string | null;
-}): Promise<string | null> {
-  if (!SUPPORTED_PROVIDER_ID_SET.has(input.providerId)) {
-    throw new Error(`Unsupported agent provider: ${input.providerId}`);
-  }
-  const rawHarnesses = await input.client.request("interpreter/harness/list", {
-    providerId: input.providerId,
-    model: input.modelId,
-  });
-  const harnesses = parseHarnessResponse(rawHarnesses, input.providerId);
-
-  if (input.requestedHarnessId) {
-    if (!harnesses.some((harness) => harness.id === input.requestedHarnessId)) {
-      throw new Error(
-        `Agent harness '${input.requestedHarnessId}' is unavailable for ${input.providerId}/${input.modelId}`,
-      );
-    }
-    return input.requestedHarnessId;
-  }
-
-  const recommended = harnesses.find((harness) => harness.isRecommended);
-  return recommended ? (recommended.id ?? null) : input.fallbackHarnessId;
-}
-
-export async function resolveAgentExecutionProfileFromCatalog(input: {
-  client: AgentProviderCatalogClient;
-  catalog: AgentProviderCatalog;
-  requested: AgentExecutionProfile;
-}): Promise<AgentExecutionProfile> {
-  const { catalog, client, requested } = input;
-  const provider = catalog.providers.find((option) => option.id === requested.providerId);
-  if (!provider?.supportedByNodex) {
-    throw new Error(`Unsupported agent provider: ${requested.providerId}`);
-  }
-  const model = provider.models.find((option) => option.modelId === requested.modelId);
-  if (!model) {
-    throw new Error(
-      `Agent model '${requested.modelId}' is unavailable for provider '${requested.providerId}'`,
-    );
-  }
-  if (
-    provider.credentialStatus !== "ready" &&
-    provider.credentialStatus !== "inherited" &&
-    provider.credentialStatus !== "runtimeManaged"
-  ) {
-    throw new Error(`Agent provider '${requested.providerId}' needs an API key`);
-  }
-
-  const supportedReasoningEfforts = model.supportedReasoningEfforts.map((option) => option.value);
-  const advertisedDefaultReasoningEffort =
-    model.defaultReasoningEffort && supportedReasoningEfforts.includes(model.defaultReasoningEffort)
-      ? model.defaultReasoningEffort
-      : null;
-  const reasoningEffort =
-    requested.reasoningEffort ??
-    advertisedDefaultReasoningEffort ??
-    model.supportedReasoningEfforts[0]?.value ??
-    null;
-  if (reasoningEffort && !supportedReasoningEfforts.includes(reasoningEffort)) {
-    throw new Error(
-      `Reasoning effort '${reasoningEffort}' is unavailable for ${requested.providerId}/${requested.modelId}`,
-    );
-  }
-  const supportedServiceTiers = model.supportedServiceTiers.map((option) => option.value);
-  if (requested.serviceTier !== null && !supportedServiceTiers.includes(requested.serviceTier)) {
-    throw new Error(
-      `Service tier '${requested.serviceTier}' is unavailable for ${requested.providerId}/${requested.modelId}`,
-    );
-  }
-
-  const harnessId = await resolveAgentHarnessId({
-    client,
-    providerId: requested.providerId,
-    modelId: requested.modelId,
-    requestedHarnessId:
-      requested.harnessId === provider.recommendedHarnessId ? null : requested.harnessId,
-    fallbackHarnessId: provider.recommendedHarnessId,
-  });
-  return {
-    providerId: requested.providerId,
-    modelId: requested.modelId,
-    harnessId,
-    reasoningEffort,
-    serviceTier: requested.serviceTier,
-  };
-}
-
 export function toModelOption(
   providerId: string,
   model: Model,
@@ -323,63 +215,4 @@ export function toModelOption(
     inputCapabilities: model.inputModalities,
     switchPolicy: providerId === "openai" ? "same-thread" : "new-thread",
   };
-}
-
-async function discoverProvider(input: {
-  client: AgentProviderCatalogClient;
-  credentialStatusReader: AgentProviderCredentialStatusReader;
-  provider: InterpreterProvider;
-}): Promise<AgentProviderOption> {
-  const { client, credentialStatusReader, provider } = input;
-  const [rawModels, rawHarnesses, credentialStatus] = await Promise.all([
-    client.request("interpreter/model/list", {
-      modelProvider: provider.id,
-      includeHidden: false,
-    }),
-    client.request("interpreter/harness/list", {
-      providerId: provider.id,
-      model: null,
-    }),
-    credentialStatusReader.status(provider.id),
-  ]);
-  const models = parseModelResponse(rawModels as InterpreterModelListResponse, provider.id);
-  const harnesses = parseHarnessResponse(
-    rawHarnesses as InterpreterHarnessListResponse,
-    provider.id,
-  );
-  const providerRecommendedHarnessId = recommendedHarnessId(harnesses);
-
-  return {
-    id: provider.id,
-    displayName: provider.name,
-    description: provider.description || null,
-    wireApi: parseWireApi(provider.wireApi),
-    credentialStatus,
-    supportedByNodex: true,
-    isDefault: provider.isDefault,
-    credentialEnvKey: provider.envKey ?? null,
-    recommendedHarnessId: providerRecommendedHarnessId,
-    models: models.map((model) => toModelOption(provider.id, model, providerRecommendedHarnessId)),
-  };
-}
-
-export async function discoverAgentProviderCatalog(input: {
-  client: AgentProviderCatalogClient;
-  credentialStatusReader: AgentProviderCredentialStatusReader;
-}): Promise<AgentProviderCatalog> {
-  const rawProviders = await input.client.request("interpreter/provider/list", {
-    includeUnconfigured: true,
-  });
-  const providers = parseProviderResponse(rawProviders as InterpreterProviderListResponse).filter(
-    (provider) => SUPPORTED_PROVIDER_ID_SET.has(provider.id),
-  );
-  const providerById = new Map(providers.map((provider) => [provider.id, provider]));
-  const orderedProviders = SUPPORTED_PROVIDER_IDS.flatMap((providerId) => {
-    const provider = providerById.get(providerId);
-    return provider ? [provider] : [];
-  });
-  const catalogProviders = await Promise.all(
-    orderedProviders.map((provider) => discoverProvider({ ...input, provider })),
-  );
-  return { providers: catalogProviders };
 }

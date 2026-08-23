@@ -8,5 +8,3 @@ export interface RustDataAuthorityRuntime {
   readonly rootClient: DesktopCoreClient;
   clientForProject(projectId: string): DesktopCoreClient;
 }
-
-export type DesktopDataAuthorityRuntime = RustDataAuthorityRuntime;

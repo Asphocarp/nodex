@@ -19,10 +19,6 @@ import { ComposerExternalSuggestions } from "../../codex-application/ComposerExt
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { CodexPreferences } from "../../codex-application/CodexPreferences";
 import { CodexAttachments } from "../../codex-application/CodexAttachments";
-import {
-  PastedTextAttachmentManager,
-  ThreadGoalAttachmentDirectoryManager,
-} from "../../thread-goal-attachments";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { live } from "./CodexApplicationIpc";
@@ -147,12 +143,6 @@ it.effect("registers application channels directly against their owning modules"
         }),
     });
     const attachments = CodexAttachments.of({
-      legacy: {
-        pastedText: new PastedTextAttachmentManager({ attachmentsRoot: "/tmp/nodex-ipc-test" }),
-        goals: new ThreadGoalAttachmentDirectoryManager({
-          attachmentsRoot: "/tmp/nodex-ipc-test",
-        }),
-      },
       createPastedText: () => Effect.die("unused"),
       readPastedText: () => Effect.die("unused"),
       removePastedText: () => Effect.die("unused"),

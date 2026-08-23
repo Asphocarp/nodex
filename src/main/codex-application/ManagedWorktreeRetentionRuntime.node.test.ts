@@ -9,6 +9,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import type { ManagedWorktreeSettings } from "../../shared/types";
+import { AutomationApplication } from "../automation-application/AutomationApplication";
 import {
   ProjectWorkspace,
   type ProjectWorkspaceService,
@@ -20,7 +21,6 @@ import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 import { ManagedWorktreeRuntime, ManagedWorktreeRuntimeError } from "./ManagedWorktreeRuntime";
 import {
   ManagedWorktreeRetentionRuntime,
-  ManagedWorktreeRetentionRuntimeError,
   live as managedWorktreeRetentionRuntimeLive,
 } from "./ManagedWorktreeRetentionRuntime";
 
@@ -71,6 +71,11 @@ const pendingWorktrees = (
     changes: Stream.empty,
   }) as unknown as CodexPendingWorktreeRuntime["Service"];
 
+const automationApplication = (
+  get: AutomationApplication["Service"]["runs"]["get"] = () => Effect.succeed(null),
+): AutomationApplication["Service"] =>
+  AutomationApplication.of({ runs: { get } } as unknown as AutomationApplication["Service"]);
+
 const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void> =>
   Effect.gen(function* () {
     for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -87,19 +92,16 @@ const buildRuntime = (
     readonly executionHosts?: ExecutionHostRuntime["Service"];
     readonly managedWorktrees?: ManagedWorktreeRuntime["Service"];
     readonly pendingWorktrees?: CodexPendingWorktreeRuntime["Service"];
-    readonly isAutomationProtected?: (
-      threadId: string,
-    ) => Effect.Effect<boolean, ManagedWorktreeRetentionRuntimeError>;
+    readonly automation?: AutomationApplication["Service"];
   } = {},
 ) =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
-      managedWorktreeRetentionRuntimeLive({
-        isAutomationProtected: options.isAutomationProtected ?? (() => Effect.succeed(false)),
-      }).pipe(
+      managedWorktreeRetentionRuntimeLive({}).pipe(
         Layer.provide(
           Layer.mergeAll(
+            Layer.succeed(AutomationApplication, options.automation ?? automationApplication()),
             Layer.succeed(
               CodexApplicationEventHub,
               CodexApplicationEventHub.of({ events: Stream.empty, publish: () => undefined }),
@@ -275,6 +277,65 @@ it.effect("plans from one Core snapshot and prunes through the physical lifecycl
     );
     assert.deepEqual(removed, ["/managed/0000/repository", "/managed/0001/repository"]);
 
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("protects worktrees owned by the canonical Automation application", () =>
+  Effect.gen(function* () {
+    const worktreeGitRoot = "/managed/automation/repository";
+    const { runtime, scope } = yield* buildRuntime({
+      settings: () => ({ ...disabledSettings, autoDeleteEnabled: true }),
+      executionHosts: executionHosts(["local"]),
+      managedWorktrees: managedWorktrees({
+        list: () =>
+          Effect.succeed({
+            entries: [
+              {
+                worktreeGitRoot,
+                repositoryPath: "/repositories/repository",
+                createdAtMs: 1,
+                ownerThreadId: "automation-thread",
+                ownerReadFailed: false,
+              },
+            ],
+          }),
+      }),
+      projectWorkspace: projectWorkspace({
+        readManagedWorktreeLifecycleSnapshot: Effect.succeed({
+          projectionRevision: 1,
+          consumers: [
+            {
+              threadId: "automation-thread",
+              projectId: "project-one",
+              sessionId: "session-one",
+              executionHostId: "local",
+              cwd: worktreeGitRoot,
+              managedWorktreePath: worktreeGitRoot,
+              runtimeWorkspaceRoots: [worktreeGitRoot],
+              archived: false,
+              pinnedOrder: null,
+              statusType: "idle",
+              statusActiveFlags: [],
+              createdAt: 1,
+              updatedAt: 1,
+              linkedAt: "2026-08-14T00:00:00.000Z",
+            },
+          ],
+          projects: [],
+        }),
+      }),
+      automation: automationApplication((threadId) =>
+        Effect.succeed(threadId === "automation-thread" ? ({} as never) : null),
+      ),
+    });
+
+    const plan = yield* runtime.run;
+    assert.strictEqual(plan.status, "planned");
+    if (plan.status === "planned") {
+      assert.deepEqual(plan.items[0]?.protectionReasons, ["automation"]);
+      assert.deepEqual(plan.delete, []);
+    }
     yield* Scope.close(scope, Exit.void);
   }),
 );

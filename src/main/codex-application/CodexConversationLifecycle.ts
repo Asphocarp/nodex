@@ -1,6 +1,6 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
+import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
 import { CodexActiveGoalContinuation } from "./CodexActiveGoalContinuation";
 import { CodexConversationDeltaBufferRuntime } from "./CodexConversationDeltaBufferRuntime";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
@@ -36,7 +36,7 @@ export const make: Effect.Effect<
   | CodexQueuedFollowUpDispatcher
   | CodexRendererConversationCoordinator
   | ConversationRuntimeMap
-  | DesktopToolRuntime
+  | BrowserUseRuntime
 > = Effect.gen(function* () {
   const activeGoalContinuation = yield* CodexActiveGoalContinuation;
   const deltas = yield* CodexConversationDeltaBufferRuntime;
@@ -45,7 +45,7 @@ export const make: Effect.Effect<
   const queuedDispatcher = yield* CodexQueuedFollowUpDispatcher;
   const renderer = yield* CodexRendererConversationCoordinator;
   const conversations = yield* ConversationRuntimeMap;
-  const desktopTools = yield* DesktopToolRuntime;
+  const browserUse = yield* BrowserUseRuntime;
 
   const close = Effect.fn("CodexConversationLifecycle.close")(function* (
     threadId: string,
@@ -68,7 +68,7 @@ export const make: Effect.Effect<
     // including the visible and claimed queued-follow-up generation.
     conversations.currentConversation(threadId)?.reset();
 
-    yield* desktopTools.releaseBrowserUseSession(threadId).pipe(
+    yield* browserUse.releaseSession(threadId).pipe(
       Effect.catch((error) =>
         Effect.logWarning(
           "Could not release Browser Use session for closed Codex conversation",

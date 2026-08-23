@@ -228,7 +228,6 @@ export const projectCodexThreadDirectorySnapshot = (input: {
         queuedFollowUps: [],
         pendingSteers: [],
         backgroundTerminalRows: [],
-        childMemberships: [],
         capabilityFlags: {
           canEditLastUserTurn: false,
           canForkFromTurn: false,

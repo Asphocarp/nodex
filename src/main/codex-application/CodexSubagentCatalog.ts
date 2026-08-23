@@ -9,6 +9,7 @@ import type {
   CodexSubagentPanelHydrateInput,
   CodexThreadSummary,
 } from "../../shared/types";
+import { CodexConversationRelationships } from "./CodexConversationRelationships";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 
 const BACKGROUND_DELTA_METHODS = new Set<CodexServerNotification["method"]>([
@@ -49,12 +50,23 @@ const normalizeIds = (threadIds: readonly string[]): readonly string[] =>
 export const make: Effect.Effect<
   CodexSubagentCatalog["Service"],
   never,
-  CodexThreadDirectory | Scope.Scope
+  CodexConversationRelationships | CodexThreadDirectory | Scope.Scope
 > = Effect.gen(function* () {
+  const relationships = yield* CodexConversationRelationships;
   const directory = yield* CodexThreadDirectory;
   const ownerScope = yield* Scope.Scope;
   const known = new Set<string>();
   const fullFidelity = new Set<string>();
+
+  const refreshRelationships = (rootThreadId: string): Effect.Effect<void> =>
+    relationships.refresh(rootThreadId).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not refresh Codex conversation relationships").pipe(
+          Effect.annotateLogs({ rootThreadId, cause }),
+        ),
+      ),
+      Effect.asVoid,
+    );
 
   const runOwned = <A>(
     operation: Effect.Effect<A, CodexSubagentCatalogError>,
@@ -95,6 +107,7 @@ export const make: Effect.Effect<
               input.includeTurns === true,
             ),
           ),
+          Effect.tap(() => refreshRelationships(input.rootThreadId)),
           Effect.mapError(
             (cause) => new CodexSubagentCatalogError({ operation: "hydrate", cause }),
           ),
@@ -118,6 +131,7 @@ export const make: Effect.Effect<
               input.includeTurns === true,
             ),
           ),
+          Effect.tap(() => refreshRelationships(input.rootThreadId)),
           Effect.mapError(
             (cause) => new CodexSubagentCatalogError({ operation: "discover", cause }),
           ),

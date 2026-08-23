@@ -201,7 +201,6 @@ function buildConversation(
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canEditLastUserTurn: true,
       canForkFromTurn: true,
@@ -754,7 +753,16 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         change: {
           type: "snapshot",
           revision: 1,
-          conversationState: buildConversation("thread_active", {
+          conversationState: buildConversation("thread_active"),
+        },
+      });
+      dispatchCodexAppServerMessage("shared-object-updated", {
+        hostId: "default",
+        object: {
+          objectType: "conversationChildMemberships",
+          objectId: "thread_active",
+          value: {
+            parentThreadId: "thread_active",
             childMemberships: [
               {
                 threadId: "thread_child",
@@ -763,7 +771,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
                 actorName: "Worker 1",
               },
             ],
-          }),
+          },
         },
       });
       await settleAsyncRender();

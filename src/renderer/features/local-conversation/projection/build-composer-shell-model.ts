@@ -42,6 +42,7 @@ interface ExplicitBuildComposerShellModelInput {
 
 interface LegacyBuildComposerShellModelInput {
   conversation: CodexConversationSnapshot;
+  childMemberships?: CodexConversationChildMembership[];
   knownConversationsById: Record<string, CodexConversationSnapshot>;
   primaryRequest?: CodexConversationLiveRequest | null;
 }
@@ -62,7 +63,7 @@ function normalizeBuildComposerShellModelInput(
       pendingSteers: input.conversation.pendingSteers,
       queuedFollowUps: input.conversation.queuedFollowUps,
       backgroundTerminalRows: input.conversation.backgroundTerminalRows,
-      childMemberships: input.conversation.childMemberships,
+      childMemberships: input.childMemberships ?? [],
       statusType: input.conversation.statusType,
       statusActiveFlags: input.conversation.statusActiveFlags,
       knownConversationsById: input.knownConversationsById,
@@ -149,7 +150,6 @@ export function buildComposerShellModel(
       queuedFollowUps: normalized.queuedFollowUps,
       pendingSteers: normalized.pendingSteers,
       backgroundTerminalRows: normalized.backgroundTerminalRows,
-      childMemberships: normalized.childMemberships,
       capabilityFlags: {
         canEditLastUserTurn: false,
         canForkFromTurn: false,

@@ -4,9 +4,12 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import type { DesktopProjectWorkspaceThread } from "../core-client/project-workspace-adapter";
+import { CodexConversationRelationships } from "./CodexConversationRelationships";
 import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
 import { buildWorkspaceThreadSummary } from "./CodexThreadCatalogProjection";
 import { make } from "./CodexSubagentCatalog";
+
+const relationships = CodexConversationRelationships.of({ refresh: () => Effect.succeed([]) });
 
 const workspaceThread = (threadId: string): DesktopProjectWorkspaceThread => ({
   threadId,
@@ -69,7 +72,10 @@ it.effect("deduplicates background hydration and requests the final fidelity", (
         acceptResumeResult: () => Effect.die("unused"),
         acceptSessionStart: () => Effect.die("unused"),
       });
-      const runtime = yield* make.pipe(Effect.provideService(CodexThreadDirectory, directory));
+      const runtime = yield* make.pipe(
+        Effect.provideService(CodexConversationRelationships, relationships),
+        Effect.provideService(CodexThreadDirectory, directory),
+      );
 
       const summaries = yield* runtime.hydrateBackground({
         rootThreadId: "root",
@@ -111,7 +117,10 @@ it.effect("delegates panel lineage and fidelity to the authoritative Directory",
         acceptResumeResult: () => Effect.die("unused"),
         acceptSessionStart: () => Effect.die("unused"),
       });
-      const runtime = yield* make.pipe(Effect.provideService(CodexThreadDirectory, directory));
+      const runtime = yield* make.pipe(
+        Effect.provideService(CodexConversationRelationships, relationships),
+        Effect.provideService(CodexThreadDirectory, directory),
+      );
 
       const summaries = yield* runtime.hydratePanel({
         rootThreadId: "root",
@@ -144,7 +153,10 @@ it.effect("opens full-fidelity delivery and clears both subagent indexes", () =>
         acceptResumeResult: () => Effect.die("unused"),
         acceptSessionStart: () => Effect.die("unused"),
       });
-      const runtime = yield* make.pipe(Effect.provideService(CodexThreadDirectory, directory));
+      const runtime = yield* make.pipe(
+        Effect.provideService(CodexConversationRelationships, relationships),
+        Effect.provideService(CodexThreadDirectory, directory),
+      );
       runtime.observe("child-1");
       assert.isTrue(runtime.shouldDropDelta("item/agentMessage/delta", "child-1"));
       assert.isFalse(runtime.shouldDropDelta("turn/completed", "child-1"));
@@ -173,6 +185,7 @@ it.effect("owner Scope close interrupts active Directory hydration", () =>
       acceptSessionStart: () => Effect.die("unused"),
     });
     const runtime = yield* make.pipe(
+      Effect.provideService(CodexConversationRelationships, relationships),
       Effect.provideService(CodexThreadDirectory, directory),
       Effect.provideService(Scope.Scope, ownerScope),
     );

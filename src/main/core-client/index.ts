@@ -29,24 +29,13 @@ export {
   type CoreDatabaseModuleAdapter,
   type CoreLibraryDatabaseModuleAdapter,
 } from "./database-module-adapter";
-export {
-  createDesktopProjectWorkspaceBridge,
-  mapCoreProjectWorkspaceEvent,
-} from "./desktop-project-workspace-bridge";
-export {
-  createCoreProjectWorkspaceAdapter,
-  type DesktopProjectWorkspacePort,
-} from "./project-workspace-adapter";
 export type { ConnectCoreClientInput } from "./core-client";
 export type {
   ConnectOrStartCoreInput,
   CoreLaunchResult,
   ResolveCoreExecutableInput,
 } from "./core-launcher";
-export type {
-  DesktopDataAuthorityRuntime,
-  RustDataAuthorityRuntime,
-} from "./desktop-data-authority";
+export type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 export type {
   CoreAuthorityIdentity,
   CoreGenerationClient,

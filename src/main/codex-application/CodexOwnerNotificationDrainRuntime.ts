@@ -169,12 +169,3 @@ export const make = (
       clear: (conversationId) => completeAndDelete(conversationId, true),
     });
   });
-
-export interface CodexOwnerNotificationDrainRuntimePromiseAdapter {
-  readonly next: (conversationId: string) => number;
-  readonly ack: (conversationId: string, sequence: number) => void;
-  readonly awaitCurrent: (conversationId: string) => Promise<void>;
-  readonly resetOwner: (conversationId: string) => void;
-  readonly release: (conversationId: string) => void;
-  readonly clear: (conversationId: string) => void;
-}

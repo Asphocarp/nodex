@@ -95,10 +95,7 @@ export interface CoreLibraryModuleAdapterInput {
 export interface CoreLibraryModuleAdapter {
   read(request: LibraryModuleReadRequest): Promise<LibraryModuleReadResult>;
   apply(request: LibraryModuleApplyRequest): Promise<LibraryModuleApplyResult>;
-  readProjectPageDetail(
-    projectId: string,
-    pageId: string,
-  ): Promise<PageDetailResult>;
+  readProjectPageDetail(projectId: string, pageId: string): Promise<PageDetailResult>;
   readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
   listPageHistory(request: ListPageHistoryRequest): Promise<PageHistoryCommandResult>;
   searchPages(input: PageSearchInput, signal?: AbortSignal): Promise<PageSearchSnapshot>;
@@ -1725,7 +1722,9 @@ const fromCoreBlockPropertyOutcome = (
 export const createCoreLibraryModuleAdapter = (
   input: CoreLibraryModuleAdapterInput,
 ): CoreLibraryModuleAdapter => {
-  const readPageDetail = async (pageId: string): Promise<{
+  const readPageDetail = async (
+    pageId: string,
+  ): Promise<{
     readonly detail: CorePageDetail;
     readonly authorization: NonNullable<LibraryReadSnapshot["authorization"]>;
   }> => {

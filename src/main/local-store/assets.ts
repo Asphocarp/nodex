@@ -88,10 +88,6 @@ export function getAssetsRootPath(): string {
   return getAssetPaths().rootPath;
 }
 
-export function getAssetsPathPrefix(): string {
-  return getAssetPaths().pathPrefix;
-}
-
 function assertAssetPathInsideRoot(targetPath: string, assetsRootPath: string): void {
   const rootPath = path.resolve(assetsRootPath);
   const pathPrefix = `${rootPath}${path.sep}`;
@@ -299,18 +295,6 @@ export function materializeInlineImageAtRoot(
   return { source: getAssetSource(fileName), fileName, mimeType };
 }
 
-/** Live-store wrapper retained for non-staged call sites. */
-export function materializeInlineCanvasImage(dataUrl: string): {
-  readonly source: string;
-  readonly fileName: string;
-  readonly mimeType: string;
-} {
-  return materializeInlineImageAtRoot(dataUrl, {
-    assetsRootPath: getAssetsRootPath(),
-    namespace: "canvas",
-  });
-}
-
 export function materializeCanvasImage(
   input: ManagedAssetUploadInput,
 ): ManagedCanvasImageMaterializationResult {
@@ -499,25 +483,6 @@ export function materializeLocalResource(localPath: string): ManagedResourceSave
     name: path.basename(normalizedLocalPath),
     mimeType,
     bytes: stats.size,
-  };
-}
-
-export function readAssetFile(fileName: string): { bytes: Buffer; mimeType: string } {
-  const absolutePath = resolveFlatAssetPath(fileName);
-
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error("Asset not found");
-  }
-  const stats = fs.lstatSync(absolutePath);
-  if (!stats.isFile() || stats.isSymbolicLink()) {
-    throw new Error("Managed asset must be a regular file");
-  }
-
-  const bytes = fs.readFileSync(absolutePath);
-
-  return {
-    bytes,
-    mimeType: getMimeTypeForAssetFile(fileName),
   };
 }
 

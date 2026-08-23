@@ -1,6 +1,5 @@
 import type { CodexCanonicalConversationState } from "../../shared/types";
 import type { CodexApplicationProtocolOccurrence } from "../codex-runtime/CodexApplicationRequestInbox";
-import type { CodexBufferedConversationEvent } from "./CodexConversationBufferedEvent";
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
@@ -124,27 +123,6 @@ const compactEvents = <Event>(input: {
     return remainingDelta === delta ? [event] : [input.replaceDelta(event, remainingDelta)];
   });
 };
-
-/** Drops raw delta prefixes already represented by the canonical aggregate before replay. */
-export const compactCodexBufferedConversationEvents = (input: {
-  readonly threadId: string;
-  readonly canonicalState: CodexCanonicalConversationState | null;
-  readonly events: readonly CodexBufferedConversationEvent[];
-}): CodexBufferedConversationEvent[] =>
-  compactEvents({
-    ...input,
-    notification: (event) => (event.type === "notification" ? event.notification : null),
-    replaceDelta: (event, delta) =>
-      event.type === "notification"
-        ? ({
-            type: "notification",
-            notification: {
-              ...event.notification,
-              params: { ...event.notification.params, delta },
-            },
-          } as CodexBufferedConversationEvent)
-        : event,
-  });
 
 /** Compacts final Inbox occurrences without adding request-completion callbacks. */
 export const compactCodexApplicationProtocolOccurrences = (input: {

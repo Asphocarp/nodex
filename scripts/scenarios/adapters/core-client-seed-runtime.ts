@@ -9,6 +9,7 @@ import {
   CoreSessionAccess,
   type CoreAuthorityState,
 } from "../../../src/main/core-runtime/CoreAuthority";
+import { CoreModules, live as coreModulesLive } from "../../../src/main/core-runtime/CoreModules";
 import {
   DatabaseModule,
   live as databaseModuleLive,
@@ -17,6 +18,10 @@ import {
   LibraryModule,
   live as libraryModuleLive,
 } from "../../../src/main/library-application/LibraryModule";
+import {
+  ProjectWorkspace,
+  live as projectWorkspaceLive,
+} from "../../../src/main/project-application/ProjectWorkspace";
 
 const runWithScenarioCore = <A, E>(
   runtime: RustDataAuthorityRuntime,
@@ -83,5 +88,22 @@ export const runScenarioLibrary = <A, E>(
     Effect.gen(function* () {
       const context = yield* Layer.build(libraryModuleLive);
       return yield* use(Context.get(context, LibraryModule));
+    }),
+  );
+
+/** Uses the production Project Workspace capability rather than a scenario-only Promise facade. */
+export const runScenarioProjectWorkspace = <A, E>(
+  runtime: RustDataAuthorityRuntime,
+  use: (workspace: ProjectWorkspace["Service"]) => Effect.Effect<A, E>,
+): Promise<A> =>
+  runWithScenarioCore(
+    runtime,
+    Effect.gen(function* () {
+      const coreContext = yield* Layer.build(coreModulesLive);
+      const core = Context.get(coreContext, CoreModules);
+      const workspaceContext = yield* Layer.build(
+        projectWorkspaceLive.pipe(Layer.provide(Layer.succeed(CoreModules, core))),
+      );
+      return yield* use(Context.get(workspaceContext, ProjectWorkspace));
     }),
   );

@@ -2702,7 +2702,6 @@ describe("workbench session shell / layout-panel-actions", () => {
       pendingSteers: [],
       queuedFollowUps: [],
       backgroundTerminalRows: [],
-      childMemberships: [],
       capabilityFlags: {
         canEditLastUserTurn: false,
         canForkFromTurn: false,

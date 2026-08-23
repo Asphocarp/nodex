@@ -5,7 +5,12 @@ import { tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { killChildProcessTree } from "../process-tree";
-import type { CodexStoredShellEnvironment } from "./codex-thread-launch-context";
+
+export interface CodexStoredShellEnvironment {
+  readonly version: 1;
+  readonly set: Readonly<Record<string, string>>;
+  readonly exclude: readonly string[];
+}
 
 const CODEX_SHELL_ENVIRONMENT_DELIMITER = "_SHELL_ENV_DELIMITER_";
 const CODEX_SHELL_ENVIRONMENT_COMMAND = [

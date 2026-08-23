@@ -30,11 +30,6 @@ const attempt = <A>(operation: string, evaluate: () => Promise<A>) =>
 export class CodexAttachments extends Context.Service<
   CodexAttachments,
   {
-    /** Temporary direct seam for the legacy conversation/worktree implementation. */
-    readonly legacy: {
-      readonly pastedText: PastedTextAttachmentManager;
-      readonly goals: ThreadGoalAttachmentDirectoryManager;
-    };
     readonly createPastedText: (input: {
       readonly text: string;
       readonly hostId?: string;
@@ -75,7 +70,6 @@ export const live = (attachmentsRoot: string): Layer.Layer<CodexAttachments> =>
         Effect.forkScoped,
       );
       return CodexAttachments.of({
-        legacy: { pastedText, goals },
         createPastedText: (input) =>
           attempt("create-pasted-text", () => pastedText.createRawSource(input)),
         readPastedText: (file) => attempt("read-pasted-text", () => pastedText.readRawSource(file)),

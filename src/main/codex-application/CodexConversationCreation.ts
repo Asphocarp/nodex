@@ -28,7 +28,7 @@ import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadLaunchCompletion } from "./CodexThreadLaunchCompletion";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 import { CodexTurnCommands } from "./CodexTurnCommands";
-import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
+import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
 import { ManagedWorktreeRuntime } from "./ManagedWorktreeRuntime";
 
 type GatewayThreadStartParams = ClientRequestParamsByMethod["thread/start"];
@@ -95,7 +95,7 @@ export const make: Effect.Effect<
   | CodexThreadLaunchCompletion
   | CodexThreadTitlePersistence
   | CodexTurnCommands
-  | DesktopToolRuntime
+  | BrowserUseRuntime
   | ManagedWorktreeRuntime
   | ProjectWorkspace
 > = Effect.gen(function* () {
@@ -109,7 +109,7 @@ export const make: Effect.Effect<
   const completion = yield* CodexThreadLaunchCompletion;
   const titles = yield* CodexThreadTitlePersistence;
   const turns = yield* CodexTurnCommands;
-  const desktopTools = yield* DesktopToolRuntime;
+  const browserUse = yield* BrowserUseRuntime;
   const managedWorktrees = yield* ManagedWorktreeRuntime;
   const workspace = yield* ProjectWorkspace;
 
@@ -316,7 +316,7 @@ export const make: Effect.Effect<
       if (entry.browserUsePresentationOrigin) {
         yield* bestEffort(
           "promote-browser-route",
-          desktopTools.promoteBrowserUseRoute({
+          browserUse.promoteRoute({
             ...entry.browserUsePresentationOrigin,
             codexSessionId: threadId,
             projectId,

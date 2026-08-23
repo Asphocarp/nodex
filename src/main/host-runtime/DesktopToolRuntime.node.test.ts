@@ -20,6 +20,7 @@ it.effect("owns desktop plugin readiness and derives one coherent snapshot", () 
     let requestedBackends: readonly string[] = [];
     const context = yield* Layer.buildWithScope(
       testLayer({
+        availableBackends: () => ["iab"],
         browserRuntime: {
           message: "Browser runtime is unavailable in this fixture",
           reason: "backend-unavailable",
@@ -54,7 +55,6 @@ it.effect("owns desktop plugin readiness and derives one coherent snapshot", () 
       scope,
     );
     const runtime = Context.get(context, DesktopToolRuntime);
-    runtime.setAvailableBackendsResolver(() => ["iab"]);
     const ready = yield* runtime.ensureReady;
 
     assert.deepEqual(requestedBackends, ["iab"]);
@@ -62,39 +62,6 @@ it.effect("owns desktop plugin readiness and derives one coherent snapshot", () 
     assert.isFalse(ready.computerUsePluginReady);
     assert.strictEqual(ready.computerUse, computerUse);
     assert.isNull(yield* runtime.threadConfig);
-    const browserEvents: string[] = [];
-    yield* runtime.installBrowserUseBindings({
-      lifecycle: {
-        releaseSession: (sessionId) =>
-          Effect.sync(() => void browserEvents.push(`release:${sessionId}`)),
-        turnEnded: ({ sessionId, turnId }) =>
-          Effect.sync(() => void browserEvents.push(`ended:${sessionId}:${turnId}`)),
-        turnStarted: ({ sessionId, turnId }) =>
-          Effect.sync(() => void browserEvents.push(`started:${sessionId}:${turnId}`)),
-      },
-      routePromoter: {
-        promote: ({ codexSessionId }) =>
-          Effect.sync(() => void browserEvents.push(`promote:${codexSessionId}`)),
-      },
-    });
-    yield* runtime.turnStarted({ sessionId: "thread-1", turnId: "turn-1" });
-    yield* runtime.turnEnded({ sessionId: "thread-1", turnId: "turn-1" });
-    yield* runtime.promoteBrowserUseRoute({
-      browserConversationId: "browser-1",
-      browserViewScopeId: "scope-1",
-      codexSessionId: "thread-1",
-      projectId: "project-1",
-    });
-    yield* runtime.releaseBrowserUseSession("thread-1");
-    assert.deepEqual(browserEvents, [
-      "started:thread-1:turn-1",
-      "ended:thread-1:turn-1",
-      "promote:thread-1",
-      "release:thread-1",
-    ]);
-    yield* runtime.clearBrowserUseBindings;
-    yield* runtime.turnStarted({ sessionId: "thread-1", turnId: "turn-2" });
-    assert.strictEqual(browserEvents.length, 4);
     yield* Scope.close(scope, Exit.void);
   }),
 );

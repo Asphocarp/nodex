@@ -7,29 +7,12 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type { BrowserSidebarEvent } from "../browser/BrowserSidebarEventHub";
-import { DEFAULT_BROWSER_USE_POLICY } from "../../shared/browser-use-policy";
-import type { BrowserUseRuntimeBindings } from "./DesktopToolRuntime";
-import { BrowserUseRuntime, testLayer, type BrowserUseRuntimePorts } from "./BrowserUseRuntime";
+import { BrowserUseRuntime, testLayer } from "./BrowserUseRuntime";
 
-it.effect("installs Browser Use bindings once and releases every ingress with its Scope", () =>
+it.effect("owns Browser Use routing, turn lifecycle, and physical registry with its Scope", () =>
   Effect.gen(function* () {
-    let resolver: () => readonly ("chrome" | "iab")[] = () => [];
-    let bindings: BrowserUseRuntimeBindings | null = null;
-    let cleared = 0;
-    const desktopTools: BrowserUseRuntimePorts["desktopTools"] = {
-      clearBrowserUseBindings: Effect.sync(() => {
-        cleared += 1;
-        bindings = null;
-      }),
-      installBrowserUseBindings: (next) =>
-        Effect.sync(() => {
-          bindings = next;
-        }),
-      setAvailableBackendsResolver: (next) => {
-        resolver = next;
-      },
-    };
     const events: string[] = [];
+    let registryReleased = 0;
     const browserEvents = yield* PubSub.unbounded<BrowserSidebarEvent>();
     const registry = {
       availableBackends: () => ["iab"] as const,
@@ -37,31 +20,30 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
         Effect.sync(() => void events.push(`capture:${route.codexSessionId}`)),
       notifyCursorArrived: () => Effect.sync(() => void events.push("cursor")),
       releaseOwner: () => Effect.sync(() => void events.push("release-owner")),
-      releaseSession: () => Effect.void,
-      turnEnded: () => Effect.void,
-      turnStarted: () => Effect.void,
+      releaseSession: (sessionId: string) =>
+        Effect.sync(() => void events.push(`release-session:${sessionId}`)),
+      turnEnded: ({ turnId }: { turnId: string }) =>
+        Effect.sync(() => void events.push(`turn-ended:${turnId}`)),
+      turnStarted: ({ turnId }: { turnId: string }) =>
+        Effect.sync(() => void events.push(`turn-started:${turnId}`)),
     };
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
       testLayer({
         browserEvents: Stream.fromPubSub(browserEvents),
-        desktopTools,
-        makeRegistry: () => Effect.succeed(registry),
+        makeRegistry: Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            registryReleased += 1;
+          }),
+        ).pipe(Effect.as(registry)),
+        releaseCredentialOwner: () =>
+          Effect.sync(() => void events.push("release-credential-owner")),
       }),
       scope,
     );
     const runtime = Context.get(context, BrowserUseRuntime);
-    yield* runtime.install({
-      grantDownload: () => undefined,
-      policyStore: {
-        snapshot: () => DEFAULT_BROWSER_USE_POLICY,
-        isExplicitlyDenied: () => false,
-      },
-      releaseCredentialOwner: () => Effect.sync(() => void events.push("release-credential-owner")),
-    });
 
-    assert.deepEqual(resolver(), ["iab"]);
-    assert.isNotNull(bindings);
+    assert.deepEqual(runtime.availableBackends(), ["iab"]);
     yield* runtime.captureRoute({
       browserConversationId: "conversation",
       browserViewScopeId: "scope",
@@ -75,6 +57,9 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
       codexSessionId: "promoted-session",
       projectId: "project",
     });
+    yield* runtime.turnStarted({ sessionId: "promoted-session", turnId: "turn-1" });
+    yield* runtime.turnEnded({ sessionId: "promoted-session", turnId: "turn-1" });
+    yield* runtime.releaseSession("promoted-session");
     yield* PubSub.publish(browserEvents, {
       kind: "browserUseOwnerReleased",
       value: { ownerWebContentsId: 1 },
@@ -96,6 +81,9 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
       "cursor",
       "release-credential-owner",
       "release-owner",
+      "release-session:promoted-session",
+      "turn-ended:turn-1",
+      "turn-started:turn-1",
     ]);
     assert.isTrue(
       Exit.isFailure(
@@ -111,7 +99,6 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
     );
 
     yield* Scope.close(scope, Exit.void);
-    assert.deepEqual(resolver(), []);
-    assert.strictEqual(cleared, 1);
+    assert.strictEqual(registryReleased, 1);
   }),
 );

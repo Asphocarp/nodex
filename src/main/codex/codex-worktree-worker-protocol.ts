@@ -1,4 +1,4 @@
-import type { CodexStoredShellEnvironment } from "./codex-thread-launch-context";
+import type { CodexStoredShellEnvironment } from "./codex-worktree-shell-environment";
 import type { CodexPendingWorktreeStartingState } from "../../shared/codex-pending-worktree";
 import type { WorktreeStartMode } from "../../shared/types";
 import type { CodexExecutionHostFileDescriptor } from "./codex-execution-host-file-transfer";

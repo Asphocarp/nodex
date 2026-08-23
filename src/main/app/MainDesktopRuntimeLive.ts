@@ -33,7 +33,6 @@ import {
   DocumentLiveRuntime,
   live as documentLiveRuntimeLive,
 } from "../core-runtime/DocumentLiveRuntime";
-import { makeDesktopDataAuthority } from "../core-runtime/DesktopCoreAdapter";
 import {
   ProjectionDeliveryRuntime,
   live as projectionDeliveryRuntimeLive,
@@ -42,11 +41,7 @@ import {
   CoreApplicationProjectionRuntime,
   live as coreApplicationProjectionRuntimeLive,
 } from "../core-runtime/CoreApplicationProjectionRuntime";
-import {
-  DesktopDocumentSessionRuntime,
-  desktopDocumentSessionRuntimeLive,
-  createDesktopProjectWorkspaceBridge,
-} from "../core-client";
+import { DesktopDocumentSessionRuntime, desktopDocumentSessionRuntimeLive } from "../core-client";
 import {
   ProjectWorkspace,
   live as projectWorkspaceLive,
@@ -61,7 +56,6 @@ import {
 } from "../automation-application/AutomationExecution";
 import { DatabaseModule, live as databaseModuleLive } from "../database-application/DatabaseModule";
 import { LibraryModule, live as libraryModuleLive } from "../library-application/LibraryModule";
-import { createDesktopNodexAgentAuthorityPort } from "../core-client/desktop-nodex-agent-authority";
 import {
   NodexAgentApplication,
   live as nodexAgentApplicationLive,
@@ -79,21 +73,17 @@ import {
   live as nodexAgentResourceAccessLive,
 } from "../nodex-agent-application/NodexAgentResourceAccess";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
-import { CodexService } from "../codex/codex-service";
-import { CodexSessionStore } from "../codex/codex-session-store";
 import { createElectronProviderCredentialStore } from "../platform/electron/ProviderCredentialStore";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import {
   AgentProviderRuntime,
   live as agentProviderRuntimeLive,
 } from "../codex-application/AgentProviderRuntime";
-import { makeAgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import { make as makeAgentImportRuntime } from "../codex-application/AgentImportRuntime";
 import {
   NodexAgentAuthorizationRuntime,
   live as nodexAgentAuthorizationRuntimeLive,
 } from "../codex-application/NodexAgentAuthorizationRuntime";
-import { makeNodexAgentAuthorizationRuntimePromiseAdapter } from "../codex-application/NodexAgentAuthorizationRuntimePromiseAdapter";
 import { CodexConnection, live as codexConnectionLive } from "../codex-application/CodexConnection";
 import { make as makeCodexConnectionLifecycle } from "../codex-application/CodexConnectionLifecycle";
 import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
@@ -103,7 +93,6 @@ import {
   live as composerExternalSuggestionsLive,
 } from "../codex-application/ComposerExternalSuggestions";
 import { ComposerCatalog, live as composerCatalogLive } from "../codex-application/ComposerCatalog";
-import { makeComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import {
   ConversationCommands,
   live as conversationCommandsLive,
@@ -161,12 +150,10 @@ import {
   CodexActiveGoalContinuation,
   make as makeCodexActiveGoalContinuation,
 } from "../codex-application/CodexActiveGoalContinuation";
-import { makeCodexActiveGoalContinuationCallbackAdapter } from "../codex-application/CodexActiveGoalContinuationCallbackAdapter";
 import {
   CodexOwnerNotificationDrainRuntime,
   make as makeCodexOwnerNotificationDrainRuntime,
 } from "../codex-application/CodexOwnerNotificationDrainRuntime";
-import { makeCodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntimePromiseAdapter";
 import {
   CodexRendererConversationRegistry,
   make as makeCodexRendererConversationRegistry,
@@ -189,7 +176,6 @@ import {
   make as makeCodexThreadReadState,
 } from "../codex-application/CodexThreadReadState";
 import { CodexGitProbe, make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
-import { makeCodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import {
   CodexExternalAgentImportRuntime,
   make as makeCodexExternalAgentImportRuntime,
@@ -211,9 +197,6 @@ import {
   CodexNotificationAdmission,
   make as makeCodexNotificationAdmission,
 } from "../codex-application/CodexNotificationAdmission";
-import { makeCodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
-import { make as makeCodexDynamicToolsLaunch } from "../codex-application/CodexDynamicToolsLaunch";
-import { makeCodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
 import {
   CodexThreadHandoffRuntime,
   make as makeCodexThreadHandoffRuntime,
@@ -247,9 +230,9 @@ import {
   make as makeCodexConversationHistoryRuntime,
 } from "../codex-application/CodexConversationHistoryRuntime";
 import {
-  CodexBackgroundSubagentMetadataRepairError,
-  make as makeCodexBackgroundSubagentMetadataRepair,
-} from "../codex-application/CodexBackgroundSubagentMetadataRepair";
+  CodexConversationRelationships,
+  make as makeCodexConversationRelationships,
+} from "../codex-application/CodexConversationRelationships";
 import {
   CodexSubagentCatalog,
   make as makeCodexSubagentCatalog,
@@ -295,7 +278,6 @@ import {
   make as makeCodexConversationDeltaBufferRuntime,
 } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import { make as makeCodexConversationResumeRuntime } from "../codex-application/CodexConversationResumeRuntime";
-import { makeCodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
 import {
   CodexFreshThreadLaunchRuntime,
   make as makeCodexFreshThreadLaunchRuntime,
@@ -312,12 +294,10 @@ import {
   CodexPostResumeGoalRuntime,
   make as makeCodexPostResumeGoalRuntime,
 } from "../codex-application/CodexPostResumeGoalRuntime";
-import { makeCodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import {
   CodexThreadGoalRuntime,
   live as codexThreadGoalRuntimeLive,
 } from "../codex-application/CodexThreadGoalRuntime";
-import { makeCodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
 import {
   CodexManualCompactionRuntime,
   live as codexManualCompactionRuntimeLive,
@@ -330,12 +310,10 @@ import {
   CodexThreadRollbackCommands,
   make as makeCodexThreadRollbackCommands,
 } from "../codex-application/CodexThreadRollbackCommands";
-import { makeCodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
   CodexThreadTitlePersistence,
   make as makeCodexThreadTitlePersistence,
 } from "../codex-application/CodexThreadTitlePersistence";
-import { makeCodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
 import {
   CodexRendererOwnerRetention,
   make as makeCodexRendererOwnerRetention,
@@ -344,7 +322,6 @@ import {
   CodexUserInputAutoResolution,
   make as makeCodexUserInputAutoResolution,
 } from "../codex-application/CodexUserInputAutoResolution";
-import { makeCodexUserInputAutoResolutionPromiseAdapter } from "../codex-application/CodexUserInputAutoResolutionPromiseAdapter";
 import {
   CodexApplicationEventHub,
   make as makeCodexApplicationEventHub,
@@ -392,7 +369,6 @@ import {
   CodexPermissions,
   live as codexPermissionsLive,
 } from "../codex-application/CodexPermissions";
-import { makeCodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
 import {
   ExecutionHostRuntime,
   live as executionHostRuntimeLive,
@@ -409,7 +385,6 @@ import {
 } from "../codex-application/ManagedWorktreeRuntime";
 import {
   ManagedWorktreeRetentionRuntime,
-  ManagedWorktreeRetentionRuntimeError,
   live as managedWorktreeRetentionRuntimeLive,
 } from "../codex-application/ManagedWorktreeRetentionRuntime";
 import { CODEX_APP_LOCAL_HOST_ID } from "../codex/codex-app-meta-thread-tools";
@@ -432,7 +407,6 @@ import {
   CodexApplicationRequestInbox,
   make as makeCodexApplicationRequestInbox,
 } from "../codex-runtime/CodexApplicationRequestInbox";
-import { makeCodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
 import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIpc";
@@ -474,7 +448,6 @@ import {
 import {
   DesktopToolRuntime,
   live as desktopToolRuntimeLive,
-  makeDesktopToolRuntimePromiseAdapter,
 } from "../host-runtime/DesktopToolRuntime";
 import {
   RemoteHostedPipRuntime,
@@ -744,14 +717,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const projectWorkspace = Context.get(projectWorkspaceContext, ProjectWorkspace);
-        const dataAuthority = yield* makeDesktopDataAuthority(callbacks).pipe(
-          Effect.provideService(CoreAuthority, authority),
-          Effect.provideService(CoreSessionAccess, access),
-        );
-        const legacyDataAuthority = Promise.resolve(dataAuthority);
-        const legacyProjectWorkspace = createDesktopProjectWorkspaceBridge({
-          authority: legacyDataAuthority,
-        });
         const projectRuntimeLifecycleContext = yield* Layer.buildWithScope(
           projectRuntimeLifecycleLive,
           runtimeScope,
@@ -760,12 +725,6 @@ export const live: Layer.Layer<
           projectRuntimeLifecycleContext,
           ProjectRuntimeLifecycleRuntime,
         );
-        let codexService: CodexService | undefined;
-        const requireCodexService = (): CodexService => {
-          const service = codexService;
-          if (!service) throw new Error("CodexService is not constructed");
-          return service;
-        };
         const ephemeralThreadRoutingContext = yield* Layer.buildWithScope(
           codexEphemeralThreadRoutingLive,
           runtimeScope,
@@ -853,7 +812,6 @@ export const live: Layer.Layer<
           runtimeScope,
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
-        const codexClient = makeCodexGatewayPromiseClient(codexGateway, callbacks);
         const codexApplicationEvents = yield* makeCodexApplicationEventHub.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
@@ -1051,22 +1009,34 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const computerUse = Context.get(computerUseContext, ComputerUseRuntime);
-        const desktopToolContext = yield* Layer.buildWithScope(
-          desktopToolRuntimeLive({
-            browserRuntime: codexRuntime.browserRuntime,
-            runtimeStateHome,
+        const browserProfileContext = yield* Layer.buildWithScope(
+          browserProfileRuntimeLive({
+            environment: config.environment,
+            homeDirectory: config.homeDirectory,
+            isPackaged: config.isPackaged,
+            nodexHome: config.nodexHome,
+            projectRootPath: config.projectRootPath,
+            platform: config.platform,
+            resourcesPath: config.resourcesPath,
+            userDataPath,
           }).pipe(
             Layer.provide(
-              Layer.merge(
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(ComputerUseRuntime, computerUse),
+              Layer.mergeAll(
+                Layer.succeed(BrowserProfileHelperPlatform, browserProfileHelper),
+                Layer.succeed(BrowserApplication, browser),
+                Layer.succeed(ElectronApp, electron),
+                Layer.succeed(ElectronDesktop, desktop),
+                Layer.succeed(FileSystem.FileSystem, fileSystem),
+                Layer.succeed(ElectronNet.ElectronNet, electronNet),
+                Layer.succeed(ElectronSessionHost, sessionHost),
+                Layer.succeed(ElectronWindowHost, windowHost),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
               ),
             ),
           ),
           runtimeScope,
         );
-        const desktopToolRuntime = Context.get(desktopToolContext, DesktopToolRuntime);
-        const desktopTools = makeDesktopToolRuntimePromiseAdapter(desktopToolRuntime, callbacks);
+        const browserProfile = Context.get(browserProfileContext, BrowserProfileRuntime);
         const browserUseContext = yield* Layer.buildWithScope(
           browserUseRuntimeLive({
             appVersion: config.appVersion,
@@ -1078,14 +1048,30 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(BrowserApplication, browser),
-                Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
+                Layer.succeed(BrowserProfileRuntime, browserProfile),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
               ),
             ),
           ),
           runtimeScope,
-        );
+        ).pipe(Effect.mapError((cause) => runtimeError("browser-use-runtime", cause)));
         const browserUse = Context.get(browserUseContext, BrowserUseRuntime);
+        const desktopToolContext = yield* Layer.buildWithScope(
+          desktopToolRuntimeLive({
+            browserRuntime: codexRuntime.browserRuntime,
+            runtimeStateHome,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(BrowserUseRuntime, browserUse),
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(ComputerUseRuntime, computerUse),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const desktopToolRuntime = Context.get(desktopToolContext, DesktopToolRuntime);
         const computerUseSettingsContext = yield* Layer.buildWithScope(
           computerUseSettingsRuntimeLive.pipe(
             Layer.provide(
@@ -1217,10 +1203,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const agentProviders = Context.get(agentProviderContext, AgentProviderRuntime);
-        const agentProviderRuntime = makeAgentProviderRuntimePromiseAdapter(
-          agentProviders,
-          callbacks,
-        );
         const codexAccountContext = yield* Layer.buildWithScope(
           codexAccountLive({ pollInterval: "60 seconds" }).pipe(
             Layer.provide(Layer.succeed(CodexGateway, codexGateway)),
@@ -1238,10 +1220,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const codexConnectionService = Context.get(codexConnectionContext, CodexConnection);
-        const composerCatalog = makeComposerCatalogPromiseAdapter(
-          composerCatalogService,
-          callbacks,
-        );
         const codexToolRuntimeContext = yield* Layer.buildWithScope(
           codexToolRuntimeLive({
             supportsChatGptApps: CODEX_INTEGRATION_CAPABILITIES.chatGptApps,
@@ -1256,40 +1234,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const codexToolRuntimeService = Context.get(codexToolRuntimeContext, CodexToolRuntime);
-        const browserProfileContext = yield* Layer.buildWithScope(
-          browserProfileRuntimeLive({
-            environment: config.environment,
-            homeDirectory: config.homeDirectory,
-            isPackaged: config.isPackaged,
-            nodexHome: config.nodexHome,
-            projectRootPath: config.projectRootPath,
-            platform: config.platform,
-            resourcesPath: config.resourcesPath,
-            userDataPath,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(BrowserProfileHelperPlatform, browserProfileHelper),
-                Layer.succeed(BrowserApplication, browser),
-                Layer.succeed(ElectronApp, electron),
-                Layer.succeed(ElectronDesktop, desktop),
-                Layer.succeed(FileSystem.FileSystem, fileSystem),
-                Layer.succeed(ElectronNet.ElectronNet, electronNet),
-                Layer.succeed(ElectronSessionHost, sessionHost),
-                Layer.succeed(ElectronWindowHost, windowHost),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const browserProfile = Context.get(browserProfileContext, BrowserProfileRuntime);
-        yield* browserUse.install({
-          grantDownload: (identity, sourceUrl, ttlMs) =>
-            browserProfile.download.grantAgentDownload(identity, sourceUrl, ttlMs),
-          policyStore: browserProfile.policy,
-          releaseCredentialOwner: browserProfile.credentials.releaseOwner,
-        });
         const browserPresentationContext = yield* Layer.buildWithScope(
           browserPresentationRuntimeLive.pipe(
             Layer.provide(
@@ -1657,11 +1601,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const persistedAtoms = makePersistedAtomStore(config.nodexHome);
-        const codexSessionStore = new CodexSessionStore();
-        yield* Scope.addFinalizer(
-          runtimeScope,
-          Effect.sync(() => codexSessionStore.clear()),
-        );
         const conversationContext = yield* makeCodexConversationContext.pipe(
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(CoreModules, coreModules),
@@ -1676,6 +1615,13 @@ export const live: Layer.Layer<
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
           Effect.provideService(CodexConversationProjection, conversationProjection),
           Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const conversationRelationships = yield* makeCodexConversationRelationships.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(CoreModules, coreModules),
           Effect.provideService(Scope.Scope, runtimeScope),
@@ -1785,7 +1731,6 @@ export const live: Layer.Layer<
           Effect.provideService(CodexInternalThreadRegistry, internalThreadRegistry),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
         const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime.pipe(
           Effect.provideService(AgentProviderRuntime, agentProviders),
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
@@ -1822,23 +1767,8 @@ export const live: Layer.Layer<
           Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const backgroundSubagentMetadataRepair = yield* makeCodexBackgroundSubagentMetadataRepair({
-          isRepairNeeded: (parentThreadId, childThreadId) =>
-            requireCodexService().isBackgroundSubagentMetadataRepairNeeded(
-              parentThreadId,
-              childThreadId,
-            ),
-          repair: (parentThreadId, childThreadId) =>
-            Effect.tryPromise({
-              try: () =>
-                requireCodexService().repairBackgroundSubagentMetadata(
-                  parentThreadId,
-                  childThreadId,
-                ),
-              catch: (cause) => new CodexBackgroundSubagentMetadataRepairError({ cause }),
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const subagentCatalog = yield* makeCodexSubagentCatalog.pipe(
+          Effect.provideService(CodexConversationRelationships, conversationRelationships),
           Effect.provideService(CodexThreadDirectory, threadDirectory),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
@@ -1898,10 +1828,6 @@ export const live: Layer.Layer<
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const activeGoalContinuationCallbacks =
-          yield* makeCodexActiveGoalContinuationCallbackAdapter(activeGoalContinuation).pipe(
-            Effect.provideService(Scope.Scope, runtimeScope),
-          );
         const threadLaunchCompletion = yield* makeCodexThreadLaunchCompletion.pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
           Effect.provideService(CodexAttachments, attachments),
@@ -2052,7 +1978,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadLaunchCompletion, threadLaunchCompletion),
           Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
           Effect.provideService(CodexTurnCommands, turnCommands),
-          Effect.provideService(DesktopToolRuntime, desktopToolRuntime),
+          Effect.provideService(BrowserUseRuntime, browserUse),
           Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
           Effect.provideService(ProjectWorkspace, projectWorkspace),
         );
@@ -2068,22 +1994,11 @@ export const live: Layer.Layer<
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const managedWorktreeRetentionContext = yield* Layer.buildWithScope(
-          managedWorktreeRetentionRuntimeLive({
-            isAutomationProtected: (threadId) =>
-              automationApplication.runs.get(threadId).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ManagedWorktreeRetentionRuntimeError({
-                      operation: "read-automation-protection",
-                      cause,
-                    }),
-                ),
-                Effect.map((run) => run !== null),
-              ),
-          }).pipe(
+          managedWorktreeRetentionRuntimeLive({}).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
+                Layer.succeed(AutomationApplication, automationApplication),
                 Layer.succeed(CodexPendingWorktreeRuntime, pendingWorktrees),
                 Layer.succeed(ExecutionHostRuntime, executionHosts),
                 Layer.succeed(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
@@ -2154,7 +2069,6 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const dataAuthorityPromise = Promise.resolve(dataAuthority);
         const manualCompactionContext = yield* Layer.buildWithScope(
           codexManualCompactionRuntimeLive.pipe(
             Layer.provide(
@@ -2294,7 +2208,7 @@ export const live: Layer.Layer<
             rendererConversationCoordinator,
           ),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
-          Effect.provideService(DesktopToolRuntime, desktopToolRuntime),
+          Effect.provideService(BrowserUseRuntime, browserUse),
         );
         const threadDurableProjection = yield* makeCodexThreadDurableProjection.pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
@@ -2326,7 +2240,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadGoalRuntime, threadGoals),
           Effect.provideService(CodexUserInputAutoResolution, userInputAutoResolution),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
-          Effect.provideService(DesktopToolRuntime, desktopToolRuntime),
+          Effect.provideService(BrowserUseRuntime, browserUse),
         );
         const nodexAgentProtocolToolsContext = yield* Layer.buildWithScope(
           nodexAgentProtocolToolsLive.pipe(
@@ -2388,6 +2302,7 @@ export const live: Layer.Layer<
             rendererConversationCoordinator,
           ),
           Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(CodexConversationRelationships, conversationRelationships),
           Effect.provideService(CodexThreadDirectory, threadDirectory),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(Scope.Scope, runtimeScope),
@@ -2426,88 +2341,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const automationExecution = Context.get(automationExecutionContext, AutomationExecution);
-        codexService = yield* Effect.try({
-          try: () => {
-            return new CodexService({
-              conversationRuntimes,
-              foldSidebarPathCase: config.platform === "win32",
-              applicationEvents: codexApplicationEvents,
-              agentProviderRuntime,
-              composerCatalog,
-              desktopTools,
-              preferences,
-              permissions: makeCodexPermissionsPromiseAdapter(codexPermissions, callbacks),
-              persistedAtoms,
-              attachments: attachments.legacy,
-              pendingServerRequests,
-              controlPlane: callbacks,
-              turnCommands,
-              activeGoalContinuation: activeGoalContinuationCallbacks,
-              ownerNotificationDrain: makeCodexOwnerNotificationDrainRuntimePromiseAdapter(
-                ownerNotificationDrain,
-                callbacks,
-              ),
-              rendererConversations,
-              rendererConversationCoordinator,
-              gitProbe: makeCodexGitProbePromiseAdapter(gitProbe, callbacks),
-              structuredThreadTitle: makeCodexStructuredThreadTitlePromiseAdapter(
-                structuredThreadTitle,
-                callbacks,
-              ),
-              dynamicToolsLaunch: makeCodexDynamicToolsLaunchPromiseAdapter(
-                dynamicToolsLaunch,
-                callbacks,
-              ),
-              threadHandoffRuntime,
-              threadSettingsRuntime: makeCodexThreadSettingsRuntimePromiseAdapter(
-                threadSettingsRuntime,
-                callbacks,
-              ),
-              threadTitlePersistence: makeCodexThreadTitlePersistencePromiseAdapter(
-                threadTitlePersistence,
-                callbacks,
-              ),
-              conversationCommands,
-              postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
-                postResumeGoals,
-                callbacks,
-              ),
-              backgroundSubagentMetadataRepair,
-              subagentCatalog,
-              queuedFollowUps,
-              queuedFollowUpDispatcher,
-              conversationDeltaBuffer,
-              conversationResume: makeCodexConversationResumeRuntimePromiseAdapter(
-                conversationResume,
-                callbacks,
-              ),
-              threadGoals: makeCodexThreadGoalRuntimePromiseAdapter(threadGoals, callbacks),
-              userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
-                userInputAutoResolution,
-                callbacks,
-              ),
-              sessionStore: codexSessionStore,
-              client: codexClient,
-              runtime: codexRuntime,
-              runtimeStateHome,
-              nodexAgentAuthority: createDesktopNodexAgentAuthorityPort({
-                authority: dataAuthorityPromise,
-              }),
-              nodexAgentAuthorization: makeNodexAgentAuthorizationRuntimePromiseAdapter(
-                nodexAgentAuthorization,
-                callbacks,
-              ),
-              automationRouting,
-              projectWorkspace: legacyProjectWorkspace,
-              executionHosts,
-              terminalRuntime: {
-                getThreadSnapshot: (threadId) =>
-                  callbacks.runPromise(terminals.getThreadSnapshot(threadId)),
-              },
-            });
-          },
-          catch: (cause) => runtimeError("construct-codex-application", cause),
-        });
         yield* threadHandoffRuntime.recover().pipe(
           Effect.catch((cause) =>
             Effect.sync(() => applicationLogger.error("Task handoff recovery failed", { cause })),

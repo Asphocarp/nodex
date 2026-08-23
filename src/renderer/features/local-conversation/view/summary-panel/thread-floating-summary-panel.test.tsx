@@ -321,7 +321,6 @@ function makeSubagentConversation(
     queuedFollowUps: [],
     pendingSteers: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canCollapseTurns: true,
       canEditLastUserTurn: true,

@@ -114,8 +114,3 @@ export const make: Effect.Effect<
     clear: (conversationId) => FiberMap.remove(continuations, conversationId),
   });
 });
-
-export interface CodexActiveGoalContinuationLegacyPort {
-  readonly request: (conversationId: string) => void;
-  readonly clear: (conversationId: string) => void;
-}

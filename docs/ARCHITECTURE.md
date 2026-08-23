@@ -363,8 +363,7 @@ Its scoped runtime resolves Project workspace authority through Core, owns one l
 mutation lane plus the physical write fibers, and exposes the five renderer operations through a
 dedicated trusted IPC adapter. A caller may stop waiting after a write is admitted, but the durable
 filesystem transaction remains uninterruptible and Scope-owned; release rejects all new reads and
-writes, interrupts queued mutations, and drains the active write before returning. The filesystem
-helper is stateless and neither it nor `CodexService` owns a Promise tail or shutdown path.
+writes, interrupts queued mutations, and drains the active write before returning. The filesystem helper is stateless; no application service owns a Promise tail or parallel shutdown path.
 
 Renderer persisted atoms and Codex client-thread identity aliases share one
 Main-owned `PersistedAtomStore`. The repository owns its in-memory projection
@@ -390,10 +389,10 @@ import-time active-service slot.
 
 Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0048](adr/0048-effect-main-application-kernel.md) defines the completed Main application-kernel topology and frontier.
 
-The remaining Codex Promise ingress makes the ingress fiber's cancellation signal available at its
-single adapter seam. Operations additionally coupled to renderer lifetime, including fresh Thread
-startup, combine that signal with the exact `WebContents` destruction signal, so renderer disposal
-and Main Scope close cancel the same physical work rather than only abandoning its IPC result.
+Codex Electron and app-server ingress convert external callback, Promise, and cancellation shapes
+once at their scoped platform boundary. Operations coupled to renderer lifetime combine the exact
+`WebContents` destruction signal with Main Scope interruption, so renderer disposal and application
+shutdown cancel the admitted physical work rather than merely abandoning an IPC result.
 
 The Effect architecture gate parses production sources rather than relying on
 path conventions alone. It rejects Effect imports in frontiers, unstable APIs
@@ -497,709 +496,114 @@ Document identity, owner shells, relocation, history, and Canvas decisions are r
 
 ### Codex conversation ownership
 
-The pinned Codex-compatible app-server is the raw wire-contract authority. Main validates generated JSON-RPC envelopes and owns process lifecycle, request/response plumbing, external execution, and routing. Core Workspace owns Nodex's durable Project, Session, Thread metadata, execution context, sidebar order, links, and the atomic Project/projectless default-draft Session slots defined by [ADR 0044](docs/adr/0044-durable-default-draft-chats.md); it does not store a second full transcript or transcript search index.
+Codex has four distinct authorities that must not collapse into one another:
 
-Core also persists the app-server Thread recency clock separately from metadata update clocks.
-Main may advance that clock only from an observed app-server `recencyAt`, falling back to the observed source `updatedAt` when the protocol omits recency.
-Opening or reading a Session and changing Thread title, status, pin, archive, order, or execution location preserve conversation recency.
-Core uses that durable clock for recent ordering, while a Threadless Session has no conversation recency.
+- The pinned Codex-compatible app-server owns the generated wire contract and its transcript
+  history.
+- Rust Core Workspace owns durable Nodex Project, Session, and Thread identity, parentage, recency,
+  status, archive state, sidebar placement, and execution location. It does not persist a second
+  transcript.
+- One Main-owned generation aggregate holds the accepted application view of a live Thread:
+  canonical protocol state, Nodex sidecars, request lifecycle, resume and pagination fences, and
+  renderer replication checkpoints. All commands and protocol consequences for that Thread pass
+  through one causal lane.
+- The active renderer owner is the sole visible conversation writer. Renderer-local editing and
+  presentation remain renderer concerns; Main retains only a validated relay and recovery replica,
+  and followers render validated copies.
 
-One renderer client is the active visible owner of a live conversation. It reduces canonical protocol items, requests, streaming deltas, and Nodex sidecars into one conversation document, then publishes serialized snapshots or patches to Main through a content-addressed compare-and-swap checkpoint. Main validates and retains that document as a relay/recovery replica but does not mutate it into a second visible transcript while the owner exists.
+The app-server transport has one physical owner per endpoint generation. The Gateway exposes typed
+requests and generation-fenced observations without duplicating reconnect, timeout, request
+correlation, or event buffering. A process-scoped request Inbox exists before endpoint attachment,
+so startup and replacement cannot lose an accepted occurrence. The application protocol decodes
+each request or notification once, routes it to its semantic family, and enters the target Thread's
+causal lane. Different Threads may progress concurrently; events for one Thread cannot overtake its
+own accepted command or projection consequence.
 
-A follower first acknowledges an exact owner snapshot barrier. It then accepts only contiguous patches from the same owner epoch and requests a fresh snapshot after a gap, hash mismatch, owner replacement, or transport reset. Follower actions route to the current owner; a client with no role must resume or adopt before acting.
+```mermaid
+flowchart LR
+    Server["Codex app-server"] --> Endpoint["Endpoint generation"]
+    Endpoint --> Gateway["Typed Gateway"]
+    Gateway --> Inbox["Request Inbox and protocol interpreter"]
+    Core["Core Workspace"] --> Directory["Thread directory and durable projection"]
+    Inbox --> Lane["Per-Thread generation and causal lane"]
+    Directory --> Lane
+    Lane --> Aggregate["Canonical conversation aggregate"]
+    Aggregate --> Events["Application event hub"]
+    Events --> Projection["Renderer and native projections"]
+    Renderer["Renderer owner/followers"] <--> Coordinator["Renderer conversation coordinator"]
+    Coordinator <--> Aggregate
+```
 
-Renderer identity, WebContents registration, targeted delivery, request correlation, and client
-lifecycle observation belong to one Main-scoped `RendererClientRuntime`. Electron registration and
-message delivery remain synchronous because they are ingress operations, while every operation
-that waits for a response is a typed Effect backed by one Deferred and one Effect-clock deadline.
-Responses must come from the exact target WebContents; renderer destruction, explicit release,
-request interruption, timeout, and Main Scope close all complete the same pending authority at most
-once. Connected/disposed observation is a scoped Stream rather than a listener set. The temporary
-Promise projection used by the remaining conversation facade owns no state, timer, listener, or
-request lifecycle.
+A Thread directory joins full-fidelity app-server reads with Core's durable identity and execution
+metadata. Hydration, resume, and fresh launch seed durable facts first, buffer concurrent protocol
+occurrences behind a generation fence, and publish only a complete accepted state. Endpoint
+replacement, Thread removal, or failed hydration invalidates that generation's pending requests,
+buffers, command fibers, and renderer checkpoint. Recovery rebuilds from Core plus a fresh
+app-server read; it never merges two generations or treats a sidebar summary as transcript
+authority.
 
-Transient Nodex Agent resource consent belongs to one Main-scoped
-`NodexAgentAuthorizationRuntime`. Its immutable Ref is the sole process owner of task grants;
-Effect Clock timestamps renderer requests, direct `RendererClientRuntime` Effects own targeted
-correlation and deadlines, and Scope closure atomically closes admission and clears every transient
-grant. Rust Core remains the only owner of durable Project grants and revalidates the exact Turn and
-Store authority supplied by Main. The conversation facade receives only a callback-tracked Promise
-projection of this Module; it cannot replace the Module, inject a broker later, or clear grants from
-an unrelated shutdown hook.
+Semantic application capabilities own complete transactions at their domain boundary. Turn start
+and steering, Session launch, resume,
+fork, rollback, side chat, compaction, history, goals and settings, read state, queued follow-ups,
+archive, handoff, and background-process actions compose the same Thread lane, Gateway, Core
+Workspace, and aggregate. Project-owned commands also enter the Project lifecycle gate before
+admission. Optimistic state is committed or compensated within the owning transaction, and
+interruption reaches the same physical Gateway, worker, or Core operation.
 
-The remaining conversation facade borrows a stateless `CodexGatewayPromiseClient` only for methods
-not yet migrated to typed Gateway Effects. That Adapter owns no event source, endpoint registry,
-connection projection, callback setter, or shutdown path; callback-started request fibers stay in
-the Main-scoped runtime. Server-request decoding is a separate transport/application seam, and
-connection plus notification input is consumed by a scoped Effect projection. The Gateway and
-Endpoint Map remain the only owners of physical sessions. Pending requests, replay buffers, sidebar
-work, fresh Thread launches, authorization, the Gateway, and endpoints each close once through
-their owning Scope. Their application capabilities expose domain release operations only; none
-publishes a second whole-runtime `shutdown` command beside its Scope finalizer.
+App-server approval, elicitation, permission, and user-input requests have one canonical pending
+request lifecycle. Admission records the exact endpoint and Thread generation before presentation;
+renderer or automation responses claim that identity once and send through the typed Gateway.
+Replacement, timeout, renderer loss, server resolution, and Scope close settle the same authority
+at most once. Automatic user-input resolution is a policy over this state, not a second responder
+or timer registry.
 
-Agent-provider credential mutation belongs to `AgentProviderRuntime`, which serializes secure-file
-publication, catalog invalidation, deferred-restart state, idle detection, endpoint restart, and the
-returned status as one scoped operation. The Electron credential file is a synchronous platform
-Adapter: it validates/encrypts input and durably publishes one complete file by exclusive staging,
-file fsync, atomic rename, permissions repair, and directory fsync. It owns no Promise queue or
-shutdown path. Codex child environment materialization receives only the Adapter's read capability,
-so concurrent startup observes either the complete prior file or the complete replacement and cannot
-become a second credential writer.
+Operation approval is distinct from resource authorization. Main-scoped permission and transient
+task-grant capabilities compile the operation policy and correlate renderer consent to the exact
+Thread, Turn, Store epoch, and requester lifetime. Core remains the only durable Project-grant
+authority and revalidates access at the semantic operation. Renderer presence or approval can never
+broaden a Core resource boundary, and Scope close clears every transient grant.
 
-Decoded, generation-fenced app-server occurrences enter `CodexApplicationProtocol` through the
-scoped request Inbox. Independent Threads may progress concurrently, while every request,
-notification admission, and projection consequence for one Thread runs in its single causal lane.
-`CodexNotificationAdmission` observes accepted Turn authority, inherits library authority into a
-spawned child, classifies internal helpers, and updates subagent presentation membership before any
-durable or renderer-visible notification effect. Internal helper traffic and unopened background
-subagent deltas stop at that gate instead of entering a second reducer or callback route.
+Renderer client identity and Electron delivery belong to the scoped renderer client runtime. A
+conversation registry records presence and role without owning projection policy; the conversation
+coordinator atomically owns adoption, owner replacement, following, targeted request delivery, and
+client disposal consequences. A follower acknowledges an exact owner snapshot barrier and then
+accepts only contiguous patches from the same owner epoch. A gap, hash mismatch, owner replacement,
+or transport reset requests a fresh barrier instead of merging competing documents. The event hub
+fans accepted application changes to renderer projection and native notification consumers; those
+consumers own their subscriptions and cannot mutate canonical state.
 
-Manual context compaction is one Main-scoped application transaction. Its Module owns per-Thread
-admission counts, inserts the single optimistic compaction item through the canonical projection
-port, sends the typed command directly through `CodexGateway`, correlates accepted lifecycle events
-with exactly one manual admission, and compensates the projection when a request fails or is
-interrupted. Concurrent requests retain the optimistic item until no admission can still succeed;
-Thread removal and Main Scope close clear the same owner. Renderer IPC invokes the Effect directly.
-`CodexService` temporarily supplies only synchronous canonical read/commit/publication callbacks and
-the pure notification reducer consume site; it owns no compaction counter, request Promise, failure
-handler, or public compaction command.
+Conversation Relationships are a derived presentation projection, never another parent/child
+authority. For one parent, Main combines child Thread identities observed in canonical collaboration
+items with Core's durable child-Thread relationship, then enriches them from loaded full-fidelity
+conversation state. The projection excludes archived or reparented children, preserves canonical
+collaboration order before durable creation order, and derives display identity and request role
+without writing those choices back to Core or the transcript. Missing friendly child metadata
+triggers a keyed full-fidelity directory repair; relationship invalidation rebuilds and publishes
+the complete parent projection. Restart, resume, reparenting, and late child materialization
+therefore converge by recomputation rather than replaying a separate relationship store.
 
-Non-blocking app-server user-input requests are owned by one Main-scoped Codex application Module.
-Its immutable per-conversation state, keyed countdown fibers, serialized transitions, and change
-Stream determine when an unattended request is resolved. A visible foreground presentation first
-waits for renderer inactivity; a background request starts its countdown immediately; activity,
-presentation changes, manual response, server resolution, replacement, disconnect, and Scope close
-all transition the same owner. Renderer IPC reads or mutates this Module directly after validating
-the presenting client, and projection consumes its Stream. `CodexService` may supply the eventual
-protocol response operation through a temporary callback Adapter, but it owns no timer, request map,
-snapshot, or renderer event bus for this policy.
+Execution hosts and managed worktrees are typed dynamic resources subordinate to Main Scope. Core
+stores the durable host, cwd, worktree path, and writable roots; host runtimes and workers own
+physical repository inspection, creation, transfer, cleanup, and bounded retention. Launch,
+automation, fork, handoff, archive, and restore use the same execution-location and managed-worktree
+capabilities, so a Thread cannot acquire a parallel filesystem owner or silently adopt stale
+app-server cwd metadata.
 
-Inactive renderer-owner retention is owned by one Main-scoped Codex application Module. Its
-immutable candidate generations, retention and reconnect timers, bounded oldest-owner eviction,
-and failed-unsubscribe retry fibers all close with the Main Scope. The Module performs the typed
-`thread/unsubscribe` operation through `CodexGateway`, then generation-fences completion before
-asking the conversation projection to commit synchronous owner removal. `CodexService` may decide
-whether a conversation is currently eligible and apply that final projection, but it owns no
-retention clock, candidate collection, retry loop, capacity policy, or network cleanup task. Its
-synchronous ownership callbacks enter the Module through one scoped FIFO adapter that captures
-eligibility at admission, preserving transient owner-generation boundaries without detached fibers.
+All Codex application observation uses typed Streams or the application event hub. Promise,
+callback, child-process, worker, and generated JSON-RPC shapes are converted once at the external
+adapter that requires them; downstream capabilities remain Effect-native. Per-Thread generations,
+endpoint generations, request deadlines, renderer clients, workers, and background fibers are
+children of the Main application Scope or a narrower keyed Scope. Closing that owner first fences
+admission, then interrupts work and releases physical resources through finalizers; there is no
+parallel shutdown protocol or application-internal Promise adapter graph.
 
-Renderer-owner text-delta acknowledgement is one Main-scoped drain Module. It owns monotonic sent
-and acknowledged sequences, one shared Deferred waiter and one Effect-clock deadline per active
-conversation. A waiter freezes the first sent/ack barrier for deadline diagnostics, while later
-notifications extend the acknowledgement requirement without resetting that deadline. Ack, owner
-replacement, owner release, conversation removal, and Main Scope close all finish or interrupt the
-same barrier through the Module Interface. `CodexService` only attaches the returned sequence to the
-renderer notification and awaits the Promise boundary where its legacy reducer still requires it;
-it owns no sequence maps, callback arrays, timer adapter, or timeout callback.
-
-Main-process frame-text and command-output fallback batching is owned by one scoped Queue actor.
-Synchronous notification ingress only offers typed enqueue/clear commands; the actor is the single
-writer for both key-coalesced buffers. Separate FiberHandles own the non-resetting 16 ms frame-text
-and 50 ms bounded-output deadlines, and a terminal frame drain is an ordered command with a Deferred
-acknowledgement. Reentrant canonical projection may enqueue a new batch without being swallowed by
-the completing timer generation. Thread removal clears only that Thread's pending values, while Main
-Scope close interrupts both deadlines and drops the backlog. Renderer animation-frame batching stays
-in its Effect-free local conversation owner because it has a different visual-frame lifecycle.
-
-Thread-goal get, set, clear, and post-resume load operations share one Main-scoped application
-Module. The Module normalizes local command intent, applies optional next-turn settings before the
-goal request, sends only protocol-owned fields through `CodexGateway`, and projects only an accepted
-server goal into canonical conversation state. Interruption propagates through the settings and goal
-requests, and post-resume hydration reuses the same contained read operation instead of opening a
-second Promise request path. Renderer IPC invokes this Module directly. `CodexService` temporarily
-supplies only the synchronous accepted-goal projection while it still owns canonical conversation
-state; its remaining internal goal call sites use one explicit Promise adapter and it exposes no
-public goal command methods.
-
-Active thread-goal continuation is admitted as an event, not as an untracked Promise workflow. One
-Main-scoped Module owns the per-conversation delay, single-flight fiber, duplicate coalescing,
-eligibility recheck, failure supervision, and interruption. Synchronous conversation lifecycle
-callbacks enter through a scoped FIFO adapter, so a later thread removal deterministically cancels
-an earlier request. `CodexService` supplies only the current eligibility query and the eventual
-command Effect; it owns no continuation timer, in-flight collection, error catch, or shutdown
-cleanup.
-
-Conversation resume admission is owned by one Main-scoped keyed runtime. Identical callers join one
-physical resume fiber; a renderer's silent/deferred adoption demand and an ordinary replay/broadcast
-demand are not treated as equivalent. An incompatible caller waits for the current canonical
-transition, then runs an idempotent demand upgrade, so a deferred notification buffer cannot remain
-stranded behind an earlier join. A second per-Thread lane owns the complete renderer-facing
-transaction: snapshot read, fresh-launch reservation, disposed-generation fence, owner/follower
-choice, canonical resume, owner adoption, accepted-replica checkpoint, and explicit buffer release.
-Competing renderer clients therefore cannot both cross adoption; the later client observes the
-committed owner and becomes its follower. Renderer IPC invokes these typed commands directly.
-Thread removal and Main Scope close interrupt physical resumes. `CodexService` keeps the canonical
-hydration/replay reducer and exposes narrow read/adopt/release projection ports, but owns no public
-snapshot/resume/buffer command, resume Promise map, option-blind join policy, detached cleanup, or
-shutdown entry.
-
-Conversation event fencing is owned by one Main-scoped runtime shared by resume and Thread creation.
-Per-Thread resume lanes take precedence over Thread-start lanes; releasing an inner resume transfers
-its notifications and server requests into an already-open outer creation fence without exposing a
-partially materialized Thread. A replay lane is detached before canonical handling, so reentrant live
-events cannot be swallowed by the completing generation. Request completion stays ordered with its
-notification envelope, while Thread clear, service shutdown, and Main Scope close interrupt active
-replay and reject every request that has not crossed the canonical handler boundary. `CodexService`
-retains protocol Thread-id resolution, raw-delta compaction, and canonical notification/request
-operations, but owns no event-buffer Map, deferral Set/depth, detached request Promise, or teardown
-loop.
-
-Fresh renderer-owned Thread launch is a Main-scoped three-phase protocol rather than a class-local
-registry. The launch runtime reserves the initiating renderer, coalesces an exact adoption, blocks
-the first-turn command until adoption commits, and admits exactly one physical first-turn fiber.
-That fiber enters the shared Thread-generation lane and Project lifecycle gate, revalidates the
-active Project, begins the authorization projection, sends typed `turn/start` through
-`CodexGateway`, and commits the accepted response in an uninterruptible finite projection step.
-Failure or interruption before protocol acceptance aborts authorization and projects launch
-failure; downstream goal, active-state, and heartbeat bookkeeping cannot reinterpret an accepted
-Turn as a failed transport command.
-Disconnect removes prepared/adopting/adopted launches and releases their event fence, while a launch
-whose first Turn has started is allowed to finish. Thread removal and Main Scope close interrupt the
-same adoption/start fibers; successful or failed first-turn completion consumes the launch. The
-renderer adoption ingress invokes this typed owner directly. The canonical conversation owner
-supplies only adoption and first-turn prepare/begin/commit/rollback projection stages; it owns no
-first-turn transport, Project gate, command lane, public adoption command, launch Map, mutable state
-enum, duplicate-start race, renderer-disconnect scan, or shutdown entry.
-
-Fork side-panel transfer is a Main-scoped application protocol, not state hidden inside the
-conversation projection. One immutable state keeps pending-worktree captures and target-conversation
-snapshots in separate namespaces, and one semaphore serializes capture, rebase, promotion, discard,
-and consume transitions. External Browser capture/rebase/apply operations happen before the
-corresponding state commit: a failed rebase preserves both the pending capture and any previous
-target, while a failed apply preserves the target for retry. Scope close atomically closes admission
-and clears both namespaces; an operation returning from a non-cancellable Electron boundary cannot
-publish state after closure. `CodexService` temporarily supplies conversation/session resolution but
-owns no transfer Map, lazy manager, or shutdown cleanup.
-
-Post-resume Thread-goal hydration is a separate Main-scoped lifecycle because it correlates a
-remote read with a particular conversation revision. Concurrent awaited hydrations share one keyed
-load while each retains its own revision fence; background resume requests coalesce to the newest
-revision, trigger active-goal continuation without awaiting it, and schedule remaining history only
-after hydration settles by invoking the canonical history capability directly. Renderer-owner
-adoption may defer that flow until the resume notification buffer is released. Conversation removal
-and Main Scope close interrupt active loads and tails.
-`CodexService` retains the canonical projection and performs one atomic revision-fenced commit, but
-owns no hydration Promise map, deferred-flow Set, detached tail, or shutdown cleanup.
-
-Conversation history pagination has one Main-scoped per-Thread runtime. Concurrent page or complete
-callers join the same physical load; a complete-history demand arriving behind a page demand runs
-the required escalation after that page settles. Caller interruption only stops that waiter, while
-Thread removal and Main Scope close interrupt the shared physical load. Post-resume remaining-history
-work enters the same runtime as a supervised background request instead of a detached Promise.
-Awaited page/complete commands return the canonical snapshot observed after their required physical
-load, so renderer ingress invokes the typed runtime directly instead of re-entering a facade for the
-result projection. The runtime reads app-server pages through `CodexGateway`, materializes older
-Turns with a pure projector, and commits them through the `ConversationRuntimeMap` aggregate's
-cursor fence. That synchronous commit prepends history onto the latest canonical revision, so live
-updates observed during the request cannot be overwritten. `CodexService` owns no history command,
-pagination reducer, projection callback, Promise adapter, background tail, or lifecycle cleanup.
-
-Missing background-subagent metadata repair is owned by one Main-scoped keyed runtime. The canonical
-conversation projection decides whether a child still lacks a valid parent/friendly identity and
-applies the repaired child membership, while the runtime owns active single-flight, completed-child
-suppression, Effect-clock retry admission, failure supervision, and interruption. A repaired child
-is not probed again during that Main generation; an incomplete or failed repair may retry only after
-the fixed interval. Thread removal clears its repair generation, and Main Scope close interrupts all
-physical reads. `CodexService` owns no repair Promise map, retry timestamp map, completed Set, or
-detached finalizer.
-
-Durable Thread identity and canonical hydration are owned by `CodexThreadDirectory`. One scoped
-resolve reads or commits the Core Workspace identity, selects the durable execution host, reads the
-required app-server fidelity, and commits canonical aggregate, transcript snapshot, pagination, and
-summary projection as one serialized Thread operation. Unknown remote children are never guessed as
-local: descendant hydration is rooted in an already durable ancestor, pages on that ancestor's host,
-persists parent lineage, and then resolves requested children on the inherited durable host. Repeated
-cursors are fenced and Scope release interrupts discovery or hydration. The sole generated-protocol
-projection is mechanical and lives beside `CodexGateway`.
-
-`CodexSubagentCatalog` therefore owns only known/full-fidelity presentation membership and the
-background-delta delivery gate; notification admission observes child identity before projection,
-while background and panel reads delegate root-scoped authorization, discovery, materialization,
-and hydration to the Directory. Opening a child moves it to full-fidelity delivery, Thread removal
-clears both indexes, and Main Scope release clears the generation. Metadata repair remains the
-separate keyed policy above because its retry/completion lifecycle differs from inventory and
-presentation fidelity.
-
-Queued follow-up entries, ordering, pause state, and generation belong to the same
-`ConversationRuntimeMap` aggregate as their Thread. Accepted renderer-owner replica ingress
-reconciles that aggregate state, while Main-owned mutations project the accepted replica only when
-no renderer owner exists. `CodexQueuedFollowUps` is the typed, serialized façade for creation with
-Effect Clock, remove/reorder, atomic claim, restoration, reset, generation clear, and dispatch
-intent. A separate scoped dispatcher owns only keyed submit fibers and composes `CodexTurnCommands`.
-Duplicate automatic requests coalesce per Thread, paused heads remain ineligible for automatic
-dispatch, manual “send now” may steer an active Turn, a failed claim is restored exactly once, reset
-does not cancel an admitted submit, and Thread generation release cancels the fiber before clearing
-state so stale restoration is fenced. Renderer IPC calls these capabilities directly; no queue
-array, Promise adapter, callback submission port, or second queue authority exists in `CodexService`.
-
-Sidebar synchronization is owned by one Main-scoped runtime. It combines same-catalog callers behind
-one physical refresh fiber, fences completion with a monotonic generation, applies Effect-clock
-freshness and bounded failure backoff, and caches snapshots by the Project Workspace invalidation
-revision captured before each Core read. The database invalidation subscription, notification
-trailing debounce, minimum-generation repair, active refreshes, and cache all close with Main Scope.
-The same runtime owns first-window materialization and the paginated background reconciliation
-sweep, including cooperative replacement, bounded-jitter retry, and Scope interruption. It composes
-the typed Gateway, Core Workspace, Thread Directory, Internal Thread Registry, execution-host
-catalog, application event hub, and database invalidation Stream directly. Internal and ephemeral
-root identity comes only from app-server protocol metadata plus the scoped registry; child Threads
-remain durable descendants but Core retires any leaked sidebar Session ownership. No sidebar
-materialization, snapshot, sweep, telemetry callback bag, Promise adapter, timer, or hiding heuristic
-remains in `CodexService`.
-
-Thread Catalog reads, search, and placement are owned by `CodexThreadCatalog`. Project Thread
-windows, pinned order, and the bounded command-palette list are projected directly from Core
-Workspace windows. Those task windows carry the complete execution authority required by the
-catalog—provider/profile, host, cwd, managed-worktree identity, and Projectless directories—so the
-projection performs no per-Thread repair reads. Full-text palette search
-uses the typed local Codex Gateway directly, pages past filtered child/internal Threads with a
-repeated-cursor fence, and merges server results with the same Core Project, pin, and runtime-status
-projection. Point resolution delegates durable identity and app-server materialization to
-`CodexThreadDirectory`, then publishes only a changed Project/projectless sidebar scope. Paginated
-pin reads, pin/unpin placement, full pinned-order
-replacement, and cross-Project/sidebar-lane moves share that source of truth. All
-Catalog mutations pass through one Main-scoped semaphore; reads remain concurrent but close with
-Main Scope. Session ensure delegates to the Sidebar synchronization runtime's own mutation lane.
-Root Threads reuse an existing owner or atomically create and link one; a failed link deletes the
-partial Session. Moves validate source and pin lanes in Core, fence Project access grants with the
-target binding revision, commit placement and execution metadata, then delegate loaded-runtime and
-conversation relocation to `CodexThreadExecution`/`CodexConversationProjection` before publishing
-the exact changed scope. `CodexService` owns no catalog read/search, materialization, Session
-algorithm, pin/move command, cached projection, callback bag, or Promise adapter.
-
-Thread read state is owned by `CodexThreadReadState`. Manual read/unread transitions inspect the
-canonical and Project Workspace projections, reject archived or unknown Threads, persist to Project
-Workspace before publishing the in-memory and renderer projection, and return whether a transition
-committed. Synchronous conversation reducers submit their already-projected state to the same
-per-Thread lane and reproject after persistence; this post-commit reconciliation makes the lane's
-last admitted transition authoritative even when a reducer runs during an earlier physical write.
-Main Scope closure interrupts active and queued writes. Renderer ingress invokes the typed command
-directly; `CodexService` temporarily exposes only inspect, persistence, and projection ports and owns
-no public read-state command or write queue.
-
-The `ConversationRuntimeMap` Thread generation owns the shared application-command lane, so
-interrupt, background-terminal cleanup, request responses, and Turn commands cannot interleave
-merely because they have different Module owners. Interrupt resolves one target, pauses an active
-goal, declines pending interaction requests, sends the typed Gateway command, durably reconciles
-Thread status, publishes the canonical terminal Turn, and requests queued-follow-up dispatch. A
-remote interrupt is the irreversible commit point: a later local projection failure is supervised
-and cannot report the accepted command as failed. Background-terminal recognition and cleanup share
-one canonical selector which excludes only the latest still-in-progress foreground Turn. Archive
-and unarchive continue to cross the existing full product projection seam until automation,
-worktree, unread, sidebar, authorization, and Thread-release effects can be extracted as one atomic
-archive command; they are not replaced by a partial direct implementation. The Module exposes only
-complete named commands, not staged prepare/apply methods or a generic protocol escape hatch.
-
-Starting a Turn on an existing Thread is a complete `CodexTurnCommands` transaction. The command
-holds the shared Thread-generation lane while it prepares the effective prompt, settings,
-permissions, workspace and authority plan, then enters the Project lifecycle gate before admitting
-the optimistic canonical mutation and the typed `turn/start` request. A Main-owned start may recover
-one missing app-server Thread and retry within that same transaction; a renderer-owned start never
-does so because its renderer remains the state authority. Response validation is the protocol commit
-point; authority binding, canonical acceptance, durable status, and automation acceptance then
-reconcile that accepted fact without making the Turn resendable. Failure or Main Scope interruption
-before protocol acceptance aborts pending authority, terminalizes the optimistic Turn exactly once,
-and restores durable/public idle status. A missing app-server Thread is rematerialized and the
-complete plan is prepared again once before retrying. The Main-owned first Turn of a freshly
-materialized Session Thread enters this same
-transaction with its already compiled prompt and correlation metadata; it no longer has a second
-optimistic reducer, authority binding path, or direct `turn/start` request in the Session launcher.
-Renderer IPC invokes the Effect command directly. Transitional physical ingress inside the remaining
-conversation facade consumes the same constructed command through the scoped control-plane runtime;
-there is no Turn-specific Promise adapter, staged `*ForModule` protocol, or second request
-interpreter. `CodexService` no longer owns Turn preparation, optimistic admission, missing-Thread
-recovery, authority binding, projection commit, command lane, or cancellation lifetime.
-Renderer-owned fresh-Thread launch remains a separate application transaction because it
-additionally owns reservation, adoption and first-Turn admission.
-
-Creating a Thread for a Project Session is a complete `CodexSessionThreadLaunch` transaction keyed
-by Session identity. Preparation performs no durable pending-worktree admission. Both the managed
-worktree path and the immediate local path enter the shared Project lifecycle gate and re-read
-Session ownership, existing Thread linkage, and active Project lifecycle before committing. The
-immediate path brackets notification deferral around the typed local `thread/start` request and
-durable Session link; if that link fails or the Main Scope interrupts first, the unlinked app-server
-Thread is deleted best-effort and the deferral always closes. Main-owned first-Turn work composes
-`CodexTurnCommands` directly inside the same Project transaction; renderer-owned work instead
-commits a fresh-launch reservation for the separate adoption protocol. Renderer destruction and
-Main shutdown interrupt the same command fiber. The concentrated Codex IPC layer depends only on
-the typed application Module and no longer imports or calls `CodexService`; that class supplies
-temporary preparation/projection ports but has no public Session-launch command or production
-transport interpreter.
-
-Steering an active Turn belongs to that same command owner and shared lane. Main-owned steering
-uses the Effect clock and random service for correlation identity, appends the optimistic steering
-item, sends typed `turn/steer`, and removes the exact canonical item on failure or interruption
-without consulting the derived transcript. An inactive-target response first completes that
-rollback, then invokes the private in-transaction start path without reacquiring the non-reentrant
-Thread lane. Renderer-owned steering uses the same Gateway and lane but performs no Main projection
-or inactive fallback because the renderer owns those state transitions. Standard renderer IPC
-invokes the Effect command directly.
-
-Renderer-owner commands are admitted by `CodexRendererOwnerCommands`, which validates the exact
-renderer owner and Thread identity before any effect can run. The coordinator decodes the closed
-owner-command union and composes the same Turn, Conversation, settings, goal, compaction, and fresh
-launch Modules used by every other ingress. Background-terminal paging remains a typed
-`ConversationCommands` capability instead of bypassing the Module through a raw protocol request.
-The owner-only IPC channel is registered by the concentrated Codex application ingress;
-`CodexRendererIpc` owns only renderer coordination channels, and `CodexService` has no generic
-app-server request router or fallback transport switch.
-
-Editing the latest completed user Turn is a `CodexThreadRollbackCommands` transaction. It holds the
-shared Thread-generation lane while waiting for the renderer owner's current text-delta ack,
-validates the exact latest editable Turn, sends typed `thread/rollback`, rejects a response for a
-different Thread, and only then replaces the canonical/materialized conversation projection. A
-transport failure or interruption cannot publish a partial rollback. `CodexService` supplies only
-the prepare and accepted-response projection stages and sends no owner-edit rollback request.
-
-Side-chat creation and discard are complete `CodexSideChatCommands` transactions. Creation holds
-the parent Thread-generation lane while it prepares inherited workspace policy, forks an ephemeral
-excluded-history Thread on the parent's exact execution host, injects the side-conversation
-boundary, commits the temporary conversation projection, and optionally starts the first Turn
-through `CodexTurnCommands`. A Main-scoped ephemeral routing authority binds the returned child ID
-to that host before any child request can run; the shared Thread host resolver consults this map
-before durable Workspace projection, so child Turns, notifications, and unsubscribe never fall
-back to the local endpoint for a remote parent. Typed failure or Scope interruption compensates the
-fork, route, and local projection. Discard holds the child lane and releases local projection,
-route, and `ConversationRuntimeMap` generation even when host resolution or best-effort remote
-unsubscribe fails. Renderer IPC invokes the Effect commands directly; `CodexService` temporarily
-supplies only preparation and canonical projection stages and owns no production side-chat request,
-host-affinity map, command lane, or cancellation lifetime.
-
-Background-process discovery and local terminal actions are owned by `CodexBackgroundProcesses`.
-One owner-scoped read drains the typed app-server terminal cursor, degrades a failed live observation
-to the durable Project Workspace catalog, records successful observations, refreshes local PTY
-metrics, and returns one joined process view. A local action revalidates the Thread's active Project
-both before and inside the shared Project lifecycle gate, durably records the action, invokes the
-Effect-owned Terminal Session, and only then returns the refreshed catalog. Main Scope closure
-interrupts active or queued actions. Renderer and Project lifecycle ingress borrow this Module;
-`CodexService` owns no public background-process read/write operation and temporarily exposes only a
-synchronous conversation title/item projection.
-
-Next-turn Thread settings use one Main-scoped application Module. Its reference-counted lanes
-serialize the complete validation → local projection → typed remote update transaction within a
-Thread while unrelated Threads remain independent; Turn start and active-goal continuation join the
-same lane before reading effective settings. The Module owns interruption, unloaded-Thread fallback,
-unsupported-method classification, and the single monotonic `thread/settings/update` capability fact
-used by ordinary settings, workspace moves, and handoff evaluation. Renderer IPC and Thread-goal
-commands invoke it directly. `CodexService` temporarily supplies one cancellation-fenced preparation
-port for execution-profile validation, canonical projection, and protocol parameter construction,
-but owns no public settings command, mutation Promise map, remote request, recovery tail, drain
-barrier, or parallel capability flag.
-
-External-agent import request correlation is owned by one Main-scoped runtime. It subscribes to the
-generation-fenced local Gateway stream before issuing the import request, buffers progress and
-completion notifications until the returned import identity is known, and serializes admission so
-pre-response events cannot cross import operations. One Effect-clock deadline and the Main Scope own
-the request, collector, and wait. The runtime depends directly on `CodexGateway`; `CodexService`
-owns no import request, listener, early-completion map, resolver Promise, timer, or Promise adapter.
-
-The user-facing Agent import protocol has a separate Main-scoped application owner. It retains
-bounded preview tokens, prunes them against the Effect clock, rejects a second apply immediately,
-and consumes a preview only after a successful import. Failed/interrupted imports release admission
-without losing the preview. Scope close atomically clears previews, while the scoped Event Hub fences
-late progress from a replacement application. Its Effect-native import engine owns source discovery,
-safe-copy/config policy, and ledger publication, and invokes formal Gateway, external-import,
-Thread-directory, title-persistence, sidebar-sync, and application-event services directly. Native
-rollouts are forked through the Gateway, accepted as canonical standalone Threads by the Directory,
-and compensated with `thread/delete` if canonical materialization or title persistence fails; Claude
-imports resolve their returned Thread ids through the same Directory. All three renderer import
-channels execute the typed owner directly; the directory picker remains the sole Electron Promise
-seam. `CodexService` owns no import command, callback bag, materialization path, progress projection,
-Promise adapter, or lifecycle state.
-
-Heartbeat turn completion is one Main-scoped request/correlation capability. It subscribes to the
-generation-fenced Gateway stream before resolving the Thread host and starting the turn on that exact
-host, buffers completion that races the response, and accepts only the exact host, Thread, and returned
-Turn identity. The ten-minute deadline covers host resolution, request, and completion waiting but
-preserves the product's non-failing timeout policy. A failed terminal status remains typed failure,
-and Main Scope closure interrupts the request, subscription, deadline, and wait together.
-`AutomationExecution` composes this capability for scheduled heartbeats; `CodexService` owns no
-heartbeat selection, notification handler, resolver Promise, timer, or cleanup path.
-
-Structured Thread-title generation is one Main-scoped ephemeral operation Module. It acquires a
-system Thread and leases its identity from `CodexInternalThreadRegistry`, subscribes to the
-generation-fenced local Gateway stream before starting its Turn, and aggregates only the exact
-Thread/Turn agent-message stream. A completed agent message replaces partial deltas; terminal
-failure and the single Effect-clock deadline interrupt the active Turn, while every exit path
-unsubscribes and releases the helper Thread. Once `thread/started` confirms the helper identity, the
-registry retains suppression until terminal Thread lifecycle even if the operation lease closes.
-Scope closure performs the same structured release.
-Manual generation ingress invokes the typed Module directly and converts its typed failure to the
-product's best-effort null result at that boundary. `CodexService` retains only automatic-title
-fallback normalization and persistence; it exposes no public generation command and does not own the
-helper protocol client, notification parser, timer, interrupt, or cleanup state.
-
-Thread-title persistence is a separate Main-scoped Module because it outlives any one title source.
-Manual, generated, imported, scheduled, launch-time, dynamic-tool, fork, and Project Session rename
-commands enter one reference-counted per-Thread FIFO lane. The Module normalizes the title, commits
-the local conversation projection, and then persists through the typed Gateway and Project Workspace
-in that order. Ordinary updates isolate both external failures and still attempt durable Workspace
-projection after a remote failure; transactional Thread-creation updates retain typed failure. Codex
-renderer and Project Session ingress call this Module directly. `CodexService` supplies only the
-synchronous canonical projection and Workspace persistence operations through a stateless Adapter;
-it owns no public title command, protocol request, persistence queue, recovery tail, or shutdown
-cleanup.
-
-Dynamic-tool discovery during Thread launch borrows one Effect-clock policy capability. Discovery
-failure remains a typed launch failure, while the five-second deadline intentionally fails open to
-an empty catalog so Thread creation is not blocked by optional model-aware tools. The losing
-discovery fiber is interrupted with its caller. The pure launch-parameter builder receives only a
-stateless Promise projection; it owns no timer, settlement flag, or injected clock implementation.
-
-Codex application projections share one typed, Main-scoped event hub. The transitional
-`CodexService` receives only its synchronous publisher capability so reducer callbacks preserve
-causal order; it cannot subscribe, register listeners, or own projection cleanup. Renderer delivery
-and native-notification policy consume independent Effect Streams from the hub. Their fibers and the
-hub close with the Main Scope, and notification action admission closes at the same boundary, so an
-already displayed operating-system notification cannot dispatch into a replaced Main runtime.
-
-Renderer conversation coordination belongs to one Main-scoped client-generation runtime. It
-atomically owns retired-client admission, owner identity and epoch, detached-owner recovery grace,
-follower membership and snapshot barriers, active/presented surfaces, and owner-request delivery
-correlation. Renderer following, view-active, and presentation ingress execute complete typed
-commands on this runtime: each command validates the live client generation, changes the aggregate,
-then applies subscription, conversation, retention, and foreground-event consequences through
-narrow projection ports before it completes. The scoped renderer IPC layer binds the exact
-authorized client identity and invokes those commands directly; it cannot mutate the aggregate or
-assemble their consequences through `CodexService`. A renderer disposal retires that identity and
-updates all five projections in one synchronous transition before `CodexService` applies canonical
-conversation consequences or emits transport actions. Owner replacement clears the prior delivery
-generation and re-fences followers; Thread removal and Main Scope release clear the same aggregate.
-`CodexService` remains the owner of the accepted conversation document and reducers, but it has no
-renderer owner map, detached-owner
-map, disposed-client set, delivery registry, independent view registry, or capability to close the
-whole renderer-coordination runtime.
-
-The detailed contracts are [Codex owner/follower streaming](docs/product-specs/codex-thread-owner-follower-streaming.md), [Codex transcript behavior](docs/product-specs/codex-thread-transcript-behavior.md), and [the generated protocol runtime plan](docs/plans/codex-generated-protocol-runtime-boundary.md).
-
-Prompt-created worktrees are a separate pre-conversation Main-scoped Module. A pure reducer defines
-the pending and conversation-start transitions; the Module owns the current immutable projection,
-keyed creation and launch fibers, shared local-launch Deferreds, progress-generation fencing,
-cleanup work, and stable-Project registration. Cancellation, retry, local fallback, and Main Scope
-release therefore complete through one owner rather than an `AbortController`/Promise registry in
-`CodexService`. The host-scoped worktree worker remains the sole owner of Git and setup filesystem
-effects, and Effect interruption reaches that adapter's `AbortSignal`. The renderer can observe and
-act on typed pending entries but cannot invoke raw worktree mutation. Core receives only the
-successful durable Session/Thread link and managed-worktree metadata; app-side initialization
-activity remains outside the generated app-server protocol. Main keeps that synthetic activity only
-for its process lifetime: renderer replacement can recover it from Main's conversation document,
-while a Main/app restart reconstructs protocol history without it. See
-[Codex worktree creation behavior](docs/product-specs/codex-worktree-creation-behavior.md).
-
-Execution-host workers use a versioned, operation-discriminated protocol. Main
-routes an operation only to a registered host that advertises the capability;
-request, progress, terminal result, and cancellation retain the same operation
-identity across the boundary. A worker crash fails its in-flight requests and
-the host adapter may start a fresh worker for later requests.
-
-The local Git worker has one application owner, `GitWorkerModule`. That owner
-constructs one command runner, one repository registry, and one
-`GitReviewRuntime`; repository identity aliases, discovery coalescing and review
-snapshot generations live only in that runtime. Each review request enters its
-runtime through an async operation context. `GitReviewRuntime` is a lifecycle-free
-in-memory aggregate: it owns no handle, timer, callback registration, or child and
-therefore exposes no `dispose()` protocol. Worker Scope release must instead release
-the physical live queries, repository watches, and generation-provider registrations;
-the aggregate then becomes unreachable. A replacement worker constructs a fresh
-aggregate and therefore starts from a fresh repository identity and generation space.
-
-`GitWorkerModule` itself is acquired only from its worker Scope and exposes command
-execution without construction or disposal methods. Live-query debounce, retry, active
-read, and replacement are subscription-keyed fibers using the Effect clock; refresh
-replacement, unsubscribe, and worker shutdown interrupt the same fiber and propagate its
-signal through repository query coalescing. The live-query Scope finalizer fences later
-subscription admission, releases every repository watch lease, resolves generation
-waiters, and interrupts all remaining keyed work before the repository graph is released.
-The repository registry and each canonical worktree repository are acquired in that same
-worker Scope. A zero-idle `LayerMap` acquires one repository watcher when the first live
-lease arrives and releases it with the last lease. Each target fiber consumes one scoped native
-file-watch Stream; typed stream failure drives recovery, reconnect waits and semantic-change
-debounce use the Effect clock, and callback-time keyed fibers preserve fixed debounce
-windows without owning raw timers. Repository reads coalesce in one `QueryClient`; its
-query signal is the physical read cancellation authority. Last-consumer release,
-generation replacement, and Scope release all cancel through that same signal before the
-cache and generation-provider registrations are released.
-The command runner is also worker-scoped. A zero-idle `RcMap` supplies one Effect
-`Semaphore` lane per canonical common directory, so same-repository commands are FIFO
-while unrelated repositories remain concurrent; waiting and active commands are fibers in
-the worker's `FiberSet`. Ordinary one-shot commands cross the stable `GitCommandPlatform`
-port. Its Node adapter is the only layer that imports the unstable `ChildProcessSpawner`;
-it owns stdin/stdout/stderr streams, bounded output, Effect-clock deadlines, and scoped
-TERM-to-KILL process-group cleanup. The runner receives an explicit environment snapshot
-from the worker entry and owns no process-global Promise tail or ambient environment read.
-Binary object batches and streamed Review search cross that same runner and platform rather
-than acquiring child processes themselves. The platform can synchronously deliver undecoded
-stdout chunks with either an exact byte cap or no retained-output cap: `cat-file --batch`
-copies an exact bounded binary prefix, while Review search consumes the complete diff stream
-without retaining it and bounds stderr, deadline, pending line, stored matches, and caller
-lifetime. `GitReviewRuntime` therefore owns neither an environment copy nor any process path.
-Application Git mutations, including commit and push, cross the same worker protocol. The
-repository owner advances its generation after success; Main does not run a parallel mutation
-path or issue a compensating refresh whose correctness depends on the caller remembering it.
-
-`GitWorkerRuntime` owns the corresponding Main-side channel. Its single state
-tracks the active Worker generation, Main request `Deferred`s, renderer request
-ownership, and live-subscription ownership; worker callbacks enter one scoped
-FiberSet. Main callers use typed Effects, and `GitActions` performs application
-mutations directly through this capability inside `GitActionOperationRuntime`
-children. Effect interruption therefore reaches the worker request without an
-Effect-to-Promise-to-Effect callback sandwich.
-Renderer destruction cancels only that renderer's requests and subscriptions.
-Generation failure rejects every pending owner before later admission starts a
-new generation, and Scope release gives cooperative shutdown one Effect-clock
-deadline before forced termination.
-
-Lightweight Codex policy probes that only need `git rev-parse` use one typed
-`CodexGitProbe` capability with the immutable bootstrap environment and bounded
-output/deadline policy. Fiber interruption reaches the process-group Adapter's
-AbortSignal. `CodexService` may temporarily borrow its stateless Promise projection,
-but it never spawns Git, owns a child timer, or reads ambient process environment.
-
-Git and worktree worker entries are independent Effect applications. Each
-enters through `NodeRuntime.runMain`, registers its MessagePort or stdio ingress
-inside one Scope, and stores keyed requests in a scoped `FiberMap`. Cancellation
-interrupts the matching fiber; shutdown or transport loss closes admission,
-interrupts every remaining request, releases shell/repository resources, and
-then closes the transport. Worker entry files contain no module-level active
-request registry or detached Promise chain.
-
-The Main side of every worktree channel uses the same `WorktreeWorkerRuntime`
-kernel. One scoped instance owns the active process generation, protocol
-listeners, pending request `Deferred`s, callback fibers, and bounded
-cooperative-to-forced termination. Effect interruption sends one protocol
-cancellation for the matching request. Generation failure rejects every
-pending request before later admission starts a replacement. The local adapter
-only creates a `worker_threads` process; the SSH adapter only opens a child and
-frames JSON lines. Neither adapter owns request correlation, reconnect state,
-or a public shutdown protocol. Each request exposes one Effect operation and an
-effectful ordered event consumer. A consumer failure cancels and fails only that
-request; it neither tears down the worker generation nor reorders progress for
-other requests. No Promise port or application-level `AbortSignal` projection
-exists above this transport frontier.
-
-`ExecutionHostConfiguration` is the authoritative Effect capability for enabled
-host definitions and the local managed-worktree root. `ExecutionHostRuntime`
-consumes it and owns remote-host activation. Each enabled SSH host is one keyed
-Scope containing its health probe, scoped `WorktreeWorkerRuntime` client,
-file-transfer adapter, Codex endpoint, and host capability. Removing or changing
-the configuration invalidates that Scope; its finalizers close request admission,
-reject pending work, release the endpoint, request cooperative worker shutdown,
-and force the SSH child only after the bounded deadline. Main shutdown closes
-every remaining host through the same release path. The local
-`WorktreeWorkerRuntime` is provided directly through Context and belongs to the
-Main Scope; execution-host state borrows that capability without closing its
-owner. There is no parallel host registry or service-in-options port.
-Git and Worktree lifecycles have no process-wide aggregate or shared shutdown
-facade because their protocols and ownership semantics are independent.
-
-Thread-scoped app-server requests are routed from the same Core-backed execution
-host projection. Global account and configuration requests remain local. A
-cross-host handoff is the only pre-commit exception: Main explicitly addresses
-the destination app-server while Core still names the source, then atomically
-commits the new host with cwd and runtime roots. SSH adapters are registered only
-after health, worker-deployment, file-transfer, and app-server capabilities are
-ready; renderer and Core never receive SSH credentials or arbitrary commands.
-
-Server-request transport and application presentation have separate, single
-authorities. The process-scoped `CodexApplicationRequestInbox` exists before any
-Endpoint and owns every physical request occurrence through settlement. Each
-Endpoint generation holds an exact scoped lease, starts its same-session
-settlement drain before installing request fallbacks, and returns no-response
-immediately after admission so an approval waiting on UI cannot block the wire
-reader or later notifications. Result and error writes use that generation's
-raw session; exact occurrence tokens and generation leases reject duplicate or
-stale settlements. Semantic interpretation runs as a child of that Endpoint
-generation Scope: closing the session interrupts in-flight work, and an
-occurrence still queued after release is withdrawn before it can create UI or
-canonical state. `ApprovalCoordinator` consumes the Inbox and routes each
-live occurrence to the Thread-scoped `ConversationRuntimeMap`; its `Deferred`
-waits only for application interpretation and never owns the physical transport.
-`CodexPendingServerRequestRuntime` owns the presentation queue for approval,
-user-input, permission, MCP elicitation, private picker, and dynamic tool
-occurrences. Its FIFO lanes preserve duplicate scalar JSON-RPC ids and keep
-numeric and textual ids distinct; claimed entries remain Scope-tracked until
-their exact occurrence token is completed. Disconnect, history pruning, Thread
-cleanup, and Main Scope close all settle the same physical Inbox. Canonical
-conversation reducers remain the sole owner of transcript/request truth.
-`CodexServerRequestResponses` is the only application command owner for renderer,
-automatic, interrupt-time, and synthetic plan-implementation responses. The shared
-Thread-generation lane serializes exact occurrence selection, follower-host forwarding, canonical
-transition, dormant-replica projection, and occurrence settlement. A complete command that already
-holds that lane, such as Turn interruption, composes the explicitly internal in-transaction decline
-step rather than recursively acquiring the non-reentrant lane. `ConversationAggregate` owns the
-canonical request state, stream role, and accepted dormant replica; both request ingress and
-resolution commit through its one semantic lifecycle operation. Pure projectors receive an
-Effect-clock timestamp from the application interpreter and own no runtime state.
-A non-blocking user-input timeout is a typed projection of the single auto-resolution change stream;
-the scoped response consumer submits the empty answer through the same command and then sends the
-sequenced `serverRequest/resolved` notification to the exact renderer owner.
-A failed follower decision leaves the occurrence queued and the canonical request unchanged;
-duplicate physical occurrences receive one protocol response and explicit no-response settlement
-for the rest. Synthetic request completion uses the same lane even though it needs no transport occurrence.
-Renderer IPC never calls responder methods on `CodexService`, and the class owns no response facade,
-completion callback, request-state bridge, pending map, or shutdown path.
-
-`CrossHostThreadHandoff`, `ManagedWorktreeHandoff`, and `CodexThreadExecution`
-form the application transaction graph used by `CodexThreadHandoffRuntime`.
-The runtime atomically reserves one operation per Thread before resolving
-external state, journals every durable boundary before advancing, and keeps the
-transaction fiber in the Main Scope rather than in the initiating tool request.
-Journal mutation is serialized and durable-first: a failed publication cannot
-advance the in-memory authority. Startup recovery, rollback, operation status,
-revision waiting, and bounded completed-status retention use the same graph;
-there is no parallel Promise adapter, effects bag, waiter registry, or timer in
-`CodexService`. Closing Main's Scope interrupts the typed worker and Gateway
-operations through their owning runtime frontiers, while the durable journal
-remains the recovery authority. A cross-host preparation that may have partially
-committed performs deterministic, operation-fenced compensation through the
-destination host Scope; this best-effort cleanup is not a second handoff owner.
-The temporary canonical projection receives Project Workspace, Automation, Nodex Agent, and
-resource-authority ports as immutable construction dependencies. Startup recovery is admitted as a
-tracked Main Scope fiber after construction; no late setter, unavailable-authority proxy, or
-detached constructor side effect participates in the application graph.
-
-After creation, `ManagedWorktreeRuntime` owns physical lifecycle routing,
-normalized single-flight removal, newborn protection, inspection, restoration,
-and ownership metadata. Concurrent inspections with the same normalized
-host/worktree/cwd/candidate-roots identity share one active physical worker
-operation; completion evicts that operation rather than caching repository
-state. Shared operations belong to the Module Scope rather than to the first
-caller, so caller interruption only stops waiting while Main shutdown
-interrupts the worker through the same cancellation channel. The owning
-execution-host worker alone mutates Git, files, and scripts.
-`ManagedWorktreeCatalog` is the product-facing read/command Module above that
-physical runtime. It joins host inventories with one Core Workspace lifecycle
-snapshot, excludes permanent Project roots, enriches consumer Threads and
-Sessions, resolves durable Thread execution locations for inspection and
-restoration, and republishes the restored Thread projection. Renderer list,
-availability, restore, settings, and targeted-delete IPC call this typed
-Interface directly. Settings mutation updates the local execution-host root and
-admits retention as one uninterruptible application commit; targeted deletion
-archives every Core consumer before one physical removal. The canonical
-conversation reducer does not proxy or duplicate those policies.
-`ManagedWorktreeRetentionRuntime` owns retention admission, the fixed coalescing
-window, single-flight execution, policy evaluation, bounded deletion, Effect
-Clock, and Scope cancellation. Each sweep combines one durable Core lifecycle
-snapshot with every host inventory plus pending, newborn, pinned, active, and
-automation protections; incomplete metadata fails closed. Callers only signal
-or await retention and cannot inject an alternate sweep callback. Core
-Workspace atomically persists the durable host/cwd/worktree execution location
-but never inspects a repository or stores
-snapshot refs. Its lifecycle read publishes all managed-worktree consumers and
-Project protection roots at one projection revision. Settings, archive,
-automation, and handoff call the same lifecycle Interface rather than invoking
-physical removal independently. See
-[Codex managed worktree lifecycle behavior](docs/product-specs/codex-managed-worktree-lifecycle-behavior.md).
-
-Core's execution location also wins during app-server hydration. Every managed
-Thread resume explicitly projects the durable cwd and writable roots; an
-app-server metadata read cannot rewrite that location or reintroduce a replaced
-Project source checkout into the writable-root set.
-
-Fallback rollout materialization uses one Main-scoped session repository injected into the Codex
-application. Its file-location and session-index caches never cross an application Scope. Missing
-rollouts are not cached, moved rollout paths are re-resolved, and the session index is reloaded when
-its file identity changes, so a live app can observe newly materialized and renamed Threads.
+The detailed product contracts are
+[Codex owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md),
+[Codex transcript behavior](product-specs/codex-thread-transcript-behavior.md),
+[Codex workspace behavior](product-specs/codex-workspace-behavior.md), and
+[Codex managed worktree lifecycle](product-specs/codex-managed-worktree-lifecycle-behavior.md).
+The process and resource boundary is fixed by
+[ADR 0048](adr/0048-effect-main-application-kernel.md).
 
 ### Window Session and Workbench presentation
 
@@ -1249,8 +653,8 @@ IPC compose that Effect capability directly; Main only provides its formal
 application, Gateway, conversation, project, permission, provider, execution-host,
 and managed-worktree requirements. Scope interruption therefore reaches active
 Gateway and worktree effects without an application-level Promise or `AbortSignal`
-adapter. `CodexService` owns no scheduled execution policy or launch path. Shutdown cancels active external work
-in addition to stopping future ticks. `DesktopNotificationRuntime` is the sole registry for active operating-system notification
+adapter. Shutdown cancels active external work in addition to stopping future ticks.
+`DesktopNotificationRuntime` is the sole registry for active operating-system notification
 occurrences and their Electron callbacks. It derives platform, home, packaged resources, and
 development resources from immutable `MainConfig`, fences action admission before Scope release,
 withdraws each application occurrence exactly once, and closes every remaining native object in its
@@ -1319,7 +723,7 @@ This map names stable regions and responsibilities rather than enumerating indiv
 | [`src/main/app`](src/main/app)                                                            | Main kernel, immutable configuration, composition root, shutdown and callback Scope                                                                    |
 | [`src/main/codex-application`](src/main/codex-application)                                | Codex application Modules, per-thread runtimes, permissions, tools and dynamic execution-host resources                                                |
 | [`src/main/codex-runtime`](src/main/codex-runtime)                                        | Codex app-server endpoint, gateway, generation fencing and typed protocol runtime                                                                      |
-| [`src/main/codex`](src/main/codex)                                                        | Remaining Codex host adapters and conversation projections while the application-Module cut-over completes                                             |
+| [`src/main/codex`](src/main/codex)                                                        | Codex-specific host and external-runtime adapters that sit outside the application capability graph                                                    |
 | [`src/main/host-runtime`](src/main/host-runtime)                                          | Scoped operating-system and Electron feature runtimes                                                                                                  |
 | [`src/main/platform`](src/main/platform)                                                  | Dedicated Electron/Node adapters, including narrow unstable Effect/platform seams                                                                      |
 | [`src/main/browser`](src/main/browser) and [`src/main/browser-use`](src/main/browser-use) | Main-owned Browser runtime and automation integration                                                                                                  |

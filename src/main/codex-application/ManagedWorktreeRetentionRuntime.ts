@@ -12,6 +12,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import type { ManagedWorktreeSettings } from "../../shared/types";
+import { AutomationApplication } from "../automation-application/AutomationApplication";
 import { CODEX_APP_LOCAL_HOST_ID } from "../codex/codex-app-meta-thread-tools";
 import {
   resolveManagedWorktreeId,
@@ -39,9 +40,6 @@ export class ManagedWorktreeRetentionRuntimeError extends Schema.TaggedError<Man
 
 export interface ManagedWorktreeRetentionRuntimeOptions {
   readonly debounce?: Duration.Input;
-  readonly isAutomationProtected: (
-    threadId: string,
-  ) => Effect.Effect<boolean, ManagedWorktreeRetentionRuntimeError>;
 }
 
 interface RetentionCommand {
@@ -73,6 +71,7 @@ export const live = (
   never,
   | CodexPendingWorktreeRuntime
   | CodexApplicationEventHub
+  | AutomationApplication
   | ExecutionHostRuntime
   | ManagedWorktreeConfiguration
   | ProjectWorkspace
@@ -81,6 +80,7 @@ export const live = (
   Layer.effect(
     ManagedWorktreeRetentionRuntime,
     Effect.gen(function* () {
+      const automation = yield* AutomationApplication;
       const executionHosts = yield* ExecutionHostRuntime;
       const applicationEvents = yield* CodexApplicationEventHub;
       const configuration = yield* ManagedWorktreeConfiguration;
@@ -193,13 +193,10 @@ export const live = (
           yield* Effect.forEach(
             metadata.lifecycle.consumers,
             (consumer) =>
-              options
-                .isAutomationProtected(consumer.threadId)
-                .pipe(
-                  Effect.map(
-                    (protectedByAutomation) => [consumer.threadId, protectedByAutomation] as const,
-                  ),
-                ),
+              automation.runs.get(consumer.threadId).pipe(
+                Effect.mapError((cause) => error("read-automation-protection", cause)),
+                Effect.map((run) => [consumer.threadId, run !== null] as const),
+              ),
             { concurrency: 8 },
           ),
         );

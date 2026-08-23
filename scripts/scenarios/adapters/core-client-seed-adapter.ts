@@ -1,9 +1,9 @@
 import {
   createCoreDocumentSyncAdapter,
   createCoreLibraryModuleAdapter,
-  createCoreProjectWorkspaceAdapter,
   type RustDataAuthorityRuntime,
 } from "../../../src/main/core-client";
+import * as Effect from "effect/Effect";
 import { compilePageLifecycleRequestV2 } from "../../../src/shared/page-lifecycle-v2-runtime";
 import type { Project, ProjectCreateInput } from "../../../src/shared/types";
 import { createUuidV7 } from "../../../src/shared/uuid-v7";
@@ -20,7 +20,11 @@ import {
   readPrimaryDataSourcePropertyCount,
   type ScenarioDatabasePort,
 } from "../seed/primary-data-source-properties";
-import { runScenarioDatabase, runScenarioLibrary } from "./core-client-seed-runtime";
+import {
+  runScenarioDatabase,
+  runScenarioLibrary,
+  runScenarioProjectWorkspace,
+} from "./core-client-seed-runtime";
 
 const requireSuccess = <Value>(
   result:
@@ -37,19 +41,19 @@ const requireSuccess = <Value>(
 
 export class CoreClientSeedAdapter implements ScenarioSeedPort {
   readonly #runtime: RustDataAuthorityRuntime;
-  readonly #workspace;
   readonly #libraryIdsByProject = new Map<string, string>();
   #bootstrap: Promise<void> | null = null;
 
   constructor(runtime: RustDataAuthorityRuntime) {
     this.#runtime = runtime;
-    this.#workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);
   }
 
   async createProject(input: ProjectCreateInput): Promise<Project> {
     this.#bootstrap ??= this.#ensureInitialProject(input.sources?.[0]);
     await this.#bootstrap;
-    const project = await this.#workspace.createProject(input);
+    const project = await runScenarioProjectWorkspace(this.#runtime, (workspace) =>
+      workspace.createProject(input),
+    );
     this.#libraryIdsByProject.set(project.id, project.libraryId);
     return project;
   }
@@ -179,21 +183,26 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
   }
 
   async #ensureInitialProject(sourceRoot?: string): Promise<void> {
-    const bootstrap = await this.#workspace.readProjectBootstrap();
-    if (bootstrap.status === "ready") return;
-    const projectId = createUuidV7();
-    await this.#workspace.createInitialProject({
-      operationId: createUuidV7(),
-      projectId,
-      name: "Scenario Bootstrap",
-      description: "",
-      sources: sourceRoot ? [sourceRoot] : [],
-      starterPage: {
-        pageId: createUuidV7(),
-        documentId: createUuidV7(),
-        titleMarkdown: "Scenario Bootstrap",
-        nfm: "Scenario bootstrap authority.",
-      },
-    });
+    await runScenarioProjectWorkspace(
+      this.#runtime,
+      Effect.fn("CoreClientSeedAdapter.ensureInitialProject")(function* (workspace) {
+        const bootstrap = yield* workspace.readProjectBootstrap;
+        if (bootstrap.status === "ready") return;
+        const projectId = createUuidV7();
+        yield* workspace.createInitialProject({
+          operationId: createUuidV7(),
+          projectId,
+          name: "Scenario Bootstrap",
+          description: "",
+          sources: sourceRoot ? [sourceRoot] : [],
+          starterPage: {
+            pageId: createUuidV7(),
+            documentId: createUuidV7(),
+            titleMarkdown: "Scenario Bootstrap",
+            nfm: "Scenario bootstrap authority.",
+          },
+        });
+      }),
+    );
   }
 }

@@ -266,8 +266,7 @@ const requestIdentity = (
   };
 };
 
-/** @internal Shared by the synchronous legacy test harness during the cut-over. */
-export const buildCodexPendingServerRequestEntry = (
+const buildCodexPendingServerRequestEntry = (
   registration: CodexPendingServerRequestRegistration,
 ): CodexPendingServerRequest => {
   const identity = requestIdentity(registration);

@@ -210,18 +210,6 @@ export function aggregateTerminalProcessMetrics(
   };
 }
 
-export async function readTerminalProcessMetrics(
-  rootPid: number,
-  platform: NodeJS.Platform = process.platform,
-): Promise<TerminalProcessMetricsSnapshot> {
-  if (!isPositivePid(rootPid)) {
-    return aggregateTerminalProcessMetrics([]);
-  }
-
-  const metricsByRootPid = await readTerminalProcessMetricsByRootPid([rootPid], platform);
-  return metricsByRootPid.get(rootPid) ?? aggregateTerminalProcessMetrics([]);
-}
-
 export async function readTerminalProcessMetricsByRootPid(
   rootPids: readonly number[],
   platform: NodeJS.Platform = process.platform,

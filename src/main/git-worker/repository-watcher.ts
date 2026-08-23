@@ -232,16 +232,6 @@ function logWatchFailure(message: string, details: Record<string, unknown>): voi
   logger.warn(message, details);
 }
 
-export function shouldRefreshGitReviewSummary(change: GitReviewRepositoryChange): boolean {
-  return (
-    change === "config" ||
-    change === "head" ||
-    change === "index" ||
-    change === "remote-refs" ||
-    change === "working-tree"
-  );
-}
-
 /** Acquires every native watch target and owns its retry and emission fibers in one Scope. */
 export const makeGitReviewRepositoryWatcher = (
   options: GitReviewRepositoryWatcherOptions,

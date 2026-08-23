@@ -38,7 +38,7 @@ import {
   isCodexThreadOwnerNotification,
 } from "../../shared/types";
 import type { CodexServerNotification } from "../codex-runtime/CodexApplicationProtocol";
-import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
+import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
 import { CodexActiveGoalContinuation } from "./CodexActiveGoalContinuation";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexAutomationTurnCompletion } from "./CodexAutomationTurnCompletion";
@@ -118,7 +118,7 @@ export const make: Effect.Effect<
   | CodexThreadGoalRuntime
   | CodexUserInputAutoResolution
   | ConversationRuntimeMap
-  | DesktopToolRuntime
+  | BrowserUseRuntime
 > = Effect.gen(function* () {
   const activeGoalContinuation = yield* CodexActiveGoalContinuation;
   const events = yield* CodexApplicationEventHub;
@@ -136,7 +136,7 @@ export const make: Effect.Effect<
   const threadGoals = yield* CodexThreadGoalRuntime;
   const autoResolution = yield* CodexUserInputAutoResolution;
   const conversations = yield* ConversationRuntimeMap;
-  const desktopTools = yield* DesktopToolRuntime;
+  const browserUse = yield* BrowserUseRuntime;
   const terminalInputBuffers = new Map<string, Map<string, string>>();
 
   const logFailure = (method: string, threadId: string, cause: unknown): Effect.Effect<void> =>
@@ -386,6 +386,10 @@ export const make: Effect.Effect<
                 ),
             { concurrency: "unbounded", discard: true },
           );
+          events.publish({
+            kind: "conversationRelationshipsInvalidated",
+            value: { parentThreadIds: [threadId] },
+          });
           continue;
         }
         if (effect.type === "continueGoalIfIdle") {
@@ -501,7 +505,6 @@ export const make: Effect.Effect<
         });
       }
     }
-
     if (notification.method === "thread/status/changed") {
       const status = parseThreadStatus(notification.params.status);
       events.publish({
@@ -515,11 +518,11 @@ export const make: Effect.Effect<
       });
     }
     if (notification.method === "turn/started") {
-      yield* desktopTools.turnStarted({ sessionId: threadId, turnId: notification.params.turn.id });
+      yield* browserUse.turnStarted({ sessionId: threadId, turnId: notification.params.turn.id });
       yield* conversationProjection.reconcileThreadStatus(threadId);
     }
     if (notification.method === "turn/completed") {
-      yield* desktopTools.turnEnded({ sessionId: threadId, turnId: notification.params.turn.id });
+      yield* browserUse.turnEnded({ sessionId: threadId, turnId: notification.params.turn.id });
       yield* automation.complete(threadId, notification.params.turn);
       if (notification.params.turn.status !== "inProgress") {
         restoreUnacceptedSteers(

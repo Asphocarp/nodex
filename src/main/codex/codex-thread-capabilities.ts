@@ -8,8 +8,6 @@ export const CODEX_DEFAULT_FEATURE_OVERRIDES = {
   thread_tools: true,
 } as const satisfies Record<string, true>;
 
-export type CodexNodexThreadCapability = keyof typeof CODEX_DEFAULT_FEATURE_OVERRIDES;
-
 export function buildCodexThreadConfigOverrides(): NonNullable<ThreadStartParams["config"]> {
   return Object.fromEntries(
     Object.entries(CODEX_DEFAULT_FEATURE_OVERRIDES).map(([key, value]) => [

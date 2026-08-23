@@ -16,6 +16,7 @@ import type {
 } from "../../shared/types";
 import { CodexApplicationProtocol } from "./CodexApplicationProtocol";
 import { CodexConversationHistoryRuntime } from "./CodexConversationHistoryRuntime";
+import { CodexConversationRelationships } from "./CodexConversationRelationships";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { CodexPostResumeGoalRuntime } from "./CodexPostResumeGoalRuntime";
@@ -36,14 +37,6 @@ export interface CodexConversationResumeDemand {
   readonly replayBufferedNotifications: boolean;
 }
 
-export interface CodexConversationResumeOutcome {
-  readonly input: CodexConversationResumeDemand;
-  readonly join: boolean;
-  readonly durationMs: number;
-  readonly result?: CodexConversationSnapshot | null;
-  readonly error?: unknown;
-}
-
 export class CodexConversationResumeError extends Data.TaggedError("CodexConversationResumeError")<{
   readonly cause: unknown;
 }> {}
@@ -56,12 +49,6 @@ export interface CodexConversationResumeRendererState {
   readonly resumeState: CodexConversationResumeState | null;
   readonly revision: number;
   readonly serializedConversation: CodexConversationSnapshot | null;
-}
-
-export interface CodexConversationResumeRendererAdoption {
-  readonly checkpoint: CodexThreadStreamCheckpoint | null;
-  readonly ownerClientId: string | null;
-  readonly revision: number;
 }
 
 export class CodexConversationResumeRuntime extends Context.Service<
@@ -118,6 +105,7 @@ export const make: Effect.Effect<
   never,
   | CodexApplicationProtocol
   | CodexConversationHistoryRuntime
+  | CodexConversationRelationships
   | CodexFreshThreadLaunchRuntime
   | CodexOwnerNotificationDrainRuntime
   | CodexPostResumeGoalRuntime
@@ -129,6 +117,7 @@ export const make: Effect.Effect<
 > = Effect.gen(function* () {
   const protocol = yield* CodexApplicationProtocol;
   const conversationHistory = yield* CodexConversationHistoryRuntime;
+  const relationships = yield* CodexConversationRelationships;
   const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
   const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
   const postResumeGoals = yield* CodexPostResumeGoalRuntime;
@@ -136,6 +125,16 @@ export const make: Effect.Effect<
   const rendererRegistry = yield* CodexRendererConversationRegistry;
   const threadDirectory = yield* CodexThreadDirectory;
   const conversations = yield* ConversationRuntimeMap;
+
+  const refreshRelationships = (threadId: string): Effect.Effect<void> =>
+    relationships.refresh(threadId).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not refresh Codex conversation relationships").pipe(
+          Effect.annotateLogs({ threadId, cause }),
+        ),
+      ),
+      Effect.asVoid,
+    );
   const resumes = yield* FiberMap.make<
     string,
     CodexConversationSnapshot | null,
@@ -306,6 +305,9 @@ export const make: Effect.Effect<
           hasSnapshot: outcome.success.result !== null,
         }),
       );
+      if (outcome.success.result) {
+        yield* refreshRelationships(demand.threadId);
+      }
       return outcome.success.result;
     });
 
@@ -315,10 +317,13 @@ export const make: Effect.Effect<
     const threadId = rawThreadId.trim();
     if (!threadId) return Effect.succeed(null);
     return threadDirectory.resolve({ threadId, fidelity: "durable" }).pipe(
-      Effect.map(
-        (entry) =>
-          entry?.snapshot ?? conversations.currentConversation(threadId)?.readSnapshot() ?? null,
-      ),
+      Effect.flatMap((entry) => {
+        const conversation =
+          entry?.snapshot ?? conversations.currentConversation(threadId)?.readSnapshot() ?? null;
+        return conversation
+          ? refreshRelationships(threadId).pipe(Effect.as(conversation))
+          : Effect.succeed(null);
+      }),
       Effect.mapError((cause) => new CodexConversationResumeError({ cause })),
     );
   };

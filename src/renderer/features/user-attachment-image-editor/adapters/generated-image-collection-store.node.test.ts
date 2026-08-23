@@ -160,7 +160,6 @@ describe("generated image live collection store", () => {
       queuedFollowUps: [],
       pendingSteers: [],
       backgroundTerminalRows: [],
-      childMemberships: [],
       capabilityFlags: {},
       turns: [
         {

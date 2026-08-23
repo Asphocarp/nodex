@@ -32,7 +32,6 @@ import {
   CODEX_APP_READ_THREAD_MAX_TURN_LIMIT,
 } from "../codex/codex-app-meta-thread-tools";
 import type { CodexDynamicCreatePermissionMode } from "../codex/codex-dynamic-create-permissions";
-import type { CodexCreateThreadServiceTierSelector } from "../codex/codex-dynamic-create-service-tier";
 import { parseCodexDynamicCreateThreadInput } from "../codex/codex-dynamic-thread-create";
 import { createCodexProjectlessWorkspace } from "../codex/codex-projectless-workspace";
 import { getCodexFileChangeList } from "../../shared/codex-file-change";
@@ -53,6 +52,10 @@ import { ConversationCommands } from "./ConversationCommands";
 
 const SAME_DIRECTORY_FORK_CONTINUATION =
   "The fork contains completed history only. If the source thread was running, the active turn and unfinished response are not in the child. Send a follow-up message to threadId only if the task requires work to continue there.";
+
+export type CodexCreateThreadServiceTierSelector =
+  | { readonly type: "standard" }
+  | { readonly type: "custom"; readonly serviceTier: string };
 
 export interface CodexAppProtocolToolExecutionContext {
   readonly permissionMode?: CodexDynamicCreatePermissionMode;

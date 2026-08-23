@@ -4328,7 +4328,6 @@ export interface CodexConversationSnapshot extends CodexThreadSummary {
   queuedFollowUps: CodexQueuedFollowUp[];
   pendingSteers: CodexPendingSteer[];
   backgroundTerminalRows: CodexBackgroundTerminalRow[];
-  childMemberships: CodexConversationChildMembership[];
   capabilityFlags: CodexConversationCapabilityFlags;
 }
 
