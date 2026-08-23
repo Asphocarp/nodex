@@ -737,8 +737,10 @@ Main Scope closure interrupts active and queued writes. Renderer ingress invokes
 directly; `CodexService` temporarily exposes only inspect, persistence, and projection ports and owns
 no public read-state command or write queue.
 
-Thread archive and unarchive are complete `ConversationCommands` transactions. A reference-counted
-per-Thread lane also serializes Turn interrupt and background-terminal cleanup. Archive transitions
+Thread archive and unarchive are complete `ConversationCommands` transactions. The
+`ConversationRuntimeMap` Thread generation owns the shared application-command lane; archive,
+interrupt, background-terminal cleanup, request responses, and Turn commands therefore cannot
+interleave merely because they have different Module owners. Archive transitions
 combine the typed Gateway command with automation/worktree cleanup, Project Workspace persistence,
 canonical projection, sidebar publication, and conversation-runtime eviction. Interrupt resolves
 one target, pauses an active goal, declines pending interaction requests, sends the typed Gateway
@@ -986,7 +988,7 @@ until their exact occurrence token is completed. Disconnect, history pruning,
 Thread cleanup, and Main Scope close all settle the same inbox. Canonical
 conversation reducers remain the sole owner of transcript/request truth.
 `CodexServerRequestResponses` is the only application command owner for renderer,
-automatic, interrupt-time, and synthetic plan-implementation responses. A per-Thread scoped lane serializes
+automatic, interrupt-time, and synthetic plan-implementation responses. The shared Thread-generation lane serializes
 target resolution, follower-host forwarding, canonical transition, projection
 cleanup, and exact occurrence settlement. Its pure response kernel is shared by
 the legacy reducer test harness, but production concurrency and I/O remain in the

@@ -1,11 +1,7 @@
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as RcMap from "effect/RcMap";
-import * as Scope from "effect/Scope";
-import * as Semaphore from "effect/Semaphore";
 import type {
   ClientRequestParamsByMethod,
   ClientRequestResponsesByMethod,
@@ -107,28 +103,10 @@ export const live = (
     Effect.gen(function* () {
       const gateway = yield* CodexGateway;
       const conversations = yield* ConversationRuntimeMap;
-      const ownerScope = yield* Scope.Scope;
-      const lanes = yield* RcMap.make({
-        lookup: (_threadId: string) => Semaphore.make(1),
-      });
-      const runOwned = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
-        Effect.acquireUseRelease(
-          operation.pipe(Effect.forkIn(ownerScope, { startImmediately: true })),
-          Fiber.join,
-          Fiber.interrupt,
-        );
       const runSerial = <A, E>(
         threadId: string,
         operation: Effect.Effect<A, E>,
-      ): Effect.Effect<A, E> =>
-        runOwned(
-          Effect.scoped(
-            Effect.gen(function* () {
-              const lane = yield* RcMap.get(lanes, threadId);
-              return yield* lane.withPermit(operation);
-            }),
-          ),
-        );
+      ): Effect.Effect<A, E> => conversations.runExclusive(threadId, operation);
       const listBackgroundTerminals = (
         threadId: string,
         cursor: string | null = null,

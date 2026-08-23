@@ -2233,7 +2233,10 @@ export const live: Layer.Layer<
                   ),
                 ),
           },
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        }).pipe(
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const serverRequestResponseAdapter = makeCodexServerRequestResponsesPromiseAdapter(
           serverRequestResponses,
           callbacks,

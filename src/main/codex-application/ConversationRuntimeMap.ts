@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as LayerMap from "effect/LayerMap";
 import * as PubSub from "effect/PubSub";
@@ -74,6 +75,8 @@ export class ConversationRuntime extends Context.Service<
     ) => Effect.Effect<boolean>;
     readonly respondToken: (token: number, response: unknown) => Effect.Effect<boolean>;
     readonly rejectToken: (token: number, error: CodexAppServerError) => Effect.Effect<boolean>;
+    /** Serializes complete application commands for this Thread generation. */
+    readonly runExclusive: <A, E, R>(operation: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
   }
 >()("nodex/main/codex-application/ConversationRuntime") {}
 
@@ -83,6 +86,10 @@ export class ConversationRuntimeMap extends Context.Service<
     /** Lossless process ingress for the single application request dispatcher. */
     readonly requests: Stream.Stream<ConversationServerRequestEnvelope>;
     readonly runtime: (threadId: string) => Effect.Effect<ConversationRuntime["Service"]>;
+    readonly runExclusive: <A, E, R>(
+      threadId: string,
+      operation: Effect.Effect<A, E, R>,
+    ) => Effect.Effect<A, E, R>;
     readonly close: (threadId: string) => Effect.Effect<void>;
   }
 >()("nodex/main/codex-application/ConversationRuntimeMap") {}
@@ -103,6 +110,16 @@ const runtimeLayer = (
       const pending = yield* Ref.make<readonly PendingRequest[]>([]);
       const nextRequestToken = yield* Ref.make(1);
       const publishLock = yield* Semaphore.make(1);
+      const commandLane = yield* Semaphore.make(1);
+      const ownerScope = yield* Effect.scope;
+      const runExclusive = <A, E, R>(operation: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+        Effect.acquireUseRelease(
+          commandLane
+            .withPermit(operation)
+            .pipe(Effect.forkIn(ownerScope, { startImmediately: true })),
+          Fiber.join,
+          Fiber.interrupt,
+        );
 
       const syncPendingCount = Ref.get(pending).pipe(
         Effect.flatMap((current) =>
@@ -225,6 +242,7 @@ const runtimeLayer = (
             (pending) => pending.token === token,
             ({ response }) => Deferred.fail(response, error),
           ),
+        runExclusive,
       });
     }),
   );
@@ -243,6 +261,16 @@ export const live: Layer.Layer<ConversationRuntimeMap> = Layer.effect(
       runtime: (threadId) =>
         Effect.scoped(runtimes.contextEffect(threadId)).pipe(
           Effect.map((context) => Context.get(context, ConversationRuntime)),
+        ),
+      runExclusive: (threadId, operation) =>
+        Effect.scoped(
+          runtimes
+            .contextEffect(threadId)
+            .pipe(
+              Effect.flatMap((context) =>
+                Context.get(context, ConversationRuntime).runExclusive(operation),
+              ),
+            ),
         ),
       close: runtimes.invalidate,
     });

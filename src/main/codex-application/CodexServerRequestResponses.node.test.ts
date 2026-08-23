@@ -1,8 +1,10 @@
 import { assert, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
 import type { CodexApprovalRequest } from "../../shared/types";
@@ -18,6 +20,10 @@ import {
 } from "../../shared/codex-conversation-state/test-fixtures/agent-activity-v2-corpus-provenance";
 import { agentActivityV2CommandApprovalRequest } from "../../shared/codex-conversation-state/test-fixtures/agent-activity-v2-request-family-corpus";
 import { make as makeInbox } from "./CodexPendingServerRequestRuntime";
+import {
+  ConversationRuntimeMap,
+  live as conversationRuntimeMapLive,
+} from "./ConversationRuntimeMap";
 import {
   CodexServerRequestResponseProjectionError,
   make as makeResponses,
@@ -95,6 +101,8 @@ const makeHarness = (
   respondFollowerApproval: Effect.Effect<void, CodexServerRequestResponseProjectionError>,
 ) =>
   Effect.gen(function* () {
+    const conversationContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversations = Context.get(conversationContext, ConversationRuntimeMap);
     const completions: Completion[] = [];
     const inbox = yield* makeInbox({
       respond: (threadId, _requestId, occurrenceToken, response) =>
@@ -140,7 +148,10 @@ const makeHarness = (
         observeUserInputResponse: () => Effect.void,
         respondFollowerApproval: () => respondFollowerApproval,
       },
-    }).pipe(Effect.provideService(Scope.Scope, scope));
+    }).pipe(
+      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(Scope.Scope, scope),
+    );
     return { completedPlans, completions, emitted, inbox, responses, states };
   });
 

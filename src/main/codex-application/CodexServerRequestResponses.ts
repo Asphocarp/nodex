@@ -1,14 +1,12 @@
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
-import * as RcMap from "effect/RcMap";
-import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
 import type { RequestId } from "@nodex/codex-app-server-protocol";
 import type { CodexApprovalResponse } from "../../shared/codex-approval-response";
 import type { CodexMcpServerElicitationAction } from "../../shared/types";
 import type { CodexPendingServerRequestRuntimeService } from "./CodexPendingServerRequestRuntime";
+import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 import {
   type CodexApprovalResponseInput,
   type CodexMcpElicitationResponseInput,
@@ -95,31 +93,14 @@ const transactionError = (cause: unknown): CodexServerRequestResponseProjectionE
 
 export const make = (
   options: CodexServerRequestResponsesOptions,
-): Effect.Effect<CodexServerRequestResponsesService, never, Scope.Scope> =>
+): Effect.Effect<CodexServerRequestResponsesService, never, ConversationRuntimeMap | Scope.Scope> =>
   Effect.gen(function* () {
-    const ownerScope = yield* Effect.scope;
-    const lanes = yield* RcMap.make({
-      lookup: (_threadId: string) => Semaphore.make(1),
-    });
+    const conversations = yield* ConversationRuntimeMap;
     const kernel = makeCodexServerRequestResponseKernel(options);
-    const runOwned = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
-      Effect.acquireUseRelease(
-        operation.pipe(Effect.forkIn(ownerScope, { startImmediately: true })),
-        Fiber.join,
-        Fiber.interrupt,
-      );
     const runSerial = <A, E>(
       threadId: string,
       operation: Effect.Effect<A, E>,
-    ): Effect.Effect<A, E> =>
-      runOwned(
-        Effect.scoped(
-          Effect.gen(function* () {
-            const lane = yield* RcMap.get(lanes, threadId);
-            return yield* lane.withPermit(operation);
-          }),
-        ),
-      );
+    ): Effect.Effect<A, E> => conversations.runExclusive(threadId, operation);
     const sync = <A>(
       evaluate: () => A,
     ): Effect.Effect<A, CodexServerRequestResponseProjectionError> =>

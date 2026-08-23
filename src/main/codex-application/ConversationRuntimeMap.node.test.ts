@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -33,6 +34,42 @@ const applicationLayer: Layer.Layer<
   Layer.provideMerge(
     approvalLive.pipe(Layer.provideMerge(Layer.merge(conversationRuntimeMapLive, unhandledGlobal))),
   ),
+);
+
+it.effect("serializes application commands across owners in one Thread generation", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversations = Context.get(context, ConversationRuntimeMap);
+    const firstStarted = yield* Deferred.make<void>();
+    const releaseFirst = yield* Deferred.make<void>();
+    const order: string[] = [];
+    const first = yield* conversations
+      .runExclusive(
+        "thread-a",
+        Effect.sync(() => order.push("first:start")).pipe(
+          Effect.andThen(Deferred.succeed(firstStarted, undefined)),
+          Effect.andThen(Deferred.await(releaseFirst)),
+          Effect.andThen(Effect.sync(() => order.push("first:end"))),
+        ),
+      )
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(firstStarted);
+    const second = yield* conversations
+      .runExclusive(
+        "thread-a",
+        Effect.sync(() => order.push("second")),
+      )
+      .pipe(Effect.forkChild);
+    yield* Effect.yieldNow;
+
+    assert.deepEqual(order, ["first:start"]);
+    yield* Deferred.succeed(releaseFirst, undefined);
+    yield* Fiber.join(first);
+    yield* Fiber.join(second);
+    assert.deepEqual(order, ["first:start", "first:end", "second"]);
+    yield* Scope.close(scope, Exit.void);
+  }),
 );
 
 it.effect("completes a thread-owned server request exactly once", () =>
