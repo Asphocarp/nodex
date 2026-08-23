@@ -111,6 +111,7 @@ const directory = (
       }),
     descendants: unsupported,
     acceptRollbackResult: unsupported,
+    acceptForkResult: unsupported,
     acceptSessionStart: unsupported,
   } as unknown as CodexThreadDirectory["Service"]);
 };

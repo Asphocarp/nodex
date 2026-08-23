@@ -131,6 +131,7 @@ const directoryFor = (
       }),
     descendants: () => Effect.die("unused"),
     acceptRollbackResult: () => Effect.die("unused"),
+    acceptForkResult: () => Effect.die("unused"),
     acceptSessionStart: () => Effect.die("unused"),
   });
 

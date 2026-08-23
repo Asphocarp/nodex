@@ -89,6 +89,9 @@ export const projectCodexThreadDirectoryMaterialization = (input: {
   readonly existing: DesktopProjectWorkspaceThread | null;
   readonly parent: DesktopProjectWorkspaceThread | null;
   readonly explicitParentThreadId?: string | null;
+  readonly explicitForkedFromId?: string | null;
+  readonly executionProfile?: DesktopProjectWorkspaceThread["executionProfile"];
+  readonly managedWorktreePath?: string | null;
   readonly observedExecutionHostId?: string;
   readonly fallbackCwd?: string | null;
   readonly nowMs: number;
@@ -101,7 +104,8 @@ export const projectCodexThreadDirectoryMaterialization = (input: {
   const parentThreadId = input.explicitParentThreadId ?? metadata.parentThreadId;
   const existing = input.existing;
   const parent = input.parent;
-  const durableManagedCwd = existing?.managedWorktreePath ? existing.cwd : null;
+  const managedWorktreePath = input.managedWorktreePath ?? existing?.managedWorktreePath ?? null;
+  const durableManagedCwd = managedWorktreePath ? (existing?.cwd ?? parent?.cwd ?? null) : null;
   const candidateCwd = readText(candidate, "cwd")?.trim() || null;
   const cwd =
     durableManagedCwd ??
@@ -129,12 +133,16 @@ export const projectCodexThreadDirectoryMaterialization = (input: {
   const threadSource = parseThreadSourceValue(candidate.threadSource ?? candidate.thread_source);
   const serviceName = candidate.serviceName ?? candidate.service_name;
   const agentPath = metadata.agentPath;
+  const executionProfile = input.executionProfile ?? existing?.executionProfile ?? null;
 
   return {
     threadId,
     parentThreadId,
     patch: {
       ...(!existing ? { project_id: projectId } : {}),
+      ...(input.explicitForkedFromId !== undefined
+        ? { forked_from_id: input.explicitForkedFromId }
+        : {}),
       ...(parentThreadId ? { parent_thread_id: parentThreadId } : {}),
       thread_source: threadSource,
       ...(serviceName === null || typeof serviceName === "string"
@@ -146,15 +154,16 @@ export const projectCodexThreadDirectoryMaterialization = (input: {
       ...(typeof candidate.name === "string" ? { thread_name: candidate.name } : {}),
       thread_preview: typeof candidate.preview === "string" ? candidate.preview : "",
       model_provider:
-        typeof candidate.modelProvider === "string"
+        input.executionProfile?.providerId ??
+        (typeof candidate.modelProvider === "string"
           ? candidate.modelProvider
-          : (existing?.modelProvider ?? ""),
-      ...(existing?.executionProfile
+          : (existing?.modelProvider ?? "")),
+      ...(executionProfile
         ? {
-            model_id: existing.executionProfile.modelId,
-            harness_id: existing.executionProfile.harnessId,
-            reasoning_effort: existing.executionProfile.reasoningEffort,
-            service_tier: existing.executionProfile.serviceTier,
+            model_id: executionProfile.modelId,
+            harness_id: executionProfile.harnessId,
+            reasoning_effort: executionProfile.reasoningEffort,
+            service_tier: executionProfile.serviceTier,
           }
         : {}),
       execution_host_id:
@@ -162,7 +171,7 @@ export const projectCodexThreadDirectoryMaterialization = (input: {
         parent?.executionHostId ??
         (input.observedExecutionHostId?.trim() || "local"),
       ...(cwd === null ? {} : { cwd }),
-      managed_worktree_path: existing?.managedWorktreePath ?? null,
+      managed_worktree_path: managedWorktreePath,
       projectless_output_directory:
         readText(candidate, "projectlessOutputDirectory", "projectless_output_directory") ??
         existing?.projectlessOutputDirectory ??

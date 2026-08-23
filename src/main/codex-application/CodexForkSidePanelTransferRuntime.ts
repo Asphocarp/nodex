@@ -1,3 +1,4 @@
+import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as HashMap from "effect/HashMap";
@@ -102,6 +103,12 @@ export interface CodexForkSidePanelTransferRuntimeService<
   readonly getPendingSnapshot: (pendingWorktreeId: string) => Effect.Effect<Snapshot | null>;
   readonly getTargetSnapshot: (targetConversationId: string) => Effect.Effect<Snapshot | null>;
 }
+
+/** Canonical application capability for staging browser state across a direct Thread fork. */
+export class CodexForkSidePanelTransfer extends Context.Service<
+  CodexForkSidePanelTransfer,
+  CodexForkSidePanelTransferRuntimeService
+>()("nodex/main/codex-application/CodexForkSidePanelTransfer") {}
 
 const emptyState = <Snapshot>(): TransferState<Snapshot> => ({
   closed: false,

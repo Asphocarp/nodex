@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Thread, Turn } from "@nodex/codex-app-server-protocol/v2";
+import type { Thread, ThreadForkResponse, Turn } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
 import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
@@ -84,6 +84,11 @@ export class CodexThreadDirectory extends Context.Service<
       readonly thread: Thread;
       readonly executionHostId?: string;
       readonly fallbackCwd?: string | null;
+    }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
+    /** Accepts an exact persistent fork and inherits its durable execution authority. */
+    readonly acceptForkResult: (input: {
+      readonly sourceThreadId: string;
+      readonly response: ThreadForkResponse;
     }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
     /** Links a newly accepted protocol Thread to its exact Session, then hydrates canonical state. */
     readonly acceptSessionStart: (input: {
@@ -241,6 +246,9 @@ export const make: Effect.Effect<
       readonly thread: Thread | Record<string, unknown>;
       readonly parentThreadId?: string | null;
       readonly lineageRootThreadId?: string;
+      readonly forkedFromId?: string | null;
+      readonly executionProfile?: AgentExecutionProfile | null;
+      readonly managedWorktreePath?: string | null;
       readonly executionHostId?: string;
       readonly fallbackCwd?: string | null;
       readonly hasUnreadTurn?: boolean;
@@ -266,6 +274,13 @@ export const make: Effect.Effect<
         existing: previous?.thread ?? null,
         parent: parent?.thread ?? lineageRoot?.thread ?? null,
         explicitParentThreadId: parentThreadId,
+        ...(input.forkedFromId !== undefined ? { explicitForkedFromId: input.forkedFromId } : {}),
+        ...(input.executionProfile !== undefined
+          ? { executionProfile: input.executionProfile }
+          : {}),
+        ...(input.managedWorktreePath !== undefined
+          ? { managedWorktreePath: input.managedWorktreePath }
+          : {}),
         observedExecutionHostId: input.executionHostId,
         fallbackCwd: input.fallbackCwd,
         nowMs,
@@ -611,6 +626,119 @@ export const make: Effect.Effect<
     },
   );
 
+  const acceptForkResult = Effect.fn("CodexThreadDirectory.acceptForkResult")(function* (input: {
+    readonly sourceThreadId: string;
+    readonly response: ThreadForkResponse;
+  }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
+    const sourceThreadId = input.sourceThreadId.trim();
+    const childThreadId = input.response.thread.id.trim();
+    if (!sourceThreadId || !childThreadId || childThreadId !== input.response.thread.id) {
+      return yield* error(
+        "materialize",
+        childThreadId || sourceThreadId,
+        new Error("Thread fork did not return a valid source and child identity"),
+      );
+    }
+    if (
+      input.response.thread.forkedFromId !== null &&
+      input.response.thread.forkedFromId !== sourceThreadId
+    ) {
+      return yield* error(
+        "materialize",
+        childThreadId,
+        new Error(
+          `Fork '${childThreadId}' belongs to '${input.response.thread.forkedFromId}', not '${sourceThreadId}'`,
+        ),
+      );
+    }
+    const source = yield* readDurable(sourceThreadId);
+    if (!source) {
+      return yield* error(
+        "materialize",
+        sourceThreadId,
+        new Error(`Fork source Thread '${sourceThreadId}' was not found`),
+      );
+    }
+    const execution = yield* core.workspace
+      .read({ kind: "execution_context", thread_id: sourceThreadId })
+      .pipe(Effect.mapError((cause) => error("read", sourceThreadId, cause)));
+    if (execution.value.kind !== "execution_context") {
+      return yield* error(
+        "read",
+        sourceThreadId,
+        new Error("Core returned a non-execution-context read variant"),
+      );
+    }
+    const executionProfile: AgentExecutionProfile | null = source.thread.executionProfile
+      ? {
+          ...source.thread.executionProfile,
+          providerId: input.response.modelProvider,
+          modelId: input.response.model,
+          reasoningEffort:
+            input.response.reasoningEffort ?? source.thread.executionProfile.reasoningEffort,
+          serviceTier: input.response.serviceTier,
+        }
+      : input.response.model
+        ? {
+            providerId: input.response.modelProvider,
+            modelId: input.response.model,
+            harnessId: null,
+            reasoningEffort: input.response.reasoningEffort,
+            serviceTier: input.response.serviceTier,
+          }
+        : null;
+    const thread = normalizeThread({
+      ...input.response.thread,
+      forkedFromId: sourceThreadId,
+    });
+    yield* persistObservation({
+      thread,
+      lineageRootThreadId: sourceThreadId,
+      forkedFromId: sourceThreadId,
+      executionProfile,
+      managedWorktreePath: source.thread.managedWorktreePath,
+      executionHostId: source.thread.executionHostId,
+      fallbackCwd: source.thread.cwd,
+      hasUnreadTurn: false,
+    });
+    yield* core.workspace
+      .apply({
+        operationId: `electron:thread-directory-fork-catalogs:${childThreadId}:${randomUUID()}`,
+        intent: {
+          kind: "replace_thread_dynamic_tool_catalogs",
+          thread_id: childThreadId,
+          catalogs: execution.value.context.thread.dynamic_tool_catalogs,
+        },
+      })
+      .pipe(Effect.mapError((cause) => error("materialize", childThreadId, cause)));
+    yield* core.workspace
+      .apply({
+        operationId: `electron:thread-directory-fork-roots:${childThreadId}:${randomUUID()}`,
+        intent: {
+          kind: "replace_thread_writable_roots",
+          thread_id: childThreadId,
+          roots: input.response.runtimeWorkspaceRoots,
+        },
+      })
+      .pipe(Effect.mapError((cause) => error("materialize", childThreadId, cause)));
+    const durable = yield* readDurable(childThreadId);
+    if (!durable) {
+      return yield* error(
+        "materialize",
+        childThreadId,
+        new Error("Core did not return the materialized fork Thread"),
+      );
+    }
+    return yield* hydrate({
+      durable,
+      thread,
+      context: input.response as unknown as ThreadResumeResponse,
+      pagination: fullPagination(thread),
+      pendingRequests: [],
+      hasUnreadTurn: false,
+    });
+  });
+
   const acceptSessionStart = Effect.fn("CodexThreadDirectory.acceptSessionStart")(
     function* (input: {
       readonly response: ThreadStartResponse;
@@ -681,6 +809,7 @@ export const make: Effect.Effect<
     resolve: (input) => runOwned(resolvePhysical(input)),
     descendants,
     acceptRollbackResult: (input) => runOwned(acceptRollbackResult(input)),
+    acceptForkResult: (input) => runOwned(acceptForkResult(input)),
     acceptSessionStart: (input) => runOwned(acceptSessionStart(input)),
   });
 });
