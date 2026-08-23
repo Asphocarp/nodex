@@ -996,14 +996,7 @@ export const live: Layer.Layer<
         );
         const rendererClients = Context.get(rendererClientContext, RendererClientRuntime);
         const databaseNotifierContext = yield* Layer.buildWithScope(
-          DatabaseNotifierRuntime.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
+          DatabaseNotifierRuntime.live.pipe(Layer.provide(Layer.succeed(WindowRuntime, windows))),
           runtimeScope,
         );
         const databaseNotifications = Context.get(
@@ -1383,7 +1376,6 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
@@ -2700,7 +2692,6 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(LibraryModule, libraryModule),
                 Layer.succeed(MainConfig, config),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
@@ -2750,7 +2741,6 @@ export const live: Layer.Layer<
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(ProjectLifecycleCommands, projectLifecycleCommands),
                 Layer.succeed(ProjectWorkspace, projectWorkspace),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
@@ -2787,7 +2777,6 @@ export const live: Layer.Layer<
                 Layer.succeed(ConversationCommands, conversationCommands),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(ScheduledAutomationRuntime, scheduledAutomations),
                 Layer.succeed(WindowRuntime, windows),
               ),
