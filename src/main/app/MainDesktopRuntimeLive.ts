@@ -1440,6 +1440,74 @@ export const live: Layer.Layer<
               try: () => requireCodexService().materializeThreadForCatalog(thread),
               catch: (cause) => new CodexThreadCatalogError({ operation: "resolve", cause }),
             }),
+          getSession: (sessionId) =>
+            Effect.tryPromise({
+              try: () => projectWorkspace.getProjectSession(sessionId),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
+            }),
+          createSession: (projectId, fallbackTitle) =>
+            Effect.tryPromise({
+              try: () =>
+                projectWorkspace.createProjectSession({
+                  projectId,
+                  noThreadFallbackTitle: fallbackTitle,
+                }),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
+            }),
+          deleteSession: (sessionId) =>
+            Effect.tryPromise({
+              try: () => projectWorkspace.deleteProjectSession(sessionId),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
+            }).pipe(Effect.asVoid),
+          readWritableRoots: (threadId) =>
+            Effect.tryPromise({
+              try: () => projectWorkspace.readThreadExecutionContext(threadId),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
+            }).pipe(Effect.map((context) => context?.writableRoots ?? [])),
+          linkSession: (sessionId, thread, runtimeWorkspaceRoots) =>
+            Effect.tryPromise({
+              try: () =>
+                projectWorkspace.upsertProjectSessionThreadLink({
+                  sessionId,
+                  projectId: thread.projectId,
+                  threadId: thread.threadId,
+                  forkedFromId: thread.forkedFromId,
+                  parentThreadId: thread.parentThreadId,
+                  threadName: thread.threadName,
+                  threadPreview: thread.threadPreview,
+                  modelProvider: thread.modelProvider,
+                  executionProfile: thread.executionProfile,
+                  executionHostId: thread.executionHostId,
+                  runtimeWorkspaceRoots: [...runtimeWorkspaceRoots],
+                  cwd: thread.cwd,
+                  managedWorktreePath: thread.managedWorktreePath,
+                  projectlessOutputDirectory: thread.projectlessOutputDirectory,
+                  projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot,
+                  statusType: thread.statusType,
+                  statusActiveFlags: thread.statusActiveFlags,
+                  archived: thread.archived,
+                  createdAt: thread.createdAt,
+                  updatedAt: thread.updatedAt,
+                  recencyAt: thread.recencyAt,
+                }),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
+            }).pipe(Effect.asVoid),
+          setSessionPinned: (sessionId) =>
+            Effect.tryPromise({
+              try: () => projectWorkspace.setProjectSessionPinned(sessionId, { pinned: true }),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
+            }).pipe(Effect.asVoid),
+          repairChild: (threadId, parentThreadId) =>
+            Effect.tryPromise({
+              try: () => projectWorkspace.updateThread(threadId, { parentThreadId }),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
+            }).pipe(Effect.map((thread) => thread !== null)),
+          shouldHideThread: (summary) => requireCodexService().shouldHideThreadForCatalog(summary),
+          hideThread: (threadId) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().hideThreadForCatalog(threadId),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "ensure-session", cause }),
+            }),
           setThreadPinned: (threadId, pinned, beforeThreadId) =>
             Effect.tryPromise({
               try: () => projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId),

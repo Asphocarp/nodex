@@ -80,6 +80,7 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           listPalette: () => Effect.die("unused"),
           searchPalette: () => Effect.die("unused"),
           resolve: () => Effect.die("unused"),
+          ensureSession: () => Effect.die("unused"),
           setPinned: () => Effect.die("unused"),
           reorderPinned: () => Effect.die("unused"),
           move: () => Effect.die("unused"),

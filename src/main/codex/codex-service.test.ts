@@ -1754,17 +1754,6 @@ function createService(options?: {
       projectionRevision: 0,
     }),
     listPalette: async (): Promise<readonly CommandPaletteThreadSummary[]> => [],
-    resolve: async (threadId: string) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      const client = Reflect.get(service as object, "client") as {
-        request: (method: string, params: unknown) => Promise<{ thread: unknown }>;
-      };
-      const result = await client.request("thread/read", {
-        threadId,
-        includeTurns: false,
-      });
-      return await service.materializeThreadForCatalog(result.thread);
-    },
     setPinned: async (threadId: string, pinned: boolean, beforeThreadId?: string | null) => {
       await projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId);
       return {
@@ -3101,49 +3090,6 @@ test("projects durable local and remote managed worktree identities into the sid
       path: "/srv/.nodex/worktrees/91a6/repo",
       phase: "ready",
     });
-  } finally {
-    await service.shutdown();
-  }
-});
-
-test("repairs a leaked child sidebar Session before returning it", async () => {
-  const baseWorkspace = createTestProjectWorkspace();
-  const updateCalls: Array<{
-    threadId: string;
-    patch: Parameters<DesktopProjectWorkspacePort["updateThread"]>[1];
-  }> = [];
-  const projectWorkspace = {
-    ...baseWorkspace,
-    updateThread: async (
-      threadId: string,
-      patch: Parameters<DesktopProjectWorkspacePort["updateThread"]>[1],
-    ) => {
-      updateCalls.push({ threadId, patch });
-      return await baseWorkspace.updateThread(threadId, patch);
-    },
-  } as DesktopProjectWorkspacePort;
-  await projectWorkspace.upsertThread("thread:child", {
-    projectId: null,
-    parentThreadId: "thread:root",
-    threadName: "Leaked subagent chat",
-    threadPreview: "Leaked subagent chat",
-  });
-  const service = createService({ projectWorkspace });
-
-  try {
-    const repaired = await (
-      service as unknown as {
-        ensureSidebarThreadSession: (threadId: string) => Promise<ProjectSession | null>;
-      }
-    ).ensureSidebarThreadSession("thread:child");
-
-    expect(repaired).toBeNull();
-    expect(updateCalls).toEqual([
-      {
-        threadId: "thread:child",
-        patch: { parentThreadId: "thread:root" },
-      },
-    ]);
   } finally {
     await service.shutdown();
   }

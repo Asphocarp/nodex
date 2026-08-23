@@ -1,6 +1,5 @@
 import type {
   CodexSidebarSnapshot,
-  CodexThreadSummary,
   CodexThreadSummaryWindow,
   CodexThreadSummaryWindowInput,
   CommandPaletteThreadListInput,
@@ -22,7 +21,6 @@ export interface CodexThreadCatalogPromiseAdapter {
   readonly listPalette: (
     input: CommandPaletteThreadListInput,
   ) => Promise<readonly CommandPaletteThreadSummary[]>;
-  readonly resolve: (threadId: string) => Promise<CodexThreadSummary | null>;
   readonly setPinned: (
     threadId: string,
     pinned: boolean,
@@ -47,7 +45,6 @@ export const makeCodexThreadCatalogPromiseAdapter = (
     callbacks.runPromise(catalog.listProject(projectId, input)).catch(unwrapCatalogError),
   listPalette: (input) =>
     callbacks.runPromise(catalog.listPalette(input)).catch(unwrapCatalogError),
-  resolve: (threadId) => callbacks.runPromise(catalog.resolve(threadId)).catch(unwrapCatalogError),
   setPinned: (threadId, pinned, beforeThreadId) =>
     callbacks
       .runPromise(catalog.setPinned(threadId, pinned, beforeThreadId))

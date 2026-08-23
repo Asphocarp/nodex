@@ -350,8 +350,14 @@ export const codexIpcLive = (
         ),
       );
 
-      registerHandle("codex:thread:ensure-session", (_, threadId: string) =>
-        codexService.ensureSidebarThreadSession(threadId),
+      registerEffectHandle("codex:thread:ensure-session", (_, threadId: string) =>
+        options.threadCatalog
+          .ensureSession(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:ensure-session", cause }),
+            ),
+          ),
       );
 
       registerEffectHandle("codex:threads:palette:list", (_, input) =>

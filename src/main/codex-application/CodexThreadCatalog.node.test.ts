@@ -10,6 +10,7 @@ import type {
   CodexSidebarSnapshot,
   CodexSidebarSyncResult,
   Project,
+  ProjectSession,
   ProjectSessionSummaryWindow,
 } from "../../shared/types";
 import type { DesktopProjectWorkspaceSidebar } from "../core-client/project-workspace-adapter";
@@ -108,6 +109,30 @@ const workspaceThread = (
     ...overrides,
   }) as unknown as DesktopProjectWorkspaceThread;
 
+const projectSession = (threadId: string | null = null): ProjectSession =>
+  ({
+    id: "session-created",
+    projectId: "project-a",
+    displayTitle: "Session",
+    pinned: false,
+    pinnedOrder: null,
+    archived: false,
+    unread: false,
+    thread: threadId === null ? null : { threadId },
+  }) as unknown as ProjectSession;
+
+const unusedSessionOperations = {
+  getSession: () => Effect.die("unused"),
+  createSession: () => Effect.die("unused"),
+  deleteSession: () => Effect.die("unused"),
+  readWritableRoots: () => Effect.die("unused"),
+  linkSession: () => Effect.die("unused"),
+  setSessionPinned: () => Effect.die("unused"),
+  repairChild: () => Effect.die("unused"),
+  shouldHideThread: () => false,
+  hideThread: () => Effect.die("unused"),
+};
+
 const searchSidebar = CodexSidebarSyncRuntime.of({
   sync: () => Effect.die("unused"),
   publish: () => Effect.die("unused"),
@@ -128,6 +153,7 @@ const makeSearchCatalog = (
     readThreadProjection: () => null,
     readThread: () => Effect.succeed(null),
     materializeThread: () => Effect.die("unused"),
+    ...unusedSessionOperations,
     setThreadPinned: () => Effect.die("unused"),
     reorderPinnedThreads: () => Effect.die("unused"),
     move: () => Effect.die("unused"),
@@ -168,6 +194,7 @@ it.effect("resolves cached Threads without touching the app-server", () =>
       readThreadProjection: () => null,
       readThread: () => Effect.succeed(workspaceThread()),
       materializeThread: () => Effect.die("unused"),
+      ...unusedSessionOperations,
       setThreadPinned: () => Effect.die("unused"),
       reorderPinnedThreads: () => Effect.die("unused"),
       move: () => Effect.die("unused"),
@@ -235,6 +262,7 @@ it.effect("materializes remote Threads and publishes their exact sidebar scope",
           return null;
         }),
       materializeThread: () => Effect.succeed(buildWorkspaceThreadSummary(materialized)),
+      ...unusedSessionOperations,
       setThreadPinned: () => Effect.die("unused"),
       reorderPinnedThreads: () => Effect.die("unused"),
       move: () => Effect.die("unused"),
@@ -276,6 +304,145 @@ it.effect("rejects a remote Thread resolved under a different identity", () =>
   }),
 );
 
+it.effect("repairs leaked child Sessions inside the Catalog mutation lane", () =>
+  Effect.gen(function* () {
+    const repairs: Array<{ readonly threadId: string; readonly parentThreadId: string }> = [];
+    let invalidations = 0;
+    const sidebar = CodexSidebarSyncRuntime.of({
+      sync: () => Effect.die("unused"),
+      publish: () => Effect.die("unused"),
+      invalidate: () => {
+        invalidations += 1;
+      },
+      scheduleNotification: () => undefined,
+    });
+    const scope = yield* Scope.make();
+    const catalog = yield* make({
+      foldPathCase: false,
+      readSidebarOverview: () => Effect.die("unused"),
+      listProjectWindow: () => Effect.die("unused"),
+      listProjects: Effect.die("unused"),
+      readThreadProjection: () => null,
+      readThread: () =>
+        Effect.succeed(
+          workspaceThread({
+            threadId: "thread-child",
+            parentThreadId: "thread-root",
+            sessionId: "session-leaked",
+          }),
+        ),
+      materializeThread: () => Effect.die("unused"),
+      ...unusedSessionOperations,
+      repairChild: (threadId, parentThreadId) =>
+        Effect.sync(() => {
+          repairs.push({ threadId, parentThreadId });
+          return true;
+        }),
+      setThreadPinned: () => Effect.die("unused"),
+      reorderPinnedThreads: () => Effect.die("unused"),
+      move: () => Effect.die("unused"),
+    }).pipe(
+      Effect.provideService(CodexGateway, unusedGateway),
+      Effect.provideService(CodexSidebarSyncRuntime, sidebar),
+      Effect.provideService(Scope.Scope, scope),
+    );
+
+    assert.isNull(yield* catalog.ensureSession("thread-child"));
+    assert.deepEqual(repairs, [{ threadId: "thread-child", parentThreadId: "thread-root" }]);
+    assert.strictEqual(invalidations, 1);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("creates and links one complete sidebar Session", () =>
+  Effect.gen(function* () {
+    const calls: string[] = [];
+    const scope = yield* Scope.make();
+    const thread = workspaceThread({ pinnedOrder: 4 });
+    const linked = projectSession(thread.threadId);
+    const catalog = yield* make({
+      foldPathCase: false,
+      readSidebarOverview: () => Effect.die("unused"),
+      listProjectWindow: () => Effect.die("unused"),
+      listProjects: Effect.die("unused"),
+      readThreadProjection: () => null,
+      readThread: () => Effect.succeed(thread),
+      materializeThread: () => Effect.die("unused"),
+      ...unusedSessionOperations,
+      getSession: () => Effect.sync(() => (calls.push("get"), linked)),
+      createSession: (projectId, fallbackTitle) =>
+        Effect.sync(() => {
+          calls.push(`create:${projectId}:${fallbackTitle}`);
+          return projectSession();
+        }),
+      deleteSession: () => Effect.sync(() => void calls.push("delete")),
+      readWritableRoots: () =>
+        Effect.sync(() => (calls.push("roots"), ["/workspace/a", "/workspace/shared"])),
+      linkSession: (sessionId, linkedThread, roots) =>
+        Effect.sync(() => {
+          calls.push(`link:${sessionId}:${linkedThread.threadId}:${roots.join(",")}`);
+        }),
+      setSessionPinned: (sessionId) => Effect.sync(() => void calls.push(`pin:${sessionId}`)),
+      setThreadPinned: () => Effect.die("unused"),
+      reorderPinnedThreads: () => Effect.die("unused"),
+      move: () => Effect.die("unused"),
+    }).pipe(
+      Effect.provideService(CodexGateway, unusedGateway),
+      Effect.provideService(CodexSidebarSyncRuntime, searchSidebar),
+      Effect.provideService(Scope.Scope, scope),
+    );
+
+    assert.strictEqual((yield* catalog.ensureSession("thread-cached"))?.id, "session-created");
+    assert.deepEqual(calls, [
+      "create:project-a:Cached Thread",
+      "roots",
+      "link:session-created:thread-cached:/workspace/a,/workspace/shared",
+      "pin:session-created",
+      "get",
+    ]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("compensates a partially created sidebar Session", () =>
+  Effect.gen(function* () {
+    const calls: string[] = [];
+    const scope = yield* Scope.make();
+    const catalog = yield* make({
+      foldPathCase: false,
+      readSidebarOverview: () => Effect.die("unused"),
+      listProjectWindow: () => Effect.die("unused"),
+      listProjects: Effect.die("unused"),
+      readThreadProjection: () => null,
+      readThread: () => Effect.succeed(workspaceThread()),
+      materializeThread: () => Effect.die("unused"),
+      ...unusedSessionOperations,
+      createSession: () => Effect.succeed(projectSession()),
+      deleteSession: (sessionId) => Effect.sync(() => void calls.push(`delete:${sessionId}`)),
+      readWritableRoots: () => Effect.succeed([]),
+      linkSession: () =>
+        Effect.fail(
+          new CodexThreadCatalogError({
+            operation: "ensure-session",
+            cause: new Error("link failed"),
+          }),
+        ),
+      setThreadPinned: () => Effect.die("unused"),
+      reorderPinnedThreads: () => Effect.die("unused"),
+      move: () => Effect.die("unused"),
+    }).pipe(
+      Effect.provideService(CodexGateway, unusedGateway),
+      Effect.provideService(CodexSidebarSyncRuntime, searchSidebar),
+      Effect.provideService(Scope.Scope, scope),
+    );
+
+    const error = yield* Effect.flip(catalog.ensureSession("thread-cached"));
+    assert.strictEqual(error.operation, "ensure-session");
+    assert.deepEqual(calls, ["delete:session-created"]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect("owns paginated pin reads and complete mutation publication", () =>
   Effect.gen(function* () {
     const calls: string[] = [];
@@ -309,8 +476,16 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.succeed([]),
       readThreadProjection: () => null,
-      readThread: () => Effect.succeed(null),
+      readThread: () =>
+        Effect.succeed(
+          workspaceThread({
+            threadId: "thread-a",
+            sessionId: "session-a",
+          }),
+        ),
       materializeThread: () => Effect.die("unused"),
+      ...unusedSessionOperations,
+      getSession: () => Effect.succeed(projectSession("thread-a")),
       setThreadPinned: (threadId, pinned) =>
         Effect.sync(() => {
           calls.push(`set:${threadId}:${pinned}`);
@@ -389,6 +564,7 @@ it.effect("interrupts active and queued pin mutations with its owning Scope", ()
       readThreadProjection: () => null,
       readThread: () => Effect.succeed(null),
       materializeThread: () => Effect.die("unused"),
+      ...unusedSessionOperations,
       setThreadPinned: () =>
         Deferred.succeed(started, undefined).pipe(
           Effect.andThen(Effect.never),
@@ -488,6 +664,7 @@ it.effect("owns Project and command-palette Thread projections", () =>
         }) as unknown as import("../core-client/project-workspace-adapter").DesktopProjectWorkspaceThread,
       readThread: () => Effect.succeed(null),
       materializeThread: () => Effect.die("unused"),
+      ...unusedSessionOperations,
       setThreadPinned: () => Effect.die("unused"),
       reorderPinnedThreads: () => Effect.die("unused"),
       move: () => Effect.die("unused"),

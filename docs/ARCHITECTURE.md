@@ -695,13 +695,18 @@ rejects identity drift, materializes through the Workspace projection port, and 
 changed Project/projectless sidebar scope. Paginated pin reads, pin/unpin placement, full pinned-order
 replacement, and cross-Project/sidebar-lane moves share that source of truth. All
 mutations pass through one Main-scoped semaphore; reads remain concurrent but close with Main Scope.
+Ensuring a sidebar Session and preparing a move use that same mutation lane. Child Threads repair
+leaked Session ownership without creating another Session; root Threads reuse an existing owner or
+atomically create, link, restore writable roots, and restore pin state. A failed or interrupted link
+deletes the partially created Session before releasing admission.
 Moves include validation, Project access confirmation, Workspace/settings/canonical consequences,
 and exact sidebar publication before releasing admission. Pin mutations publish the exact
 Project/projectless invalidation through `CodexSidebarSyncRuntime` only after Core commits. Renderer
 ingress calls the typed Module directly, while internal launch flows use a stateless tracked
 projection. `CodexService` owns no public Project/palette read/search, point-resolution, or placement
-command, Promise chain, semaphore, or recovery tail; it temporarily supplies only Workspace
-materialization, cached runtime fields, and the move domain projection.
+command, Session creation algorithm, Promise chain, semaphore, or recovery tail; it temporarily
+supplies only Workspace materialization, non-sidebar hiding policy/projection, cached runtime fields,
+and the move domain projection.
 
 Thread read state is owned by `CodexThreadReadState`. Manual read/unread transitions inspect the
 canonical and Project Workspace projections, reject archived or unknown Threads, persist to Project

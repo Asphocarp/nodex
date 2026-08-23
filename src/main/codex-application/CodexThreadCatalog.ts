@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -21,6 +22,7 @@ import type {
   CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
   Project,
+  ProjectSession,
   ProjectSessionSummaryWindow,
   ProjectSessionSummaryWindowInput,
 } from "../../shared/types";
@@ -35,6 +37,7 @@ import {
   hasSidebarThreadSummaryChanged,
   isNonSidebarThreadWithoutParent,
   parseThreadStatus,
+  normalizeSidebarSessionFallbackTitle,
   resolveSidebarProjectIdForCwd,
   resolveSidebarThreadTitle,
 } from "./CodexThreadCatalogProjection";
@@ -49,6 +52,7 @@ export class CodexThreadCatalogError extends Data.TaggedError("CodexThreadCatalo
     | "reorder-pinned"
     | "move"
     | "resolve"
+    | "ensure-session"
     | "publish";
   readonly cause: unknown;
 }> {}
@@ -70,6 +74,29 @@ export interface CodexThreadCatalogOptions {
   readonly materializeThread: (
     thread: ClientRequestResponsesByMethod["thread/read"]["thread"],
   ) => Effect.Effect<CodexThreadSummary | null, CodexThreadCatalogError>;
+  readonly getSession: (
+    sessionId: string,
+  ) => Effect.Effect<ProjectSession | null, CodexThreadCatalogError>;
+  readonly createSession: (
+    projectId: string | null,
+    fallbackTitle: string,
+  ) => Effect.Effect<ProjectSession, CodexThreadCatalogError>;
+  readonly deleteSession: (sessionId: string) => Effect.Effect<void, CodexThreadCatalogError>;
+  readonly readWritableRoots: (
+    threadId: string,
+  ) => Effect.Effect<readonly string[], CodexThreadCatalogError>;
+  readonly linkSession: (
+    sessionId: string,
+    thread: DesktopProjectWorkspaceThread,
+    runtimeWorkspaceRoots: readonly string[],
+  ) => Effect.Effect<void, CodexThreadCatalogError>;
+  readonly setSessionPinned: (sessionId: string) => Effect.Effect<void, CodexThreadCatalogError>;
+  readonly repairChild: (
+    threadId: string,
+    parentThreadId: string,
+  ) => Effect.Effect<boolean, CodexThreadCatalogError>;
+  readonly shouldHideThread: (summary: CodexThreadSummary) => boolean;
+  readonly hideThread: (threadId: string) => Effect.Effect<void, CodexThreadCatalogError>;
   readonly setThreadPinned: (
     threadId: string,
     pinned: boolean,
@@ -100,6 +127,9 @@ export class CodexThreadCatalog extends Context.Service<
     readonly resolve: (
       threadId: string,
     ) => Effect.Effect<CodexThreadSummary | null, CodexThreadCatalogError>;
+    readonly ensureSession: (
+      threadId: string,
+    ) => Effect.Effect<ProjectSession | null, CodexThreadCatalogError>;
     readonly setPinned: (
       threadId: string,
       pinned: boolean,
@@ -224,6 +254,103 @@ export const make = (
     };
     const runMutation = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
       runOwned(mutations.withPermit(operation));
+    const resolveThread = (
+      normalizedThreadId: string,
+    ): Effect.Effect<CodexThreadSummary | null, CodexThreadCatalogError> =>
+      Effect.gen(function* () {
+        const cached = yield* options.readThread(normalizedThreadId);
+        if (cached) return buildWorkspaceThreadSummary(cached);
+
+        const result = yield* gateway
+          .requestLocal("thread/read", {
+            threadId: normalizedThreadId,
+            includeTurns: false,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexThreadCatalogError({ operation: "resolve", cause }),
+            ),
+          );
+        if (result.thread.id !== normalizedThreadId) {
+          return yield* Effect.fail(
+            new CodexThreadCatalogError({
+              operation: "resolve",
+              cause: new Error(
+                `Codex thread/read expected '${normalizedThreadId}' but received '${result.thread.id}'`,
+              ),
+            }),
+          );
+        }
+
+        const previousThread = yield* options.readThread(normalizedThreadId);
+        const previous = previousThread ? buildWorkspaceThreadSummary(previousThread) : null;
+        const summary = (yield* options.materializeThread(result.thread)) ?? previous;
+        if (summary && hasSidebarThreadSummaryChanged(previous, summary)) {
+          yield* publish(metadataForProject(summary.projectId), false, "host-message");
+        }
+        return summary;
+      });
+    const ensureWorkspaceSession = (
+      thread: DesktopProjectWorkspaceThread,
+    ): Effect.Effect<ProjectSession, CodexThreadCatalogError> => {
+      if (thread.parentThreadId) {
+        return Effect.fail(
+          new CodexThreadCatalogError({
+            operation: "ensure-session",
+            cause: new Error(`Child Thread '${thread.threadId}' cannot own a sidebar Session`),
+          }),
+        );
+      }
+      return Effect.gen(function* () {
+        if (thread.sessionId) {
+          const existing = yield* options.getSession(thread.sessionId);
+          if (existing) return existing;
+        }
+
+        const summary = buildWorkspaceThreadSummary(thread);
+        return yield* Effect.acquireUseRelease(
+          options.createSession(thread.projectId, normalizeSidebarSessionFallbackTitle(summary)),
+          (session) =>
+            Effect.gen(function* () {
+              const runtimeWorkspaceRoots = yield* options.readWritableRoots(thread.threadId);
+              yield* options.linkSession(session.id, thread, runtimeWorkspaceRoots);
+              if (thread.pinnedOrder !== null) yield* options.setSessionPinned(session.id);
+              const linked = yield* options.getSession(session.id);
+              if (!linked?.thread) {
+                return yield* Effect.fail(
+                  new CodexThreadCatalogError({
+                    operation: "ensure-session",
+                    cause: new Error(
+                      `Unable to materialize Project Session for task: ${thread.threadId}`,
+                    ),
+                  }),
+                );
+              }
+              return linked;
+            }),
+          (session, exit) =>
+            Exit.isFailure(exit) ? options.deleteSession(session.id) : Effect.void,
+        );
+      });
+    };
+    const prepareMoveSession = (threadId: string): Effect.Effect<void, CodexThreadCatalogError> =>
+      Effect.gen(function* () {
+        const normalizedThreadId = threadId.trim();
+        let thread = yield* options.readThread(normalizedThreadId);
+        if (!thread) {
+          yield* resolveThread(normalizedThreadId);
+          thread = yield* options.readThread(normalizedThreadId);
+        }
+        if (!thread) {
+          return yield* Effect.fail(
+            new CodexThreadCatalogError({
+              operation: "move",
+              cause: new Error(`Task not found: ${normalizedThreadId}`),
+            }),
+          );
+        }
+        yield* ensureWorkspaceSession(thread);
+      });
 
     const listPalette = (
       input: CommandPaletteThreadListInput,
@@ -434,39 +561,43 @@ export const make = (
       resolve: (threadId) => {
         const normalizedThreadId = threadId.trim();
         if (!normalizedThreadId) return Effect.succeed(null);
-        return runOwned(
+        return runOwned(resolveThread(normalizedThreadId));
+      },
+      ensureSession: (threadId) => {
+        const normalizedThreadId = threadId.trim();
+        if (!normalizedThreadId) return Effect.succeed(null);
+        return runMutation(
           Effect.gen(function* () {
-            const cached = yield* options.readThread(normalizedThreadId);
-            if (cached) return buildWorkspaceThreadSummary(cached);
-
-            const result = yield* gateway
-              .requestLocal("thread/read", {
-                threadId: normalizedThreadId,
-                includeTurns: false,
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) => new CodexThreadCatalogError({ operation: "resolve", cause }),
-                ),
-              );
-            if (result.thread.id !== normalizedThreadId) {
-              return yield* Effect.fail(
-                new CodexThreadCatalogError({
-                  operation: "resolve",
-                  cause: new Error(
-                    `Codex thread/read expected '${normalizedThreadId}' but received '${result.thread.id}'`,
-                  ),
-                }),
-              );
+            let thread = yield* options.readThread(normalizedThreadId);
+            if (!thread) {
+              yield* resolveThread(normalizedThreadId);
+              thread = yield* options.readThread(normalizedThreadId);
             }
+            if (!thread) return null;
 
-            const previousThread = yield* options.readThread(normalizedThreadId);
-            const previous = previousThread ? buildWorkspaceThreadSummary(previousThread) : null;
-            const summary = (yield* options.materializeThread(result.thread)) ?? previous;
-            if (summary && hasSidebarThreadSummaryChanged(previous, summary)) {
-              yield* publish(metadataForProject(summary.projectId), false, "host-message");
+            const summary = buildWorkspaceThreadSummary(thread);
+            if (thread.parentThreadId) {
+              if (thread.sessionId) {
+                const repaired = yield* options.repairChild(thread.threadId, thread.parentThreadId);
+                if (!repaired) {
+                  return yield* Effect.fail(
+                    new CodexThreadCatalogError({
+                      operation: "ensure-session",
+                      cause: new Error(
+                        `Child Thread '${thread.threadId}' disappeared during sidebar repair`,
+                      ),
+                    }),
+                  );
+                }
+                yield* Effect.sync(() => sidebar.invalidate());
+              }
+              return null;
             }
-            return summary;
+            if (options.shouldHideThread(summary)) {
+              yield* options.hideThread(summary.threadId);
+              return null;
+            }
+            return yield* ensureWorkspaceSession(thread);
           }),
         );
       },
@@ -495,7 +626,11 @@ export const make = (
           Effect.try({
             try: () => CodexSidebarThreadMoveInputSchema.parse(input),
             catch: (cause) => new CodexThreadCatalogError({ operation: "move", cause }),
-          }).pipe(Effect.flatMap(options.move)),
+          }).pipe(
+            Effect.flatMap((validated) =>
+              prepareMoveSession(validated.threadId).pipe(Effect.andThen(options.move(validated))),
+            ),
+          ),
         ),
     });
   });

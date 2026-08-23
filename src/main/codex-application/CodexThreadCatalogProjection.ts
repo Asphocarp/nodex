@@ -7,6 +7,8 @@ import type {
   CodexThreadStatusType,
   Project,
 } from "../../shared/types";
+import { normalizeCodexManualThreadTitle } from "../../shared/codex-thread-title";
+import { MAX_PROJECT_SESSION_TITLE_LENGTH } from "../../shared/schemas/project-sessions";
 import type { DesktopProjectWorkspaceThread } from "../core-client/project-workspace-adapter";
 import { CodexThreadStatusSchema } from "../../shared/schemas/codex";
 import { hasCodexSubagentSource } from "../../shared/codex-subagent-metadata";
@@ -66,6 +68,15 @@ export const resolveSidebarThreadTitle = (thread: {
   const title = thread.threadName?.trim() || thread.threadPreview?.trim();
   return title || "New thread";
 };
+
+export const normalizeSidebarSessionFallbackTitle = (thread: {
+  readonly threadName?: string | null;
+  readonly threadPreview?: string | null;
+}): string =>
+  normalizeCodexManualThreadTitle(
+    resolveSidebarThreadTitle(thread),
+    MAX_PROJECT_SESSION_TITLE_LENGTH,
+  ) ?? "New thread";
 
 const buildThreadRuntimeStatus = (
   statusType: CodexThreadStatusType,

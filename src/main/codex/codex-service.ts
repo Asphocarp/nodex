@@ -250,10 +250,7 @@ import {
   parseCodexThreadTokenUsage,
 } from "../../shared/schemas/codex";
 import { buildCodexBackgroundProcessRow } from "./background-process-rows";
-import {
-  MAX_PROJECT_SESSION_TITLE_LENGTH,
-  ProjectSessionForkInputSchema,
-} from "../../shared/schemas/project-sessions";
+import { ProjectSessionForkInputSchema } from "../../shared/schemas/project-sessions";
 import {
   PastedTextAttachmentManager,
   ThreadGoalAttachmentDirectoryManager,
@@ -649,10 +646,10 @@ import {
   hasSidebarThreadSummaryChanged,
   isInternalThreadSourceValue,
   isNonSidebarThreadWithoutParent,
+  normalizeSidebarSessionFallbackTitle,
   parseThreadSourceValue,
   parseThreadStatus,
   resolveSidebarProjectIdForCwd,
-  resolveSidebarThreadTitle,
 } from "../codex-application/CodexThreadCatalogProjection";
 import type { CodexThreadReadStatePromiseAdapter } from "../codex-application/CodexThreadReadStatePromiseAdapter";
 import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
@@ -898,18 +895,6 @@ function mergeSidebarThreadMaterialization(
 
   if (!result.changed && !result.materialized) return;
   markSidebarSyncScopeChanged(metadata, result.projectId);
-}
-
-function normalizeSidebarSessionFallbackTitle(thread: {
-  threadName?: string | null;
-  threadPreview?: string | null;
-}): string {
-  return (
-    normalizeCodexManualThreadTitle(
-      resolveSidebarThreadTitle(thread),
-      MAX_PROJECT_SESSION_TITLE_LENGTH,
-    ) ?? "New thread"
-  );
 }
 
 type AutomationUpdateMode =
@@ -5964,6 +5949,16 @@ export class CodexService {
     return await this.upsertLinkFromThread(thread);
   }
 
+  /** Effect Module policy projection; callers use CodexThreadCatalog.ensureSession. */
+  shouldHideThreadForCatalog(summary: CodexThreadSummary): boolean {
+    return this.shouldHidePersistedNonSidebarThread(summary);
+  }
+
+  /** Effect Module projection operation; callers use CodexThreadCatalog.ensureSession. */
+  async hideThreadForCatalog(threadId: string): Promise<void> {
+    await this.hideNonSidebarThreadMaterialization(threadId, "manual");
+  }
+
   /** Temporary synchronous projection seam for application Modules committing Core Threads. */
   projectWorkspaceThreadFromModule(thread: DesktopProjectWorkspaceThread): void {
     this.rememberWorkspaceThread(thread);
@@ -6256,68 +6251,12 @@ export class CodexService {
     this.syncAcceptedConversationDocument(input.threadId, { syncDetail: true });
   }
 
-  private async ensureWorkspaceSidebarThreadSession(
-    thread: DesktopProjectWorkspaceThread,
-  ): Promise<ProjectSession> {
-    if (thread.parentThreadId) {
-      throw new Error(`Child Thread '${thread.threadId}' cannot own a sidebar Session`);
-    }
-    if (thread.sessionId) {
-      const existing = await this.projectWorkspace.getProjectSession(thread.sessionId);
-      if (existing) return existing;
-    }
-
-    const summary = this.buildWorkspaceThreadSummary(thread);
-    const created = await this.projectWorkspace.createProjectSession({
-      projectId: thread.projectId,
-      noThreadFallbackTitle: normalizeSidebarSessionFallbackTitle(summary),
-    });
-    const runtimeWorkspaceRoots = await this.readThreadWritableRoots(thread.threadId);
-    await this.projectWorkspace.upsertProjectSessionThreadLink({
-      sessionId: created.id,
-      projectId: thread.projectId,
-      threadId: thread.threadId,
-      forkedFromId: thread.forkedFromId,
-      parentThreadId: thread.parentThreadId,
-      threadName: thread.threadName,
-      threadPreview: thread.threadPreview,
-      modelProvider: thread.modelProvider,
-      executionProfile: thread.executionProfile,
-      executionHostId: thread.executionHostId,
-      runtimeWorkspaceRoots,
-      cwd: thread.cwd,
-      managedWorktreePath: thread.managedWorktreePath,
-      projectlessOutputDirectory: thread.projectlessOutputDirectory,
-      projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot,
-      statusType: thread.statusType,
-      statusActiveFlags: thread.statusActiveFlags,
-      archived: thread.archived,
-      createdAt: thread.createdAt,
-      updatedAt: thread.updatedAt,
-      recencyAt: thread.recencyAt,
-    });
-    if (thread.pinnedOrder !== null) {
-      await this.projectWorkspace.setProjectSessionPinned(created.id, {
-        pinned: true,
-      });
-    }
-    const linked = await this.projectWorkspace.getProjectSession(created.id);
-    if (!linked?.thread) {
-      throw new Error(`Unable to materialize Project Session for task: ${thread.threadId}`);
-    }
-    return linked;
-  }
-
   /** Effect Module projection operation; callers use CodexThreadCatalog.move. */
   async applySidebarThreadMove(
     input: CodexSidebarThreadMoveInput,
   ): Promise<CodexSidebarThreadMoveResult> {
     const threadId = input.threadId.trim();
     let workspaceThread = await this.readWorkspaceThread(threadId);
-    if (!workspaceThread) {
-      await this.threadCatalog.resolve(threadId);
-      workspaceThread = await this.readWorkspaceThread(threadId);
-    }
     if (!workspaceThread) throw new Error(`Task not found: ${threadId}`);
 
     const sourceProjectId = workspaceThread.projectId;
@@ -6394,7 +6333,6 @@ export class CodexService {
       };
     }
 
-    await this.ensureWorkspaceSidebarThreadSession(workspaceThread);
     workspaceThread = await this.readWorkspaceThread(threadId);
     if (!workspaceThread || workspaceThread.projectId !== sourceProjectId) {
       throw new Error("Sidebar task source project changed during move preparation");
@@ -6495,30 +6433,6 @@ export class CodexService {
       operationId: moved.operationId,
       projectionRevision: moved.projectionRevision,
     });
-  }
-
-  async ensureSidebarThreadSession(threadId: string): Promise<ProjectSession | null> {
-    const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId) return null;
-
-    let thread = await this.readWorkspaceThread(normalizedThreadId);
-    if (!thread) {
-      await this.threadCatalog.resolve(normalizedThreadId);
-      thread = await this.readWorkspaceThread(normalizedThreadId);
-    }
-    if (!thread) return null;
-
-    const summary = this.buildWorkspaceThreadSummary(thread);
-    if (thread.parentThreadId) {
-      await this.retireChildSidebarSession(thread);
-      return null;
-    }
-    if (this.shouldHidePersistedNonSidebarThread(summary)) {
-      await this.hideNonSidebarThreadMaterialization(summary.threadId, "manual");
-      return null;
-    }
-    const session = await this.ensureWorkspaceSidebarThreadSession(thread);
-    return session;
   }
 
   private async retireChildSidebarSession(thread: DesktopProjectWorkspaceThread): Promise<void> {
