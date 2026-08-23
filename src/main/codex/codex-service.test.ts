@@ -56,6 +56,7 @@ import { TestCodexConversationHistoryRuntime } from "./codex-conversation-histor
 import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-subagent-metadata-repair.test-support";
 import { TestCodexConversationDeltaBufferRuntime } from "./codex-conversation-delta-buffer-runtime.test-support";
 import { TestCodexConversationResumeRuntime } from "./codex-conversation-resume-runtime.test-support";
+import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
 import { TestCodexConversationEventBufferRuntime } from "./codex-conversation-event-buffer-runtime.test-support";
 import { TestCodexFreshThreadLaunchRuntime } from "./codex-fresh-thread-launch-runtime.test-support";
 import { TestCodexPendingServerRequestRuntime } from "./codex-pending-server-request-runtime.test-support";
@@ -195,18 +196,17 @@ interface TestableCodexService {
   sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
   threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
   threadReadState: import("../codex-application/CodexThreadReadStatePromiseAdapter").CodexThreadReadStatePromiseAdapter;
-  requestConversationSnapshot: (threadId: string) => Promise<CodexConversationSnapshot | null>;
+  readConversationSnapshotForModule: CodexService["readConversationSnapshotForModule"];
   requestConversationResume: (
     threadId: string,
     options?: { syncDormantConversationSnapshots?: boolean; replayBufferedNotifications?: boolean },
   ) => Promise<CodexConversationSnapshot | null>;
-  requestRendererConversationResume: (
-    threadId: string,
-    ownerClientId: string,
-  ) => Promise<import("../../shared/types").CodexRendererConversationResumeResult | null>;
+  readConversationResumeRendererStateForModule: CodexService["readConversationResumeRendererStateForModule"];
+  isRendererClientDisposedForModule: CodexService["isRendererClientDisposedForModule"];
+  adoptRendererConversationForModule: CodexService["adoptRendererConversationForModule"];
   applyRendererConversationViewActiveForModule: CodexService["applyRendererConversationViewActiveForModule"];
   freshThreadLaunch: import("../codex-application/CodexFreshThreadLaunchRuntimePromiseAdapter").CodexFreshThreadLaunchRuntimePromiseAdapter;
-  releaseConversationResumeBuffer: (threadId: string) => Promise<boolean>;
+  releaseConversationResumeBufferForModule: CodexService["releaseConversationResumeBufferForModule"];
   replayRendererOwnerPendingRequests: (threadId: string, ownerClientId: string) => number;
   ackRendererThreadOwnerNotification: (
     sourceClientId: string,
@@ -1898,6 +1898,26 @@ function createService(options?: {
       if (!service) throw new Error("Codex test service is not constructed");
       return await service.runConversationResume(input);
     },
+    snapshot: async (threadId) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.readConversationSnapshotForModule(threadId);
+    },
+    readRendererState: (threadId) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return service.readConversationResumeRendererStateForModule(threadId);
+    },
+    isRendererClientDisposed: (clientId) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return service.isRendererClientDisposedForModule(clientId);
+    },
+    adoptRenderer: (input) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return service.adoptRendererConversationForModule(input);
+    },
+    releaseBuffer: async (threadId) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.releaseConversationResumeBufferForModule(threadId);
+    },
   });
   const conversationEventBuffer = new TestCodexConversationEventBufferRuntime({
     compact: (threadId, events) => {
@@ -2622,6 +2642,31 @@ const interruptTurnForTest = (
   (
     Reflect.get(service as object, "conversationCommands") as ConversationCommandsPromiseAdapter
   ).interrupt(threadId, turnId, options);
+
+const conversationResumeForTest = (
+  service: TestableCodexService,
+): CodexConversationResumeRuntimePromiseAdapter =>
+  Reflect.get(
+    service as object,
+    "conversationResume",
+  ) as CodexConversationResumeRuntimePromiseAdapter;
+
+const requestConversationSnapshotForTest = (
+  service: TestableCodexService,
+  threadId: string,
+): Promise<CodexConversationSnapshot | null> =>
+  conversationResumeForTest(service).snapshot(threadId);
+
+const requestRendererConversationResumeForTest = (
+  service: TestableCodexService,
+  threadId: string,
+  ownerClientId: string,
+) => conversationResumeForTest(service).resumeForRenderer(threadId, ownerClientId);
+
+const releaseConversationResumeBufferForTest = (
+  service: TestableCodexService,
+  threadId: string,
+): Promise<boolean> => conversationResumeForTest(service).releaseBuffer(threadId);
 
 const updateRendererConversationViewForTest = (
   service: TestableCodexService,
@@ -4226,7 +4271,7 @@ describe("codex-service renderer owner stream publishing", () => {
       );
       expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBe(true);
       expect(String(hostMessages.length)).toBe("0");
-      const snapshot = await service.requestConversationSnapshot("thread-owner-migrated");
+      const snapshot = await requestConversationSnapshotForTest(service, "thread-owner-migrated");
       expect(snapshot?.latestTokenUsageInfo?.total.totalTokens).toBe(100);
       expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBe(true);
       expect(snapshot?.turns[0]?.safetyBuffering?.showBufferingUi).toBe(true);
@@ -4408,7 +4453,7 @@ describe("codex-service renderer owner stream publishing", () => {
         },
       });
 
-      const snapshot = await service.requestConversationSnapshot("thread-token-usage");
+      const snapshot = await requestConversationSnapshotForTest(service, "thread-token-usage");
       expect(snapshot?.latestTokenUsageInfo?.last.totalTokens).toBe(30);
       expect(hostMessages).toHaveLength(0);
       expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBe(true);
@@ -4516,7 +4561,10 @@ describe("codex-service renderer owner stream publishing", () => {
       }
       expect(String(hostMessages.length)).toBe("0");
 
-      const snapshot = await service.requestConversationSnapshot("thread-owner-file-change");
+      const snapshot = await requestConversationSnapshotForTest(
+        service,
+        "thread-owner-file-change",
+      );
       const item = snapshot?.turns[0]?.items[0] ?? null;
       expect(item?.itemId ?? "").toBe("patch-live");
       expect(item?.status ?? "").toBe("inProgress");
@@ -4660,7 +4708,7 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(ownerMessages.every((message) => message.targetClientId === "owner-a")).toBe(true);
       expect(String(hostMessages.length)).toBe("0");
 
-      const snapshot = await service.requestConversationSnapshot("thread-owner-goal");
+      const snapshot = await requestConversationSnapshotForTest(service, "thread-owner-goal");
       expect(snapshot?.threadGoal ?? null).toBe(null);
     } finally {
       await service.shutdown();
@@ -4805,7 +4853,7 @@ describe("codex-service renderer owner stream publishing", () => {
         dismissResumeConfirmation: false,
         objective: "Ship parity",
       });
-      const snapshot = await service.requestConversationSnapshot("thread-goal-objective");
+      const snapshot = await requestConversationSnapshotForTest(service, "thread-goal-objective");
       const turn = snapshot?.turns[0];
       const item = turn?.items[0];
 
@@ -5011,7 +5059,10 @@ describe("codex-service renderer owner stream publishing", () => {
       ).toBe("owner remains authoritative");
 
       hostMessages.length = 0;
-      const snapshot = await service.requestConversationSnapshot("thread-source-null-guard");
+      const snapshot = await requestConversationSnapshotForTest(
+        service,
+        "thread-source-null-guard",
+      );
       expect(snapshot).not.toBeNull();
       expect(hostMessages).toHaveLength(0);
     } finally {
@@ -5192,7 +5243,8 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(invalidated.streamRole).toBe(null);
       expect(invalidated.isStreaming).toBe(false);
 
-      const reacquired = await service.requestRendererConversationResume(
+      const reacquired = await requestRendererConversationResumeForTest(
+        service,
         threadId,
         "owner-after-loss-resume-kernel",
       );
@@ -5608,7 +5660,7 @@ describe("codex-service renderer owner stream publishing", () => {
         expect(ownerMessages[2].message.sequence).toBe(3);
       }
 
-      const snapshot = await service.requestConversationSnapshot("thread-owner-drain");
+      const snapshot = await requestConversationSnapshotForTest(service, "thread-owner-drain");
       expect(snapshot?.turns[0]?.items[0]?.markdownText).toBe("hello");
       expect(snapshot?.turns[0]?.items[0]?.status).toBe("completed");
     } finally {
@@ -5773,7 +5825,7 @@ describe("codex-service renderer owner stream publishing", () => {
         expect(ownerMessages[1].message.sequence).toBe(2);
       }
 
-      const snapshot = await service.requestConversationSnapshot("thread-owner-turn");
+      const snapshot = await requestConversationSnapshotForTest(service, "thread-owner-turn");
       expect(snapshot?.turns[0]?.status).toBe("completed");
       expect(snapshot?.turns[0]?.durationMs).toBe(42);
       expect(notificationEvents).toHaveLength(1);
@@ -6024,7 +6076,8 @@ describe("codex-service renderer owner stream publishing", () => {
         ).accepted,
       ).toBe(true);
 
-      const result = await service.requestRendererConversationResume(
+      const result = await requestRendererConversationResumeForTest(
+        service,
         "thread-owner-adoption-race",
         "owner-b",
       );
@@ -6082,10 +6135,10 @@ describe("codex-service renderer owner stream publishing", () => {
 
     try {
       await expect(
-        service.requestRendererConversationResume(threadId, ownerClientId),
+        requestRendererConversationResumeForTest(service, threadId, ownerClientId),
       ).resolves.toBeNull();
       await expect(
-        service.requestRendererConversationResume(threadId, "renderer-other"),
+        requestRendererConversationResumeForTest(service, threadId, "renderer-other"),
       ).resolves.toMatchObject({
         role: "follower",
         ownerClientId,
@@ -6100,7 +6153,7 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(adopted.conversation.threadId).toBe(threadId);
       expect(service.getRendererConversationOwner(threadId)).toBe(ownerClientId);
       expect(requests).toEqual([]);
-      await service.releaseConversationResumeBuffer(threadId);
+      await releaseConversationResumeBufferForTest(service, threadId);
     } finally {
       await service.shutdown();
     }
@@ -6293,7 +6346,8 @@ describe("codex-service renderer owner stream publishing", () => {
     };
 
     try {
-      const competingResume = service.requestRendererConversationResume(
+      const competingResume = requestRendererConversationResumeForTest(
+        service,
         "thread-owner-concurrent-race",
         "owner-b",
       );
@@ -15602,7 +15656,7 @@ describe("codex-service item lifecycle status fallback", () => {
         },
       });
 
-      let snapshot = await service.requestConversationSnapshot("thr_guardian_warning");
+      let snapshot = await requestConversationSnapshotForTest(service, "thr_guardian_warning");
       let warningItems =
         snapshot?.turns[0]?.items.filter(
           (item) => item.semanticKind === "autoReviewInterruptionWarning",
@@ -15618,7 +15672,7 @@ describe("codex-service item lifecycle status fallback", () => {
         },
       });
 
-      snapshot = await service.requestConversationSnapshot("thr_guardian_warning");
+      snapshot = await requestConversationSnapshotForTest(service, "thr_guardian_warning");
       warningItems =
         snapshot?.turns[0]?.items.filter(
           (item) => item.semanticKind === "autoReviewInterruptionWarning",
@@ -15729,7 +15783,7 @@ describe("codex-service item lifecycle status fallback", () => {
         },
       });
 
-      const snapshot = await service.requestConversationSnapshot("thr_model_reroute");
+      const snapshot = await requestConversationSnapshotForTest(service, "thr_model_reroute");
       const item = snapshot?.turns[0]?.items.find(
         (candidate) => candidate.semanticKind === "modelRerouted",
       );
@@ -17125,7 +17179,7 @@ describe("codex-service terminal turn reconciliation", () => {
       await new Promise((resolve) => setTimeout(resolve, 70));
       expect(String(threadMessages.length)).toBe(String(threadMessageCountAfterStarted));
 
-      const snapshot = await service.requestConversationSnapshot("thr_streaming_output");
+      const snapshot = await requestConversationSnapshotForTest(service, "thr_streaming_output");
       expect(snapshot).not.toBeNull();
       expect(snapshot?.turns.length).toBe(1);
       expect(snapshot?.turns[0]?.items.length).toBe(1);
@@ -17216,7 +17270,10 @@ describe("codex-service terminal turn reconciliation", () => {
       }
 
       await new Promise((resolve) => setTimeout(resolve, 70));
-      const snapshot = await service.requestConversationSnapshot("thr_owner_streaming_output");
+      const snapshot = await requestConversationSnapshotForTest(
+        service,
+        "thr_owner_streaming_output",
+      );
       expect(snapshot?.turns[0]?.items[0]?.aggregatedOutput).toBe("owner output\n");
     } finally {
       await service.shutdown();
@@ -17367,7 +17424,10 @@ describe("codex-service terminal turn reconciliation", () => {
       );
       expect(String(hostMessages.length)).toBe(String(streamMessagesBeforeTerminal));
 
-      const snapshot = await service.requestConversationSnapshot("thr_owner_terminal_interaction");
+      const snapshot = await requestConversationSnapshotForTest(
+        service,
+        "thr_owner_terminal_interaction",
+      );
       const item = snapshot?.turns[0]?.items[0];
       const commandAction = item?.commandActions?.[0];
 
@@ -18332,7 +18392,7 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     try {
-      const baseConversation = await service.requestConversationSnapshot(threadId);
+      const baseConversation = await requestConversationSnapshotForTest(service, threadId);
       expect(baseConversation).not.toBeNull();
       const broadcastCache = Reflect.get(
         service as object,

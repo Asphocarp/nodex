@@ -659,6 +659,8 @@ import type { CodexQueuedFollowUpRuntimePromiseAdapter } from "../codex-applicat
 import type { CodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import type {
   CodexConversationResumeDemand,
+  CodexConversationResumeRendererAdoption,
+  CodexConversationResumeRendererState,
   CodexConversationResumeOutcome,
 } from "../codex-application/CodexConversationResumeRuntime";
 import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
@@ -2739,7 +2741,7 @@ export class CodexService {
     this.rendererOwnerRetention.reconcile(threadId);
   }
 
-  async releaseConversationResumeBuffer(threadId: string): Promise<boolean> {
+  async releaseConversationResumeBufferForModule(threadId: string): Promise<boolean> {
     await this.releaseConversationResumeBufferCore(threadId);
     const revision = this.conversationStreamRevisionById.get(threadId) ?? 0;
     if (this.postResumeGoals.release(threadId, revision)) return true;
@@ -13512,7 +13514,9 @@ export class CodexService {
     }
   }
 
-  async requestConversationSnapshot(threadId: string): Promise<CodexConversationSnapshot | null> {
+  async readConversationSnapshotForModule(
+    threadId: string,
+  ): Promise<CodexConversationSnapshot | null> {
     const startedAt = getDevRuntimeMetricStart();
     const existingConversation = this.serializeConversationSnapshot(threadId);
     if (existingConversation) {
@@ -14253,89 +14257,44 @@ export class CodexService {
     }
   }
 
-  async requestRendererConversationResume(
+  readConversationResumeRendererStateForModule(
     threadId: string,
-    ownerClientId: string,
-  ): Promise<CodexRendererConversationResumeResult | null> {
-    const buildFollowerResult = (
-      existingOwnerClientId: string,
-    ): CodexRendererConversationResumeResult | null => {
-      const acceptedConversation = this.acceptedConversationDocumentById.get(threadId) ?? null;
-      if (!acceptedConversation) return null;
-      const replica = this.getAcceptedConversationReplica(threadId);
-      if (!replica) {
-        throw new Error(`Accepted follower replica is unavailable for '${threadId}'`);
-      }
-      return {
-        role: "follower",
-        conversation: acceptedConversation,
-        revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
-        ownerClientId: existingOwnerClientId,
-        checkpoint: replica.checkpoint,
-      };
+  ): CodexConversationResumeRendererState {
+    const acceptedConversation = this.acceptedConversationDocumentById.get(threadId) ?? null;
+    const replica = acceptedConversation ? this.getAcceptedConversationReplica(threadId) : null;
+    return {
+      acceptedConversation,
+      checkpoint: replica?.checkpoint ?? null,
+      freshLaunchOwnerClientId:
+        this.getFreshThreadLaunchReservation(threadId)?.rendererClientId ?? null,
+      ownerClientId: this.getRendererConversationOwner(threadId),
+      resumeState: this.getMaybeConversationRecord(threadId)?.resumeState ?? null,
+      revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
+      serializedConversation: this.serializeConversationSnapshot(threadId),
     };
-    const pendingFreshLaunch = this.getFreshThreadLaunchReservation(threadId);
-    if (pendingFreshLaunch && !this.getRendererConversationOwner(threadId)) {
-      if (pendingFreshLaunch.rendererClientId === ownerClientId) {
-        return null;
-      }
-      return buildFollowerResult(pendingFreshLaunch.rendererClientId);
-    }
+  }
 
-    const ownerBeforeResume = this.getRendererConversationOwner(threadId);
-    if (ownerBeforeResume && ownerBeforeResume !== ownerClientId) {
-      return buildFollowerResult(ownerBeforeResume);
-    }
-    if (this.rendererConversations.isClientDisposed(ownerClientId)) {
-      throw new Error(`Renderer client '${ownerClientId}' is unavailable`);
-    }
+  isRendererClientDisposedForModule(clientId: string): boolean {
+    return this.rendererConversations.isClientDisposed(clientId);
+  }
 
-    const existingOwnerConversation =
-      ownerBeforeResume === ownerClientId &&
-      this.getMaybeConversationRecord(threadId)?.resumeState !== "needs_resume"
-        ? (this.acceptedConversationDocumentById.get(threadId) ??
-          this.serializeConversationSnapshot(threadId))
-        : null;
-    const conversation =
-      existingOwnerConversation ??
-      (await this.requestConversationResume(threadId, {
-        syncDormantConversationSnapshots: false,
-        replayBufferedNotifications: false,
-      }));
-    if (!conversation || conversation.resumeState !== "resumed") {
-      return null;
-    }
-
-    const ownerAfterResume = this.getRendererConversationOwner(threadId);
-    if (ownerAfterResume && ownerAfterResume !== ownerClientId) {
-      return buildFollowerResult(ownerAfterResume);
-    }
-    if (this.rendererConversations.isClientDisposed(ownerClientId)) {
-      throw new Error(`Renderer client '${ownerClientId}' became unavailable during resume`);
-    }
-
-    this.setRendererConversationOwner(threadId, ownerClientId);
-    if (this.getRendererConversationOwner(threadId) !== ownerClientId) {
-      throw new Error(
-        `Renderer client '${ownerClientId}' could not adopt conversation '${threadId}'`,
-      );
-    }
-    if (!this.acceptedConversationDocumentById.has(threadId)) {
+  adoptRendererConversationForModule(input: {
+    readonly threadId: string;
+    readonly ownerClientId: string;
+    readonly conversation: CodexConversationSnapshot;
+  }): CodexConversationResumeRendererAdoption {
+    this.setRendererConversationOwner(input.threadId, input.ownerClientId);
+    if (!this.acceptedConversationDocumentById.has(input.threadId)) {
       this.setAcceptedConversationReplica(
-        threadId,
-        conversation,
-        this.conversationStreamRevisionById.get(threadId) ?? 0,
+        input.threadId,
+        input.conversation,
+        this.conversationStreamRevisionById.get(input.threadId) ?? 0,
       );
-    }
-    const ownerReplica = this.getAcceptedConversationReplica(threadId);
-    if (!ownerReplica) {
-      throw new Error(`Accepted owner replica is unavailable for '${threadId}'`);
     }
     return {
-      role: "owner",
-      conversation,
-      revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
-      checkpoint: ownerReplica.checkpoint,
+      checkpoint: this.getAcceptedConversationReplica(input.threadId)?.checkpoint ?? null,
+      ownerClientId: this.getRendererConversationOwner(input.threadId),
+      revision: this.conversationStreamRevisionById.get(input.threadId) ?? 0,
     };
   }
 

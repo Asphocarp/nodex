@@ -591,9 +591,15 @@ Conversation resume admission is owned by one Main-scoped keyed runtime. Identic
 physical resume fiber; a renderer's silent/deferred adoption demand and an ordinary replay/broadcast
 demand are not treated as equivalent. An incompatible caller waits for the current canonical
 transition, then runs an idempotent demand upgrade, so a deferred notification buffer cannot remain
-stranded behind an earlier join. Thread removal and Main Scope close interrupt physical resumes.
-`CodexService` keeps the canonical hydration and replay operations but owns no resume Promise map,
-option-blind join policy, detached cleanup, or shutdown entry.
+stranded behind an earlier join. A second per-Thread lane owns the complete renderer-facing
+transaction: snapshot read, fresh-launch reservation, disposed-generation fence, owner/follower
+choice, canonical resume, owner adoption, accepted-replica checkpoint, and explicit buffer release.
+Competing renderer clients therefore cannot both cross adoption; the later client observes the
+committed owner and becomes its follower. Renderer IPC invokes these typed commands directly.
+Thread removal and Main Scope close interrupt physical resumes. `CodexService` keeps the canonical
+hydration/replay reducer and exposes narrow read/adopt/release projection ports, but owns no public
+snapshot/resume/buffer command, resume Promise map, option-blind join policy, detached cleanup, or
+shutdown entry.
 
 Conversation event fencing is owned by one Main-scoped runtime shared by resume and Thread creation.
 Per-Thread resume lanes take precedence over Thread-start lanes; releasing an inner resume transfers

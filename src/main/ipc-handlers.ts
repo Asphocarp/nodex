@@ -22,6 +22,7 @@ import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSy
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
 import type { CodexConversationHistoryRuntime } from "./codex-application/CodexConversationHistoryRuntime";
+import type { CodexConversationResumeRuntime } from "./codex-application/CodexConversationResumeRuntime";
 import type { CodexQueuedFollowUpRuntime } from "./codex-application/CodexQueuedFollowUpRuntime";
 import type { CodexFreshThreadLaunchRuntimeService } from "./codex-application/CodexFreshThreadLaunchRuntime";
 import type { CodexStructuredThreadTitle } from "./codex-application/CodexStructuredThreadTitle";
@@ -114,6 +115,7 @@ interface CodexIpcOptions {
   threadReadState: CodexThreadReadState["Service"];
   agentImport: AgentImportRuntime["Service"];
   conversationHistory: CodexConversationHistoryRuntime["Service"];
+  conversationResume: CodexConversationResumeRuntime["Service"];
   queuedFollowUps: CodexQueuedFollowUpRuntime["Service"];
   freshThreadLaunch: CodexFreshThreadLaunchRuntimeService;
   structuredThreadTitle: CodexStructuredThreadTitle["Service"];
@@ -534,17 +536,35 @@ export const codexIpcLive = (
           ),
       );
 
-      registerHandle("codex:thread:snapshot:request", (_, threadId: string) =>
-        codexService.requestConversationSnapshot(threadId),
+      registerEffectHandle("codex:thread:snapshot:request", (_, threadId: string) =>
+        options.conversationResume
+          .snapshot(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:snapshot:request", cause }),
+            ),
+          ),
       );
 
-      registerHandle("codex:thread:resume:request", (event, threadId: string) => {
-        const ownerClientId = resolveRendererClientId(event);
-        if (!ownerClientId) {
-          throw new Error("Renderer client is not registered");
-        }
-        return codexService.requestRendererConversationResume(threadId, ownerClientId);
-      });
+      registerEffectHandle("codex:thread:resume:request", (event, threadId: string) =>
+        Effect.try({
+          try: () => {
+            const ownerClientId = resolveRendererClientId(event);
+            if (!ownerClientId) throw new Error("Renderer client is not registered");
+            return ownerClientId;
+          },
+          catch: (cause) => new CodexIpcError({ operation: "codex:thread:resume:request", cause }),
+        }).pipe(
+          Effect.flatMap((ownerClientId) =>
+            options.conversationResume.resumeForRenderer(threadId, ownerClientId),
+          ),
+          Effect.mapError((cause) =>
+            cause instanceof CodexIpcError
+              ? cause
+              : new CodexIpcError({ operation: "codex:thread:resume:request", cause }),
+          ),
+        ),
+      );
 
       registerEffectHandle(
         "codex:thread:fresh-owner:adopt",
@@ -580,8 +600,15 @@ export const codexIpcLive = (
         codexService.markSubagentThreadOpened(threadId),
       );
 
-      registerHandle("codex:thread:resume-buffer:release", (_, threadId: string) =>
-        codexService.releaseConversationResumeBuffer(threadId),
+      registerEffectHandle("codex:thread:resume-buffer:release", (_, threadId: string) =>
+        options.conversationResume
+          .releaseBuffer(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new CodexIpcError({ operation: "codex:thread:resume-buffer:release", cause }),
+            ),
+          ),
       );
 
       registerEffectHandle("codex:thread:turns:load-older", (_, threadId) =>

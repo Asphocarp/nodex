@@ -11,6 +11,7 @@ import { CodexThreadCatalog } from "../../codex-application/CodexThreadCatalog";
 import { CodexThreadReadState } from "../../codex-application/CodexThreadReadState";
 import { AgentImportRuntime } from "../../codex-application/AgentImportRuntime";
 import { CodexConversationHistoryRuntime } from "../../codex-application/CodexConversationHistoryRuntime";
+import { CodexConversationResumeRuntime } from "../../codex-application/CodexConversationResumeRuntime";
 import { CodexQueuedFollowUpRuntime } from "../../codex-application/CodexQueuedFollowUpRuntime";
 import { CodexStructuredThreadTitle } from "../../codex-application/CodexStructuredThreadTitle";
 import { ManagedWorktreeCatalog } from "../../codex-application/ManagedWorktreeCatalog";
@@ -104,6 +105,13 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           requestRemaining: () => undefined,
           clear: () => undefined,
         }),
+        conversationResume: CodexConversationResumeRuntime.of({
+          resume: () => Effect.die("unused"),
+          snapshot: () => Effect.die("unused"),
+          resumeForRenderer: () => Effect.die("unused"),
+          releaseBuffer: () => Effect.die("unused"),
+          clear: () => undefined,
+        }),
         queuedFollowUps: CodexQueuedFollowUpRuntime.of({
           list: () => [],
           enqueue: () => Effect.die("unused"),
@@ -155,6 +163,9 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
 
     assert.isTrue(channels.has("codex:threads:list"));
     assert.isTrue(channels.has("codex:turn:start"));
+    assert.isTrue(channels.has("codex:thread:snapshot:request"));
+    assert.isTrue(channels.has("codex:thread:resume:request"));
+    assert.isTrue(channels.has("codex:thread:resume-buffer:release"));
     assert.isFalse(channels.has("codex:turn:interrupt"));
     assert.isFalse(channels.has("codex:thread:background-terminals:clean"));
     assert.isFalse(channels.has("codex:thread:view-active:set"));

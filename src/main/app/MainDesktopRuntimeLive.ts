@@ -1784,6 +1784,34 @@ export const live: Layer.Layer<
               try: () => requireCodexService().runConversationResume(input),
               catch: (cause) => new CodexConversationResumeError({ cause }),
             }),
+          projection: {
+            snapshot: (threadId) =>
+              Effect.tryPromise({
+                try: () => requireCodexService().readConversationSnapshotForModule(threadId),
+                catch: (cause) => new CodexConversationResumeError({ cause }),
+              }),
+            readRendererState: (threadId) =>
+              Effect.try({
+                try: () =>
+                  requireCodexService().readConversationResumeRendererStateForModule(threadId),
+                catch: (cause) => new CodexConversationResumeError({ cause }),
+              }),
+            isRendererClientDisposed: (clientId) =>
+              Effect.try({
+                try: () => requireCodexService().isRendererClientDisposedForModule(clientId),
+                catch: (cause) => new CodexConversationResumeError({ cause }),
+              }),
+            adoptRenderer: (input) =>
+              Effect.try({
+                try: () => requireCodexService().adoptRendererConversationForModule(input),
+                catch: (cause) => new CodexConversationResumeError({ cause }),
+              }),
+            releaseBuffer: (threadId) =>
+              Effect.tryPromise({
+                try: () => requireCodexService().releaseConversationResumeBufferForModule(threadId),
+                catch: (cause) => new CodexConversationResumeError({ cause }),
+              }),
+          },
           observe: (outcome) => requireCodexService().recordConversationResumeOutcome(outcome),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const conversationEventBuffer = yield* makeCodexConversationEventBufferRuntime({
@@ -2912,6 +2940,7 @@ export const live: Layer.Layer<
             threadReadState,
             agentImport,
             conversationHistory,
+            conversationResume,
             queuedFollowUps,
             freshThreadLaunch,
             structuredThreadTitle,
