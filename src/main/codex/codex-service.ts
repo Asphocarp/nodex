@@ -272,7 +272,11 @@ import type {
 import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
 import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application/CodexActiveGoalContinuation";
 import type { CodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntime";
-import type { CodexRendererConversationRuntimeService } from "../codex-application/CodexRendererConversationRuntime";
+import type {
+  CodexRendererConversationPresentedResult,
+  CodexRendererConversationRuntimeService,
+  CodexRendererConversationViewActiveResult,
+} from "../codex-application/CodexRendererConversationRuntime";
 import type { CodexRendererOwnerRetentionLegacyPort } from "../codex-application/CodexRendererOwnerRetention";
 import type {
   CodexSidebarRefreshOutcomeEvent,
@@ -521,6 +525,7 @@ import {
 } from "./codex-app-meta-thread-tools";
 import {
   CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS,
+  type CodexThreadStreamFollowingResult,
   type CodexThreadStreamSubscriptionAction,
 } from "./codex-thread-stream-subscription-state";
 import {
@@ -3152,21 +3157,16 @@ export class CodexService {
     );
   }
 
-  setRendererConversationFollowing(
-    threadId: string,
-    clientId: string | null | undefined,
-    following: boolean,
-    options: { forceSnapshot?: boolean } = {},
-  ): boolean {
-    if (!clientId) return false;
-    const result = this.rendererConversations.setFollowing(threadId, clientId, following, options);
-    if (!result) return false;
-    this.emitRendererThreadStreamSubscriptionActions(result.actions);
-    if (result.shouldSendSnapshot) {
-      this.emitRendererThreadStreamSnapshot(threadId, clientId);
+  applyRendererConversationFollowingForModule(input: {
+    readonly conversationId: string;
+    readonly clientId: string;
+    readonly result: CodexThreadStreamFollowingResult;
+  }): void {
+    this.emitRendererThreadStreamSubscriptionActions(input.result.actions);
+    if (input.result.shouldSendSnapshot) {
+      this.emitRendererThreadStreamSnapshot(input.conversationId, input.clientId);
     }
-    this.rendererOwnerRetention.reconcile(threadId);
-    return true;
+    this.rendererOwnerRetention.reconcile(input.conversationId);
   }
 
   acknowledgeRendererFollowerSnapshotApplied(
@@ -3243,22 +3243,19 @@ export class CodexService {
     return blockers;
   }
 
-  setRendererConversationViewActive(
-    threadId: string,
-    clientId: string | null | undefined,
-    active: boolean,
-  ): void {
-    if (!clientId) return;
-    const result = this.rendererConversations.setViewActive(threadId, clientId, active);
-    if (!result.accepted) return;
-    if (result.following) {
-      this.emitRendererThreadStreamSubscriptionActions(result.following.actions);
-      if (result.following.shouldSendSnapshot) {
-        this.emitRendererThreadStreamSnapshot(threadId, clientId);
+  applyRendererConversationViewActiveForModule(input: {
+    readonly conversationId: string;
+    readonly clientId: string;
+    readonly result: CodexRendererConversationViewActiveResult;
+  }): void {
+    if (input.result.following) {
+      this.emitRendererThreadStreamSubscriptionActions(input.result.following.actions);
+      if (input.result.following.shouldSendSnapshot) {
+        this.emitRendererThreadStreamSnapshot(input.conversationId, input.clientId);
       }
     }
-    this.userInputAutoResolution.reevaluatePresentation(threadId);
-    this.rendererOwnerRetention.reconcile(threadId);
+    this.userInputAutoResolution.reevaluatePresentation(input.conversationId);
+    this.rendererOwnerRetention.reconcile(input.conversationId);
   }
 
   setRendererClientForegrounded(clientId: string | null | undefined, foregrounded: boolean): void {
@@ -3278,25 +3275,15 @@ export class CodexService {
     }
   }
 
-  setRendererConversationPresented(
-    threadId: string,
-    clientId: string | null | undefined,
-    surfaceId: string,
-    presented: boolean,
-  ): void {
-    if (!clientId) return;
-    const result = this.rendererConversations.setPresented(
-      threadId,
-      clientId,
-      surfaceId,
-      presented,
-    );
-    if (!result.accepted) return;
-    this.userInputAutoResolution.reevaluatePresentation(threadId);
-    if (result.presentedInForeground) {
+  applyRendererConversationPresentedForModule(input: {
+    readonly conversationId: string;
+    readonly result: CodexRendererConversationPresentedResult;
+  }): void {
+    this.userInputAutoResolution.reevaluatePresentation(input.conversationId);
+    if (input.result.presentedInForeground) {
       this.applicationEvents.publish({
         kind: "rendererConversationPresentedInForeground",
-        value: threadId,
+        value: input.conversationId,
       });
     }
   }

@@ -818,11 +818,17 @@ already displayed operating-system notification cannot dispatch into a replaced 
 Renderer conversation coordination belongs to one Main-scoped client-generation runtime. It
 atomically owns retired-client admission, owner identity and epoch, detached-owner recovery grace,
 follower membership and snapshot barriers, active/presented surfaces, and owner-request delivery
-correlation. A renderer disposal retires that identity and updates all five projections in one
-synchronous transition before `CodexService` applies canonical conversation consequences or emits
-transport actions. Owner replacement clears the prior delivery generation and re-fences followers;
-Thread removal and Main Scope release clear the same aggregate. `CodexService` remains the owner of
-the accepted conversation document and reducers, but it has no renderer owner map, detached-owner
+correlation. Renderer following, view-active, and presentation ingress execute complete typed
+commands on this runtime: each command validates the live client generation, changes the aggregate,
+then applies subscription, conversation, retention, and foreground-event consequences through
+narrow projection ports before it completes. The scoped renderer IPC layer binds the exact
+authorized client identity and invokes those commands directly; it cannot mutate the aggregate or
+assemble their consequences through `CodexService`. A renderer disposal retires that identity and
+updates all five projections in one synchronous transition before `CodexService` applies canonical
+conversation consequences or emits transport actions. Owner replacement clears the prior delivery
+generation and re-fences followers; Thread removal and Main Scope release clear the same aggregate.
+`CodexService` remains the owner of the accepted conversation document and reducers, but it has no
+renderer owner map, detached-owner
 map, disposed-client set, delivery registry, independent view registry, or capability to close the
 whole renderer-coordination runtime.
 

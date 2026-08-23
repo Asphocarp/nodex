@@ -157,6 +157,9 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
     assert.isTrue(channels.has("codex:turn:start"));
     assert.isFalse(channels.has("codex:turn:interrupt"));
     assert.isFalse(channels.has("codex:thread:background-terminals:clean"));
+    assert.isFalse(channels.has("codex:thread:view-active:set"));
+    assert.isFalse(channels.has("codex:thread:stream-following:set"));
+    assert.isFalse(channels.has("codex:thread:presentation:set"));
     assert.isFalse(channels.has("codex:permission:custom-description:get"));
     assert.isFalse(channels.has("worktrees:execution-hosts:update"));
 

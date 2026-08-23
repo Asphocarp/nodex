@@ -122,7 +122,10 @@ import {
 } from "./codex-user-input-auto-resolution.test-support";
 import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuation.test-support";
 import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainRuntime";
-import { makeCodexRendererConversationState } from "../codex-application/CodexRendererConversationRuntime";
+import {
+  makeCodexRendererConversationState,
+  type CodexRendererConversationRuntimeService,
+} from "../codex-application/CodexRendererConversationRuntime";
 import type {
   CodexApplicationEvent,
   CodexApplicationEventPublisher,
@@ -201,6 +204,7 @@ interface TestableCodexService {
     threadId: string,
     ownerClientId: string,
   ) => Promise<import("../../shared/types").CodexRendererConversationResumeResult | null>;
+  applyRendererConversationViewActiveForModule: CodexService["applyRendererConversationViewActiveForModule"];
   freshThreadLaunch: import("../codex-application/CodexFreshThreadLaunchRuntimePromiseAdapter").CodexFreshThreadLaunchRuntimePromiseAdapter;
   releaseConversationResumeBuffer: (threadId: string) => Promise<boolean>;
   replayRendererOwnerPendingRequests: (threadId: string, ownerClientId: string) => number;
@@ -323,11 +327,6 @@ interface TestableCodexService {
   ) => Promise<CodexPreparedThreadSettingsUpdate>;
   removePlanImplementationRequest: (threadId: string, turnId: string) => Promise<boolean>;
   setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
-  setRendererConversationViewActive: (
-    threadId: string,
-    clientId: string | null | undefined,
-    active: boolean,
-  ) => void;
   getRendererConversationOwner: (threadId: string) => string | null;
   handleRendererOwnerAppServerRequest: (
     sourceClientId: string | null,
@@ -1728,6 +1727,13 @@ function createService(options?: {
     },
   });
   const projectWorkspace = options?.projectWorkspace ?? createTestProjectWorkspace();
+  const rendererConversations = makeCodexRendererConversationState({
+    projection: {
+      following: (input) => service?.applyRendererConversationFollowingForModule(input),
+      viewActive: (input) => service?.applyRendererConversationViewActiveForModule(input),
+      presented: (input) => service?.applyRendererConversationPresentedForModule(input),
+    },
+  });
   const threadCatalog = {
     listPinned: async (): Promise<readonly string[]> => {
       const threadIds: string[] = [];
@@ -2108,7 +2114,7 @@ function createService(options?: {
     },
     activeGoalContinuation,
     ownerNotificationDrain,
-    rendererConversations: makeCodexRendererConversationState(),
+    rendererConversations,
     rendererOwnerRetention,
     sidebarSync,
     sidebarSweep,
@@ -2616,6 +2622,27 @@ const interruptTurnForTest = (
   (
     Reflect.get(service as object, "conversationCommands") as ConversationCommandsPromiseAdapter
   ).interrupt(threadId, turnId, options);
+
+const updateRendererConversationViewForTest = (
+  service: TestableCodexService,
+  threadId: string,
+  clientId: string,
+  active: boolean,
+): Promise<boolean> =>
+  Promise.resolve().then(() => {
+    const result = (
+      Reflect.get(
+        service as object,
+        "rendererConversations",
+      ) as CodexRendererConversationRuntimeService
+    ).setViewActive(threadId, clientId, active);
+    service.applyRendererConversationViewActiveForModule({
+      conversationId: threadId,
+      clientId,
+      result,
+    });
+    return result.accepted;
+  });
 
 describe("codex-service sidebar Thread Project moves", () => {
   test("confirms Project-wide source access, replays the move, and can remove it to Chats", async () => {
@@ -5040,7 +5067,12 @@ describe("codex-service renderer owner stream publishing", () => {
     };
 
     try {
-      service.setRendererConversationViewActive("thread-main-owned", "renderer-viewer", true);
+      await updateRendererConversationViewForTest(
+        service,
+        "thread-main-owned",
+        "renderer-viewer",
+        true,
+      );
 
       expect(service.getRendererConversationOwner("thread-main-owned")).toBeNull();
       expect(
@@ -5064,7 +5096,12 @@ describe("codex-service renderer owner stream publishing", () => {
         )?.clientId,
       ).toBe("renderer-viewer");
 
-      service.setRendererConversationViewActive("thread-main-owned", "renderer-viewer", false);
+      await updateRendererConversationViewForTest(
+        service,
+        "thread-main-owned",
+        "renderer-viewer",
+        false,
+      );
       expect(
         serviceInternals.resolveNodexAgentAuthorizationPresentation(
           "thread-main-owned",
@@ -5084,7 +5121,12 @@ describe("codex-service renderer owner stream publishing", () => {
           },
         ],
       });
-      service.setRendererConversationViewActive("thread-root", "renderer-root-viewer", true);
+      await updateRendererConversationViewForTest(
+        service,
+        "thread-root",
+        "renderer-root-viewer",
+        true,
+      );
       expect(
         serviceInternals.resolveNodexAgentAuthorizationPresentation(
           "thread-child",
@@ -5278,8 +5320,18 @@ describe("codex-service renderer owner stream publishing", () => {
         threadId: "thread-inactive-owner",
         ownerClientId: "owner-a",
       });
-      service.setRendererConversationViewActive("thread-inactive-owner", "owner-a", true);
-      service.setRendererConversationViewActive("thread-inactive-owner", "owner-a", false);
+      await updateRendererConversationViewForTest(
+        service,
+        "thread-inactive-owner",
+        "owner-a",
+        true,
+      );
+      await updateRendererConversationViewForTest(
+        service,
+        "thread-inactive-owner",
+        "owner-a",
+        false,
+      );
 
       await waitForCondition(
         () =>
@@ -5329,7 +5381,12 @@ describe("codex-service renderer owner stream publishing", () => {
         ownerClientId: "owner-a",
         turnStatus: "inProgress",
       });
-      service.setRendererConversationViewActive("thread-inactive-in-progress", "owner-a", false);
+      await updateRendererConversationViewForTest(
+        service,
+        "thread-inactive-in-progress",
+        "owner-a",
+        false,
+      );
       await new Promise((resolve) => setTimeout(resolve, 25));
       expect(String(requests.length)).toBe("0");
       expect(service.getRendererConversationOwner("thread-inactive-in-progress")).toBe("owner-a");
@@ -5383,7 +5440,12 @@ describe("codex-service renderer owner stream publishing", () => {
         threadId: "thread-inactive-retry",
         ownerClientId: "owner-a",
       });
-      service.setRendererConversationViewActive("thread-inactive-retry", "owner-a", false);
+      await updateRendererConversationViewForTest(
+        service,
+        "thread-inactive-retry",
+        "owner-a",
+        false,
+      );
 
       await waitForCondition(() => requestCount >= 2, 160);
 

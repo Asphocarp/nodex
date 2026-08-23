@@ -6,6 +6,10 @@ import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { CodexUserInputAutoResolution } from "../../codex-application/CodexUserInputAutoResolution";
+import {
+  CodexRendererConversationRuntime,
+  makeCodexRendererConversationState,
+} from "../../codex-application/CodexRendererConversationRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -34,6 +38,7 @@ it.effect("owns renderer coordination ingress with the Main Scope", () =>
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
+            Layer.succeed(CodexRendererConversationRuntime, makeCodexRendererConversationState()),
             Layer.succeed(CodexUserInputAutoResolution, {
               changes: Stream.empty,
               snapshot: Effect.succeed([]),
@@ -48,10 +53,13 @@ it.effect("owns renderer coordination ingress with the Main Scope", () =>
       scope,
     );
 
-    assert.strictEqual(channels.size, 13);
+    assert.strictEqual(channels.size, 16);
     assert.isTrue(channels.has("codex:renderer-client:id"));
     assert.isTrue(channels.has("codex:thread-owner:app-server-request"));
     assert.isTrue(channels.has("codex:dynamic-tool-call:respond"));
+    assert.isTrue(channels.has("codex:thread:view-active:set"));
+    assert.isTrue(channels.has("codex:thread:stream-following:set"));
+    assert.isTrue(channels.has("codex:thread:presentation:set"));
     assert.isTrue(channels.has("codex:user-input:auto-resolution:snapshot"));
 
     yield* Scope.close(scope, Exit.void);

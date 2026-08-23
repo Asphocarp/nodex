@@ -9,6 +9,7 @@ import {
 } from "../../../shared/codex-user-input-auto-resolution";
 import { MainConfig } from "../../app/MainConfig";
 import { CodexUserInputAutoResolution } from "../../codex-application/CodexUserInputAutoResolution";
+import { CodexRendererConversationRuntime } from "../../codex-application/CodexRendererConversationRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import {
   acknowledgeRendererFollowerSnapshotApplied,
@@ -45,12 +46,17 @@ export const live = (
 ): Layer.Layer<
   never,
   never,
-  CodexUserInputAutoResolution | ElectronIpc | MainConfig | WindowRuntime
+  | CodexRendererConversationRuntime
+  | CodexUserInputAutoResolution
+  | ElectronIpc
+  | MainConfig
+  | WindowRuntime
 > =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
+      const rendererConversations = yield* CodexRendererConversationRuntime;
       const userInputAutoResolution = yield* CodexUserInputAutoResolution;
       const windows = yield* WindowRuntime;
       const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
@@ -86,6 +92,66 @@ export const live = (
               response,
             ),
           ),
+        ),
+      );
+      yield* handle("codex:thread:view-active:set", (event, input: unknown) =>
+        authorize(event).pipe(
+          Effect.flatMap((clientId) => {
+            if (typeof input !== "object" || input === null) return Effect.succeed(false);
+            const threadId =
+              "threadId" in input && typeof input.threadId === "string"
+                ? input.threadId.trim()
+                : "";
+            return threadId
+              ? rendererConversations.updateViewActive(
+                  threadId,
+                  clientId,
+                  "active" in input && input.active === true,
+                )
+              : Effect.succeed(false);
+          }),
+        ),
+      );
+      yield* handle("codex:thread:stream-following:set", (event, input: unknown) =>
+        authorize(event).pipe(
+          Effect.flatMap((clientId) => {
+            if (typeof input !== "object" || input === null) return Effect.succeed(false);
+            const threadId =
+              "threadId" in input && typeof input.threadId === "string"
+                ? input.threadId.trim()
+                : "";
+            return threadId
+              ? rendererConversations.updateFollowing(
+                  threadId,
+                  clientId,
+                  "following" in input && input.following === true,
+                  { forceSnapshot: "reannounce" in input && input.reannounce === true },
+                )
+              : Effect.succeed(false);
+          }),
+        ),
+      );
+      yield* handle("codex:thread:presentation:set", (event, input: unknown) =>
+        authorize(event).pipe(
+          Effect.flatMap((clientId) => {
+            if (typeof input !== "object" || input === null) return Effect.succeed(false);
+            const threadId =
+              "threadId" in input && typeof input.threadId === "string"
+                ? input.threadId.trim()
+                : "";
+            const surfaceId =
+              "surfaceId" in input && typeof input.surfaceId === "string"
+                ? input.surfaceId.trim()
+                : "";
+            return threadId && surfaceId
+              ? rendererConversations.updatePresented(
+                  threadId,
+                  clientId,
+                  surfaceId,
+                  "presented" in input && input.presented === true,
+                )
+              : Effect.succeed(false);
+          }),
         ),
       );
       yield* handle("codex:thread-owner:stream-state:publish", (event, input) =>

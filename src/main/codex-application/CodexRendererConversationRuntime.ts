@@ -19,6 +19,22 @@ import {
 export interface CodexRendererConversationRuntimeOptions {
   readonly now?: () => number;
   readonly reconnectGraceMs?: number;
+  readonly projection?: {
+    readonly following: (input: {
+      readonly conversationId: string;
+      readonly clientId: string;
+      readonly result: CodexThreadStreamFollowingResult;
+    }) => void;
+    readonly viewActive: (input: {
+      readonly conversationId: string;
+      readonly clientId: string;
+      readonly result: CodexRendererConversationViewActiveResult;
+    }) => void;
+    readonly presented: (input: {
+      readonly conversationId: string;
+      readonly result: CodexRendererConversationPresentedResult;
+    }) => void;
+  };
 }
 
 export interface CodexRendererConversationOwnerResult extends CodexThreadStreamOwnerResult {
@@ -119,6 +135,23 @@ export interface CodexRendererConversationRuntimeService {
   ) => void;
   readonly clearRequestDelivery: (conversationId: string, requestId: RequestId) => void;
   readonly clearConversation: (conversationId: string) => string | null;
+  readonly updateFollowing: (
+    conversationId: string,
+    clientId: string,
+    following: boolean,
+    options?: { readonly forceSnapshot?: boolean },
+  ) => Effect.Effect<boolean>;
+  readonly updateViewActive: (
+    conversationId: string,
+    clientId: string,
+    active: boolean,
+  ) => Effect.Effect<boolean>;
+  readonly updatePresented: (
+    conversationId: string,
+    clientId: string,
+    surfaceId: string,
+    presented: boolean,
+  ) => Effect.Effect<boolean>;
 }
 
 export class CodexRendererConversationRuntime extends Context.Service<
@@ -348,6 +381,27 @@ const makeRuntimeState = (
       clearRequestDeliveries(normalizedConversationId);
       return ownerClientId;
     },
+    updateFollowing: (conversationId, clientId, following, followingOptions) =>
+      Effect.sync(() => {
+        const result = service.setFollowing(conversationId, clientId, following, followingOptions);
+        if (!result) return false;
+        options.projection?.following({ conversationId, clientId, result });
+        return true;
+      }),
+    updateViewActive: (conversationId, clientId, active) =>
+      Effect.sync(() => {
+        const result = service.setViewActive(conversationId, clientId, active);
+        if (!result.accepted) return false;
+        options.projection?.viewActive({ conversationId, clientId, result });
+        return true;
+      }),
+    updatePresented: (conversationId, clientId, surfaceId, presented) =>
+      Effect.sync(() => {
+        const result = service.setPresented(conversationId, clientId, surfaceId, presented);
+        if (!result.accepted) return false;
+        options.projection?.presented({ conversationId, result });
+        return true;
+      }),
   };
   return {
     close: () => {

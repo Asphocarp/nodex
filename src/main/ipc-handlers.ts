@@ -584,56 +584,6 @@ export const codexIpcLive = (
         codexService.releaseConversationResumeBuffer(threadId),
       );
 
-      registerHandle("codex:thread:view-active:set", (event, input: unknown) => {
-        if (typeof input !== "object" || input === null) return false;
-        const threadId =
-          "threadId" in input && typeof input.threadId === "string" ? input.threadId.trim() : "";
-        if (!threadId) return false;
-        const clientId = resolveRendererClientId(event);
-        if (!clientId) return false;
-        codexService.setRendererConversationViewActive(
-          threadId,
-          clientId,
-          "active" in input && input.active === true,
-        );
-        return true;
-      });
-
-      registerHandle("codex:thread:stream-following:set", (event, input: unknown) => {
-        if (typeof input !== "object" || input === null) return false;
-        const threadId =
-          "threadId" in input && typeof input.threadId === "string" ? input.threadId.trim() : "";
-        if (!threadId) return false;
-        const clientId = resolveRendererClientId(event);
-        if (!clientId) return false;
-        return codexService.setRendererConversationFollowing(
-          threadId,
-          clientId,
-          "following" in input && input.following === true,
-          {
-            forceSnapshot: "reannounce" in input && input.reannounce === true,
-          },
-        );
-      });
-
-      registerHandle("codex:thread:presentation:set", (event, input: unknown) => {
-        if (typeof input !== "object" || input === null) return false;
-        const threadId =
-          "threadId" in input && typeof input.threadId === "string" ? input.threadId.trim() : "";
-        const surfaceId =
-          "surfaceId" in input && typeof input.surfaceId === "string" ? input.surfaceId.trim() : "";
-        if (!threadId || !surfaceId) return false;
-        const clientId = resolveRendererClientId(event);
-        if (!clientId) return false;
-        codexService.setRendererConversationPresented(
-          threadId,
-          clientId,
-          surfaceId,
-          "presented" in input && input.presented === true,
-        );
-        return true;
-      });
-
       registerEffectHandle("codex:thread:turns:load-older", (_, threadId) =>
         options.conversationHistory
           .loadPage(threadId)

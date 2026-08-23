@@ -105,7 +105,10 @@ import {
 import { live as codexApplicationIngressRuntimeLive } from "../codex-application/CodexApplicationIngressRuntime";
 import { make as makeCodexOwnerNotificationDrainRuntime } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import { makeCodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntimePromiseAdapter";
-import { make as makeCodexRendererConversationRuntime } from "../codex-application/CodexRendererConversationRuntime";
+import {
+  CodexRendererConversationRuntime,
+  make as makeCodexRendererConversationRuntime,
+} from "../codex-application/CodexRendererConversationRuntime";
 import {
   CodexSidebarSyncError,
   CodexSidebarSyncRuntime,
@@ -1428,9 +1431,16 @@ export const live: Layer.Layer<
         const ownerNotificationDrain = yield* makeCodexOwnerNotificationDrainRuntime().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const rendererConversations = yield* makeCodexRendererConversationRuntime().pipe(
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
+        const rendererConversations = yield* makeCodexRendererConversationRuntime({
+          projection: {
+            following: (input) =>
+              requireCodexService().applyRendererConversationFollowingForModule(input),
+            viewActive: (input) =>
+              requireCodexService().applyRendererConversationViewActiveForModule(input),
+            presented: (input) =>
+              requireCodexService().applyRendererConversationPresentedForModule(input),
+          },
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const sidebarSync = yield* makeCodexSidebarSyncRuntime({
           refresh: (input) =>
             Effect.tryPromise({
@@ -2317,6 +2327,7 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(CodexRendererConversationRuntime, rendererConversations),
                 Layer.succeed(CodexUserInputAutoResolution, userInputAutoResolution),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
