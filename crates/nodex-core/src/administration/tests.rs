@@ -1389,6 +1389,83 @@ fn prunes_only_automatic_backups_beyond_the_retention_count() {
 }
 
 #[test]
+fn reads_and_replays_cleanup_receipts_from_before_the_durable_outcome_envelope() {
+    let fixture = Fixture::new();
+    let deleted = fixture.create_backup(
+        "administration:create-backup:legacy-deleted",
+        Some("Legacy deleted"),
+        false,
+    );
+    let deleted_backup_id = deleted
+        .committed
+        .value
+        .backup_id
+        .expect("deleted backup ID");
+    let retained = fixture.create_backup(
+        "administration:create-backup:legacy-retained",
+        Some("Legacy retained"),
+        false,
+    );
+    let retained_backup_id = retained
+        .committed
+        .value
+        .backup_id
+        .expect("retained backup ID");
+    let operation_id = "administration:delete-backup:legacy-outcome";
+    let first = fixture.delete_backup(operation_id, &deleted_backup_id);
+    assert!(!first.committed.receipt.mutation.duplicate);
+
+    let operation_id_for_write = operation_id.to_owned();
+    fixture
+        .kernel
+        .writer()
+        .call(move |connection| {
+            let raw = connection.query_row(
+                "SELECT result_json FROM core_module_receipts \
+                 WHERE module_name = 'store_administration' AND operation_id = ?1",
+                [&operation_id_for_write],
+                |row| row.get::<_, String>(0),
+            )?;
+            let current = serde_json::from_str::<serde_json::Value>(&raw)
+                .expect("current durable outcome JSON");
+            let mut legacy = current
+                .get("committed")
+                .and_then(serde_json::Value::as_object)
+                .cloned()
+                .expect("current durable outcome");
+            let commit_seq = legacy
+                .remove("commit_seq")
+                .expect("current commit sequence");
+            legacy.insert("event_sequence".to_owned(), commit_seq);
+            legacy.insert(
+                "_coreDeletedBackupIds".to_owned(),
+                current
+                    .get("deletedBackupIds")
+                    .cloned()
+                    .expect("current cleanup identities"),
+            );
+            let encoded = serde_json::to_string(&legacy).expect("legacy durable outcome JSON");
+            connection.execute(
+                "UPDATE core_module_receipts SET result_json = ?1 \
+                 WHERE module_name = 'store_administration' AND operation_id = ?2",
+                rusqlite::params![encoded, operation_id_for_write],
+            )?;
+            Ok(())
+        })
+        .expect("legacy durable outcome fixture");
+
+    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
+        panic!("backup list")
+    };
+    assert_eq!(backups.items.len(), 1);
+    assert_eq!(backups.items[0].backup_id, retained_backup_id);
+
+    let replay = fixture.delete_backup(operation_id, &deleted_backup_id);
+    assert!(replay.committed.receipt.mutation.duplicate);
+    assert_eq!(replay.committed.commit_seq, first.committed.commit_seq);
+}
+
+#[test]
 fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
     let fixture = Fixture::new();
     let tasks = vec![

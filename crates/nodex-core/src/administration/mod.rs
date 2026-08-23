@@ -26,7 +26,7 @@ use nodex_core_contracts::{
     ModuleReadSnapshot, STORE_ADMINISTRATION_CONTRACT_VERSION, StoreEpoch,
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::infrastructure::collection_window::{WindowCandidate, assemble, normalize_request};
@@ -66,12 +66,78 @@ pub struct StoreAdministrationApplyOutcome {
     pub event: Option<CommittedCoreModuleEvent>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DurableAdministrationOutcome {
     committed:
         crate::ModuleWriterResult<StoreAdministrationCommitValue, StoreAdministrationReceipt>,
+    deleted_backup_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurrentDurableAdministrationOutcome {
+    committed:
+        crate::ModuleWriterResult<StoreAdministrationCommitValue, StoreAdministrationReceipt>,
     #[serde(default)]
+    deleted_backup_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct LegacyDurableAdministrationOutcome {
+    value: StoreAdministrationCommitValue,
+    receipt: StoreAdministrationReceipt,
+    #[serde(default)]
+    commit_seq: i64,
+    event_sequence: i64,
+    store_epoch: StoreEpoch,
+    #[serde(default, rename = "_coreDeletedBackupIds")]
+    deleted_backup_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum DurableAdministrationOutcomeWire {
+    Current(CurrentDurableAdministrationOutcome),
+    Legacy(LegacyDurableAdministrationOutcome),
+}
+
+impl<'de> Deserialize<'de> for DurableAdministrationOutcome {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = DurableAdministrationOutcomeWire::deserialize(deserializer)?;
+        Ok(match wire {
+            DurableAdministrationOutcomeWire::Current(current) => Self {
+                committed: current.committed,
+                deleted_backup_ids: current.deleted_backup_ids,
+            },
+            DurableAdministrationOutcomeWire::Legacy(legacy) => {
+                let commit_seq = if legacy.commit_seq > 0 {
+                    legacy.commit_seq
+                } else {
+                    legacy.event_sequence
+                };
+                Self {
+                    committed: crate::ModuleWriterResult {
+                        value: legacy.value,
+                        receipt: legacy.receipt,
+                        commit_seq,
+                        event_sequence: legacy.event_sequence,
+                        store_epoch: legacy.store_epoch,
+                    },
+                    deleted_backup_ids: legacy.deleted_backup_ids,
+                }
+            }
+        })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DurableBackupDeletionEvidence {
+    #[serde(alias = "_coreDeletedBackupIds")]
     deleted_backup_ids: Vec<String>,
 }
 
@@ -1178,10 +1244,10 @@ fn logically_deleted_backup_ids(connection: &Connection) -> Result<BTreeSet<Stri
     }
     let mut deleted = BTreeSet::new();
     for raw in result_json {
-        let durable = serde_json::from_str::<DurableAdministrationOutcome>(&raw)
+        let evidence = serde_json::from_str::<DurableBackupDeletionEvidence>(&raw)
             .map_err(|_| corrupt("Durable backup deletion receipt JSON is invalid"))?;
-        validate_deleted_backup_ids(&durable.deleted_backup_ids)?;
-        for backup_id in durable.deleted_backup_ids {
+        validate_deleted_backup_ids(&evidence.deleted_backup_ids)?;
+        for backup_id in evidence.deleted_backup_ids {
             deleted.insert(backup_id);
         }
     }
