@@ -706,10 +706,6 @@ interface CodexResumePermissionSelection {
 
 type StartTurnOverrides = CodexTurnStartOverrides;
 
-interface DormantConversationSyncOptions {
-  syncDormantConversationUpdates?: boolean;
-}
-
 interface AcceptedConversationDocumentSyncOptions {
   turnId?: string;
   syncDetail?: boolean;
@@ -9222,28 +9218,6 @@ export class CodexService {
     );
   }
 
-  /** Effect Module projection operation; callers use threadTitlePersistence instead. */
-  applyThreadNameLocal(
-    threadId: string,
-    name: string,
-    options: DormantConversationSyncOptions = {},
-  ): void {
-    this.emitThreadTitleUpdated(threadId, name);
-    const detail = this.getMaybeConversationRecord(threadId)?.detail;
-    if (detail) {
-      detail.threadName = name;
-    }
-    const updated = detail ?? this.getThreadLinkSafely(threadId);
-    if (updated) {
-      this.emitEvent({ type: "threadSummary", thread: updated });
-    }
-    if (options.syncDormantConversationUpdates === false) {
-      this.syncAcceptedConversationDocumentSilently(threadId);
-    } else {
-      this.syncAcceptedConversationSummary(threadId, { syncCapabilityFlags: true });
-    }
-  }
-
   private scheduleGeneratedThreadName(input: {
     threadId: string;
     prompt: string;
@@ -10217,17 +10191,6 @@ export class CodexService {
       this.emitEvent({ type: "threadSummary", thread: summary });
     }
     return { detail, summary };
-  }
-
-  /** Effect Module adapter operation; callers use threadTitlePersistence instead. */
-  async persistThreadTitleInProjectWorkspace(threadId: string, name: string): Promise<void> {
-    const summary = await this.updateWorkspaceThreadSummary(threadId, {
-      threadName: name,
-    });
-    if (summary) {
-      this.emitEvent({ type: "threadSummary", thread: summary });
-    }
-    await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
   }
 
   private async deleteHeartbeatAutomationForArchivedThread(threadId: string): Promise<void> {

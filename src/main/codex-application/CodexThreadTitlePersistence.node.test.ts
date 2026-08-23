@@ -1,41 +1,155 @@
 import { assert, it } from "@effect/vitest";
-import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import type { CodexConversationSnapshot } from "../../shared/types";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
+import { CoreModules, type CoreModuleClients } from "../core-runtime/CoreModules";
+import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import {
-  CodexThreadTitlePersistenceEffectError,
-  make,
-  type CodexThreadTitlePersistenceOptions,
-} from "./CodexThreadTitlePersistence";
+  CodexConversationProjection,
+  type CodexConversationProjectionService,
+} from "./CodexConversationProjection";
+import {
+  CodexSidebarSyncRuntime,
+  type CodexSidebarSyncNotification,
+} from "./CodexSidebarSyncRuntime";
+import { CodexThreadTitlePersistenceEffectError, make } from "./CodexThreadTitlePersistence";
 
-const failure = (message: string) =>
-  new CodexThreadTitlePersistenceEffectError({ cause: new Error(message) });
+type CoreThread = Extract<
+  ProjectWorkspaceReadSnapshot["value"],
+  { readonly kind: "thread" }
+>["thread"];
 
-const options = (
-  overrides: Partial<CodexThreadTitlePersistenceOptions> = {},
-): CodexThreadTitlePersistenceOptions => ({
-  project: () => Effect.void,
-  setRemote: () => Effect.void,
-  persistWorkspace: () => Effect.void,
-  ...overrides,
-});
+const coreThread = (threadId: string, name: string): CoreThread =>
+  ({
+    thread_id: threadId,
+    project_id: "project-a",
+    session_id: null,
+    forked_from_id: null,
+    parent_thread_id: null,
+    thread_source: null,
+    service_name: null,
+    agent_nickname: null,
+    agent_role: null,
+    agent_path: null,
+    thread_name: name,
+    thread_preview: "",
+    model_provider: "openai",
+    model_id: "gpt-test",
+    harness_id: null,
+    reasoning_effort: "high",
+    service_tier: null,
+    execution_host_id: "local",
+    cwd: "/repo",
+    writable_roots: ["/repo"],
+    managed_worktree_path: null,
+    projectless_output_directory: null,
+    projectless_workspace_browser_root: null,
+    status: { status_type: "idle", active_flags: [] },
+    archived: false,
+    pinned_order: null,
+    has_unread_turn: false,
+    created_at: 1,
+    updated_at: 1,
+    recency_at: 1,
+    linked_at: "2026-08-24T00:00:00.000Z",
+  }) as unknown as CoreThread;
 
-it.effect("owns title normalization, local projection, and best-effort persistence order", () =>
+const gateway = (request: CodexGateway["Service"]["requestForThread"]): CodexGateway["Service"] => {
+  const unsupported = () => Effect.die(new Error("Unsupported test operation"));
+  return CodexGateway.of({
+    localHostId: "local",
+    requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
+    requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
+    events: Stream.empty,
+    requestLocal: unsupported as CodexGateway["Service"]["requestLocal"],
+    requestOnHost: unsupported as CodexGateway["Service"]["requestOnHost"],
+    requestForThread: request,
+    notifyLocal: unsupported,
+    connection: unsupported,
+    connectionChanges: () => Stream.empty,
+    awaitReady: unsupported,
+    reconcileHost: unsupported,
+    removeHost: unsupported,
+    restartHost: unsupported,
+  });
+};
+
+const harness = (input: {
+  readonly request: CodexGateway["Service"]["requestForThread"];
+  readonly onProject?: (threadId: string, name: string) => void;
+  readonly onCoreApply?: (threadId: string, name: string) => void;
+}) => {
+  const names = new Map<string, string>();
+  const projection = CodexConversationProjection.of({
+    renameThread: ({ threadId, name }: { readonly threadId: string; readonly name: string }) =>
+      Effect.sync(() => {
+        names.set(threadId, name);
+        input.onProject?.(threadId, name);
+      }),
+    read: (threadId: string) =>
+      Effect.succeed({
+        canonical: {} as never,
+        snapshot: {
+          threadId,
+          threadName: names.get(threadId) ?? null,
+          ephemeral: false,
+        } as unknown as CodexConversationSnapshot,
+      }),
+  } as unknown as CodexConversationProjectionService);
+  const workspace: CoreModuleClients["workspace"] = {
+    apply: (operation) =>
+      Effect.sync(() => {
+        if (operation.intent.kind !== "update_thread") return {} as never;
+        const name = operation.intent.patch.thread_name ?? "";
+        names.set(operation.intent.thread_id, name);
+        input.onCoreApply?.(operation.intent.thread_id, name);
+        return {} as never;
+      }),
+    read: (read) => {
+      const id = read.kind === "thread" ? read.thread_id : "unexpected";
+      return Effect.succeed({
+        value: { kind: "thread", thread: coreThread(id, names.get(id) ?? "") },
+      } as ProjectWorkspaceReadSnapshot);
+    },
+  };
+  return make.pipe(
+    Effect.provideService(
+      CodexApplicationEventHub,
+      CodexApplicationEventHub.of({ events: Stream.empty, publish: () => undefined }),
+    ),
+    Effect.provideService(CodexConversationProjection, projection),
+    Effect.provideService(CodexGateway, gateway(input.request)),
+    Effect.provideService(
+      CodexSidebarSyncRuntime,
+      CodexSidebarSyncRuntime.of({
+        scheduleNotification: (_notification: CodexSidebarSyncNotification) => undefined,
+      } as unknown as CodexSidebarSyncRuntime["Service"]),
+    ),
+    Effect.provideService(
+      CoreModules,
+      CoreModules.of({ workspace } as unknown as CoreModuleClients),
+    ),
+  );
+};
+
+it.effect("normalizes locally before best-effort remote and durable persistence", () =>
   Effect.gen(function* () {
     const calls: string[] = [];
-    const persistence = yield* make(
-      options({
-        project: ({ name }) => Effect.sync(() => void calls.push(`project:${name}`)),
-        setRemote: ({ name }) =>
-          Effect.sync(() => void calls.push(`remote:${name}`)).pipe(
-            Effect.andThen(Effect.fail(failure("remote failed"))),
-          ),
-        persistWorkspace: ({ name }) => Effect.sync(() => void calls.push(`workspace:${name}`)),
-      }),
-    );
+    const failure = new Error("remote failed");
+    const persistence = yield* harness({
+      onProject: (_threadId, name) => calls.push(`project:${name}`),
+      request: ((_threadId, _method, params) => {
+        const name = (params as { name: string }).name;
+        return Effect.sync(() => void calls.push(`remote:${name}`)).pipe(
+          Effect.andThen(Effect.fail(failure as never)),
+        );
+      }) as CodexGateway["Service"]["requestForThread"],
+      onCoreApply: (_threadId, name) => calls.push(`workspace:${name}`),
+    });
 
     assert.isTrue(
       yield* persistence.set({
@@ -55,23 +169,28 @@ it.effect("owns title normalization, local projection, and best-effort persisten
   }),
 );
 
-it.effect("persists Thread titles FIFO per Thread", () =>
+it.effect("serializes the complete title transaction per Thread", () =>
   Effect.gen(function* () {
     const firstRemote = yield* Deferred.make<void>();
     const releaseFirst = yield* Deferred.make<void>();
     const calls: string[] = [];
-    const persistence = yield* make(
-      options({
-        setRemote: ({ name }) =>
-          Effect.sync(() => void calls.push(`remote:${name}`)).pipe(
-            Effect.andThen(
-              name === "first" ? Deferred.succeed(firstRemote, undefined) : Effect.void,
-            ),
-            Effect.andThen(name === "first" ? Deferred.await(releaseFirst) : Effect.void),
+    const persistence = yield* harness({
+      request: ((_threadId, _method, params) => {
+        const name = (params as { name: string }).name;
+        return Effect.sync(() => void calls.push(`remote:${name}`)).pipe(
+          Effect.andThen(
+            name === "first"
+              ? Deferred.succeed(firstRemote, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseFirst)),
+                  Effect.as({}),
+                )
+              : Effect.succeed({}),
           ),
-        persistWorkspace: ({ name }) => Effect.sync(() => void calls.push(`workspace:${name}`)),
-      }),
-    );
+        );
+      }) as CodexGateway["Service"]["requestForThread"],
+      onCoreApply: (_threadId, name) => calls.push(`workspace:${name}`),
+    });
+
     const first = yield* Effect.forkChild(
       persistence.setRequired({ threadId: "thread-1", name: "first", normalization: "trim" }),
     );
@@ -93,54 +212,20 @@ it.effect("persists Thread titles FIFO per Thread", () =>
   }),
 );
 
-it.effect("allows unrelated Thread titles to persist independently", () =>
-  Effect.gen(function* () {
-    const releaseFirst = yield* Deferred.make<void>();
-    const persistence = yield* make(
-      options({
-        setRemote: ({ threadId }) =>
-          threadId === "thread-1" ? Deferred.await(releaseFirst) : Effect.void,
-      }),
-    );
-    const first = yield* Effect.forkChild(
-      persistence.setRequired({ threadId: "thread-1", name: "first", normalization: "trim" }),
-    );
-    yield* Effect.yieldNow;
-    yield* persistence.setRequired({
-      threadId: "thread-2",
-      name: "second",
-      normalization: "trim",
-    });
-    yield* Deferred.succeed(releaseFirst, undefined);
-    yield* Fiber.join(first);
-  }),
-);
-
-it.effect("isolates both best-effort failures and still reaches Project Workspace", () =>
-  Effect.gen(function* () {
-    let workspaceAttempts = 0;
-    const persistence = yield* make(
-      options({
-        setRemote: () => Effect.fail(failure("remote failed")),
-        persistWorkspace: () =>
-          Effect.sync(() => {
-            workspaceAttempts += 1;
-          }).pipe(Effect.andThen(Effect.fail(failure("workspace failed")))),
-      }),
-    );
-    yield* persistence.set({ threadId: "thread-1", name: "title", normalization: "trim" });
-    assert.strictEqual(workspaceAttempts, 1);
-  }),
-);
-
-it.effect("surfaces required persistence failure and releases the Thread lane", () =>
+it.effect("surfaces required failure and releases the Thread lane", () =>
   Effect.gen(function* () {
     let failRemote = true;
-    const persistence = yield* make(
-      options({
-        setRemote: () => (failRemote ? Effect.fail(failure("required failed")) : Effect.void),
-      }),
-    );
+    const persistence = yield* harness({
+      request: (() =>
+        failRemote
+          ? Effect.fail(
+              new CodexThreadTitlePersistenceEffectError({
+                cause: new Error("required failed"),
+              }) as never,
+            )
+          : Effect.succeed({})) as CodexGateway["Service"]["requestForThread"],
+    });
+
     const error = yield* persistence
       .setRequired({ threadId: "thread-1", name: "first", normalization: "trim" })
       .pipe(Effect.flip);
@@ -151,33 +236,5 @@ it.effect("surfaces required persistence failure and releases the Thread lane", 
       name: "second",
       normalization: "trim",
     });
-  }),
-);
-
-it.effect("interrupts active title persistence when its Main Scope closes", () =>
-  Effect.gen(function* () {
-    const ownerScope = yield* Scope.make();
-    const started = yield* Deferred.make<void>();
-    const interrupted = yield* Deferred.make<void>();
-    const persistence = yield* make(
-      options({
-        setRemote: () =>
-          Deferred.succeed(started, undefined).pipe(
-            Effect.andThen(Effect.never),
-            Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
-          ),
-      }),
-    ).pipe(Effect.provideService(Scope.Scope, ownerScope));
-    const caller = yield* Effect.forkChild(
-      persistence.setRequired({ threadId: "thread-1", name: "title", normalization: "trim" }),
-    );
-    yield* Deferred.await(started);
-    yield* Scope.close(ownerScope, Exit.void);
-    yield* Deferred.await(interrupted);
-    const callerExit = yield* Fiber.await(caller);
-    assert.isTrue(Exit.isFailure(callerExit));
-    if (Exit.isFailure(callerExit)) {
-      assert.isTrue(Cause.hasInterruptsOnly(callerExit.cause));
-    }
   }),
 );

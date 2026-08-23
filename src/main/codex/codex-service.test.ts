@@ -1400,9 +1400,13 @@ function createService(options?: {
     interrupt: () => Effect.die("Interrupt semantics are exercised by ConversationCommands"),
   } as unknown as ConversationCommands["Service"];
   const threadTitlePersistence = new TestCodexThreadTitlePersistence({
-    project: ({ threadId, name, syncDormantConversationUpdates }) => {
+    project: ({ threadId, name }) => {
       if (!service) throw new Error("Codex test service is not constructed");
-      service.applyThreadNameLocal(threadId, name, { syncDormantConversationUpdates });
+      conversationAggregateForTest(service, threadId).renameThread({
+        name,
+        observedAtMs: Date.now(),
+        projectReplica: true,
+      });
     },
     setRemote: async ({ threadId, name }) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -1412,8 +1416,7 @@ function createService(options?: {
       await client.request("thread/name/set", { threadId, name });
     },
     persistWorkspace: async ({ threadId, name }) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      await service.persistThreadTitleInProjectWorkspace(threadId, name);
+      await projectWorkspace.updateThread(threadId, { threadName: name });
     },
   });
   const backgroundSubagentMetadataRepair = new TestCodexBackgroundSubagentMetadataRepair({
@@ -4205,7 +4208,6 @@ describe("codex-service Session Thread launch projections", () => {
     const appliedTitles: string[] = [];
     const requests: Array<{ method: string; params: unknown }> = [];
     const serviceInternals = service as unknown as {
-      applyThreadNameLocal: (threadId: string, title: string) => void;
       generateAndPersistThreadName: (
         threadId: string,
         titlePrompt: string,
@@ -4217,10 +4219,16 @@ describe("codex-service Session Thread launch projections", () => {
     const client = Reflect.get(service as object, "client") as {
       request: (method: string, params: unknown) => Promise<unknown>;
     };
+    const titlePersistence = Reflect.get(
+      service as object,
+      "threadTitlePersistence",
+    ) as TestCodexThreadTitlePersistence;
+    const setTitle = titlePersistence.set.bind(titlePersistence);
     serviceInternals.hasThreadTitle = () => false;
     serviceInternals.generateThreadTitleForPrompt = async () => null;
-    serviceInternals.applyThreadNameLocal = (_threadId, title) => {
-      appliedTitles.push(title);
+    titlePersistence.set = async (input) => {
+      appliedTitles.push(input.name);
+      return await setTitle(input);
     };
     client.request = async (method, params) => {
       requests.push({ method, params });

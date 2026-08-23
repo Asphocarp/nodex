@@ -337,7 +337,6 @@ import {
 import { makeCodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
   CodexThreadTitlePersistence,
-  CodexThreadTitlePersistenceEffectError,
   make as makeCodexThreadTitlePersistence,
 } from "../codex-application/CodexThreadTitlePersistence";
 import { makeCodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
@@ -1913,26 +1912,14 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const threadGoals = Context.get(threadGoalContext, CodexThreadGoalRuntime);
-        const threadTitlePersistence = yield* makeCodexThreadTitlePersistence({
-          project: (input) =>
-            Effect.try({
-              try: () =>
-                requireCodexService().applyThreadNameLocal(input.threadId, input.name, {
-                  syncDormantConversationUpdates: input.syncDormantConversationUpdates,
-                }),
-              catch: (cause) => new CodexThreadTitlePersistenceEffectError({ cause }),
-            }),
-          setRemote: ({ threadId, name }) =>
-            codexGateway.requestForThread(threadId, "thread/name/set", { threadId, name }).pipe(
-              Effect.asVoid,
-              Effect.mapError((cause) => new CodexThreadTitlePersistenceEffectError({ cause })),
-            ),
-          persistWorkspace: ({ threadId, name }) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().persistThreadTitleInProjectWorkspace(threadId, name),
-              catch: (cause) => new CodexThreadTitlePersistenceEffectError({ cause }),
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const threadTitlePersistence = yield* makeCodexThreadTitlePersistence.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const conversationHistory = yield* makeCodexConversationHistoryRuntime.pipe(
           Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),

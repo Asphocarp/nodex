@@ -223,7 +223,6 @@ export const make: Effect.Effect<
           threadId: child.summary.threadId,
           name: childTitle,
           normalization: "manual",
-          syncDormantConversationUpdates: false,
         })
         .pipe(Effect.mapError((cause) => error("project", sourceThreadId, cause)));
     }
