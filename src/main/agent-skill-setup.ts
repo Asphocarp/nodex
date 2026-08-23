@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import type { MessageBoxOptions, MessageBoxReturnValue } from "electron";
 
 const AGENT_SKILL_CLI_TIMEOUT_MS = 30_000;
@@ -21,7 +23,7 @@ export interface AgentSkillCliProcessResult {
 
 export type AgentSkillCliRunner = (
   invocation: AgentSkillCliInvocation,
-) => Promise<AgentSkillCliProcessResult>;
+) => Effect.Effect<AgentSkillCliProcessResult, AgentSkillCliProcessError>;
 
 export interface AgentSkillTargetStatus {
   readonly agent: string;
@@ -51,7 +53,7 @@ export interface RunAgentSkillSetupOptions {
   readonly onlyWhenMissing?: boolean;
   readonly pathConfigured?: boolean;
   readonly runCli?: AgentSkillCliRunner;
-  readonly showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxReturnValue>;
+  readonly showMessageBox: (options: MessageBoxOptions) => Effect.Effect<MessageBoxReturnValue>;
 }
 
 interface CliSuccessEnvelope {
@@ -70,21 +72,26 @@ interface CliErrorEnvelope {
   };
 }
 
-export class AgentSkillCliProcessError extends Error {
-  readonly stderr: string;
-  readonly stdout: string;
+export class AgentSkillCliProcessError extends Schema.TaggedError<AgentSkillCliProcessError>()(
+  "AgentSkillCliProcessError",
+  {
+    message: Schema.String,
+    stderr: Schema.String,
+    stdout: Schema.String,
+  },
+) {}
 
-  constructor(message: string, stdout: string, stderr: string) {
-    super(message);
-    this.name = "AgentSkillCliProcessError";
-    this.stdout = stdout;
-    this.stderr = stderr;
-  }
-}
+export class AgentSkillSetupError extends Schema.TaggedError<AgentSkillSetupError>()(
+  "AgentSkillSetupError",
+  {
+    operation: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
 
-export const runAgentSkillCli: AgentSkillCliRunner = async (invocation) => {
-  return await new Promise<AgentSkillCliProcessResult>((resolveResult, reject) => {
-    execFile(
+export const runAgentSkillCli: AgentSkillCliRunner = (invocation) =>
+  Effect.callback((resume) => {
+    const child = execFile(
       invocation.executable,
       [...invocation.argv],
       {
@@ -95,23 +102,29 @@ export const runAgentSkillCli: AgentSkillCliRunner = async (invocation) => {
       },
       (error, stdout, stderr) => {
         if (error) {
-          reject(
-            new AgentSkillCliProcessError(
-              error.message,
-              typeof stdout === "string" ? stdout : "",
-              typeof stderr === "string" ? stderr : "",
+          resume(
+            Effect.fail(
+              new AgentSkillCliProcessError({
+                message: error.message,
+                stdout: typeof stdout === "string" ? stdout : "",
+                stderr: typeof stderr === "string" ? stderr : "",
+              }),
             ),
           );
           return;
         }
-        resolveResult({
-          stdout: typeof stdout === "string" ? stdout : "",
-          stderr: typeof stderr === "string" ? stderr : "",
-        });
+        resume(
+          Effect.succeed({
+            stdout: typeof stdout === "string" ? stdout : "",
+            stderr: typeof stderr === "string" ? stderr : "",
+          }),
+        );
       },
     );
+    return Effect.sync(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+    });
   });
-};
 
 const assertPackagedCliPath = (candidate: string): string => {
   if (!isAbsolute(candidate)) {
@@ -207,18 +220,23 @@ const parseSuccessEnvelope = (stdout: string): AgentSkillCommandResult => {
   return parseAgentSkillCommandResult(envelope.result);
 };
 
-const invokeAgentSkillCli = async (
+const invokeAgentSkillCli = (
   cliPath: string,
   argv: readonly string[],
   runCli: AgentSkillCliRunner,
-): Promise<AgentSkillCommandResult> => {
-  const processResult = await runCli({
+): Effect.Effect<AgentSkillCommandResult, AgentSkillCliProcessError | AgentSkillSetupError> =>
+  runCli({
     executable: cliPath,
     argv,
     shell: false,
-  });
-  return parseSuccessEnvelope(processResult.stdout);
-};
+  }).pipe(
+    Effect.flatMap((processResult) =>
+      Effect.try({
+        try: () => parseSuccessEnvelope(processResult.stdout),
+        catch: (cause) => new AgentSkillSetupError({ operation: "parse-cli-result", cause }),
+      }),
+    ),
+  );
 
 const selectedAgentsForResponse = (response: number): readonly SupportedAgentSkillTarget[] => {
   switch (response) {
@@ -250,6 +268,7 @@ const targetPathsDetail = (
 };
 
 const errorDetail = (error: unknown): string => {
+  if (error instanceof AgentSkillSetupError) return errorDetail(error.cause);
   if (error instanceof AgentSkillCliProcessError) {
     try {
       const envelope = JSON.parse(error.stderr) as CliErrorEnvelope;
@@ -267,13 +286,16 @@ const errorDetail = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error);
 };
 
-export async function runAgentSkillSetup(
+export function runAgentSkillSetup(
   options: RunAgentSkillSetupOptions,
-): Promise<AgentSkillSetupResult> {
-  try {
-    const cliPath = assertPackagedCliPath(options.cliPath);
+): Effect.Effect<AgentSkillSetupResult> {
+  const workflow = Effect.gen(function* () {
+    const cliPath = yield* Effect.try({
+      try: () => assertPackagedCliPath(options.cliPath),
+      catch: (cause) => new AgentSkillSetupError({ operation: "validate-cli-path", cause }),
+    });
     const runCli = options.runCli ?? runAgentSkillCli;
-    const status = await invokeAgentSkillCli(cliPath, ["--json", "skills", "status"], runCli);
+    const status = yield* invokeAgentSkillCli(cliPath, ["--json", "skills", "status"], runCli);
     const configuredAgents = new Set(
       status.targets
         .filter((target) => AVAILABLE_TARGET_STATES.has(target.state))
@@ -287,10 +309,10 @@ export async function runAgentSkillSetup(
       return {
         status: "already-configured",
         commandResult: status,
-      };
+      } satisfies AgentSkillSetupResult;
     }
 
-    const selection = await options.showMessageBox({
+    const selection = yield* options.showMessageBox({
       type: "question",
       buttons: ["Install for Codex + Claude Code", "Codex only", "Claude Code only", "Not now"],
       defaultId: 0,
@@ -301,7 +323,7 @@ export async function runAgentSkillSetup(
     });
     const agents = selectedAgentsForResponse(selection.response);
     if (agents.length === 0) {
-      return { status: "cancelled", commandResult: status };
+      return { status: "cancelled", commandResult: status } satisfies AgentSkillSetupResult;
     }
 
     const argv = ["--json", "skills", "install"];
@@ -309,11 +331,11 @@ export async function runAgentSkillSetup(
       argv.push("--agent", agent);
     }
     argv.push("--yes");
-    const installed = await invokeAgentSkillCli(cliPath, argv, runCli);
+    const installed = yield* invokeAgentSkillCli(cliPath, argv, runCli);
     const installedTargets = installed.targets
       .map((target) => `${target.agent}: ${target.path} (${target.outcome})`)
       .join("\n");
-    await options.showMessageBox({
+    yield* options.showMessageBox({
       type: "info",
       buttons: ["OK"],
       defaultId: 0,
@@ -327,17 +349,22 @@ export async function runAgentSkillSetup(
     return {
       status: "installed",
       commandResult: installed,
-    };
-  } catch (error) {
-    await options.showMessageBox({
-      type: "error",
-      buttons: ["OK"],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-      message: "Could not set up the official Nodex Agent Skill.",
-      detail: errorDetail(error),
-    });
-    return { status: "failed" };
-  }
+    } satisfies AgentSkillSetupResult;
+  });
+
+  return workflow.pipe(
+    Effect.catch((error) =>
+      options
+        .showMessageBox({
+          type: "error",
+          buttons: ["OK"],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+          message: "Could not set up the official Nodex Agent Skill.",
+          detail: errorDetail(error),
+        })
+        .pipe(Effect.as({ status: "failed" } satisfies AgentSkillSetupResult)),
+    ),
+  );
 }

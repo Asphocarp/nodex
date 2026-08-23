@@ -128,14 +128,12 @@ export const live = (
           message: statusMessage,
           detail: pathMessage,
         });
-        yield* Effect.promise(() =>
-          runAgentSkillSetup({
-            cliPath: result.sourcePath,
-            onlyWhenMissing: true,
-            pathConfigured: result.pathConfigured,
-            showMessageBox: (message) => callbacks.runPromise(options.showMessage(message)),
-          }),
-        );
+        yield* runAgentSkillSetup({
+          cliPath: result.sourcePath,
+          onlyWhenMissing: true,
+          pathConfigured: result.pathConfigured,
+          showMessageBox: options.showMessage,
+        });
       }).pipe(
         Effect.catchCause((cause) =>
           Effect.sync(() =>
@@ -155,12 +153,10 @@ export const live = (
           ),
         ),
       );
-      const setupAgentSkills = Effect.promise(() =>
-        runAgentSkillSetup({
-          cliPath: join(options.resourcesPath, "bin/nodex"),
-          showMessageBox: (message) => callbacks.runPromise(options.showMessage(message)),
-        }),
-      );
+      const setupAgentSkills = runAgentSkillSetup({
+        cliPath: join(options.resourcesPath, "bin/nodex"),
+        showMessageBox: options.showMessage,
+      });
 
       const refresh = (commandKeymap: CommandKeymapState): void => {
         const accelerator = (commandId: string): string | undefined =>
