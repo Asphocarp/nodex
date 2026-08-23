@@ -1137,7 +1137,7 @@ interface CodexConversationRecord {
   canonicalState: CodexCanonicalConversationState | null;
   detail: CodexThreadDetail | null;
   itemsByTurn: Map<string, Map<string, CodexItemView>>;
-  serverRequests: CodexCanonicalServerRequest[];
+  preHydrationServerRequests: CodexCanonicalServerRequest[];
   hasUnreadTurn: boolean;
   unreadMessageCount?: number;
   planImplementationRequestsByTurnId: Map<string, CodexPlanImplementationServerRequest>;
@@ -3137,7 +3137,7 @@ export class CodexService {
       if (
         (workspaceThread?.statusActiveFlags.length ?? 0) > 0 ||
         (record?.detail?.statusActiveFlags.length ?? 0) > 0 ||
-        (record?.serverRequests.length ?? 0) > 0 ||
+        (record ? this.readConversationServerRequests(record).length : 0) > 0 ||
         (record ? this.hasPendingThreadGoalSteering(threadId, record) : false)
       ) {
         blockers.push({ kind: "pending-request", threadId, label });
@@ -3221,7 +3221,7 @@ export class CodexService {
     if (record.detail?.statusType === "active") return true;
     if ((record.detail?.statusActiveFlags.length ?? 0) > 0) return true;
     if (this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress")) return true;
-    return record.serverRequests.length > 0;
+    return this.readConversationServerRequests(record).length > 0;
   }
 
   isInactiveRendererOwnerCandidate(threadId: string): boolean {
@@ -3606,7 +3606,8 @@ export class CodexService {
     if (!rendererClientId) return 0;
     if (this.getRendererConversationOwner(threadId) !== rendererClientId) return 0;
 
-    const requests = this.getMaybeConversationRecord(threadId)?.serverRequests ?? [];
+    const record = this.getMaybeConversationRecord(threadId);
+    const requests = record ? this.readConversationServerRequests(record) : [];
     let replayed = 0;
     for (const request of requests) {
       const ownerRequest = this.asThreadOwnerServerRequest(request);
@@ -3855,7 +3856,7 @@ export class CodexService {
         draft.requests = requests;
       }
       if (requestState) {
-        draft.canonicalRequests = [...requestState.serverRequests];
+        draft.canonicalRequests = [...this.readConversationServerRequests(requestState)];
         draft.hasUnreadTurn = requestState.hasUnreadTurn;
       }
       if (queuedFollowUps) {
@@ -4549,7 +4550,7 @@ export class CodexService {
       canonicalState: null,
       detail: null,
       itemsByTurn: new Map<string, Map<string, CodexItemView>>(),
-      serverRequests: [],
+      preHydrationServerRequests: [],
       hasUnreadTurn: false,
       planImplementationRequestsByTurnId: new Map<string, CodexPlanImplementationServerRequest>(),
       pendingSteers: [],
@@ -4581,6 +4582,36 @@ export class CodexService {
 
   private getConversationRecord(threadId: string): CodexConversationRecord {
     return this.ensureConversationRecord(threadId);
+  }
+
+  private readConversationServerRequests(
+    record: CodexConversationRecord,
+  ): readonly CodexCanonicalServerRequest[] {
+    return record.canonicalState?.requests ?? record.preHydrationServerRequests;
+  }
+
+  private replaceConversationServerRequests(
+    record: CodexConversationRecord,
+    requests: readonly CodexCanonicalServerRequest[],
+  ): void {
+    if (!record.canonicalState) {
+      record.preHydrationServerRequests = [...requests];
+      return;
+    }
+    record.canonicalState = {
+      ...record.canonicalState,
+      requests: [...requests],
+    };
+    record.preHydrationServerRequests = [];
+  }
+
+  private acceptCanonicalConversationState(
+    record: CodexConversationRecord,
+    state: CodexCanonicalConversationState,
+  ): CodexCanonicalConversationState {
+    record.canonicalState = state;
+    record.preHydrationServerRequests = [];
+    return state;
   }
 
   private resolveCanonicalResumePermissionContext(
@@ -4807,6 +4838,7 @@ export class CodexService {
     }
 
     const record = this.ensureConversationRecord(input.thread.id);
+    const pendingRequests = options.pendingRequests ?? this.readConversationServerRequests(record);
     const responsePermissions = {
       activePermissionProfile: input.activePermissionProfile,
       runtimeWorkspaceRoots: input.runtimeWorkspaceRoots,
@@ -4841,7 +4873,7 @@ export class CodexService {
       sandboxPolicy: historyPermissions.sandboxPolicy,
       activePermissionProfile: historyPermissions.activePermissionProfile,
       runtimeWorkspaceRoots: [...historyPermissions.runtimeWorkspaceRoots],
-      pendingRequests: options.pendingRequests ?? record.serverRequests,
+      pendingRequests,
       hasUnreadTurn: record.hasUnreadTurn,
     });
     const mergedTurns =
@@ -4890,7 +4922,7 @@ export class CodexService {
     const nextCanonicalState: CodexCanonicalConversationState = {
       ...canonicalState,
       turns: canonicalizeCodexCanonicalTurnStates(turns),
-      requests: [...(options.pendingRequests ?? record.serverRequests)],
+      requests: [...pendingRequests],
       sidecar: {
         hasUnreadTurn: record.hasUnreadTurn,
         latestThreadSettings,
@@ -4908,8 +4940,7 @@ export class CodexService {
         },
       },
     };
-    record.canonicalState = nextCanonicalState;
-    return nextCanonicalState;
+    return this.acceptCanonicalConversationState(record, nextCanonicalState);
   }
 
   private mergeCanonicalOlderTurnPage(
@@ -4941,7 +4972,7 @@ export class CodexService {
         sandboxPolicy: pageHydrationContext.sandboxPolicy,
         activePermissionProfile: null,
         runtimeWorkspaceRoots: [],
-        pendingRequests: record.serverRequests,
+        pendingRequests: current.requests,
         hasUnreadTurn: record.hasUnreadTurn,
       },
     );
@@ -4952,14 +4983,13 @@ export class CodexService {
         currentTurns: current.turns,
         oldestLoadedTurnId,
       }),
-      requests: [...record.serverRequests],
+      requests: [...current.requests],
       sidecar: {
         ...current.sidecar,
         hasUnreadTurn: record.hasUnreadTurn,
       },
     };
-    record.canonicalState = nextCanonicalState;
-    return nextCanonicalState;
+    return this.acceptCanonicalConversationState(record, nextCanonicalState);
   }
 
   /** Exact `GQe`: snapshot page hydration settings before the network request starts. */
@@ -5222,18 +5252,14 @@ export class CodexService {
 
     const record = this.getMaybeConversationRecord(threadId);
     if (record) {
-      const sourceRequests = record.canonicalState?.requests ?? record.serverRequests;
+      const sourceRequests = this.readConversationServerRequests(record);
       const requests = sourceRequests.filter((request) => {
         const turnId = "turnId" in request.params ? request.params.turnId : null;
         return typeof turnId !== "string" || shouldRetainTurn(turnId);
       });
-      if (record.canonicalState && requests.length !== sourceRequests.length) {
-        record.canonicalState = {
-          ...record.canonicalState,
-          requests,
-        };
+      if (requests.length !== sourceRequests.length) {
+        this.replaceConversationServerRequests(record, requests);
       }
-      record.serverRequests = [...requests];
       this.userInputAutoResolution.reconcilePendingRequests(
         threadId,
         requests
@@ -9941,8 +9967,7 @@ export class CodexService {
       turn: input.turn,
       observedAtMs: input.observedAtMs,
     });
-    record.canonicalState = result.state;
-    record.serverRequests = [...result.state.requests];
+    this.acceptCanonicalConversationState(record, result.state);
     record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
     let targetTurnId: string | null = null;
     for (const [turnIndex, afterTurn] of result.state.turns.entries()) {
@@ -10138,7 +10163,7 @@ export class CodexService {
     return {
       threadId,
       turns: [],
-      requests: record.serverRequests,
+      requests: [...this.readConversationServerRequests(record)],
       hasUnreadTurn: record.hasUnreadTurn,
     };
   }
@@ -10158,7 +10183,7 @@ export class CodexService {
 
   resolveServerRequestThreadIdForModule(requestId: RequestId): string | null {
     for (const [threadId, record] of this.conversationRecords) {
-      if (record.canonicalState?.requests.some((request) => request.id === requestId)) {
+      if (this.readConversationServerRequests(record).some((request) => request.id === requestId)) {
         return threadId;
       }
     }
@@ -10237,7 +10262,7 @@ export class CodexService {
     if (!record || !result.stateChanged) return;
 
     const previousHasUnreadTurn = record.hasUnreadTurn;
-    record.serverRequests = [...result.state.requests];
+    this.replaceConversationServerRequests(record, result.state.requests);
     record.hasUnreadTurn = result.state.hasUnreadTurn;
     if (record.hasUnreadTurn !== previousHasUnreadTurn) {
       void this.threadReadState.persistProjected({
@@ -10256,8 +10281,7 @@ export class CodexService {
     if (!record || !result.stateChanged) return;
 
     const previousHasUnreadTurn = record.hasUnreadTurn;
-    record.canonicalState = result.state;
-    record.serverRequests = [...result.state.requests];
+    this.acceptCanonicalConversationState(record, result.state);
     record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
     if (record.hasUnreadTurn !== previousHasUnreadTurn) {
       void this.threadReadState.persistProjected({
@@ -10669,11 +10693,10 @@ export class CodexService {
     const record = this.ensureConversationRecord(threadId);
     record.planImplementationRequestsByTurnId.delete(turnId);
     if (!record.canonicalState) return;
-    record.canonicalState = completeCodexCanonicalPlanImplementationRequest(
-      record.canonicalState,
-      turnId,
+    this.acceptCanonicalConversationState(
+      record,
+      completeCodexCanonicalPlanImplementationRequest(record.canonicalState, turnId),
     );
-    record.serverRequests = [...record.canonicalState.requests];
   }
 
   private buildTurnDiffItemView(input: {
@@ -11696,7 +11719,7 @@ export class CodexService {
       sandboxPolicy: permissions.sandboxPolicy,
       activePermissionProfile: permissions.activePermissionProfile,
       runtimeWorkspaceRoots: [...runtimeWorkspaceRoots],
-      pendingRequests: record.serverRequests,
+      pendingRequests: this.readConversationServerRequests(record),
       hasUnreadTurn: record.hasUnreadTurn,
     });
     const hydrationContext = hydrated.sidecar.hydrationContext;
@@ -11712,8 +11735,7 @@ export class CodexService {
         hydrationContext,
       },
     };
-    record.canonicalState = state;
-    return state;
+    return this.acceptCanonicalConversationState(record, state);
   }
 
   private buildThreadDetailFromRead(
@@ -13682,7 +13704,7 @@ export class CodexService {
     ) {
       return this.serializeThreadDetail(threadId);
     }
-    const pendingRequestsBeforeResume = [...record.serverRequests];
+    const pendingRequestsBeforeResume = [...this.readConversationServerRequests(record)];
     let threadRef: ThreadRef | null = persistedWorkspaceThread
       ? {
           projectId: persistedWorkspaceThread.projectId,
@@ -13974,7 +13996,6 @@ export class CodexService {
       approvalsReviewer: result.approvalsReviewer,
       sandbox: result.sandbox,
     });
-    record.serverRequests = pendingRequestsBeforeResume;
     const canonicalState = this.hydrateCanonicalConversationState(result, {
       expectedThreadId: threadId,
       historyCwd,
@@ -14917,7 +14938,7 @@ export class CodexService {
       pendingRequests: [],
       hasUnreadTurn: false,
     });
-    record.canonicalState = {
+    this.acceptCanonicalConversationState(record, {
       ...replacement,
       requests: [],
       sidecar: {
@@ -14929,8 +14950,7 @@ export class CodexService {
             }
           : replacement.sidecar.hydrationContext,
       },
-    };
-    record.serverRequests = [];
+    });
     record.hasUnreadTurn = false;
     record.resumeState = "resumed";
 
@@ -15775,7 +15795,7 @@ export class CodexService {
     if (!record) return false;
     if (record.resumeState !== "resumed") return false;
     if (record.threadGoal?.status !== "active") return false;
-    if (record.serverRequests.length > 0) return false;
+    if (this.readConversationServerRequests(record).length > 0) return false;
     if (this.hasPendingThreadGoalSteering(threadId, record)) return false;
     if (record.streamRole !== "owner") return false;
     if (!record.isStreaming) return false;
@@ -16692,11 +16712,10 @@ export class CodexService {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return;
     if (record.canonicalState) {
-      record.canonicalState = applyCodexCanonicalPlanImplementationTurnStartedState(
-        record.canonicalState,
-        activeTurnId,
+      this.acceptCanonicalConversationState(
+        record,
+        applyCodexCanonicalPlanImplementationTurnStartedState(record.canonicalState, activeTurnId),
       );
-      record.serverRequests = [...record.canonicalState.requests];
     }
     for (const turnId of record.planImplementationRequestsByTurnId.keys()) {
       if (turnId === activeTurnId) continue;
@@ -20661,7 +20680,7 @@ export class CodexService {
     const record = this.getConversationRecord(threadId);
     const requests: CodexConversationServerRequest[] = [];
 
-    for (const request of record.serverRequests) {
+    for (const request of this.readConversationServerRequests(record)) {
       if (
         request.method === "item/commandExecution/requestApproval" ||
         request.method === "item/fileChange/requestApproval"
@@ -21563,7 +21582,7 @@ export class CodexService {
       resumeState: this.resolveConversationResumeState(threadId),
       requests,
       canonicalState: record.canonicalState,
-      canonicalRequests: record.serverRequests,
+      canonicalRequests: this.readConversationServerRequests(record),
       hasUnreadTurn: record.hasUnreadTurn,
       unreadMessageCount: record.unreadMessageCount,
       queuedFollowUps: this.listQueuedFollowUps(threadId),
