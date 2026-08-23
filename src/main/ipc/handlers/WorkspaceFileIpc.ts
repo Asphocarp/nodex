@@ -234,51 +234,45 @@ export const live = (
               void,
               WorkspaceFileUserError | WorkspaceFileIpcError
             >();
-            const ownerDestroyed = yield* Deferred.make<void>();
-            const onDestroyed = () => {
-              Deferred.doneUnsafe(ownerDestroyed, Effect.void);
-            };
-            const lifecycle = Effect.acquireUseRelease(
-              Effect.sync(() => {
-                owner.once("destroyed", onDestroyed);
-                if (owner.isDestroyed()) Deferred.doneUnsafe(ownerDestroyed, Effect.void);
-              }),
-              () =>
-                Effect.raceFirst(
-                  Effect.scoped(
-                    Effect.gen(function* () {
-                      const context = yield* watches.contextEffect(
-                        new WorkspaceWatchKey(owner, watchedPath),
-                      );
-                      const watch = Context.get(context, WorkspaceFileWatch);
-                      yield* Deferred.succeed(ready, undefined);
-                      yield* watch.changes.pipe(
-                        Stream.runForEach((watchEvent) => {
-                          const exactPathChanged =
-                            watchEvent.changedPaths.length === 0 ||
-                            watchEvent.changedPaths.some(
-                              (changedPath) => resolve(changedPath) === watchedPath,
-                            );
-                          if (!exactPathChanged || owner.isDestroyed()) return Effect.void;
-                          return Effect.sync(() =>
-                            sendChanged(owner, { subscriptionId, path: watchedPath }),
-                          );
-                        }),
+            const ownerDestroyed = Effect.callback<void>((resume) => {
+              const onDestroyed = () => resume(Effect.void);
+              owner.once("destroyed", onDestroyed);
+              if (owner.isDestroyed()) resume(Effect.void);
+              return Effect.sync(() => owner.removeListener("destroyed", onDestroyed));
+            });
+            const lifecycle = Effect.raceFirst(
+              Effect.scoped(
+                Effect.gen(function* () {
+                  const context = yield* watches.contextEffect(
+                    new WorkspaceWatchKey(owner, watchedPath),
+                  );
+                  const watch = Context.get(context, WorkspaceFileWatch);
+                  yield* Deferred.succeed(ready, undefined);
+                  yield* watch.changes.pipe(
+                    Stream.runForEach((watchEvent) => {
+                      const exactPathChanged =
+                        watchEvent.changedPaths.length === 0 ||
+                        watchEvent.changedPaths.some(
+                          (changedPath) => resolve(changedPath) === watchedPath,
+                        );
+                      if (!exactPathChanged || owner.isDestroyed()) return Effect.void;
+                      return Effect.sync(() =>
+                        sendChanged(owner, { subscriptionId, path: watchedPath }),
                       );
                     }),
-                  ),
-                  Deferred.await(ownerDestroyed).pipe(
-                    Effect.andThen(
-                      Effect.fail(
-                        new WorkspaceFileUserError(
-                          "unauthorized_sender",
-                          "Workspace file watcher owner is no longer available",
-                        ),
-                      ),
+                  );
+                }),
+              ),
+              ownerDestroyed.pipe(
+                Effect.andThen(
+                  Effect.fail(
+                    new WorkspaceFileUserError(
+                      "unauthorized_sender",
+                      "Workspace file watcher owner is no longer available",
                     ),
                   ),
                 ),
-              () => Effect.sync(() => owner.removeListener("destroyed", onDestroyed)),
+              ),
             ).pipe(
               Effect.catch((cause) =>
                 Deferred.fail(ready, mapError("acquire-file-watch", cause)).pipe(Effect.asVoid),
