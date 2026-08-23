@@ -94,6 +94,7 @@ function DragBehaviorHarness({
                   reloadRequired: false,
                 },
               }),
+              structuralTransfer: async () => undefined,
               reportError: () => undefined,
             },
           },

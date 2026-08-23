@@ -94,6 +94,7 @@ describe("NFM structural editing session", () => {
       ["page", { id: "page", type: "page" }],
       ["after", { id: "after", type: "paragraph" }],
       ["pasted", { id: "pasted", type: "page" }],
+      ["toggle", { id: "toggle", type: "toggleListItem" }],
     ]);
     let selectedBlocks = [blocks.get("text")!, blocks.get("page")!];
     let selectedNodeIds: string[] = [];
@@ -425,6 +426,13 @@ describe("NFM structural editing session", () => {
           },
         },
       });
+
+      session.adoptStructuralResult(
+        structuralEdit({ operationKind: "move_selection", resultRootBlockIds: ["pasted"] }),
+        "toggle",
+      );
+      await session.whenIdle();
+      expect(cursorPlacements.at(-1)).toEqual({ blockId: "toggle", edge: "end" });
 
       session.rebind({
         accessContext: { kind: "project", projectId: "project:test" },

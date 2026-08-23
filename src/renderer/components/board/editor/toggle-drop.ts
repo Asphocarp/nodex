@@ -133,7 +133,10 @@ export function findToggleOuterFromPoint(
   clientX: number,
   clientY: number,
 ): HTMLElement | null {
-  const elements = container.ownerDocument.elementsFromPoint(clientX, clientY);
+  const elements =
+    typeof container.ownerDocument.elementsFromPoint === "function"
+      ? container.ownerDocument.elementsFromPoint(clientX, clientY)
+      : [];
   for (const element of elements) {
     if (!hasClosest(element)) continue;
     if (!container.contains(element)) continue;
@@ -251,6 +254,16 @@ interface ActiveDropCue {
   blockId: string;
 }
 
+export interface CollapsedToggleDropTarget {
+  readonly blockId: string;
+  readonly outerElement: HTMLElement;
+}
+
+export interface ToggleDropCueController {
+  readonly show: (target: CollapsedToggleDropTarget) => void;
+  readonly clear: () => void;
+}
+
 function createDropOverlay(container: HTMLElement): HTMLDivElement {
   const overlayEl = container.ownerDocument.createElement("div");
   overlayEl.setAttribute("data-toggle-drop-overlay", "");
@@ -317,6 +330,35 @@ function clearAllCues(container: HTMLElement, current: ActiveDropCue | null): nu
   removeDropCue(current);
   container.removeAttribute("data-toggle-drop-active");
   return null;
+}
+
+/**
+ * Resolves the semantic center band of a collapsed toggle. The top and bottom
+ * edge bands intentionally return null so the document drop planner can keep
+ * using its ordinary between-block insertion target there.
+ */
+export function resolveCollapsedToggleDropTarget(
+  container: HTMLElement,
+  clientX: number,
+  clientY: number,
+): CollapsedToggleDropTarget | null {
+  const outerElement = findToggleOuterFromPoint(container, clientX, clientY);
+  if (!outerElement) return null;
+  const blockId = getBlockIdFromOuter(outerElement);
+  return blockId ? { blockId, outerElement } : null;
+}
+
+/** Owns the whole-header cue used by every collapsed-toggle drop path. */
+export function createToggleDropCueController(container: HTMLElement): ToggleDropCueController {
+  let activeCue: ActiveDropCue | null = null;
+  return {
+    show: (target) => {
+      activeCue = setDropTarget(container, target.outerElement, activeCue);
+    },
+    clear: () => {
+      activeCue = clearAllCues(container, activeCue);
+    },
+  };
 }
 
 export function finalizeToggleDropDragSession(editor: EditorForToggleDrop): void {
@@ -399,6 +441,10 @@ export function isSyntheticDnDEvent(event: DragEvent): boolean {
 
 // ---------- Main setup ----------
 
+/**
+ * Local-only fallback for an editor without a structural mutation boundary.
+ * Never mount this beside setupBlockTransferDocumentDrop on one container.
+ */
 export function setupToggleDrop(container: HTMLElement, editor: EditorForToggleDrop): () => void {
   let dragActive = false;
   let dragSourceResolved = false;

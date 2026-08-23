@@ -9,7 +9,6 @@ import type { DocumentHeadFence } from "../../../lib/block-document-surface-runt
 import {
   blockTransferDropLabel,
   claimLocalBlockDragDropTarget,
-  containsTypedOwnerBlockDrag,
   type CrossSurfaceBlockTransferPayload,
   endLocalBlockDragSession,
   registerLocalBlockDragDropTarget,
@@ -23,9 +22,17 @@ import {
   isBoardCardDragData,
 } from "../pragmatic-drag-data";
 import { hasClosest, resolveBlockId } from "./drag-source-resolver";
+import {
+  createToggleDropCueController,
+  isToggleDropTargetBlock,
+  resolveCollapsedToggleDropTarget,
+  type CollapsedToggleDropTarget,
+} from "./toggle-drop";
 
 interface EditorBlock {
   readonly id: string;
+  readonly type?: string;
+  readonly props?: Readonly<Record<string, unknown>>;
   readonly children?: readonly EditorBlock[];
 }
 
@@ -46,7 +53,7 @@ export interface BlockTransferDropBoundary {
   /** Settles and flushes the actual drag source mounted in this renderer. */
   readonly prepareSourceAndFence: (sourceSurfaceId: string) => Promise<DocumentHeadFence>;
   readonly transfer: (intent: PublicBlockTransferIntent) => Promise<BlockTransferCommandResult>;
-  readonly structuralTransfer?: (input: {
+  readonly structuralTransfer: (input: {
     readonly mode: "move" | "copy";
     readonly rootBlockIds: readonly string[];
     readonly sourceHead: DocumentHeadFence;
@@ -55,6 +62,7 @@ export interface BlockTransferDropBoundary {
       readonly parentBlockId: string | null;
       readonly beforeBlockId: string | null;
     };
+    readonly preferredSelectionBlockId?: string;
   }) => Promise<void>;
   readonly createOperationId: () => string;
   readonly reportError: (message: string) => void;
@@ -108,6 +116,13 @@ interface LocatedBlock {
   readonly index: number;
 }
 
+const isSameDocumentSource = (
+  payload: Pick<CrossSurfaceBlockTransferPayload, "source">,
+  boundary: Pick<BlockTransferDropBoundary, "documentId" | "hostPageId">,
+): boolean =>
+  (payload.source.kind === "page" && payload.source.pageId === boundary.hostPageId) ||
+  (payload.source.kind === "document" && payload.source.documentId === boundary.documentId);
+
 const locateBlock = (
   blocks: readonly EditorBlock[],
   blockId: string,
@@ -120,6 +135,77 @@ const locateBlock = (
     if (nested) return nested;
   }
   return null;
+};
+
+const collectBlockIds = (block: EditorBlock, ids: Set<string>): void => {
+  ids.add(block.id);
+  for (const child of block.children ?? []) collectBlockIds(child, ids);
+};
+
+const resolveDraggedClosureIds = (
+  editor: BlockTransferDropEditor,
+  rootBlockIds: readonly string[],
+): ReadonlySet<string> => {
+  const closure = new Set<string>();
+  for (const rootBlockId of rootBlockIds) {
+    const root = locateBlock(editor.document, rootBlockId);
+    const block = root?.siblings[root.index];
+    if (block) collectBlockIds(block, closure);
+  }
+  return closure;
+};
+
+export const isSameDocumentBlockTargetInsideSelection = (
+  editor: BlockTransferDropEditor,
+  rootBlockIds: readonly string[],
+  target: {
+    readonly parentBlockId?: string;
+    readonly beforeBlockId?: string;
+  },
+): boolean => {
+  const selectedClosure = resolveDraggedClosureIds(editor, rootBlockIds);
+  return Boolean(
+    (target.parentBlockId && selectedClosure.has(target.parentBlockId)) ||
+    (target.beforeBlockId && selectedClosure.has(target.beforeBlockId)),
+  );
+};
+
+/**
+ * A structural move owns placement at subtree granularity. Ignore destinations
+ * inside that subtree and moves that preserve the current sibling order before
+ * asking Core to create history for them.
+ */
+export const isSameDocumentBlockMoveNoOp = (
+  editor: BlockTransferDropEditor,
+  rootBlockIds: readonly string[],
+  target: {
+    readonly parentBlockId?: string;
+    readonly beforeBlockId?: string;
+  },
+): boolean => {
+  if (isSameDocumentBlockTargetInsideSelection(editor, rootBlockIds, target)) return true;
+
+  const requestedRoots = new Set(rootBlockIds);
+  const locatedRoots = rootBlockIds.flatMap((blockId) => {
+    const located = locateBlock(editor.document, blockId);
+    return located ? [located] : [];
+  });
+  if (locatedRoots.length !== requestedRoots.size) return false;
+
+  const targetParentBlockId = target.parentBlockId;
+  if (locatedRoots.some((located) => located.parentBlockId !== targetParentBlockId)) return false;
+  const siblings = locatedRoots[0]?.siblings;
+  if (!siblings || locatedRoots.some((located) => located.siblings !== siblings)) return false;
+
+  const currentIds = siblings.map((block) => block.id);
+  const orderedRootIds = currentIds.filter((blockId) => requestedRoots.has(blockId));
+  const remainingIds = currentIds.filter((blockId) => !requestedRoots.has(blockId));
+  const insertionIndex = target.beforeBlockId
+    ? remainingIds.indexOf(target.beforeBlockId)
+    : remainingIds.length;
+  if (insertionIndex < 0) return false;
+  const nextIds = remainingIds.toSpliced(insertionIndex, 0, ...orderedRootIds);
+  return currentIds.every((blockId, index) => nextIds[index] === blockId);
 };
 
 export const resolveBlockTransferDocumentTarget = (
@@ -137,6 +223,56 @@ export const resolveBlockTransferDocumentTarget = (
   return {
     ...(located.parentBlockId ? { parentBlockId: located.parentBlockId } : {}),
     ...(beforeBlockId ? { beforeBlockId } : {}),
+  };
+};
+
+export type BlockTransferDocumentDropPlan =
+  | {
+      readonly kind: "append_children";
+      readonly target: {
+        readonly parentBlockId: string;
+        readonly beforeBlockId?: undefined;
+      };
+      readonly toggle: CollapsedToggleDropTarget;
+    }
+  | {
+      readonly kind: "between";
+      readonly target: {
+        readonly parentBlockId?: string;
+        readonly beforeBlockId?: string;
+      };
+      readonly anchor: DropAnchor | null;
+    };
+
+/**
+ * Pointer semantics are resolved once for both feedback and commit. A
+ * collapsed toggle's center appends children; its edge bands remain ordinary
+ * before/after insertion positions.
+ */
+export const resolveBlockTransferDocumentDropPlan = (
+  editor: BlockTransferDropEditor,
+  container: HTMLElement,
+  clientX: number,
+  clientY: number,
+): BlockTransferDocumentDropPlan => {
+  const toggle = resolveCollapsedToggleDropTarget(container, clientX, clientY);
+  if (toggle) {
+    const located = locateBlock(editor.document, toggle.blockId);
+    const block = located?.siblings[located.index];
+    if (block?.type && isToggleDropTargetBlock({ type: block.type, props: block.props })) {
+      return {
+        kind: "append_children",
+        target: { parentBlockId: toggle.blockId },
+        toggle,
+      };
+    }
+  }
+
+  const anchor = resolveAnchor(container, clientX, clientY);
+  return {
+    kind: "between",
+    target: resolveBlockTransferDocumentTarget(editor, anchor),
+    anchor,
   };
 };
 
@@ -184,12 +320,14 @@ export const setupBlockTransferDocumentDrop = (
   boundary: BlockTransferDropBoundary,
 ): (() => void) => {
   let indicator: HTMLDivElement | null = null;
+  const toggleCue = createToggleDropCueController(container);
   const dropCursor = editor.getExtension?.(DropCursorExtension) as
     | { readonly clearDropCursor?: () => void }
     | undefined;
   const clear = () => {
     indicator?.remove();
     indicator = null;
+    toggleCue.clear();
     container.removeAttribute("data-block-transfer-drop-hover");
     container.removeAttribute("data-block-transfer-drop-label");
     dropCursor?.clearDropCursor?.();
@@ -203,18 +341,26 @@ export const setupBlockTransferDocumentDrop = (
     if (boundary.hostPageId) forbidden.add(boundary.hostPageId);
     return source.dragItems.every((item) => !forbidden.has(item.card.id));
   };
-  const updateIndicator = (clientX: number, clientY: number, altKey: boolean) => {
-    // BlockNote owns ordinary editor drags. Once this typed Page transfer is
-    // accepted, its native cursor must yield to our one canonical insertion line.
+  const updateIndicator = (plan: BlockTransferDocumentDropPlan, altKey: boolean) => {
+    // Nodex owns every side-menu Block placement gesture. Its cursor must be
+    // the only insertion line once the local transfer session is accepted.
     dropCursor?.clearDropCursor?.();
     container.setAttribute("data-block-transfer-drop-hover", "");
     container.setAttribute(
       "data-block-transfer-drop-label",
       blockTransferDropLabel(resolveCrossSurfaceTransferMode({ altKey }), "page"),
     );
+    if (plan.kind === "append_children") {
+      indicator?.remove();
+      indicator = null;
+      toggleCue.show(plan.toggle);
+      return;
+    }
+
+    toggleCue.clear();
     indicator ??= createIndicator(container);
     if (!indicator.isConnected) container.append(indicator);
-    positionIndicator(indicator, container, resolveAnchor(container, clientX, clientY));
+    positionIndicator(indicator, container, plan.anchor);
   };
 
   const prepareStructuralMutation = async (
@@ -261,8 +407,12 @@ export const setupBlockTransferDocumentDrop = (
         return;
       }
       updateIndicator(
-        location.current.input.clientX,
-        location.current.input.clientY,
+        resolveBlockTransferDocumentDropPlan(
+          editor,
+          container,
+          location.current.input.clientX,
+          location.current.input.clientY,
+        ),
         location.current.input.altKey,
       );
     },
@@ -272,8 +422,12 @@ export const setupBlockTransferDocumentDrop = (
         return;
       }
       updateIndicator(
-        location.current.input.clientX,
-        location.current.input.clientY,
+        resolveBlockTransferDocumentDropPlan(
+          editor,
+          container,
+          location.current.input.clientX,
+          location.current.input.clientY,
+        ),
         location.current.input.altKey,
       );
     },
@@ -288,12 +442,13 @@ export const setupBlockTransferDocumentDrop = (
         return;
       }
       const sourceData = source.data;
-      const anchor = resolveAnchor(
+      const plan = resolveBlockTransferDocumentDropPlan(
+        editor,
         container,
         location.current.input.clientX,
         location.current.input.clientY,
       );
-      const target = resolveBlockTransferDocumentTarget(editor, anchor);
+      const target = plan.target;
       clear();
       void prepareStructuralMutation()
         .then((tokens) =>
@@ -342,12 +497,6 @@ export const setupBlockTransferDocumentDrop = (
     ) {
       return null;
     }
-    if (
-      session.sourceSurfaceId === boundary.surfaceId &&
-      !containsTypedOwnerBlockDrag(session.payload)
-    ) {
-      return null;
-    }
     return session;
   };
   const canTransferPayload = (payload: CrossSurfaceBlockTransferPayload): boolean => {
@@ -367,27 +516,35 @@ export const setupBlockTransferDocumentDrop = (
     if (!session) return;
     claimManagedEvent(event);
 
-    if (
-      (session.payload.source.kind === "page" &&
-        session.payload.source.pageId === boundary.hostPageId) ||
-      (session.payload.source.kind === "document" &&
-        session.payload.source.documentId === boundary.documentId)
-    ) {
-      if (!containsTypedOwnerBlockDrag(session.payload)) {
-        event.dataTransfer!.dropEffect = "none";
-        clear();
-        return;
-      }
-    }
     if (!canTransferPayload(session.payload)) {
       event.dataTransfer!.dropEffect = "none";
       clear();
       return;
     }
-
     const mode = resolveCrossSurfaceTransferMode(event);
+    const plan = resolveBlockTransferDocumentDropPlan(
+      editor,
+      container,
+      event.clientX,
+      event.clientY,
+    );
+    if (isSameDocumentSource(session.payload, boundary)) {
+      if (
+        isSameDocumentBlockTargetInsideSelection(
+          editor,
+          session.payload.rootBlockIds,
+          plan.target,
+        ) ||
+        (mode === "move" &&
+          isSameDocumentBlockMoveNoOp(editor, session.payload.rootBlockIds, plan.target))
+      ) {
+        event.dataTransfer!.dropEffect = "none";
+        clear();
+        return;
+      }
+    }
     event.dataTransfer!.dropEffect = mode;
-    updateIndicator(event.clientX, event.clientY, event.altKey);
+    updateIndicator(plan, event.altKey);
   };
   const onNativeDragLeave = (event: DragEvent) => {
     if (!resolveLocalBlockDragOverSession(event.dataTransfer)) return;
@@ -405,17 +562,6 @@ export const setupBlockTransferDocumentDrop = (
     if (!session || session.sessionId !== managedSession.sessionId) return;
     endLocalBlockDragSession({ sessionId: session.sessionId });
 
-    if (
-      (session.payload.source.kind === "page" &&
-        session.payload.source.pageId === boundary.hostPageId) ||
-      (session.payload.source.kind === "document" &&
-        session.payload.source.documentId === boundary.documentId)
-    ) {
-      if (!containsTypedOwnerBlockDrag(session.payload)) {
-        boundary.reportError("This Block is already in the same collaborative Document.");
-        return;
-      }
-    }
     if (!canTransferPayload(session.payload)) {
       boundary.reportError(
         "Block transfer belongs to another Project, store generation, or recursive Page boundary.",
@@ -423,61 +569,48 @@ export const setupBlockTransferDocumentDrop = (
       return;
     }
 
-    const anchor = resolveAnchor(container, event.clientX, event.clientY);
-    const target = resolveBlockTransferDocumentTarget(editor, anchor);
-    if (containsTypedOwnerBlockDrag(session.payload)) {
-      if (!boundary.structuralTransfer) {
-        boundary.reportError("Structural transfer is unavailable on this editor surface.");
-        return;
-      }
-      const mode = resolveCrossSurfaceTransferMode(event);
-      if (mode === "move" && target.beforeBlockId === session.payload.rootBlockIds[0]) return;
-      const targetHeadPromise = boundary.prepareAndFence();
-      const sourceHeadPromise =
-        session.sourceSurfaceId === boundary.surfaceId
-          ? targetHeadPromise
-          : boundary.prepareSourceAndFence(session.sourceSurfaceId);
-      void Promise.all([targetHeadPromise, sourceHeadPromise])
-        .then(([targetHead, sourceHead]) =>
-          boundary.structuralTransfer?.({
-            mode,
-            rootBlockIds: session.payload.rootBlockIds,
-            sourceHead,
-            targetHead,
-            target: {
-              parentBlockId: target.parentBlockId ?? null,
-              beforeBlockId: target.beforeBlockId ?? null,
-            },
-          }),
-        )
-        .then(() => undefined)
-        .catch((error: unknown) => reportFailure(error, "Structural transfer failed"));
+    const plan = resolveBlockTransferDocumentDropPlan(
+      editor,
+      container,
+      event.clientX,
+      event.clientY,
+    );
+    const mode = resolveCrossSurfaceTransferMode(event);
+    if (
+      isSameDocumentSource(session.payload, boundary) &&
+      (isSameDocumentBlockTargetInsideSelection(
+        editor,
+        session.payload.rootBlockIds,
+        plan.target,
+      ) ||
+        (mode === "move" &&
+          isSameDocumentBlockMoveNoOp(editor, session.payload.rootBlockIds, plan.target)))
+    ) {
       return;
     }
-    void prepareStructuralMutation(session.sourceSurfaceId)
-      .then((tokens) =>
-        boundary.transfer({
-          operationId: boundary.createOperationId(),
-          projectId: boundary.projectId,
-          storeEpoch: boundary.storeEpoch,
-          mode: resolveCrossSurfaceTransferMode(event),
+    const targetHeadPromise = boundary.prepareAndFence();
+    const sourceHeadPromise =
+      session.sourceSurfaceId === boundary.surfaceId
+        ? targetHeadPromise
+        : boundary.prepareSourceAndFence(session.sourceSurfaceId);
+    void Promise.all([targetHeadPromise, sourceHeadPromise])
+      .then(([targetHead, sourceHead]) =>
+        boundary.structuralTransfer({
+          mode,
           rootBlockIds: session.payload.rootBlockIds,
-          causalDependencies: causalDependenciesFromTokens(tokens),
-          source: session.payload.source,
-          target: boundary.hostPageId
-            ? { kind: "page", pageId: boundary.hostPageId, ...target }
-            : {
-                kind: "document",
-                documentId: boundary.documentId,
-                ...target,
-              },
-          promotionPolicy: "literal",
+          sourceHead,
+          targetHead,
+          target: {
+            parentBlockId: plan.target.parentBlockId ?? null,
+            beforeBlockId: plan.target.beforeBlockId ?? null,
+          },
+          ...(plan.kind === "append_children"
+            ? { preferredSelectionBlockId: plan.target.parentBlockId }
+            : {}),
         }),
       )
-      .then((result) => {
-        if (!result.ok) boundary.reportError(result.error.message);
-      })
-      .catch((error: unknown) => reportFailure(error, "Block transfer failed"));
+      .then(() => undefined)
+      .catch((error: unknown) => reportFailure(error, "Structural transfer failed"));
   };
 
   container.addEventListener("dragenter", onNativeDragOver, true);

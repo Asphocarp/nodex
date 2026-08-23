@@ -1981,6 +1981,7 @@ function NfmEditorInstance({
           sourceHead,
           targetHead,
           target,
+          preferredSelectionBlockId,
         }: {
           readonly mode: "move" | "copy";
           readonly rootBlockIds: readonly string[];
@@ -1990,6 +1991,7 @@ function NfmEditorInstance({
             readonly parentBlockId: string | null;
             readonly beforeBlockId: string | null;
           };
+          readonly preferredSelectionBlockId?: string;
         }) => {
           const result = await applyLibraryModule(contentAccessContext, {
             operationId: createUuidV7(),
@@ -2023,7 +2025,10 @@ function NfmEditorInstance({
           if (!result.ok) throw new Error(result.error.message);
           const structural = result.value.structuralEdit;
           if (!structural) throw new Error("Core omitted the structural transfer receipt.");
-          structuralEditingController.current?.adoptStructuralResult(structural);
+          structuralEditingController.current?.adoptStructuralResult(
+            structural,
+            preferredSelectionBlockId,
+          );
         },
         reportError: (message: string) => toast.danger(message),
       },

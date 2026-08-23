@@ -366,11 +366,11 @@ export class NfmStructuralEditingSession {
     return true;
   }
 
-  adoptStructuralResult(result: LibraryStructuralEditResult): void {
+  adoptStructuralResult(result: LibraryStructuralEditResult, preferredBlockId?: string): void {
     if (this.disposed) return;
     this.history.recordStructural(result);
     this.start(async () => {
-      await this.restoreSelection(result, result.resultRootBlockIds.at(-1));
+      await this.restoreSelection(result, preferredBlockId ?? result.resultRootBlockIds.at(-1));
     });
   }
 
