@@ -6,7 +6,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
-import type { ThreadForkParams, ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2";
+import type { Thread, ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationSnapshot } from "../../shared/types";
 import { CodexGateway, CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import {
@@ -15,20 +15,42 @@ import {
 } from "../codex-runtime/CodexEphemeralThreadRouting";
 import { codexRuntimeError, type CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { CodexTurnCommands, type CodexTurnCommandsService } from "./CodexTurnCommands";
+import { CodexConversationProjection } from "./CodexConversationProjection";
+import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
-import { make as makeCommands, type CodexSideChatProjection } from "./CodexSideChatCommands";
+import { make as makeCommands } from "./CodexSideChatCommands";
 import { SIDE_CHAT_BOUNDARY_TEXT } from "./CodexSideChatPolicy";
 
 const parentThreadId = "parent-a";
 const sideThreadId = "side-a";
 const remoteHostId = "remote-a";
 
+const protocolThread = (threadId: string): Thread =>
+  ({
+    id: threadId,
+    turns: [],
+    cwd: "/workspace",
+    createdAt: 100,
+    updatedAt: 100,
+    preview: "",
+    name: null,
+    modelProvider: "openai",
+  }) as unknown as Thread;
+
 const forkResponse = {
-  thread: { id: sideThreadId },
+  thread: protocolThread(sideThreadId),
   cwd: "/workspace",
+  model: "gpt-test",
+  reasoningEffort: null,
+  modelProvider: "openai",
+  approvalPolicy: "never",
+  approvalsReviewer: "user",
+  sandbox: { type: "workspaceWrite", writableRoots: ["/workspace"] },
+  activePermissionProfile: null,
+  runtimeWorkspaceRoots: ["/workspace"],
 } as unknown as ThreadForkResponse;
 
 const requestFailure = (method: string): CodexRuntimeError =>
@@ -55,7 +77,6 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
     const routingContext = yield* Layer.buildWithScope(codexEphemeralThreadRoutingLive, scope);
     const routing = Context.get(routingContext, CodexEphemeralThreadRouting);
     const events: string[] = [];
-    let sideChatExists = false;
 
     const gateway = CodexGateway.of({
       localHostId: "local",
@@ -96,58 +117,54 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
           return null;
         }),
       startRendererOwned: () => Effect.die("unused"),
+      acceptPreparedRendererTurn: () => Effect.die("unused"),
       steer: () => Effect.die("unused"),
       steerRendererOwned: () => Effect.die("unused"),
     } satisfies CodexTurnCommandsService);
-    const projection: CodexSideChatProjection = {
-      prepare: (input) =>
-        Effect.sync(() => {
-          events.push("prepare");
-          return {
-            parentThreadId,
-            forkRequest: {
-              threadId: parentThreadId,
-            } as ThreadForkParams,
-            initialTurn: input.prompt ? { prompt: input.prompt, overrides: {} } : null,
-            state: {},
-          };
-        }),
-      commit: (prepared) =>
+    const parentSnapshot = {
+      threadId: parentThreadId,
+      projectId: "project-a",
+      source: { parentThreadId: null },
+      cwd: "/workspace",
+      executionProfile: null,
+      queuedFollowUps: [],
+    } as unknown as CodexConversationSnapshot;
+    const directory = CodexThreadDirectory.of({
+      resolve: () =>
+        Effect.succeed({
+          fidelity: "full",
+          durable: { cwd: "/workspace" },
+          summary: parentSnapshot,
+          canonical: null,
+          snapshot: parentSnapshot,
+        } as never),
+      descendants: () => Effect.die("unused"),
+      acceptRollbackResult: () => Effect.die("unused"),
+    });
+    const projection = CodexConversationProjection.of({
+      hydrate: (input: Parameters<CodexConversationProjection["Service"]["hydrate"]>[0]) =>
         Effect.sync(() => {
           events.push("commit");
-          sideChatExists = true;
-          return {
-            parentThreadId: prepared.parentThreadId,
-            threadId: sideThreadId,
-            initialTurn: prepared.initialTurn,
-            state: {},
-          };
+          const snapshot = {
+            ...input.summary,
+            source: input.summary.source,
+            resumeState: "resumed",
+            turns: [],
+            requests: [],
+            queuedFollowUps: [],
+          } as unknown as CodexConversationSnapshot;
+          const aggregate = conversations.conversation(input.threadId);
+          aggregate.acceptCanonicalState(input.canonical);
+          aggregate.installSnapshot(snapshot);
+          return snapshot;
         }),
-      finish: (committed) =>
-        Effect.sync(() => {
-          events.push("finish");
-          return {
-            parentThreadId: committed.parentThreadId,
-            threadId: committed.threadId,
-            conversation: {} as CodexConversationSnapshot,
-          };
-        }),
-      inspect: () => Effect.sync(() => (sideChatExists ? { parentThreadId } : null)),
-      discard: () =>
-        Effect.sync(() => {
-          events.push("discard");
-          sideChatExists = false;
-        }),
-      rollback: () =>
-        Effect.sync(() => {
-          events.push("rollback");
-          sideChatExists = false;
-        }),
-    };
-    const commands = yield* makeCommands(projection).pipe(
+    } as unknown as CodexConversationProjection["Service"]);
+    const commands = yield* makeCommands.pipe(
+      Effect.provideService(CodexConversationProjection, projection),
       Effect.provideService(CodexGateway, gateway),
       Effect.provideService(CodexThreadHostResolver, hostResolver),
       Effect.provideService(CodexEphemeralThreadRouting, routing),
+      Effect.provideService(CodexThreadDirectory, directory),
       Effect.provideService(CodexTurnCommands, turns),
       Effect.provideService(ConversationRuntimeMap, conversations),
     );
@@ -157,7 +174,11 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       conversations,
       events,
       markExisting: () => {
-        sideChatExists = true;
+        conversations.conversation(sideThreadId).installSnapshot({
+          ...parentSnapshot,
+          threadId: sideThreadId,
+          source: { parentThreadId, sideConversation: true },
+        });
       },
       routing,
     };
@@ -173,13 +194,11 @@ it.effect("keeps a remote side chat on its parent's host through the initial Tur
     assert.strictEqual(result.threadId, sideThreadId);
     assert.strictEqual(yield* harness.routing.resolve(sideThreadId), remoteHostId);
     assert.deepEqual(harness.events, [
-      "prepare",
       `resolve:${parentThreadId}`,
       `request:${remoteHostId}:thread/fork:${parentThreadId}`,
       `request:${remoteHostId}:thread/inject_items:${sideThreadId}`,
       "commit",
       `turn:${sideThreadId}:${remoteHostId}`,
-      "finish",
     ]);
     yield* Scope.close(scope, Exit.void);
   }),
@@ -196,10 +215,9 @@ it.effect("compensates the fork when the initial Turn is rejected", () =>
 
     assert.isTrue(Exit.isFailure(exit));
     assert.isNull(yield* harness.routing.resolve(sideThreadId));
-    assert.deepEqual(harness.events.slice(-3), [
+    assert.deepEqual(harness.events.slice(-2), [
       `turn:${sideThreadId}:${remoteHostId}`,
       `request:${remoteHostId}:thread/unsubscribe:${sideThreadId}`,
-      "rollback",
     ]);
     yield* Scope.close(scope, Exit.void);
   }),
@@ -222,7 +240,6 @@ it.effect("discards local ownership even when the remote unsubscribe fails", () 
     assert.isNull(yield* harness.routing.resolve(sideThreadId));
     assert.deepEqual(harness.events, [
       `request:${remoteHostId}:thread/unsubscribe:${sideThreadId}`,
-      "discard",
     ]);
     yield* Scope.close(scope, Exit.void);
   }),
@@ -241,7 +258,7 @@ it.effect("discards local ownership when the parent host is unavailable", () =>
 
     const after = yield* harness.conversations.runtime(sideThreadId);
     assert.notStrictEqual(after, before);
-    assert.deepEqual(harness.events, [`resolve:${parentThreadId}`, "discard"]);
+    assert.deepEqual(harness.events, [`resolve:${parentThreadId}`]);
     yield* Scope.close(scope, Exit.void);
   }),
 );
@@ -261,9 +278,8 @@ it.effect("rolls back an in-flight fork when the Main Scope closes", () =>
 
     assert.isTrue(Exit.isFailure(exit));
     assert.isNull(yield* harness.routing.resolve(sideThreadId));
-    assert.deepEqual(harness.events.slice(-2), [
+    assert.deepEqual(harness.events.slice(-1), [
       `request:${remoteHostId}:thread/unsubscribe:${sideThreadId}`,
-      "rollback",
     ]);
   }),
 );

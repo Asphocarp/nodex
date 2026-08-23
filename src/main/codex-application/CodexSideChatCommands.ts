@@ -2,9 +2,20 @@ import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Clock from "effect/Clock";
 import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
 import type { ThreadForkParams, ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2";
-import type { CodexSideChatStartInput, CodexSideChatStartResult } from "../../shared/types";
+import type {
+  CodexSideChatStartInput,
+  CodexSideChatStartResult,
+  CodexThreadSummary,
+} from "../../shared/types";
+import {
+  createCodexCanonicalHydratedConversationState,
+  createCodexCanonicalWorkspacePermissionContext,
+  resolveCodexCanonicalHydratedCwd,
+} from "../../shared/codex-conversation-state/codex-conversation-state";
+import { buildCodexThreadConfigOverrides } from "../codex/codex-thread-capabilities";
 import { CodexGateway, CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import {
   CodexEphemeralThreadRouting,
@@ -18,27 +29,23 @@ import {
 } from "./CodexTurnCommands";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 import { SIDE_CHAT_BOUNDARY_TEXT } from "./CodexSideChatPolicy";
+import { SIDE_CHAT_DEVELOPER_INSTRUCTIONS } from "./CodexSideChatPolicy";
+import { CodexConversationProjection } from "./CodexConversationProjection";
+import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
 
 type GatewayThreadForkParams = ClientRequestParamsByMethod["thread/fork"];
 type GatewayThreadInjectItemsParams = ClientRequestParamsByMethod["thread/inject_items"];
 
-export interface CodexPreparedSideChat {
+interface CodexSideChatPlan {
   readonly parentThreadId: string;
   readonly forkRequest: ThreadForkParams;
+  readonly parent: CodexThreadDirectoryEntry;
+  readonly parentNavigationPath: string | null;
+  readonly startedAt: number;
   readonly initialTurn: {
     readonly prompt: string;
     readonly overrides: CodexTurnStartOverrides;
   } | null;
-  /** Opaque immutable preparation state owned by the projection. */
-  readonly state: object;
-}
-
-export interface CodexCommittedSideChat {
-  readonly parentThreadId: string;
-  readonly threadId: string;
-  readonly initialTurn: CodexPreparedSideChat["initialTurn"];
-  /** Opaque committed state owned by the projection. */
-  readonly state: object;
 }
 
 export class CodexSideChatProjectionError extends Data.TaggedError("CodexSideChatProjectionError")<{
@@ -46,24 +53,6 @@ export class CodexSideChatProjectionError extends Data.TaggedError("CodexSideCha
   readonly threadId: string;
   readonly cause: unknown;
 }> {}
-
-export interface CodexSideChatProjection {
-  readonly prepare: (
-    input: CodexSideChatStartInput,
-  ) => Effect.Effect<CodexPreparedSideChat, CodexSideChatProjectionError>;
-  readonly commit: (
-    prepared: CodexPreparedSideChat,
-    response: ThreadForkResponse,
-  ) => Effect.Effect<CodexCommittedSideChat, CodexSideChatProjectionError>;
-  readonly finish: (
-    committed: CodexCommittedSideChat,
-  ) => Effect.Effect<CodexSideChatStartResult, CodexSideChatProjectionError>;
-  readonly inspect: (
-    threadId: string,
-  ) => Effect.Effect<{ readonly parentThreadId: string } | null, CodexSideChatProjectionError>;
-  readonly discard: (threadId: string) => Effect.Effect<void, CodexSideChatProjectionError>;
-  readonly rollback: (threadId: string) => Effect.Effect<void, CodexSideChatProjectionError>;
-}
 
 type CodexSideChatError =
   | CodexRuntimeError
@@ -83,173 +72,380 @@ export class CodexSideChatCommands extends Context.Service<
   CodexSideChatCommandsService
 >()("nodex/main/codex-application/CodexSideChatCommands") {}
 
-export const make = (
-  projection: CodexSideChatProjection,
-): Effect.Effect<
+export const make: Effect.Effect<
   CodexSideChatCommandsService,
   never,
+  | CodexConversationProjection
   | CodexGateway
   | CodexThreadHostResolver
   | CodexEphemeralThreadRouting
+  | CodexThreadDirectory
   | CodexTurnCommands
   | ConversationRuntimeMap
-> =>
-  Effect.gen(function* () {
-    const conversations = yield* ConversationRuntimeMap;
-    const gateway = yield* CodexGateway;
-    const hostResolver = yield* CodexThreadHostResolver;
-    const routing = yield* CodexEphemeralThreadRouting;
-    const turns = yield* CodexTurnCommands;
+> = Effect.gen(function* () {
+  const conversations = yield* ConversationRuntimeMap;
+  const gateway = yield* CodexGateway;
+  const hostResolver = yield* CodexThreadHostResolver;
+  const routing = yield* CodexEphemeralThreadRouting;
+  const turns = yield* CodexTurnCommands;
+  const directory = yield* CodexThreadDirectory;
+  const projection = yield* CodexConversationProjection;
 
-    const ignoreCleanupFailure = <A, E>(
-      operation: string,
-      threadId: string,
-      effect: Effect.Effect<A, E>,
-    ): Effect.Effect<void> =>
-      effect.pipe(
-        Effect.asVoid,
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Side chat cleanup step failed").pipe(
-            Effect.annotateLogs({ operation, threadId, cause: String(cause) }),
-          ),
+  const prepare = Effect.fn("CodexSideChatCommands.prepare")(function* (
+    input: CodexSideChatStartInput,
+  ): Effect.fn.Return<CodexSideChatPlan, CodexSideChatProjectionError> {
+    const parentThreadId = input.parentThreadId.trim();
+    if (!parentThreadId) {
+      return yield* new CodexSideChatProjectionError({
+        operation: "prepare",
+        threadId: parentThreadId,
+        cause: new Error("Side chat requires a parent Thread"),
+      });
+    }
+    const parent = yield* directory.resolve({ threadId: parentThreadId, fidelity: "full" }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new CodexSideChatProjectionError({
+            operation: "prepare",
+            threadId: parentThreadId,
+            cause,
+          }),
+      ),
+    );
+    if (!parent?.snapshot) {
+      return yield* new CodexSideChatProjectionError({
+        operation: "prepare",
+        threadId: parentThreadId,
+        cause: new Error(`Parent Thread '${parentThreadId}' was not found`),
+      });
+    }
+    if (parent.snapshot.source?.sideConversation === true) {
+      return yield* new CodexSideChatProjectionError({
+        operation: "prepare",
+        threadId: parentThreadId,
+        cause: new Error("Side chats cannot be started from another side chat"),
+      });
+    }
+    const cwd = parent.snapshot.cwd?.trim() || parent.durable.cwd?.trim() || "";
+    if (!cwd) {
+      return yield* new CodexSideChatProjectionError({
+        operation: "prepare",
+        threadId: parentThreadId,
+        cause: new Error("Side chat requires a materialized parent workspace"),
+      });
+    }
+    const executionProfile = parent.snapshot.executionProfile;
+    const promptInput = input.promptInput
+      ? { ...input.promptInput, text: input.prompt?.trim() ?? input.promptInput.text }
+      : undefined;
+    const hasInitialPrompt = Boolean(
+      input.prompt?.trim() ||
+      promptInput?.textAttachments?.length ||
+      promptInput?.images?.length ||
+      promptInput?.mentions?.length ||
+      promptInput?.skills?.length ||
+      promptInput?.commentAttachments?.length,
+    );
+    return {
+      parentThreadId,
+      parent,
+      parentNavigationPath: input.parentNavigationPath?.trim() || null,
+      startedAt: yield* Clock.currentTimeMillis,
+      forkRequest: {
+        threadId: parentThreadId,
+        path: null,
+        cwd,
+        threadSource: "user",
+        config: {
+          ...(executionProfile?.harnessId ? { harness: executionProfile.harnessId } : {}),
+          ...((input.reasoningEffort ?? executionProfile?.reasoningEffort)
+            ? {
+                model_reasoning_effort: input.reasoningEffort ?? executionProfile?.reasoningEffort,
+              }
+            : {}),
+          ...buildCodexThreadConfigOverrides(),
+        },
+        developerInstructions: SIDE_CHAT_DEVELOPER_INSTRUCTIONS,
+        ephemeral: true,
+        excludeTurns: true,
+        ...((input.model ?? executionProfile?.modelId)
+          ? { model: input.model ?? executionProfile?.modelId }
+          : {}),
+        ...(executionProfile
+          ? {
+              modelProvider: executionProfile.providerId,
+              serviceTier: input.serviceTier ?? executionProfile.serviceTier,
+            }
+          : {}),
+      },
+      initialTurn: hasInitialPrompt
+        ? {
+            prompt: input.prompt?.trim() ?? promptInput?.text ?? "",
+            overrides: {
+              promptInput,
+              model: input.model,
+              serviceTier: input.serviceTier,
+              permissionMode: input.permissionMode,
+              reasoningEffort: input.reasoningEffort,
+              collaborationMode: input.collaborationMode,
+            },
+          }
+        : null,
+    };
+  });
+
+  const acceptFork = Effect.fn("CodexSideChatCommands.acceptFork")(function* (
+    plan: CodexSideChatPlan,
+    response: ThreadForkResponse,
+  ): Effect.fn.Return<CodexSideChatStartResult, CodexSideChatProjectionError> {
+    const threadId = response.thread.id.trim();
+    if (!threadId || threadId !== response.thread.id) {
+      return yield* new CodexSideChatProjectionError({
+        operation: "commit",
+        threadId: plan.parentThreadId,
+        cause: new Error("Thread fork did not return a valid Thread id"),
+      });
+    }
+    const parent = plan.parent.snapshot;
+    if (!parent) {
+      return yield* new CodexSideChatProjectionError({
+        operation: "commit",
+        threadId,
+        cause: new Error("Side chat parent projection was released"),
+      });
+    }
+    const cwd =
+      resolveCodexCanonicalHydratedCwd({
+        requestedCwd: plan.forkRequest.cwd ?? null,
+        responseCwd: response.cwd,
+        threadCwd: response.thread.cwd,
+        fallbackCwd: parent.cwd ?? "/",
+      }) ??
+      parent.cwd ??
+      "/";
+    const permissions = createCodexCanonicalWorkspacePermissionContext([cwd]);
+    const canonical = createCodexCanonicalHydratedConversationState(
+      { ...response.thread, turns: [] },
+      {
+        model: response.model,
+        reasoningEffort: response.reasoningEffort,
+        cwd,
+        approvalPolicy: response.approvalPolicy,
+        approvalsReviewer: response.approvalsReviewer,
+        sandboxPolicy: response.sandbox,
+        activePermissionProfile:
+          response.activePermissionProfile ?? permissions.activePermissionProfile,
+        runtimeWorkspaceRoots:
+          response.runtimeWorkspaceRoots.length > 0
+            ? [...response.runtimeWorkspaceRoots]
+            : [...permissions.runtimeWorkspaceRoots],
+        pendingRequests: [],
+        hasUnreadTurn: false,
+      },
+    );
+    const summary: CodexThreadSummary = {
+      ...plan.parent.summary,
+      threadId,
+      forkedFromId: plan.parentThreadId,
+      source: {
+        parentThreadId: plan.parentThreadId,
+        sideConversation: true,
+        sideConversationParentNavigationPath: plan.parentNavigationPath,
+      },
+      ephemeral: true,
+      threadSource: "user",
+      threadName: response.thread.name ?? null,
+      threadPreview: response.thread.preview ?? "",
+      modelProvider: response.modelProvider,
+      cwd,
+      statusType: "idle",
+      statusActiveFlags: [],
+      archived: false,
+      hasUnreadTurn: false,
+      createdAt: response.thread.createdAt * 1_000,
+      updatedAt: response.thread.updatedAt * 1_000,
+      recencyAt: response.thread.updatedAt * 1_000,
+      linkedAt: new Date(plan.startedAt).toISOString(),
+    };
+    const conversation = yield* projection
+      .hydrate({
+        threadId,
+        summary,
+        canonical,
+        pagination: {
+          olderCursor: null,
+          backwardsCursor: null,
+          oldestLoadedTurnId: null,
+          isLoadingOlder: false,
+          hasLoadedOldest: true,
+          loadedTurnCount: 0,
+          itemsView: "full",
+        },
+        observedAtMs: yield* Clock.currentTimeMillis,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new CodexSideChatProjectionError({
+              operation: "commit",
+              threadId,
+              cause,
+            }),
         ),
       );
+    const aggregate = conversations.conversation(threadId);
+    aggregate.setStreaming(true);
+    aggregate.setStreamRole("owner");
+    return { parentThreadId: plan.parentThreadId, threadId, conversation };
+  });
 
-    const cleanup = (hostId: string, threadId: string) =>
-      Effect.all(
-        [
-          ignoreCleanupFailure(
-            "unsubscribe",
-            threadId,
-            gateway.requestOnHost(hostId, "thread/unsubscribe", { threadId }),
-          ),
-          ignoreCleanupFailure("route-remove", threadId, routing.remove(threadId)),
-          ignoreCleanupFailure("projection-rollback", threadId, projection.rollback(threadId)),
-        ],
-        { concurrency: 1, discard: true },
-      );
+  const ignoreCleanupFailure = <A, E>(
+    operation: string,
+    threadId: string,
+    effect: Effect.Effect<A, E>,
+  ): Effect.Effect<void> =>
+    effect.pipe(
+      Effect.asVoid,
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Side chat cleanup step failed").pipe(
+          Effect.annotateLogs({ operation, threadId, cause: String(cause) }),
+        ),
+      ),
+    );
 
-    const start: CodexSideChatCommandsService["start"] = (input) => {
-      const parentThreadId = input.parentThreadId.trim();
-      return conversations.runExclusive(
-        parentThreadId,
-        projection.prepare(input).pipe(
-          Effect.flatMap((prepared) =>
-            hostResolver.resolve(prepared.parentThreadId).pipe(
-              Effect.flatMap((hostId) =>
-                gateway
-                  .requestOnHost(
-                    hostId,
-                    "thread/fork",
-                    prepared.forkRequest as GatewayThreadForkParams,
-                  )
-                  .pipe(
-                    Effect.map((response) => response as unknown as ThreadForkResponse),
-                    Effect.flatMap((response) => {
-                      const threadId = response.thread.id.trim();
-                      if (!threadId || threadId !== response.thread.id) {
-                        return Effect.fail(
-                          new CodexSideChatProjectionError({
-                            operation: "commit",
-                            threadId: prepared.parentThreadId,
-                            cause: new Error("Thread fork did not return a valid thread id"),
-                          }),
-                        );
-                      }
-                      return Effect.acquireUseRelease(
-                        routing.register(threadId, hostId).pipe(Effect.as({ hostId, threadId })),
-                        () =>
-                          gateway
-                            .requestOnHost(hostId, "thread/inject_items", {
-                              threadId,
-                              items: [
-                                {
-                                  type: "message",
-                                  role: "user",
-                                  content: [
-                                    {
-                                      type: "input_text",
-                                      text: SIDE_CHAT_BOUNDARY_TEXT,
-                                    },
-                                  ],
-                                },
-                              ],
-                            } as GatewayThreadInjectItemsParams)
-                            .pipe(
-                              Effect.andThen(projection.commit(prepared, response)),
-                              Effect.tap((committed) =>
-                                committed.initialTurn
-                                  ? turns
-                                      .start(
-                                        committed.threadId,
-                                        committed.initialTurn.prompt,
-                                        committed.initialTurn.overrides,
-                                      )
-                                      .pipe(Effect.asVoid)
-                                  : Effect.void,
-                              ),
-                              Effect.flatMap(projection.finish),
-                            ),
-                        (lease, exit) =>
-                          Exit.isFailure(exit)
-                            ? cleanup(lease.hostId, lease.threadId)
-                            : Effect.void,
+  const cleanup = (hostId: string, threadId: string) =>
+    Effect.all(
+      [
+        ignoreCleanupFailure(
+          "unsubscribe",
+          threadId,
+          gateway.requestOnHost(hostId, "thread/unsubscribe", { threadId }),
+        ),
+        ignoreCleanupFailure("route-remove", threadId, routing.remove(threadId)),
+        ignoreCleanupFailure("projection-rollback", threadId, conversations.close(threadId)),
+      ],
+      { concurrency: 1, discard: true },
+    );
+
+  const start: CodexSideChatCommandsService["start"] = (input) => {
+    const parentThreadId = input.parentThreadId.trim();
+    return conversations.runExclusive(
+      parentThreadId,
+      prepare(input).pipe(
+        Effect.flatMap((plan) =>
+          hostResolver.resolve(plan.parentThreadId).pipe(
+            Effect.flatMap((hostId) =>
+              gateway
+                .requestOnHost(hostId, "thread/fork", plan.forkRequest as GatewayThreadForkParams)
+                .pipe(
+                  Effect.map((response) => response as unknown as ThreadForkResponse),
+                  Effect.flatMap((response) => {
+                    const threadId = response.thread.id.trim();
+                    if (!threadId || threadId !== response.thread.id) {
+                      return Effect.fail(
+                        new CodexSideChatProjectionError({
+                          operation: "commit",
+                          threadId: plan.parentThreadId,
+                          cause: new Error("Thread fork did not return a valid thread id"),
+                        }),
                       );
-                    }),
-                  ),
-              ),
+                    }
+                    return Effect.acquireUseRelease(
+                      routing.register(threadId, hostId).pipe(Effect.as({ hostId, threadId })),
+                      () =>
+                        gateway
+                          .requestOnHost(hostId, "thread/inject_items", {
+                            threadId,
+                            items: [
+                              {
+                                type: "message",
+                                role: "user",
+                                content: [
+                                  {
+                                    type: "input_text",
+                                    text: SIDE_CHAT_BOUNDARY_TEXT,
+                                  },
+                                ],
+                              },
+                            ],
+                          } as GatewayThreadInjectItemsParams)
+                          .pipe(
+                            Effect.andThen(acceptFork(plan, response)),
+                            Effect.tap((result) =>
+                              plan.initialTurn
+                                ? turns
+                                    .start(
+                                      result.threadId,
+                                      plan.initialTurn.prompt,
+                                      plan.initialTurn.overrides,
+                                    )
+                                    .pipe(Effect.asVoid)
+                                : Effect.void,
+                            ),
+                          ),
+                      (lease, exit) =>
+                        Exit.isFailure(exit) ? cleanup(lease.hostId, lease.threadId) : Effect.void,
+                    );
+                  }),
+                ),
             ),
           ),
         ),
-      );
-    };
+      ),
+    );
+  };
 
-    const discard: CodexSideChatCommandsService["discard"] = (rawThreadId) => {
-      const threadId = rawThreadId.trim();
-      if (!threadId) return Effect.succeed(false);
-      return conversations
-        .runExclusive(
-          threadId,
-          projection.inspect(threadId).pipe(
-            Effect.flatMap((sideChat) => {
-              if (!sideChat) return Effect.succeed(false);
-              const unsubscribe = routing.resolve(threadId).pipe(
-                Effect.flatMap((ephemeralHostId) =>
-                  ephemeralHostId
-                    ? Effect.succeed(ephemeralHostId)
-                    : hostResolver.resolve(sideChat.parentThreadId),
+  const discard: CodexSideChatCommandsService["discard"] = (rawThreadId) => {
+    const threadId = rawThreadId.trim();
+    if (!threadId) return Effect.succeed(false);
+    return conversations
+      .runExclusive(
+        threadId,
+        Effect.sync(() => {
+          const source = conversations.currentConversation(threadId)?.readSnapshot()?.source;
+          return source?.sideConversation === true && source.parentThreadId
+            ? { parentThreadId: source.parentThreadId }
+            : null;
+        }).pipe(
+          Effect.flatMap((sideChat) => {
+            if (!sideChat) return Effect.succeed(false);
+            const unsubscribe = routing.resolve(threadId).pipe(
+              Effect.flatMap((ephemeralHostId) =>
+                ephemeralHostId
+                  ? Effect.succeed(ephemeralHostId)
+                  : hostResolver.resolve(sideChat.parentThreadId),
+              ),
+              Effect.flatMap((hostId) =>
+                gateway.requestOnHost(hostId, "thread/unsubscribe", { threadId }),
+              ),
+              Effect.catch((cause) =>
+                Effect.logWarning("Failed to unsubscribe side chat").pipe(
+                  Effect.annotateLogs({ threadId, cause: cause.message }),
                 ),
-                Effect.flatMap((hostId) =>
-                  gateway.requestOnHost(hostId, "thread/unsubscribe", { threadId }),
-                ),
-                Effect.catch((cause) =>
-                  Effect.logWarning("Failed to unsubscribe side chat").pipe(
-                    Effect.annotateLogs({ threadId, cause: cause.message }),
-                  ),
-                ),
-              );
-              return unsubscribe.pipe(
-                Effect.onExit(() =>
-                  routing.remove(threadId).pipe(Effect.andThen(projection.discard(threadId))),
-                ),
-                Effect.as(true),
-              );
-            }),
-          ),
-        )
-        .pipe(
-          Effect.tap((discarded) => (discarded ? conversations.close(threadId) : Effect.void)),
-          Effect.withSpan("CodexSideChatCommands.discard", { attributes: { threadId } }),
-        );
-    };
-
-    return CodexSideChatCommands.of({
-      start: (input) =>
-        start(input).pipe(
-          Effect.withSpan("CodexSideChatCommands.start", {
-            attributes: { parentThreadId: input.parentThreadId },
+              ),
+            );
+            return unsubscribe.pipe(
+              Effect.onExit(() =>
+                routing.remove(threadId).pipe(Effect.andThen(conversations.close(threadId))),
+              ),
+              Effect.as(true),
+            );
           }),
         ),
-      discard,
-    });
+      )
+      .pipe(
+        Effect.tap((discarded) => (discarded ? conversations.close(threadId) : Effect.void)),
+        Effect.withSpan("CodexSideChatCommands.discard", { attributes: { threadId } }),
+      );
+  };
+
+  return CodexSideChatCommands.of({
+    start: (input) =>
+      start(input).pipe(
+        Effect.withSpan("CodexSideChatCommands.start", {
+          attributes: { parentThreadId: input.parentThreadId },
+        }),
+      ),
+    discard,
   });
+});
