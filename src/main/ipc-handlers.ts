@@ -24,6 +24,7 @@ import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime"
 import type { CodexConversationHistoryRuntime } from "./codex-application/CodexConversationHistoryRuntime";
 import type { CodexFreshThreadLaunchRuntimeService } from "./codex-application/CodexFreshThreadLaunchRuntime";
 import type { CodexStructuredThreadTitle } from "./codex-application/CodexStructuredThreadTitle";
+import type { ManagedWorktreeCatalog } from "./codex-application/ManagedWorktreeCatalog";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -106,6 +107,7 @@ async function showDirectoryPicker(
 
 interface CodexIpcOptions {
   codexService: CodexService;
+  managedWorktreeCatalog: ManagedWorktreeCatalog["Service"];
   manualCompaction: CodexManualCompactionRuntime["Service"];
   threadGoals: CodexThreadGoalRuntime["Service"];
   threadSettings: CodexThreadSettingsRuntime["Service"];
@@ -492,16 +494,33 @@ export const codexIpcLive = (
         codexService.discardSideChat(threadId),
       );
 
-      registerHandle("worktrees:list", () => codexService.listManagedWorktrees());
+      registerEffectHandle("worktrees:list", () =>
+        options.managedWorktreeCatalog.list.pipe(
+          Effect.map((records) => [...records]),
+          Effect.mapError((cause) => new CodexIpcError({ operation: "worktrees:list", cause })),
+        ),
+      );
       registerHandle("worktrees:settings:get", () => codexService.getManagedWorktreeSettings());
       registerHandle("worktrees:settings:update", (_, input) =>
         codexService.updateManagedWorktreeSettings(input),
       );
-      registerHandle("worktrees:thread:availability", (_, threadId: string) =>
-        codexService.inspectThreadManagedWorktree(threadId),
+      registerEffectHandle("worktrees:thread:availability", (_, threadId: string) =>
+        options.managedWorktreeCatalog
+          .inspectThread(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "worktrees:thread:availability", cause }),
+            ),
+          ),
       );
-      registerHandle("worktrees:thread:restore", (_, threadId: string) =>
-        codexService.restoreThreadManagedWorktree(threadId),
+      registerEffectHandle("worktrees:thread:restore", (_, threadId: string) =>
+        options.managedWorktreeCatalog
+          .restoreThread(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "worktrees:thread:restore", cause }),
+            ),
+          ),
       );
 
       registerHandle("worktrees:delete", (_, hostId: string, worktreePath: string) =>

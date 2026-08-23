@@ -37,7 +37,6 @@ import type {
   CodexThreadSummary,
   CodexTurnSummary,
   CommandPaletteThreadSummary,
-  ManagedWorktreeRecord,
   ManagedWorktreeSettings,
   Project,
   ProjectSession,
@@ -337,14 +336,7 @@ interface TestableCodexService {
       };
     },
   ) => Promise<void>;
-  listManagedWorktrees: () => Promise<ManagedWorktreeRecord[]>;
   deleteManagedWorktree: (hostId: string, worktreePath: string) => Promise<boolean>;
-  inspectThreadManagedWorktree: (
-    threadId: string,
-  ) => Promise<import("../../shared/types").ManagedWorktreeAvailability>;
-  restoreThreadManagedWorktree: (
-    threadId: string,
-  ) => Promise<import("../../shared/types").ManagedWorktreeRestoreResult>;
   reconcileArchivedThreadManagedWorktree: (
     thread: DesktopProjectWorkspaceThread,
     reason: "archive" | "automation-archive",
@@ -18448,94 +18440,6 @@ describe("codex-service terminal turn reconciliation", () => {
 });
 
 describe("codex-service managed worktree inventory", () => {
-  test("resolves thread inspection and restoration through the owning host", async () => {
-    const worktreePath = "/managed/a1b2/repository";
-    const thread = makeDesktopWorkspaceThread({
-      threadId: "thread-restore",
-      projectId: "project-one",
-      executionHostId: "local",
-      cwd: `${worktreePath}/packages/app`,
-      managedWorktreePath: worktreePath,
-    });
-    const basePort = createTestProjectWorkspace();
-    const projectWorkspace = {
-      ...basePort,
-      getThread: async (threadId: string) => (threadId === thread.threadId ? thread : null),
-      readManagedWorktreeLifecycleSnapshot: async () => ({
-        projectionRevision: 1,
-        consumers: [],
-        projects: [
-          {
-            projectId: "project-one",
-            lifecycle: "active" as const,
-            sourceRoots: ["/repositories/repository"],
-            primaryWorkspaceRoot: "/repositories/repository",
-          },
-        ],
-      }),
-    } satisfies DesktopProjectWorkspacePort;
-    let releaseInspection: () => void = () => {};
-    const inspectionGate = new Promise<void>((resolve) => {
-      releaseInspection = resolve;
-    });
-    const inspect = vi.fn(async () => {
-      await inspectionGate;
-      return {
-        availability: {
-          state: "restorable" as const,
-          repositoryPath: "/repositories/repository",
-          snapshotRef: "refs/codex/snapshots/one",
-        },
-      };
-    });
-    const restore = vi.fn(async () => ({
-      worktreeGitRoot: worktreePath,
-      cwd: thread.cwd ?? worktreePath,
-      repositoryPath: "/repositories/repository",
-      snapshotRef: "refs/codex/snapshots/one",
-      ownerWarning: null,
-    }));
-    const worker = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
-      inspect,
-      restore,
-    } satisfies CodexWorktreeWorkerPort;
-    const service = createService({ projectWorkspace });
-    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
-
-    try {
-      const inspection = service.inspectThreadManagedWorktree(thread.threadId);
-      await Promise.resolve();
-      releaseInspection();
-      await expect(inspection).resolves.toEqual(expect.objectContaining({ state: "restorable" }));
-      expect(inspect).toHaveBeenCalledOnce();
-      expect(inspect).toHaveBeenCalledWith(
-        expect.objectContaining({
-          hostId: "local",
-          managedRoot: "/managed",
-          worktreeGitRoot: worktreePath,
-          cwd: `${worktreePath}/packages/app`,
-          candidateRepositoryPaths: ["/repositories/repository"],
-        }),
-        expect.any(Object),
-      );
-
-      await expect(service.restoreThreadManagedWorktree(thread.threadId)).resolves.toEqual({
-        availability: { state: "available" },
-        ownerWarning: null,
-      });
-      expect(restore).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ownerThreadId: thread.threadId,
-          worktreeGitRoot: worktreePath,
-        }),
-        expect.any(Object),
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test("transfers archive ownership before considering physical removal", async () => {
     const worktreePath = "/managed/a1b2/repository";
     const archived = makeDesktopWorkspaceThread({
@@ -18636,131 +18540,6 @@ describe("codex-service managed worktree inventory", () => {
         }),
         expect.any(Object),
       );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("groups every consumer by physical root and excludes permanent project roots", async () => {
-    const sharedPath = "/managed/a1b2/repository";
-    const permanentPath = "/managed/c3d4/permanent";
-    const basePort = createTestProjectWorkspace();
-    const projectWorkspace = {
-      ...basePort,
-      readManagedWorktreeLifecycleSnapshot: async () => ({
-        projectionRevision: 7,
-        consumers: [
-          {
-            threadId: "thread-one",
-            projectId: "project-one",
-            sessionId: "session-one",
-            executionHostId: "local",
-            cwd: sharedPath,
-            managedWorktreePath: sharedPath,
-            runtimeWorkspaceRoots: [sharedPath],
-            archived: false,
-            pinnedOrder: null,
-            statusType: "idle" as const,
-            statusActiveFlags: [],
-            createdAt: 10,
-            updatedAt: 30,
-            linkedAt: "2026-08-14T00:00:00.000Z",
-          },
-          {
-            threadId: "thread-two",
-            projectId: "project-one",
-            sessionId: "session-two",
-            executionHostId: "local",
-            cwd: `${sharedPath}/nested`,
-            managedWorktreePath: sharedPath,
-            runtimeWorkspaceRoots: [sharedPath],
-            archived: true,
-            pinnedOrder: null,
-            statusType: "idle" as const,
-            statusActiveFlags: [],
-            createdAt: 11,
-            updatedAt: 20,
-            linkedAt: "2026-08-14T00:00:01.000Z",
-          },
-        ],
-        projects: [
-          {
-            projectId: "project-one",
-            lifecycle: "active" as const,
-            sourceRoots: [permanentPath],
-            primaryWorkspaceRoot: permanentPath,
-          },
-        ],
-      }),
-      listProjects: async () => [makeProject({ id: "project-one", name: "Repository" })],
-      getThread: async (threadId: string) =>
-        makeDesktopWorkspaceThread({
-          threadId,
-          threadName: threadId === "thread-one" ? "First" : "Second",
-        }),
-      getProjectSession: async (sessionId: string) =>
-        ({
-          id: sessionId,
-          projectId: "project-one",
-          displayTitle: sessionId === "session-one" ? "Newest" : "Older",
-        }) as never,
-    } satisfies DesktopProjectWorkspacePort;
-    const service = createService({ projectWorkspace });
-    const worker = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
-      list: async () => ({
-        entries: [
-          {
-            worktreeGitRoot: sharedPath,
-            repositoryPath: "/repositories/repository",
-            createdAtMs: 100,
-            ownerThreadId: "thread-one",
-            ownerReadFailed: false,
-          },
-          {
-            worktreeGitRoot: permanentPath,
-            repositoryPath: "/repositories/permanent",
-            createdAtMs: 90,
-            ownerThreadId: null,
-            ownerReadFailed: false,
-          },
-        ],
-      }),
-    } satisfies CodexWorktreeWorkerPort;
-    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
-
-    try {
-      await expect(service.listManagedWorktrees()).resolves.toEqual([
-        {
-          hostId: "local",
-          path: sharedPath,
-          exists: true,
-          repositoryPath: "/repositories/repository",
-          createdAtMs: 100,
-          conversations: [
-            {
-              threadId: "thread-one",
-              projectId: "project-one",
-              projectName: "Repository",
-              sessionId: "session-one",
-              sessionTitle: "Newest",
-              threadName: "First",
-              archived: false,
-              updatedAt: 30,
-            },
-            {
-              threadId: "thread-two",
-              projectId: "project-one",
-              projectName: "Repository",
-              sessionId: "session-two",
-              sessionTitle: "Older",
-              threadName: "Second",
-              archived: true,
-              updatedAt: 20,
-            },
-          ],
-        },
-      ]);
     } finally {
       await service.shutdown();
     }

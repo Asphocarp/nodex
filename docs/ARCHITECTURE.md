@@ -969,6 +969,13 @@ state. Shared operations belong to the Module Scope rather than to the first
 caller, so caller interruption only stops waiting while Main shutdown
 interrupts the worker through the same cancellation channel. The owning
 execution-host worker alone mutates Git, files, and scripts.
+`ManagedWorktreeCatalog` is the product-facing read/command Module above that
+physical runtime. It joins host inventories with one Core Workspace lifecycle
+snapshot, excludes permanent Project roots, enriches consumer Threads and
+Sessions, resolves durable Thread execution locations for inspection and
+restoration, and republishes the restored Thread projection. Renderer list,
+availability, and restore IPC call this typed Interface directly; the canonical
+conversation reducer does not proxy or duplicate those policies.
 `ManagedWorktreeRetentionRuntime` owns retention admission, the fixed coalescing
 window, single-flight execution, and Scope cancellation; policy evaluation still
 combines the physical lifecycle Interface with durable Core metadata and active

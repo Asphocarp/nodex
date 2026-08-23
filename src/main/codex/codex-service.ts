@@ -166,9 +166,6 @@ import type {
   CodexPromptAgentConfigInput,
   CodexPromptInput,
   CodexPromptTextAttachmentInput,
-  ManagedWorktreeRecord,
-  ManagedWorktreeAvailability,
-  ManagedWorktreeRestoreResult,
   ManagedWorktreeSettings,
   Project,
   ProjectArchiveBlocker,
@@ -660,6 +657,7 @@ import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-applicat
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
 import type { CodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
 import {
+  buildWorkspaceThreadSummary,
   isInternalThreadSourceValue,
   isNonSidebarThreadWithoutParent,
   parseThreadSourceValue,
@@ -7410,37 +7408,7 @@ export class CodexService {
       readonly pinnedOrder?: number | null;
     } = {},
   ): CodexThreadSummary {
-    const pinnedOrder =
-      overrides.pinnedOrder === undefined ? thread.pinnedOrder : overrides.pinnedOrder;
-    return {
-      threadId: thread.threadId,
-      projectId: thread.projectId,
-      forkedFromId: thread.forkedFromId,
-      source: thread.parentThreadId ? { parentThreadId: thread.parentThreadId } : null,
-      ephemeral: false,
-      threadSource: thread.threadSource,
-      serviceName: thread.serviceName,
-      agentNickname: thread.agentNickname,
-      agentRole: thread.agentRole,
-      agentPath: thread.agentPath,
-      threadName: thread.threadName,
-      threadPreview: thread.threadPreview,
-      modelProvider: thread.modelProvider,
-      executionProfile: thread.executionProfile,
-      cwd: thread.cwd,
-      managedWorktreePath: thread.managedWorktreePath,
-      projectlessOutputDirectory: thread.projectlessOutputDirectory,
-      projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot,
-      statusType: thread.statusType,
-      statusActiveFlags: [...thread.statusActiveFlags],
-      archived: overrides.archived ?? thread.archived,
-      pinned: pinnedOrder !== null,
-      hasUnreadTurn: overrides.hasUnreadTurn ?? thread.hasUnreadTurn,
-      createdAt: thread.createdAt,
-      updatedAt: thread.updatedAt,
-      recencyAt: thread.recencyAt,
-      linkedAt: thread.linkedAt,
-    };
+    return buildWorkspaceThreadSummary(thread, overrides);
   }
 
   private async updateWorkspaceThreadSummary(
@@ -7493,81 +7461,6 @@ export class CodexService {
       await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "host-message");
     }
     return summary;
-  }
-
-  async listManagedWorktrees(): Promise<ManagedWorktreeRecord[]> {
-    const hostIds = this.executionHosts.listHostIds("list");
-    const [physicalByHost, lifecycle, projects] = await Promise.all([
-      Promise.all(
-        hostIds.map(async (hostId) => ({
-          hostId,
-          inventory: await this.managedWorktreeLifecycle.list(hostId),
-        })),
-      ),
-      this.projectWorkspace.readManagedWorktreeLifecycleSnapshot(),
-      this.projectWorkspace.listProjects(),
-    ]);
-    const projectNameById = new Map(projects.map((project) => [project.id, project.name] as const));
-    const permanentRoots = new Set(
-      (
-        await Promise.all(
-          lifecycle.projects
-            .flatMap((project) => project.sourceRoots)
-            .map(resolveWorktreePathComparisonKey),
-        )
-      ).map((root) => `${CODEX_APP_LOCAL_HOST_ID}\0${root}`),
-    );
-    const consumersByPath = new Map<string, typeof lifecycle.consumers>();
-    for (const consumer of lifecycle.consumers) {
-      const key = `${consumer.executionHostId}\0${normalizeWorktreePathForIdentity(
-        consumer.managedWorktreePath,
-      )}`;
-      consumersByPath.set(key, [...(consumersByPath.get(key) ?? []), consumer]);
-    }
-    const physicalEntries = physicalByHost.flatMap(({ hostId, inventory }) =>
-      inventory.entries.map((entry) => ({ hostId, entry })),
-    );
-    const records = (
-      await Promise.all(
-        physicalEntries.map(async ({ hostId, entry }): Promise<ManagedWorktreeRecord | null> => {
-          const normalizedPath = normalizeWorktreePathForIdentity(entry.worktreeGitRoot);
-          const comparisonKey = await resolveWorktreePathComparisonKey(entry.worktreeGitRoot);
-          if (permanentRoots.has(`${hostId}\0${comparisonKey}`)) return null;
-          const consumers = consumersByPath.get(`${hostId}\0${normalizedPath}`) ?? [];
-          const conversations = await Promise.all(
-            consumers.map(async (consumer) => {
-              const [thread, session] = await Promise.all([
-                this.projectWorkspace.getThread(consumer.threadId),
-                consumer.sessionId
-                  ? this.projectWorkspace.getProjectSession(consumer.sessionId)
-                  : Promise.resolve(null),
-              ]);
-              return {
-                threadId: consumer.threadId,
-                projectId: consumer.projectId,
-                projectName: consumer.projectId
-                  ? (projectNameById.get(consumer.projectId) ?? null)
-                  : null,
-                sessionId: consumer.sessionId,
-                sessionTitle: session?.displayTitle ?? null,
-                threadName: thread?.threadName ?? null,
-                archived: consumer.archived,
-                updatedAt: consumer.updatedAt,
-              };
-            }),
-          );
-          return {
-            hostId,
-            path: entry.worktreeGitRoot,
-            exists: true,
-            repositoryPath: entry.repositoryPath,
-            createdAtMs: entry.createdAtMs,
-            conversations: conversations.sort((left, right) => right.updatedAt - left.updatedAt),
-          };
-        }),
-      )
-    ).filter((record): record is ManagedWorktreeRecord => record !== null);
-    return records.sort((left, right) => (right.createdAtMs ?? 0) - (left.createdAtMs ?? 0));
   }
 
   getManagedWorktreeSettings(): ManagedWorktreeSettings {
@@ -7759,93 +7652,6 @@ export class CodexService {
       });
     }
     return plan;
-  }
-
-  private async resolveManagedWorktreeThreadContext(threadId: string): Promise<{
-    readonly threadId: string;
-    readonly hostId: string;
-    readonly worktreeGitRoot: string;
-    readonly cwd: string;
-    readonly candidateRepositoryPaths: string[];
-  } | null> {
-    const thread = await this.readWorkspaceThread(threadId);
-    const worktreeGitRoot = thread?.managedWorktreePath?.trim();
-    const cwd = thread?.cwd?.trim();
-    if (!thread || !worktreeGitRoot || !cwd) return null;
-
-    const lifecycle = await this.projectWorkspace.readManagedWorktreeLifecycleSnapshot();
-    const candidates = new Set(
-      lifecycle.projects
-        .filter((project) => project.projectId === thread.projectId)
-        .flatMap((project) => project.sourceRoots)
-        .map((root) => root.trim())
-        .filter(Boolean),
-    );
-    if (candidates.size === 0) {
-      const inventory = await this.managedWorktreeLifecycle
-        .list(thread.executionHostId)
-        .catch(() => null);
-      const normalizedPath = normalizeWorktreePathForIdentity(worktreeGitRoot);
-      for (const entry of inventory?.entries ?? []) {
-        if (
-          normalizeWorktreePathForIdentity(entry.worktreeGitRoot) === normalizedPath &&
-          entry.repositoryPath?.trim()
-        ) {
-          candidates.add(entry.repositoryPath.trim());
-        }
-      }
-    }
-    return {
-      threadId: thread.threadId,
-      hostId: thread.executionHostId,
-      worktreeGitRoot,
-      cwd,
-      candidateRepositoryPaths: [...candidates],
-    };
-  }
-
-  async inspectThreadManagedWorktree(threadId: string): Promise<ManagedWorktreeAvailability> {
-    const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId) return { state: "not-managed" };
-    const context = await this.resolveManagedWorktreeThreadContext(normalizedThreadId);
-    if (!context) return { state: "not-managed" };
-    try {
-      const result = await this.managedWorktreeLifecycle.inspect(context);
-      return result.availability;
-    } catch (error) {
-      return {
-        state: "unavailable",
-        reason: "inspection-failed",
-        message: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  async restoreThreadManagedWorktree(threadId: string): Promise<ManagedWorktreeRestoreResult> {
-    const context = await this.resolveManagedWorktreeThreadContext(threadId.trim());
-    if (!context) throw new Error("Thread does not use a managed worktree");
-    const result = await this.managedWorktreeLifecycle.restore({
-      ...context,
-      ownerThreadId: context.threadId,
-    });
-    if (result.ownerWarning) {
-      this.logger.warn("Restored managed worktree without owner metadata", {
-        threadId: context.threadId,
-        hostId: context.hostId,
-        error: result.ownerWarning,
-      });
-    }
-    const persisted = await this.readWorkspaceThread(context.threadId);
-    if (persisted) {
-      this.emitEvent({
-        type: "threadSummary",
-        thread: this.buildWorkspaceThreadSummary(persisted),
-      });
-    }
-    return {
-      availability: { state: "available" },
-      ownerWarning: result.ownerWarning,
-    };
   }
 
   /** Archive all consumers, retain their execution location, then remove once. */

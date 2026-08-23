@@ -3,9 +3,11 @@ import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSou
 import type {
   CodexThreadActiveFlag,
   CodexThreadRuntimeStatus,
+  CodexThreadSummary,
   CodexThreadStatusType,
   Project,
 } from "../../shared/types";
+import type { DesktopProjectWorkspaceThread } from "../core-client/project-workspace-adapter";
 import { CodexThreadStatusSchema } from "../../shared/schemas/codex";
 import { hasCodexSubagentSource } from "../../shared/codex-subagent-metadata";
 
@@ -96,4 +98,45 @@ export const isInternalThreadSourceValue = (threadSource: ThreadSource | null): 
 export const isNonSidebarThreadWithoutParent = (thread: Record<string, unknown>): boolean => {
   const threadSource = parseThreadSourceValue(thread.threadSource);
   return isInternalThreadSourceValue(threadSource) || hasCodexSubagentSource(thread.source);
+};
+
+export const buildWorkspaceThreadSummary = (
+  thread: DesktopProjectWorkspaceThread,
+  overrides: {
+    readonly archived?: boolean;
+    readonly hasUnreadTurn?: boolean;
+    readonly pinnedOrder?: number | null;
+  } = {},
+): CodexThreadSummary => {
+  const pinnedOrder =
+    overrides.pinnedOrder === undefined ? thread.pinnedOrder : overrides.pinnedOrder;
+  return {
+    threadId: thread.threadId,
+    projectId: thread.projectId,
+    forkedFromId: thread.forkedFromId,
+    source: thread.parentThreadId ? { parentThreadId: thread.parentThreadId } : null,
+    ephemeral: false,
+    threadSource: thread.threadSource,
+    serviceName: thread.serviceName,
+    agentNickname: thread.agentNickname,
+    agentRole: thread.agentRole,
+    agentPath: thread.agentPath,
+    threadName: thread.threadName,
+    threadPreview: thread.threadPreview,
+    modelProvider: thread.modelProvider,
+    executionProfile: thread.executionProfile,
+    cwd: thread.cwd,
+    managedWorktreePath: thread.managedWorktreePath,
+    projectlessOutputDirectory: thread.projectlessOutputDirectory,
+    projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot,
+    statusType: thread.statusType,
+    statusActiveFlags: [...thread.statusActiveFlags],
+    archived: overrides.archived ?? thread.archived,
+    pinned: pinnedOrder !== null,
+    hasUnreadTurn: overrides.hasUnreadTurn ?? thread.hasUnreadTurn,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    recencyAt: thread.recencyAt,
+    linkedAt: thread.linkedAt,
+  };
 };

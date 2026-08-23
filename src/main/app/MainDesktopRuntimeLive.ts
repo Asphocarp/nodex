@@ -218,7 +218,11 @@ import {
   make as makeCodexUserInputAutoResolution,
 } from "../codex-application/CodexUserInputAutoResolution";
 import { makeCodexUserInputAutoResolutionPromiseAdapter } from "../codex-application/CodexUserInputAutoResolutionPromiseAdapter";
-import { make as makeCodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
+import {
+  CodexApplicationEventHub,
+  make as makeCodexApplicationEventHub,
+} from "../codex-application/CodexApplicationEventHub";
+import { make as makeManagedWorktreeCatalog } from "../codex-application/ManagedWorktreeCatalog";
 import { requestHandlingLive } from "../codex-application/CodexApplicationLayers";
 import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
 import { createCodexForkBrowserSnapshotAdapter } from "../codex/codex-fork-browser-snapshot-adapter";
@@ -1851,6 +1855,14 @@ export const live: Layer.Layer<
         const codexApplicationEvents = yield* makeCodexApplicationEventHub.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const managedWorktreeCatalog = yield* makeManagedWorktreeCatalog({
+          projectWorkspace,
+        }).pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(ExecutionHostRuntime, executionHosts),
+          Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const forkBrowserSnapshotAdapter = createCodexForkBrowserSnapshotAdapter({
           getProjectSession: (projectSessionId) =>
             projectWorkspace.getProjectSession(projectSessionId),
@@ -2714,6 +2726,7 @@ export const live: Layer.Layer<
         yield* Layer.buildWithScope(
           codexIpcLive({
             codexService,
+            managedWorktreeCatalog,
             manualCompaction,
             threadGoals,
             threadSettings: threadSettingsRuntime,

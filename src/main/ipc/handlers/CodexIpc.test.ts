@@ -13,6 +13,7 @@ import { CodexThreadReadState } from "../../codex-application/CodexThreadReadSta
 import { AgentImportRuntime } from "../../codex-application/AgentImportRuntime";
 import { CodexConversationHistoryRuntime } from "../../codex-application/CodexConversationHistoryRuntime";
 import { CodexStructuredThreadTitle } from "../../codex-application/CodexStructuredThreadTitle";
+import { ManagedWorktreeCatalog } from "../../codex-application/ManagedWorktreeCatalog";
 import type { CodexFreshThreadLaunchRuntimeService } from "../../codex-application/CodexFreshThreadLaunchRuntime";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
@@ -42,6 +43,11 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
     yield* Layer.buildWithScope(
       codexIpcLive({
         codexService: {} as CodexService,
+        managedWorktreeCatalog: ManagedWorktreeCatalog.of({
+          list: Effect.die("unused"),
+          inspectThread: () => Effect.die("unused"),
+          restoreThread: () => Effect.die("unused"),
+        }),
         manualCompaction: CodexManualCompactionRuntime.of({
           start: () => Effect.void,
           consumeSource: () => "automatic",
