@@ -22,6 +22,7 @@ import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSy
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
 import type { CodexConversationHistoryRuntime } from "./codex-application/CodexConversationHistoryRuntime";
+import type { CodexQueuedFollowUpRuntime } from "./codex-application/CodexQueuedFollowUpRuntime";
 import type { CodexFreshThreadLaunchRuntimeService } from "./codex-application/CodexFreshThreadLaunchRuntime";
 import type { CodexStructuredThreadTitle } from "./codex-application/CodexStructuredThreadTitle";
 import type { ManagedWorktreeCatalog } from "./codex-application/ManagedWorktreeCatalog";
@@ -118,6 +119,7 @@ interface CodexIpcOptions {
   threadReadState: CodexThreadReadState["Service"];
   agentImport: AgentImportRuntime["Service"];
   conversationHistory: CodexConversationHistoryRuntime["Service"];
+  queuedFollowUps: CodexQueuedFollowUpRuntime["Service"];
   freshThreadLaunch: CodexFreshThreadLaunchRuntimeService;
   structuredThreadTitle: CodexStructuredThreadTitle["Service"];
   rendererClientRouter: RendererClientRuntimeService;
@@ -768,24 +770,50 @@ export const codexIpcLive = (
         },
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:follow-up:enqueue",
         (_, threadId: string, prompt: string, opts?: CodexTurnStartOptions) =>
-          codexService.enqueueQueuedFollowUpPrompt(threadId, prompt, opts),
+          options.queuedFollowUps
+            .enqueue({
+              threadId,
+              prompt,
+              collaborationMode: opts?.collaborationMode,
+              serviceTier: opts?.serviceTier,
+              promptInput: opts?.promptInput,
+              summary: opts?.summary,
+            })
+            .pipe(
+              Effect.asVoid,
+              Effect.mapError(
+                (cause) =>
+                  new CodexIpcError({ operation: "codex:thread:follow-up:enqueue", cause }),
+              ),
+            ),
       );
 
-      registerHandle("codex:thread:follow-up:remove", (_, threadId: string, followUpId: string) =>
-        codexService.removeQueuedFollowUp(threadId, followUpId),
+      registerEffectHandle(
+        "codex:thread:follow-up:remove",
+        (_, threadId: string, followUpId: string) =>
+          options.queuedFollowUps.remove(threadId, followUpId).pipe(Effect.asVoid),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:follow-up:reorder",
         (_, threadId: string, orderedFollowUpIds: string[]) =>
-          codexService.reorderQueuedFollowUps(threadId, orderedFollowUpIds),
+          options.queuedFollowUps.reorder(threadId, orderedFollowUpIds),
       );
 
-      registerHandle("codex:thread:follow-up:send-now", (_, threadId: string, followUpId: string) =>
-        codexService.sendQueuedFollowUpNow(threadId, followUpId),
+      registerEffectHandle(
+        "codex:thread:follow-up:send-now",
+        (_, threadId: string, followUpId: string) =>
+          options.queuedFollowUps
+            .sendNow(threadId, followUpId)
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexIpcError({ operation: "codex:thread:follow-up:send-now", cause }),
+              ),
+            ),
       );
 
       registerEffectHandle("codex:thread:compact:start", (_, threadId: string) =>

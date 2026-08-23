@@ -160,9 +160,10 @@ import {
   make as makeCodexBackgroundSubagentMetadataRepair,
 } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
 import {
-  CodexQueuedFollowUpDispatchError,
-  make as makeCodexQueuedFollowUpDispatchRuntime,
-} from "../codex-application/CodexQueuedFollowUpDispatchRuntime";
+  CodexQueuedFollowUpRuntimeError,
+  make as makeCodexQueuedFollowUpRuntime,
+} from "../codex-application/CodexQueuedFollowUpRuntime";
+import { makeCodexQueuedFollowUpRuntimePromiseAdapter } from "../codex-application/CodexQueuedFollowUpRuntimePromiseAdapter";
 import { make as makeCodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import { makeCodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntimePromiseAdapter";
 import {
@@ -1719,17 +1720,22 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexBackgroundSubagentMetadataRepairError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const queuedFollowUpDispatch = yield* makeCodexQueuedFollowUpDispatchRuntime({
-          isEligible: (threadId) =>
-            requireCodexService().isQueuedFollowUpDispatchEligible(threadId),
-          take: (threadId) => requireCodexService().takeQueuedFollowUpForDispatch(threadId),
+        const queuedFollowUps = yield* makeCodexQueuedFollowUpRuntime({
+          isSubmissionEligible: (threadId) =>
+            requireCodexService().isQueuedFollowUpSubmissionEligible(threadId),
           submit: (threadId, followUp) =>
             Effect.tryPromise({
               try: () => requireCodexService().submitQueuedFollowUp(threadId, followUp),
-              catch: (cause) => new CodexQueuedFollowUpDispatchError({ cause }),
+              catch: (cause) =>
+                new CodexQueuedFollowUpRuntimeError({
+                  operation: "submit",
+                  threadId,
+                  followUpId: followUp.followUpId,
+                  cause,
+                }),
             }),
-          restore: (threadId, followUp, reason) =>
-            requireCodexService().restoreQueuedFollowUp(threadId, followUp, reason),
+          project: (threadId, entries) =>
+            requireCodexService().projectQueuedFollowUps(threadId, entries),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const conversationDeltaBuffer = yield* makeCodexConversationDeltaBufferRuntime({
           flushFrameText: (updates) => requireCodexService().applyFrameTextDeltas(updates),
@@ -2061,7 +2067,10 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               backgroundSubagentMetadataRepair,
-              queuedFollowUpDispatch,
+              queuedFollowUps: makeCodexQueuedFollowUpRuntimePromiseAdapter(
+                queuedFollowUps,
+                callbacks,
+              ),
               conversationDeltaBuffer: makeCodexConversationDeltaBufferRuntimePromiseAdapter(
                 conversationDeltaBuffer,
                 callbacks,
@@ -2766,6 +2775,7 @@ export const live: Layer.Layer<
             threadReadState,
             agentImport,
             conversationHistory,
+            queuedFollowUps,
             freshThreadLaunch,
             structuredThreadTitle,
             projectWorkspace,

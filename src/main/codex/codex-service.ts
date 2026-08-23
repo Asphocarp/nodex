@@ -658,7 +658,7 @@ import type { ConversationCommandsPromiseAdapter } from "../codex-application/Co
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
 import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
-import type { CodexQueuedFollowUpDispatchRuntime } from "../codex-application/CodexQueuedFollowUpDispatchRuntime";
+import type { CodexQueuedFollowUpRuntimePromiseAdapter } from "../codex-application/CodexQueuedFollowUpRuntimePromiseAdapter";
 import type { CodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import type {
   CodexConversationResumeDemand,
@@ -1153,7 +1153,7 @@ type CodexServiceOptions = {
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
-  queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
+  queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
   conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
   conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
@@ -1202,7 +1202,6 @@ interface CodexConversationRecord {
   hasUnreadTurn: boolean;
   unreadMessageCount?: number;
   planImplementationRequestsByTurnId: Map<string, CodexPlanImplementationServerRequest>;
-  queuedFollowUps: CodexQueuedFollowUp[];
   pendingSteers: CodexPendingSteer[];
   turnPagination: CodexConversationTurnPagination;
   latestCollaborationMode: CodexCollaborationModeState;
@@ -2280,7 +2279,7 @@ export class CodexService {
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
-  private readonly queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
+  private readonly queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
   private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
   private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   private readonly conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
@@ -2395,7 +2394,7 @@ export class CodexService {
     this.postResumeGoals = options.postResumeGoals;
     this.conversationHistory = options.conversationHistory;
     this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
-    this.queuedFollowUpDispatch = options.queuedFollowUpDispatch;
+    this.queuedFollowUps = options.queuedFollowUps;
     this.conversationDeltaBuffer = options.conversationDeltaBuffer;
     this.conversationResume = options.conversationResume;
     this.conversationEventBuffer = options.conversationEventBuffer;
@@ -4763,7 +4762,6 @@ export class CodexService {
       serverRequests: [],
       hasUnreadTurn: false,
       planImplementationRequestsByTurnId: new Map<string, CodexPlanImplementationServerRequest>(),
-      queuedFollowUps: [],
       pendingSteers: [],
       turnPagination: COMPLETE_TURN_PAGINATION,
       latestCollaborationMode: this.buildDefaultCollaborationModeState(),
@@ -5413,7 +5411,7 @@ export class CodexService {
   private pruneThreadTransientState(threadId: string, retainedTurnIds: ReadonlySet<string>): void {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return;
-    record.queuedFollowUps = [];
+    this.queuedFollowUps.reset(threadId);
 
     const nextSteers = this.listPendingSteers(threadId).filter((steer) =>
       retainedTurnIds.has(steer.turnId),
@@ -5480,13 +5478,11 @@ export class CodexService {
     );
     this.freshThreadLaunch.clear(threadId);
     this.backgroundSubagentMetadataRepair.clear(threadId);
-    this.queuedFollowUpDispatch.clear(threadId);
+    this.queuedFollowUps.clear(threadId);
   }
 
   private listQueuedFollowUps(threadId: string): CodexQueuedFollowUp[] {
-    return [...(this.getMaybeConversationRecord(threadId)?.queuedFollowUps ?? [])].sort(
-      (left, right) => left.createdAt - right.createdAt,
-    );
+    return [...this.queuedFollowUps.list(threadId)];
   }
 
   private listPendingSteers(threadId: string): CodexPendingSteer[] {
@@ -5496,174 +5492,28 @@ export class CodexService {
   }
 
   private clearPausedQueuedFollowUps(threadId: string, broadcast = true): void {
-    const existing = this.listQueuedFollowUps(threadId);
-    if (existing.length === 0) return;
-
-    let changed = false;
-    const nextEntries = existing.map((followUp) => {
-      if (!followUp.pausedReason) return followUp;
-      changed = true;
-      return {
-        ...followUp,
-        pausedReason: null,
-      };
-    });
-
-    if (!changed) return;
-    this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    if (!broadcast) return;
-    this.syncAcceptedConversationDocument(threadId, {
-      syncQueuedFollowUps: true,
-    });
+    this.queuedFollowUps.clearPaused(threadId, broadcast);
   }
 
   private hasActiveTurn(threadId: string): boolean {
     return this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress");
   }
 
-  /** Effect Module adapter operation; callers use queuedFollowUpDispatch. */
-  isQueuedFollowUpDispatchEligible(threadId: string): boolean {
-    if (this.hasActiveTurn(threadId)) return false;
-
-    const nextFollowUp = this.listQueuedFollowUps(threadId)[0];
-    if (!nextFollowUp) return false;
-    if (nextFollowUp.pausedReason) return false;
-
-    return true;
+  /** Effect Module adapter operation; queue ordering and pause policy live in the runtime. */
+  isQueuedFollowUpSubmissionEligible(threadId: string): boolean {
+    return !this.hasActiveTurn(threadId);
   }
 
   private maybeDispatchQueuedFollowUp(threadId: string): void {
-    this.queuedFollowUpDispatch.request(threadId);
+    this.queuedFollowUps.request(threadId);
   }
 
-  /** Effect Module adapter operation; atomically claims canonical queue state. */
-  takeQueuedFollowUpForDispatch(threadId: string): CodexQueuedFollowUp | null {
-    if (this.hasActiveTurn(threadId)) return null;
-
-    const nextFollowUp = this.listQueuedFollowUps(threadId)[0];
-    if (!nextFollowUp || nextFollowUp.pausedReason) return null;
-
-    this.dequeueQueuedFollowUp(threadId, nextFollowUp.followUpId);
-    return nextFollowUp;
-  }
-
-  private enqueueQueuedFollowUp(
-    threadId: string,
-    prompt: string,
-    collaborationMode?: CodexCollaborationModeKind | null,
-    serviceTier?: CodexServiceTier,
-    pausedReason?: string | null,
-    promptInput?: CodexPromptInput,
-    summary?: CodexSteeringRestoreMessage["summary"],
-  ): string {
-    const followUpId = `follow-up:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-    const nextEntries = [
-      ...this.listQueuedFollowUps(threadId),
-      {
-        followUpId,
-        threadId,
-        prompt,
-        ...(promptInput ? { promptInput } : {}),
-        createdAt: Date.now(),
-        collaborationMode: collaborationMode ?? null,
-        serviceTier: normalizeCodexServiceTier(serviceTier),
-        ...(summary !== undefined ? { summary } : {}),
-        pausedReason: pausedReason ?? null,
-      },
-    ];
-    this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    this.syncAcceptedConversationDocument(threadId, {
-      syncQueuedFollowUps: true,
+  /** Effect Module projection operation; the runtime has already committed the queue revision. */
+  projectQueuedFollowUps(threadId: string, entries: readonly CodexQueuedFollowUp[]): void {
+    if (this.isCommandOnlyAutomationThread(threadId)) return;
+    this.mutateAcceptedConversationDocument(threadId, (draft) => {
+      draft.queuedFollowUps = [...entries];
     });
-    return followUpId;
-  }
-
-  private dequeueQueuedFollowUp(threadId: string, followUpId: string): void {
-    const nextEntries = this.listQueuedFollowUps(threadId).filter(
-      (followUp) => followUp.followUpId !== followUpId,
-    );
-    if (nextEntries.length === 0) {
-      this.ensureConversationRecord(threadId).queuedFollowUps = [];
-    } else {
-      this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    }
-    this.syncAcceptedConversationDocument(threadId, {
-      syncQueuedFollowUps: true,
-    });
-  }
-
-  private getQueuedFollowUp(threadId: string, followUpId: string): CodexQueuedFollowUp | null {
-    return (
-      this.listQueuedFollowUps(threadId).find((followUp) => followUp.followUpId === followUpId) ??
-      null
-    );
-  }
-
-  /** Effect Module adapter operation; restores a failed canonical queue claim. */
-  restoreQueuedFollowUp(
-    threadId: string,
-    followUp: CodexQueuedFollowUp,
-    reason?: string | null,
-  ): void {
-    const existing = this.listQueuedFollowUps(threadId).filter(
-      (entry) => entry.followUpId !== followUp.followUpId,
-    );
-    this.ensureConversationRecord(threadId).queuedFollowUps = [
-      {
-        ...followUp,
-        pausedReason: reason ?? null,
-      },
-      ...existing,
-    ];
-    this.syncAcceptedConversationDocument(threadId, {
-      syncQueuedFollowUps: true,
-    });
-  }
-
-  removeQueuedFollowUp(threadId: string, followUpId: string): void {
-    if (!this.getQueuedFollowUp(threadId, followUpId)) return;
-    this.dequeueQueuedFollowUp(threadId, followUpId);
-  }
-
-  reorderQueuedFollowUps(threadId: string, orderedFollowUpIds: string[]): void {
-    const existing = this.listQueuedFollowUps(threadId);
-    if (existing.length <= 1) return;
-
-    const byId = new Map(existing.map((followUp) => [followUp.followUpId, followUp]));
-    const ordered = orderedFollowUpIds
-      .map((followUpId) => byId.get(followUpId) ?? null)
-      .filter((followUp): followUp is CodexQueuedFollowUp => followUp !== null);
-    const seen = new Set(ordered.map((followUp) => followUp.followUpId));
-    const nextEntries = [
-      ...ordered,
-      ...existing.filter((followUp) => !seen.has(followUp.followUpId)),
-    ];
-
-    this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    this.syncAcceptedConversationDocument(threadId, {
-      syncQueuedFollowUps: true,
-    });
-  }
-
-  async enqueueQueuedFollowUpPrompt(
-    threadId: string,
-    prompt: string,
-    overrides?: StartTurnOverrides,
-  ): Promise<void> {
-    const promptText = prompt.trim();
-    if (!promptText) {
-      throw new Error("Queued follow-up requires a non-empty prompt");
-    }
-
-    this.enqueueQueuedFollowUp(
-      threadId,
-      promptText,
-      overrides?.collaborationMode,
-      overrides?.serviceTier,
-      null,
-      overrides?.promptInput,
-      overrides?.summary,
-    );
   }
 
   private recordPendingSteer(threadId: string, turnId: string, prompt: string): string {
@@ -11629,11 +11479,11 @@ export class CodexService {
     );
   }
 
-  private restoreUnacceptedSteeringEntriesForTurn(
+  private async restoreUnacceptedSteeringEntriesForTurn(
     threadId: string,
     turnId: string,
     reason: string,
-  ): void {
+  ): Promise<void> {
     const pendingEntries = this.listPendingSteeringEntries(threadId, turnId);
     if (pendingEntries.length === 0) return;
 
@@ -11641,15 +11491,15 @@ export class CodexService {
       const restoreMessage = entry.steeringRestoreMessage;
       this.removeSteeringUserMessage(threadId, entry.entryId ?? entry.itemId);
       if (!restoreMessage?.prompt.trim()) continue;
-      this.enqueueQueuedFollowUp(
+      await this.queuedFollowUps.enqueue({
         threadId,
-        restoreMessage.prompt,
-        restoreMessage.collaborationMode,
-        restoreMessage.serviceTier,
-        reason,
-        restoreMessage.promptInput,
-        restoreMessage.summary,
-      );
+        prompt: restoreMessage.prompt,
+        collaborationMode: restoreMessage.collaborationMode,
+        serviceTier: restoreMessage.serviceTier,
+        pausedReason: reason,
+        promptInput: restoreMessage.promptInput,
+        summary: restoreMessage.summary,
+      });
     }
   }
 
@@ -16618,22 +16468,6 @@ export class CodexService {
         return detail.turns[detail.turns.length - 1];
       },
     );
-  }
-
-  async sendQueuedFollowUpNow(threadId: string, followUpId: string): Promise<void> {
-    const followUp = this.getQueuedFollowUp(threadId, followUpId);
-    if (!followUp) return;
-    this.dequeueQueuedFollowUp(threadId, followUpId);
-    try {
-      await this.submitQueuedFollowUp(threadId, followUp);
-    } catch (error) {
-      this.restoreQueuedFollowUp(
-        threadId,
-        followUp,
-        error instanceof Error ? error.message : String(error),
-      );
-      throw error;
-    }
   }
 
   async steerTurn(
@@ -22207,7 +22041,7 @@ export class CodexService {
       }
       this.reconcileTurnItemsToTerminalStatus(threadId, mergedTurn.turnId, mergedTurn.status);
       if (mergedTurn.status !== "inProgress") {
-        this.restoreUnacceptedSteeringEntriesForTurn(
+        await this.restoreUnacceptedSteeringEntriesForTurn(
           threadId,
           mergedTurn.turnId,
           mergedTurn.status === "interrupted"

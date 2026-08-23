@@ -12,6 +12,7 @@ import { CodexThreadCatalog } from "../../codex-application/CodexThreadCatalog";
 import { CodexThreadReadState } from "../../codex-application/CodexThreadReadState";
 import { AgentImportRuntime } from "../../codex-application/AgentImportRuntime";
 import { CodexConversationHistoryRuntime } from "../../codex-application/CodexConversationHistoryRuntime";
+import { CodexQueuedFollowUpRuntime } from "../../codex-application/CodexQueuedFollowUpRuntime";
 import { CodexStructuredThreadTitle } from "../../codex-application/CodexStructuredThreadTitle";
 import { ManagedWorktreeCatalog } from "../../codex-application/ManagedWorktreeCatalog";
 import type { CodexFreshThreadLaunchRuntimeService } from "../../codex-application/CodexFreshThreadLaunchRuntime";
@@ -101,6 +102,17 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           loadPage: () => Effect.die("unused"),
           loadComplete: () => Effect.die("unused"),
           requestRemaining: () => undefined,
+          clear: () => undefined,
+        }),
+        queuedFollowUps: CodexQueuedFollowUpRuntime.of({
+          list: () => [],
+          enqueue: () => Effect.die("unused"),
+          remove: () => Effect.die("unused"),
+          reorder: () => Effect.die("unused"),
+          sendNow: () => Effect.die("unused"),
+          request: () => undefined,
+          clearPaused: () => false,
+          reset: () => undefined,
           clear: () => undefined,
         }),
         freshThreadLaunch: {

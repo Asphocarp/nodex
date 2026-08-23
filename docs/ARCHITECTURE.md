@@ -656,13 +656,15 @@ the fixed interval. Thread removal clears its repair generation, and Main Scope 
 physical reads. `CodexService` owns no repair Promise map, retry timestamp map, completed Set, or
 detached finalizer.
 
-Automatic queued follow-up dispatch is owned by one Main-scoped keyed runtime. Canonical conversation
-state remains the only queue authority and exposes synchronous eligibility, atomic claim, submission,
-and failure restoration operations. The runtime coalesces duplicate dispatch requests per Thread,
-owns the physical submit fiber, restores a failed claim exactly once, and drops an interrupted claim
-when the Thread or Main Scope is removed so stale work cannot recreate deleted conversation state.
-Manual “send now” remains an explicit user transaction over the same canonical queue. `CodexService`
-owns no dispatch in-flight Set, detached Promise, or automatic failure-finalizer path.
+Queued follow-ups are owned by one Main-scoped keyed runtime. The Module owns creation with Effect
+Clock, queue order, pause state, remove/reorder, atomic claim, manual “send now”, failure restoration,
+and the physical submit fiber; accepted conversation state is a projection, not a second queue
+authority. Canonical turn state contributes only the current submission-eligibility capability.
+Duplicate automatic requests coalesce per Thread, a failed claim is restored exactly once, queue
+reset does not cancel an already admitted submit, and Thread removal or Main Scope close interrupts
+the physical fiber and fences stale restoration. Renderer IPC calls the typed Module directly;
+`CodexService` temporarily supplies turn submission and canonical projection but owns no queue array,
+ID/clock, mutation API, dispatch registry, detached Promise, or failure-finalizer path.
 
 Sidebar synchronization is owned by one Main-scoped runtime. It combines same-catalog callers behind
 one physical refresh fiber, fences completion with a monotonic generation, applies Effect-clock

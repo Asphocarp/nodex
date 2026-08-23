@@ -56,7 +56,6 @@ import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistenc
 import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime.test-support";
 import { TestCodexConversationHistoryRuntime } from "./codex-conversation-history-runtime.test-support";
 import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-subagent-metadata-repair.test-support";
-import { TestCodexQueuedFollowUpDispatchRuntime } from "./codex-queued-follow-up-dispatch-runtime.test-support";
 import { TestCodexConversationDeltaBufferRuntime } from "./codex-conversation-delta-buffer-runtime.test-support";
 import { TestCodexConversationResumeRuntime } from "./codex-conversation-resume-runtime.test-support";
 import { TestCodexConversationEventBufferRuntime } from "./codex-conversation-event-buffer-runtime.test-support";
@@ -268,19 +267,6 @@ interface TestableCodexService {
     },
   ) => Promise<CodexTurnSummary | null>;
   steerTurn: (input: CodexSteerTurnInput) => Promise<{ turnId: string } | null>;
-  enqueueQueuedFollowUpPrompt: (
-    threadId: string,
-    prompt: string,
-    opts?: {
-      model?: string;
-      serviceTier?: null | "fast";
-      reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-      permissionMode?: CodexPermissionMode;
-      collaborationMode?: "default" | "plan";
-      promptInput?: CodexPromptInput;
-    },
-  ) => Promise<void>;
-  sendQueuedFollowUpNow: (threadId: string, followUpId: string) => Promise<void>;
   respondToMcpServerElicitation: (
     requestId: string | number,
     response: "accept" | "decline" | "cancel" | CodexMcpServerElicitationResponse,
@@ -1880,16 +1866,14 @@ function createService(options?: {
       return await service.repairBackgroundSubagentMetadata(parentThreadId, childThreadId);
     },
   });
-  const queuedFollowUpDispatch = new TestCodexQueuedFollowUpDispatchRuntime({
-    isEligible: (threadId) => service?.isQueuedFollowUpDispatchEligible(threadId) === true,
-    take: (threadId) => service?.takeQueuedFollowUpForDispatch(threadId) ?? null,
-    submit: async (threadId, followUp) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      await service.submitQueuedFollowUp(threadId, followUp);
-    },
-    restore: (threadId, followUp, reason) =>
-      service?.restoreQueuedFollowUp(threadId, followUp, reason),
-  });
+  const queuedFollowUps = {
+    list: () => [],
+    enqueue: async () => "test-follow-up",
+    request: () => undefined,
+    clearPaused: () => false,
+    reset: () => undefined,
+    clear: () => undefined,
+  };
   const conversationDeltaBuffer = new TestCodexConversationDeltaBufferRuntime({
     flushFrameText: (updates) => service?.applyFrameTextDeltas(updates),
     flushCommandOutput: (updates) => service?.applyOutputDeltas(updates),
@@ -2176,7 +2160,7 @@ function createService(options?: {
     postResumeGoals,
     conversationHistory,
     backgroundSubagentMetadataRepair,
-    queuedFollowUpDispatch,
+    queuedFollowUps,
     conversationDeltaBuffer,
     conversationResume,
     conversationEventBuffer,
