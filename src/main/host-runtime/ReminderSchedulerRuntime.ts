@@ -6,7 +6,10 @@ import * as Layer from "effect/Layer";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import type { DesktopAutomationModulePort } from "../core-client";
+import {
+  AutomationApplication,
+  type AutomationReminderClaim,
+} from "../automation-application/AutomationApplication";
 import { CoreAuthority } from "../core-runtime/CoreAuthority";
 import { getLogger } from "../logging/logger";
 import type { ReminderNotificationPayload } from "../reminder-notification";
@@ -18,10 +21,9 @@ import {
   REMINDER_SCHEDULER_MAX_PER_TICK,
   reminderNotification,
 } from "./ReminderSchedulerPolicy";
-import { SchedulerOperationError, fromSchedulerPromise } from "./SchedulerOperation";
+import { SchedulerOperationError } from "./SchedulerOperation";
 
 export interface ReminderSchedulerRuntimeOptions {
-  readonly automation: DesktopAutomationModulePort;
   readonly intervalMs?: number;
   readonly maxPerTick?: number;
   readonly leaseDurationMs?: number;
@@ -44,10 +46,15 @@ const positiveInteger = (value: number, fallback: number): number =>
 
 export const live = (
   options: ReminderSchedulerRuntimeOptions,
-): Layer.Layer<ReminderSchedulerRuntime, never, CoreAuthority | ElectronDesktop> =>
+): Layer.Layer<
+  ReminderSchedulerRuntime,
+  never,
+  AutomationApplication | CoreAuthority | ElectronDesktop
+> =>
   Layer.effect(
     ReminderSchedulerRuntime,
     Effect.gen(function* () {
+      const automation = yield* AutomationApplication;
       const authority = yield* CoreAuthority;
       const desktop = yield* ElectronDesktop;
       const activation = yield* Deferred.make<ReminderSchedulerActivation>();
@@ -71,15 +78,13 @@ export const live = (
       );
       const whenActivated = (effect: Effect.Effect<void>): Effect.Effect<void> =>
         Deferred.isDone(activation).pipe(Effect.flatMap((ready) => (ready ? effect : Effect.void)));
-      const operationCause = (error: SchedulerOperationError): unknown => error.cause;
+      const operationCause = (error: { readonly cause: unknown }): unknown => error.cause;
 
       const failLease = (
         leaseId: string,
         reasonCode: "core_authority_unavailable" | "scheduler_stopped" | "notification_failed",
       ): Effect.Effect<void> =>
-        fromSchedulerPromise("fail-reminder-lease", () =>
-          options.automation.failReminderLease(leaseId, retryDelayMs, reasonCode),
-        ).pipe(
+        automation.reminders.failLease(leaseId, retryDelayMs, reasonCode).pipe(
           Effect.catch((error) =>
             Effect.sync(() => {
               logger.warn("Reminder lease settlement failed", {
@@ -93,7 +98,7 @@ export const live = (
 
       const deliver = (
         currentActivation: ReminderSchedulerActivation,
-        claim: Awaited<ReturnType<DesktopAutomationModulePort["claimDueReminders"]>>[number],
+        claim: AutomationReminderClaim,
       ): Effect.Effect<void> =>
         Effect.gen(function* () {
           if (!(yield* authorityReady)) {
@@ -114,28 +119,26 @@ export const live = (
               actions: ["Snooze 10m", "Snooze 1h"],
               onClick: Effect.sync(() => currentActivation.openReminder(payload)),
               onAction: (index) =>
-                fromSchedulerPromise("snooze-reminder", () =>
-                  options.automation.snoozeReminder(
-                    payload.projectId,
-                    payload.pageId,
-                    payload.occurrenceStart,
-                    index === 0 ? 10 : 60,
+                automation.reminders
+                  .snooze({
+                    projectId: payload.projectId,
+                    pageId: payload.pageId,
+                    occurrenceStart: payload.occurrenceStart,
+                    snoozeMinutes: index === 0 ? 10 : 60,
+                  })
+                  .pipe(
+                    Effect.catch((error) =>
+                      Effect.sync(() => {
+                        logger.warn("Failed to snooze reminder", {
+                          projectId: payload.projectId,
+                          pageId: payload.pageId,
+                          error: operationCause(error),
+                        });
+                      }),
+                    ),
                   ),
-                ).pipe(
-                  Effect.catch((error) =>
-                    Effect.sync(() => {
-                      logger.warn("Failed to snooze reminder", {
-                        projectId: payload.projectId,
-                        pageId: payload.pageId,
-                        error: operationCause(error),
-                      });
-                    }),
-                  ),
-                ),
             });
-            yield* fromSchedulerPromise("complete-reminder-lease", () =>
-              options.automation.completeReminderLease(claim.leaseId),
-            );
+            yield* automation.reminders.completeLease(claim.leaseId);
           });
           const result = yield* Effect.exit(delivery);
           if (Exit.isSuccess(result)) return;
@@ -155,9 +158,7 @@ export const live = (
           .withPermitsIfAvailable(1)(
             Effect.gen(function* () {
               if (!(yield* authorityReady)) return;
-              const claims = yield* fromSchedulerPromise("claim-reminders", () =>
-                options.automation.claimDueReminders(maxPerTick, leaseDurationMs),
-              );
+              const claims = yield* automation.reminders.claimDue(maxPerTick, leaseDurationMs);
               if (!(yield* authorityReady)) {
                 yield* Effect.forEach(
                   claims,

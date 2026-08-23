@@ -1,43 +1,28 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import type * as Scope from "effect/Scope";
 import type { IpcMainInvokeEvent } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
 import type {
-  CodexHeartbeatAutomationThreadStateChangedInput,
-  CodexHeartbeatAutomationsEnabledChangedInput,
+  CodexAutomationRunsUpdatedEvent,
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
   PageOccurrenceUpdateInput,
 } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
-import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
+import { AutomationApplication } from "../../automation-application/AutomationApplication";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
-import {
-  registerCodexScheduledAutomationIpcHandlers,
-  type CodexScheduledAutomationIpcChannel,
-  type CodexScheduledAutomationIpcHandler,
-} from "../../codex-scheduled-automation-ipc-handlers";
-import type { DesktopAutomationModulePort } from "../../core-client/desktop-automation-module-bridge";
+import { ScheduledAutomationRuntime } from "../../host-runtime/ScheduledAutomationRuntime";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface AutomationIpcOptions {
-  readonly automation: DesktopAutomationModulePort;
   readonly codex: CodexService;
   readonly rendererClients: RendererClientRuntimeService;
-  readonly onHeartbeatAutomationsEnabledChanged: (
-    input: CodexHeartbeatAutomationsEnabledChangedInput,
-  ) => void;
-  readonly onHeartbeatAutomationThreadStateChanged: (
-    input: CodexHeartbeatAutomationThreadStateChangedInput,
-    rendererClientId: string,
-  ) => void;
 }
 
 export class AutomationIpcError extends Schema.TaggedError<AutomationIpcError>()(
@@ -115,14 +100,20 @@ export const live = (
 ): Layer.Layer<
   never,
   never,
-  ConversationCommands | ElectronIpc | MainConfig | ScopedCallbackRuntime | WindowRuntime
+  | AutomationApplication
+  | ConversationCommands
+  | ElectronIpc
+  | MainConfig
+  | ScheduledAutomationRuntime
+  | WindowRuntime
 > =>
   Layer.effectDiscard(
     Effect.gen(function* () {
-      const callbacks = yield* ScopedCallbackRuntime;
+      const automation = yield* AutomationApplication;
       const conversationCommands = yield* ConversationCommands;
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
+      const scheduledAutomations = yield* ScheduledAutomationRuntime;
       const windows = yield* WindowRuntime;
       const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
         ipc.handle(channel, handler);
@@ -137,86 +128,254 @@ export const live = (
           },
           catch: (cause) => new AutomationIpcError({ operation: "authorize-renderer", cause }),
         });
-      const run = <A>(operation: string, task: (signal: AbortSignal) => A | Promise<A>) =>
+      const run = <A, E>(operation: string, task: Effect.Effect<A, E>) =>
+        task.pipe(Effect.mapError((cause) => new AutomationIpcError({ operation, cause })));
+      const fromCodex = <A>(operation: string, task: (signal: AbortSignal) => Promise<A>) =>
         Effect.tryPromise({
-          try: (signal) => Promise.resolve(task(signal)),
+          try: task,
           catch: (cause) => new AutomationIpcError({ operation, cause }),
         });
-      const invoke = <Channel extends keyof IpcApi>(
+      const invoke = <Channel extends keyof IpcApi, E>(
         channel: Channel,
         task: (
           event: IpcMainInvokeEvent,
           ...args: IpcApi[Channel]["args"]
-        ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>,
+        ) => Effect.Effect<IpcApi[Channel]["result"], E>,
       ) =>
         handle(channel, (event, ...args) =>
-          authorize(event).pipe(Effect.andThen(run(channel, () => task(event, ...args)))),
+          authorize(event).pipe(Effect.andThen(run(channel, task(event, ...args)))),
         );
 
-      yield* invoke("calendar:occurrences", async (_, projectId, start, end, query, after) => {
-        const window = await options.automation.listPageOccurrences(
-          projectId,
-          start,
-          end,
-          query,
-          after,
-        );
-        return { occurrences: [...window.items], nextCursor: window.nextCursor };
-      });
-      yield* invoke("page:occurrence:complete", (_, projectId, input, sessionId) => {
-        requireCompleteOccurrence(input);
-        return options.automation.completePageOccurrence(projectId, input, sessionId);
-      });
-      yield* invoke("page:occurrence:skip", (_, projectId, input, sessionId) => {
-        requireOccurrence(input);
-        return options.automation.skipPageOccurrence(projectId, input, sessionId);
-      });
-      yield* invoke("page:occurrence:update", (_, projectId, input, sessionId) => {
-        requireUpdateOccurrence(input);
-        return options.automation.updatePageOccurrence(projectId, input, sessionId);
-      });
-
-      const registrations: Array<Effect.Effect<void, never, Scope.Scope>> = [];
-      const install = <Channel extends CodexScheduledAutomationIpcChannel>(
-        channel: Channel,
-        handler: CodexScheduledAutomationIpcHandler<Channel>,
-      ) =>
-        ipc.handle(channel, (event, ...args) =>
-          authorize(event).pipe(
-            Effect.andThen(
-              run(channel, (signal) => Reflect.apply(handler, undefined, [event, ...args, signal])),
-            ),
+      yield* invoke("calendar:occurrences", (_, projectId, start, end, query, after) =>
+        automation.occurrences
+          .list({ projectId, windowStart: start, windowEnd: end, searchQuery: query, after })
+          .pipe(
+            Effect.map((window) => ({
+              occurrences: [...window.items],
+              nextCursor: window.nextCursor,
+            })),
           ),
-        );
-      registerCodexScheduledAutomationIpcHandlers({
-        registerHandle: (channel, handler) => {
-          registrations.push(install(channel, handler));
-        },
-        automationModule: options.automation,
-        prepareCreateInput: (input) => options.codex.prepareScheduledAutomationInput(input),
-        prepareUpdateInput: (input, current) =>
-          options.codex.prepareScheduledAutomationInput(input, current),
-        runScheduledAutomationNow: (input, clientId, signal) =>
-          options.codex.runScheduledAutomationNow(input, clientId, signal),
-        resolveAutomationArchiveMessages: (threadId) =>
-          options.codex.resolveAutomationArchiveMessages(threadId),
-        unarchiveThread: (threadId) =>
-          callbacks.runPromise(conversationCommands.unarchive(threadId)),
-        broadcastScheduledAutomationChanged: (automationId, targetThreadId, reason) => {
+      );
+      yield* invoke("page:occurrence:complete", (_, projectId, input) => {
+        requireCompleteOccurrence(input);
+        return automation.occurrences.complete(projectId, input);
+      });
+      yield* invoke("page:occurrence:skip", (_, projectId, input) => {
+        requireOccurrence(input);
+        return automation.occurrences.skip(projectId, input);
+      });
+      yield* invoke("page:occurrence:update", (_, projectId, input) => {
+        requireUpdateOccurrence(input);
+        return automation.occurrences.update(projectId, input);
+      });
+
+      const broadcastDefinitionChanged = (
+        automationId: string,
+        targetThreadId: string | null,
+        reason: "upsert" | "delete",
+      ) =>
+        Effect.sync(() => {
           safeBroadcastToWindows(windows.all(), "codex:scheduled-automations:changed", [
             { automationId, targetThreadId, reason },
           ]);
-        },
-        broadcastAutomationRunsUpdated: (event) => {
+        });
+      const broadcastRunsUpdated = (event: CodexAutomationRunsUpdatedEvent) =>
+        Effect.sync(() => {
           safeBroadcastToWindows(windows.all(), "codex:automation-runs:updated", [event]);
-        },
-        onHeartbeatAutomationsEnabledChanged: options.onHeartbeatAutomationsEnabledChanged,
-        resolveRendererClientId: (event) =>
-          options.rendererClients.ensureClient((event as IpcMainInvokeEvent).sender).clientId,
-        onHeartbeatAutomationThreadStateChanged: (input, clientId) => {
-          if (clientId) options.onHeartbeatAutomationThreadStateChanged(input, clientId);
-        },
-      });
-      yield* Effect.all(registrations, { discard: true });
+        });
+      const broadcastRunChanged = (
+        event: CodexAutomationRunsUpdatedEvent,
+        refreshDefinition = true,
+      ) =>
+        broadcastRunsUpdated(event).pipe(
+          Effect.andThen(
+            refreshDefinition && event.automationId
+              ? broadcastDefinitionChanged(event.automationId, null, "upsert")
+              : Effect.void,
+          ),
+        );
+
+      yield* invoke("codex:scheduled-automations:list", () =>
+        automation.definitions.list().pipe(Effect.map((items) => ({ items: [...items] }))),
+      );
+      yield* invoke("codex:scheduled-automations:create", (_, input) =>
+        fromCodex("prepare-scheduled-automation-create", () =>
+          options.codex.prepareScheduledAutomationInput(input),
+        ).pipe(
+          Effect.flatMap(automation.definitions.create),
+          Effect.tap((item) => broadcastDefinitionChanged(item.id, item.targetThreadId, "upsert")),
+          Effect.map((item) => ({ item })),
+        ),
+      );
+      yield* invoke("codex:scheduled-automations:update", (_, input) =>
+        automation.definitions.get(input.id).pipe(
+          Effect.flatMap((current) =>
+            fromCodex("prepare-scheduled-automation-update", () =>
+              options.codex.prepareScheduledAutomationInput(input, current),
+            ),
+          ),
+          Effect.flatMap(automation.definitions.update),
+          Effect.flatMap((item) =>
+            item
+              ? broadcastDefinitionChanged(item.id, item.targetThreadId, "upsert").pipe(
+                  Effect.as({ item }),
+                )
+              : Effect.fail(
+                  new AutomationIpcError({
+                    operation: "codex:scheduled-automations:update",
+                    cause: new Error("Scheduled automation update failed."),
+                  }),
+                ),
+          ),
+        ),
+      );
+      yield* invoke("codex:scheduled-automations:delete", (_, input) =>
+        automation.definitions.delete(input.id).pipe(
+          Effect.tap((result) =>
+            result.success
+              ? Effect.all(
+                  [
+                    result.deletedRunCount > 0
+                      ? broadcastRunsUpdated({
+                          automationId: result.item?.id ?? input.id,
+                          threadId: null,
+                          reason: "delete",
+                        })
+                      : Effect.void,
+                    broadcastDefinitionChanged(
+                      result.item?.id ?? input.id,
+                      result.item?.targetThreadId ?? null,
+                      "delete",
+                    ),
+                  ],
+                  { discard: true },
+                )
+              : Effect.void,
+          ),
+          Effect.map((result) => ({
+            item: result.item,
+            success: result.success,
+            status: result.status,
+          })),
+        ),
+      );
+      yield* invoke("codex:scheduled-automations:run-now", (event, input) =>
+        fromCodex("codex:scheduled-automations:run-now", (signal) =>
+          options.codex.runScheduledAutomationNow(
+            input,
+            options.rendererClients.ensureClient(event.sender).clientId,
+            signal,
+          ),
+        ).pipe(Effect.as({ success: true })),
+      );
+      yield* invoke("codex:scheduled-automations:heartbeat-enabled-changed", (_, input) =>
+        scheduledAutomations
+          .setHeartbeatAutomationsEnabled(input.enabled)
+          .pipe(Effect.as({ success: true })),
+      );
+      yield* invoke("codex:scheduled-automations:heartbeat-thread-state-changed", (event, input) =>
+        scheduledAutomations
+          .setHeartbeatThreadRendererState({
+            ...input,
+            rendererClientId: options.rendererClients.ensureClient(event.sender).clientId,
+          })
+          .pipe(Effect.as({ success: true })),
+      );
+      yield* invoke("codex:automation-runs:archive", (_, input) =>
+        Effect.all({
+          run: automation.runs.get(input.threadId),
+          messages:
+            input.archivedAssistantMessage != null || input.archivedUserMessage != null
+              ? Effect.succeed({
+                  archivedAssistantMessage: input.archivedAssistantMessage ?? null,
+                  archivedUserMessage: input.archivedUserMessage ?? null,
+                })
+              : fromCodex("resolve-automation-archive-messages", () =>
+                  options.codex.resolveAutomationArchiveMessages(input.threadId),
+                ),
+        }).pipe(
+          Effect.flatMap(({ run: item, messages }) =>
+            automation.runs.archive({ ...input, ...messages }).pipe(
+              Effect.tap((success) =>
+                item && success
+                  ? broadcastRunChanged({
+                      automationId: item.automationId,
+                      threadId: input.threadId,
+                      reason: "archive",
+                    })
+                  : Effect.void,
+              ),
+              Effect.map((success) => ({ success })),
+            ),
+          ),
+        ),
+      );
+      yield* invoke("codex:automation-runs:delete", (_, input) =>
+        automation.runs.get(input.threadId).pipe(
+          Effect.flatMap((item) =>
+            automation.runs.delete(input.threadId).pipe(
+              Effect.tap((success) =>
+                success && item
+                  ? broadcastRunChanged({
+                      automationId: item.automationId,
+                      threadId: input.threadId,
+                      reason: "delete",
+                    })
+                  : Effect.void,
+              ),
+              Effect.map((success) => ({ success })),
+            ),
+          ),
+        ),
+      );
+      yield* invoke("codex:automation-runs:unarchive", (_, input) =>
+        automation.runs.get(input.threadId).pipe(
+          Effect.flatMap((item) =>
+            conversationCommands.unarchive(input.threadId).pipe(
+              Effect.andThen(automation.runs.unarchive(input.threadId)),
+              Effect.tap((success) =>
+                success && item
+                  ? broadcastRunChanged({
+                      automationId: item.automationId,
+                      threadId: input.threadId,
+                      reason: "unarchive",
+                    })
+                  : Effect.void,
+              ),
+              Effect.map((success) => ({ success })),
+            ),
+          ),
+        ),
+      );
+      yield* invoke("codex:automation-runs:inbox-items", (_, limit) =>
+        automation.inbox.read(limit ?? 200),
+      );
+      yield* invoke("codex:automation-runs:set-read-state", (_, input) =>
+        automation.inbox.setReadState(input).pipe(
+          Effect.tap((item) =>
+            item
+              ? broadcastRunChanged({
+                  automationId: item.automationId,
+                  threadId: input.threadId,
+                  reason: "read-state",
+                })
+              : Effect.void,
+          ),
+        ),
+      );
+      yield* invoke("codex:automation-runs:mark-all-read", () =>
+        automation.inbox.markAllRead.pipe(
+          Effect.tap((changedCount) =>
+            changedCount > 0
+              ? broadcastRunsUpdated({
+                  automationId: null,
+                  threadId: null,
+                  reason: "mark-all-read",
+                })
+              : Effect.void,
+          ),
+          Effect.map((changedCount) => ({ changedCount })),
+        ),
+      );
     }),
   );

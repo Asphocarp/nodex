@@ -11,7 +11,11 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { CodexScheduledAutomation } from "../../shared/types";
-import type { DesktopAutomationModulePort } from "../core-client";
+import {
+  AutomationApplication,
+  type AutomationDefinitionClaim,
+} from "../automation-application/AutomationApplication";
+import { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
 import { CoreAuthority } from "../core-runtime/CoreAuthority";
 import { getLogger } from "../logging/logger";
 import {
@@ -27,16 +31,14 @@ import {
   type CodexScheduledAutomationRunContext,
   type ScheduledAutomationHeartbeatState,
 } from "./ScheduledAutomationPolicy";
-import { fromSchedulerPromise, type SchedulerOperationError } from "./SchedulerOperation";
+import { fromSchedulerPromise } from "./SchedulerOperation";
 
 export interface ScheduledAutomationRuntimeOptions {
-  readonly automation: DesktopAutomationModulePort;
   readonly run: (
     automation: CodexScheduledAutomation,
     context: CodexScheduledAutomationRunContext,
     signal: AbortSignal,
   ) => Promise<void>;
-  readonly notifyRunsUpdated: () => void;
   readonly intervalMs?: number;
   readonly maxPerTick?: number;
 }
@@ -57,11 +59,17 @@ const positiveInteger = (value: number, fallback: number): number =>
 
 export const live = (
   options: ScheduledAutomationRuntimeOptions,
-): Layer.Layer<ScheduledAutomationRuntime, never, CoreAuthority> =>
+): Layer.Layer<
+  ScheduledAutomationRuntime,
+  never,
+  AutomationApplication | CodexApplicationEventHub | CoreAuthority
+> =>
   Layer.effect(
     ScheduledAutomationRuntime,
     Effect.gen(function* () {
+      const automation = yield* AutomationApplication;
       const authority = yield* CoreAuthority;
+      const events = yield* CodexApplicationEventHub;
       const activation = yield* Deferred.make<void>();
       const heartbeatState =
         yield* Ref.make<ScheduledAutomationHeartbeatState>(emptyHeartbeatState());
@@ -80,16 +88,24 @@ export const live = (
       );
       const whenActivated = (effect: Effect.Effect<void>): Effect.Effect<void> =>
         Deferred.isDone(activation).pipe(Effect.flatMap((ready) => (ready ? effect : Effect.void)));
-      const operationCause = (error: SchedulerOperationError): unknown => error.cause;
+      const operationCause = (error: { readonly cause: unknown }): unknown => error.cause;
 
       const initialize = yield* Effect.cached(
-        fromSchedulerPromise("settle-interrupted-automation-runs", () =>
-          options.automation.settleInterruptedRuns(),
-        ).pipe(
+        automation.runs.settleInterrupted.pipe(
           Effect.tap((settled) =>
             Effect.sync(() => {
               if (settled.archivedPendingCount > 0 || settled.pendingReviewCount > 0) {
-                options.notifyRunsUpdated();
+                events.publish({
+                  kind: "codex",
+                  value: {
+                    type: "automationRunsUpdated",
+                    event: {
+                      automationId: null,
+                      threadId: null,
+                      reason: "settle",
+                    },
+                  },
+                });
               }
             }),
           ),
@@ -108,9 +124,7 @@ export const live = (
         retryDelayMs: number | null,
         reasonCode: string,
       ): Effect.Effect<void> =>
-        fromSchedulerPromise("fail-automation-claim", () =>
-          options.automation.failLease(leaseId, retryDelayMs, reasonCode),
-        ).pipe(
+        automation.definitions.failLease(leaseId, retryDelayMs, reasonCode).pipe(
           Effect.catch((error) =>
             Effect.sync(() => {
               logger.warn("Scheduled automation lease settlement failed", {
@@ -122,7 +136,7 @@ export const live = (
         );
 
       const runClaim = (
-        claim: Awaited<ReturnType<DesktopAutomationModulePort["claimDueDefinitions"]>>[number],
+        claim: AutomationDefinitionClaim,
         tickNow: number,
         state: ScheduledAutomationHeartbeatState,
       ): Effect.Effect<void> =>
@@ -149,13 +163,7 @@ export const live = (
               },
               signal,
             ),
-          ).pipe(
-            Effect.andThen(
-              fromSchedulerPromise("complete-automation-claim", () =>
-                options.automation.completeLease(claim.leaseId),
-              ),
-            ),
-          );
+          ).pipe(Effect.andThen(automation.definitions.completeLease(claim.leaseId)));
           const result = yield* Effect.exit(execution);
           if (Exit.isSuccess(result)) return;
           const cause = Option.getOrNull(Cause.findErrorOption(result.cause))?.cause;
@@ -188,11 +196,9 @@ export const live = (
             const tickNow = yield* Clock.currentTimeMillis;
             yield* initialize;
             if (!(yield* authorityReady)) return;
-            const claims = yield* fromSchedulerPromise("claim-scheduled-automations", () =>
-              options.automation.claimDueDefinitions(
-                maxPerTick,
-                SCHEDULED_AUTOMATION_LEASE_DURATION_MS,
-              ),
+            const claims = yield* automation.definitions.claimDue(
+              maxPerTick,
+              SCHEDULED_AUTOMATION_LEASE_DURATION_MS,
             );
             if (!(yield* authorityReady)) {
               yield* Effect.forEach(

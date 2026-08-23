@@ -4,11 +4,11 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
-import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
+import { AutomationApplication } from "../../automation-application/AutomationApplication";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
-import type { DesktopAutomationModulePort } from "../../core-client/desktop-automation-module-bridge";
+import { ScheduledAutomationRuntime } from "../../host-runtime/ScheduledAutomationRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./AutomationIpc";
@@ -29,11 +29,8 @@ it.effect("owns calendar and scheduled automation ingress with the Main Scope", 
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live({
-        automation: {} as DesktopAutomationModulePort,
         codex: {} as CodexService,
         rendererClients: {} as RendererClientRuntimeService,
-        onHeartbeatAutomationsEnabledChanged: () => undefined,
-        onHeartbeatAutomationThreadStateChanged: () => undefined,
       }).pipe(
         Layer.provide(
           Layer.mergeAll(
@@ -45,13 +42,8 @@ it.effect("owns calendar and scheduled automation ingress with the Main Scope", 
             ),
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
-            Layer.succeed(
-              ScopedCallbackRuntime,
-              ScopedCallbackRuntime.of({
-                fork: Effect.runFork,
-                runPromise: Effect.runPromise,
-              }),
-            ),
+            Layer.succeed(AutomationApplication, {} as AutomationApplication["Service"]),
+            Layer.succeed(ScheduledAutomationRuntime, {} as ScheduledAutomationRuntime["Service"]),
             Layer.succeed(WindowRuntime, {
               has: () => true,
               all: () => [],

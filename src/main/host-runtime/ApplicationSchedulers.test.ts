@@ -5,10 +5,17 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
 import type { CodexScheduledAutomation } from "../../shared/types";
-import type { DesktopAutomationModulePort } from "../core-client";
+import {
+  AutomationApplication,
+  type AutomationDefinitions,
+  type AutomationReminders,
+  type AutomationRuns,
+} from "../automation-application/AutomationApplication";
+import { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
 import { CoreAuthority, type CoreAuthorityState } from "../core-runtime/CoreAuthority";
 import {
   StoreAdministration,
@@ -74,17 +81,57 @@ const automationDefinition = (
   updatedAt: 1,
 });
 
-const defaultAutomation = (): DesktopAutomationModulePort =>
-  ({
-    claimDueReminders: async () => [],
-    completeReminderLease: async () => undefined,
-    failReminderLease: async () => undefined,
-    snoozeReminder: async () => ({ success: true }),
-    settleInterruptedRuns: async () => ({ archivedPendingCount: 0, pendingReviewCount: 0 }),
-    claimDueDefinitions: async () => [],
-    completeLease: async () => undefined,
-    failLease: async () => undefined,
-  }) as unknown as DesktopAutomationModulePort;
+const automationClaim = (id: string) => ({
+  leaseId: `lease:${id}`,
+  scheduledFor: 100,
+  attempt: 1,
+  expiresAt: 200,
+  definition: automationDefinition(id),
+});
+
+const defaultAutomation = (input?: {
+  readonly definitions?: Partial<AutomationDefinitions>;
+  readonly reminders?: Partial<AutomationReminders>;
+  readonly runs?: Partial<AutomationRuns>;
+}): AutomationApplication["Service"] =>
+  AutomationApplication.of({
+    definitions: {
+      list: () => Effect.die("unused"),
+      get: () => Effect.die("unused"),
+      create: () => Effect.die("unused"),
+      update: () => Effect.die("unused"),
+      delete: () => Effect.die("unused"),
+      dispatchNow: () => Effect.die("unused"),
+      reschedule: () => Effect.die("unused"),
+      claimDue: () => Effect.succeed([]),
+      completeLease: () => Effect.void,
+      failLease: () => Effect.void,
+      ...input?.definitions,
+    },
+    runs: {
+      settleInterrupted: Effect.succeed({ archivedPendingCount: 0, pendingReviewCount: 0 }),
+      get: () => Effect.die("unused"),
+      begin: () => Effect.die("unused"),
+      replacePendingThread: () => Effect.die("unused"),
+      setThreadTitle: () => Effect.die("unused"),
+      completeForReview: () => Effect.die("unused"),
+      setInboxItem: () => Effect.die("unused"),
+      accept: () => Effect.die("unused"),
+      archive: () => Effect.die("unused"),
+      delete: () => Effect.die("unused"),
+      unarchive: () => Effect.die("unused"),
+      ...input?.runs,
+    },
+    inbox: {} as AutomationApplication["Service"]["inbox"],
+    occurrences: {} as AutomationApplication["Service"]["occurrences"],
+    reminders: {
+      snooze: () => Effect.void,
+      claimDue: () => Effect.succeed([]),
+      completeLease: () => Effect.void,
+      failLease: () => Effect.void,
+      ...input?.reminders,
+    },
+  });
 
 const defaultAdministration = (): StoreAdministration["Service"] =>
   StoreAdministration.of({
@@ -117,7 +164,7 @@ const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void>
   });
 
 const buildHarness = (input: {
-  readonly automation?: DesktopAutomationModulePort;
+  readonly automation?: AutomationApplication["Service"];
   readonly administration?: StoreAdministration["Service"];
   readonly runScheduledAutomation?: (
     automation: CodexScheduledAutomation,
@@ -172,22 +219,45 @@ const buildHarness = (input: {
         ),
     } as ElectronDesktop["Service"]);
     const scope = yield* Scope.make();
-    const platformLayer = Layer.merge(
+    const automation = input.automation ?? defaultAutomation();
+    const automationLayer = Layer.succeed(AutomationApplication, automation);
+    const automationEventsLayer = Layer.succeed(
+      CodexApplicationEventHub,
+      CodexApplicationEventHub.of({
+        events: Stream.empty,
+        publish: (event) => {
+          if (
+            event.kind === "codex" &&
+            event.value.type === "automationRunsUpdated" &&
+            event.value.event.reason === "settle"
+          ) {
+            input.settled?.();
+          }
+        },
+      }),
+    );
+    const platformLayer = Layer.mergeAll(
+      automationLayer,
       Layer.succeed(CoreAuthority, authority),
       Layer.succeed(ElectronDesktop, desktop),
     );
-    const automation = input.automation ?? defaultAutomation();
     const reminderContext = yield* Layer.buildWithScope(
-      reminderSchedulerLive({ automation, ...input.reminder }).pipe(Layer.provide(platformLayer)),
+      reminderSchedulerLive(input.reminder ?? {}).pipe(Layer.provide(platformLayer)),
       scope,
     );
     const scheduledContext = yield* Layer.buildWithScope(
       scheduledAutomationLive({
-        automation,
         run: input.runScheduledAutomation ?? (async () => undefined),
-        notifyRunsUpdated: input.settled ?? (() => undefined),
         ...input.scheduled,
-      }).pipe(Layer.provide(Layer.succeed(CoreAuthority, authority))),
+      }).pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            automationLayer,
+            automationEventsLayer,
+            Layer.succeed(CoreAuthority, authority),
+          ),
+        ),
+      ),
       scope,
     );
     const storeContext = yield* Layer.buildWithScope(
@@ -227,25 +297,18 @@ it.effect("delivers reminder leases and routes notification actions through scop
     const snoozes: number[] = [];
     let claims = 0;
     let opened = 0;
-    const automation = {
-      ...defaultAutomation(),
-      claimDueReminders: async () => {
-        claims += 1;
-        return claims <= 2 ? [reminderClaim] : [];
+    const automation = defaultAutomation({
+      reminders: {
+        claimDue: () =>
+          Effect.sync(() => {
+            claims += 1;
+            return claims <= 2 ? [reminderClaim] : [];
+          }),
+        completeLease: (leaseId) => Effect.sync(() => completed.push(leaseId)).pipe(Effect.asVoid),
+        snooze: ({ snoozeMinutes }) =>
+          Effect.sync(() => snoozes.push(snoozeMinutes)).pipe(Effect.asVoid),
       },
-      completeReminderLease: async (leaseId: string) => {
-        completed.push(leaseId);
-      },
-      snoozeReminder: async (
-        _projectId: string,
-        _pageId: string,
-        _occurrenceStart: string,
-        minutes: number,
-      ) => {
-        snoozes.push(minutes);
-        return { success: true };
-      },
-    } as unknown as DesktopAutomationModulePort;
+    });
     const harness = yield* buildHarness({ automation });
 
     yield* harness.reminders.activate({
@@ -276,16 +339,21 @@ it.effect("defers reminder claims when Core authority is lost during the claim",
   Effect.gen(function* () {
     const failed: Array<{ leaseId: string; delay: number; reason: string }> = [];
     let resolveClaims: ((claims: (typeof reminderClaim)[]) => void) | null = null;
-    const automation = {
-      ...defaultAutomation(),
-      claimDueReminders: () =>
-        new Promise<(typeof reminderClaim)[]>((resolve) => {
-          resolveClaims = resolve;
-        }),
-      failReminderLease: async (leaseId: string, delay: number, reason: string) => {
-        failed.push({ leaseId, delay, reason });
+    const automation = defaultAutomation({
+      reminders: {
+        claimDue: () =>
+          Effect.promise(
+            () =>
+              new Promise<(typeof reminderClaim)[]>((resolve) => {
+                resolveClaims = resolve;
+              }),
+          ),
+        failLease: (leaseId, delay, reason) =>
+          Effect.sync(() => failed.push({ leaseId, delay: delay ?? 0, reason })).pipe(
+            Effect.asVoid,
+          ),
       },
-    } as DesktopAutomationModulePort;
+    });
     const harness = yield* buildHarness({
       automation,
       reminder: { retryDelayMs: 9_000 },
@@ -315,24 +383,21 @@ it.effect("settles scheduled claims once and preserves explicit retry intent", (
     const failed: Array<{ leaseId: string; delay: number | null; reason: string }> = [];
     let claimCalls = 0;
     let settlementRuns = 0;
-    const automation = {
-      ...defaultAutomation(),
-      settleInterruptedRuns: async () => ({ archivedPendingCount: 1, pendingReviewCount: 0 }),
-      claimDueDefinitions: async () => {
-        claimCalls += 1;
-        if (claimCalls > 1) return [];
-        return ["complete", "retry", "deferred"].map((id) => ({
-          leaseId: `lease:${id}`,
-          definition: automationDefinition(id),
-        }));
+    const automation = defaultAutomation({
+      runs: {
+        settleInterrupted: Effect.succeed({ archivedPendingCount: 1, pendingReviewCount: 0 }),
       },
-      completeLease: async (leaseId: string) => {
-        completed.push(leaseId);
+      definitions: {
+        claimDue: () =>
+          Effect.sync(() => {
+            claimCalls += 1;
+            return claimCalls > 1 ? [] : ["complete", "retry", "deferred"].map(automationClaim);
+          }),
+        completeLease: (leaseId) => Effect.sync(() => completed.push(leaseId)).pipe(Effect.asVoid),
+        failLease: (leaseId, delay, reason) =>
+          Effect.sync(() => failed.push({ leaseId, delay, reason })).pipe(Effect.asVoid),
       },
-      failLease: async (leaseId: string, delay: number | null, reason: string) => {
-        failed.push({ leaseId, delay, reason });
-      },
-    } as unknown as DesktopAutomationModulePort;
+    });
     const harness = yield* buildHarness({
       automation,
       settled: () => {
@@ -386,16 +451,16 @@ it.effect("skips overlapping scheduled ticks while a claimed run is active", () 
     let completions = 0;
     let releaseRun: (() => void) | null = null;
     let shouldBlock = true;
-    const automation = {
-      ...defaultAutomation(),
-      claimDueDefinitions: async () => {
-        claimCalls += 1;
-        return [{ leaseId: `lease:${claimCalls}`, definition: automationDefinition("slow") }];
+    const automation = defaultAutomation({
+      definitions: {
+        claimDue: () =>
+          Effect.sync(() => {
+            claimCalls += 1;
+            return [{ ...automationClaim("slow"), leaseId: `lease:${claimCalls}` }];
+          }),
+        completeLease: () => Effect.sync(() => void (completions += 1)),
       },
-      completeLease: async () => {
-        completions += 1;
-      },
-    } as unknown as DesktopAutomationModulePort;
+    });
     const harness = yield* buildHarness({
       automation,
       runScheduledAutomation: () => {
@@ -427,15 +492,14 @@ it.effect("returns an admitted automation lease when its Main Scope closes", () 
     const failures: Array<{ leaseId: string; reason: string }> = [];
     let runStarted = false;
     const runSignals: AbortSignal[] = [];
-    const automation = {
-      ...defaultAutomation(),
-      claimDueDefinitions: async () => [
-        { leaseId: "lease:shutdown", definition: automationDefinition("shutdown") },
-      ],
-      failLease: async (leaseId: string, _delay: number | null, reason: string) => {
-        failures.push({ leaseId, reason });
+    const automation = defaultAutomation({
+      definitions: {
+        claimDue: () =>
+          Effect.succeed([{ ...automationClaim("shutdown"), leaseId: "lease:shutdown" }]),
+        failLease: (leaseId, _delay, reason) =>
+          Effect.sync(() => failures.push({ leaseId, reason })).pipe(Effect.asVoid),
       },
-    } as unknown as DesktopAutomationModulePort;
+    });
     const harness = yield* buildHarness({
       automation,
       runScheduledAutomation: (_automation, _context, signal) => {
@@ -456,12 +520,18 @@ it.effect("returns an admitted automation lease when its Main Scope closes", () 
 it.effect("projects heartbeat state with a TestClock-owned freshness deadline", () =>
   Effect.gen(function* () {
     const contexts: CodexScheduledAutomationRunContext[] = [];
-    const automation = {
-      ...defaultAutomation(),
-      claimDueDefinitions: async () => [
-        { leaseId: "lease:heartbeat", definition: automationDefinition("heartbeat", "heartbeat") },
-      ],
-    } as unknown as DesktopAutomationModulePort;
+    const automation = defaultAutomation({
+      definitions: {
+        claimDue: () =>
+          Effect.succeed([
+            {
+              ...automationClaim("heartbeat"),
+              leaseId: "lease:heartbeat",
+              definition: automationDefinition("heartbeat", "heartbeat"),
+            },
+          ]),
+      },
+    });
     const harness = yield* buildHarness({
       automation,
       runScheduledAutomation: async (_item, context) => {

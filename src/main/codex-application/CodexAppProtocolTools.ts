@@ -39,7 +39,7 @@ import { getCodexFileChangeList } from "../../shared/codex-file-change";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
-import { CodexAutomationDefinitions } from "./CodexAutomationDefinitions";
+import { AutomationApplication } from "../automation-application/AutomationApplication";
 import { CodexConversationFork } from "./CodexConversationFork";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
 import { CodexProjectSessionFork } from "./CodexProjectSessionFork";
@@ -404,8 +404,8 @@ const serializeThreadItem = (
 export const make: Effect.Effect<
   CodexAppProtocolTools["Service"],
   never,
+  | AutomationApplication
   | CodexApplicationEventHub
-  | CodexAutomationDefinitions
   | CodexConversationFork
   | CodexPendingServerRequestRuntime
   | CodexProjectSessionFork
@@ -420,7 +420,7 @@ export const make: Effect.Effect<
   | TerminalSessions
 > = Effect.gen(function* () {
   const events = yield* CodexApplicationEventHub;
-  const automations = yield* CodexAutomationDefinitions;
+  const automations = yield* AutomationApplication;
   const conversationFork = yield* CodexConversationFork;
   const pending = yield* CodexPendingServerRequestRuntime;
   const projectSessionFork = yield* CodexProjectSessionFork;
@@ -467,7 +467,7 @@ export const make: Effect.Effect<
     }
     if (parsed.mode === "list") {
       const query = parsed.query?.toLowerCase() ?? "";
-      const definitions = (yield* automations.list)
+      const definitions = (yield* automations.definitions.list())
         .filter((automation) =>
           query
             ? [automation.id, automation.name, automation.prompt]
@@ -497,7 +497,7 @@ export const make: Effect.Effect<
       return textSuccess("Rendered automation card in the app.");
     }
     if (parsed.mode === "delete") {
-      const result = yield* automations.remove(parsed.id);
+      const result = yield* automations.definitions.delete(parsed.id);
       if (!result.success) return buildCodexAppDynamicToolFailure("Automation was not deleted.");
       events.publish({
         kind: "codex",
@@ -518,7 +518,9 @@ export const make: Effect.Effect<
       yield* requireThread(parsed.targetThreadId ?? params.threadId);
     }
     if (parsed.mode === "create") {
-      const automation = yield* automations.create(automationCreateInput(parsed, params.threadId));
+      const automation = yield* automations.definitions.create(
+        automationCreateInput(parsed, params.threadId),
+      );
       events.publish({
         kind: "codex",
         value: {
@@ -537,10 +539,10 @@ export const make: Effect.Effect<
     if (parsed.mode === "update") {
       const id = parsed.id;
       if (!id) return yield* toolError("id is required");
-      const current = yield* automations.get(id);
+      const current = yield* automations.definitions.get(id);
       if (!current)
         return yield* toolError("Automation does not exist in the app and could not be updated.");
-      const automation = yield* automations.update(
+      const automation = yield* automations.definitions.update(
         automationUpdateInput({ ...parsed, id }, params.threadId),
       );
       if (!automation)
