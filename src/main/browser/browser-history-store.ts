@@ -33,20 +33,6 @@ const BrowserHistoryFileSchema = z
 
 type HistoryState = HashMap.HashMap<string, BrowserHistoryRecord>;
 
-export interface BrowserHistoryStore {
-  readonly record: (input: {
-    readonly url: string;
-    readonly title: string;
-    readonly visitedAt?: number;
-  }) => Promise<void>;
-  readonly list: (input?: {
-    readonly query?: string;
-    readonly limit?: number;
-  }) => Promise<BrowserHistorySnapshot>;
-  readonly delete: (id: string) => Promise<void>;
-  readonly clear: () => Promise<void>;
-}
-
 export class BrowserHistoryRuntimeError extends Schema.TaggedError<BrowserHistoryRuntimeError>()(
   "BrowserHistoryRuntimeError",
   { operation: Schema.String, cause: Schema.Defect() },

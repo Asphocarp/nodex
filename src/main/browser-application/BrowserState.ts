@@ -1,15 +1,7 @@
-import {
-  BrowserWindow,
-  clipboard,
-  Menu,
-  session,
-  shell,
-  webContents,
-  type MenuItemConstructorOptions,
-  type NativeImage,
-  type WebContents,
-} from "electron";
 import { randomUUID } from "node:crypto";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import {
   BROWSER_SIDEBAR_PARTITION,
   BROWSER_SIDEBAR_ZOOM_OPTIONS,
@@ -41,41 +33,39 @@ import {
   type BrowserUsePresentationResult,
   type BrowserUseCursorState,
   type BrowserUseTabState,
-} from "../shared/browser-sidebar";
+} from "../../shared/browser-sidebar";
 import {
   isAllowedBrowserExternalUrl,
   isAllowedBrowserNavigationUrl,
   isBlankBrowserUrl,
   normalizeBrowserNavigationUrl,
-} from "../shared/browser-url";
-import {
-  type BrowserPageSnapshotStore,
-  type BrowserSerializedPage,
-} from "./browser/browser-page-store";
+} from "../../shared/browser-url";
+import { type BrowserPageRuntime, type BrowserSerializedPage } from "../browser/browser-page-store";
 import {
   type BrowserRuntimeRegistry,
   type BrowserAttachmentRoute,
-} from "./browser/browser-runtime-registry";
-import type { BrowserWebContentsListenerRuntime } from "./browser/BrowserWebContentsListenerRuntime";
+} from "../browser/browser-runtime-registry";
+import type { BrowserWebContentsListenerRuntime } from "../browser/BrowserWebContentsListenerRuntime";
 import type {
   BrowserEarlyPageRestoreLease,
   BrowserEarlyPageRestoreRuntime,
-} from "./browser/BrowserEarlyPageRestoreRuntime";
-import { selectBrowserTabsToSuspend } from "./browser/browser-tab-budget";
-import {
-  type BrowserPageEmulationElectronPort,
-  type BrowserPageEmulationTarget,
-} from "./browser/browser-page-emulation";
-import type { BrowserHistoryStore } from "./browser/browser-history-store";
-import { getLogger, type BackendLogger } from "./logging/logger";
+} from "../browser/BrowserEarlyPageRestoreRuntime";
+import { selectBrowserTabsToSuspend } from "../browser/browser-tab-budget";
+import { type BrowserPageEmulationRuntime } from "../browser/browser-page-emulation";
+import type { BrowserHistoryRuntime } from "../browser/browser-history-store";
+import { getLogger, type BackendLogger } from "../logging/logger";
 import {
   buildBrowserContextMenuTemplate,
   type BrowserContextMenuParams,
-} from "./browser/browser-context-menu";
-import { fetchBrowserImage } from "./browser/browser-image-attachment";
-import { saveUploadedImage } from "./local-store/assets";
-import type { BrowserSidebarEventPublisher } from "./browser/BrowserSidebarEventHub";
-import type { SiteStatusPolicyRuntime } from "./browser-use/site-status-policy-service";
+} from "../browser/browser-context-menu";
+import { fetchBrowserImage } from "../browser/browser-image-attachment";
+import { saveUploadedImage } from "../local-store/assets";
+import type { BrowserSidebarEventPublisher } from "../browser/BrowserSidebarEventHub";
+import type { SiteStatusPolicyRuntime } from "../browser-use/site-status-policy-service";
+import type {
+  BrowserElectronPlatform,
+  BrowserWebContentsLike,
+} from "../platform/electron/BrowserElectronPlatform";
 
 type BrowserUseCommand = Extract<
   BrowserSidebarCommand,
@@ -91,91 +81,17 @@ type BrowserUseCommand = Extract<
   }
 >;
 
-export type BrowserWebContentsLike = Pick<
-  WebContents,
-  | "id"
-  | "canGoBack"
-  | "canGoForward"
-  | "capturePage"
-  | "executeJavaScript"
-  | "getTitle"
-  | "getURL"
-  | "goBack"
-  | "goForward"
-  | "isDestroyed"
-  | "isLoading"
-  | "inspectElement"
-  | "loadURL"
-  | "reload"
-  | "reloadIgnoringCache"
-  | "send"
-  | "setWindowOpenHandler"
-  | "setZoomFactor"
-  | "stop"
-  | "session"
-> & {
-  debugger?: BrowserPageEmulationTarget["debugger"] & {
-    detach?(): void;
-    on?(eventName: string, listener: (...args: unknown[]) => void): unknown;
-    removeListener?(eventName: string, listener: (...args: unknown[]) => void): unknown;
-  };
-  findInPage?: (
-    text: string,
-    options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean },
-  ) => number;
-  isCurrentlyAudible?: () => boolean;
-  navigationHistory?: {
-    clear?(): void;
-    getActiveIndex(): number;
-    getAllEntries(): Array<{
-      pageState?: string;
-      title: string;
-      url: string;
-    }>;
-    restore(options: {
-      entries: Array<{
-        pageState?: string;
-        title: string;
-        url: string;
-      }>;
-      index?: number;
-    }): Promise<void>;
-  };
-  print?: (
-    options: { printBackground: boolean },
-    callback: (success: boolean, failureReason: string) => void,
-  ) => void;
-  on(eventName: string, listener: (...args: unknown[]) => void): BrowserWebContentsLike;
-  removeListener(eventName: string, listener: (...args: unknown[]) => void): BrowserWebContentsLike;
-  stopFindInPage?: (action: "clearSelection" | "keepSelection" | "activateSelection") => void;
-};
-
-interface BrowserSidebarElectronDeps {
-  clipboard: {
-    writeImage(image: NativeImage): void;
-    writeText(text: string): void;
-  };
-  session: Pick<typeof session, "fromPartition">;
-  shell: Pick<typeof shell, "openExternal">;
-  webContents: {
-    fromId(id: number): BrowserWebContentsLike | null;
-  };
-}
-
-interface BrowserSidebarServiceDeps {
+interface BrowserStateDeps {
   earlyPageRestores: BrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>;
   events: BrowserSidebarEventPublisher;
   runtimeRegistry: BrowserRuntimeRegistry;
   webContentsListeners: BrowserWebContentsListenerRuntime;
-  contextMenuPresenter?: (
-    template: MenuItemConstructorOptions[],
-    ownerWebContentsId: number,
-  ) => void;
-  electron?: BrowserSidebarElectronDeps;
+  electron: BrowserElectronPlatform;
   logger?: Pick<BackendLogger, "debug" | "info" | "warn">;
-  pageStore?: BrowserPageSnapshotStore;
-  historyStore?: Pick<BrowserHistoryStore, "clear" | "record">;
-  pageEmulation: BrowserPageEmulationElectronPort;
+  pageStore?: BrowserPageRuntime;
+  historyStore?: Pick<BrowserHistoryRuntime, "clear" | "record">;
+  pageEmulation: BrowserPageEmulationRuntime;
+  fork: (effect: Effect.Effect<void>) => void;
   siteStatus: Pick<SiteStatusPolicyRuntime, "cachedCommentModeBlocked">;
   saveBrowserImage?: typeof saveUploadedImage;
 }
@@ -190,10 +106,24 @@ export type BrowserLocalServerThumbnailAdmission =
       readonly result: BrowserSidebarLocalServerThumbnailResult;
     };
 
-interface BrowserSidebarCommandContext {
+interface BrowserStateCommandContext {
   browserViewScopeId?: string;
   ownerWebContentsId?: number;
 }
+
+class BrowserStateOperationError extends Schema.TaggedError<BrowserStateOperationError>()(
+  "BrowserStateOperationError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
+const tryPlatformPromise = <A>(
+  operation: string,
+  evaluate: () => PromiseLike<A>,
+): Effect.Effect<A, BrowserStateOperationError> =>
+  Effect.tryPromise({
+    try: async () => await evaluate(),
+    catch: (cause) => new BrowserStateOperationError({ operation, cause }),
+  });
 
 interface BrowserUseCapturedRoute {
   browserConversationId: string;
@@ -347,7 +277,7 @@ interface ActiveBrowserImageDrag extends BrowserSidebarTabIdentity {
   sourceUrl: string;
 }
 
-export class BrowserSidebarService {
+export class BrowserState {
   private readonly tabs = new Map<string, BrowserSidebarTabSnapshot>();
   private readonly webContentsTabIds = new Map<number, string>();
   private readonly attachedWebviewOwnership = new Map<number, AttachedBrowserWebviewOwnership>();
@@ -370,12 +300,9 @@ export class BrowserSidebarService {
     string,
     BrowserSidebarBrowserUseCaptureSurfaceEvent
   >();
-  private readonly electron: BrowserSidebarElectronDeps;
+  private readonly electron: BrowserElectronPlatform;
   private readonly events: BrowserSidebarEventPublisher;
-  private readonly contextMenuPresenter: (
-    template: MenuItemConstructorOptions[],
-    ownerWebContentsId: number,
-  ) => void;
+  private readonly contextMenuPresenter: BrowserElectronPlatform["presentContextMenu"];
   private readonly logger: Pick<BackendLogger, "debug" | "info" | "warn">;
   private readonly browserUseActiveTabIdsByConversationScope = new Map<string, string>();
   private readonly pendingBrowserUsePresentations = new Map<
@@ -384,36 +311,25 @@ export class BrowserSidebarService {
   >();
   private readonly browserUseCursors = new Map<string, BrowserUseCursorState>();
   private readonly invalidatedPageStorageIds = new Set<string>();
-  private readonly pageEmulation: BrowserPageEmulationElectronPort;
+  private readonly pageEmulation: BrowserPageEmulationRuntime;
   private readonly runtimeRegistry: BrowserRuntimeRegistry;
   private readonly webContentsListeners: BrowserWebContentsListenerRuntime;
   private readonly saveBrowserImage: typeof saveUploadedImage;
   private readonly siteStatus: Pick<SiteStatusPolicyRuntime, "cachedCommentModeBlocked">;
-  private pageStore: BrowserPageSnapshotStore | null;
-  private historyStore: Pick<BrowserHistoryStore, "clear" | "record"> | null;
+  private pageStore: BrowserPageRuntime | null;
+  private historyStore: Pick<BrowserHistoryRuntime, "clear" | "record"> | null;
+  private readonly fork: (effect: Effect.Effect<void>) => void;
   private teardownSequence = 0;
 
-  constructor(deps: BrowserSidebarServiceDeps) {
+  constructor(deps: BrowserStateDeps) {
     this.earlyPageRestores = deps.earlyPageRestores;
     this.events = deps.events;
-    this.electron = deps.electron ?? {
-      clipboard,
-      session,
-      shell,
-      webContents: {
-        fromId: (id) => webContents.fromId(id) ?? null,
-      },
-    };
-    this.contextMenuPresenter =
-      deps.contextMenuPresenter ??
-      ((template, ownerWebContentsId) => {
-        const owner = webContents.fromId(ownerWebContentsId);
-        const window = owner ? BrowserWindow.fromWebContents(owner) : null;
-        Menu.buildFromTemplate(template).popup(window ? { window } : {});
-      });
+    this.electron = deps.electron;
+    this.contextMenuPresenter = deps.electron.presentContextMenu;
     this.logger = deps.logger ?? getLogger({ subsystem: "browser-sidebar" });
     this.pageStore = deps.pageStore ?? null;
     this.pageEmulation = deps.pageEmulation;
+    this.fork = deps.fork;
     this.historyStore = deps.historyStore ?? null;
     this.runtimeRegistry = deps.runtimeRegistry;
     this.webContentsListeners = deps.webContentsListeners;
@@ -764,60 +680,80 @@ export class BrowserSidebarService {
   closeBrowserTab(
     identity: BrowserSidebarTabIdentity,
     reason: BrowserUsePageClosedEvent["reason"] = "agent",
-  ): void {
-    const key = browserTabKey(identity);
-    const browserStorageId = this.tabs.get(key)?.browserStorageId;
-    if (browserStorageId) {
-      this.invalidatedPageStorageIds.add(browserStorageId);
-      this.preparedPagesByStorageId.delete(browserStorageId);
-      void this.pageStore?.delete(browserStorageId).catch((error) => {
-        this.logger.warn("Failed to delete Browser page snapshot", {
-          browserStorageId,
-          error: readBoundedErrorMessage(error),
-        });
-      });
-    }
-    const hadOrdinaryTab = this.tabs.has(key);
-    const hadBrowserUseTab = this.browserUseTabs.has(key);
-    if (hadOrdinaryTab) this.unregisterTab(key);
+  ): Effect.Effect<void> {
+    return Effect.gen(
+      function* (this: BrowserState) {
+        const key = browserTabKey(identity);
+        const browserStorageId = this.tabs.get(key)?.browserStorageId;
+        let deletePage = Effect.void;
+        if (browserStorageId) {
+          this.invalidatedPageStorageIds.add(browserStorageId);
+          this.preparedPagesByStorageId.delete(browserStorageId);
+          deletePage =
+            this.pageStore?.delete(browserStorageId).pipe(
+              Effect.catch((error) =>
+                Effect.sync(() =>
+                  this.logger.warn("Failed to delete Browser page snapshot", {
+                    browserStorageId,
+                    error: readBoundedErrorMessage(error),
+                  }),
+                ),
+              ),
+            ) ?? Effect.void;
+        }
+        const hadOrdinaryTab = this.tabs.has(key);
+        const hadBrowserUseTab = this.browserUseTabs.has(key);
+        if (hadOrdinaryTab) this.unregisterTab(key);
 
-    this.browserUseTabs.delete(key);
-    this.browserUseCursors.delete(key);
-    this.browserUseViewportSizes.delete(key);
-    this.browserUseCaptureSurfaces.delete(key);
-    this.deviceToolbarStates.delete(key);
-    this.pendingBrowserUsePresentations.delete(key);
-    if (
-      this.browserUseActiveTabIdsByConversationScope.get(browserConversationScopeKey(identity)) ===
-      identity.browserTabId
-    ) {
-      this.browserUseActiveTabIdsByConversationScope.delete(browserConversationScopeKey(identity));
-    }
+        this.browserUseTabs.delete(key);
+        this.browserUseCursors.delete(key);
+        this.browserUseViewportSizes.delete(key);
+        this.browserUseCaptureSurfaces.delete(key);
+        this.deviceToolbarStates.delete(key);
+        this.pendingBrowserUsePresentations.delete(key);
+        if (
+          this.browserUseActiveTabIdsByConversationScope.get(
+            browserConversationScopeKey(identity),
+          ) === identity.browserTabId
+        ) {
+          this.browserUseActiveTabIdsByConversationScope.delete(
+            browserConversationScopeKey(identity),
+          );
+        }
 
-    const conversationScopeKey = browserConversationScopeKey(identity);
-    const transferredIds =
-      this.transferredBrowserTabIdsByConversationScope.get(conversationScopeKey);
-    if (transferredIds) {
-      const remainingIds = transferredIds.filter(
-        (browserTabId) => browserTabId !== identity.browserTabId,
-      );
-      if (remainingIds.length > 0) {
-        this.transferredBrowserTabIdsByConversationScope.set(conversationScopeKey, remainingIds);
-      } else {
-        this.transferredBrowserTabIdsByConversationScope.delete(conversationScopeKey);
-      }
-    }
+        const conversationScopeKey = browserConversationScopeKey(identity);
+        const transferredIds =
+          this.transferredBrowserTabIdsByConversationScope.get(conversationScopeKey);
+        if (transferredIds) {
+          const remainingIds = transferredIds.filter(
+            (browserTabId) => browserTabId !== identity.browserTabId,
+          );
+          if (remainingIds.length > 0) {
+            this.transferredBrowserTabIdsByConversationScope.set(
+              conversationScopeKey,
+              remainingIds,
+            );
+          } else {
+            this.transferredBrowserTabIdsByConversationScope.delete(conversationScopeKey);
+          }
+        }
 
-    this.emitBrowserUseState();
-    if (hadOrdinaryTab || hadBrowserUseTab) {
-      this.events.publish({
-        kind: "pageClosed",
-        value: { ...browserIdentity(identity), reason },
-      });
-    }
+        this.emitBrowserUseState();
+        if (hadOrdinaryTab || hadBrowserUseTab) {
+          this.events.publish({
+            kind: "pageClosed",
+            value: { ...browserIdentity(identity), reason },
+          });
+        }
+        yield* deletePage;
+      }.bind(this),
+    );
   }
 
-  closeBrowserTabAcrossScopes(browserConversationId: string, browserTabId: string): void {
+  closeBrowserTabAcrossScopes(
+    browserConversationId: string,
+    browserTabId: string,
+  ): Effect.Effect<void> {
     const identities = new Map<string, BrowserSidebarTabIdentity>();
     const collect = (identity: BrowserSidebarTabIdentity): void => {
       if (
@@ -830,45 +766,51 @@ export class BrowserSidebarService {
     };
     for (const tab of this.tabs.values()) collect(tab);
     for (const tab of this.browserUseTabs.values()) collect(tab);
-    for (const identity of identities.values()) this.closeBrowserTab(identity);
+    return Effect.forEach(identities.values(), (identity) => this.closeBrowserTab(identity), {
+      discard: true,
+    });
   }
 
-  closeBrowserConversation(browserConversationId: string): void {
-    const identities = new Map<string, BrowserSidebarTabIdentity>();
-    const appendIdentity = (identity: BrowserSidebarTabIdentity) => {
-      if (identity.browserConversationId !== browserConversationId) return;
-      identities.set(browserTabKey(identity), browserIdentity(identity));
-    };
-    for (const tab of this.tabs.values()) appendIdentity(tab);
-    for (const tab of this.browserUseTabs.values()) appendIdentity(tab);
-    for (const cursor of this.browserUseCursors.values()) appendIdentity(cursor);
-    for (const viewport of this.browserUseViewportSizes.values()) appendIdentity(viewport);
-    for (const surface of this.browserUseCaptureSurfaces.values()) appendIdentity(surface);
-    for (const teardown of this.pendingTeardowns.values()) appendIdentity(teardown);
-    const keyPrefix = `${browserConversationId}\0`;
-    for (const key of this.tabs.keys()) {
-      if (!key.startsWith(keyPrefix)) continue;
-      const tab = this.tabs.get(key);
-      if (tab) appendIdentity(tab);
-    }
+  closeBrowserConversation(browserConversationId: string): Effect.Effect<void> {
+    return Effect.gen(
+      function* (this: BrowserState) {
+        const identities = new Map<string, BrowserSidebarTabIdentity>();
+        const appendIdentity = (identity: BrowserSidebarTabIdentity) => {
+          if (identity.browserConversationId !== browserConversationId) return;
+          identities.set(browserTabKey(identity), browserIdentity(identity));
+        };
+        for (const tab of this.tabs.values()) appendIdentity(tab);
+        for (const tab of this.browserUseTabs.values()) appendIdentity(tab);
+        for (const cursor of this.browserUseCursors.values()) appendIdentity(cursor);
+        for (const viewport of this.browserUseViewportSizes.values()) appendIdentity(viewport);
+        for (const surface of this.browserUseCaptureSurfaces.values()) appendIdentity(surface);
+        for (const teardown of this.pendingTeardowns.values()) appendIdentity(teardown);
+        const keyPrefix = `${browserConversationId}\0`;
+        for (const key of this.tabs.keys()) {
+          if (!key.startsWith(keyPrefix)) continue;
+          const tab = this.tabs.get(key);
+          if (tab) appendIdentity(tab);
+        }
 
-    for (const identity of identities.values()) {
-      this.closeBrowserTab(identity);
-    }
-    for (const key of this.deviceToolbarStates.keys()) {
-      if (key.startsWith(keyPrefix)) this.deviceToolbarStates.delete(key);
-    }
-    for (const key of this.browserUseActiveTabIdsByConversationScope.keys()) {
-      if (key.startsWith(keyPrefix)) {
-        this.browserUseActiveTabIdsByConversationScope.delete(key);
-      }
-    }
-    for (const key of this.transferredBrowserTabIdsByConversationScope.keys()) {
-      if (key.startsWith(keyPrefix)) {
-        this.transferredBrowserTabIdsByConversationScope.delete(key);
-      }
-    }
-    this.emitBrowserUseState();
+        for (const identity of identities.values()) {
+          yield* this.closeBrowserTab(identity);
+        }
+        for (const key of this.deviceToolbarStates.keys()) {
+          if (key.startsWith(keyPrefix)) this.deviceToolbarStates.delete(key);
+        }
+        for (const key of this.browserUseActiveTabIdsByConversationScope.keys()) {
+          if (key.startsWith(keyPrefix)) {
+            this.browserUseActiveTabIdsByConversationScope.delete(key);
+          }
+        }
+        for (const key of this.transferredBrowserTabIdsByConversationScope.keys()) {
+          if (key.startsWith(keyPrefix)) {
+            this.transferredBrowserTabIdsByConversationScope.delete(key);
+          }
+        }
+        this.emitBrowserUseState();
+      }.bind(this),
+    );
   }
 
   getDeviceToolbarTabState(
@@ -1047,7 +989,7 @@ export class BrowserSidebarService {
     route: BrowserAttachmentRoute,
     guestWebContentsId: number,
   ): void {
-    const contents = this.electron.webContents.fromId(guestWebContentsId);
+    const contents = this.electron.webContentsFromId(guestWebContentsId);
     const preparedPage = this.preparedPagesByStorageId.get(route.browserStorageId);
     const key = browserTabKey(route);
     if (
@@ -1081,653 +1023,689 @@ export class BrowserSidebarService {
     );
   }
 
-  async clearBrowsingData(
+  clearBrowsingData(
     kind: Exclude<BrowserBrowsingDataKind, "downloads">,
-  ): Promise<BrowserBrowsingDataClearResult> {
-    try {
-      if (kind === "history") {
-        await Promise.all([this.pageStore?.clear(), this.historyStore?.clear()]);
-        for (const tab of this.tabs.values()) {
-          const contents = this.getAttachedWebContents(tab);
-          if (!contents || contents.isDestroyed()) continue;
-          contents.navigationHistory?.clear?.();
-          void this.persistPageSnapshotForWebContents(tab.webContentsId ?? -1, contents);
+  ): Effect.Effect<BrowserBrowsingDataClearResult> {
+    return Effect.gen(
+      function* (this: BrowserState) {
+        if (kind === "history") {
+          yield* Effect.all([
+            this.pageStore?.clear ?? Effect.void,
+            this.historyStore?.clear ?? Effect.void,
+          ]);
+          for (const tab of this.tabs.values()) {
+            const contents = this.getAttachedWebContents(tab);
+            if (!contents || contents.isDestroyed()) continue;
+            contents.navigationHistory?.clear?.();
+            this.fork(this.persistPageSnapshotForWebContents(tab.webContentsId ?? -1, contents));
+          }
+          return { ok: true as const };
         }
-        return { ok: true };
-      }
-      const browserSession = this.electron.session.fromPartition(BROWSER_SIDEBAR_PARTITION);
-      if (kind === "cookies") {
-        await browserSession.clearData({ dataTypes: ["cookies"] });
-        return { ok: true };
-      }
-      if (kind === "site-data") {
-        await browserSession.clearData({
-          dataTypes: [
-            "backgroundFetch",
-            "cookies",
-            "fileSystems",
-            "indexedDB",
-            "localStorage",
-            "serviceWorkers",
-            "webSQL",
-          ],
-        });
-        return { ok: true };
-      }
-      await browserSession.clearCache();
-      return { ok: true };
-    } catch (error) {
-      return {
-        ok: false,
-        message: error instanceof Error ? error.message : `Failed to clear ${kind}`,
-      };
-    }
+        const browserSession = this.electron.sessionFromPartition(BROWSER_SIDEBAR_PARTITION);
+        if (kind === "cookies") {
+          yield* Effect.promise(() => browserSession.clearData({ dataTypes: ["cookies"] }));
+          return { ok: true as const };
+        }
+        if (kind === "site-data") {
+          yield* Effect.promise(() =>
+            browserSession.clearData({
+              dataTypes: [
+                "backgroundFetch",
+                "cookies",
+                "fileSystems",
+                "indexedDB",
+                "localStorage",
+                "serviceWorkers",
+                "webSQL",
+              ],
+            }),
+          );
+          return { ok: true as const };
+        }
+        yield* Effect.promise(() => browserSession.clearCache());
+        return { ok: true as const };
+      }.bind(this),
+    ).pipe(
+      Effect.catchCause((cause) =>
+        Effect.succeed({
+          ok: false as const,
+          message: Cause.pretty(cause) || `Failed to clear ${kind}`,
+        }),
+      ),
+    );
   }
 
-  async handleWebviewHostCreated(
+  handleWebviewHostCreated(
     event: BrowserSidebarWebviewHostCreated,
     ownerWebContentsId?: number,
-  ): Promise<BrowserSidebarCommandResult> {
-    if (
-      ownerWebContentsId !== undefined &&
-      !this.isRegisteredWebviewOwner(event, ownerWebContentsId)
-    ) {
-      this.logger.warn("Rejected unowned Browser webview registration", {
-        ...browserIdentity(event),
-        ownerWebContentsId,
-        guestWebContentsId: event.webContentsId,
-      });
-      return {
-        ok: false,
-        message: "Browser webview does not belong to the requesting window",
-      };
-    }
-    const key = browserTabKey(event);
-    const alreadyLive = this.tabs.get(key)?.webContentsId === event.webContentsId;
-    const attachedSnapshot = this.attachWebview(event);
-    if (!attachedSnapshot) {
-      return { ok: false, message: "Browser tab is not registered" };
-    }
-    let snapshot: BrowserSidebarTabSnapshot = attachedSnapshot;
-    const contents = this.electron.webContents.fromId(event.webContentsId);
-    if (contents && !contents.isDestroyed()) {
-      void this.pageEmulation.retainDebugger(contents);
-      const initialColorSchemeSync = this.syncPageColorScheme(
-        attachedSnapshot,
-        contents,
-        this.themeVariantsByViewScope.get(event.browserViewScopeId) ?? "light",
-      );
-      const earlyRestore = this.earlyPageRestores.result(event.webContentsId);
-      try {
-        snapshot = alreadyLive
-          ? this.updateTab(key, {
-              lifecycleState: attachedSnapshot.presented ? "live-attached" : "live-detached",
-              restoreResult: "already-live",
-            })
-          : earlyRestore
-            ? await earlyRestore.promise.then((restored) => {
-                const attached = this.tabs.get(key) ?? restored;
-                return this.updateTab(key, {
-                  lifecycleState: attached.presented ? "live-attached" : "live-detached",
-                });
-              })
-            : await this.restoreSavedPage(key, contents);
-      } catch (error) {
-        if (earlyRestore && !earlyRestore.isActive()) {
+  ): Effect.Effect<BrowserSidebarCommandResult> {
+    return Effect.gen(
+      function* (this: BrowserState) {
+        if (
+          ownerWebContentsId !== undefined &&
+          !this.isRegisteredWebviewOwner(event, ownerWebContentsId)
+        ) {
+          this.logger.warn("Rejected unowned Browser webview registration", {
+            ...browserIdentity(event),
+            ownerWebContentsId,
+            guestWebContentsId: event.webContentsId,
+          });
           return {
             ok: false,
-            message: "Browser webview was released during history restoration",
+            message: "Browser webview does not belong to the requesting window",
           };
         }
-        throw error;
-      } finally {
-        this.earlyPageRestores.release(event.webContentsId);
-      }
-      if (snapshot.browserStorageId) {
-        this.preparedPagesByStorageId.delete(snapshot.browserStorageId);
-      }
-      await initialColorSchemeSync;
-      if (!contents.isDestroyed()) {
-        void this.syncDeviceEmulation(snapshot, contents);
-      }
-    }
-    this.events.publish({
-      kind: "webviewAttached",
-      value: {
-        ...browserIdentity(event),
-        mountGeneration: event.mountGeneration,
-        webContentsId: event.webContentsId,
-      },
-    });
-    this.enforceBrowserTabBudget(event.browserViewScopeId);
-    return { ok: true, snapshot };
+        const key = browserTabKey(event);
+        const alreadyLive = this.tabs.get(key)?.webContentsId === event.webContentsId;
+        const attachedSnapshot = this.attachWebview(event);
+        if (!attachedSnapshot) {
+          return { ok: false, message: "Browser tab is not registered" };
+        }
+        let snapshot: BrowserSidebarTabSnapshot = attachedSnapshot;
+        const contents = this.electron.webContentsFromId(event.webContentsId);
+        if (contents && !contents.isDestroyed()) {
+          this.fork(this.pageEmulation.retainDebugger(contents).pipe(Effect.asVoid));
+          const initialColorSchemeSync = this.syncPageColorScheme(
+            attachedSnapshot,
+            contents,
+            this.themeVariantsByViewScope.get(event.browserViewScopeId) ?? "light",
+          );
+          const earlyRestore = this.earlyPageRestores.result(event.webContentsId);
+          const restored = yield* Effect.exit(
+            alreadyLive
+              ? Effect.sync(() =>
+                  this.updateTab(key, {
+                    lifecycleState: attachedSnapshot.presented ? "live-attached" : "live-detached",
+                    restoreResult: "already-live",
+                  }),
+                )
+              : earlyRestore
+                ? earlyRestore.await.pipe(
+                    Effect.map((restored) => {
+                      const attached = this.tabs.get(key) ?? restored;
+                      return this.updateTab(key, {
+                        lifecycleState: attached.presented ? "live-attached" : "live-detached",
+                      });
+                    }),
+                  )
+                : this.restoreSavedPage(key, contents),
+          );
+          if (restored._tag === "Failure") {
+            if (earlyRestore && !earlyRestore.isActive()) {
+              return {
+                ok: false,
+                message: "Browser webview was released during history restoration",
+              };
+            }
+            return yield* Effect.failCause(restored.cause);
+          }
+          snapshot = restored.value;
+          this.earlyPageRestores.release(event.webContentsId);
+          if (snapshot.browserStorageId) {
+            this.preparedPagesByStorageId.delete(snapshot.browserStorageId);
+          }
+          yield* initialColorSchemeSync;
+          if (!contents.isDestroyed()) {
+            this.fork(this.syncDeviceEmulation(snapshot, contents));
+          }
+        }
+        this.events.publish({
+          kind: "webviewAttached",
+          value: {
+            ...browserIdentity(event),
+            mountGeneration: event.mountGeneration,
+            webContentsId: event.webContentsId,
+          },
+        });
+        this.enforceBrowserTabBudget(event.browserViewScopeId);
+        return { ok: true as const, snapshot };
+      }.bind(this),
+    );
   }
 
-  async handleWebviewDestroyed(
+  handleWebviewDestroyed(
     event: BrowserSidebarWebviewDestroyed,
-  ): Promise<BrowserSidebarCommandResult> {
-    const key = browserTabKey(event);
-    const current = this.tabs.get(key);
-    const pending = this.pendingTeardowns.get(key);
-    if (
-      !pending ||
-      pending.teardownId !== event.teardownId ||
-      pending.mountGeneration !== event.mountGeneration ||
-      pending.reason !== event.reason
-    ) {
-      this.logger.debug("Ignored stale browser webview destroyed ack", {
-        ...browserIdentity(event),
-        receivedTeardownId: event.teardownId,
-        pendingTeardownId: pending?.teardownId ?? null,
-      });
-      return { ok: true, snapshot: current };
-    }
+  ): Effect.Effect<BrowserSidebarCommandResult> {
+    return Effect.sync(() => {
+      const key = browserTabKey(event);
+      const current = this.tabs.get(key);
+      const pending = this.pendingTeardowns.get(key);
+      if (
+        !pending ||
+        pending.teardownId !== event.teardownId ||
+        pending.mountGeneration !== event.mountGeneration ||
+        pending.reason !== event.reason
+      ) {
+        this.logger.debug("Ignored stale browser webview destroyed ack", {
+          ...browserIdentity(event),
+          receivedTeardownId: event.teardownId,
+          pendingTeardownId: pending?.teardownId ?? null,
+        });
+        return { ok: true, snapshot: current };
+      }
 
-    if (event.disposition !== "destroyed") {
-      this.logger.warn("Browser webview teardown was not completed", {
+      if (event.disposition !== "destroyed") {
+        this.logger.warn("Browser webview teardown was not completed", {
+          ...browserIdentity(event),
+          disposition: event.disposition,
+          mountGeneration: event.mountGeneration,
+          reason: event.reason,
+        });
+        return {
+          ok: false,
+          message: `Browser webview teardown ${event.disposition}`,
+        };
+      }
+
+      if (current && current.mountGeneration !== event.mountGeneration) {
+        this.logger.debug("Ignored stale browser webview generation ack", {
+          ...browserIdentity(event),
+          currentMountGeneration: current.mountGeneration,
+          receivedMountGeneration: event.mountGeneration,
+        });
+        return { ok: true, snapshot: current };
+      }
+
+      this.pendingTeardowns.delete(key);
+      this.runtimeRegistry.markPendingTeardown(event, false);
+      if (event.webContentsId !== undefined) {
+        this.runtimeRegistry.releaseGuest(event.webContentsId);
+        this.earlyPageRestores.release(event.webContentsId);
+      }
+      if (event.reason === "closed" || event.reason === "reset" || event.reason === "suspend") {
+        this.runtimeRegistry.releaseHost(event);
+      }
+      if (event.webContentsId !== undefined) {
+        this.attachedWebviewOwnership.delete(event.webContentsId);
+      }
+      this.detachWebview(key, event.webContentsId);
+      this.logger.info("Browser webview destroyed", {
         ...browserIdentity(event),
-        disposition: event.disposition,
         mountGeneration: event.mountGeneration,
         reason: event.reason,
       });
-      return {
-        ok: false,
-        message: `Browser webview teardown ${event.disposition}`,
-      };
-    }
-
-    if (current && current.mountGeneration !== event.mountGeneration) {
-      this.logger.debug("Ignored stale browser webview generation ack", {
-        ...browserIdentity(event),
-        currentMountGeneration: current.mountGeneration,
-        receivedMountGeneration: event.mountGeneration,
-      });
-      return { ok: true, snapshot: current };
-    }
-
-    this.pendingTeardowns.delete(key);
-    this.runtimeRegistry.markPendingTeardown(event, false);
-    if (event.webContentsId !== undefined) {
-      this.runtimeRegistry.releaseGuest(event.webContentsId);
-      this.earlyPageRestores.release(event.webContentsId);
-    }
-    if (event.reason === "closed" || event.reason === "reset" || event.reason === "suspend") {
-      this.runtimeRegistry.releaseHost(event);
-    }
-    if (event.webContentsId !== undefined) {
-      this.attachedWebviewOwnership.delete(event.webContentsId);
-    }
-    this.detachWebview(key, event.webContentsId);
-    this.logger.info("Browser webview destroyed", {
-      ...browserIdentity(event),
-      mountGeneration: event.mountGeneration,
-      reason: event.reason,
+      return { ok: true, snapshot: this.tabs.get(key) };
     });
-    return { ok: true, snapshot: this.tabs.get(key) };
   }
 
-  async handleCommand(
+  handleCommand(
     command: BrowserSidebarCommand,
-    context: BrowserSidebarCommandContext = {},
-  ): Promise<BrowserSidebarCommandResult> {
-    if (command.type === "sync-theme") {
-      if (!context.browserViewScopeId) {
-        return { ok: false, message: "Browser view scope is unavailable" };
-      }
-      this.setThemeVariantForViewScope(context.browserViewScopeId, command.themeVariant);
-      return { ok: true };
-    }
+    context: BrowserStateCommandContext = {},
+  ): Effect.Effect<BrowserSidebarCommandResult, BrowserStateOperationError> {
+    return Effect.gen(
+      function* (this: BrowserState) {
+        if (command.type === "sync-theme") {
+          if (!context.browserViewScopeId) {
+            return { ok: false, message: "Browser view scope is unavailable" };
+          }
+          this.setThemeVariantForViewScope(context.browserViewScopeId, command.themeVariant);
+          return { ok: true };
+        }
 
-    if (command.type === "register-renderer-session") {
-      if (context.ownerWebContentsId === undefined) {
-        return { ok: false, message: "Browser renderer owner is unavailable" };
-      }
-      try {
-        this.runtimeRegistry.registerRendererSession({
-          browserViewScopeId: command.browserViewScopeId,
-          ownerWebContentsId: context.ownerWebContentsId,
-          rendererInstanceId: command.rendererInstanceId,
-        });
-        return { ok: true };
-      } catch (error) {
-        return { ok: false, message: readBoundedErrorMessage(error) };
-      }
-    }
+        if (command.type === "register-renderer-session") {
+          if (context.ownerWebContentsId === undefined) {
+            return { ok: false, message: "Browser renderer owner is unavailable" };
+          }
+          try {
+            this.runtimeRegistry.registerRendererSession({
+              browserViewScopeId: command.browserViewScopeId,
+              ownerWebContentsId: context.ownerWebContentsId,
+              rendererInstanceId: command.rendererInstanceId,
+            });
+            return { ok: true };
+          } catch (error) {
+            return { ok: false, message: readBoundedErrorMessage(error) };
+          }
+        }
 
-    if (command.type === "register-host") {
-      if (context.ownerWebContentsId === undefined) {
-        return { ok: false, message: "Browser host owner is unavailable" };
-      }
-      if (!this.isRegisteredBrowserStorage(command, command.browserStorageId)) {
-        return {
-          ok: false,
-          message: "Browser host registration failed: storage-identity-mismatch",
-        };
-      }
-      const result = this.runtimeRegistry.registerHost(context.ownerWebContentsId, command);
-      if (result.ok) {
-        this.setThemeVariantForViewScope(command.browserViewScopeId, command.themeVariant);
-        return { ok: true };
-      }
-      return {
-        ok: false,
-        message: `Browser host registration failed: ${result.reason}`,
-      };
-    }
-
-    if (command.type === "sync-host") {
-      const key = browserTabKey(command);
-      const current = this.tabs.get(key);
-      if (!current) {
-        return { ok: false, message: "Browser tab is not registered" };
-      }
-      if (context.ownerWebContentsId === undefined) {
-        return { ok: false, message: "Browser host owner is unavailable" };
-      }
-      const hostMatch = this.runtimeRegistry.matchHost(context.ownerWebContentsId, command);
-      if (!hostMatch.ok || hostMatch.registration.hostKind !== command.hostKind) {
-        return { ok: true, snapshot: current };
-      }
-      const hasLiveGuest = current.webContentsId !== null;
-      const snapshot = this.updateTab(key, {
-        presented: command.presented,
-        visible: command.visible,
-        lastSelectedAt: command.presented ? Date.now() : current.lastSelectedAt,
-        lifecycleState: hasLiveGuest
-          ? command.presented
-            ? "live-attached"
-            : "live-detached"
-          : current.lifecycleState,
-      });
-      this.setThemeVariantForViewScope(command.browserViewScopeId, command.themeVariant);
-      if (command.presented && command.visible) {
-        this.pendingBrowserUsePresentations.delete(key);
-      }
-      return { ok: true, snapshot };
-    }
-
-    if (command.type === "capture-browser-use-route") {
-      return { ok: false, message: "Browser Use route requires the presentation runtime" };
-    }
-
-    if (command.type === "register-tab") {
-      const key = browserTabKey(command);
-      const existing = this.tabs.get(key);
-      if (existing) {
-        const requestedBrowserStorageId = command.browserStorageId?.trim();
-        if (
-          requestedBrowserStorageId &&
-          existing.browserStorageId &&
-          requestedBrowserStorageId !== existing.browserStorageId
-        ) {
-          if (!this.canAdoptProvisionalBrowserStorage(existing)) {
+        if (command.type === "register-host") {
+          if (context.ownerWebContentsId === undefined) {
+            return { ok: false, message: "Browser host owner is unavailable" };
+          }
+          if (!this.isRegisteredBrowserStorage(command, command.browserStorageId)) {
             return {
               ok: false,
-              message: "Browser storage identity does not match the registered tab",
+              message: "Browser host registration failed: storage-identity-mismatch",
             };
           }
-          const migrated = await this.adoptProvisionalBrowserStorage(
-            existing,
-            requestedBrowserStorageId,
-          );
+          const result = this.runtimeRegistry.registerHost(context.ownerWebContentsId, command);
+          if (result.ok) {
+            this.setThemeVariantForViewScope(command.browserViewScopeId, command.themeVariant);
+            return { ok: true };
+          }
+          return {
+            ok: false,
+            message: `Browser host registration failed: ${result.reason}`,
+          };
+        }
+
+        if (command.type === "sync-host") {
+          const key = browserTabKey(command);
+          const current = this.tabs.get(key);
+          if (!current) {
+            return { ok: false, message: "Browser tab is not registered" };
+          }
+          if (context.ownerWebContentsId === undefined) {
+            return { ok: false, message: "Browser host owner is unavailable" };
+          }
+          const hostMatch = this.runtimeRegistry.matchHost(context.ownerWebContentsId, command);
+          if (!hostMatch.ok || hostMatch.registration.hostKind !== command.hostKind) {
+            return { ok: true, snapshot: current };
+          }
+          const hasLiveGuest = current.webContentsId !== null;
           const snapshot = this.updateTab(key, {
+            presented: command.presented,
+            visible: command.visible,
+            lastSelectedAt: command.presented ? Date.now() : current.lastSelectedAt,
+            lifecycleState: hasLiveGuest
+              ? command.presented
+                ? "live-attached"
+                : "live-detached"
+              : current.lifecycleState,
+          });
+          this.setThemeVariantForViewScope(command.browserViewScopeId, command.themeVariant);
+          if (command.presented && command.visible) {
+            this.pendingBrowserUsePresentations.delete(key);
+          }
+          return { ok: true, snapshot };
+        }
+
+        if (command.type === "capture-browser-use-route") {
+          return { ok: false, message: "Browser Use route requires the presentation runtime" };
+        }
+
+        if (command.type === "register-tab") {
+          const key = browserTabKey(command);
+          const existing = this.tabs.get(key);
+          if (existing) {
+            const requestedBrowserStorageId = command.browserStorageId?.trim();
+            if (
+              requestedBrowserStorageId &&
+              existing.browserStorageId &&
+              requestedBrowserStorageId !== existing.browserStorageId
+            ) {
+              if (!this.canAdoptProvisionalBrowserStorage(existing)) {
+                return {
+                  ok: false,
+                  message: "Browser storage identity does not match the registered tab",
+                };
+              }
+              const migrated = yield* this.adoptProvisionalBrowserStorage(
+                existing,
+                requestedBrowserStorageId,
+              );
+              const snapshot = this.updateTab(key, {
+                projectId: command.projectId,
+                title: migrated.hasBrowserPage
+                  ? migrated.title
+                  : command.title?.trim() || migrated.title,
+                faviconUrl: command.faviconUrl ?? migrated.faviconUrl,
+              });
+              return { ok: true, snapshot };
+            }
+            const snapshot = this.updateTab(key, {
+              projectId: command.projectId,
+              title: existing.hasBrowserPage
+                ? existing.title
+                : command.title?.trim() || existing.title,
+              faviconUrl: command.faviconUrl ?? existing.faviconUrl,
+            });
+            return { ok: true, snapshot };
+          }
+          const deviceToolbarVisible =
+            command.deviceToolbarState?.toolbarState.isEnabled ??
+            command.deviceToolbarVisible === true;
+          const deviceToolbarState =
+            command.deviceToolbarState ??
+            this.deviceToolbarStates.get(key) ??
+            makeDefaultDeviceToolbarState(deviceToolbarVisible);
+          this.deviceToolbarStates.set(key, deviceToolbarState);
+          const viewport = viewportFromDeviceToolbarState(deviceToolbarState, 100);
+          const browserStorageId =
+            command.browserStorageId ?? `browser:legacy:${command.browserTabId}`;
+          this.invalidatedPageStorageIds.delete(browserStorageId);
+          const savedPage = yield* this.readSavedPage(browserStorageId, browserIdentity(command));
+          if (savedPage) {
+            this.preparedPagesByStorageId.set(browserStorageId, savedPage);
+          } else {
+            this.preparedPagesByStorageId.delete(browserStorageId);
+          }
+          const requestedInitialUrl = normalizeBrowserNavigationUrl(command.initialUrl);
+          const fallbackInitialUrl = isAllowedBrowserNavigationUrl(requestedInitialUrl)
+            ? requestedInitialUrl
+            : "about:blank";
+          const initialUrl = savedPage?.url ?? fallbackInitialUrl;
+          const snapshot = this.upsertTab({
+            ...browserIdentity(command),
+            browserStorageId,
             projectId: command.projectId,
-            title: migrated.hasBrowserPage
-              ? migrated.title
-              : command.title?.trim() || migrated.title,
-            faviconUrl: command.faviconUrl ?? migrated.faviconUrl,
+            webContentsId: null,
+            mountGeneration: 0,
+            url: initialUrl,
+            title: savedPage?.title ?? (command.title?.trim() || "New tab"),
+            faviconUrl: savedPage?.faviconUrl ?? command.faviconUrl,
+            isLoading: false,
+            isWaitingForResponse: false,
+            canGoBack: false,
+            canGoForward: false,
+            zoomPercent: 100,
+            deviceToolbarVisible,
+            viewport,
+            deviceToolbarState,
+            interactionMode: "browse",
+            findState: DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
+            hasBrowserPage: !isBlankBrowserUrl(initialUrl),
+            pageActionsDisabled: isBlankBrowserUrl(initialUrl),
+            presented: false,
+            visible: false,
+            lastSelectedAt: 0,
+            audible: false,
+            mediaActive: false,
+            activeDownload: false,
+            lifecycleState: "cold",
+            restoreResult: savedPage ? "snapshot-ready" : "missing",
+            errorMessage:
+              fallbackInitialUrl === requestedInitialUrl
+                ? undefined
+                : "Blocked an unsupported Browser URL",
+            updatedAt: Date.now(),
+          });
+          this.emitState();
+          return { ok: true, snapshot };
+        }
+
+        if (command.type === "open-external") {
+          let url = command.url;
+          if (
+            url === undefined &&
+            "browserConversationId" in command &&
+            "browserTabId" in command
+          ) {
+            url = this.tabs.get(browserTabKey(command))?.url;
+          }
+          if (isBlankBrowserUrl(url)) return { ok: false, message: "Browser tab has no page URL" };
+          const externalUrl = normalizeBrowserNavigationUrl(url);
+          if (!isAllowedBrowserExternalUrl(externalUrl)) {
+            return { ok: false, message: "This URL cannot be opened externally" };
+          }
+          yield* tryPlatformPromise("open-external", () => this.electron.openExternal(externalUrl));
+          return { ok: true };
+        }
+
+        if (isBrowserUseCommand(command)) {
+          this.handleBrowserUseCommand(command);
+          return { ok: true };
+        }
+
+        if (command.type === "browser-use-cursor-arrived") {
+          this.events.publish({
+            kind: "browserUseCursorArrived",
+            value: {
+              ...browserIdentity(command),
+              moveSequence: command.moveSequence,
+              ownerWebContentsId: context.ownerWebContentsId ?? null,
+            },
+          });
+          return { ok: true };
+        }
+
+        if (command.type === "close-tab") {
+          yield* this.closeBrowserTab(command, "user");
+          return { ok: true };
+        }
+
+        if (
+          command.type === "local-servers-refresh" ||
+          command.type === "hide-local-server" ||
+          command.type === "unhide-local-server" ||
+          command.type === "remove-local-server-route"
+        ) {
+          return { ok: false, message: "Local server command is unavailable at this boundary" };
+        }
+
+        const key = browserTabKey(command);
+        const tab = this.tabs.get(key);
+        if (!tab) return { ok: false, message: "Browser tab is not registered" };
+
+        if (command.type === "set-title") {
+          const snapshot = this.updateTab(key, { title: command.title.trim() || "New tab" });
+          return { ok: true, snapshot };
+        }
+
+        if (command.type === "set-favicon") {
+          const snapshot = this.updateTab(key, { faviconUrl: command.faviconUrl });
+          return { ok: true, snapshot };
+        }
+
+        if (command.type === "step-zoom") {
+          const zoomPercent = stepZoomPercent(tab.zoomPercent, command.delta);
+          const contents = this.getAttachedWebContents(tab);
+          if (contents && !contents.isDestroyed()) contents.setZoomFactor(zoomPercent / 100);
+          const snapshot = this.updateTab(key, {
+            zoomPercent,
+            viewport: { ...tab.viewport, zoomPercent },
           });
           return { ok: true, snapshot };
         }
-        const snapshot = this.updateTab(key, {
-          projectId: command.projectId,
-          title: existing.hasBrowserPage ? existing.title : command.title?.trim() || existing.title,
-          faviconUrl: command.faviconUrl ?? existing.faviconUrl,
-        });
-        return { ok: true, snapshot };
-      }
-      const deviceToolbarVisible =
-        command.deviceToolbarState?.toolbarState.isEnabled ?? command.deviceToolbarVisible === true;
-      const deviceToolbarState =
-        command.deviceToolbarState ??
-        this.deviceToolbarStates.get(key) ??
-        makeDefaultDeviceToolbarState(deviceToolbarVisible);
-      this.deviceToolbarStates.set(key, deviceToolbarState);
-      const viewport = viewportFromDeviceToolbarState(deviceToolbarState, 100);
-      const browserStorageId = command.browserStorageId ?? `browser:legacy:${command.browserTabId}`;
-      this.invalidatedPageStorageIds.delete(browserStorageId);
-      const savedPage = await this.readSavedPage(browserStorageId, browserIdentity(command));
-      if (savedPage) {
-        this.preparedPagesByStorageId.set(browserStorageId, savedPage);
-      } else {
-        this.preparedPagesByStorageId.delete(browserStorageId);
-      }
-      const requestedInitialUrl = normalizeBrowserNavigationUrl(command.initialUrl);
-      const fallbackInitialUrl = isAllowedBrowserNavigationUrl(requestedInitialUrl)
-        ? requestedInitialUrl
-        : "about:blank";
-      const initialUrl = savedPage?.url ?? fallbackInitialUrl;
-      const snapshot = this.upsertTab({
-        ...browserIdentity(command),
-        browserStorageId,
-        projectId: command.projectId,
-        webContentsId: null,
-        mountGeneration: 0,
-        url: initialUrl,
-        title: savedPage?.title ?? (command.title?.trim() || "New tab"),
-        faviconUrl: savedPage?.faviconUrl ?? command.faviconUrl,
-        isLoading: false,
-        isWaitingForResponse: false,
-        canGoBack: false,
-        canGoForward: false,
-        zoomPercent: 100,
-        deviceToolbarVisible,
-        viewport,
-        deviceToolbarState,
-        interactionMode: "browse",
-        findState: DEFAULT_BROWSER_SIDEBAR_FIND_STATE,
-        hasBrowserPage: !isBlankBrowserUrl(initialUrl),
-        pageActionsDisabled: isBlankBrowserUrl(initialUrl),
-        presented: false,
-        visible: false,
-        lastSelectedAt: 0,
-        audible: false,
-        mediaActive: false,
-        activeDownload: false,
-        lifecycleState: "cold",
-        restoreResult: savedPage ? "snapshot-ready" : "missing",
-        errorMessage:
-          fallbackInitialUrl === requestedInitialUrl
-            ? undefined
-            : "Blocked an unsupported Browser URL",
-        updatedAt: Date.now(),
-      });
-      this.emitState();
-      return { ok: true, snapshot };
-    }
 
-    if (command.type === "open-external") {
-      let url = command.url;
-      if (url === undefined && "browserConversationId" in command && "browserTabId" in command) {
-        url = this.tabs.get(browserTabKey(command))?.url;
-      }
-      if (isBlankBrowserUrl(url)) return { ok: false, message: "Browser tab has no page URL" };
-      const externalUrl = normalizeBrowserNavigationUrl(url);
-      if (!isAllowedBrowserExternalUrl(externalUrl)) {
-        return { ok: false, message: "This URL cannot be opened externally" };
-      }
-      await this.electron.shell.openExternal(externalUrl);
-      return { ok: true };
-    }
+        if (command.type === "set-zoom-percent") {
+          const zoomPercent = clampZoomPercent(command.zoomPercent);
+          const contents = this.getAttachedWebContents(tab);
+          if (contents && !contents.isDestroyed()) contents.setZoomFactor(zoomPercent / 100);
+          const snapshot = this.updateTab(key, {
+            zoomPercent,
+            viewport: { ...tab.viewport, zoomPercent },
+          });
+          return { ok: true, snapshot };
+        }
 
-    if (isBrowserUseCommand(command)) {
-      this.handleBrowserUseCommand(command);
-      return { ok: true };
-    }
+        if (command.type === "reset-zoom") {
+          const contents = this.getAttachedWebContents(tab);
+          if (contents && !contents.isDestroyed()) contents.setZoomFactor(1);
+          const snapshot = this.updateTab(key, {
+            zoomPercent: 100,
+            viewport: { ...tab.viewport, zoomPercent: 100 },
+          });
+          return { ok: true, snapshot };
+        }
 
-    if (command.type === "browser-use-cursor-arrived") {
-      this.events.publish({
-        kind: "browserUseCursorArrived",
-        value: {
-          ...browserIdentity(command),
-          moveSequence: command.moveSequence,
-          ownerWebContentsId: context.ownerWebContentsId ?? null,
-        },
-      });
-      return { ok: true };
-    }
+        if (command.type === "set-device-toolbar-visible") {
+          const deviceToolbarState = updateDeviceToolbarState(tab.deviceToolbarState, {
+            isEnabled: command.visible,
+          });
+          this.deviceToolbarStates.set(key, deviceToolbarState);
+          const snapshot = this.updateTab(key, {
+            deviceToolbarVisible: command.visible,
+            deviceToolbarState,
+          });
+          const contents = this.getAttachedWebContents(snapshot);
+          if (contents && !contents.isDestroyed()) {
+            this.fork(this.syncDeviceEmulation(snapshot, contents));
+          }
+          return { ok: true, snapshot };
+        }
 
-    if (command.type === "close-tab") {
-      this.closeBrowserTab(command, "user");
-      return { ok: true };
-    }
+        if (command.type === "set-viewport") {
+          const deviceToolbarState = updateDeviceToolbarState(tab.deviceToolbarState, {
+            viewport: command.viewport,
+          });
+          this.deviceToolbarStates.set(key, deviceToolbarState);
+          const snapshot = this.updateTab(key, {
+            viewport: command.viewport,
+            deviceToolbarState,
+          });
+          const contents = this.getAttachedWebContents(snapshot);
+          if (snapshot.deviceToolbarVisible && contents && !contents.isDestroyed()) {
+            this.fork(this.syncDeviceEmulation(snapshot, contents));
+          }
+          this.syncBrowserUseViewport(command, command.viewport);
+          return { ok: true, snapshot };
+        }
 
-    if (
-      command.type === "local-servers-refresh" ||
-      command.type === "hide-local-server" ||
-      command.type === "unhide-local-server" ||
-      command.type === "remove-local-server-route"
-    ) {
-      return { ok: false, message: "Local server command is unavailable at this boundary" };
-    }
+        if (command.type === "set-interaction-mode") {
+          const snapshot = this.updateTab(key, { interactionMode: command.mode });
+          return { ok: true, snapshot };
+        }
 
-    const key = browserTabKey(command);
-    const tab = this.tabs.get(key);
-    if (!tab) return { ok: false, message: "Browser tab is not registered" };
+        if (command.type === "quick-annotate") {
+          const contents = this.getAttachedWebContents(tab);
+          if (!contents || contents.isDestroyed()) {
+            return { ok: false, message: "Browser webview is not attached" };
+          }
+          const snapshot = this.updateTab(key, { interactionMode: "comment" });
+          contents.send("browser-annotation-mode", {
+            enabled: true,
+            selectionMode: "inspect",
+            sessionId: command.sessionId,
+          });
+          contents.send("browser-annotation-quick-select", {
+            sessionId: command.sessionId,
+            x: command.point.x,
+            y: command.point.y,
+          });
+          return { ok: true, snapshot };
+        }
 
-    if (command.type === "set-title") {
-      const snapshot = this.updateTab(key, { title: command.title.trim() || "New tab" });
-      return { ok: true, snapshot };
-    }
+        if (command.type === "open-find") {
+          const snapshot = this.updateTab(key, { findState: { ...tab.findState, open: true } });
+          return { ok: true, snapshot };
+        }
 
-    if (command.type === "set-favicon") {
-      const snapshot = this.updateTab(key, { faviconUrl: command.faviconUrl });
-      return { ok: true, snapshot };
-    }
+        if (command.type === "close-find") {
+          const contents = this.getAttachedWebContents(tab);
+          contents?.stopFindInPage?.("clearSelection");
+          const snapshot = this.updateTab(key, {
+            findState: { ...DEFAULT_BROWSER_SIDEBAR_FIND_STATE },
+          });
+          return { ok: true, snapshot };
+        }
 
-    if (command.type === "step-zoom") {
-      const zoomPercent = stepZoomPercent(tab.zoomPercent, command.delta);
-      const contents = this.getAttachedWebContents(tab);
-      if (contents && !contents.isDestroyed()) contents.setZoomFactor(zoomPercent / 100);
-      const snapshot = this.updateTab(key, {
-        zoomPercent,
-        viewport: { ...tab.viewport, zoomPercent },
-      });
-      return { ok: true, snapshot };
-    }
+        if (command.type === "set-find-query") {
+          const contents = this.getAttachedWebContents(tab);
+          const query = command.query;
+          if (query.trim().length > 0) {
+            contents?.findInPage?.(query, {
+              forward: true,
+              findNext: false,
+              matchCase: command.caseSensitive === true,
+            });
+          } else {
+            contents?.stopFindInPage?.("clearSelection");
+          }
+          const snapshot = this.updateTab(key, {
+            findState: {
+              open: true,
+              query,
+              activeMatchOrdinal: null,
+              matchCount: null,
+              caseSensitive: command.caseSensitive === true,
+            },
+          });
+          return { ok: true, snapshot };
+        }
 
-    if (command.type === "set-zoom-percent") {
-      const zoomPercent = clampZoomPercent(command.zoomPercent);
-      const contents = this.getAttachedWebContents(tab);
-      if (contents && !contents.isDestroyed()) contents.setZoomFactor(zoomPercent / 100);
-      const snapshot = this.updateTab(key, {
-        zoomPercent,
-        viewport: { ...tab.viewport, zoomPercent },
-      });
-      return { ok: true, snapshot };
-    }
+        if (command.type === "find-next" || command.type === "find-previous") {
+          const query = tab.findState.query.trim();
+          if (query.length > 0) {
+            const forward = command.type === "find-next";
+            this.getAttachedWebContents(tab)?.findInPage?.(query, {
+              forward,
+              findNext: true,
+              matchCase: tab.findState.caseSensitive,
+            });
+          }
+          return { ok: true, snapshot: tab };
+        }
 
-    if (command.type === "reset-zoom") {
-      const contents = this.getAttachedWebContents(tab);
-      if (contents && !contents.isDestroyed()) contents.setZoomFactor(1);
-      const snapshot = this.updateTab(key, {
-        zoomPercent: 100,
-        viewport: { ...tab.viewport, zoomPercent: 100 },
-      });
-      return { ok: true, snapshot };
-    }
+        if (command.type === "navigate") {
+          return yield* this.navigate(tab, command.url);
+        }
 
-    if (command.type === "set-device-toolbar-visible") {
-      const deviceToolbarState = updateDeviceToolbarState(tab.deviceToolbarState, {
-        isEnabled: command.visible,
-      });
-      this.deviceToolbarStates.set(key, deviceToolbarState);
-      const snapshot = this.updateTab(key, {
-        deviceToolbarVisible: command.visible,
-        deviceToolbarState,
-      });
-      const contents = this.getAttachedWebContents(snapshot);
-      if (contents && !contents.isDestroyed()) {
-        void this.syncDeviceEmulation(snapshot, contents);
-      }
-      return { ok: true, snapshot };
-    }
+        const contents = this.getAttachedWebContents(tab);
+        if (!contents || contents.isDestroyed())
+          return { ok: false, message: "Browser webview is not attached" };
 
-    if (command.type === "set-viewport") {
-      const deviceToolbarState = updateDeviceToolbarState(tab.deviceToolbarState, {
-        viewport: command.viewport,
-      });
-      this.deviceToolbarStates.set(key, deviceToolbarState);
-      const snapshot = this.updateTab(key, {
-        viewport: command.viewport,
-        deviceToolbarState,
-      });
-      const contents = this.getAttachedWebContents(snapshot);
-      if (snapshot.deviceToolbarVisible && contents && !contents.isDestroyed()) {
-        void this.syncDeviceEmulation(snapshot, contents);
-      }
-      this.syncBrowserUseViewport(command, command.viewport);
-      return { ok: true, snapshot };
-    }
-
-    if (command.type === "set-interaction-mode") {
-      const snapshot = this.updateTab(key, { interactionMode: command.mode });
-      return { ok: true, snapshot };
-    }
-
-    if (command.type === "quick-annotate") {
-      const contents = this.getAttachedWebContents(tab);
-      if (!contents || contents.isDestroyed()) {
-        return { ok: false, message: "Browser webview is not attached" };
-      }
-      const snapshot = this.updateTab(key, { interactionMode: "comment" });
-      contents.send("browser-annotation-mode", {
-        enabled: true,
-        selectionMode: "inspect",
-        sessionId: command.sessionId,
-      });
-      contents.send("browser-annotation-quick-select", {
-        sessionId: command.sessionId,
-        x: command.point.x,
-        y: command.point.y,
-      });
-      return { ok: true, snapshot };
-    }
-
-    if (command.type === "open-find") {
-      const snapshot = this.updateTab(key, { findState: { ...tab.findState, open: true } });
-      return { ok: true, snapshot };
-    }
-
-    if (command.type === "close-find") {
-      const contents = this.getAttachedWebContents(tab);
-      contents?.stopFindInPage?.("clearSelection");
-      const snapshot = this.updateTab(key, {
-        findState: { ...DEFAULT_BROWSER_SIDEBAR_FIND_STATE },
-      });
-      return { ok: true, snapshot };
-    }
-
-    if (command.type === "set-find-query") {
-      const contents = this.getAttachedWebContents(tab);
-      const query = command.query;
-      if (query.trim().length > 0) {
-        contents?.findInPage?.(query, {
-          forward: true,
-          findNext: false,
-          matchCase: command.caseSensitive === true,
-        });
-      } else {
-        contents?.stopFindInPage?.("clearSelection");
-      }
-      const snapshot = this.updateTab(key, {
-        findState: {
-          open: true,
-          query,
-          activeMatchOrdinal: null,
-          matchCount: null,
-          caseSensitive: command.caseSensitive === true,
-        },
-      });
-      return { ok: true, snapshot };
-    }
-
-    if (command.type === "find-next" || command.type === "find-previous") {
-      const query = tab.findState.query.trim();
-      if (query.length > 0) {
-        const forward = command.type === "find-next";
-        this.getAttachedWebContents(tab)?.findInPage?.(query, {
-          forward,
-          findNext: true,
-          matchCase: tab.findState.caseSensitive,
-        });
-      }
-      return { ok: true, snapshot: tab };
-    }
-
-    if (command.type === "navigate") {
-      return this.navigate(tab, command.url);
-    }
-
-    const contents = this.getAttachedWebContents(tab);
-    if (!contents || contents.isDestroyed())
-      return { ok: false, message: "Browser webview is not attached" };
-
-    if (command.type === "attach-dragged-image") {
-      const ownerWebContentsId = context.ownerWebContentsId;
-      if (ownerWebContentsId === undefined) {
-        return { ok: false, message: "Browser renderer owner is unavailable" };
-      }
-      const active = this.activeImageDragsByOwnerWebContentsId.get(ownerWebContentsId);
-      if (
-        !active ||
-        browserTabKey(active) !== key ||
-        active.guestWebContentsId !== tab.webContentsId
-      ) {
-        return {
-          ok: false,
-          message: "No matching Browser image drag is active",
-        };
-      }
-      this.clearBrowserImageDrag(ownerWebContentsId);
-      return await this.attachContextMenuImage(
-        active.guestWebContentsId,
-        contents,
-        tab,
-        active.sourceUrl,
-      );
-    }
-
-    if (command.type === "go-back") {
-      if (contents.canGoBack()) contents.goBack();
-      return { ok: true };
-    }
-
-    if (command.type === "go-forward") {
-      if (contents.canGoForward()) contents.goForward();
-      return { ok: true };
-    }
-
-    if (command.type === "reload") {
-      if (command.ignoreCache) contents.reloadIgnoringCache();
-      else contents.reload();
-      return { ok: true };
-    }
-
-    if (command.type === "stop") {
-      contents.stop();
-      this.refreshSnapshotFromWebContents(key, contents, {
-        isLoading: false,
-        isWaitingForResponse: false,
-      });
-      return { ok: true };
-    }
-
-    if (command.type === "capture-screenshot") {
-      const image = await contents.capturePage();
-      this.electron.clipboard.writeImage(image);
-      return { ok: true };
-    }
-
-    if (command.type === "print") {
-      if (!contents.print) {
-        return { ok: false, message: "Printing is unavailable" };
-      }
-      return await new Promise<BrowserSidebarCommandResult>((resolve) => {
-        contents.print?.({ printBackground: true }, (success, failureReason) => {
-          resolve(
-            success
-              ? { ok: true }
-              : {
-                  ok: false,
-                  message: failureReason || "Printing failed",
-                },
+        if (command.type === "attach-dragged-image") {
+          const ownerWebContentsId = context.ownerWebContentsId;
+          if (ownerWebContentsId === undefined) {
+            return { ok: false, message: "Browser renderer owner is unavailable" };
+          }
+          const active = this.activeImageDragsByOwnerWebContentsId.get(ownerWebContentsId);
+          if (
+            !active ||
+            browserTabKey(active) !== key ||
+            active.guestWebContentsId !== tab.webContentsId
+          ) {
+            return {
+              ok: false,
+              message: "No matching Browser image drag is active",
+            };
+          }
+          this.clearBrowserImageDrag(ownerWebContentsId);
+          return yield* this.attachContextMenuImage(
+            active.guestWebContentsId,
+            contents,
+            tab,
+            active.sourceUrl,
           );
-        });
-      });
-    }
+        }
 
-    return { ok: false, message: "Unsupported browser command" };
+        if (command.type === "go-back") {
+          if (contents.canGoBack()) contents.goBack();
+          return { ok: true };
+        }
+
+        if (command.type === "go-forward") {
+          if (contents.canGoForward()) contents.goForward();
+          return { ok: true };
+        }
+
+        if (command.type === "reload") {
+          if (command.ignoreCache) contents.reloadIgnoringCache();
+          else contents.reload();
+          return { ok: true };
+        }
+
+        if (command.type === "stop") {
+          contents.stop();
+          this.refreshSnapshotFromWebContents(key, contents, {
+            isLoading: false,
+            isWaitingForResponse: false,
+          });
+          return { ok: true };
+        }
+
+        if (command.type === "capture-screenshot") {
+          const image = yield* tryPlatformPromise("capture-screenshot", () =>
+            contents.capturePage(),
+          );
+          this.electron.writeClipboardImage(image);
+          return { ok: true };
+        }
+
+        if (command.type === "print") {
+          if (!contents.print) {
+            return { ok: false, message: "Printing is unavailable" };
+          }
+          return yield* Effect.callback<BrowserSidebarCommandResult>((resume) => {
+            contents.print?.({ printBackground: true }, (success, failureReason) => {
+              resume(
+                Effect.succeed(
+                  success
+                    ? { ok: true }
+                    : {
+                        ok: false,
+                        message: failureReason || "Printing failed",
+                      },
+                ),
+              );
+            });
+          });
+        }
+
+        return { ok: false, message: "Unsupported browser command" };
+      }.bind(this),
+    ).pipe(Effect.map((result) => result as BrowserSidebarCommandResult));
   }
 
   private showBrowserContextMenu(
@@ -1763,13 +1741,17 @@ export class BrowserSidebarService {
           });
         },
         attachImage: (sourceUrl) => {
-          void this.attachContextMenuImage(webContentsId, contents, tab, sourceUrl);
+          this.fork(
+            this.attachContextMenuImage(webContentsId, contents, tab, sourceUrl).pipe(
+              Effect.asVoid,
+            ),
+          );
         },
         back: () => {
           if (!contents.isDestroyed() && contents.canGoBack()) contents.goBack();
         },
         copyLink: (url) => {
-          this.electron.clipboard.writeText(url);
+          this.electron.writeClipboardText(url);
         },
         forward: () => {
           if (!contents.isDestroyed() && contents.canGoForward()) contents.goForward();
@@ -1779,7 +1761,7 @@ export class BrowserSidebarService {
         },
         openExternal: (url) => {
           if (isAllowedBrowserExternalUrl(url)) {
-            void this.electron.shell.openExternal(url);
+            this.fork(Effect.promise(() => this.electron.openExternal(url)).pipe(Effect.asVoid));
           }
         },
         openLink: (url) => {
@@ -1815,68 +1797,75 @@ export class BrowserSidebarService {
     });
   }
 
-  private async attachContextMenuImage(
+  private attachContextMenuImage(
     webContentsId: number,
     contents: BrowserWebContentsLike,
     tab: BrowserSidebarTabSnapshot,
     sourceUrl: string,
-  ): Promise<BrowserSidebarCommandResult> {
+  ): Effect.Effect<BrowserSidebarCommandResult> {
     const identity = browserIdentity(tab);
-    try {
-      const fetched = await fetchBrowserImage({
-        fetch: contents.session.fetch.bind(contents.session),
-        pageUrl: tab.url,
-        sourceUrl,
-      });
-      if (
-        contents.isDestroyed() ||
-        this.webContentsTabIds.get(webContentsId) !== browserTabKey(tab)
-      ) {
-        return {
-          ok: false,
-          message: "Browser page changed before the image was attached",
-        };
-      }
-      const saved = this.saveBrowserImage({
-        name: fetched.name,
-        mimeType: fetched.mimeType,
-        bytes: fetched.bytes,
-      });
-      this.events.publish({
-        kind: "contextMenuAction",
-        value: {
-          ...identity,
-          action: "image-attached",
-          attachment: {
-            id: saved.fileName,
-            fileName: fetched.name,
-            source: saved.source,
+    return Effect.gen(
+      function* (this: BrowserState) {
+        const fetched = yield* Effect.exit(
+          Effect.promise(() =>
+            fetchBrowserImage({
+              fetch: contents.session.fetch.bind(contents.session),
+              pageUrl: tab.url,
+              sourceUrl,
+            }),
+          ),
+        );
+        if (fetched._tag === "Failure") {
+          const message = Cause.pretty(fetched.cause);
+          this.events.publish({
+            kind: "contextMenuAction",
+            value: { ...identity, action: "error", message },
+          });
+          this.logger.warn("Failed to attach Browser image", { ...identity, error: message });
+          return { ok: false as const, message };
+        }
+        if (
+          contents.isDestroyed() ||
+          this.webContentsTabIds.get(webContentsId) !== browserTabKey(tab)
+        ) {
+          return {
+            ok: false,
+            message: "Browser page changed before the image was attached",
+          };
+        }
+        const saved = this.saveBrowserImage({
+          name: fetched.value.name,
+          mimeType: fetched.value.mimeType,
+          bytes: fetched.value.bytes,
+        });
+        this.events.publish({
+          kind: "contextMenuAction",
+          value: {
+            ...identity,
+            action: "image-attached",
+            attachment: {
+              id: saved.fileName,
+              fileName: fetched.value.name,
+              source: saved.source,
+            },
           },
-        },
-      });
-      return { ok: true };
-    } catch (error) {
-      const message = readBoundedErrorMessage(error);
-      this.events.publish({
-        kind: "contextMenuAction",
-        value: { ...identity, action: "error", message },
-      });
-      this.logger.warn("Failed to attach Browser image", {
-        ...identity,
-        error: message,
-      });
-      return { ok: false, message };
-    }
+        });
+        return { ok: true } as const;
+      }.bind(this),
+    );
   }
 
-  private navigate(tab: BrowserSidebarTabSnapshot, rawUrl: string): BrowserSidebarCommandResult {
+  private navigate(
+    tab: BrowserSidebarTabSnapshot,
+    rawUrl: string,
+  ): Effect.Effect<BrowserSidebarCommandResult> {
     const key = browserTabKey(tab);
     const url = normalizeBrowserNavigationUrl(rawUrl);
     if (!isAllowedBrowserNavigationUrl(url)) {
-      return {
+      return Effect.succeed({
         ok: false,
         message: "This URL is not allowed in the built-in Browser",
-      };
+      });
     }
     if (isBlankBrowserUrl(url)) {
       const snapshot = this.updateTab(key, {
@@ -1893,15 +1882,23 @@ export class BrowserSidebarService {
       const browserStorageId = tab.browserStorageId;
       if (browserStorageId) {
         this.invalidatedPageStorageIds.add(browserStorageId);
-        void this.pageStore?.delete(browserStorageId).catch((error) => {
-          this.logger.warn("Failed to reset Browser page snapshot", {
-            browserStorageId,
-            error: readBoundedErrorMessage(error),
-          });
-        });
+        if (this.pageStore) {
+          this.fork(
+            this.pageStore.delete(browserStorageId).pipe(
+              Effect.catch((error) =>
+                Effect.sync(() =>
+                  this.logger.warn("Failed to reset Browser page snapshot", {
+                    browserStorageId,
+                    error: readBoundedErrorMessage(error),
+                  }),
+                ),
+              ),
+            ),
+          );
+        }
       }
       this.requestDestroyWebview(key, "reset");
-      return { ok: true, snapshot };
+      return Effect.succeed({ ok: true, snapshot });
     }
 
     const contents = this.getAttachedWebContents(tab);
@@ -1919,37 +1916,45 @@ export class BrowserSidebarService {
         ...browserIdentity(tab),
         hasUrl: url.length > 0,
       });
-      return { ok: true, snapshot };
+      return Effect.succeed({ ok: true, snapshot });
     }
 
     this.logger.info("Browser navigate start", { ...browserIdentity(tab), hasUrl: url.length > 0 });
-    void Promise.resolve(contents.loadURL(url))
-      .then(() =>
-        this.refreshSnapshotFromWebContents(key, contents, {
-          isWaitingForResponse: false,
-          pendingUrl: undefined,
-        }),
-      )
-      .catch((error) => {
-        if (isNavigationAbortError(error)) {
-          this.logger.debug("Browser navigate aborted", {
-            ...browserIdentity(tab),
-            hasUrl: url.length > 0,
-          });
-          return;
-        }
-        this.logger.warn("Browser navigate failed", {
-          ...browserIdentity(tab),
-          message: error instanceof Error ? error.message : String(error),
-        });
-        this.updateTab(key, {
-          isLoading: false,
-          isWaitingForResponse: false,
-          pendingUrl: undefined,
-          errorMessage: error instanceof Error ? error.message : "Failed to load page",
-        });
-      });
-    return { ok: true, snapshot };
+    this.fork(
+      Effect.promise(() => Promise.resolve(contents.loadURL(url))).pipe(
+        Effect.tap(() =>
+          Effect.sync(() =>
+            this.refreshSnapshotFromWebContents(key, contents, {
+              isWaitingForResponse: false,
+              pendingUrl: undefined,
+            }),
+          ),
+        ),
+        Effect.catchCause((cause) =>
+          Effect.sync(() => {
+            const message = Cause.pretty(cause);
+            if (message.includes("ERR_ABORTED")) {
+              this.logger.debug("Browser navigate aborted", {
+                ...browserIdentity(tab),
+                hasUrl: url.length > 0,
+              });
+              return;
+            }
+            this.logger.warn("Browser navigate failed", {
+              ...browserIdentity(tab),
+              message,
+            });
+            this.updateTab(key, {
+              isLoading: false,
+              isWaitingForResponse: false,
+              pendingUrl: undefined,
+              errorMessage: message || "Failed to load page",
+            });
+          }),
+        ),
+      ),
+    );
+    return Effect.succeed({ ok: true, snapshot });
   }
 
   private upsertTab(snapshot: BrowserSidebarTabSnapshot): BrowserSidebarTabSnapshot {
@@ -2034,7 +2039,7 @@ export class BrowserSidebarService {
     }
 
     this.webContentsTabIds.set(event.webContentsId, key);
-    const contents = this.electron.webContents.fromId(event.webContentsId);
+    const contents = this.electron.webContentsFromId(event.webContentsId);
     if (contents) this.ensureWebContentsListeners(key, event.webContentsId, contents);
 
     this.pendingTeardowns.delete(key);
@@ -2069,8 +2074,8 @@ export class BrowserSidebarService {
     const detachedWebContentsId =
       typeof webContentsId === "number" ? webContentsId : current.webContentsId;
     if (detachedWebContentsId !== null && detachedWebContentsId !== undefined) {
-      const contents = this.electron.webContents.fromId(detachedWebContentsId);
-      if (contents) this.pageEmulation.release(contents);
+      const contents = this.electron.webContentsFromId(detachedWebContentsId);
+      if (contents) this.fork(this.pageEmulation.release(contents));
       this.webContentsTabIds.delete(detachedWebContentsId);
       this.webContentsListeners.release(detachedWebContentsId);
     }
@@ -2112,7 +2117,9 @@ export class BrowserSidebarService {
             },
           });
         } else if (isAllowedBrowserExternalUrl(targetUrl)) {
-          void this.electron.shell.openExternal(targetUrl);
+          this.fork(
+            Effect.promise(() => this.electron.openExternal(targetUrl)).pipe(Effect.asVoid),
+          );
         }
         return { action: "deny" };
       });
@@ -2129,7 +2136,7 @@ export class BrowserSidebarService {
         const ownership = this.attachedWebviewOwnership.get(webContentsId);
         if (ownership) this.clearBrowserImageDrag(ownership.ownerWebContentsId);
         this.attachedWebviewOwnership.delete(webContentsId);
-        this.pageEmulation.release(contents);
+        this.fork(this.pageEmulation.release(contents));
         this.runtimeRegistry.releaseGuest(webContentsId);
         this.earlyPageRestores.release(webContentsId);
         this.detachWebview(activeTabId, webContentsId);
@@ -2177,12 +2184,15 @@ export class BrowserSidebarService {
           pendingUrl: undefined,
         });
         if (snapshot) {
-          void this.historyStore?.record({
-            url: snapshot.url,
-            title: snapshot.title,
-          });
+          if (this.historyStore) {
+            this.fork(
+              this.historyStore
+                .record({ url: snapshot.url, title: snapshot.title })
+                .pipe(Effect.catch(() => Effect.void)),
+            );
+          }
         }
-        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+        this.fork(this.persistPageSnapshotForWebContents(webContentsId, contents));
       });
       add("did-navigate", (...args) => {
         this.updateTabForWebContents(webContentsId, contents, {
@@ -2190,7 +2200,7 @@ export class BrowserSidebarService {
           isWaitingForResponse: false,
           pendingUrl: undefined,
         });
-        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+        this.fork(this.persistPageSnapshotForWebContents(webContentsId, contents));
       });
       add("did-navigate-in-page", (...args) => {
         const snapshot = this.updateTabForWebContents(webContentsId, contents, {
@@ -2199,23 +2209,26 @@ export class BrowserSidebarService {
           pendingUrl: undefined,
         });
         if (snapshot) {
-          void this.historyStore?.record({
-            url: snapshot.url,
-            title: snapshot.title,
-          });
+          if (this.historyStore) {
+            this.fork(
+              this.historyStore
+                .record({ url: snapshot.url, title: snapshot.title })
+                .pipe(Effect.catch(() => Effect.void)),
+            );
+          }
         }
-        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+        this.fork(this.persistPageSnapshotForWebContents(webContentsId, contents));
       });
       add("page-title-updated", (...args) => {
         this.updateTabForWebContents(webContentsId, contents, {
           title: readTitleFromEventArgs(args, contents.getTitle()),
         });
-        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+        this.fork(this.persistPageSnapshotForWebContents(webContentsId, contents));
       });
       add("page-favicon-updated", (...args) => {
         const faviconUrl = readFaviconFromEventArgs(args);
         this.updateTabForWebContents(webContentsId, contents, { faviconUrl });
-        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+        this.fork(this.persistPageSnapshotForWebContents(webContentsId, contents));
       });
       add("found-in-page", (...args) => {
         const result = readFoundInPageResult(args);
@@ -2353,39 +2366,54 @@ export class BrowserSidebarService {
     this.logger.warn("Browser load failed", { webContentsId, errorCode, hasUrl: url.length > 0 });
   }
 
-  private async syncDeviceEmulation(
+  private syncDeviceEmulation(
     tab: BrowserSidebarTabSnapshot,
     contents: BrowserWebContentsLike,
-  ): Promise<void> {
-    const result = tab.deviceToolbarVisible
-      ? await this.pageEmulation.syncDeviceMetrics(contents, tab.viewport)
-      : await this.pageEmulation.clearDeviceMetrics(contents);
-    if (result.ok || result.reason === "debugger-unavailable") return;
-    this.logger.warn("Browser device emulation could not be synchronized", {
-      ...browserIdentity(tab),
-      reason: result.reason,
-    });
+  ): Effect.Effect<void> {
+    return (
+      tab.deviceToolbarVisible
+        ? this.pageEmulation.syncDeviceMetrics(contents, tab.viewport)
+        : this.pageEmulation.clearDeviceMetrics(contents)
+    ).pipe(
+      Effect.tap((result) =>
+        result.ok || result.reason === "debugger-unavailable"
+          ? Effect.void
+          : Effect.sync(() =>
+              this.logger.warn("Browser device emulation could not be synchronized", {
+                ...browserIdentity(tab),
+                reason: result.reason,
+              }),
+            ),
+      ),
+      Effect.asVoid,
+    );
   }
 
-  private async syncPageColorScheme(
+  private syncPageColorScheme(
     identity: BrowserSidebarTabIdentity,
     contents: BrowserWebContentsLike,
     themeVariant: BrowserSidebarThemeVariant,
-  ): Promise<void> {
-    const result = await this.pageEmulation.syncColorScheme(contents, themeVariant);
-    const context = {
-      ...browserIdentity(identity),
-      themeVariant,
-      webContentsId: contents.id,
-    };
-    if (result.ok) {
-      this.logger.debug("Browser page color scheme synchronized", context);
-      return;
-    }
-    this.logger.warn("Browser page color scheme could not be synchronized", {
-      ...context,
-      reason: result.reason,
-    });
+  ): Effect.Effect<void> {
+    return this.pageEmulation.syncColorScheme(contents, themeVariant).pipe(
+      Effect.tap((result) =>
+        Effect.sync(() => {
+          const context = {
+            ...browserIdentity(identity),
+            themeVariant,
+            webContentsId: contents.id,
+          };
+          if (result.ok) {
+            this.logger.debug("Browser page color scheme synchronized", context);
+            return;
+          }
+          this.logger.warn("Browser page color scheme could not be synchronized", {
+            ...context,
+            reason: result.reason,
+          });
+        }),
+      ),
+      Effect.asVoid,
+    );
   }
 
   private setThemeVariantForViewScope(
@@ -2400,45 +2428,42 @@ export class BrowserSidebarService {
       if (tab.browserViewScopeId !== browserViewScopeId) continue;
       const contents = this.getAttachedWebContents(tab);
       if (!contents || contents.isDestroyed()) continue;
-      void this.syncPageColorScheme(tab, contents, themeVariant);
+      this.fork(this.syncPageColorScheme(tab, contents, themeVariant));
     }
   }
 
-  private async readSavedPage(
+  private readSavedPage(
     browserStorageId: string,
     identity: BrowserSidebarTabIdentity,
-  ): Promise<BrowserSerializedPage | null> {
-    if (!this.pageStore) return null;
-    let page: BrowserSerializedPage | null;
-    try {
-      page = await this.pageStore.get(browserStorageId);
-    } catch (error) {
-      this.logger.warn("Failed to read Browser page snapshot", {
-        browserStorageId,
-        error: readBoundedErrorMessage(error),
-      });
-      return null;
-    }
-    if (!page) return null;
-    const hasMatchingIdentity =
-      page.identity.browserConversationId === identity.browserConversationId &&
-      page.identity.browserViewScopeId === identity.browserViewScopeId &&
-      page.identity.browserTabId === identity.browserTabId;
-    const hasSafeNavigation =
-      isAllowedBrowserNavigationUrl(page.url) &&
-      page.navigation.entries.every((entry) => isAllowedBrowserNavigationUrl(entry.url));
-    if (hasMatchingIdentity && hasSafeNavigation) return page;
+  ): Effect.Effect<BrowserSerializedPage | null> {
+    const pageStore = this.pageStore;
+    if (!pageStore) return Effect.succeed(null);
+    return pageStore.get(browserStorageId).pipe(
+      Effect.flatMap((page) => {
+        if (!page) return Effect.succeed(null);
+        const hasMatchingIdentity =
+          page.identity.browserConversationId === identity.browserConversationId &&
+          page.identity.browserViewScopeId === identity.browserViewScopeId &&
+          page.identity.browserTabId === identity.browserTabId;
+        const hasSafeNavigation =
+          isAllowedBrowserNavigationUrl(page.url) &&
+          page.navigation.entries.every((entry) => isAllowedBrowserNavigationUrl(entry.url));
+        if (hasMatchingIdentity && hasSafeNavigation) return Effect.succeed(page);
 
-    this.invalidatedPageStorageIds.add(browserStorageId);
-    try {
-      await this.pageStore.delete(browserStorageId);
-    } catch (error) {
-      this.logger.warn("Failed to quarantine invalid Browser page snapshot", {
-        browserStorageId,
-        error: readBoundedErrorMessage(error),
-      });
-    }
-    return null;
+        this.invalidatedPageStorageIds.add(browserStorageId);
+        return pageStore.delete(browserStorageId).pipe(
+          Effect.catch((error) =>
+            Effect.sync(() =>
+              this.logger.warn("Failed to quarantine invalid Browser page snapshot", {
+                browserStorageId,
+                error: readBoundedErrorMessage(error),
+              }),
+            ),
+          ),
+          Effect.as(null),
+        );
+      }),
+    );
   }
 
   private canAdoptProvisionalBrowserStorage(tab: BrowserSidebarTabSnapshot): boolean {
@@ -2449,149 +2474,159 @@ export class BrowserSidebarService {
     );
   }
 
-  private async adoptProvisionalBrowserStorage(
+  private adoptProvisionalBrowserStorage(
     tab: BrowserSidebarTabSnapshot,
     browserStorageId: string,
-  ): Promise<BrowserSidebarTabSnapshot> {
-    const key = browserTabKey(tab);
-    const previousBrowserStorageId = tab.browserStorageId;
-    if (!previousBrowserStorageId) {
-      throw new Error("Provisional Browser storage identity is unavailable");
-    }
+  ): Effect.Effect<BrowserSidebarTabSnapshot> {
+    return Effect.gen(
+      function* (this: BrowserState) {
+        const key = browserTabKey(tab);
+        const previousBrowserStorageId = tab.browserStorageId;
+        if (!previousBrowserStorageId) {
+          throw new Error("Provisional Browser storage identity is unavailable");
+        }
 
-    this.runtimeRegistry.releaseHost(tab);
-    this.invalidatedPageStorageIds.delete(browserStorageId);
-    let savedPage = await this.readSavedPage(browserStorageId, tab);
-    if (!savedPage && this.pageStore) {
-      try {
-        await this.pageStore.reassociate(previousBrowserStorageId, browserStorageId);
-        savedPage = await this.readSavedPage(browserStorageId, tab);
-      } catch (error) {
-        this.logger.warn("Failed to migrate provisional Browser page storage", {
-          ...browserIdentity(tab),
-          error: readBoundedErrorMessage(error),
-        });
-      }
-    }
-
-    const preparedPage = savedPage ?? this.preparedPagesByStorageId.get(previousBrowserStorageId);
-    this.preparedPagesByStorageId.delete(previousBrowserStorageId);
-    if (preparedPage) {
-      this.preparedPagesByStorageId.set(browserStorageId, {
-        ...preparedPage,
-        browserStorageId,
-      });
-    } else {
-      this.preparedPagesByStorageId.delete(browserStorageId);
-    }
-    this.invalidatedPageStorageIds.delete(previousBrowserStorageId);
-
-    const snapshot = this.updateTab(key, {
-      browserStorageId,
-      ...(savedPage
-        ? {
-            faviconUrl: savedPage.faviconUrl,
-            hasBrowserPage: !isBlankBrowserUrl(savedPage.url),
-            pageActionsDisabled: isBlankBrowserUrl(savedPage.url),
-            pendingUrl: undefined,
-            restoreResult: "snapshot-ready" as const,
-            title: savedPage.title,
-            url: savedPage.url,
+        this.runtimeRegistry.releaseHost(tab);
+        this.invalidatedPageStorageIds.delete(browserStorageId);
+        let savedPage = yield* this.readSavedPage(browserStorageId, tab);
+        if (!savedPage && this.pageStore) {
+          const migration = yield* Effect.exit(
+            this.pageStore.reassociate(previousBrowserStorageId, browserStorageId),
+          );
+          if (migration._tag === "Success") {
+            savedPage = yield* this.readSavedPage(browserStorageId, tab);
+          } else {
+            this.logger.warn("Failed to migrate provisional Browser page storage", {
+              ...browserIdentity(tab),
+              error: readBoundedErrorMessage(migration.cause),
+            });
           }
-        : {}),
-    });
-    this.logger.info("Migrated provisional Browser storage identity", {
-      ...browserIdentity(tab),
-    });
-    return snapshot;
+        }
+
+        const preparedPage =
+          savedPage ?? this.preparedPagesByStorageId.get(previousBrowserStorageId);
+        this.preparedPagesByStorageId.delete(previousBrowserStorageId);
+        if (preparedPage) {
+          this.preparedPagesByStorageId.set(browserStorageId, {
+            ...preparedPage,
+            browserStorageId,
+          });
+        } else {
+          this.preparedPagesByStorageId.delete(browserStorageId);
+        }
+        this.invalidatedPageStorageIds.delete(previousBrowserStorageId);
+
+        const snapshot = this.updateTab(key, {
+          browserStorageId,
+          ...(savedPage
+            ? {
+                faviconUrl: savedPage.faviconUrl,
+                hasBrowserPage: !isBlankBrowserUrl(savedPage.url),
+                pageActionsDisabled: isBlankBrowserUrl(savedPage.url),
+                pendingUrl: undefined,
+                restoreResult: "snapshot-ready" as const,
+                title: savedPage.title,
+                url: savedPage.url,
+              }
+            : {}),
+        });
+        this.logger.info("Migrated provisional Browser storage identity", {
+          ...browserIdentity(tab),
+        });
+        return snapshot;
+      }.bind(this),
+    );
   }
 
-  private async restoreSavedPage(
+  private restoreSavedPage(
     tabId: string,
     contents: BrowserWebContentsLike,
     preparedPage?: BrowserSerializedPage,
     lease?: BrowserEarlyPageRestoreLease,
-  ): Promise<BrowserSidebarTabSnapshot> {
-    const current = this.tabs.get(tabId);
-    if (!current) throw new Error("Browser tab is not registered");
-    const isActive = lease?.isActive ?? (() => true);
-    if (!isActive()) return current;
-    const browserStorageId = current.browserStorageId;
-    const pageStore = this.pageStore;
-    if (!browserStorageId || !contents.navigationHistory || !pageStore) {
-      return this.updateTab(tabId, {
-        lifecycleState: current.presented ? "live-attached" : "live-detached",
-        restoreResult: "missing",
-      });
-    }
+  ): Effect.Effect<BrowserSidebarTabSnapshot> {
+    return Effect.gen(
+      function* (this: BrowserState) {
+        const current = this.tabs.get(tabId);
+        if (!current) return yield* Effect.die("Browser tab is not registered");
+        const isActive = lease?.isActive ?? (() => true);
+        if (!isActive()) return current;
+        const browserStorageId = current.browserStorageId;
+        const pageStore = this.pageStore;
+        const navigationHistory = contents.navigationHistory;
+        if (!browserStorageId || !navigationHistory || !pageStore) {
+          return this.updateTab(tabId, {
+            lifecycleState: current.presented ? "live-attached" : "live-detached",
+            restoreResult: "missing",
+          });
+        }
 
-    const page = preparedPage ?? (await this.readSavedPage(browserStorageId, current));
-    if (!isActive()) return this.tabs.get(tabId) ?? current;
-    if (!page) {
-      return this.updateTab(tabId, {
-        lifecycleState: current.presented ? "live-attached" : "live-detached",
-        restoreResult: "missing",
-      });
-    }
+        const page = preparedPage ?? (yield* this.readSavedPage(browserStorageId, current));
+        if (!isActive()) return this.tabs.get(tabId) ?? current;
+        if (!page) {
+          return this.updateTab(tabId, {
+            lifecycleState: current.presented ? "live-attached" : "live-detached",
+            restoreResult: "missing",
+          });
+        }
 
-    this.updateTab(tabId, {
-      lifecycleState: "restoring",
-      restoreResult: "snapshot-ready",
-    });
-    try {
-      await contents.navigationHistory.restore({
-        entries: page.navigation.entries,
-        index: page.navigation.currentIndex,
-      });
-      if (!isActive()) return this.tabs.get(tabId) ?? current;
-      return (
-        this.refreshSnapshotFromWebContents(tabId, contents, {
-          url: page.url,
-          title: page.title,
-          faviconUrl: page.faviconUrl,
-          lifecycleState: current.presented ? "live-attached" : "live-detached",
+        this.updateTab(tabId, {
+          lifecycleState: "restoring",
           restoreResult: "snapshot-ready",
-          errorMessage: undefined,
-          failure: undefined,
-        }) ?? current
-      );
-    } catch (error) {
-      if (!isActive()) return this.tabs.get(tabId) ?? current;
-      this.invalidatedPageStorageIds.add(browserStorageId);
-      try {
-        await pageStore.delete(browserStorageId);
-      } catch {
-        // The restore error remains the actionable result. A future startup will
-        // quarantine the same invalid snapshot again if deletion also failed.
-      }
-      if (!isActive()) return this.tabs.get(tabId) ?? current;
-      const description = readBoundedErrorMessage(error);
-      return this.updateTab(tabId, {
-        lifecycleState: current.presented ? "live-attached" : "live-detached",
-        restoreResult: "missing",
-        failure: {
-          kind: "generic",
-          failedUrl: page.url,
-          code: 0,
-          description,
-        },
-        errorMessage: "Saved Browser history could not be restored. Reload to retry.",
-      });
-    }
+        });
+        const restored = yield* Effect.exit(
+          Effect.promise(() =>
+            navigationHistory.restore({
+              entries: page.navigation.entries,
+              index: page.navigation.currentIndex,
+            }),
+          ),
+        );
+        if (restored._tag === "Success") {
+          if (!isActive()) return this.tabs.get(tabId) ?? current;
+          return (
+            this.refreshSnapshotFromWebContents(tabId, contents, {
+              url: page.url,
+              title: page.title,
+              faviconUrl: page.faviconUrl,
+              lifecycleState: current.presented ? "live-attached" : "live-detached",
+              restoreResult: "snapshot-ready",
+              errorMessage: undefined,
+              failure: undefined,
+            }) ?? current
+          );
+        }
+        if (!isActive()) return this.tabs.get(tabId) ?? current;
+        this.invalidatedPageStorageIds.add(browserStorageId);
+        yield* pageStore.delete(browserStorageId).pipe(Effect.ignore);
+        if (!isActive()) return this.tabs.get(tabId) ?? current;
+        const description = readBoundedErrorMessage(restored.cause);
+        return this.updateTab(tabId, {
+          lifecycleState: current.presented ? "live-attached" : "live-detached",
+          restoreResult: "missing",
+          failure: {
+            kind: "generic",
+            failedUrl: page.url,
+            code: 0,
+            description,
+          },
+          errorMessage: "Saved Browser history could not be restored. Reload to retry.",
+        });
+      }.bind(this),
+    );
   }
 
-  private async persistPageSnapshotForWebContents(
+  private persistPageSnapshotForWebContents(
     webContentsId: number,
     contents: BrowserWebContentsLike,
-  ): Promise<void> {
+  ): Effect.Effect<void> {
     const tabId = this.webContentsTabIds.get(webContentsId);
     const pageStore = this.pageStore;
     const navigationHistory = contents.navigationHistory;
-    if (!tabId || !pageStore || !navigationHistory || contents.isDestroyed()) return;
+    if (!tabId || !pageStore || !navigationHistory || contents.isDestroyed()) return Effect.void;
     const tab = this.tabs.get(tabId);
     const browserStorageId = tab?.browserStorageId;
     if (!tab || !browserStorageId || this.invalidatedPageStorageIds.has(browserStorageId)) {
-      return;
+      return Effect.void;
     }
 
     let entries: BrowserSerializedPage["navigation"]["entries"];
@@ -2608,7 +2643,7 @@ export class BrowserSidebarService {
         ...browserIdentity(tab),
         error: readBoundedErrorMessage(error),
       });
-      return;
+      return Effect.void;
     }
     if (
       entries.length === 0 ||
@@ -2616,7 +2651,7 @@ export class BrowserSidebarService {
       currentIndex >= entries.length ||
       entries.some((entry) => !isAllowedBrowserNavigationUrl(entry.url))
     ) {
-      return;
+      return Effect.void;
     }
 
     const latest = this.tabs.get(tabId);
@@ -2625,10 +2660,10 @@ export class BrowserSidebarService {
       latest.browserStorageId !== browserStorageId ||
       this.invalidatedPageStorageIds.has(browserStorageId)
     ) {
-      return;
+      return Effect.void;
     }
-    try {
-      await pageStore.set({
+    return pageStore
+      .set({
         schemaVersion: 1,
         runtime: "electron-webview",
         browserStorageId,
@@ -2641,13 +2676,17 @@ export class BrowserSidebarService {
           currentIndex,
           entries,
         },
-      });
-    } catch (error) {
-      this.logger.warn("Failed to persist Browser page snapshot", {
-        ...browserIdentity(latest),
-        error: readBoundedErrorMessage(error),
-      });
-    }
+      })
+      .pipe(
+        Effect.catch((error) =>
+          Effect.sync(() =>
+            this.logger.warn("Failed to persist Browser page snapshot", {
+              ...browserIdentity(latest),
+              error: readBoundedErrorMessage(error),
+            }),
+          ),
+        ),
+      );
   }
 
   private enforceBrowserTabBudget(browserViewScopeId: string): void {
@@ -2674,33 +2713,37 @@ export class BrowserSidebarService {
         };
       });
     for (const candidate of selectBrowserTabsToSuspend(entries)) {
-      void this.suspendBrowserTab(browserTabKey(candidate));
+      this.fork(this.suspendBrowserTab(browserTabKey(candidate)));
     }
   }
 
-  private async suspendBrowserTab(tabId: string): Promise<void> {
-    const tab = this.tabs.get(tabId);
-    if (
-      !tab ||
-      tab.lifecycleState !== "live-detached" ||
-      tab.webContentsId === null ||
-      this.pendingTeardowns.has(tabId)
-    ) {
-      return;
-    }
-    const contents = this.getAttachedWebContents(tab);
-    if (!contents || contents.isDestroyed()) return;
-    await this.persistPageSnapshotForWebContents(tab.webContentsId, contents);
-    const current = this.tabs.get(tabId);
-    if (
-      !current ||
-      current.webContentsId !== tab.webContentsId ||
-      current.lifecycleState !== "live-detached"
-    ) {
-      return;
-    }
-    this.updateTab(tabId, { lifecycleState: "suspending" });
-    this.requestDestroyWebview(tabId, "suspend");
+  private suspendBrowserTab(tabId: string): Effect.Effect<void> {
+    return Effect.gen(
+      function* (this: BrowserState) {
+        const tab = this.tabs.get(tabId);
+        if (
+          !tab ||
+          tab.lifecycleState !== "live-detached" ||
+          tab.webContentsId === null ||
+          this.pendingTeardowns.has(tabId)
+        ) {
+          return;
+        }
+        const contents = this.getAttachedWebContents(tab);
+        if (!contents || contents.isDestroyed()) return;
+        yield* this.persistPageSnapshotForWebContents(tab.webContentsId, contents);
+        const current = this.tabs.get(tabId);
+        if (
+          !current ||
+          current.webContentsId !== tab.webContentsId ||
+          current.lifecycleState !== "live-detached"
+        ) {
+          return;
+        }
+        this.updateTab(tabId, { lifecycleState: "suspending" });
+        this.requestDestroyWebview(tabId, "suspend");
+      }.bind(this),
+    );
   }
 
   private requestDestroyWebview(
@@ -2730,7 +2773,7 @@ export class BrowserSidebarService {
 
   private getAttachedWebContents(tab: BrowserSidebarTabSnapshot): BrowserWebContentsLike | null {
     if (tab.webContentsId === null) return null;
-    return this.electron.webContents.fromId(tab.webContentsId) ?? null;
+    return this.electron.webContentsFromId(tab.webContentsId) ?? null;
   }
 
   private emitState(): void {
@@ -2900,16 +2943,6 @@ function isBrowserUseCommand(command: BrowserSidebarCommand): command is Browser
     command.type === "browser-use-set-viewport" ||
     command.type === "browser-use-set-capture-surface"
   );
-}
-
-function isNavigationAbortError(error: unknown): boolean {
-  if (error && typeof error === "object") {
-    const record = error as { code?: unknown; errno?: unknown; message?: unknown };
-    if (record.code === "ERR_ABORTED") return true;
-    if (record.errno === -3) return true;
-    if (typeof record.message === "string" && record.message.includes("ERR_ABORTED")) return true;
-  }
-  return false;
 }
 
 function readUrlFromEventArgs(args: unknown[], fallback: string): string {

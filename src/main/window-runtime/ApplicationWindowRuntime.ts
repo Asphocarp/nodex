@@ -9,7 +9,7 @@ import type { AppUpdateStatus } from "../../shared/types";
 import { BROWSER_SIDEBAR_PARTITION } from "../../shared/browser-sidebar";
 import { isAllowedBrowserExternalUrl } from "../../shared/browser-url";
 import type { WindowSessionRecord } from "../../shared/window-session";
-import type { BrowserSidebarService } from "../browser-sidebar-service";
+import type { BrowserGuestHost } from "../browser-application/BrowserApplication";
 import type { BrowserAuthorizedAttachment } from "../browser/browser-runtime-registry";
 import {
   consumePendingBrowserWebviewAttachment,
@@ -42,7 +42,7 @@ export interface ApplicationWindowRuntimeOptions {
   readonly appUpdates: {
     readonly currentStatus: Effect.Effect<AppUpdateStatus>;
   };
-  readonly browserSidebar: BrowserSidebarService;
+  readonly browser: BrowserGuestHost;
   readonly rendererConversations: CodexRendererConversationCoordinator["Service"];
   readonly desktopNotifications: DesktopNotificationRuntime["Service"];
   readonly iconPath: string;
@@ -145,14 +145,14 @@ export const live = (
           }
           const decision = decideBrowserWebviewAttachment({
             authorizeAttachment: (route) =>
-              options.browserSidebar.authorizeWebviewAttachment(window.webContents.id, route),
+              options.browser.authorizeAttachment(window.webContents.id, route),
             isRegisteredBrowserStorage: (identity, browserStorageId) =>
-              options.browserSidebar.isRegisteredBrowserStorage(identity, browserStorageId),
+              options.browser.isRegisteredStorage(identity, browserStorageId),
             ownerBrowserViewScopeId:
               options.windows.resolveSessionId(window.webContents.id) ?? session.id,
             partition: params.partition,
             revokeAuthorizedAttachment: (attachToken) =>
-              options.browserSidebar.revokeAuthorizedWebviewAttachment(attachToken),
+              options.browser.revokeAttachment(attachToken),
             src: params.src,
           });
           if (!decision.ok) {
@@ -172,9 +172,7 @@ export const live = (
             decision.authorization,
           );
           if (!registration.ok) {
-            options.browserSidebar.revokeAuthorizedWebviewAttachment(
-              decision.authorization.attachToken,
-            );
+            options.browser.revokeAttachment(decision.authorization.attachToken);
             logger.warn("Rejected Browser webview attachment", {
               reason: registration.reason,
               browserConversationId: decision.authorization.browserConversationId,
@@ -218,7 +216,7 @@ export const live = (
             guest.close();
             return;
           }
-          const ownership = options.browserSidebar.consumeAuthorizedWebviewAttachment(
+          const ownership = options.browser.consumeAuthorizedAttachment(
             pending.attachToken,
             window.webContents.id,
             guest.id,
@@ -234,13 +232,13 @@ export const live = (
             guest.close();
             return;
           }
-          options.browserSidebar.registerAttachedWebviewOwnership(
+          options.browser.registerOwnership(
             window.webContents.id,
             guest.id,
             ownership,
             ownership.browserStorageId,
           );
-          options.browserSidebar.prepareAttachedWebviewHistoryRestore(ownership, guest.id);
+          options.browser.prepareHistoryRestore(ownership, guest.id);
         });
 
         const webContentsId = window.webContents.id;
@@ -300,7 +298,7 @@ export const live = (
           });
         });
         window.on("closed", () => {
-          options.browserSidebar.releaseRendererOwner(webContentsId);
+          options.browser.releaseOwner(webContentsId);
           options.desktopNotifications.dismissByOriginWebContentsId(webContentsId);
           callbacks.fork(
             options.rendererConversations.setClientForegrounded(

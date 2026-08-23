@@ -1,122 +1,296 @@
+import type { IpcMainInvokeEvent } from "electron";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import type * as Scope from "effect/Scope";
-import type { IpcMainInvokeEvent } from "electron";
+import type { CodexPendingWorktreeCreateInput } from "../../../shared/codex-pending-worktree";
+import { requireCodexWorktreeEnvironmentConfigPath } from "../../../shared/codex-worktree-environment-path";
 import type { IpcApi } from "../../../shared/ipc-api";
+import type { CodexAgentMode } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
-import type { CodexService } from "../../codex/codex-service";
-import {
-  registerCodexPendingWorktreeIpcHandlers,
-  type CodexPendingWorktreeIpcChannel,
-  type CodexPendingWorktreeIpcHandler,
-  type CodexPendingWorktreeIpcService,
-} from "../../codex/codex-pending-worktree-ipc";
+import { CodexClientThreadIdentity } from "../../codex-application/CodexClientThreadIdentity";
+import { CodexForkSidePanelTransfer } from "../../codex-application/CodexForkSidePanelTransferRuntime";
+import { CodexPendingWorktreeRuntime } from "../../codex-application/CodexPendingWorktreeRuntime";
+import { executionWorkspacePathKey } from "../../codex/codex-execution-workspace-roots";
+import { allocateCodexPendingWorktreeRequest } from "../../codex/codex-pending-worktree-request";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
+import { ProjectWorkspace } from "../../project-application/ProjectWorkspace";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
-
-export interface CodexPendingWorktreeIpcOptions {
-  readonly codex: CodexService;
-}
 
 export class CodexPendingWorktreeIpcError extends Schema.TaggedError<CodexPendingWorktreeIpcError>()(
   "CodexPendingWorktreeIpcError",
   { operation: Schema.String, cause: Schema.Defect() },
 ) {}
 
-type TransferChannel =
+type PendingChannel =
+  | "codex:pending-worktrees:list"
+  | "codex:pending-worktree:create"
+  | "codex:pending-worktree:auto-fix"
+  | "codex:pending-worktree:retry"
+  | "codex:pending-worktree:work-locally"
+  | "codex:pending-worktree:continue"
+  | "codex:pending-worktree:cancel"
+  | "codex:pending-worktree:dismiss"
+  | "codex:pending-worktree:rename"
+  | "codex:pending-worktree:set-pinned"
+  | "codex:pending-worktree:set-pinned-before-thread"
+  | "codex:pending-worktree:clear-attention"
+  | "codex:pending-worktree:resolve-thread"
   | "codex:pending-worktree:discard-fork-side-panel-transfer"
   | "codex:fork-side-panel-transfer:consume";
 
-export const live = (
-  options: CodexPendingWorktreeIpcOptions,
-): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
-  Layer.effectDiscard(
-    Effect.gen(function* () {
-      const config = yield* MainConfig;
-      const ipc = yield* ElectronIpc;
-      const windows = yield* WindowRuntime;
-      const authorize = (event: IpcMainInvokeEvent) =>
-        Effect.try({
-          try: () => {
-            requireTrustedAppRendererSender(event, "Codex pending worktree", config.rendererUrl);
-            if (!windows.has(event.sender.id)) {
-              throw new Error("Codex pending worktree access requires an active Nodex window");
-            }
-          },
-          catch: (cause) =>
-            new CodexPendingWorktreeIpcError({ operation: "authorize-renderer", cause }),
-        });
-      const invoke = <A>(operation: string, task: () => A | Promise<A>) =>
-        Effect.tryPromise({
-          try: () => Promise.resolve(task()),
-          catch: (cause) => new CodexPendingWorktreeIpcError({ operation, cause }),
-        });
-      const install = <Channel extends CodexPendingWorktreeIpcChannel>(
-        channel: Channel,
-        handler: CodexPendingWorktreeIpcHandler<Channel>,
-      ) =>
-        ipc.handle(channel, (event, ...args) =>
-          authorize(event).pipe(
-            Effect.flatMap(() =>
-              invoke(channel, () => Reflect.apply(handler, undefined, [event, ...args])),
+type Handler<Channel extends PendingChannel> = (
+  event: IpcMainInvokeEvent,
+  ...args: IpcApi[Channel]["args"]
+) => Effect.Effect<IpcApi[Channel]["result"], unknown>;
+
+const requireIdentifier = (value: string, label: string): string => {
+  if (typeof value !== "string" || value.length === 0) throw new Error(`${label} is required`);
+  return value;
+};
+
+const requireLabel = (value: string): string => {
+  const label = requireIdentifier(value, "Pending worktree label").trim();
+  if (!label) throw new Error("Pending worktree label is required");
+  return label;
+};
+
+const requireAgentMode = (value: CodexAgentMode): CodexAgentMode => {
+  if (
+    value === "read-only" ||
+    value === "auto" ||
+    value === "granular" ||
+    value === "guardian-approvals" ||
+    value === "full-access" ||
+    value === "custom"
+  ) {
+    return value;
+  }
+  throw new Error("Agent mode is invalid");
+};
+
+const requireSourceWorkspaceRoots = (
+  value: readonly string[],
+  sourceWorkspaceRoot: string,
+): readonly string[] => {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("Source workspace roots are required");
+  }
+  for (const root of value) requireIdentifier(root, "Source workspace root");
+  const primaryKey = executionWorkspacePathKey(sourceWorkspaceRoot);
+  if (!value.some((root) => executionWorkspacePathKey(root) === primaryKey)) {
+    throw new Error("Source workspace roots must contain the primary root");
+  }
+  return value;
+};
+
+const requireCreateInput = (
+  value: CodexPendingWorktreeCreateInput,
+): CodexPendingWorktreeCreateInput => {
+  if (!value || typeof value !== "object") {
+    throw new Error("Pending worktree create input is required");
+  }
+  requireIdentifier(value.hostId, "Host id");
+  requireLabel(value.label);
+  requireIdentifier(value.sourceWorkspaceRoot, "Source workspace root");
+  requireIdentifier(value.prompt, "Pending worktree prompt");
+  if (value.localEnvironmentConfigPath != null) {
+    requireCodexWorktreeEnvironmentConfigPath(value.localEnvironmentConfigPath);
+  }
+  if (
+    value.launchMode !== "create-stable-worktree" &&
+    value.launchMode !== "fork-conversation" &&
+    value.launchMode !== "start-conversation"
+  ) {
+    throw new Error("Pending worktree launch mode is invalid");
+  }
+  if (value.launchMode === "fork-conversation" || value.launchMode === "create-stable-worktree") {
+    requireSourceWorkspaceRoots(value.sourceWorkspaceRoots, value.sourceWorkspaceRoot);
+  }
+  if (value.launchMode === "fork-conversation") {
+    requireIdentifier(value.sourceConversationId, "Source conversation id");
+  }
+  if (value.launchMode === "start-conversation" && !value.startConversationParamsInput) {
+    throw new Error("Pending worktree start parameters are required");
+  }
+  return value;
+};
+
+export const live: Layer.Layer<
+  never,
+  never,
+  | CodexClientThreadIdentity
+  | CodexForkSidePanelTransfer
+  | CodexPendingWorktreeRuntime
+  | ElectronIpc
+  | MainConfig
+  | ProjectWorkspace
+  | WindowRuntime
+> = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const clientIdentity = yield* CodexClientThreadIdentity;
+    const config = yield* MainConfig;
+    const forkTransfers = yield* CodexForkSidePanelTransfer;
+    const ipc = yield* ElectronIpc;
+    const pending = yield* CodexPendingWorktreeRuntime;
+    const projects = yield* ProjectWorkspace;
+    const windows = yield* WindowRuntime;
+    const fail = (operation: string, cause: unknown) =>
+      new CodexPendingWorktreeIpcError({ operation, cause });
+    const authorize = (event: IpcMainInvokeEvent) =>
+      Effect.try({
+        try: () => {
+          requireTrustedAppRendererSender(event, "Codex pending worktree", config.rendererUrl);
+          if (!windows.has(event.sender.id)) {
+            throw new Error("Codex pending worktree access requires an active Nodex window");
+          }
+        },
+        catch: (cause) => fail("authorize-renderer", cause),
+      });
+    const validate = <A>(operation: string, evaluate: () => A) =>
+      Effect.try({ try: evaluate, catch: (cause) => fail(operation, cause) });
+    const handle = <Channel extends PendingChannel>(channel: Channel, handler: Handler<Channel>) =>
+      ipc.handle(channel, (event, ...args) =>
+        authorize(event).pipe(
+          Effect.andThen(
+            (
+              Reflect.apply(handler, undefined, [event, ...args]) as Effect.Effect<
+                IpcApi[Channel]["result"],
+                unknown
+              >
+            ).pipe(
+              Effect.mapError((cause) =>
+                cause instanceof CodexPendingWorktreeIpcError ? cause : fail(channel, cause),
+              ),
             ),
           ),
-        );
-      const registrations: Array<Effect.Effect<void, never, Scope.Scope>> = [];
-
-      registerCodexPendingWorktreeIpcHandlers({
-        registerHandle: (channel, handler) => {
-          registrations.push(install(channel, handler));
-        },
-        service: options.codex as unknown as CodexPendingWorktreeIpcService,
-      });
-      yield* Effect.all(registrations, { discard: true });
-
-      const handle = <Channel extends TransferChannel>(
-        channel: Channel,
-        handler: (
-          event: IpcMainInvokeEvent,
-          ...args: IpcApi[Channel]["args"]
-        ) => Effect.Effect<IpcApi[Channel]["result"], unknown>,
-      ) => ipc.handle(channel, handler);
-
-      yield* handle(
-        "codex:pending-worktree:discard-fork-side-panel-transfer",
-        (event, pendingWorktreeId) =>
-          authorize(event).pipe(
-            Effect.flatMap(() => {
-              if (!pendingWorktreeId.trim()) {
-                return Effect.fail(
-                  new CodexPendingWorktreeIpcError({
-                    operation: "discard-fork-side-panel-transfer",
-                    cause: new Error("Pending worktree id is required"),
-                  }),
-                );
-              }
-              return invoke("discard-fork-side-panel-transfer", () =>
-                options.codex.discardPendingForkSidePanelTransfer(pendingWorktreeId),
-              );
-            }),
-          ),
-      );
-      yield* handle("codex:fork-side-panel-transfer:consume", (event, input) =>
-        authorize(event).pipe(
-          Effect.flatMap(() => {
-            if (windows.resolveSessionId(event.sender.id) !== input.targetBrowserViewScopeId) {
-              return Effect.fail(
-                new CodexPendingWorktreeIpcError({
-                  operation: "consume-fork-side-panel-transfer",
-                  cause: new Error("Browser view scope does not belong to the requesting window"),
-                }),
-              );
-            }
-            return invoke("consume-fork-side-panel-transfer", () =>
-              options.codex.consumeForkSidePanelTransfer(input),
-            );
-          }),
         ),
       );
-    }),
-  );
+    const requireOwned = (hostId: string, pendingWorktreeId: string) =>
+      validate("resolve-pending-worktree", () => {
+        requireIdentifier(hostId, "Host id");
+        requireIdentifier(pendingWorktreeId, "Pending worktree id");
+        const entry = pending.list().find((candidate) => candidate.id === pendingWorktreeId);
+        if (!entry || entry.hostId !== hostId) {
+          throw new Error(`Pending worktree is unavailable on host '${hostId}'`);
+        }
+        return entry;
+      });
+
+    yield* handle("codex:pending-worktrees:list", () => Effect.succeed([...pending.list()]));
+    yield* handle("codex:pending-worktree:create", (_, input) =>
+      validate("create", () => allocateCodexPendingWorktreeRequest(requireCreateInput(input))).pipe(
+        Effect.tap((allocated) => pending.create(allocated.request)),
+        Effect.map((allocated) => allocated.result),
+      ),
+    );
+    yield* handle("codex:pending-worktree:auto-fix", (_, hostId, pendingWorktreeId, agentMode) =>
+      validate("auto-fix", () => ({
+        hostId: requireIdentifier(hostId, "Host id"),
+        pendingWorktreeId: requireIdentifier(pendingWorktreeId, "Pending worktree id"),
+        agentMode: requireAgentMode(agentMode),
+      })).pipe(
+        Effect.flatMap((input) =>
+          pending.createSetupRepair(input.hostId, input.pendingWorktreeId, input.agentMode),
+        ),
+      ),
+    );
+    yield* handle("codex:pending-worktree:retry", (_, hostId, pendingWorktreeId) =>
+      requireOwned(hostId, pendingWorktreeId).pipe(
+        Effect.andThen(pending.retry(pendingWorktreeId)),
+      ),
+    );
+    yield* handle("codex:pending-worktree:work-locally", (_, hostId, pendingWorktreeId) =>
+      requireOwned(hostId, pendingWorktreeId).pipe(
+        Effect.andThen(pending.workLocally(pendingWorktreeId)),
+      ),
+    );
+    yield* handle("codex:pending-worktree:continue", (_, hostId, pendingWorktreeId) =>
+      requireOwned(hostId, pendingWorktreeId).pipe(
+        Effect.andThen(pending.continueWithoutSetup(pendingWorktreeId)),
+      ),
+    );
+    yield* handle("codex:pending-worktree:cancel", (_, hostId, pendingWorktreeId) =>
+      requireOwned(hostId, pendingWorktreeId).pipe(
+        Effect.andThen(pending.cancel(pendingWorktreeId)),
+      ),
+    );
+    yield* handle("codex:pending-worktree:dismiss", (_, hostId, pendingWorktreeId) =>
+      requireOwned(hostId, pendingWorktreeId).pipe(
+        Effect.andThen(pending.dismiss(pendingWorktreeId)),
+      ),
+    );
+    yield* handle("codex:pending-worktree:rename", (_, hostId, pendingWorktreeId, label) =>
+      requireOwned(hostId, pendingWorktreeId).pipe(
+        Effect.andThen(validate("rename", () => requireLabel(label))),
+        Effect.flatMap((validated) => pending.rename(pendingWorktreeId, validated)),
+      ),
+    );
+    yield* handle("codex:pending-worktree:set-pinned", (_, hostId, pendingWorktreeId, isPinned) =>
+      requireOwned(hostId, pendingWorktreeId).pipe(
+        Effect.andThen(pending.setPinned(pendingWorktreeId, isPinned)),
+      ),
+    );
+    yield* handle(
+      "codex:pending-worktree:set-pinned-before-thread",
+      (_, hostId, pendingWorktreeId, beforeThreadId) =>
+        requireOwned(hostId, pendingWorktreeId).pipe(
+          Effect.andThen(
+            validate("set-pinned-before-thread", () =>
+              beforeThreadId === null
+                ? null
+                : requireIdentifier(beforeThreadId, "Before thread id"),
+            ),
+          ),
+          Effect.flatMap((validated) =>
+            pending.setPinnedBeforeThreadId(pendingWorktreeId, validated),
+          ),
+        ),
+    );
+    yield* handle("codex:pending-worktree:clear-attention", (_, hostId, pendingWorktreeId) =>
+      requireOwned(hostId, pendingWorktreeId).pipe(
+        Effect.andThen(pending.clearAttention(pendingWorktreeId)),
+      ),
+    );
+    yield* handle("codex:pending-worktree:resolve-thread", (_, clientThreadId) =>
+      validate("resolve-thread", () => requireIdentifier(clientThreadId, "Client thread id")).pipe(
+        Effect.flatMap((validated) =>
+          clientIdentity
+            .threadIdFor(validated)
+            .pipe(
+              Effect.map((threadId) =>
+                threadId
+                  ? { state: "succeeded" as const, clientThreadId: validated, threadId }
+                  : pending.resolveThread(validated),
+              ),
+            ),
+        ),
+      ),
+    );
+    yield* handle(
+      "codex:pending-worktree:discard-fork-side-panel-transfer",
+      (_, pendingWorktreeId) =>
+        validate("discard-fork-side-panel-transfer", () =>
+          requireIdentifier(pendingWorktreeId, "Pending worktree id"),
+        ).pipe(Effect.flatMap(forkTransfers.discardPending)),
+    );
+    yield* handle("codex:fork-side-panel-transfer:consume", (event, input) =>
+      Effect.gen(function* () {
+        if (windows.resolveSessionId(event.sender.id) !== input.targetBrowserViewScopeId) {
+          return yield* fail(
+            "consume-fork-side-panel-transfer",
+            new Error("Browser view scope does not belong to the requesting window"),
+          );
+        }
+        const session = yield* projects.getProjectSession(input.targetProjectSessionId);
+        if (!session || session.thread?.threadId !== input.targetConversationId) {
+          return yield* fail(
+            "consume-fork-side-panel-transfer",
+            new Error("Target project session does not own the conversation"),
+          );
+        }
+        return yield* forkTransfers.consumeTarget(input);
+      }),
+    );
+  }),
+);

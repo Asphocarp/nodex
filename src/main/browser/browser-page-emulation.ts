@@ -9,7 +9,6 @@ import type {
   BrowserSidebarThemeVariant,
   BrowserSidebarViewport,
 } from "../../shared/browser-sidebar";
-import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 
 interface BrowserDebuggerPort {
   attach(protocolVersion?: string): void;
@@ -53,26 +52,6 @@ export interface BrowserPageEmulationRuntime {
     themeVariant: BrowserSidebarThemeVariant,
   ) => Effect.Effect<BrowserPageEmulationResult>;
   readonly release: (target: BrowserPageEmulationTarget) => Effect.Effect<void>;
-}
-
-/** Narrow Promise projection used only by the Electron BrowserSidebar callback consumer. */
-export interface BrowserPageEmulationElectronPort {
-  readonly retainDebugger: (
-    target: BrowserPageEmulationTarget,
-  ) => Promise<BrowserPageEmulationResult>;
-  readonly isDebuggerRetained: (target: BrowserPageEmulationTarget) => boolean;
-  readonly syncDeviceMetrics: (
-    target: BrowserPageEmulationTarget,
-    viewport: BrowserSidebarViewport,
-  ) => Promise<BrowserPageEmulationResult>;
-  readonly clearDeviceMetrics: (
-    target: BrowserPageEmulationTarget,
-  ) => Promise<BrowserPageEmulationResult>;
-  readonly syncColorScheme: (
-    target: BrowserPageEmulationTarget,
-    themeVariant: BrowserSidebarThemeVariant,
-  ) => Promise<BrowserPageEmulationResult>;
-  readonly release: (target: BrowserPageEmulationTarget) => void;
 }
 
 const MOBILE_PRESET_PATTERN = /(iphone|pixel|samsung|ipad|surface-duo|surface-pro)/i;
@@ -312,71 +291,73 @@ export const makeBrowserPageEmulationRuntime: Effect.Effect<
   };
 });
 
-export const makeBrowserPageEmulationElectronPort = (
-  runtime: BrowserPageEmulationRuntime,
-  callbacks: ScopedCallbackRuntime["Service"],
-): BrowserPageEmulationElectronPort => ({
-  retainDebugger: (target) => callbacks.runPromise(runtime.retainDebugger(target)),
-  isDebuggerRetained: runtime.isDebuggerRetained,
-  syncDeviceMetrics: (target, viewport) =>
-    callbacks.runPromise(runtime.syncDeviceMetrics(target, viewport)),
-  clearDeviceMetrics: (target) => callbacks.runPromise(runtime.clearDeviceMetrics(target)),
-  syncColorScheme: (target, themeVariant) =>
-    callbacks.runPromise(runtime.syncColorScheme(target, themeVariant)),
-  release: (target) => {
-    callbacks.fork(runtime.release(target));
-  },
-});
-
-/** Test-only port for synchronous BrowserSidebarService fixtures. */
-export const makeBrowserPageEmulationElectronPortUnsafe = (): BrowserPageEmulationElectronPort => {
+/** Test-only runtime for synchronous Browser state fixtures. */
+export const makeBrowserPageEmulationRuntimeUnsafe = (): BrowserPageEmulationRuntime => {
   const retained = new Set<BrowserPageEmulationTarget>();
-  const withDebugger = async (
+  const withDebugger = (
     target: BrowserPageEmulationTarget,
-    operation?: (debuggerPort: BrowserDebuggerPort) => Promise<unknown>,
-  ): Promise<BrowserPageEmulationResult> => {
-    const debuggerPort = target.debugger;
-    if (!debuggerPort) return { ok: false, reason: "debugger-unavailable" };
-    if (target.isDestroyed()) return { ok: false, reason: "target-destroyed" };
-    try {
-      if (!debuggerPort.isAttached()) debuggerPort.attach("1.3");
-      retained.add(target);
-      await operation?.(debuggerPort);
-      return { ok: true };
-    } catch {
-      return { ok: false, reason: "cdp-failed" };
-    }
-  };
+    operation?: (debuggerPort: BrowserDebuggerPort) => Effect.Effect<unknown>,
+  ): Effect.Effect<BrowserPageEmulationResult> =>
+    Effect.gen(function* () {
+      const debuggerPort = target.debugger;
+      if (!debuggerPort) return { ok: false, reason: "debugger-unavailable" } as const;
+      if (target.isDestroyed()) return { ok: false, reason: "target-destroyed" } as const;
+      const attached = yield* Effect.exit(
+        Effect.sync(() => {
+          if (!debuggerPort.isAttached()) debuggerPort.attach("1.3");
+          retained.add(target);
+        }),
+      );
+      if (attached._tag === "Failure") return { ok: false, reason: "cdp-failed" } as const;
+      const executed = yield* Effect.exit(operation?.(debuggerPort) ?? Effect.void);
+      return executed._tag === "Success"
+        ? ({ ok: true } as const)
+        : ({ ok: false, reason: "cdp-failed" } as const);
+    });
   return {
     retainDebugger: (target) => withDebugger(target),
     isDebuggerRetained: (target) => retained.has(target),
     syncDeviceMetrics: (target, viewport) =>
-      withDebugger(target, async (debuggerPort) => {
-        const mobile = isMobileViewport(viewport);
-        await debuggerPort.sendCommand("Emulation.setDeviceMetricsOverride", {
-          width: viewport.width,
-          height: viewport.height,
-          deviceScaleFactor: 1,
-          mobile,
-          screenWidth: viewport.width,
-          screenHeight: viewport.height,
-        });
-        await debuggerPort.sendCommand("Emulation.setTouchEmulationEnabled", {
-          enabled: mobile,
-          maxTouchPoints: mobile ? 5 : 1,
-        });
-      }),
-    clearDeviceMetrics: (target) =>
-      withDebugger(target, async (debuggerPort) => {
-        await debuggerPort.sendCommand("Emulation.clearDeviceMetricsOverride");
-        await debuggerPort.sendCommand("Emulation.setTouchEmulationEnabled", { enabled: false });
-      }),
-    syncColorScheme: (target, themeVariant) =>
       withDebugger(target, (debuggerPort) =>
-        debuggerPort.sendCommand("Emulation.setEmulatedMedia", {
-          features: [{ name: "prefers-color-scheme", value: themeVariant }],
+        Effect.gen(function* () {
+          const mobile = isMobileViewport(viewport);
+          yield* Effect.promise(() =>
+            debuggerPort.sendCommand("Emulation.setDeviceMetricsOverride", {
+              width: viewport.width,
+              height: viewport.height,
+              deviceScaleFactor: 1,
+              mobile,
+              screenWidth: viewport.width,
+              screenHeight: viewport.height,
+            }),
+          );
+          yield* Effect.promise(() =>
+            debuggerPort.sendCommand("Emulation.setTouchEmulationEnabled", {
+              enabled: mobile,
+              maxTouchPoints: mobile ? 5 : 1,
+            }),
+          );
         }),
       ),
-    release: (target) => retained.delete(target),
+    clearDeviceMetrics: (target) =>
+      withDebugger(target, (debuggerPort) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            debuggerPort.sendCommand("Emulation.clearDeviceMetricsOverride"),
+          );
+          yield* Effect.promise(() =>
+            debuggerPort.sendCommand("Emulation.setTouchEmulationEnabled", { enabled: false }),
+          );
+        }),
+      ),
+    syncColorScheme: (target, themeVariant) =>
+      withDebugger(target, (debuggerPort) =>
+        Effect.promise(() =>
+          debuggerPort.sendCommand("Emulation.setEmulatedMedia", {
+            features: [{ name: "prefers-color-scheme", value: themeVariant }],
+          }),
+        ),
+      ),
+    release: (target) => Effect.sync(() => void retained.delete(target)),
   };
 };

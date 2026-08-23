@@ -11,7 +11,7 @@ import type {
   ProjectSessionSummary,
   ProjectSessionSummaryWindow,
 } from "../../shared/types";
-import { BrowserSidebarRuntime } from "../host-runtime/BrowserSidebarRuntime";
+import { BrowserApplication } from "../browser-application/BrowserApplication";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import { ProjectArchiveBlockers } from "./ProjectArchiveBlockers";
@@ -43,7 +43,7 @@ interface ProjectOwnershipSnapshot {
 export const live: Layer.Layer<
   ProjectLifecycleCommands,
   never,
-  | BrowserSidebarRuntime
+  | BrowserApplication
   | ProjectArchiveBlockers
   | ProjectRuntimeLifecycleRuntime
   | ProjectWorkspace
@@ -52,7 +52,7 @@ export const live: Layer.Layer<
   ProjectLifecycleCommands,
   Effect.gen(function* () {
     const blockers = yield* ProjectArchiveBlockers;
-    const browser = yield* BrowserSidebarRuntime;
+    const browser = yield* BrowserApplication;
     const lifecycleRuntime = yield* ProjectRuntimeLifecycleRuntime;
     const workspace = yield* ProjectWorkspace;
     const terminals = yield* TerminalSessions;
@@ -107,14 +107,7 @@ export const live: Layer.Layer<
       const tasks = [
         ...ownership.sessions.map((session) => ({
           label: `browser-conversation:${session.id}`,
-          effect: Effect.try({
-            try: () => browser.browser.closeBrowserConversation(session.id),
-            catch: (cause) =>
-              new ProjectLifecycleCommandsError({
-                operation: "commit",
-                cause,
-              }),
-          }),
+          effect: browser.closeConversation(session.id),
         })),
         {
           label: `browser-project:${ownership.project.id}`,

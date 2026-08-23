@@ -5,16 +5,21 @@ import path from "node:path";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import type { Session } from "electron";
 import type { BrowserSidebarTabSnapshot } from "../../shared/browser-sidebar";
-import { BrowserSidebarService } from "../browser-sidebar-service";
+import { BrowserState } from "../browser-application/BrowserState";
+import {
+  BrowserApplication,
+  type BrowserProjection,
+} from "../browser-application/BrowserApplication";
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import { makeBrowserRuntimeRegistry } from "../browser/browser-runtime-registry";
-import { makeBrowserPageEmulationElectronPortUnsafe } from "../browser/browser-page-emulation";
+import { makeBrowserPageEmulationRuntimeUnsafe } from "../browser/browser-page-emulation";
 import { makeBrowserEarlyPageRestoreRuntime } from "../browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntime } from "../browser/BrowserWebContentsListenerRuntime";
 import { ElectronApp } from "../platform/electron/ElectronApp";
@@ -22,9 +27,9 @@ import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronNet } from "../platform/electron/ElectronNet";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
+import { browserElectronPlatform } from "../platform/electron/BrowserElectronPlatform";
 import { layer as callbackLayer, ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import { BrowserProfileRuntime, live } from "./BrowserProfileRuntime";
-import { BrowserSidebarRuntime } from "./BrowserSidebarRuntime";
 
 class FakeBrowserSession extends EventEmitter {
   readonly cookies = {};
@@ -39,14 +44,17 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
         Effect.gen(function* () {
           const browserSession = new FakeBrowserSession();
           const scope = yield* Scope.make();
-          const browserSidebar = new BrowserSidebarService({
+          const runBackground = yield* FiberSet.makeRuntime<never, void, never>();
+          const browserSidebar = new BrowserState({
             earlyPageRestores:
               yield* makeBrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>().pipe(
                 Effect.provideService(Scope.Scope, scope),
               ),
+            electron: browserElectronPlatform,
             events: { publish: () => undefined },
             runtimeRegistry: makeBrowserRuntimeRegistry(),
-            pageEmulation: makeBrowserPageEmulationElectronPortUnsafe(),
+            fork: (effect) => void runBackground(effect),
+            pageEmulation: makeBrowserPageEmulationRuntimeUnsafe(),
             siteStatus: { cachedCommentModeBlocked: () => null },
             webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
               Effect.provideService(Scope.Scope, scope),
@@ -54,6 +62,20 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
           });
           const callbacksContext = yield* Layer.buildWithScope(callbackLayer, scope);
           const callbacks = Context.get(callbacksContext, ScopedCallbackRuntime);
+          const projection: BrowserProjection = {
+            admitLocalServerThumbnail: (input) => browserSidebar.admitLocalServerThumbnail(input),
+            getBrowserUseState: () => browserSidebar.getBrowserUseStateSnapshot(),
+            getState: () => browserSidebar.getStateSnapshot(),
+            getTab: (identity) => browserSidebar.getTabSnapshot(identity),
+            getWebContents: (identity) => browserSidebar.getWebContentsForTab(identity),
+            hasPresentedSurfaceForThread: (threadId) =>
+              browserSidebar.hasPresentedBrowserUseSurfaceForThread(threadId),
+            isBrowserUseIdentity: (identity) => browserSidebar.isBrowserUseIdentity(identity),
+            listPendingPresentations: (scopeId) =>
+              browserSidebar.listPendingBrowserUsePresentationRequests(scopeId),
+            setDownloadActive: (identity, active) =>
+              browserSidebar.setDownloadActive(identity, active),
+          };
           const context = yield* Layer.buildWithScope(
             live({
               environment: {},
@@ -68,10 +90,18 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
               Layer.provide(
                 Layer.mergeAll(
                   Layer.succeed(
-                    BrowserSidebarRuntime,
-                    BrowserSidebarRuntime.of({
-                      browser: browserSidebar,
-                    } as BrowserSidebarRuntime["Service"]),
+                    BrowserApplication,
+                    BrowserApplication.of({
+                      guest: {
+                        getIdentity: (webContentsId: number) =>
+                          browserSidebar.getIdentityForWebContents(webContentsId),
+                        getOwnerWebContentsId: (webContentsId: number) =>
+                          browserSidebar.getOwnerWebContentsIdForGuest(webContentsId),
+                      },
+                      projection: {
+                        ...projection,
+                      },
+                    } as unknown as BrowserApplication["Service"]),
                   ),
                   Layer.succeed(
                     ElectronApp,

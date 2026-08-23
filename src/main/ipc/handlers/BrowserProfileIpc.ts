@@ -2,9 +2,11 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type { IpcMainEvent, IpcMainInvokeEvent, WebContents } from "electron";
-import type { BrowserSidebarService } from "../../browser-sidebar-service";
+import {
+  BrowserApplication,
+  type BrowserGuestHost,
+} from "../../browser-application/BrowserApplication";
 import { BrowserProfileRuntime } from "../../host-runtime/BrowserProfileRuntime";
-import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { safeBroadcastToWindows, safeSendToWebContents } from "../../ipc-safe-send";
 import { MainConfig } from "../../app/MainConfig";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
@@ -54,14 +56,11 @@ const attempt = <A>(
     catch: (cause) => new BrowserProfileIpcError({ operation, cause }),
   });
 
-const ownerForGuest = (
-  browserSidebar: BrowserSidebarService,
-  event: IpcMainEvent,
-): WebContents | null => {
-  if (!browserSidebar.isAuthorizedGuestWebContents(event.sender.id)) return null;
+const ownerForGuest = (guest: BrowserGuestHost, event: IpcMainEvent): WebContents | null => {
+  if (!guest.isAuthorized(event.sender.id)) return null;
   const owner = event.sender.hostWebContents;
   if (!owner) return null;
-  if (browserSidebar.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id) return null;
+  if (guest.getOwnerWebContentsId(event.sender.id) !== owner.id) return null;
   return owner;
 };
 
@@ -69,7 +68,7 @@ export const live: Layer.Layer<
   never,
   never,
   | BrowserProfileRuntime
-  | BrowserSidebarRuntime
+  | BrowserApplication
   | ElectronDesktop
   | ElectronIpc
   | ElectronWindowHost
@@ -78,7 +77,8 @@ export const live: Layer.Layer<
 > = Layer.effectDiscard(
   Effect.gen(function* () {
     const browserProfile = yield* BrowserProfileRuntime;
-    const { browser: browserSidebar } = yield* BrowserSidebarRuntime;
+    const browser = yield* BrowserApplication;
+    const { guest } = browser;
     const desktop = yield* ElectronDesktop;
     const ipc = yield* ElectronIpc;
     const windows = yield* ElectronWindowHost;
@@ -461,20 +461,20 @@ export const live: Layer.Layer<
 
     yield* ipc.on("browser-image-drag-started", (event, rawInput: unknown) =>
       Effect.sync(() => {
-        if (!ownerForGuest(browserSidebar, event)) return;
+        if (!ownerForGuest(guest, event)) return;
         const input = BrowserGuestImageDragStartedSchema.safeParse(rawInput);
         if (!input.success) return;
-        browserSidebar.startBrowserImageDrag(event.sender.id, input.data.sourceUrl);
+        guest.startImageDrag(event.sender.id, input.data.sourceUrl);
       }),
     );
     yield* ipc.on("browser-image-drag-ended", (event) =>
       Effect.sync(() => {
-        if (!browserSidebar.isAuthorizedGuestWebContents(event.sender.id)) return;
-        browserSidebar.endBrowserImageDrag(event.sender.id);
+        if (!guest.isAuthorized(event.sender.id)) return;
+        guest.endImageDrag(event.sender.id);
       }),
     );
     yield* ipc.on("browser-credential-save-candidate", (event, rawInput: unknown) => {
-      const owner = ownerForGuest(browserSidebar, event);
+      const owner = ownerForGuest(guest, event);
       if (!owner) return Effect.void;
       const input = BrowserCredentialGuestCandidateSchema.safeParse(rawInput);
       if (!input.success) return Effect.void;
@@ -495,11 +495,11 @@ export const live: Layer.Layer<
     });
     yield* ipc.on("browser-annotation-selection", (event, rawInput: unknown) =>
       Effect.sync(() => {
-        const owner = ownerForGuest(browserSidebar, event);
+        const owner = ownerForGuest(guest, event);
         if (!owner) return;
         const selection = BrowserAnnotationSelectionEventSchema.safeParse(rawInput);
         if (!selection.success || selection.data.anchor.pageUrl !== event.sender.getURL()) return;
-        const identity = browserSidebar.getIdentityForWebContents(event.sender.id);
+        const identity = guest.getIdentity(event.sender.id);
         if (!identity) return;
         safeSendToWebContents(owner, "browser-annotation-selection", [
           { ...identity, selection: selection.data },
@@ -508,11 +508,11 @@ export const live: Layer.Layer<
     );
     yield* ipc.on("browser-annotation-anchor-update", (event, rawInput: unknown) =>
       Effect.sync(() => {
-        const owner = ownerForGuest(browserSidebar, event);
+        const owner = ownerForGuest(guest, event);
         if (!owner) return;
         const update = BrowserAnnotationAnchorUpdateEventSchema.safeParse(rawInput);
         if (!update.success || update.data.anchor.pageUrl !== event.sender.getURL()) return;
-        const identity = browserSidebar.getIdentityForWebContents(event.sender.id);
+        const identity = guest.getIdentity(event.sender.id);
         if (!identity) return;
         safeSendToWebContents(owner, "browser-annotation-anchor-update", [
           { ...identity, update: update.data },
@@ -520,20 +520,20 @@ export const live: Layer.Layer<
       }),
     );
     yield* ipc.on("browser-navigation-button", (event, rawDirection: unknown) => {
-      const owner = ownerForGuest(browserSidebar, event);
-      const identity = browserSidebar.getIdentityForWebContents(event.sender.id);
+      const owner = ownerForGuest(guest, event);
+      const identity = guest.getIdentity(event.sender.id);
       const direction =
         rawDirection === "back" ? "go-back" : rawDirection === "forward" ? "go-forward" : null;
       if (!owner || !identity || !direction) return Effect.void;
-      return attempt("apply-guest-navigation", () =>
-        browserSidebar.handleCommand(
-          { type: direction, ...identity },
-          { ownerWebContentsId: owner.id },
-        ),
-      ).pipe(
-        Effect.catch(() => Effect.void),
-        Effect.asVoid,
-      );
+      return browser
+        .applyCommand({ type: direction, ...identity }, { ownerWebContentsId: owner.id })
+        .pipe(
+          Effect.mapError(
+            (cause) => new BrowserProfileIpcError({ operation: "apply-guest-navigation", cause }),
+          ),
+          Effect.catch(() => Effect.void),
+          Effect.asVoid,
+        );
     });
   }),
 );

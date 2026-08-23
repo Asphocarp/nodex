@@ -158,10 +158,12 @@ const makeHarness = () => {
     Effect.provideService(
       CodexPendingWorktreeRuntime,
       CodexPendingWorktreeRuntime.of({
-        create: (request: Parameters<CodexPendingWorktreeRuntime["Service"]["create"]>[0]) => {
-          order.push("pending:create");
-          pendingRequests.push(request);
-        },
+        list: () => [],
+        create: (request: Parameters<CodexPendingWorktreeRuntime["Service"]["create"]>[0]) =>
+          Effect.sync(() => {
+            order.push("pending:create");
+            pendingRequests.push(request);
+          }),
       } as never),
     ),
     Effect.provideService(

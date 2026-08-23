@@ -8,6 +8,7 @@ import type { CodexConversationSnapshot } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
+import { CodexAttachments } from "./CodexAttachments";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { make, type CodexSessionThreadLaunchContext } from "./CodexSessionThreadLaunch";
@@ -113,6 +114,14 @@ const harness = (
     events,
     threadStartParams,
     effect: make.pipe(
+      Effect.provideService(
+        CodexAttachments,
+        CodexAttachments.of({
+          materializePastedText: () =>
+            Effect.succeed({ attachments: [], createdAttachmentPaths: [] }),
+          removePastedText: () => Effect.void,
+        } as unknown as CodexAttachments["Service"]),
+      ),
       Effect.provideService(CodexGateway, gateway),
       Effect.provideService(CoreModules, core),
       Effect.provideService(CodexThreadDirectory, directory),

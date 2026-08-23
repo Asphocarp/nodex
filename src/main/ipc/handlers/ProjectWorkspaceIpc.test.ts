@@ -8,7 +8,7 @@ import { CodexProjectSessionFork } from "../../codex-application/CodexProjectSes
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
-import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
+import { BrowserApplication } from "../../browser-application/BrowserApplication";
 import { ProjectLifecycleCommands } from "../../project-application/ProjectLifecycleCommands";
 import {
   ProjectWorkspace,
@@ -65,10 +65,10 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
               CodexProjectSessionFork,
               CodexProjectSessionFork.of({ fork: () => Effect.die("unused") }),
             ),
-            Layer.succeed(BrowserSidebarRuntime, {
-              browser: { closeBrowserConversation: () => undefined },
+            Layer.succeed(BrowserApplication, {
+              closeConversation: () => Effect.void,
               localServers: { closeProject: () => Effect.void },
-            } as unknown as BrowserSidebarRuntime["Service"]),
+            } as unknown as BrowserApplication["Service"]),
             mainConfigLayer(),
             Layer.succeed(
               ProjectLifecycleCommands,

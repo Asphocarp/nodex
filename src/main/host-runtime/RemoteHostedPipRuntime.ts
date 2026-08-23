@@ -7,7 +7,6 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { BrowserWindow } from "electron";
 import type { CodexDesktopMessageFromView } from "../../shared/remote-hosted-pip";
-import type { BrowserSidebarService } from "../browser-sidebar-service";
 import type { BrowserSidebarEventHubService } from "../browser/BrowserSidebarEventHub";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { safeBroadcastToWindows, safeSendToWebContents } from "../ipc-safe-send";
@@ -54,7 +53,7 @@ export class RemoteHostedPipRuntimeError extends Schema.TaggedError<RemoteHosted
 
 export interface RemoteHostedPipRuntimeOptions {
   readonly browserSidebarEvents: BrowserSidebarEventHubService;
-  readonly browserSidebarService: BrowserSidebarService;
+  readonly isThreadSurfacePresented: (threadId: string) => boolean;
   readonly platform: NodeJS.Platform;
   readonly preferenceFilePath: string;
 }
@@ -136,8 +135,7 @@ export const live = (
               sender as Electron.WebContents,
             ) as unknown as RemoteHostedPipWindowLike | null,
           isEnabled: () => options.platform === "darwin" && isMacOSVersionAtLeast("13.0"),
-          isThreadSurfacePresented: (threadId) =>
-            options.browserSidebarService.hasPresentedBrowserUseSurfaceForThread(threadId),
+          isThreadSurfacePresented: options.isThreadSurfacePresented,
           readAlwaysHide: preferences.readAlwaysHide,
           readMaxDisplaySize: preferences.readMaxDisplaySize,
           sendToSender: (sender, channel, payload) => {

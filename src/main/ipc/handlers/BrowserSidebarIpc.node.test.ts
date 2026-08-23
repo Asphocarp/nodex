@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -7,15 +8,20 @@ import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import type { BrowserSidebarTabSnapshot } from "../../../shared/browser-sidebar";
 import { MainConfig } from "../../app/MainConfig";
-import { BrowserSidebarService } from "../../browser-sidebar-service";
+import { BrowserState } from "../../browser-application/BrowserState";
+import {
+  BrowserApplication,
+  type BrowserProjection,
+} from "../../browser-application/BrowserApplication";
 import { make as makeBrowserSidebarEventHub } from "../../browser/BrowserSidebarEventHub";
 import { makeBrowserRuntimeRegistry } from "../../browser/browser-runtime-registry";
-import { makeBrowserPageEmulationElectronPortUnsafe } from "../../browser/browser-page-emulation";
+import { makeBrowserPageEmulationRuntimeUnsafe } from "../../browser/browser-page-emulation";
 import { makeBrowserEarlyPageRestoreRuntime } from "../../browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntime } from "../../browser/BrowserWebContentsListenerRuntime";
 import { BrowserPresentationRuntime } from "../../host-runtime/BrowserPresentationRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
+import { browserElectronPlatform } from "../../platform/electron/BrowserElectronPlatform";
 import { WindowSessionCatalog } from "../../window-runtime/WindowSessionCatalog";
 import { live } from "./BrowserSidebarIpc";
 
@@ -38,30 +44,49 @@ it.effect(
         on: () => Effect.void,
       });
       const scope = yield* Scope.make();
+      const runBackground = yield* FiberSet.makeRuntime<never, void, never>();
       const events = yield* makeBrowserSidebarEventHub.pipe(
         Effect.provideService(Scope.Scope, scope),
       );
-      const browser = new BrowserSidebarService({
+      const browser = new BrowserState({
         earlyPageRestores:
           yield* makeBrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>().pipe(
             Effect.provideService(Scope.Scope, scope),
           ),
+        electron: browserElectronPlatform,
         events,
         runtimeRegistry: makeBrowserRuntimeRegistry(),
-        pageEmulation: makeBrowserPageEmulationElectronPortUnsafe(),
+        fork: (effect) => void runBackground(effect),
+        pageEmulation: makeBrowserPageEmulationRuntimeUnsafe(),
         siteStatus: { cachedCommentModeBlocked: () => null },
         webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
           Effect.provideService(Scope.Scope, scope),
         ),
       });
-      const sidebar = {
-        browser,
+      const projection: BrowserProjection = {
+        admitLocalServerThumbnail: (input) => browser.admitLocalServerThumbnail(input),
+        getBrowserUseState: () => browser.getBrowserUseStateSnapshot(),
+        getState: () => browser.getStateSnapshot(),
+        getTab: (identity) => browser.getTabSnapshot(identity),
+        getWebContents: (identity) => browser.getWebContentsForTab(identity),
+        hasPresentedSurfaceForThread: (threadId) =>
+          browser.hasPresentedBrowserUseSurfaceForThread(threadId),
+        isBrowserUseIdentity: (identity) => browser.isBrowserUseIdentity(identity),
+        listPendingPresentations: (scopeId) =>
+          browser.listPendingBrowserUsePresentationRequests(scopeId),
+        setDownloadActive: (identity, activeDownload) =>
+          browser.setDownloadActive(identity, activeDownload),
+      };
+      const application = BrowserApplication.of({
         events,
         history: {} as never,
         localServers: { updates: Stream.empty } as never,
         localServerThumbnail: {} as never,
         pages: {} as never,
-      };
+        projection,
+        webviewDestroyed: browser.handleWebviewDestroyed.bind(browser),
+        webviewHostCreated: browser.handleWebviewHostCreated.bind(browser),
+      } as unknown as BrowserApplication["Service"]);
       yield* Layer.buildWithScope(
         live.pipe(
           Layer.provide(
@@ -69,16 +94,15 @@ it.effect(
               Layer.succeed(
                 BrowserPresentationRuntime,
                 BrowserPresentationRuntime.of({
-                  browser,
-                  sidebar,
                   applyCommand: (command, context) =>
-                    Effect.promise(() => browser.handleCommand(command, context)),
+                    browser.handleCommand(command, context).pipe(Effect.orDie),
                   clearBrowsingData: (kind) =>
                     kind === "downloads"
                       ? Effect.succeed({ ok: true })
-                      : Effect.promise(() => browser.clearBrowsingData(kind)),
+                      : browser.clearBrowsingData(kind),
                 }),
               ),
+              Layer.succeed(BrowserApplication, application),
               Layer.succeed(ElectronIpc, ipc),
               Layer.succeed(
                 ElectronWindowHost,

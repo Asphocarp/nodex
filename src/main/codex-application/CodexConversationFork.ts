@@ -6,7 +6,11 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import { appendCodexCanonicalForkedFromConversationItem } from "../../shared/codex-conversation-state/codex-conversation-state";
+import {
+  appendCodexCanonicalForkedFromConversationItem,
+  appendCodexCanonicalWorktreeInitItem,
+  type CodexCanonicalWorktreeInitItem,
+} from "../../shared/codex-conversation-state/codex-conversation-state";
 import type { CodexForkBrowserSceneContext } from "../../shared/codex-fork-browser-transfer";
 import type {
   CodexComposerIntent,
@@ -34,6 +38,18 @@ export interface CodexConversationForkInput {
   readonly threadSource: NonNullable<ThreadForkParams["threadSource"]>;
   readonly ownerClientId?: string | null;
   readonly sourceSceneContext?: CodexForkBrowserSceneContext;
+  readonly target?: {
+    readonly projectId: string | null;
+    readonly cwd: string;
+    readonly managedWorktreePath: string | null;
+    readonly runtimeWorkspaceRoots: readonly string[];
+  };
+  readonly pendingWorktreeId?: string;
+  readonly worktreeInit?: CodexCanonicalWorktreeInitItem;
+  readonly titleOverride?: {
+    readonly childTitle: string | null;
+    readonly sourceTitle?: string | null;
+  };
 }
 
 export interface CodexConversationForkResult {
@@ -139,7 +155,7 @@ export const make: Effect.Effect<
       }
     }
 
-    const { childTitle, sourceTitle } = yield* forkTitles
+    const derivedTitles = yield* forkTitles
       .derive({
         threadId: sourceThreadId,
         projectId: source.durable.projectId,
@@ -148,6 +164,8 @@ export const make: Effect.Effect<
         canonical: current.canonical,
       })
       .pipe(Effect.mapError((cause) => error("project", sourceThreadId, cause)));
+    const childTitle = input.titleOverride?.childTitle ?? derivedTitles.childTitle;
+    const sourceTitle = input.titleOverride?.sourceTitle ?? derivedTitles.sourceTitle;
     const execution = yield* core.workspace
       .read({ kind: "execution_context", thread_id: sourceThreadId })
       .pipe(Effect.mapError((cause) => error("project", sourceThreadId, cause)));
@@ -166,8 +184,10 @@ export const make: Effect.Effect<
       model: profile?.modelId ?? null,
       modelProvider: profile?.providerId ?? null,
       serviceTier: profile?.serviceTier ?? null,
-      cwd: source.durable.cwd,
-      runtimeWorkspaceRoots: [...execution.value.context.thread.writable_roots],
+      cwd: input.target?.cwd ?? source.durable.cwd,
+      runtimeWorkspaceRoots: [
+        ...(input.target?.runtimeWorkspaceRoots ?? execution.value.context.thread.writable_roots),
+      ],
       threadSource: input.threadSource,
       config: {
         ...(profile?.harnessId ? { harness: profile.harnessId } : {}),
@@ -192,7 +212,11 @@ export const make: Effect.Effect<
       );
     }
     const child = yield* directory
-      .acceptForkResult({ sourceThreadId, response })
+      .acceptForkResult({
+        sourceThreadId,
+        response,
+        ...(input.target ? { target: input.target } : {}),
+      })
       .pipe(Effect.mapError((cause) => error("materialize", sourceThreadId, cause)));
     if (!child.canonical || !child.snapshot?.turnPagination) {
       return yield* error(
@@ -201,12 +225,15 @@ export const make: Effect.Effect<
         new Error(`Forked Thread '${child.summary.threadId}' was not fully hydrated`),
       );
     }
-    const canonical = appendCodexCanonicalForkedFromConversationItem(child.canonical, {
+    const withForkMarker = appendCodexCanonicalForkedFromConversationItem(child.canonical, {
       id: randomUUID(),
       type: "forkedFromConversation",
       sourceConversationId: sourceThreadId,
       sourceConversationTitle: sourceTitle,
     });
+    const canonical = input.worktreeInit
+      ? appendCodexCanonicalWorktreeInitItem(withForkMarker, input.worktreeInit, "new-turn")
+      : withForkMarker;
     const observedAtMs = yield* Clock.currentTimeMillis;
     yield* projection
       .hydrate({
@@ -263,23 +290,29 @@ export const make: Effect.Effect<
         );
       }
     }
-    yield* sidePanelTransfers
-      .stageDirect({
-        sourceConversationId: sourceThreadId,
-        targetConversationId: child.summary.threadId,
-        ...(input.sourceSceneContext ? { sourceSceneContext: input.sourceSceneContext } : {}),
-      })
-      .pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Forked Thread could not inherit side-panel state").pipe(
-            Effect.annotateLogs({
-              sourceThreadId,
-              childThreadId: child.summary.threadId,
-              cause: String(cause),
-            }),
-          ),
+    yield* (
+      input.pendingWorktreeId && input.target
+        ? sidePanelTransfers.promotePending({
+            pendingWorktreeId: input.pendingWorktreeId,
+            targetConversationId: child.summary.threadId,
+            targetWorkspaceRoot: input.target.cwd,
+          })
+        : sidePanelTransfers.stageDirect({
+            sourceConversationId: sourceThreadId,
+            targetConversationId: child.summary.threadId,
+            ...(input.sourceSceneContext ? { sourceSceneContext: input.sourceSceneContext } : {}),
+          })
+    ).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Forked Thread could not inherit side-panel state").pipe(
+          Effect.annotateLogs({
+            sourceThreadId,
+            childThreadId: child.summary.threadId,
+            cause: String(cause),
+          }),
         ),
-      );
+      ),
+    );
     return {
       threadId: child.summary.threadId,
       session,

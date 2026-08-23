@@ -1,24 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { produceWithPatches } from "immer";
 import * as Effect from "effect/Effect";
 import type {
   CollaborationMode as CodexAppServerCollaborationMode,
-  GetAuthStatusResponse,
   RequestId,
 } from "@nodex/codex-app-server-protocol";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
-import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
-import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
-import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
-import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
-import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSource";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
 import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/ThreadResumeParams";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
@@ -29,10 +23,8 @@ import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/Th
 import type { ThreadTurnsListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadTurnsListResponse";
 import type { Turn } from "@nodex/codex-app-server-protocol/v2/Turn";
 import type { TurnStartParams } from "@nodex/codex-app-server-protocol/v2/TurnStartParams";
-import type { TurnStartResponse } from "@nodex/codex-app-server-protocol/v2/TurnStartResponse";
 import type {
   PageRunInTarget,
-  CodexAgentMode,
   CodexAutomationRunsUpdatedEvent,
   CodexBackgroundTerminalRow,
   CodexCanonicalServerRequest,
@@ -70,7 +62,6 @@ import type {
   CodexTranscriptEntrySource,
   CodexThreadActiveFlag,
   CodexThreadDetail,
-  CodexThreadGoalDraftInput,
   CodexThreadStatusType,
   CodexThreadSummary,
   CodexTurnDiffPatchBatch,
@@ -79,7 +70,6 @@ import type {
   CodexThreadTokenUsage,
   CodexScheduledAutomationChangedEvent,
   CodexThreadStartForSessionInput,
-  CodexThreadStartMemoryPreferences,
   CodexThreadStreamCheckpoint,
   TerminalSessionSnapshot,
   CodexTurnStatus,
@@ -87,7 +77,6 @@ import type {
   CodexPromptAgentConfigInput,
   CodexPromptInput,
   CodexPromptTextAttachmentInput,
-  ProjectSession,
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
@@ -96,8 +85,6 @@ import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
-import type { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
-import type { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
 import type {
   ExecutionHost,
   ExecutionHostRuntime,
@@ -106,38 +93,16 @@ import type { CodexGitProbePromiseAdapter } from "../codex-application/CodexGitP
 import type { CodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import type { CodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
 import type { CodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
-import type {
-  CodexForkBrowserSidePanelSnapshot,
-  CodexForkBrowserTransferConsumeInput,
-} from "../../shared/codex-fork-browser-transfer";
 import { parseAssetSource } from "../../shared/assets";
 import {
   getTerminalInteractionBufferKey,
   parseTerminalInteractionInput,
 } from "../../shared/codex-terminal-interaction";
-import { CODEX_CLIENT_THREAD_ID_PREFIX } from "../../shared/codex-client-thread";
-import { buildCodexDelegationInput } from "../../shared/codex-delegation";
-import {
-  buildCodexPendingWorktreeSetupRepairPrompt,
-  buildCodexPendingWorktreeInitItem,
-  canCreateCodexPendingWorktreeSetupRepair,
-  CODEX_PENDING_WORKTREE_SETUP_REPAIR_LABEL,
-  extractCodexUserRequestSection,
-  type CodexPendingStartConversationParamsInput,
-  type CodexPendingWorktreeCreateInput,
-  type CodexPendingWorktreeCreateResult,
-  type CodexPendingWorktreeEntry,
-  type CodexPendingWorktreeThreadResolution,
-} from "../../shared/codex-pending-worktree";
 import {
   createCodexTextUserInput as createTextUserInput,
   prepareCodexPrompt,
 } from "../../shared/codex-prompt-preparation";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
-import {
-  PastedTextAttachmentManager,
-  ThreadGoalAttachmentDirectoryManager,
-} from "../thread-goal-attachments";
 import type { CodexAttachments } from "../codex-application/CodexAttachments";
 import type { CodexPendingServerRequestRuntimeService } from "../codex-application/CodexPendingServerRequestRuntime";
 import type {
@@ -166,7 +131,6 @@ import {
   type CodexNotificationConversationFacts,
   type CodexThreadNotificationEvent,
 } from "../../shared/codex-thread-notification";
-import { hasCodexPendingContinuation } from "../../shared/codex-turn-notification";
 import { isRawCodexSubagentThreadIdLabel } from "../../shared/codex-subagent-display";
 import {
   buildCodexTurnDiffFromPatchBatches,
@@ -184,8 +148,6 @@ import {
   type CodexConversationReducerEffect,
 } from "../../shared/codex-conversation-state/codex-conversation-reducer";
 import {
-  appendCodexCanonicalForkedFromConversationItem,
-  appendCodexCanonicalWorktreeInitItem,
   canonicalizeCodexCanonicalTurnStates,
   createCodexCanonicalWorkspacePermissionContext,
   createCodexCanonicalHydratedConversationState,
@@ -196,16 +158,9 @@ import {
   resolveCodexCanonicalHydratedPermissionContext,
   resolveCodexCanonicalProjectlessCwd,
   type CodexCanonicalHydratedPermissionContext,
-  type CodexCanonicalLiveTurnParams,
   type CodexCanonicalSteeringUserMessageItem,
   type CodexCanonicalTurnState,
-  type CodexCanonicalWorktreeInitItem,
 } from "../../shared/codex-conversation-state/codex-conversation-state";
-import {
-  appendCodexCanonicalOptimisticFirstTurn,
-  bindCodexCanonicalOptimisticTurn,
-  failCodexCanonicalOptimisticTurn,
-} from "../../shared/codex-conversation-state/codex-optimistic-turn";
 import { reduceCodexConversationTurnLifecycle } from "../../shared/codex-conversation-state/codex-turn-lifecycle";
 import { appendCodexCanonicalThreadGoalTranscriptTurn } from "../../shared/codex-conversation-state/codex-thread-goal-transcript";
 import { projectCodexHistoryRequestViews } from "../../shared/codex-conversation-state/codex-history-request-projection";
@@ -237,10 +192,6 @@ import {
   removeOrderedStringIds,
   upsertOrderedStringIds,
 } from "../../shared/codex-turn-order";
-import {
-  REVIEW_DIFF_COMMENTS_ADDITIONAL_CONTEXT_KEY,
-  serializeReviewDiffCommentAttachmentsForAdditionalContext,
-} from "../../shared/review-diff-comments";
 import { buildTurnErrorItemView } from "../../shared/codex-turn-error-projection";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
 import type { CodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
@@ -269,10 +220,7 @@ import {
 } from "./codex-transcript-projection";
 import { shouldTerminalizeItemWithTurn } from "../../shared/codex-turn-terminalization";
 import { completeCodexMcpToolCallForTurn } from "../../shared/codex-mcp-tool-call";
-import {
-  parseCodexReasoningSummary,
-  resolveCodexReasoningSummary,
-} from "../../shared/codex-reasoning-summary-policy";
+import { parseCodexReasoningSummary } from "../../shared/codex-reasoning-summary-policy";
 import {
   buildCodexConversationSnapshot,
   buildCodexConversationTurn,
@@ -295,9 +243,6 @@ import {
   CODEX_THREAD_TITLE_PROMPT_MAX_CHARS,
   normalizeCodexManualThreadTitle,
   projectCodexMarkdownToPlainText,
-  resolveCodexForkChildThreadTitleFromCatalog,
-  resolveCodexForkSourceConversationTitle,
-  type CodexForkTitleThread,
 } from "../../shared/codex-thread-title";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
@@ -308,19 +253,8 @@ import {
   buildCodexAppMetaThreadToolSpecs,
   CODEX_APP_LOCAL_HOST_ID,
 } from "./codex-app-meta-thread-tools";
-import {
-  getCodexClientThreadId,
-  resolveCodexThreadIdForClientThreadId,
-  setCodexClientThreadIdentity,
-} from "./codex-client-thread-identity";
 import type { PersistedAtomStore } from "../local-store/persisted-atoms";
-import {
-  buildCodexProjectlessThreadInstructions,
-  parseCodexAutomationInboxItemDirective,
-} from "../codex-scheduled-automation-runtime";
-import type { DesktopAutomationModulePort } from "../core-client/desktop-automation-module-bridge";
 import type { AutomationRoutingIndex } from "../core-runtime/AutomationRoutingIndex";
-import { resolveAutomationArchiveMessagesFromTranscript } from "../automation-application/AutomationExecution";
 import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
@@ -333,49 +267,17 @@ import {
   type BuildCodexNewConversationParamsInput,
   type CodexStoredShellEnvironment,
 } from "./codex-thread-launch-context";
-import {
-  CODEX_DEFAULT_FEATURE_OVERRIDES,
-  buildCodexThreadConfigOverrides,
-} from "./codex-thread-capabilities";
+import { CODEX_DEFAULT_FEATURE_OVERRIDES } from "./codex-thread-capabilities";
 import { persistCodexWorktreeShellEnvironment } from "./codex-worktree-shell-environment";
-import type {
-  CodexWorktreeWorkerEvent,
-  CodexWorktreeWorkerOperation,
-} from "./codex-worktree-worker-protocol";
+import type { CodexWorktreeWorkerOperation } from "./codex-worktree-worker-protocol";
 import {
   evaluateCodexThreadHandoffCapability,
   type CodexThreadHandoffCapability,
 } from "./codex-thread-handoff-capability";
 import {
-  normalizeWorktreePathForIdentity,
-  resolveWorktreePathComparisonKey,
-} from "./codex-managed-worktree-effects";
-import {
   migrateLegacyCodexProjectlessWorkspace,
   repairCodexProjectlessWorkspace,
 } from "./codex-projectless-workspace-repair";
-import {
-  type CodexDynamicCreateModelProjection,
-  type CodexDynamicCreateThreadInput,
-} from "./codex-dynamic-thread-create";
-import type { CodexResolvedDynamicDirectThreadTarget } from "./codex-dynamic-thread-target";
-import {
-  buildCodexDynamicPendingPermissionSelection,
-  resolveCodexDynamicCreatePermissionSelection,
-  type CodexDynamicCreatePermissionContext,
-  type CodexDynamicCreatePermissionMode,
-  type CodexDynamicCreatePermissionSelection,
-} from "./codex-dynamic-create-permissions";
-import {
-  resolveCodexCreateThreadServiceTier,
-  type CodexCreateThreadServiceTierSelector,
-} from "./codex-dynamic-create-service-tier";
-import { expandCodexDynamicCreateConfigProfile } from "./codex-dynamic-create-config";
-import {
-  augmentCodexDynamicFirstTurnPermissionContext,
-  resolveCodexThreadVisualizationDirectory,
-} from "./codex-dynamic-first-turn-context";
-import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
 import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
 import {
@@ -394,15 +296,6 @@ import type { CodexConversationResumeDemand } from "../codex-application/CodexCo
 import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
 import { rewriteExecutionWorkspaceRoots } from "./codex-execution-workspace-roots";
 import {
-  allocateCodexPendingWorktreeRequest,
-  buildCodexPendingFirstTurnAttachments,
-  buildCodexPendingThreadStartConfig,
-  projectCodexPendingThreadStart,
-  projectCodexPendingWorktreeLaunchLocation,
-} from "./codex-pending-worktree-request";
-import type { CodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
-import { type CodexForkBrowserRuntime } from "./codex-fork-browser-snapshot-adapter";
-import {
   approximateJsonPayloadBytes,
   getDevRuntimeMetricDurationMs,
   getDevRuntimeMetricStart,
@@ -419,35 +312,6 @@ interface ThreadRef {
   managedWorktreePath?: string | null;
   projectlessOutputDirectory?: string | null;
   projectlessWorkspaceBrowserRoot?: string | null;
-}
-
-interface CodexDynamicDirectConversationLaunchInput {
-  readonly clientThreadId?: string;
-  readonly createInput: CodexDynamicCreateThreadInput;
-  readonly additionalDeveloperInstructions?: string | null;
-  readonly baseInstructions?: string | null;
-  readonly beforeFirstTurn?: (threadId: string) => Promise<void>;
-  readonly firstTurnAdditionalContext?: TurnStartParams["additionalContext"];
-  readonly firstTurnAttachments?: readonly CodexLiveFileAttachment[];
-  readonly firstTurnCommentAttachments?: readonly CodexReviewDiffCommentAttachment[];
-  readonly firstTurnInput?: TurnStartParams["input"];
-  readonly initialTitle?: string;
-  readonly managedWorktreePath?: string | null;
-  readonly memoryPreferences?: CodexThreadStartMemoryPreferences | null;
-  readonly modelProjection: CodexDynamicCreateModelProjection;
-  readonly executionProfile?: AgentExecutionProfile | null;
-  readonly mode?: string;
-  readonly onThreadCreated?: (threadId: string) => void;
-  readonly permissionSelection: CodexDynamicCreatePermissionSelection | null;
-  readonly projectSessionId?: string;
-  readonly serviceName?: string;
-  readonly serviceTier: string | null;
-  readonly sourceThreadId?: string;
-  readonly threadSource?: ThreadSource;
-  readonly threadStartKind?: string;
-  readonly skipAutoTitleGeneration?: boolean;
-  readonly target: CodexResolvedDynamicDirectThreadTarget;
-  readonly worktreeInit?: CodexCanonicalWorktreeInitItem;
 }
 
 type DormantConversationSyncReason =
@@ -524,11 +388,6 @@ interface CodexCanonicalHydrationOptions {
   readonly turns?: readonly Turn[];
 }
 
-type CodexBrowserTransferStateReader = Pick<
-  CodexForkBrowserRuntime,
-  "getBrowserUseStateSnapshot" | "getStateSnapshot"
->;
-
 type CodexServiceOptions = {
   conversationRuntimes: Pick<
     ConversationRuntimeMap["Service"],
@@ -552,7 +411,6 @@ type CodexServiceOptions = {
   runtimeStateHome: string;
   nodexAgentAuthority: NodexAgentAuthorityPort;
   nodexAgentAuthorization: NodexAgentAuthorizationRuntimePromiseAdapter;
-  automationModule: DesktopAutomationModulePort;
   automationRouting: Pick<
     AutomationRoutingIndex["Service"],
     "activeHeartbeatAutomationId" | "runAutomationId"
@@ -566,7 +424,6 @@ type CodexServiceOptions = {
   structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
   dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
   threadHandoffRuntime: CodexThreadHandoffRuntime["Service"];
-  pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   conversationCommands: ConversationCommands["Service"];
@@ -593,10 +450,6 @@ type CodexServiceOptions = {
   ) => Promise<NonNullable<ThreadStartParams["config"]> | null>;
   projectlessHomeDirectory?: () => string;
   executionHosts: ExecutionHostRuntime["Service"];
-  managedWorktrees: ManagedWorktreeRuntime["Service"];
-  managedWorktreeRetention: ManagedWorktreeRetentionRuntime["Service"];
-  browserTransferStateReader?: CodexBrowserTransferStateReader;
-  forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferRuntimePromiseAdapter;
   userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   terminalRuntime?: CodexTerminalRuntimePort;
 };
@@ -622,17 +475,6 @@ interface CodexConversationRecord {
 interface CodexThreadReadMaterialization {
   readonly detail: CodexThreadDetail;
   readonly thread: Thread;
-}
-
-interface CodexPersistentForkMaterialization {
-  readonly detail: CodexThreadDetail;
-  readonly summary: CodexThreadSummary | null;
-}
-
-interface CodexPersistentForkResult extends CodexPersistentForkMaterialization {
-  readonly forkResponse: ThreadForkResponse;
-  readonly resolvedCwd: string | null;
-  readonly threadId: string;
 }
 
 const THREAD_TURNS_PAGE_SIZE = 5;
@@ -665,31 +507,6 @@ function getFiniteNumber(value: unknown): number | null {
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null) return null;
   return value as Record<string, unknown>;
-}
-
-function hasRunningAgentState(value: unknown): boolean {
-  const record = asRecord(value);
-  if (!record) return false;
-  if (record.status === "running") return true;
-
-  const agentStates = asRecord(record.agentsStates);
-  if (agentStates && Object.values(agentStates).some(hasRunningAgentState)) {
-    return true;
-  }
-
-  return hasRunningAgentState(record.action);
-}
-
-function hasRunningCollabAgentTranscriptEntry(entries: readonly CodexTranscriptEntry[]): boolean {
-  return entries.some((entry) => {
-    const toolArgs = asRecord(entry.toolCall?.args);
-    if (hasRunningAgentState(toolArgs)) return true;
-    const rawItem = asRecord(entry.rawItem);
-    if (rawItem?.type !== "collabAgentToolCall" && rawItem?.type !== "collab_agent_tool_call") {
-      return false;
-    }
-    return hasRunningAgentState(rawItem);
-  });
 }
 
 function readStringField(record: Record<string, unknown> | null, key: string): string | null {
@@ -746,11 +563,6 @@ function isRolloutMaterializationError(error: unknown): boolean {
   return error instanceof CodexRpcError && isRolloutMaterializationMessage(error.message);
 }
 
-function isPathWithinOrEqual(parentPath: string, candidatePath: string): boolean {
-  const relative = path.relative(path.resolve(parentPath), path.resolve(candidatePath));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
 type CodexUserInputItem = TurnStartParams["input"][number];
 
 function parseEventThreadId(eventParams: Record<string, unknown> | null): string | null {
@@ -774,45 +586,6 @@ interface PreparedPromptForTurn {
     model?: string;
     reasoningEffort?: CodexReasoningEffort;
   };
-}
-
-/** Electron retains this app-private sidecar in the raw turn/start JSON payload. */
-type CodexAppPrivateTurnStartParams = TurnStartParams & {
-  readonly attachments: readonly CodexLiveFileAttachment[];
-};
-
-function buildReviewDiffCommentAdditionalContext(
-  commentAttachments: readonly CodexReviewDiffCommentAttachment[],
-): TurnStartParams["additionalContext"] | undefined {
-  if (commentAttachments.length === 0) return undefined;
-  return {
-    [REVIEW_DIFF_COMMENTS_ADDITIONAL_CONTEXT_KEY]: {
-      kind: "application",
-      value: serializeReviewDiffCommentAttachmentsForAdditionalContext(commentAttachments),
-    },
-  };
-}
-
-function replaceFirstTextInput(
-  inputItems: readonly CodexUserInputItem[],
-  text: string,
-): CodexUserInputItem[] {
-  let replaced = false;
-  const nextItems = inputItems.map((item) => {
-    if (replaced || item.type !== "text") return item;
-    replaced = true;
-    return { ...item, text };
-  });
-  if (!replaced) {
-    throw new Error("Pending goal conversation requires a text input");
-  }
-  return nextItems;
-}
-
-interface CodexPendingMaterializedGoal {
-  readonly objective: string;
-  readonly attachmentDirectory: string | null;
-  readonly directoryManager: ThreadGoalAttachmentDirectoryManager;
 }
 
 function isSupportedImageUrl(source: string): boolean {
@@ -949,14 +722,9 @@ export class CodexService {
   private readonly persistedAtoms: PersistedAtomStore;
   private readonly sessionStore: CodexSessionStore;
   private readonly executionHosts: ExecutionHostRuntime["Service"];
-  private readonly managedWorktreeLifecycle: ManagedWorktreeRuntime["Service"];
-  private readonly managedWorktreeRetention: ManagedWorktreeRetentionRuntime["Service"];
   private readonly threadHandoffRuntime: CodexThreadHandoffRuntime["Service"];
-  private readonly browserTransferStateReader: CodexServiceOptions["browserTransferStateReader"];
-  private readonly forkSidePanelTransferLifecycle: CodexServiceOptions["forkSidePanelTransferLifecycle"];
   private readonly terminalRuntime: NonNullable<CodexServiceOptions["terminalRuntime"]>;
   private readonly nodexAgentAuthorization: NodexAgentAuthorizationRuntimePromiseAdapter;
-  private readonly automationModule: DesktopAutomationModulePort;
   private readonly automationRouting: CodexServiceOptions["automationRouting"];
   private readonly projectWorkspace: DesktopProjectWorkspacePort;
   private readonly workspaceThreadProjectionById = new Map<string, DesktopProjectWorkspaceThread>();
@@ -964,7 +732,6 @@ export class CodexService {
 
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly conversationRuntimes: CodexServiceOptions["conversationRuntimes"];
-  private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   private readonly conversationCommands: ConversationCommands["Service"];
@@ -999,7 +766,6 @@ export class CodexService {
     this.runtimeStateHome = path.resolve(options.runtimeStateHome);
     this.nodexAgentAuthorityRegistry = options.nodexAgentAuthority;
     this.nodexAgentAuthorization = options.nodexAgentAuthorization;
-    this.automationModule = options.automationModule;
     this.automationRouting = options.automationRouting;
     this.projectWorkspace = options.projectWorkspace;
     this.executionHosts = options.executionHosts;
@@ -1017,7 +783,6 @@ export class CodexService {
     this.structuredThreadTitle = options.structuredThreadTitle;
     this.dynamicToolsLaunch = options.dynamicToolsLaunch;
     this.threadHandoffRuntime = options.threadHandoffRuntime;
-    this.pendingWorktreeRuntime = options.pendingWorktrees;
     this.threadSettingsRuntime = options.threadSettingsRuntime;
     this.threadTitlePersistence = options.threadTitlePersistence;
     this.conversationCommands = options.conversationCommands;
@@ -1038,10 +803,6 @@ export class CodexService {
     this.threadCodexConfigBuilder =
       options?.threadCodexConfigBuilder ?? (() => this.desktopTools.threadConfig());
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
-    this.managedWorktreeLifecycle = options.managedWorktrees;
-    this.managedWorktreeRetention = options.managedWorktreeRetention;
-    this.browserTransferStateReader = options?.browserTransferStateReader;
-    this.forkSidePanelTransferLifecycle = options?.forkSidePanelTransferLifecycle;
     this.userInputAutoResolution = options.userInputAutoResolution;
     this.client = options.client;
   }
@@ -1109,52 +870,6 @@ export class CodexService {
     this.notifyScheduledAutomationChanged(event);
   }
 
-  private async createHeartbeatAutomationForStartedWorktreeThread(input: {
-    projectId: string;
-    sessionId: string;
-    threadId: string;
-    heartbeatAutomation?: CodexThreadStartForSessionInput["heartbeatAutomation"];
-    emitStartProgress?: boolean;
-  }): Promise<"not-requested" | "created" | "failed"> {
-    const seed = input.heartbeatAutomation;
-    if (!seed) return "not-requested";
-    try {
-      const automation = await this.automationModule.createDefinition({
-        kind: "heartbeat",
-        name: seed.name,
-        prompt: seed.prompt,
-        rrule: seed.rrule,
-        targetThreadId: input.threadId,
-        model: null,
-        reasoningEffort: null,
-      });
-      this.emitScheduledAutomationChanged({
-        automationId: automation.id,
-        targetThreadId: automation.targetThreadId,
-        reason: "upsert",
-      });
-      return "created";
-    } catch (error) {
-      this.logger.warn("Started worktree chat but could not create heartbeat automation", {
-        threadId: input.threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      if (input.emitStartProgress !== false) {
-        this.emitThreadStartProgress({
-          projectId: input.projectId,
-          sessionId: input.sessionId,
-          runInTarget: "newWorktree",
-          threadId: input.threadId,
-          phase: "startingThread",
-          message: "Started task, but could not create the heartbeat",
-          stream: "stderr",
-          outputDelta: "[stderr] Started task, but could not create the heartbeat\n",
-        });
-      }
-      return "failed";
-    }
-  }
-
   private notifyAutomationRunThreadUpdated(
     threadId: string,
     reason: CodexAutomationRunsUpdatedEvent["reason"],
@@ -1173,20 +888,6 @@ export class CodexService {
   private isCommandOnlyAutomationThread(threadId: string): boolean {
     if (this.rendererConversations.getOwnerClientId(threadId)) return false;
     return this.resolveAutomationIdForRunThread(threadId) !== null;
-  }
-
-  private async markAutomationRunAcceptedForUserContinuation(threadId: string): Promise<void> {
-    try {
-      const updated = await this.automationModule.acceptRun(threadId);
-      if (updated) {
-        this.notifyAutomationRunThreadUpdated(threadId, "accepted");
-      }
-    } catch (error) {
-      this.logger.warn("Failed to mark scheduled automation run accepted", {
-        threadId,
-        error,
-      });
-    }
   }
 
   private resolveNotificationThreadId(notification: CodexServerNotification): string | null {
@@ -1314,10 +1015,6 @@ export class CodexService {
       codexSessionId: input.codexSessionId,
       projectId: input.projectId,
     });
-  }
-
-  private scheduleManagedWorktreeRetention(): void {
-    this.controlPlane.fork(this.managedWorktreeRetention.request);
   }
 
   private async resolveExecutionHost(
@@ -2847,213 +2544,6 @@ export class CodexService {
     return await this.permissions.resolve({ projectId, requestedMode: mode, workspaceRoots });
   }
 
-  listPendingWorktrees(): readonly CodexPendingWorktreeEntry[] {
-    return this.pendingWorktreeRuntime.list();
-  }
-
-  projectPendingWorktreeSnapshot(entries: readonly CodexPendingWorktreeEntry[]): void {
-    this.applicationEvents.publish({ kind: "pendingWorktreesChanged", value: entries });
-  }
-
-  createPendingWorktree(input: CodexPendingWorktreeCreateInput): CodexPendingWorktreeCreateResult {
-    const allocated = allocateCodexPendingWorktreeRequest(input);
-    this.pendingWorktreeRuntime.create(allocated.request);
-    return allocated.result;
-  }
-
-  async createPendingWorktreeSetupRepair(
-    _hostId: string,
-    pendingWorktreeId: string,
-    agentMode: CodexAgentMode,
-  ): Promise<CodexPendingWorktreeCreateResult> {
-    const entry = this.pendingWorktreeRuntime
-      .list()
-      .find((candidate) => candidate.id === pendingWorktreeId);
-    if (!entry || !canCreateCodexPendingWorktreeSetupRepair(entry)) {
-      throw new Error(`Pending worktree cannot start setup repair: ${pendingWorktreeId}`);
-    }
-
-    const prompt = buildCodexPendingWorktreeSetupRepairPrompt(entry);
-    const model =
-      entry.launchMode === "start-conversation"
-        ? (entry.startConversationParamsInput.collaborationMode?.settings.model ?? null)
-        : entry.launchMode === "fork-conversation"
-          ? (entry.sourceCollaborationMode?.settings.model ?? null)
-          : null;
-    const serviceTier = await this.resolveDynamicCreateServiceTier({
-      cwd: entry.sourceWorkspaceRoot,
-      model,
-    });
-    const startConversationParamsInput =
-      entry.launchMode === "start-conversation"
-        ? {
-            ...entry.startConversationParamsInput,
-            input: [{ type: "text" as const, text: prompt, text_elements: [] }],
-            commentAttachments: [],
-            workspaceRoots: [...entry.startConversationParamsInput.workspaceRoots],
-            cwd: entry.sourceWorkspaceRoot,
-            fileAttachments: [],
-            addedFiles: [],
-            threadSource: "system" as const,
-            serviceTier,
-          }
-        : await this.buildPendingWorktreeSetupRepairStartParams({
-            entry,
-            prompt,
-            serviceTier,
-            agentMode,
-          });
-
-    return this.createPendingWorktree({
-      hostId: entry.hostId,
-      label: CODEX_PENDING_WORKTREE_SETUP_REPAIR_LABEL,
-      initialThreadTitle: CODEX_PENDING_WORKTREE_SETUP_REPAIR_LABEL,
-      sourceWorkspaceRoot: entry.sourceWorkspaceRoot,
-      startingState: entry.startingState,
-      localEnvironmentConfigPath: null,
-      launchMode: "start-conversation",
-      prompt,
-      startConversationParamsInput,
-      sourceConversationId: null,
-      sourceCollaborationMode: null,
-    });
-  }
-
-  private async buildPendingWorktreeSetupRepairStartParams(input: {
-    readonly entry: Exclude<
-      CodexPendingWorktreeEntry,
-      { readonly launchMode: "start-conversation" }
-    >;
-    readonly prompt: string;
-    readonly serviceTier: string | null;
-    readonly agentMode: CodexAgentMode;
-  }): Promise<CodexPendingStartConversationParamsInput> {
-    await this.ensureClientReady();
-    const configResult = await this.client.request<"config/read", ConfigReadResponse>(
-      "config/read",
-      { includeLayers: false, cwd: input.entry.sourceWorkspaceRoot },
-    );
-
-    return {
-      input: [{ type: "text", text: input.prompt, text_elements: [] }],
-      commentAttachments: [],
-      workspaceRoots: [...input.entry.sourceWorkspaceRoots],
-      cwd: input.entry.sourceWorkspaceRoot,
-      fileAttachments: [],
-      addedFiles: [],
-      agentMode: input.agentMode,
-      shouldSendPermissionOverrides: true,
-      model: null,
-      serviceTier: input.serviceTier,
-      reasoningEffort: null,
-      collaborationMode:
-        input.entry.launchMode === "fork-conversation" ? input.entry.sourceCollaborationMode : null,
-      config: expandCodexDynamicCreateConfigProfile(configResult.config),
-      threadSource: "system",
-      workspaceKind: "project",
-    };
-  }
-
-  retryPendingWorktree(_hostId: string, pendingWorktreeId: string): void {
-    this.pendingWorktreeRuntime.retry(pendingWorktreeId);
-  }
-
-  async workLocallyFromPendingWorktree(
-    _hostId: string,
-    pendingWorktreeId: string,
-  ): Promise<{ readonly threadId: string }> {
-    return await this.pendingWorktreeRuntime.workLocally(pendingWorktreeId);
-  }
-
-  continuePendingWorktree(_hostId: string, pendingWorktreeId: string): void {
-    this.pendingWorktreeRuntime.continueWithoutSetup(pendingWorktreeId);
-  }
-
-  cancelPendingWorktree(_hostId: string, pendingWorktreeId: string): void {
-    this.pendingWorktreeRuntime.cancel(pendingWorktreeId);
-  }
-
-  dismissPendingWorktree(_hostId: string, pendingWorktreeId: string): void {
-    this.pendingWorktreeRuntime.dismiss(pendingWorktreeId);
-  }
-
-  renamePendingWorktree(_hostId: string, pendingWorktreeId: string, label: string): void {
-    this.pendingWorktreeRuntime.rename(pendingWorktreeId, label);
-  }
-
-  setPendingWorktreePinned(_hostId: string, pendingWorktreeId: string, isPinned: boolean): void {
-    this.pendingWorktreeRuntime.setPinned(pendingWorktreeId, isPinned);
-  }
-
-  setPendingWorktreePinnedBeforeThreadId(
-    _hostId: string,
-    pendingWorktreeId: string,
-    beforeThreadId: string | null,
-  ): void {
-    this.pendingWorktreeRuntime.setPinnedBeforeThreadId(pendingWorktreeId, beforeThreadId);
-  }
-
-  clearPendingWorktreeAttention(_hostId: string, pendingWorktreeId: string): void {
-    this.pendingWorktreeRuntime.clearAttention(pendingWorktreeId);
-  }
-
-  private async resolveForkBrowserProjectSession(
-    conversationId: string,
-  ): Promise<ProjectSession | null> {
-    const directSession = await this.projectWorkspace.getProjectSession(conversationId);
-    if (directSession) return directSession;
-
-    const resolvedThreadId =
-      resolveCodexThreadIdForClientThreadId(
-        this.persistedAtoms,
-        CODEX_APP_LOCAL_HOST_ID,
-        conversationId,
-      ) ?? conversationId;
-    const thread = await this.readWorkspaceThread(resolvedThreadId);
-    if (!thread?.sessionId) return null;
-    return await this.projectWorkspace.getProjectSession(thread.sessionId);
-  }
-
-  async resolveForkBrowserConversationId(conversationId: string): Promise<string> {
-    return (
-      (await this.resolveForkBrowserProjectSession(conversationId))?.id ??
-      getCodexClientThreadId(this.persistedAtoms, CODEX_APP_LOCAL_HOST_ID, conversationId) ??
-      conversationId
-    );
-  }
-
-  async discardPendingForkSidePanelTransfer(pendingWorktreeId: string): Promise<void> {
-    await this.forkSidePanelTransferLifecycle?.discardPending(pendingWorktreeId);
-  }
-
-  async consumeForkSidePanelTransfer(
-    input: CodexForkBrowserTransferConsumeInput,
-  ): Promise<CodexForkBrowserSidePanelSnapshot | null> {
-    const session = await this.projectWorkspace.getProjectSession(input.targetProjectSessionId);
-    if (!session || session.thread?.threadId !== input.targetConversationId) {
-      throw new Error("Target project session does not own the conversation");
-    }
-    return (await this.forkSidePanelTransferLifecycle?.consumeTarget(input)) ?? null;
-  }
-
-  private assertLocalPendingWorktreeHost(hostId: string): void {
-    if (hostId === CODEX_APP_LOCAL_HOST_ID) return;
-    throw new Error(`Local environment host is unavailable: ${hostId}`);
-  }
-
-  resolvePendingWorktreeThread(
-    clientThreadId: string,
-  ): CodexPendingWorktreeThreadResolution | null {
-    const pendingResolution = this.pendingWorktreeRuntime.resolveThread(clientThreadId);
-    const threadId = resolveCodexThreadIdForClientThreadId(
-      this.persistedAtoms,
-      CODEX_APP_LOCAL_HOST_ID,
-      clientThreadId,
-    );
-    if (threadId) return { state: "succeeded", clientThreadId, threadId };
-    return pendingResolution;
-  }
-
   private async ensureClientReady(signal?: AbortSignal): Promise<void> {
     await this.client.start(signal ? { signal } : undefined);
     const readiness = await this.desktopTools.ensureReady();
@@ -3513,7 +3003,7 @@ export class CodexService {
   ): Promise<PreparedPromptForTurn> {
     if (prepared.pastedTextAttachments.length === 0) return prepared;
 
-    const manager = await this.getPastedTextAttachmentManager();
+    const manager = this.attachments.pastedText;
     const attachmentTexts = await Promise.all(
       prepared.pastedTextAttachments.map((attachment) =>
         "text" in attachment
@@ -5028,127 +4518,6 @@ export class CodexService {
         (turn) => turn.turnId === turnId,
       ) ?? null
     );
-  }
-
-  private resolveAutomationInboxItemFromProtocolTurn(turn: Turn): {
-    readonly title: string;
-    readonly summary: string;
-  } | null {
-    const markdown =
-      [...(Array.isArray(turn.items) ? turn.items : [])]
-        .reverse()
-        .find((item) => item.type === "agentMessage")
-        ?.text.trim() ?? "";
-    if (!markdown) return null;
-
-    const directive = parseCodexAutomationInboxItemDirective(markdown);
-    if (!directive) return null;
-    return directive;
-  }
-
-  private resolveNotificationLastAgentMessage(
-    threadId: string,
-    turnId: string,
-    rawTurn: Turn,
-  ): string | null {
-    const canonicalTurn = this.readCanonicalConversationState(threadId)?.turns.find(
-      (turn) => turn.protocol.id === turnId,
-    );
-    for (let index = (canonicalTurn?.items.length ?? 0) - 1; index >= 0; index -= 1) {
-      const item = canonicalTurn?.items[index];
-      if (item?.type !== "agentMessage") continue;
-      const text = item.text.trim();
-      if (text.length > 0) return text;
-    }
-
-    const transcript = this.getMaybeConversationRecord(threadId)?.detail?.transcript ?? [];
-    for (let index = transcript.length - 1; index >= 0; index -= 1) {
-      const item = transcript[index];
-      if (!item || item.turnId !== turnId || !this.isAssistantTextItem(item)) continue;
-      const text = item.markdownText?.trim() ?? "";
-      if (text.length > 0) return text;
-    }
-
-    const items = Array.isArray(rawTurn.items) ? rawTurn.items : [];
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-      const item = items[index];
-      if (item?.type !== "agentMessage") continue;
-      const text = item.text.trim();
-      if (text.length > 0) return text;
-    }
-    return null;
-  }
-
-  private isNotificationConversationActive(threadId: string): boolean {
-    const record = this.getMaybeConversationRecord(threadId);
-    const detail = record?.detail;
-    const workspaceThread = this.workspaceThreadProjectionById.get(threadId);
-    if (detail?.threadRuntimeStatus?.type === "active") return true;
-    if (detail?.statusType === "active") return true;
-    if (workspaceThread?.statusType === "active") return true;
-    if (this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress")) {
-      return true;
-    }
-    return hasRunningCollabAgentTranscriptEntry(detail?.transcript ?? []);
-  }
-
-  private hasActiveNotificationDescendant(threadId: string): boolean {
-    const knownThreadIds = new Set([
-      ...this.conversationRecords.keys(),
-      ...this.workspaceThreadProjectionById.keys(),
-    ]);
-    for (const candidateThreadId of knownThreadIds) {
-      if (candidateThreadId === threadId) continue;
-      if (!this.isNotificationConversationActive(candidateThreadId)) continue;
-
-      const visited = new Set<string>([candidateThreadId]);
-      let parentThreadId =
-        this.buildNotificationConversationFacts(candidateThreadId).parentThreadId;
-      while (parentThreadId && !visited.has(parentThreadId)) {
-        if (parentThreadId === threadId) return true;
-        visited.add(parentThreadId);
-        parentThreadId = this.buildNotificationConversationFacts(parentThreadId).parentThreadId;
-      }
-    }
-    return false;
-  }
-
-  private hasPendingNotificationContinuation(
-    threadId: string,
-    terminalStatus: "completed" | "failed" | "interrupted",
-  ): boolean {
-    const queuedHead = this.listQueuedFollowUps(threadId)[0];
-    const record = this.getMaybeConversationRecord(threadId);
-    const turns = this.listKnownTurns(threadId);
-    return hasCodexPendingContinuation({
-      terminalStatus,
-      queuedResourceLoading: false,
-      queuedHeadPausedReason: queuedHead ? (queuedHead.pausedReason ?? null) : undefined,
-      threadGoalStatus: record?.threadGoal?.status ?? null,
-      latestMergedTurnStatus: turns.at(-1)?.status ?? null,
-      hasRunningCollabAgent: hasRunningCollabAgentTranscriptEntry(record?.detail?.transcript ?? []),
-      hasActiveDescendant: this.hasActiveNotificationDescendant(threadId),
-    });
-  }
-
-  private async recordAutomationTurnCompleted(threadId: string, turn: Turn): Promise<void> {
-    const directive = this.resolveAutomationInboxItemFromProtocolTurn(turn);
-    try {
-      const updated = await this.automationModule.completeRunForReview({
-        threadId,
-        inboxTitle: directive?.title ?? null,
-        inboxSummary: directive?.summary ?? null,
-      });
-      if (updated) {
-        this.notifyAutomationRunThreadUpdated(threadId, "turn-completed");
-      }
-    } catch (error) {
-      this.logger.warn("Failed to complete scheduled automation run", {
-        threadId,
-        turnId: turn.id,
-        error,
-      });
-    }
   }
 
   private isAssistantTextItem(
@@ -6816,425 +6185,6 @@ export class CodexService {
     return { detail: fallbackDetail, summary };
   }
 
-  /** Persistent branch kernel corresponding to exact `i6e`; callers own assignment and rollback policy. */
-  private async forkAndResumePersistentConversation(input: {
-    readonly collaborationMode?: CodexAppServerCollaborationMode | null;
-    readonly sourceThreadId: string;
-    readonly requestedCwd: string | null;
-    readonly sourceWorkspaceRoot?: string;
-    readonly workspaceRoots: readonly string[];
-    readonly threadSource: NonNullable<ThreadForkParams["threadSource"]>;
-    readonly syncDormantConversationSnapshot?: boolean;
-    readonly materialize: (
-      thread: Thread,
-      resolvedCwd: string | null,
-      response: ThreadForkResponse,
-    ) => CodexPersistentForkMaterialization | Promise<CodexPersistentForkMaterialization>;
-  }): Promise<CodexPersistentForkResult> {
-    const sourceExecutionProfile =
-      this.getThreadLinkSafely(input.sourceThreadId)?.executionProfile ?? null;
-    const mcpConfig = await this.buildMcpCodexConfig(
-      input.requestedCwd ?? input.workspaceRoots[0] ?? null,
-    );
-    const config = {
-      ...(mcpConfig ?? {}),
-      ...(sourceExecutionProfile?.harnessId ? { harness: sourceExecutionProfile.harnessId } : {}),
-      ...(sourceExecutionProfile?.reasoningEffort
-        ? { model_reasoning_effort: sourceExecutionProfile.reasoningEffort }
-        : {}),
-      ...buildCodexThreadConfigOverrides(),
-    };
-    const forkResponse = await this.client.request<"thread/fork", ThreadForkResponse>(
-      "thread/fork",
-      {
-        threadId: input.sourceThreadId,
-        path: null,
-        model: sourceExecutionProfile?.modelId ?? null,
-        modelProvider: sourceExecutionProfile?.providerId ?? null,
-        serviceTier: sourceExecutionProfile?.serviceTier ?? null,
-        cwd: input.requestedCwd,
-        threadSource: input.threadSource,
-        config: Object.keys(config).length > 0 ? config : undefined,
-      },
-    );
-    const threadId = forkResponse.thread.id;
-    if (typeof threadId !== "string" || threadId.length === 0) {
-      throw new Error("Thread fork did not return a valid thread id");
-    }
-    const resolvedCwd = resolveCodexCanonicalHydratedCwd({
-      requestedCwd: input.requestedCwd,
-      responseCwd: forkResponse.cwd,
-      threadCwd: forkResponse.thread.cwd,
-      fallbackCwd: input.workspaceRoots[0] ?? input.requestedCwd,
-    });
-    const projectedThread =
-      resolvedCwd === null ? forkResponse.thread : { ...forkResponse.thread, cwd: resolvedCwd };
-    let materialized = await input.materialize(projectedThread, resolvedCwd, forkResponse);
-    if (sourceExecutionProfile) {
-      const summary = await this.updateWorkspaceThreadSummary(threadId, {
-        modelProvider: sourceExecutionProfile.providerId,
-        executionProfile: sourceExecutionProfile,
-      });
-      materialized = {
-        summary: summary ?? materialized.summary,
-        detail: {
-          ...materialized.detail,
-          modelProvider: sourceExecutionProfile.providerId,
-          executionProfile: sourceExecutionProfile,
-        },
-      };
-    }
-    const sourceExecutionContext = await this.projectWorkspace.readThreadExecutionContext(
-      input.sourceThreadId,
-    );
-    await this.projectWorkspace.replaceThreadDynamicToolCatalogs(
-      threadId,
-      sourceExecutionContext?.dynamicToolCatalogs ?? [],
-    );
-    this.setConversationRecordDetail(materialized.detail);
-    await this.projectWorkspace.replaceThreadWritableRoots(threadId, input.workspaceRoots);
-    const rewriteForkRoots = (roots: readonly string[]): string[] =>
-      input.sourceWorkspaceRoot && input.workspaceRoots[0]
-        ? rewriteExecutionWorkspaceRoots({
-            sourcePrimary: input.sourceWorkspaceRoot,
-            targetPrimary: input.workspaceRoots[0],
-            workspaceRoots: [...input.workspaceRoots, ...roots],
-          })
-        : rewriteExecutionWorkspaceRoots({
-            sourcePrimary: input.workspaceRoots[0] ?? "",
-            targetPrimary: input.workspaceRoots[0] ?? "",
-            workspaceRoots: [...input.workspaceRoots, ...roots],
-          });
-    const forkRuntimeWorkspaceRoots = rewriteForkRoots(forkResponse.runtimeWorkspaceRoots);
-    const forkSandbox =
-      forkResponse.sandbox.type === "workspaceWrite"
-        ? {
-            ...forkResponse.sandbox,
-            writableRoots: rewriteForkRoots(forkResponse.sandbox.writableRoots),
-          }
-        : forkResponse.sandbox;
-    const forkPermissions = {
-      activePermissionProfile: forkResponse.activePermissionProfile,
-      runtimeWorkspaceRoots: forkRuntimeWorkspaceRoots,
-      approvalPolicy: forkResponse.approvalPolicy,
-      approvalsReviewer: forkResponse.approvalsReviewer,
-      sandboxPolicy: forkSandbox,
-    } satisfies CodexCanonicalHydratedPermissionContext;
-    this.setConversationResumeState(threadId, "needs_resume");
-    const resumedDetail = await this.resumeThreadWithSeed(threadId, {
-      requestedCwd: resolvedCwd,
-      workspaceRoots: input.workspaceRoots,
-      collaborationMode: input.collaborationMode ?? null,
-      syncDormantConversationSnapshot: input.syncDormantConversationSnapshot,
-      permissionContext: forkPermissions,
-    });
-    if (!resumedDetail) {
-      throw new Error(`Forked thread '${threadId}' could not be resumed`);
-    }
-
-    return {
-      ...materialized,
-      forkResponse,
-      resolvedCwd,
-      threadId,
-      detail: resumedDetail,
-    };
-  }
-
-  private resolveForkedFromConversationTitle(detail: {
-    readonly threadId: string;
-    readonly threadName?: string | null;
-  }): string | null {
-    const record = this.getMaybeConversationRecord(detail.threadId);
-    const hasEligibleFirstTurn =
-      (record ? this.readCanonicalConversationState(record.threadId) : null) !== null &&
-      this.readConversationTurnPagination(detail.threadId).hasLoadedOldest === true;
-    const firstTurnParams = hasEligibleFirstTurn
-      ? this.readCanonicalConversationState(detail.threadId)?.turns[0]?.sidecar.params
-      : undefined;
-    return resolveCodexForkSourceConversationTitle({
-      explicitTitle: detail.threadName,
-      firstTurnInput: firstTurnParams?.input,
-      firstTurnCommentAttachments: firstTurnParams?.commentAttachments,
-    });
-  }
-
-  private resolveUserFacingForkThreadTitle(source: {
-    readonly threadId: string;
-    readonly threadName?: string | null;
-    readonly forkedFromId?: string | null;
-  }): string | null {
-    const storedThreads = this.listThreadLinksSafely().map((summary) => ({
-      conversationId: summary.threadId,
-      forkedFromId: summary.forkedFromId ?? null,
-      title: summary.threadName,
-      archived: summary.archived,
-    }));
-    const storedThreadsById = new Map(
-      storedThreads.map((thread) => [thread.conversationId, thread]),
-    );
-    const activeThreads = [...this.conversationRecords].map(([threadId, record]) => ({
-      conversationId: threadId,
-      forkedFromId:
-        this.readCanonicalConversationState(record.threadId)?.protocol.forkedFromId ??
-        storedThreadsById.get(threadId)?.forkedFromId ??
-        null,
-      title: record.detail?.threadName ?? storedThreadsById.get(threadId)?.title ?? null,
-    }));
-    return resolveCodexForkChildThreadTitleFromCatalog({
-      source: {
-        conversationId: source.threadId,
-        forkedFromId: source.forkedFromId ?? null,
-        title: source.threadName ?? null,
-      },
-      storedThreads,
-      activeThreads,
-      pendingForks: this.pendingWorktreeRuntime
-        .list()
-        .filter((entry) => entry.launchMode === "fork-conversation")
-        .map(
-          (entry) =>
-            ({
-              conversationId: entry.id,
-              forkedFromId: entry.sourceConversationId,
-              title: entry.initialThreadTitle ?? entry.label,
-            }) satisfies CodexForkTitleThread,
-        ),
-    });
-  }
-
-  private appendForkedFromConversationMarker(
-    targetThreadId: string,
-    sourceThreadId: string,
-    sourceTitle: string | null,
-  ): void {
-    this.ensureConversationRecord(targetThreadId);
-    const before = this.readCanonicalConversationState(targetThreadId);
-    if (!before) {
-      throw new Error(`Forked thread '${targetThreadId}' has no canonical conversation state`);
-    }
-    const after = appendCodexCanonicalForkedFromConversationItem(before, {
-      id: randomUUID(),
-      type: "forkedFromConversation",
-      sourceConversationId: sourceThreadId,
-      sourceConversationTitle: sourceTitle,
-    });
-    this.commitCanonicalLocalTurnMutation({
-      threadId: targetThreadId,
-      before,
-      after,
-      observedAtMs: Date.now(),
-    });
-  }
-
-  private async applyForkRollbackResponse(input: {
-    readonly threadId: string;
-    readonly response: ThreadRollbackResponse;
-    readonly fallbackRef: ThreadRef | null;
-    readonly fallbackCwd: string | null;
-    readonly materialize?: (
-      thread: Thread,
-      resolvedCwd: string,
-    ) => CodexPersistentForkMaterialization | Promise<CodexPersistentForkMaterialization>;
-  }): Promise<CodexPersistentForkMaterialization> {
-    if (input.response.thread.id !== input.threadId) {
-      throw new Error(
-        `Codex thread/rollback expected '${input.threadId}' but received '${input.response.thread.id}'`,
-      );
-    }
-    const record = this.ensureConversationRecord(input.threadId);
-    const previousCanonical = this.readCanonicalConversationState(record.threadId);
-    const hydrationContext = previousCanonical?.sidecar.hydrationContext ?? null;
-    const cwd = input.response.thread.cwd || hydrationContext?.cwd || input.fallbackCwd || "/";
-    const historyPermissions = createCodexCanonicalWorkspacePermissionContext(
-      cwd === "~" ? [] : [cwd],
-    );
-    const replacement = createCodexCanonicalHydratedConversationState(input.response.thread, {
-      model: hydrationContext?.latestModel ?? hydrationContext?.model ?? "",
-      reasoningEffort:
-        hydrationContext?.latestReasoningEffort ?? hydrationContext?.reasoningEffort ?? null,
-      cwd,
-      approvalPolicy: historyPermissions.approvalPolicy,
-      approvalsReviewer: historyPermissions.approvalsReviewer,
-      sandboxPolicy: historyPermissions.sandboxPolicy,
-      activePermissionProfile: historyPermissions.activePermissionProfile,
-      runtimeWorkspaceRoots: [...historyPermissions.runtimeWorkspaceRoots],
-      pendingRequests: [],
-      hasUnreadTurn: false,
-    });
-    this.acceptCanonicalConversationState(record.threadId, {
-      ...replacement,
-      requests: [],
-      sidecar: {
-        hasUnreadTurn: false,
-        hydrationContext: hydrationContext
-          ? {
-              ...hydrationContext,
-              cwd,
-            }
-          : replacement.sidecar.hydrationContext,
-      },
-    });
-    this.conversationAggregate(record.threadId).setHasUnreadTurn(false, false);
-    this.setConversationResumeState(record.threadId, "resumed");
-
-    const { detail, summary } = input.materialize
-      ? await input.materialize(input.response.thread, cwd)
-      : await this.materializeThreadDetailFromThreadPayload(
-          input.response.thread,
-          input.fallbackRef,
-          cwd,
-        );
-    this.setConversationRecordDetail(detail, {
-      turnPagination: this.buildCompleteTurnPagination(detail.turns.length),
-    });
-    if (summary) {
-      this.emitEvent({ type: "threadSummary", thread: summary });
-    }
-    return { detail, summary };
-  }
-
-  private async deleteHeartbeatAutomationForArchivedThread(threadId: string): Promise<void> {
-    const automationId = this.automationRouting.activeHeartbeatAutomationId(threadId);
-    if (!automationId) return;
-    try {
-      const deleted = await this.automationModule.deleteDefinition(automationId);
-      if (!deleted.success) return;
-      this.logger.info("Deleted heartbeat automation for archived thread", {
-        automationId,
-        threadId,
-      });
-      this.emitScheduledAutomationChanged({
-        automationId,
-        targetThreadId: threadId,
-        reason: "delete",
-      });
-    } catch (error) {
-      this.logger.warn("Failed to delete heartbeat automation for archived thread", {
-        threadId,
-        error,
-      });
-    }
-  }
-
-  private async reconcileArchivedThreadManagedWorktree(
-    archivedThread: DesktopProjectWorkspaceThread,
-    reason: "archive" | "automation-archive",
-  ): Promise<void> {
-    const worktreeGitRoot = archivedThread.managedWorktreePath?.trim();
-    if (!worktreeGitRoot) return;
-    const hostId = archivedThread.executionHostId;
-    const lifecycle = await this.projectWorkspace.readManagedWorktreeLifecycleSnapshot();
-    const normalizedPath = normalizeWorktreePathForIdentity(worktreeGitRoot);
-    const replacements = lifecycle.consumers
-      .filter(
-        (consumer) =>
-          consumer.threadId !== archivedThread.threadId &&
-          !consumer.archived &&
-          consumer.executionHostId === hostId &&
-          normalizeWorktreePathForIdentity(consumer.managedWorktreePath) === normalizedPath &&
-          consumer.cwd !== null &&
-          isPathWithinOrEqual(worktreeGitRoot, consumer.cwd),
-      )
-      .sort((left, right) => {
-        const activeDelta =
-          Number(right.statusType === "active") - Number(left.statusType === "active");
-        return activeDelta || right.updatedAt - left.updatedAt;
-      });
-    const replacement = replacements[0];
-    if (replacement) {
-      await this.controlPlane.runPromise(
-        this.managedWorktreeLifecycle.setOwner({
-          hostId,
-          worktreeGitRoot,
-          ownerThreadId: replacement.threadId,
-        }),
-      );
-      return;
-    }
-
-    const comparisonKey = await resolveWorktreePathComparisonKey(worktreeGitRoot);
-    const permanentRoots = await Promise.all(
-      lifecycle.projects
-        .flatMap((project) => project.sourceRoots)
-        .map(resolveWorktreePathComparisonKey),
-    );
-    if (hostId === CODEX_APP_LOCAL_HOST_ID && permanentRoots.includes(comparisonKey)) return;
-    if (
-      await this.controlPlane.runPromise(
-        this.managedWorktreeLifecycle.isNewborn({ hostId, worktreeGitRoot }),
-      )
-    ) {
-      return;
-    }
-
-    await this.controlPlane.runPromise(
-      this.managedWorktreeLifecycle.remove({ hostId, worktreeGitRoot, reason }),
-    );
-  }
-
-  /** Effect Module projection operation; callers use ConversationCommands.archive. */
-  async applyThreadArchiveProjection(threadId: string): Promise<boolean> {
-    await this.nodexAgentAuthorization.revokeRoot(this.resolveNodexAgentRootThreadId(threadId));
-    const isAutomationRun = this.resolveAutomationIdForRunThread(threadId) !== null;
-    if (isAutomationRun) {
-      const messages = resolveAutomationArchiveMessagesFromTranscript(
-        this.getThreadTranscript(threadId),
-      );
-      const archived = await this.automationModule.archiveRun(
-        { threadId, archivedReason: "auto" },
-        messages,
-      );
-      if (archived) {
-        this.notifyAutomationRunThreadUpdated(threadId, "archive");
-      }
-    }
-    await this.deleteHeartbeatAutomationForArchivedThread(threadId);
-    const previous = await this.readWorkspaceThread(threadId);
-    const hadUnreadState = Boolean(
-      previous?.hasUnreadTurn ||
-      this.readConversationAggregate(threadId)?.preHydrationHasUnreadTurn ||
-      this.readConversationAggregate(threadId)?.canonicalState?.sidecar.hasUnreadTurn,
-    );
-    this.rememberWorkspaceSidebar(await this.projectWorkspace.setThreadArchived(threadId, true));
-    if (previous) {
-      await this.reconcileArchivedThreadManagedWorktree(
-        previous,
-        isAutomationRun ? "automation-archive" : "archive",
-      ).catch((error) => {
-        this.logger.warn("Archived thread worktree cleanup was retained for recovery", {
-          threadId,
-          hostId: previous.executionHostId,
-          worktreeGitRoot: previous.managedWorktreePath,
-          error,
-        });
-      });
-    }
-    this.scheduleManagedWorktreeRetention();
-    await this.readWorkspaceThread(threadId);
-    this.applyCommittedConversationUnreadState(threadId, false, {
-      broadcast: hadUnreadState,
-    });
-    this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
-    this.forgetThreadLocalState(threadId);
-    return true;
-  }
-
-  /** Effect Module projection operation; callers use ConversationCommands.unarchive. */
-  async applyThreadUnarchiveProjection(threadId: string): Promise<CodexThreadSummary | null> {
-    this.rememberWorkspaceSidebar(await this.projectWorkspace.setThreadArchived(threadId, false));
-    const persisted = await this.readWorkspaceThread(threadId);
-    const summary = persisted ? this.buildWorkspaceThreadSummary(persisted) : null;
-    if (summary) {
-      this.emitEvent({ type: "threadSummary", thread: summary });
-      this.emitEvent({ type: "threadArchivedState", threadId, archived: false });
-    }
-    const record = this.getMaybeConversationRecord(threadId);
-    if (record?.detail) record.detail.archived = false;
-    this.syncAcceptedConversationSummary(threadId, { syncCapabilityFlags: true });
-    return summary;
-  }
-
   private maybeContinueActiveThreadGoal(threadId: string): void {
     this.activeGoalContinuation.request(threadId);
   }
@@ -7401,1213 +6351,6 @@ export class CodexService {
     const reloaded = this.serializeThreadDetail(normalizedThreadId);
     if (reloaded) return reloaded;
     throw new Error(`Thread '${normalizedThreadId}' was not found`);
-  }
-
-  private async resolveDynamicCreateServiceTier(
-    input: {
-      readonly cwd: string;
-      readonly model: string | null;
-    },
-    selector?: CodexCreateThreadServiceTierSelector,
-  ): Promise<string | null> {
-    return await resolveCodexCreateThreadServiceTier(
-      {
-        destinationHostId: CODEX_APP_LOCAL_HOST_ID,
-        destinationCwd: input.cwd,
-        model: input.model,
-        ...(selector === undefined ? {} : { selector }),
-      },
-      {
-        readAuth: async () => {
-          const response = await this.client.request<"getAuthStatus", GetAuthStatusResponse>(
-            "getAuthStatus",
-            { includeToken: false, refreshToken: false },
-          );
-          return response.authMethod;
-        },
-        readRequirements: async () =>
-          await this.client.request<"configRequirements/read", ConfigRequirementsReadResponse>(
-            "configRequirements/read",
-            undefined,
-          ),
-        readConfig: async () => {
-          const response = await this.client.request<"config/read", ConfigReadResponse>(
-            "config/read",
-            { includeLayers: false, cwd: null },
-          );
-          return response.config;
-        },
-        listModels: async (params) =>
-          await this.client.request<"model/list", ModelListResponse>("model/list", {
-            includeHidden: params.includeHidden,
-            cursor: params.cursor,
-            limit: params.limit,
-          }),
-        onError: ({ phase, error }) => {
-          this.logger.warn("Failed to resolve dynamic create-thread service tier", {
-            phase,
-            error,
-          });
-        },
-      },
-    );
-  }
-
-  async createPendingManagedWorktree(
-    entry: CodexPendingWorktreeEntry,
-    context: {
-      readonly signal: AbortSignal;
-      readonly onEvent: (event: CodexWorktreeWorkerEvent) => void;
-    },
-  ): Promise<{
-    readonly worktreeGitRoot: string;
-    readonly worktreeWorkspaceRoot: string;
-    readonly setupError: string | null;
-  }> {
-    const selectedEnvironmentPath = entry.localEnvironmentConfigPath?.trim() || null;
-    let allocatedWorktreeGitRoot: string | null = null;
-    const host = await this.resolveExecutionHost(entry.hostId, "create", context.signal);
-    const workerResult = await this.controlPlane
-      .runPromise(
-        host.request(
-          {
-            operation: "create",
-            input: {
-              requestId: `${entry.id}:${String(entry.attempt)}`,
-              hostId: entry.hostId,
-              repositoryPath: entry.sourceWorkspaceRoot,
-              nodexHome: getNodexHome(),
-              managedRoot: host.descriptor.managedRoot,
-              projectId:
-                entry.launchMode === "start-conversation"
-                  ? (entry.startConversationParamsInput.projectAssignment?.projectId ?? entry.id)
-                  : entry.id,
-              targetId: entry.id,
-              threadTitle: entry.label,
-              startingState: entry.startingState ?? null,
-              localEnvironmentConfigPath: selectedEnvironmentPath,
-              setUpSyncedBranch: entry.launchMode !== "create-stable-worktree",
-              propagateLocalWorkspaceFiles: entry.hostId === CODEX_APP_LOCAL_HOST_ID,
-            },
-          },
-          {
-            onEvent: (event) =>
-              Effect.sync(() => {
-                if (event.type === "path-allocated") {
-                  allocatedWorktreeGitRoot = event.worktreeGitRoot;
-                }
-                context.onEvent(event);
-              }).pipe(
-                Effect.andThen(
-                  event.type === "path-allocated"
-                    ? this.managedWorktreeLifecycle.registerNewborn({
-                        hostId: entry.hostId,
-                        worktreeGitRoot: event.worktreeGitRoot,
-                      })
-                    : Effect.void,
-                ),
-              ),
-          },
-        ),
-        { signal: context.signal },
-      )
-      .catch(async (error) => {
-        if (allocatedWorktreeGitRoot) {
-          await this.controlPlane.runPromise(
-            this.managedWorktreeLifecycle.releaseNewborn({
-              hostId: entry.hostId,
-              worktreeGitRoot: allocatedWorktreeGitRoot,
-            }),
-          );
-        }
-        throw error;
-      });
-    const result = {
-      worktreeGitRoot: workerResult.worktreeGitRoot,
-      worktreeWorkspaceRoot: workerResult.worktreeWorkspaceRoot,
-    };
-    const throwCanceledAfterCreate = async (cause?: unknown): Promise<never> => {
-      await this.controlPlane
-        .runPromise(
-          this.managedWorktreeLifecycle.remove({
-            hostId: entry.hostId,
-            worktreeGitRoot: workerResult.worktreeGitRoot,
-            reason: "cancel",
-          }),
-        )
-        .catch((cleanupError) => {
-          this.logger.warn("Failed to clean a canceled pending worktree", {
-            pendingWorktreeId: entry.id,
-            worktreeGitRoot: workerResult.worktreeGitRoot,
-            error: cleanupError,
-          });
-        });
-      if (cause instanceof Error) throw cause;
-      throw new Error("Request canceled");
-    };
-    if (context.signal.aborted) return await throwCanceledAfterCreate();
-    if (workerResult.setupError !== null) {
-      return { ...result, setupError: workerResult.setupError };
-    }
-    if (workerResult.shellEnvironment !== null) {
-      await this.persistWorktreeShellEnvironment(
-        workerResult.worktreeWorkspaceRoot,
-        workerResult.shellEnvironment,
-      ).catch((error) => {
-        if (context.signal.aborted) return throwCanceledAfterCreate(error);
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn("Failed to store pending worktree shell environment", {
-          cwd: workerResult.worktreeWorkspaceRoot,
-          error,
-        });
-        context.onEvent({
-          operation: "create",
-          type: "output",
-          phase: "setup",
-          stream: "stderr",
-          data: `[stderr] Failed to store worktree shell environment: ${message}\n`,
-        });
-      });
-    }
-    if (context.signal.aborted) return await throwCanceledAfterCreate();
-    return { ...result, setupError: null };
-  }
-
-  private rebaseDynamicPendingPermissions(
-    entry: Extract<CodexPendingWorktreeEntry, { launchMode: "start-conversation" }>,
-    workspaceRoots: readonly string[],
-  ): CodexDynamicCreatePermissionSelection {
-    const params = entry.startConversationParamsInput;
-    const workspaceRoot = workspaceRoots[0];
-    if (!workspaceRoot) throw new Error("Pending worktree requires a primary workspace root");
-    return buildCodexDynamicPendingPermissionSelection({
-      mode: params.agentMode,
-      workspaceRoot,
-      workspaceRoots,
-      config: params.config,
-      ...(params.permissionProfileId === undefined
-        ? {}
-        : { permissionProfileId: params.permissionProfileId }),
-    });
-  }
-
-  private async getPastedTextAttachmentManager(): Promise<PastedTextAttachmentManager> {
-    return this.attachments.pastedText;
-  }
-
-  private async getThreadGoalDirectoryManager(): Promise<ThreadGoalAttachmentDirectoryManager> {
-    return this.attachments.goals;
-  }
-
-  async cleanupPendingGoalSources(entry: CodexPendingWorktreeEntry): Promise<void> {
-    if (entry.launchMode !== "start-conversation" || entry.threadGoalDraft == null) return;
-    await (
-      await this.getPastedTextAttachmentManager()
-    ).cleanupGoalSources(entry.threadGoalDraft, entry.threadStartHostId ?? entry.hostId);
-  }
-
-  private async applyStartedSessionThreadGoal(input: {
-    readonly threadId: string;
-    readonly objective: string;
-    readonly rawDraft: CodexThreadGoalDraftInput | null;
-  }): Promise<void> {
-    if (input.objective.length === 0) return;
-    await this.threadGoals.set({
-      threadId: input.threadId,
-      objective: input.objective,
-      status: "active",
-      appendTranscriptItem: false,
-    });
-    if (input.rawDraft === null) return;
-    await (
-      await this.getPastedTextAttachmentManager()
-    ).cleanupGoalSources(input.rawDraft, CODEX_APP_LOCAL_HOST_ID);
-  }
-
-  private async materializePendingWorktreeGoal(
-    entry: Extract<CodexPendingWorktreeEntry, { readonly launchMode: "start-conversation" }>,
-  ): Promise<CodexPendingMaterializedGoal | null> {
-    const draft = entry.threadGoalDraft;
-    if (!draft) return null;
-
-    const directoryManager = await this.getThreadGoalDirectoryManager();
-    const materialized = await directoryManager.materializeDraft(draft);
-    return { ...materialized, directoryManager };
-  }
-
-  private async cleanupPendingMaterializedGoal(
-    goal: CodexPendingMaterializedGoal | null,
-  ): Promise<void> {
-    if (!goal?.attachmentDirectory) return;
-    await goal.directoryManager.removeDirectory(goal.attachmentDirectory).catch(() => undefined);
-  }
-
-  async launchPendingWorktreeConversation(
-    entry: CodexPendingWorktreeEntry,
-    workspaceRoot: string,
-    context: {
-      readonly onThreadCreated: (threadId: string) => void;
-      readonly includeWorktreeInit: boolean;
-    },
-  ): Promise<{ readonly threadId: string }> {
-    if (entry.launchMode === "create-stable-worktree") {
-      throw new Error(`Unsupported pending worktree launch mode: ${entry.launchMode}`);
-    }
-    const initialTitle = (
-      entry.labelEdited ? entry.label : (entry.initialThreadTitle ?? "")
-    ).trim();
-    const worktreeInit = context.includeWorktreeInit
-      ? buildCodexPendingWorktreeInitItem(entry)
-      : null;
-    if (context.includeWorktreeInit && !worktreeInit) {
-      throw new Error(`Pending worktree is not ready to launch: ${entry.id}`);
-    }
-    const result =
-      entry.launchMode === "fork-conversation"
-        ? {
-            ...(await this.launchPendingWorktreeFork(entry, workspaceRoot, worktreeInit)),
-            materializedGoal: null,
-          }
-        : await this.launchPendingWorktreeStart(
-            entry,
-            workspaceRoot,
-            worktreeInit,
-            initialTitle,
-            context.onThreadCreated,
-            context.includeWorktreeInit,
-          );
-    if (!context.includeWorktreeInit) {
-      await this.forkSidePanelTransferLifecycle?.promotePending({
-        pendingWorktreeId: entry.id,
-        targetConversationId: result.threadId,
-        targetWorkspaceRoot: workspaceRoot,
-      });
-      this.persistClientThreadIdentity(result.threadId, entry.clientThreadId);
-      context.onThreadCreated(result.threadId);
-      return result;
-    }
-    this.persistClientThreadIdentity(result.threadId, entry.clientThreadId);
-    await this.forkSidePanelTransferLifecycle?.promotePending({
-      pendingWorktreeId: entry.id,
-      targetConversationId: result.threadId,
-      targetWorkspaceRoot: workspaceRoot,
-    });
-    context.onThreadCreated(result.threadId);
-    await Promise.all([
-      this.applyPendingWorktreeConversationMetadata({
-        entry,
-        includeWorktreeInit: context.includeWorktreeInit,
-        initialTitle,
-        threadId: result.threadId,
-        materializedGoal: result.materializedGoal,
-      }),
-      this.createPendingWorktreeHeartbeat(entry, result.threadId),
-    ]);
-    await this.cleanupPendingGoalSources(entry);
-    return result;
-  }
-
-  private async createPendingWorktreeHeartbeat(
-    entry: Exclude<CodexPendingWorktreeEntry, { readonly launchMode: "create-stable-worktree" }>,
-    threadId: string,
-  ): Promise<void> {
-    if (entry.launchMode !== "start-conversation") return;
-    const projectId = entry.startConversationParamsInput.projectAssignment?.projectId;
-    if (!entry.projectSessionId || !projectId) return;
-    const outcome = await this.createHeartbeatAutomationForStartedWorktreeThread({
-      projectId,
-      sessionId: entry.projectSessionId,
-      threadId,
-      heartbeatAutomation: entry.heartbeatAutomation,
-      emitStartProgress: false,
-    });
-    if (outcome !== "failed") return;
-    this.applicationEvents.publish({
-      kind: "pendingWorktreeWarning",
-      value: {
-        clientThreadId: entry.clientThreadId,
-        kind: "heartbeat-automation-create-failed",
-        message: "Started task, but could not create the heartbeat",
-        pendingWorktreeId: entry.id,
-        threadId,
-      },
-    });
-  }
-
-  private async launchPendingWorktreeStart(
-    entry: Extract<CodexPendingWorktreeEntry, { readonly launchMode: "start-conversation" }>,
-    workspaceRoot: string,
-    worktreeInit: CodexCanonicalWorktreeInitItem | null,
-    initialTitle: string,
-    onThreadCreated: (threadId: string) => void,
-    includeWorktreeInit: boolean,
-  ): Promise<{
-    readonly threadId: string;
-    readonly materializedGoal: CodexPendingMaterializedGoal | null;
-  }> {
-    const params = entry.startConversationParamsInput;
-    const launchLocation = projectCodexPendingWorktreeLaunchLocation({
-      params,
-      sourceWorkspaceRoot: entry.sourceWorkspaceRoot,
-      worktreeWorkspaceRoot: workspaceRoot,
-    });
-    const permissionSelection = params.shouldSendPermissionOverrides
-      ? this.rebaseDynamicPendingPermissions(entry, launchLocation.workspaceRoots)
-      : null;
-    const projectId = launchLocation.projectAssignment?.projectId ?? null;
-    const modelProjection = {
-      collaborationMode: params.collaborationMode,
-      configOverrides: params.configOverrides ?? null,
-    } as CodexDynamicCreateModelProjection;
-    const materializedGoal = includeWorktreeInit
-      ? await this.materializePendingWorktreeGoal(entry)
-      : null;
-    const firstTurnInput = materializedGoal
-      ? replaceFirstTextInput(params.input, `/goal ${materializedGoal.objective}`)
-      : [...params.input];
-    const prompt = materializedGoal?.objective ?? extractCodexUserRequestSection(entry.prompt);
-    const additionalContext = buildReviewDiffCommentAdditionalContext(params.commentAttachments);
-    const firstTurnAttachments = buildCodexPendingFirstTurnAttachments({
-      fileAttachments: params.fileAttachments,
-      addedFiles: params.addedFiles,
-      threadGoalDraft: includeWorktreeInit && materializedGoal ? entry.threadGoalDraft : null,
-    });
-    let coreCreated = false;
-
-    try {
-      const result = await this.startDynamicCreatedConversation(
-        {
-          clientThreadId: entry.clientThreadId,
-          createInput: {
-            prompt,
-            target: projectId
-              ? { type: "project", projectId, environment: { type: "local" } }
-              : { type: "projectless" },
-          },
-          ...(params.additionalDeveloperInstructions === undefined
-            ? {}
-            : { additionalDeveloperInstructions: params.additionalDeveloperInstructions }),
-          ...(params.baseInstructions === undefined
-            ? {}
-            : { baseInstructions: params.baseInstructions }),
-          ...(entry.browserUsePresentationOrigin
-            ? {
-                beforeFirstTurn: async (threadId: string) => {
-                  await this.promoteBrowserUseRouteForFirstTurn({
-                    origin: entry.browserUsePresentationOrigin,
-                    codexSessionId: threadId,
-                    projectId,
-                  });
-                },
-              }
-            : {}),
-          ...(additionalContext ? { firstTurnAdditionalContext: additionalContext } : {}),
-          firstTurnAttachments,
-          firstTurnCommentAttachments: [...params.commentAttachments],
-          firstTurnInput,
-          ...(initialTitle ? { initialTitle } : {}),
-          managedWorktreePath: worktreeInit ? entry.worktreeGitRoot : null,
-          ...(params.memoryPreferences === undefined
-            ? {}
-            : { memoryPreferences: params.memoryPreferences }),
-          modelProjection,
-          executionProfile: params.executionProfile,
-          ...(params.mode === undefined ? {} : { mode: params.mode }),
-          onThreadCreated: (threadId) => {
-            coreCreated = true;
-            onThreadCreated(threadId);
-          },
-          permissionSelection,
-          ...(entry.projectSessionId ? { projectSessionId: entry.projectSessionId } : {}),
-          ...(params.serviceName === undefined ? {} : { serviceName: params.serviceName }),
-          serviceTier: params.serviceTier,
-          skipAutoTitleGeneration:
-            initialTitle.length > 0 || entry.skipAutoTitleGeneration === true,
-          target: {
-            launchMode: "direct",
-            projectId,
-            cwd: launchLocation.cwd,
-            workspaceRoots: [...launchLocation.workspaceRoots],
-            workspaceKind: params.workspaceKind,
-            projectlessOutputDirectory: null,
-            projectlessWorkspaceBrowserRoot: null,
-          },
-          threadSource: params.threadSource,
-          ...(params.threadStartKind === undefined
-            ? {}
-            : { threadStartKind: params.threadStartKind }),
-          ...(worktreeInit ? { worktreeInit } : {}),
-        },
-        { persistClientThreadIdentity: false },
-      );
-      return { ...result, materializedGoal };
-    } catch (error) {
-      if (!coreCreated) {
-        await this.cleanupPendingMaterializedGoal(materializedGoal);
-      }
-      throw error;
-    }
-  }
-
-  private async launchPendingWorktreeFork(
-    entry: Extract<CodexPendingWorktreeEntry, { readonly launchMode: "fork-conversation" }>,
-    workspaceRoot: string,
-    worktreeInit: CodexCanonicalWorktreeInitItem | null,
-  ): Promise<{ readonly threadId: string }> {
-    let source = await this.resolveDynamicThreadDetail(entry.sourceConversationId);
-    let trailingTurnCount = 0;
-    if (entry.targetTurnId) {
-      source = this.serializeThreadDetail(entry.sourceConversationId) ?? source;
-      const sourceTurnIndex = source.turns.findIndex((turn) => turn.turnId === entry.targetTurnId);
-      if (sourceTurnIndex < 0) {
-        throw new Error(
-          `Turn '${entry.targetTurnId}' was not found in thread '${entry.sourceConversationId}'`,
-        );
-      }
-      trailingTurnCount = source.turns.length - sourceTurnIndex - 1;
-    }
-    const projectId =
-      entry.projectAssignment?.projectId ??
-      this.getThreadLinkSafely(entry.sourceConversationId)?.projectId ??
-      null;
-    const workspaceRoots = rewriteExecutionWorkspaceRoots({
-      sourcePrimary: entry.sourceWorkspaceRoot,
-      targetPrimary: workspaceRoot,
-      workspaceRoots: entry.sourceWorkspaceRoots,
-    });
-    const fork = await this.forkAndResumePersistentConversation({
-      sourceThreadId: entry.sourceConversationId,
-      collaborationMode: entry.sourceCollaborationMode,
-      requestedCwd: workspaceRoot,
-      sourceWorkspaceRoot: entry.sourceWorkspaceRoot,
-      workspaceRoots,
-      threadSource: entry.threadSource ?? "user",
-      materialize: (thread, resolvedCwd) =>
-        this.materializeThreadDetailFromThreadPayload(
-          thread,
-          {
-            projectId,
-            cwd: resolvedCwd ?? workspaceRoot,
-            managedWorktreePath: worktreeInit ? entry.worktreeGitRoot : null,
-          },
-          resolvedCwd ?? workspaceRoot,
-          { preserveExistingTimeline: true },
-        ),
-    });
-    if (trailingTurnCount > 0) {
-      const rollbackResponse = await this.client.request<"thread/rollback", ThreadRollbackResponse>(
-        "thread/rollback",
-        {
-          threadId: fork.threadId,
-          numTurns: trailingTurnCount,
-        },
-      );
-      await this.applyForkRollbackResponse({
-        threadId: fork.threadId,
-        response: rollbackResponse,
-        fallbackRef: this.parseThreadRef(fork.threadId),
-        fallbackCwd: fork.resolvedCwd ?? workspaceRoot,
-      });
-    }
-    this.appendForkedFromConversationMarker(
-      fork.threadId,
-      entry.sourceConversationId,
-      this.resolveForkedFromConversationTitle(source),
-    );
-    if (worktreeInit) {
-      this.ensureConversationRecord(fork.threadId);
-      const before = this.readCanonicalConversationState(fork.threadId);
-      if (!before) {
-        throw new Error(`Forked thread '${fork.threadId}' has no canonical conversation state`);
-      }
-      const after = appendCodexCanonicalWorktreeInitItem(before, worktreeInit, "new-turn");
-      this.commitCanonicalLocalTurnMutation({
-        threadId: fork.threadId,
-        before,
-        after,
-        observedAtMs: Date.now(),
-      });
-    }
-    this.syncDormantConversationFromRecord(fork.threadId, "owner-unavailable");
-    return { threadId: fork.threadId };
-  }
-
-  private async applyPendingWorktreeConversationMetadata(input: {
-    readonly entry: Exclude<
-      CodexPendingWorktreeEntry,
-      { readonly launchMode: "create-stable-worktree" }
-    >;
-    readonly includeWorktreeInit: boolean;
-    readonly initialTitle: string;
-    readonly materializedGoal: CodexPendingMaterializedGoal | null;
-    readonly threadId: string;
-  }): Promise<void> {
-    const { entry, includeWorktreeInit, initialTitle, materializedGoal, threadId } = input;
-    const onlyIfUntitled = entry.initialThreadTitle == null && entry.labelEdited;
-    if (entry.isPinned) {
-      try {
-        this.rememberWorkspaceSidebar(
-          await this.projectWorkspace.setThreadPinned(threadId, true, entry.pinnedBeforeThreadId),
-        );
-      } catch (error) {
-        this.logger.warn("Worktree conversation started without pinned metadata", {
-          pendingWorktreeId: entry.id,
-          threadId,
-          error,
-        });
-      }
-    }
-    if (initialTitle) {
-      const currentTitle = this.getThreadLinkSafely(threadId)?.threadName?.trim() ?? "";
-      if (!onlyIfUntitled || !currentTitle) {
-        await this.threadTitlePersistence.set({
-          threadId,
-          name: initialTitle,
-          normalization: "manual",
-        });
-      }
-    }
-    if (includeWorktreeInit && entry.worktreeGitRoot) {
-      try {
-        await this.controlPlane.runPromise(
-          this.managedWorktreeLifecycle.setOwner({
-            hostId: entry.hostId,
-            worktreeGitRoot: entry.worktreeGitRoot,
-            ownerThreadId: threadId,
-          }),
-        );
-      } catch (error) {
-        this.logger.warn("Worktree conversation started without owner metadata", {
-          pendingWorktreeId: entry.id,
-          threadId,
-          error,
-        });
-      } finally {
-        await this.controlPlane.runPromise(
-          this.managedWorktreeLifecycle.releaseNewborn({
-            hostId: entry.hostId,
-            worktreeGitRoot: entry.worktreeGitRoot,
-          }),
-        );
-        this.scheduleManagedWorktreeRetention();
-      }
-    }
-    if (materializedGoal) {
-      const goal = await this.threadGoals.set({
-        threadId,
-        objective: materializedGoal.objective,
-        status: "active",
-        appendTranscriptItem: false,
-      });
-      if (!goal) {
-        throw new Error(`Pending worktree thread '${threadId}' could not retain its goal`);
-      }
-    }
-  }
-
-  /** Exact `HQ`: thread-start response wins, except the full-access fallback. */
-  private resolveDynamicCreateResponsePermissionContext(
-    response: ThreadStartResponse,
-    requested: CodexDynamicCreatePermissionContext | null,
-  ): CodexDynamicCreatePermissionContext {
-    if (requested === null) {
-      return {
-        activePermissionProfile: response.activePermissionProfile,
-        runtimeWorkspaceRoots: [...response.runtimeWorkspaceRoots],
-        approvalPolicy: response.approvalPolicy,
-        approvalsReviewer: response.approvalsReviewer,
-        sandboxPolicy: response.sandbox,
-      };
-    }
-    const requestedProfile = requested.activePermissionProfile;
-    if (
-      response.activePermissionProfile === null &&
-      requestedProfile?.id === ":danger-full-access"
-    ) {
-      return requested;
-    }
-    return {
-      activePermissionProfile:
-        response.activePermissionProfile ??
-        (requestedProfile !== null && !requestedProfile.id.startsWith(":")
-          ? requestedProfile
-          : null),
-      runtimeWorkspaceRoots: [...response.runtimeWorkspaceRoots],
-      approvalPolicy: response.approvalPolicy,
-      approvalsReviewer: response.approvalsReviewer,
-      sandboxPolicy: response.sandbox,
-    };
-  }
-
-  private async resolveDynamicCreateFirstTurnPermissions(input: {
-    readonly cwd: string;
-    readonly mode: CodexDynamicCreatePermissionMode;
-    readonly responseContext: CodexDynamicCreatePermissionContext;
-    readonly threadId: string;
-  }): Promise<CodexDynamicCreatePermissionSelection> {
-    let retainedWritableRoots: string[] = [];
-    try {
-      retainedWritableRoots = await this.readThreadWritableRoots(input.threadId);
-    } catch (error) {
-      this.logger.warn("Failed to load dynamic create-thread writable roots", {
-        threadId: input.threadId,
-        error,
-      });
-    }
-
-    const visualizationDirectory =
-      input.responseContext.sandboxPolicy.type === "workspaceWrite"
-        ? resolveCodexThreadVisualizationDirectory(this.runtimeStateHome, input.threadId)
-        : null;
-    if (visualizationDirectory) {
-      await mkdir(visualizationDirectory, { recursive: true });
-    }
-    const context = augmentCodexDynamicFirstTurnPermissionContext({
-      context: input.responseContext,
-      cwd: input.cwd,
-      retainedWritableRoots,
-      visualizationDirectory,
-    });
-
-    return resolveCodexDynamicCreatePermissionSelection({
-      source: null,
-      destination: {
-        hostId: CODEX_APP_LOCAL_HOST_ID,
-        cwd: input.cwd,
-        defaultMode: input.mode,
-        defaultContext: context,
-        workspaceRoots: [],
-      },
-    });
-  }
-
-  private async failDynamicCreateOptimisticTurn(
-    threadId: string,
-    clientUserMessageId: string,
-    previousPermissionContext: CodexCanonicalHydratedPermissionContext,
-    previousStatus: {
-      readonly statusType: CodexThreadStatusType;
-      readonly statusActiveFlags: readonly CodexThreadActiveFlag[];
-    },
-  ): Promise<void> {
-    const record = this.getMaybeConversationRecord(threadId);
-    if (!record) return;
-    const before = this.readCanonicalConversationState(threadId);
-    if (before) {
-      const failed = failCodexCanonicalOptimisticTurn(before, clientUserMessageId, randomUUID());
-      const hydrationContext = failed.sidecar.hydrationContext;
-      const after = hydrationContext
-        ? {
-            ...failed,
-            sidecar: {
-              ...failed.sidecar,
-              hydrationContext: {
-                ...hydrationContext,
-                currentPermissions: previousPermissionContext,
-              },
-            },
-          }
-        : failed;
-      this.commitCanonicalLocalTurnMutation({
-        threadId,
-        before,
-        after,
-        observedAtMs: Date.now(),
-      });
-    }
-    const detail = record.detail;
-    if (detail) {
-      record.detail = {
-        ...detail,
-        statusType: previousStatus.statusType,
-        statusActiveFlags: [...previousStatus.statusActiveFlags],
-      };
-    }
-    await this.applyThreadStatusLocal(threadId, previousStatus.statusType, [
-      ...previousStatus.statusActiveFlags,
-    ]);
-    this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-  }
-
-  private dispatchDynamicCreateFirstTurn(input: {
-    readonly additionalContext?: TurnStartParams["additionalContext"];
-    readonly attachments: readonly CodexLiveFileAttachment[];
-    readonly clientUserMessageId: string;
-    readonly collaborationMode: CodexDynamicCreateModelProjection["collaborationMode"];
-    readonly cwd: string;
-    readonly inputItems: TurnStartParams["input"];
-    readonly nodexBuiltinFullAccess: boolean;
-    readonly permissionOverrides?: CodexDynamicCreatePermissionSelection["turnParams"];
-    readonly reasoningEffort: TurnStartParams["effort"];
-    readonly reasoningSummary: NonNullable<TurnStartParams["summary"]>;
-    readonly previousPermissionContext: CodexCanonicalHydratedPermissionContext;
-    readonly previousStatus: {
-      readonly statusType: CodexThreadStatusType;
-      readonly statusActiveFlags: readonly CodexThreadActiveFlag[];
-    };
-    readonly serviceTier: string | null;
-    readonly threadId: string;
-    readonly threadModel: string;
-    readonly useAppServerPermissionDefault: boolean;
-    readonly workspaceKind: CodexResolvedDynamicDirectThreadTarget["workspaceKind"];
-  }): Promise<void> {
-    return (async () => {
-      const authorityLaunch = await this.beginNodexAgentTurnAuthority(
-        input.threadId,
-        input.nodexBuiltinFullAccess,
-      );
-      try {
-        const permissionParams: Pick<
-          TurnStartParams,
-          | "approvalPolicy"
-          | "approvalsReviewer"
-          | "permissions"
-          | "runtimeWorkspaceRoots"
-          | "sandboxPolicy"
-        > = input.useAppServerPermissionDefault
-          ? {
-              approvalPolicy: null,
-              approvalsReviewer: null,
-              sandboxPolicy: null,
-              permissions: null,
-              runtimeWorkspaceRoots: null,
-            }
-          : (input.permissionOverrides ?? {});
-        const turnStartParams: CodexAppPrivateTurnStartParams = {
-          threadId: input.threadId,
-          clientUserMessageId: input.clientUserMessageId,
-          input: input.inputItems,
-          cwd: input.cwd,
-          ...(input.additionalContext ? { additionalContext: input.additionalContext } : {}),
-          ...permissionParams,
-          responsesapiClientMetadata: {
-            workspace_kind: input.workspaceKind,
-          },
-          model: input.collaborationMode === null ? input.threadModel : null,
-          serviceTier: input.serviceTier,
-          effort: input.collaborationMode === null ? input.reasoningEffort : null,
-          multiAgentMode: "explicitRequestOnly",
-          summary: input.reasoningSummary,
-          personality: null,
-          outputSchema: null,
-          collaborationMode: input.collaborationMode,
-          attachments: input.attachments,
-        };
-        const response = await this.client.request<"turn/start", TurnStartResponse>(
-          "turn/start",
-          turnStartParams,
-        );
-        await this.nodexAgentAuthorityRegistry.bindTurn(authorityLaunch, response.turn.id);
-        const record = this.getMaybeConversationRecord(input.threadId);
-        const before = this.readCanonicalConversationState(input.threadId);
-        if (record && before) {
-          const after = bindCodexCanonicalOptimisticTurn(
-            before,
-            input.clientUserMessageId,
-            response.turn,
-          );
-          this.commitCanonicalLocalTurnMutation({
-            threadId: input.threadId,
-            before,
-            after,
-            observedAtMs: Date.now(),
-          });
-        }
-        await this.markThreadAsActive(input.threadId);
-        this.syncDormantConversationFromRecord(input.threadId, "owner-unavailable");
-      } catch (error) {
-        this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
-        this.logger.error("Background first turn failed", {
-          threadId: input.threadId,
-          error,
-        });
-        await this.failDynamicCreateOptimisticTurn(
-          input.threadId,
-          input.clientUserMessageId,
-          input.previousPermissionContext,
-          input.previousStatus,
-        );
-        throw error;
-      }
-    })();
-  }
-
-  private async startDynamicCreatedConversation(
-    input: CodexDynamicDirectConversationLaunchInput,
-    options: { readonly persistClientThreadIdentity?: boolean } = {},
-  ): Promise<{ readonly threadId: string; readonly projectlessOutputDirectory?: string }> {
-    const clientThreadId =
-      input.clientThreadId ?? `${CODEX_CLIENT_THREAD_ID_PREFIX}${randomUUID()}`;
-    const projectlessDeveloperInstructions =
-      input.target.workspaceKind === "projectless"
-        ? buildCodexProjectlessThreadInstructions({
-            cwd: input.target.cwd,
-            outputDirectory: input.target.projectlessOutputDirectory,
-            workspaceBrowserRoot: input.target.projectlessWorkspaceBrowserRoot,
-          })
-        : null;
-    const additionalDeveloperInstructions =
-      input.additionalDeveloperInstructions === undefined
-        ? projectlessDeveloperInstructions
-        : input.additionalDeveloperInstructions;
-    const threadStartProjection = projectCodexPendingThreadStart({
-      defaultFeatureOverrides: CODEX_DEFAULT_FEATURE_OVERRIDES,
-      frozen: {
-        ...(input.modelProjection.configOverrides === null
-          ? {}
-          : { configOverrides: input.modelProjection.configOverrides }),
-        ...(input.memoryPreferences === undefined
-          ? {}
-          : { memoryPreferences: input.memoryPreferences }),
-      },
-    });
-    if (input.projectSessionId) {
-      const session = await this.projectWorkspace.getProjectSession(input.projectSessionId);
-      if (!session) {
-        throw new Error(`Project session not found: ${input.projectSessionId}`);
-      }
-      if (session.projectId !== input.target.projectId) {
-        throw new Error("Pending thread project must match the owning session project");
-      }
-    }
-    const baseThreadStartParams = await this.buildNewConversationParams({
-      cwd: input.target.cwd,
-      model: input.modelProjection.collaborationMode?.settings.model ?? null,
-      executionProfile: input.executionProfile ?? null,
-      serviceTier: input.serviceTier,
-      permissions: input.permissionSelection?.launchParams ?? null,
-      defaultFeatureOverrides: threadStartProjection.defaultFeatureOverrides,
-      personality: this.preferences.current(),
-      additionalDeveloperInstructions,
-      ...(input.baseInstructions === undefined ? {} : { baseInstructions: input.baseInstructions }),
-      ...(input.mode === undefined ? {} : { mode: input.mode }),
-      threadSource: input.threadSource ?? "subagent",
-      ...(input.threadStartKind === undefined ? {} : { threadStartKind: input.threadStartKind }),
-      ...(input.serviceName === undefined ? {} : { serviceName: input.serviceName }),
-    });
-    const threadStartParams: ThreadStartParams = {
-      ...baseThreadStartParams,
-      config: buildCodexPendingThreadStartConfig(
-        baseThreadStartParams.config,
-        threadStartProjection,
-      ),
-      runtimeWorkspaceRoots: [...input.target.workspaceRoots],
-    };
-    let threadStart: ThreadStartResponse;
-    let detail: CodexThreadDetail;
-    let effectiveCwd = input.target.cwd;
-    let projectedThread: Thread | null = null;
-    let responsePermissionContext: CodexDynamicCreatePermissionContext | null = null;
-    threadStart = await this.client.request<"thread/start", ThreadStartResponse>(
-      "thread/start",
-      threadStartParams,
-    );
-    effectiveCwd =
-      resolveCodexCanonicalHydratedCwd({
-        requestedCwd: input.target.cwd,
-        responseCwd: threadStart.cwd,
-        threadCwd: threadStart.thread.cwd,
-        fallbackCwd: input.target.cwd,
-      }) ?? input.target.cwd;
-    projectedThread = {
-      ...threadStart.thread,
-      cwd: effectiveCwd,
-      ...(input.serviceName === undefined ? {} : { serviceName: input.serviceName }),
-    };
-    const fallbackRef: ThreadRef = {
-      projectId: input.target.projectId,
-      cwd: effectiveCwd,
-      managedWorktreePath: input.managedWorktreePath ?? null,
-      projectlessOutputDirectory: input.target.projectlessOutputDirectory,
-      projectlessWorkspaceBrowserRoot: input.target.projectlessWorkspaceBrowserRoot,
-    };
-    ({ detail } = await this.materializeThreadDetailFromThreadPayload(
-      projectedThread,
-      fallbackRef,
-      effectiveCwd,
-    ));
-    if (input.executionProfile) {
-      await this.updateWorkspaceThreadSummary(detail.threadId, {
-        modelProvider: input.executionProfile.providerId,
-        executionProfile: input.executionProfile,
-      });
-      detail = {
-        ...detail,
-        modelProvider: input.executionProfile.providerId,
-        executionProfile: input.executionProfile,
-      };
-    }
-    if (input.permissionSelection) {
-      threadStart = await this.reconcileThreadStartWritableRoots(
-        threadStart,
-        input.permissionSelection.context.sandboxPolicy,
-      );
-    }
-    responsePermissionContext = this.resolveDynamicCreateResponsePermissionContext(
-      threadStart,
-      input.permissionSelection?.context ?? null,
-    );
-    await this.persistDynamicToolCatalogsForLaunch(detail.threadId, threadStartParams.dynamicTools);
-    await this.projectWorkspace.replaceThreadWritableRoots(
-      detail.threadId,
-      input.target.workspaceRoots,
-    );
-    this.setConversationRecordDetail(detail);
-    this.hydrateCanonicalConversationState(threadStart, {
-      fallbackCwd: input.target.cwd,
-      resolvedCwd: effectiveCwd,
-      responsePermissionFallback: {
-        ...responsePermissionContext,
-        runtimeWorkspaceRoots: [...(responsePermissionContext.runtimeWorkspaceRoots ?? [])],
-      },
-    });
-    if (input.projectSessionId) {
-      const attachedSummary = await this.upsertWorkspaceSessionLinkFromThread(
-        projectedThread,
-        {
-          projectId: input.target.projectId,
-          sessionId: input.projectSessionId,
-        },
-        {
-          executionHostId: CODEX_APP_LOCAL_HOST_ID,
-          fallbackCwd: effectiveCwd,
-          managedWorktreePath: input.managedWorktreePath ?? null,
-          runtimeWorkspaceRoots: input.target.workspaceRoots,
-        },
-      );
-      if (!attachedSummary) {
-        throw new Error("Pending thread could not be attached to its project session");
-      }
-    }
-    const threadId = detail.threadId;
-    if (input.initialTitle?.trim()) {
-      await this.threadTitlePersistence.set({
-        threadId,
-        name: input.initialTitle,
-        normalization: "manual",
-      });
-    }
-    if (!responsePermissionContext) {
-      throw new Error("Thread start did not resolve its permission context");
-    }
-    const turnPermissionSelection = input.permissionSelection
-      ? await this.resolveDynamicCreateFirstTurnPermissions({
-          cwd: effectiveCwd,
-          mode: input.permissionSelection.mode,
-          responseContext: responsePermissionContext,
-          threadId,
-        })
-      : null;
-    const collaborationMode = input.modelProjection.collaborationMode;
-    const effectiveModel =
-      input.executionProfile?.modelId ?? collaborationMode?.settings.model ?? threadStart.model;
-    const effectiveReasoningEffort =
-      input.executionProfile?.reasoningEffort ??
-      collaborationMode?.settings.reasoning_effort ??
-      parseReasoningEffort(threadStart.reasoningEffort);
-    const previousPermissionContext: CodexCanonicalHydratedPermissionContext = {
-      activePermissionProfile: responsePermissionContext.activePermissionProfile,
-      runtimeWorkspaceRoots: [...(responsePermissionContext.runtimeWorkspaceRoots ?? [])],
-      approvalPolicy: responsePermissionContext.approvalPolicy,
-      approvalsReviewer: responsePermissionContext.approvalsReviewer,
-      sandboxPolicy: responsePermissionContext.sandboxPolicy,
-    };
-    const firstTurnPermissionContext: CodexCanonicalHydratedPermissionContext =
-      turnPermissionSelection
-        ? {
-            activePermissionProfile: turnPermissionSelection.context.activePermissionProfile,
-            runtimeWorkspaceRoots: [
-              ...(turnPermissionSelection.context.runtimeWorkspaceRoots ?? []),
-            ],
-            approvalPolicy: turnPermissionSelection.context.approvalPolicy,
-            approvalsReviewer: turnPermissionSelection.context.approvalsReviewer,
-            sandboxPolicy: turnPermissionSelection.context.sandboxPolicy,
-          }
-        : {
-            activePermissionProfile: responsePermissionContext.activePermissionProfile,
-            runtimeWorkspaceRoots: [...(responsePermissionContext.runtimeWorkspaceRoots ?? [])],
-            approvalPolicy: responsePermissionContext.approvalPolicy,
-            approvalsReviewer: responsePermissionContext.approvalsReviewer,
-            sandboxPolicy: responsePermissionContext.sandboxPolicy,
-          };
-    const latestCollaborationMode = buildCollaborationModeState({
-      collaborationMode: "default",
-      model: effectiveModel,
-      reasoningEffort: effectiveReasoningEffort,
-    });
-    const record = this.ensureConversationRecord(threadId);
-    const firstTurnReasoningSummary = resolveCodexReasoningSummary({
-      configuredSummary: record.latestThreadSettings?.summary,
-    });
-    this.setLatestCollaborationModeForThread(threadId, latestCollaborationMode);
-    this.applyLatestThreadSettingsForThread(threadId, {
-      model: effectiveModel,
-      reasoningEffort: effectiveReasoningEffort,
-      summary: firstTurnReasoningSummary,
-      collaborationMode: latestCollaborationMode,
-      personality: this.preferences.current(),
-    });
-    const previousStatus = {
-      statusType: detail.statusType,
-      statusActiveFlags: [...detail.statusActiveFlags],
-    };
-    await input.beforeFirstTurn?.(threadId);
-    this.conversationAggregate(threadId).setStreaming(true);
-    this.setConversationStreamRole(threadId, "owner");
-    const clientUserMessageId = randomUUID();
-    const delegatedInput =
-      input.firstTurnInput ??
-      (() => {
-        if (!input.sourceThreadId) {
-          throw new Error("Dynamic delegated thread requires a source thread id");
-        }
-        return buildCodexDelegationInput({
-          sourceThreadId: input.sourceThreadId,
-          input: input.createInput.prompt,
-        });
-      })();
-    const firstTurnAttachments = input.firstTurnAttachments ?? [];
-    const startedAt = Date.now();
-    const turnParams: CodexCanonicalLiveTurnParams = {
-      threadId,
-      clientUserMessageId,
-      input: delegatedInput,
-      ...(input.firstTurnAdditionalContext
-        ? { additionalContext: input.firstTurnAdditionalContext }
-        : {}),
-      responsesapiClientMetadata: {
-        workspace_kind: input.target.workspaceKind,
-      },
-      cwd: effectiveCwd,
-      approvalPolicy: firstTurnPermissionContext.approvalPolicy,
-      approvalsReviewer: firstTurnPermissionContext.approvalsReviewer,
-      permissions: firstTurnPermissionContext.activePermissionProfile?.id ?? null,
-      runtimeWorkspaceRoots: firstTurnPermissionContext.activePermissionProfile
-        ? [...(firstTurnPermissionContext.runtimeWorkspaceRoots ?? [])]
-        : null,
-      sandboxPolicy: firstTurnPermissionContext.sandboxPolicy,
-      useAppServerPermissionDefault: input.permissionSelection === null,
-      model: collaborationMode === null ? threadStart.model : null,
-      serviceTier: threadStart.serviceTier ?? input.serviceTier,
-      effort: collaborationMode === null ? threadStart.reasoningEffort : null,
-      multiAgentMode: "explicitRequestOnly",
-      summary: firstTurnReasoningSummary,
-      personality: null,
-      outputSchema: null,
-      collaborationMode,
-      attachments: firstTurnAttachments,
-      ...(input.firstTurnCommentAttachments
-        ? { commentAttachments: [...input.firstTurnCommentAttachments] }
-        : {}),
-    };
-    const before = this.readCanonicalConversationState(threadId);
-    if (before) {
-      // Worktree initialization is app-owned activity for the first Turn. It
-      // is staged before server items so the Turn renders user → activity →
-      // assistant and keeps the activity under the worked-time disclosure.
-      const optimisticState = appendCodexCanonicalOptimisticFirstTurn(
-        before,
-        {
-          params: turnParams,
-          currentCollaborationModel: record.latestCollaborationMode.settings.model,
-          startedAtMs: startedAt,
-        },
-        input.worktreeInit,
-      );
-      const hydrationContext = optimisticState.sidecar.hydrationContext;
-      const after = hydrationContext
-        ? {
-            ...optimisticState,
-            sidecar: {
-              ...optimisticState.sidecar,
-              hydrationContext: {
-                ...hydrationContext,
-                currentPermissions: firstTurnPermissionContext,
-              },
-            },
-          }
-        : optimisticState;
-      this.commitCanonicalLocalTurnMutation({
-        threadId,
-        before,
-        after,
-        observedAtMs: startedAt,
-      });
-    }
-    if (input.skipAutoTitleGeneration !== true) {
-      this.scheduleGeneratedThreadName({
-        threadId,
-        prompt: input.createInput.prompt,
-        cwd: effectiveCwd,
-      });
-    }
-    const currentDetail = record.detail ?? detail;
-    record.detail = {
-      ...currentDetail,
-      statusType: "active",
-      statusActiveFlags: [],
-    };
-    await this.markThreadAsActive(threadId);
-    this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-    const permissionDecision =
-      input.projectSessionId && input.target.projectId && input.permissionSelection
-        ? await this.permissions.resolve({
-            projectId: input.target.projectId,
-            requestedMode:
-              input.permissionSelection.mode === "full-access" ? "full-access" : undefined,
-            workspaceRoots: input.target.workspaceRoots,
-          })
-        : null;
-    const firstTurnPromise = this.dispatchDynamicCreateFirstTurn({
-      ...(input.firstTurnAdditionalContext
-        ? { additionalContext: input.firstTurnAdditionalContext }
-        : {}),
-      attachments: firstTurnAttachments,
-      clientUserMessageId,
-      collaborationMode,
-      cwd: effectiveCwd,
-      inputItems: delegatedInput,
-      nodexBuiltinFullAccess:
-        input.permissionSelection?.mode === "full-access" &&
-        permissionDecision?.verifiedBuiltinFullAccess === true,
-      ...(turnPermissionSelection
-        ? { permissionOverrides: turnPermissionSelection.turnParams }
-        : {}),
-      previousPermissionContext,
-      previousStatus,
-      reasoningEffort: effectiveReasoningEffort,
-      reasoningSummary: firstTurnReasoningSummary,
-      serviceTier: threadStart.serviceTier ?? input.serviceTier,
-      threadId,
-      threadModel: threadStart.model,
-      useAppServerPermissionDefault: input.permissionSelection === null,
-      workspaceKind: input.target.workspaceKind,
-    });
-    void firstTurnPromise.catch(() => undefined);
-    input.onThreadCreated?.(threadId);
-    if (options.persistClientThreadIdentity !== false) {
-      this.persistClientThreadIdentity(threadId, clientThreadId);
-    }
-
-    return {
-      threadId,
-      ...(input.target.workspaceKind === "projectless" &&
-      input.target.projectlessOutputDirectory !== null
-        ? { projectlessOutputDirectory: input.target.projectlessOutputDirectory }
-        : {}),
-    };
-  }
-
-  private persistClientThreadIdentity(threadId: string, clientThreadId: string): void {
-    if (
-      !setCodexClientThreadIdentity(this.persistedAtoms, {
-        hostId: CODEX_APP_LOCAL_HOST_ID,
-        threadId,
-        clientThreadId,
-      })
-    ) {
-      throw new Error(`Invalid client thread identity for ${threadId}`);
-    }
   }
 
   private resolveNodexAgentRootThreadId(threadId: string): string {

@@ -10,6 +10,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import type { ManagedWorktreeSettings } from "../../shared/types";
 import { CODEX_APP_LOCAL_HOST_ID } from "../codex/codex-app-meta-thread-tools";
 import {
@@ -22,6 +23,7 @@ import {
   type CodexManagedWorktreeRetentionPathProtection,
 } from "../codex/codex-managed-worktree-retention";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
+import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
@@ -70,6 +72,7 @@ export const live = (
   ManagedWorktreeRetentionRuntime,
   never,
   | CodexPendingWorktreeRuntime
+  | CodexApplicationEventHub
   | ExecutionHostRuntime
   | ManagedWorktreeConfiguration
   | ProjectWorkspace
@@ -79,6 +82,7 @@ export const live = (
     ManagedWorktreeRetentionRuntime,
     Effect.gen(function* () {
       const executionHosts = yield* ExecutionHostRuntime;
+      const applicationEvents = yield* CodexApplicationEventHub;
       const configuration = yield* ManagedWorktreeConfiguration;
       const managed = yield* ManagedWorktreeRuntime;
       const pending = yield* CodexPendingWorktreeRuntime;
@@ -348,7 +352,7 @@ export const live = (
       });
       yield* Effect.forkScoped(actor);
 
-      return ManagedWorktreeRetentionRuntime.of({
+      const service = ManagedWorktreeRetentionRuntime.of({
         request: Queue.offer(commands, {}).pipe(Effect.asVoid),
         run: Effect.gen(function* () {
           const reply = yield* Deferred.make<
@@ -359,5 +363,16 @@ export const live = (
           return yield* Deferred.await(reply);
         }),
       });
+      yield* applicationEvents.events.pipe(
+        Stream.filter(
+          (event) =>
+            event.kind === "codex" &&
+            event.value.type === "threadArchivedState" &&
+            event.value.archived,
+        ),
+        Stream.runForEach(() => service.request),
+        Effect.forkScoped({ startImmediately: true }),
+      );
+      return service;
     }),
   );

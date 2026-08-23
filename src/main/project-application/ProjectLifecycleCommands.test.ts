@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer";
 import { vi } from "vite-plus/test";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
 import type { Project, ProjectArchiveBlocker, ProjectSessionSummary } from "../../shared/types";
-import { BrowserSidebarRuntime } from "../host-runtime/BrowserSidebarRuntime";
+import { BrowserApplication } from "../browser-application/BrowserApplication";
 import { live as projectRuntimeLifecycleLive } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import { ProjectArchiveBlockers } from "./ProjectArchiveBlockers";
@@ -67,7 +67,7 @@ const testRuntime = (blockers: readonly (readonly ProjectArchiveBlocker[])[]) =>
       return project;
     }),
   );
-  const closeBrowserConversation = vi.fn();
+  const closeBrowserConversation = vi.fn(() => Effect.void);
   const closeBrowserProject = vi.fn(() => Effect.void);
   const discardExitedSessionsForOwners = vi.fn(() => Effect.succeed<readonly string[]>([]));
   const workspace = ProjectWorkspace.of({
@@ -85,11 +85,11 @@ const testRuntime = (blockers: readonly (readonly ProjectArchiveBlocker[])[]) =>
     Layer.provide(
       Layer.mergeAll(
         Layer.succeed(
-          BrowserSidebarRuntime,
-          BrowserSidebarRuntime.of({
-            browser: { closeBrowserConversation },
+          BrowserApplication,
+          BrowserApplication.of({
+            closeConversation: closeBrowserConversation,
             localServers: { closeProject: closeBrowserProject },
-          } as unknown as BrowserSidebarRuntime["Service"]),
+          } as unknown as BrowserApplication["Service"]),
         ),
         Layer.succeed(
           ProjectArchiveBlockers,

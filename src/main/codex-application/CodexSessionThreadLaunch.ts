@@ -9,8 +9,8 @@ import * as Layer from "effect/Layer";
 import * as LayerMap from "effect/LayerMap";
 import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
-import type { CodexPendingWorktreeRequest } from "../../shared/codex-pending-worktree";
 import { summarizeCodexPendingWorktreeLabel } from "../../shared/codex-pending-worktree";
+import { createCodexTextUserInput } from "../../shared/codex-prompt-preparation";
 import type {
   CodexConversationSnapshot,
   CodexThreadDetail,
@@ -19,8 +19,10 @@ import type {
 } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
+import { allocateCodexPendingWorktreeRequest } from "../codex/codex-pending-worktree-request";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
+import { CodexAttachments } from "./CodexAttachments";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
@@ -89,6 +91,7 @@ export const make: Effect.Effect<
   CodexSessionThreadLaunch["Service"],
   never,
   | CodexFreshThreadLaunchRuntime
+  | CodexAttachments
   | CodexGateway
   | CodexPendingWorktreeRuntime
   | CodexThreadDirectory
@@ -100,6 +103,7 @@ export const make: Effect.Effect<
   | Scope.Scope
 > = Effect.gen(function* () {
   const core = yield* CoreModules;
+  const attachments = yield* CodexAttachments;
   const gateway = yield* CodexGateway;
   const projectLifecycle = yield* ProjectRuntimeLifecycleRuntime;
   const pendingWorktrees = yield* CodexPendingWorktreeRuntime;
@@ -162,37 +166,42 @@ export const make: Effect.Effect<
     input: CodexThreadStartForSessionInput & { readonly projectId: string },
     sourceRoots: readonly string[],
   ): Effect.Effect<CodexThreadStartForSessionResult, CodexSessionThreadLaunchError> =>
-    Effect.sync(() => {
+    Effect.gen(function* () {
       const sourceWorkspaceRoot = sourceRoots[0]?.trim();
       if (!sourceWorkspaceRoot) throw new Error("Managed worktree requires a Project source root");
-      const pendingWorktreeId = randomUUID();
-      const clientThreadId = randomUUID();
-      pendingWorktrees.create({
-        id: pendingWorktreeId,
-        clientThreadId,
+      const materializedGoal = input.threadGoalDraft
+        ? yield* attachments.materializePastedText(input.threadGoalDraft.pastedTextAttachments)
+        : null;
+      const frozenGoal = input.threadGoalDraft
+        ? {
+            objective: input.threadGoalDraft.objective,
+            pastedTextAttachments: materializedGoal?.attachments ?? [],
+            imageAttachments: [...input.threadGoalDraft.imageAttachments],
+          }
+        : null;
+      const allocated = allocateCodexPendingWorktreeRequest({
         hostId: gateway.localHostId,
         launchMode: "start-conversation",
         label: summarizeCodexPendingWorktreeLabel(input.prompt),
         initialThreadTitle: input.threadName ?? null,
         sourceWorkspaceRoot,
-        sourceWorkspaceRoots: [...sourceRoots],
         startingState: input.worktreeStartingState ?? null,
         localEnvironmentConfigPath: input.runInEnvironmentPath ?? null,
         prompt: input.prompt,
         projectSessionId: input.sessionId,
         threadStartHostId: gateway.localHostId,
-        threadGoalDraft: input.threadGoalDraft ?? null,
+        threadGoalDraft: frozenGoal,
         heartbeatAutomation: input.heartbeatAutomation ?? null,
         sourceConversationId: null,
         sourceCollaborationMode: null,
         startConversationParamsInput: {
-          input: [{ type: "text", text: input.prompt }],
+          input: [createCodexTextUserInput(input.prompt)],
           commentAttachments: input.promptInput?.commentAttachments ?? [],
           workspaceRoots: [...sourceRoots],
           cwd: sourceWorkspaceRoot,
           fileAttachments: [],
           addedFiles: [],
-          agentMode: "default",
+          agentMode: "auto",
           shouldSendPermissionOverrides: true,
           model: null,
           executionProfile: input.executionProfile ?? null,
@@ -206,8 +215,35 @@ export const make: Effect.Effect<
               : "user",
           workspaceKind: "project",
         },
-      } as unknown as CodexPendingWorktreeRequest);
-      return { kind: "pending" as const, pendingWorktreeId, clientThreadId };
+      });
+      if (!allocated.result.clientThreadId) {
+        return yield* fail(
+          "pending",
+          input.sessionId,
+          new Error("Conversation worktree allocation requires a client Thread identity"),
+        );
+      }
+      yield* pendingWorktrees
+        .create(allocated.request)
+        .pipe(
+          Effect.onError(() =>
+            materializedGoal
+              ? Effect.forEach(
+                  materializedGoal.createdAttachmentPaths,
+                  (attachmentPath) =>
+                    attachments
+                      .removePastedText({ path: attachmentPath, fsPath: attachmentPath, label: "" })
+                      .pipe(Effect.ignore),
+                  { discard: true },
+                )
+              : Effect.void,
+          ),
+        );
+      return {
+        kind: "pending" as const,
+        pendingWorktreeId: allocated.result.pendingWorktreeId,
+        clientThreadId: allocated.result.clientThreadId,
+      };
     }).pipe(Effect.mapError((cause) => fail("pending", input.sessionId, cause)));
 
   const startImmediate = Effect.fn("CodexSessionThreadLaunch.startImmediate")(function* (

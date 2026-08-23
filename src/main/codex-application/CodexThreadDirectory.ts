@@ -89,6 +89,12 @@ export class CodexThreadDirectory extends Context.Service<
     readonly acceptForkResult: (input: {
       readonly sourceThreadId: string;
       readonly response: ThreadForkResponse;
+      readonly target?: {
+        readonly projectId: string | null;
+        readonly cwd: string;
+        readonly managedWorktreePath: string | null;
+        readonly runtimeWorkspaceRoots: readonly string[];
+      };
     }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
     /** Accepts an imported rollout as a standalone local Thread. */
     readonly acceptImportResult: (input: {
@@ -662,6 +668,12 @@ export const make: Effect.Effect<
   const acceptForkResult = Effect.fn("CodexThreadDirectory.acceptForkResult")(function* (input: {
     readonly sourceThreadId: string;
     readonly response: ThreadForkResponse;
+    readonly target?: {
+      readonly projectId: string | null;
+      readonly cwd: string;
+      readonly managedWorktreePath: string | null;
+      readonly runtimeWorkspaceRoots: readonly string[];
+    };
   }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
     const sourceThreadId = input.sourceThreadId.trim();
     const childThreadId = input.response.thread.id.trim();
@@ -729,9 +741,10 @@ export const make: Effect.Effect<
       lineageRootThreadId: sourceThreadId,
       forkedFromId: sourceThreadId,
       executionProfile,
-      managedWorktreePath: source.thread.managedWorktreePath,
+      managedWorktreePath: input.target?.managedWorktreePath ?? source.thread.managedWorktreePath,
+      ...(input.target ? { inferredInitialProjectId: input.target.projectId } : {}),
       executionHostId: source.thread.executionHostId,
-      fallbackCwd: source.thread.cwd,
+      fallbackCwd: input.target?.cwd ?? source.thread.cwd,
       hasUnreadTurn: false,
     });
     yield* core.workspace
@@ -750,7 +763,7 @@ export const make: Effect.Effect<
         intent: {
           kind: "replace_thread_writable_roots",
           thread_id: childThreadId,
-          roots: input.response.runtimeWorkspaceRoots,
+          roots: input.target?.runtimeWorkspaceRoots ?? input.response.runtimeWorkspaceRoots,
         },
       })
       .pipe(Effect.mapError((cause) => error("materialize", childThreadId, cause)));

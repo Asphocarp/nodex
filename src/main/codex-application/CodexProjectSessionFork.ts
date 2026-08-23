@@ -245,6 +245,16 @@ export const make: Effect.Effect<
           forkedFromId: full.summary.forkedFromId ?? null,
           threadName: full.summary.threadName,
           canonical: full.canonical,
+          pendingForks: pendingWorktrees
+            .list()
+            .filter(
+              (entry) => entry.launchMode === "fork-conversation" && entry.sourceConversationId,
+            )
+            .map((entry) => ({
+              conversationId: entry.id,
+              forkedFromId: entry.sourceConversationId,
+              title: entry.initialThreadTitle ?? entry.label,
+            })),
         })
         .pipe(Effect.mapError((cause) => error("pending", sessionId, cause)));
       const pendingWorktreeId = randomUUID();
@@ -283,14 +293,13 @@ export const make: Effect.Effect<
           ...(sourceSceneContext ? { sourceSceneContext } : {}),
         })
         .pipe(Effect.mapError((cause) => error("pending", sessionId, cause)));
-      yield* Effect.try({
-        try: () => pendingWorktrees.create(request),
-        catch: (cause) => error("pending", sessionId, cause),
-      }).pipe(
-        Effect.onError(() =>
-          sidePanelTransfers.discardPending(pendingWorktreeId).pipe(Effect.ignore),
-        ),
-      );
+      yield* pendingWorktrees
+        .create(request)
+        .pipe(
+          Effect.onError(() =>
+            sidePanelTransfers.discardPending(pendingWorktreeId).pipe(Effect.ignore),
+          ),
+        );
       return { pendingWorktreeId, clientThreadId };
     },
   );

@@ -8,9 +8,8 @@ import type {
   BrowserSidebarCommand,
   BrowserSidebarCommandResult,
 } from "../../shared/browser-sidebar";
-import type { BrowserSidebarService } from "../browser-sidebar-service";
+import { BrowserApplication } from "../browser-application/BrowserApplication";
 import { BrowserProfileRuntime } from "./BrowserProfileRuntime";
-import { BrowserSidebarRuntime } from "./BrowserSidebarRuntime";
 import { BrowserSiteStatusRuntime } from "./BrowserSiteStatusRuntime";
 import { BrowserUseRuntime } from "./BrowserUseRuntime";
 
@@ -27,8 +26,6 @@ export interface BrowserPresentationCommandContext {
 export class BrowserPresentationRuntime extends Context.Service<
   BrowserPresentationRuntime,
   {
-    readonly browser: BrowserSidebarService;
-    readonly sidebar: BrowserSidebarRuntime["Service"];
     readonly applyCommand: (
       command: BrowserSidebarCommand,
       context?: BrowserPresentationCommandContext,
@@ -50,24 +47,21 @@ const blockedCommentMode: BrowserSidebarCommandResult = {
 export const live: Layer.Layer<
   BrowserPresentationRuntime,
   never,
-  BrowserProfileRuntime | BrowserSidebarRuntime | BrowserSiteStatusRuntime | BrowserUseRuntime
+  BrowserApplication | BrowserProfileRuntime | BrowserSiteStatusRuntime | BrowserUseRuntime
 > = Layer.effect(
   BrowserPresentationRuntime,
   Effect.gen(function* () {
     const profile = yield* BrowserProfileRuntime;
-    const sidebar = yield* BrowserSidebarRuntime;
+    const browser = yield* BrowserApplication;
     const siteStatus = yield* BrowserSiteStatusRuntime;
     const browserUse = yield* BrowserUseRuntime;
-    const { browser } = sidebar;
-
     const applyBaseCommand = (
       command: BrowserSidebarCommand,
       context: BrowserPresentationCommandContext,
     ): Effect.Effect<BrowserSidebarCommandResult, BrowserPresentationRuntimeError> =>
-      Effect.tryPromise({
-        try: () => browser.handleCommand(command, context),
-        catch: (cause) => runtimeError("apply-command", cause),
-      });
+      browser
+        .applyCommand(command, context)
+        .pipe(Effect.mapError((cause) => runtimeError("apply-command", cause)));
 
     const applyCommand = Effect.fn("BrowserPresentationRuntime.applyCommand")(
       function* (command: BrowserSidebarCommand, context: BrowserPresentationCommandContext = {}) {
@@ -89,7 +83,7 @@ export const live: Layer.Layer<
           command.type === "quick-annotate" ||
           (command.type === "set-interaction-mode" && command.mode === "comment");
         if (requiresSiteDecision) {
-          const tab = browser.getTabSnapshot(command);
+          const tab = browser.projection.getTab(command);
           if (tab && (yield* siteStatus.isCommentModeBlocked(tab.url))) {
             return blockedCommentMode;
           }
@@ -109,10 +103,9 @@ export const live: Layer.Layer<
           yield* profile.download.clearHistory;
           return { ok: true } as const;
         }
-        return yield* Effect.tryPromise({
-          try: () => browser.clearBrowsingData(kind),
-          catch: (cause) => runtimeError("clear-browsing-data", cause),
-        });
+        return yield* browser
+          .clearBrowsingData(kind)
+          .pipe(Effect.mapError((cause) => runtimeError("clear-browsing-data", cause)));
       },
       Effect.mapError((cause) =>
         cause instanceof BrowserPresentationRuntimeError
@@ -121,6 +114,6 @@ export const live: Layer.Layer<
       ),
     );
 
-    return BrowserPresentationRuntime.of({ applyCommand, browser, clearBrowsingData, sidebar });
+    return BrowserPresentationRuntime.of({ applyCommand, clearBrowsingData });
   }),
 );

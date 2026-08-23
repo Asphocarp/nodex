@@ -15,6 +15,7 @@ import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import type {
+  CodexCanonicalWorktreeInitItem,
   CodexPreparedPrompt,
   CodexSteerTurnInput,
   CodexTurnStartOptions,
@@ -43,6 +44,7 @@ export type CodexTurnStartOverrides = CodexTurnStartOptions & {
   readonly clientUserMessageId?: string;
   readonly preparedPrompt?: CodexPreparedPrompt;
   readonly responsesapiClientMetadata?: TurnStartParams["responsesapiClientMetadata"];
+  readonly worktreeInit?: CodexCanonicalWorktreeInitItem;
 };
 
 export interface CodexPreparedRendererTurn {
@@ -268,6 +270,7 @@ export const make: Effect.Effect<
               params: canonicalParams,
               currentCollaborationModel: plan.currentCollaborationModel,
               startedAtMs: plan.startedAtMs,
+              ...(plan.worktreeInit ? { worktreeInit: plan.worktreeInit } : {}),
             });
             transaction.optimisticAdmitted = true;
             yield* projection.markThreadActive(plan.threadId);

@@ -12,6 +12,8 @@ import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadat
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
 import { resolveBrowserUseHostCapability } from "../../shared/browser-use-host-capability";
 import type { BrowserSidebarEvent } from "../browser/BrowserSidebarEventHub";
+import { BrowserApplication } from "../browser-application/BrowserApplication";
+import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import { makeBrowserUseIabApi } from "../browser-use/browser-use-iab-api";
 import { makeBrowserUseNativePipeServer } from "../browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../browser-use/browser-use-peer-authorizer";
@@ -25,7 +27,6 @@ import {
 import type { BrowserRuntimeAvailability } from "../codex/browser-runtime-bundle";
 import { getLogger } from "../logging/logger";
 import { DesktopToolRuntime } from "./DesktopToolRuntime";
-import { BrowserSidebarRuntime } from "./BrowserSidebarRuntime";
 
 export class BrowserUseRuntimeError extends Schema.TaggedError<BrowserUseRuntimeError>()(
   "BrowserUseRuntimeError",
@@ -272,11 +273,16 @@ export interface BrowserUseRuntimeOptions {
 
 export const live = (
   options: BrowserUseRuntimeOptions,
-): Layer.Layer<BrowserUseRuntime, never, BrowserSidebarRuntime | DesktopToolRuntime> =>
+): Layer.Layer<
+  BrowserUseRuntime,
+  never,
+  BrowserApplication | DesktopToolRuntime | ScopedCallbackRuntime
+> =>
   Layer.effect(
     BrowserUseRuntime,
     Effect.gen(function* () {
-      const browserSidebar = yield* BrowserSidebarRuntime;
+      const browser = yield* BrowserApplication;
+      const callbacks = yield* ScopedCallbackRuntime;
       const desktopTools = yield* DesktopToolRuntime;
       const capability = resolveBrowserUseHostCapability({
         browserRuntimeStatus: options.browserRuntime.status,
@@ -301,7 +307,7 @@ export const live = (
         platform: options.platform,
       });
       return yield* make({
-        browserEvents: browserSidebar.events.events,
+        browserEvents: browser.events.events,
         desktopTools,
         makeRegistry: (input) => {
           const appSessionId = randomUUID();
@@ -310,10 +316,11 @@ export const live = (
               makeBrowserUseIabApi({
                 appSessionId,
                 appVersion: options.appVersion,
+                applyCommand: (command) => callbacks.runPromise(browser.applyCommand(command)),
                 asyncRuntime,
-                browserService: browserSidebar.browser,
+                browser: browser.automation,
                 subscribeWebviewAttached: (listener) =>
-                  browserSidebar.events.subscribeWebviewAttached(listener),
+                  browser.events.subscribeWebviewAttached(listener),
                 buildFlavor:
                   options.browserRuntime.status === "available"
                     ? options.browserRuntime.bundle.manifest.buildFlavor

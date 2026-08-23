@@ -92,7 +92,7 @@ import { AutomationApplication } from "./AutomationApplication";
 const HEARTBEAT_ROLLOUT_TAIL_BYTES = 256 * 1024;
 const HEARTBEAT_TERMINAL_ROLLOUT_EVENTS = new Set(["task_complete", "response_item", "event_msg"]);
 const HEARTBEAT_ACTIVE_ROLLOUT_EVENTS = new Set(["response_item", "event_msg", "item", "unknown"]);
-const ARCHIVE_TURN_CAPTURE_LIMIT = 20;
+export const AUTOMATION_ARCHIVE_TURN_CAPTURE_LIMIT = 20;
 const THREAD_START_EXPERIMENTAL_RAW_EVENTS = false;
 const NODEX_AGENT_DYNAMIC_TOOL_SPECS = buildNodexAgentDynamicToolSpecs();
 type GatewayThreadStartParams = ClientRequestParamsByMethod["thread/start"];
@@ -238,7 +238,7 @@ const formatProtocolUserMessage = (
   return lines.length > 0 ? lines.join("\n") : null;
 };
 
-const resolveArchiveMessagesFromProtocolTurns = (
+export const resolveAutomationArchiveMessagesFromProtocolTurns = (
   turns: readonly Turn[],
 ): AutomationArchiveMessages => {
   let archivedUserMessage: string | null = null;
@@ -263,7 +263,7 @@ const resolveArchiveMessagesFromProtocolTurns = (
   return { archivedUserMessage, archivedAssistantMessage };
 };
 
-const hasArchiveMessage = (messages: AutomationArchiveMessages): boolean =>
+export const hasAutomationArchiveMessage = (messages: AutomationArchiveMessages): boolean =>
   messages.archivedUserMessage !== null || messages.archivedAssistantMessage !== null;
 
 const buildHeartbeatPermissionOverrides = (
@@ -1191,17 +1191,17 @@ export const live = (
               snapshot.turns.flatMap((turn) => turn.items),
             )
           : { archivedUserMessage: null, archivedAssistantMessage: null };
-        if (hasArchiveMessage(local)) return Effect.succeed(local);
+        if (hasAutomationArchiveMessage(local)) return Effect.succeed(local);
         return gateway
           .requestForThread(threadId, "thread/turns/list", {
             threadId,
-            limit: ARCHIVE_TURN_CAPTURE_LIMIT,
+            limit: AUTOMATION_ARCHIVE_TURN_CAPTURE_LIMIT,
             sortDirection: "desc",
             itemsView: "full",
           })
           .pipe(
             Effect.map((page) =>
-              resolveArchiveMessagesFromProtocolTurns(
+              resolveAutomationArchiveMessagesFromProtocolTurns(
                 [...page.data].reverse() as unknown as readonly Turn[],
               ),
             ),

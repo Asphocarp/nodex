@@ -46,27 +46,17 @@ import type {
   ThreadItem,
   ThreadGoal,
   ThreadGoalSetParams,
-  ThreadForkResponse,
   ThreadResumeResponse,
-  ThreadRollbackResponse,
   Turn,
   TurnStartResponse,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ServerNotification as CodexServerNotification } from "@nodex/codex-app-server-protocol";
 
 import { getCodexFileChangePaths } from "../../shared/codex-file-change";
-import type {
-  CodexPendingWorktreeCreateInput,
-  CodexPendingWorktreeEntry,
-} from "../../shared/codex-pending-worktree";
 import {
   createCodexCanonicalHydratedConversationState,
   isCodexCanonicalProtocolItem,
 } from "../../shared/codex-conversation-state/codex-conversation-state";
-import type {
-  BrowserSidebarBrowserUseStateSnapshot,
-  BrowserSidebarStateSnapshot,
-} from "../../shared/browser-sidebar";
 import { CodexService } from "./codex-service";
 import { CodexSessionStore } from "./codex-session-store";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
@@ -85,15 +75,12 @@ import type {
   CodexApplicationEventPublisher,
 } from "../codex-application/CodexApplicationEventHub";
 import { TestCodexOwnerNotificationDrainRuntime } from "./codex-owner-notification-drain-runtime.test-support";
-import type { CodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
 import { runCodexGitCommand } from "./codex-git-command";
-import type { CodexWorktreeWorkerEvent } from "./codex-worktree-worker-protocol";
 import {
   PastedTextAttachmentManager,
   ThreadGoalAttachmentDirectoryManager,
 } from "../thread-goal-attachments";
 import type { NodexAgentAuthorityPort } from "../nodex-agent-authority-port";
-import type { DesktopAutomationModulePort } from "../core-client/desktop-automation-module-bridge";
 import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
@@ -101,8 +88,6 @@ import type {
 } from "../core-client/project-workspace-adapter";
 import { PersistedAtomStore } from "../local-store/persisted-atoms";
 import type { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
-import type { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
-import type { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
 import type { CodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
 import { normalizeCodexThreadGoalSetAction } from "../codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
@@ -111,7 +96,6 @@ import type { CodexQueuedFollowUpDispatcher } from "../codex-application/CodexQu
 import { CodexQueuedFollowUps } from "../codex-application/CodexQueuedFollowUps";
 import type { CodexTurnCommandsService } from "../codex-application/CodexTurnCommands";
 import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
-import { CodexPendingWorktreeRuntime } from "./codex-pending-worktree-runtime.test-support";
 import {
   makeCodexConversationAggregateRegistry,
   type CodexConversationAggregate,
@@ -167,12 +151,6 @@ interface TestableCodexService {
   ) => Promise<CodexConversationSnapshot | null>;
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
-  listPendingWorktrees: () => readonly import("../../shared/codex-pending-worktree").CodexPendingWorktreeEntry[];
-  createPendingWorktree: (input: CodexPendingWorktreeCreateInput) => {
-    readonly pendingWorktreeId: string;
-    readonly clientThreadId: string | null;
-  };
-  cancelPendingWorktree: (hostId: string, pendingWorktreeId: string) => void;
   resumeThread: (threadId: string) => Promise<CodexThreadDetail | null>;
   forkConversationFromTurn: (
     threadId: string,
@@ -387,47 +365,6 @@ function buildCanonicalHistoryTimeline(
   return internals.buildThreadTimelineFromCanonicalState(canonicalState);
 }
 
-function makeCanonicalForkResponse(input: {
-  threadId: string;
-  turns: Turn[];
-  cwd: string;
-  model?: string;
-  reasoningEffort?: ThreadForkResponse["reasoningEffort"];
-  activePermissionProfile?: ThreadForkResponse["activePermissionProfile"];
-  runtimeWorkspaceRoots?: string[];
-}): ThreadForkResponse {
-  return {
-    thread: makeProtocolThread(input.threadId, input.cwd, input.turns),
-    model: input.model ?? "gpt-fork",
-    modelProvider: "openai",
-    serviceTier: null,
-    cwd: input.cwd,
-    runtimeWorkspaceRoots: input.runtimeWorkspaceRoots ?? [input.cwd],
-    instructionSources: [],
-    approvalPolicy: "on-request",
-    approvalsReviewer: "user",
-    sandbox: {
-      type: "readOnly",
-      networkAccess: false,
-    },
-    activePermissionProfile: input.activePermissionProfile ?? null,
-    reasoningEffort: input.reasoningEffort ?? "high",
-    multiAgentMode: "explicitRequestOnly",
-  };
-}
-
-function getCanonicalConversationState(
-  service: TestableCodexService,
-  threadId: string,
-): CodexCanonicalConversationState | null {
-  return (
-    conversationAggregatesByTestService
-      .get(service)
-      ?.currentConversation(threadId)
-      ?.readCanonicalState() ?? null
-  );
-}
-
 function makeDesktopWorkspaceThread(
   overrides: Partial<DesktopProjectWorkspaceThread> = {},
 ): DesktopProjectWorkspaceThread {
@@ -469,14 +406,6 @@ const PREVIOUS_TEST_NODEX_HOME = process.env.NODEX_HOME;
 const DEFAULT_TEST_LOCAL_STORE_ROOT = fs.mkdtempSync(
   path.join(os.tmpdir(), "nodex-codex-service-local-store-"),
 );
-const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
-  getStateSnapshot: (): BrowserSidebarStateSnapshot => ({ tabs: [] }),
-  getBrowserUseStateSnapshot: (): BrowserSidebarBrowserUseStateSnapshot => ({
-    tabs: [],
-    activeBrowserTabIdsByConversationScope: {},
-    cursors: [],
-  }),
-};
 const PROJECT_RUNTIME_TEST_HARNESS_RELEASES: Array<() => Promise<void>> = [];
 
 const TEST_CODEX_RUNTIME: ResolvedCodexRuntime = {
@@ -510,51 +439,6 @@ class TestCodexGatewayPromiseClient implements CodexGatewayPromiseClient {
   }
   async start(_options?: unknown): Promise<void> {}
 }
-
-const createTestAutomationModule = (): DesktopAutomationModulePort => ({
-  listDefinitions: async () => [],
-  getDefinition: async () => null,
-  createDefinition: async () => {
-    throw new Error("Automation creation is not configured for this test");
-  },
-  updateDefinition: async () => null,
-  deleteDefinition: async () => {
-    throw new Error("Automation deletion is not configured for this test");
-  },
-  dispatchDefinitionNow: async () => null,
-  rescheduleDefinition: async () => null,
-  claimDueDefinitions: async () => [],
-  completeLease: async () => undefined,
-  failLease: async () => undefined,
-  settleInterruptedRuns: async () => ({
-    archivedPendingCount: 0,
-    pendingReviewCount: 0,
-  }),
-  getRun: async () => null,
-  beginRun: async () => false,
-  replacePendingRunThread: async () => false,
-  setRunThreadTitle: async () => false,
-  completeRunForReview: async () => false,
-  setRunInboxItem: async () => false,
-  acceptRun: async () => false,
-  archiveRun: async () => false,
-  deleteRun: async () => false,
-  unarchiveRun: async () => false,
-  readInbox: async () => ({
-    items: [],
-    unreadRunCounts: { total: 0, automationIds: [], unreadRuns: [] },
-  }),
-  setRunReadState: async () => null,
-  markAllRunsRead: async () => 0,
-  listPageOccurrences: async () => ({ items: [], nextCursor: null }),
-  completePageOccurrence: async () => ({ success: false }),
-  skipPageOccurrence: async () => ({ success: false }),
-  updatePageOccurrence: async () => ({ success: false }),
-  snoozeReminder: async () => undefined,
-  claimDueReminders: async () => [],
-  completeReminderLease: async () => undefined,
-  failReminderLease: async () => undefined,
-});
 
 const TEST_NODEX_AGENT_AUTHORITY: NodexAgentAuthorityPort = {
   beginTurn: async () => null,
@@ -888,12 +772,6 @@ function createService(options?: {
   ) => Promise<Record<string, boolean | string | number | null> | null>;
   projectlessHomeDirectory?: () => string;
   resolveThreadGoalAttachmentsRoot?: () => Promise<string> | string;
-  browserTransferStateReader?: {
-    getStateSnapshot(): BrowserSidebarStateSnapshot;
-    getBrowserUseStateSnapshot(): BrowserSidebarBrowserUseStateSnapshot;
-  };
-  forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferRuntimePromiseAdapter;
-  automationModule?: DesktopAutomationModulePort;
   projectWorkspace?: DesktopProjectWorkspacePort;
   userInputAutoResolutionTimer?: {
     now?: () => number;
@@ -969,18 +847,6 @@ function createService(options?: {
     updateSettings: () => Effect.die("Execution host settings are not available in this fixture"),
     reconcile: () => Effect.void,
   } satisfies ExecutionHostRuntime["Service"];
-  const managedWorktrees = {
-    remove: () =>
-      Effect.succeed({ removed: true, alreadyMissing: false, snapshot: null, warnings: [] }),
-    inspect: () => Effect.die("Managed worktree inspection is not available in this fixture"),
-    list: () => Effect.succeed({ entries: [] }),
-    restore: () => Effect.die("Managed worktree restore is not available in this fixture"),
-    setOwner: () => Effect.void,
-    registerNewborn: () => Effect.void,
-    releaseNewborn: () => Effect.void,
-    isNewborn: () => Effect.succeed(false),
-    newborns: Effect.succeed([]),
-  } satisfies ManagedWorktreeRuntime["Service"];
   const projectRuntimeLifecycleHarness = makeProjectRuntimeLifecycleTestHarness();
   PROJECT_RUNTIME_TEST_HARNESS_RELEASES.push(projectRuntimeLifecycleHarness.close);
   const threadHandoffRuntime = {
@@ -1063,45 +929,10 @@ function createService(options?: {
       rendererConversations.clearRequestDelivery(conversationId, requestId),
     reconcileOwnership: () => undefined,
   } as unknown as CodexRendererConversationCoordinatorService;
-  const pendingWorktrees = new CodexPendingWorktreeRuntime({
-    createWorktree: async (entry, context) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      return await service.createPendingManagedWorktree(entry, context);
-    },
-    launchConversation: async (entry, workspaceRoot, context) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      return await service.launchPendingWorktreeConversation(entry, workspaceRoot, context);
-    },
-    removeWorktree: async () => undefined,
-    cleanupGoalSources: async (entry) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      await service.cleanupPendingGoalSources(entry);
-    },
-    registerStableProject: async (workspaceRoots, label) => {
-      await projectWorkspace.createProject({ name: label, sources: [...workspaceRoots] });
-    },
-    onChanged: (entries) => service?.projectPendingWorktreeSnapshot(entries),
-  });
   const threadSettingsRuntime = new TestCodexThreadSettingsRuntime();
   const conversationCommands = {
-    archive: (threadId: string) =>
-      Effect.tryPromise(async () => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        const client = Reflect.get(service, "client") as {
-          request: (method: string, params: unknown) => Promise<unknown>;
-        };
-        await client.request("thread/archive", { threadId });
-        return await service.applyThreadArchiveProjection(threadId);
-      }),
-    unarchive: (threadId: string) =>
-      Effect.tryPromise(async () => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        const client = Reflect.get(service, "client") as {
-          request: (method: string, params: unknown) => Promise<unknown>;
-        };
-        await client.request("thread/unarchive", { threadId });
-        return await service.applyThreadUnarchiveProjection(threadId);
-      }),
+    archive: () => Effect.succeed(true),
+    unarchive: () => Effect.succeed(null),
     interrupt: () => Effect.die("Interrupt semantics are exercised by ConversationCommands"),
   } as unknown as ConversationCommands["Service"];
   const threadTitlePersistence = new TestCodexThreadTitlePersistence({
@@ -1483,7 +1314,6 @@ function createService(options?: {
       load: (operation) => operation(),
     },
     threadHandoffRuntime,
-    pendingWorktrees,
     threadSettingsRuntime,
     threadTitlePersistence,
     conversationCommands,
@@ -1509,27 +1339,18 @@ function createService(options?: {
       getTaskAccess: async () => undefined,
       revokeRoot: async () => undefined,
     },
-    automationModule: options?.automationModule ?? createTestAutomationModule(),
     automationRouting: {
       activeHeartbeatAutomationId: () => null,
       runAutomationId: () => null,
     },
     projectWorkspace,
     executionHosts,
-    managedWorktrees,
-    managedWorktreeRetention: {
-      request: Effect.void,
-      run: Effect.die("Managed worktree retention is not available in this fixture"),
-    } satisfies ManagedWorktreeRetentionRuntime["Service"],
     supportsChatGptApps: options?.supportsChatGptApps,
     projectAwareDeveloperInstructionsResolver: options?.projectAwareDeveloperInstructionsResolver,
     gitSettingsResolver: options?.gitSettingsResolver,
     threadCodexConfigBuilder: options?.threadCodexConfigBuilder,
     projectlessHomeDirectory:
       options?.projectlessHomeDirectory ?? (() => DEFAULT_TEST_LOCAL_STORE_ROOT),
-    browserTransferStateReader:
-      options?.browserTransferStateReader ?? EMPTY_TEST_BROWSER_TRANSFER_STATE_READER,
-    forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
   }) as unknown as TestableCodexService;
   testService.on = applicationEventEmitter.on.bind(applicationEventEmitter);
   testService.addThreadNotificationListener = (listener) => {
@@ -1608,7 +1429,6 @@ function createService(options?: {
     try {
       activeGoalContinuation.dispose();
       ownerNotificationDrain.dispose();
-      pendingWorktrees.shutdown();
       conversationResume.dispose();
       await pendingServerRequests.shutdown(new Error("Codex test service is shutting down"));
     } finally {
@@ -2206,84 +2026,6 @@ test("history timeline projects turn diff before canonical request rows", async 
     await service.shutdown();
   }
 });
-
-test("fork rollback rematerializes through the attached-session owner", async () => {
-  const service = createService();
-  const threadId = "thr_attached_rollback";
-  const serviceInternals = service as unknown as {
-    setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-    applyForkRollbackResponse: (input: {
-      threadId: string;
-      response: ThreadRollbackResponse;
-      fallbackRef: null;
-      fallbackCwd: string;
-      materialize: (
-        thread: Thread,
-        resolvedCwd: string,
-      ) => {
-        detail: CodexThreadDetail;
-        summary: null;
-      };
-    }) => Promise<{ detail: CodexThreadDetail; summary: null }>;
-  };
-  serviceInternals.setConversationRecordDetail({
-    ...makeThreadDetail(threadId),
-    cwd: "/workspace/fork-response",
-    threadPreview: "Fork response preview",
-  });
-  const rollbackThread = {
-    ...makeCanonicalForkResponse({
-      threadId,
-      cwd: "/workspace/rollback-response",
-      turns: [makeCanonicalHydrationTurn("turn_after_rollback")],
-    }).thread,
-    preview: "Rollback response preview",
-  };
-  let attachedLink = {
-    cwd: "/workspace/fork-response",
-    preview: "Fork response preview",
-  };
-  let materializeCalls = 0;
-
-  try {
-    const materialized = await serviceInternals.applyForkRollbackResponse({
-      threadId,
-      response: { thread: rollbackThread },
-      fallbackRef: null,
-      fallbackCwd: "/workspace/fallback",
-      materialize: (thread, resolvedCwd) => {
-        materializeCalls += 1;
-        attachedLink = {
-          cwd: resolvedCwd,
-          preview: thread.preview ?? "",
-        };
-        return {
-          detail: {
-            ...makeThreadDetail(thread.id),
-            cwd: resolvedCwd,
-            threadPreview: thread.preview ?? "",
-          },
-          summary: null,
-        };
-      },
-    });
-
-    expect(materializeCalls).toBe(1);
-    expect(attachedLink.cwd).toBe("/workspace/rollback-response");
-    expect(attachedLink.preview).toBe("Rollback response preview");
-    expect(materialized.detail.cwd).toBe("/workspace/rollback-response");
-    expect(materialized.detail.threadPreview).toBe("Rollback response preview");
-    expect(getCanonicalConversationState(service, threadId)?.turns.length ?? 0).toBe(1);
-  } finally {
-    await service.shutdown();
-  }
-});
-
-async function flushAsyncWork(ticks = 2): Promise<void> {
-  for (let index = 0; index < ticks; index += 1) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  }
-}
 
 async function waitForCondition(predicate: () => boolean, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -3020,586 +2762,6 @@ describe("codex-service Session Thread launch projections", () => {
       expect((requests[0]?.params as { name?: string } | undefined)?.name).toBe(appliedTitles[0]);
     } finally {
       await service.shutdown();
-    }
-  });
-});
-
-describe("codex-service pending goal draft lifecycle", () => {
-  type ManagedGoalSource = Awaited<ReturnType<PastedTextAttachmentManager["createRawSource"]>>;
-  type PendingGoalStartCreateInput = Extract<
-    CodexPendingWorktreeCreateInput,
-    { readonly launchMode: "start-conversation" }
-  >;
-
-  interface PendingGoalLaunchInput {
-    readonly firstTurnAttachments: readonly { readonly path: string }[];
-    readonly firstTurnInput: readonly { readonly type: string; readonly text?: string }[];
-    readonly managedWorktreePath: string | null;
-    readonly onThreadCreated: (threadId: string) => void;
-    readonly target: {
-      readonly cwd: string;
-      readonly workspaceRoots: readonly string[];
-    };
-    readonly worktreeInit?: unknown;
-  }
-
-  interface PendingGoalServiceInternals {
-    getPastedTextAttachmentManager: () => Promise<PastedTextAttachmentManager>;
-    getThreadGoalDirectoryManager: () => Promise<ThreadGoalAttachmentDirectoryManager>;
-    startDynamicCreatedConversation: (
-      input: PendingGoalLaunchInput,
-      options?: { readonly persistClientThreadIdentity?: boolean },
-    ) => Promise<{ readonly threadId: string }>;
-    persistClientThreadIdentity: (threadId: string, clientThreadId: string) => void;
-    applyPendingWorktreeConversationMetadata: (input: unknown) => Promise<void>;
-    applyStartedSessionThreadGoal: (input: {
-      readonly threadId: string;
-      readonly objective: string;
-      readonly rawDraft: {
-        readonly objective: string;
-        readonly pastedTextAttachments: readonly ManagedGoalSource[];
-        readonly imageAttachments: readonly [];
-      } | null;
-    }) => Promise<void>;
-    createPendingWorktreeHeartbeat: (entry: CodexPendingWorktreeEntry, threadId: string) => void;
-    materializePendingWorktreeGoal: (entry: CodexPendingWorktreeEntry) => Promise<unknown>;
-  }
-
-  interface PendingGoalRuntime {
-    readonly dependencies: {
-      createWorktree: (
-        entry: CodexPendingWorktreeEntry,
-        context: {
-          readonly signal: AbortSignal;
-          readonly onEvent: (event: CodexWorktreeWorkerEvent) => void;
-        },
-      ) => Promise<{
-        readonly worktreeGitRoot: string;
-        readonly worktreeWorkspaceRoot: string;
-        readonly setupError?: string | null;
-      }>;
-    };
-    resolveThread: (clientThreadId: string) => {
-      readonly state: "waiting" | "failed" | "succeeded";
-      readonly threadId?: string;
-    } | null;
-  }
-
-  interface PendingGoalLifecycleService {
-    createPendingWorktree: (input: CodexPendingWorktreeCreateInput) => {
-      readonly pendingWorktreeId: string;
-      readonly clientThreadId: string | null;
-    };
-    retryPendingWorktree: (hostId: string, pendingWorktreeId: string) => void;
-    workLocallyFromPendingWorktree: (
-      hostId: string,
-      pendingWorktreeId: string,
-    ) => Promise<{ readonly threadId: string }>;
-  }
-
-  function pendingGoalInternals(service: TestableCodexService): PendingGoalServiceInternals {
-    return service as unknown as PendingGoalServiceInternals;
-  }
-
-  function pendingGoalRuntime(service: TestableCodexService): PendingGoalRuntime {
-    return Reflect.get(service as object, "pendingWorktreeRuntime") as PendingGoalRuntime;
-  }
-
-  function pendingGoalLifecycle(service: TestableCodexService): PendingGoalLifecycleService {
-    return service as unknown as PendingGoalLifecycleService;
-  }
-
-  function pendingGoalCreateInput(
-    source: ManagedGoalSource,
-    sourceWorkspaceRoot = "/repo/source",
-  ): PendingGoalStartCreateInput {
-    return {
-      hostId: "local",
-      label: "Pending goal lifecycle",
-      sourceWorkspaceRoot,
-      startingState: { type: "branch", branchName: "main" },
-      localEnvironmentConfigPath: null,
-      prompt: "Original frozen pending prompt",
-      launchMode: "start-conversation",
-      startConversationParamsInput: {
-        input: [
-          {
-            type: "text",
-            text: "Original frozen pending input",
-            text_elements: [],
-          },
-        ],
-        commentAttachments: [],
-        workspaceRoots: [sourceWorkspaceRoot],
-        cwd: sourceWorkspaceRoot,
-        fileAttachments: [
-          {
-            label: "ordinary.txt",
-            path: "ordinary.txt",
-            fsPath: path.join(sourceWorkspaceRoot, "ordinary.txt"),
-          },
-          { ...source.file },
-        ],
-        addedFiles: [
-          {
-            label: "added.txt",
-            path: "added.txt",
-            fsPath: path.join(sourceWorkspaceRoot, "added.txt"),
-          },
-        ],
-        agentMode: "auto",
-        shouldSendPermissionOverrides: true,
-        model: null,
-        serviceTier: null,
-        reasoningEffort: null,
-        collaborationMode: null,
-        config: {},
-        threadSource: "user",
-        workspaceKind: "project",
-        projectAssignment: {
-          projectKind: "local",
-          projectId: "project-pending-goal-lifecycle",
-          path: sourceWorkspaceRoot,
-          pendingCoreUpdate: false,
-        },
-      },
-      projectSessionId: "session-pending-goal-lifecycle",
-      threadStartHostId: "local",
-      threadGoalDraft: {
-        objective: "Keep pursuing the exact goal",
-        pastedTextAttachments: [source],
-        imageAttachments: [],
-      },
-      heartbeatAutomation: {
-        name: "Pending goal heartbeat",
-        prompt: "Check the goal",
-        rrule: "FREQ=HOURLY",
-      },
-      sourceConversationId: null,
-      sourceCollaborationMode: null,
-    };
-  }
-
-  function directoryContaining(attachmentsRoot: string, filename: string): string | null {
-    const entries = fs.existsSync(attachmentsRoot)
-      ? fs.readdirSync(attachmentsRoot, { withFileTypes: true })
-      : [];
-    const match = entries.find(
-      (entry) =>
-        entry.isDirectory() && fs.existsSync(path.join(attachmentsRoot, entry.name, filename)),
-    );
-    return match ? path.join(attachmentsRoot, match.name) : null;
-  }
-
-  function createGate(): { readonly promise: Promise<void>; readonly release: () => void } {
-    let release!: () => void;
-    const promise = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    return { promise, release };
-  }
-
-  test("retries registry-owned pending removals when the service starts", async () => {
-    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-startup-cleanup-"));
-    const ownedDirectory = path.join(attachmentsRoot, "550e8400-e29b-41d4-a716-446655440000");
-    const ownedPath = path.join(ownedDirectory, "pasted-text.txt");
-    fs.mkdirSync(ownedDirectory, { recursive: true });
-    fs.writeFileSync(ownedPath, "remove after restart", "utf8");
-    fs.writeFileSync(
-      path.join(attachmentsRoot, "pasted-text-attachments.json"),
-      JSON.stringify({
-        attachmentPaths: [ownedPath],
-        pendingRemovalPaths: [ownedPath],
-        textExcerptsByPath: { [ownedPath]: "remove after restart" },
-      }),
-      "utf8",
-    );
-    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
-
-    try {
-      await waitForCondition(() => {
-        if (fs.existsSync(ownedPath)) return false;
-        try {
-          const registry = JSON.parse(
-            fs.readFileSync(path.join(attachmentsRoot, "pasted-text-attachments.json"), "utf8"),
-          ) as { attachmentPaths?: string[]; pendingRemovalPaths?: string[] };
-          return (
-            registry.attachmentPaths?.length === 0 && registry.pendingRemovalPaths?.length === 0
-          );
-        } catch {
-          return false;
-        }
-      }, 2_000);
-      const registry = JSON.parse(
-        fs.readFileSync(path.join(attachmentsRoot, "pasted-text-attachments.json"), "utf8"),
-      ) as {
-        attachmentPaths: string[];
-        pendingRemovalPaths: string[];
-        textExcerptsByPath: Record<string, string>;
-      };
-
-      expect(fs.existsSync(ownedPath)).toBe(false);
-      expect(fs.statSync(ownedDirectory).isDirectory()).toBe(true);
-      expect(JSON.stringify(registry)).toBe(
-        JSON.stringify({
-          attachmentPaths: [],
-          pendingRemovalPaths: [],
-          textExcerptsByPath: {},
-        }),
-      );
-    } finally {
-      await service.shutdown();
-      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
-    }
-  });
-
-  test("awaits the first raw-goal cleanup before success and performs dismiss cleanup again", async () => {
-    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-success-"));
-    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
-    const internals = pendingGoalInternals(service);
-    const runtime = pendingGoalRuntime(service);
-    const lifecycle = pendingGoalLifecycle(service);
-    const manager = await internals.getPastedTextAttachmentManager();
-    const source = await manager.createRawSource({ text: "Raw source for normal success" });
-    const cleanupGate = createGate();
-    const events: string[] = [];
-    let cleanupCalls = 0;
-    let launchedInput: PendingGoalLaunchInput | null = null;
-    const originalCleanup = manager.cleanupGoalSources.bind(manager);
-    manager.cleanupGoalSources = async (draft, fallbackHostId) => {
-      cleanupCalls += 1;
-      const call = cleanupCalls;
-      events.push(`cleanup-${call}-start`);
-      if (call === 1) await cleanupGate.promise;
-      await originalCleanup(draft, fallbackHostId);
-      events.push(`cleanup-${call}-end`);
-    };
-    runtime.dependencies.createWorktree = async () => ({
-      worktreeGitRoot: "/worktrees/pending-goal-success",
-      worktreeWorkspaceRoot: "/worktrees/pending-goal-success/packages/app",
-    });
-    internals.startDynamicCreatedConversation = async (input) => {
-      events.push("launch");
-      launchedInput = input;
-      input.onThreadCreated("thread-pending-goal-success");
-      return { threadId: "thread-pending-goal-success" };
-    };
-    internals.persistClientThreadIdentity = () => {
-      events.push("map");
-    };
-    internals.applyPendingWorktreeConversationMetadata = async () => {
-      events.push("metadata");
-    };
-    internals.createPendingWorktreeHeartbeat = () => {
-      events.push("heartbeat");
-    };
-
-    try {
-      const created = lifecycle.createPendingWorktree(pendingGoalCreateInput(source));
-      if (!created.clientThreadId) throw new Error("Expected a pending client thread id");
-      await waitForCondition(() => events.includes("cleanup-1-start"), 2_000);
-
-      expect(events.includes("metadata")).toBe(true);
-      expect(events.includes("heartbeat")).toBe(true);
-      expect(events.indexOf("metadata") < events.indexOf("cleanup-1-start")).toBe(true);
-      expect(events.indexOf("heartbeat") < events.indexOf("cleanup-1-start")).toBe(true);
-      expect(
-        service.listPendingWorktrees().some((entry) => entry.id === created.pendingWorktreeId),
-      ).toBe(true);
-      expect(fs.existsSync(source.file.fsPath)).toBe(true);
-      expect(directoryContaining(attachmentsRoot, "pasted-text-1.txt") !== null).toBe(true);
-
-      cleanupGate.release();
-      await waitForCondition(
-        () => cleanupCalls === 2 && service.listPendingWorktrees().length === 0,
-        2_000,
-      );
-      await flushAsyncWork();
-
-      expect(cleanupCalls).toBe(2);
-      expect(events.indexOf("cleanup-1-end") < events.indexOf("cleanup-2-start")).toBe(true);
-      expect(fs.existsSync(source.file.fsPath)).toBe(false);
-      expect(fs.statSync(path.dirname(source.file.fsPath)).isDirectory()).toBe(true);
-      const materializedDirectory = directoryContaining(attachmentsRoot, "pasted-text-1.txt");
-      const realizedLaunch = launchedInput as PendingGoalLaunchInput | null;
-      expect(materializedDirectory !== null).toBe(true);
-      expect(fs.existsSync(path.join(materializedDirectory ?? "", "pasted-text-1.txt"))).toBe(true);
-      expect((realizedLaunch?.firstTurnInput[0]?.text ?? "").startsWith("/goal ")).toBe(true);
-      expect(runtime.resolveThread(created.clientThreadId)).toBe(null);
-    } finally {
-      cleanupGate.release();
-      manager.cleanupGoalSources = originalCleanup;
-      await service.shutdown();
-      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
-    }
-  });
-
-  test("mapped metadata failure dismisses with one raw cleanup and retains materialized goal files", async () => {
-    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-metadata-fail-"));
-    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
-    const internals = pendingGoalInternals(service);
-    const runtime = pendingGoalRuntime(service);
-    const lifecycle = pendingGoalLifecycle(service);
-    const manager = await internals.getPastedTextAttachmentManager();
-    const source = await manager.createRawSource({ text: "Raw source for metadata failure" });
-    const originalCleanup = manager.cleanupGoalSources.bind(manager);
-    let cleanupCalls = 0;
-    manager.cleanupGoalSources = async (draft, fallbackHostId) => {
-      cleanupCalls += 1;
-      await originalCleanup(draft, fallbackHostId);
-    };
-    runtime.dependencies.createWorktree = async () => ({
-      worktreeGitRoot: "/worktrees/pending-goal-metadata-fail",
-      worktreeWorkspaceRoot: "/worktrees/pending-goal-metadata-fail/packages/app",
-    });
-    internals.startDynamicCreatedConversation = async (input) => {
-      input.onThreadCreated("thread-pending-goal-metadata-fail");
-      return { threadId: "thread-pending-goal-metadata-fail" };
-    };
-    internals.persistClientThreadIdentity = () => {};
-    internals.applyPendingWorktreeConversationMetadata = async () => {
-      throw new Error("goal metadata failed after mapping");
-    };
-    internals.createPendingWorktreeHeartbeat = () => {};
-
-    try {
-      const created = lifecycle.createPendingWorktree(pendingGoalCreateInput(source));
-      const clientThreadId = created.clientThreadId;
-      if (!clientThreadId) throw new Error("Expected a pending client thread id");
-      await waitForCondition(() => service.listPendingWorktrees().length === 0, 2_000);
-      await waitForCondition(() => cleanupCalls === 1 && !fs.existsSync(source.file.fsPath), 2_000);
-
-      expect(cleanupCalls).toBe(1);
-      expect(service.listPendingWorktrees().length).toBe(0);
-      expect(fs.existsSync(source.file.fsPath)).toBe(false);
-      expect(directoryContaining(attachmentsRoot, "pasted-text-1.txt") !== null).toBe(true);
-      expect(runtime.resolveThread(clientThreadId)).toBe(null);
-    } finally {
-      manager.cleanupGoalSources = originalCleanup;
-      await service.shutdown();
-      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
-    }
-  });
-
-  test("pre-map start failure retains raw sources, removes materialization, and retries cleanly", async () => {
-    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-start-retry-"));
-    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
-    const internals = pendingGoalInternals(service);
-    const runtime = pendingGoalRuntime(service);
-    const lifecycle = pendingGoalLifecycle(service);
-    const manager = await internals.getPastedTextAttachmentManager();
-    const source = await manager.createRawSource({ text: "Raw source retained for retry" });
-    const originalCleanup = manager.cleanupGoalSources.bind(manager);
-    let cleanupCalls = 0;
-    let startCalls = 0;
-    manager.cleanupGoalSources = async (draft, fallbackHostId) => {
-      cleanupCalls += 1;
-      await originalCleanup(draft, fallbackHostId);
-    };
-    runtime.dependencies.createWorktree = async () => ({
-      worktreeGitRoot: "/worktrees/pending-goal-start-retry",
-      worktreeWorkspaceRoot: "/worktrees/pending-goal-start-retry/packages/app",
-    });
-    internals.startDynamicCreatedConversation = async (input) => {
-      startCalls += 1;
-      if (startCalls === 1) throw new Error("start failed before mapping");
-      input.onThreadCreated("thread-pending-goal-start-retry");
-      return { threadId: "thread-pending-goal-start-retry" };
-    };
-    internals.persistClientThreadIdentity = () => {};
-    internals.applyPendingWorktreeConversationMetadata = async () => {};
-    internals.createPendingWorktreeHeartbeat = () => {};
-
-    try {
-      const created = lifecycle.createPendingWorktree(pendingGoalCreateInput(source));
-      const clientThreadId = created.clientThreadId;
-      if (!clientThreadId) throw new Error("Expected a pending client thread id");
-      await waitForCondition(
-        () => runtime.resolveThread(clientThreadId)?.state === "failed",
-        2_000,
-      );
-
-      expect(startCalls).toBe(1);
-      expect(cleanupCalls).toBe(0);
-      expect(fs.existsSync(source.file.fsPath)).toBe(true);
-      expect(directoryContaining(attachmentsRoot, "pasted-text-1.txt")).toBe(null);
-      expect(service.listPendingWorktrees().length).toBe(1);
-
-      lifecycle.retryPendingWorktree("local", created.pendingWorktreeId);
-      await waitForCondition(() => service.listPendingWorktrees().length === 0, 2_000);
-      await waitForCondition(() => cleanupCalls === 2, 2_000);
-      await flushAsyncWork();
-
-      expect(startCalls).toBe(2);
-      expect(cleanupCalls).toBe(2);
-      expect(fs.existsSync(source.file.fsPath)).toBe(false);
-      expect(directoryContaining(attachmentsRoot, "pasted-text-1.txt") !== null).toBe(true);
-      expect(service.listPendingWorktrees().length).toBe(0);
-    } finally {
-      manager.cleanupGoalSources = originalCleanup;
-      await service.shutdown();
-      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
-    }
-  });
-
-  test("Work locally launches frozen input and attachments without waiting for goal cleanup", async () => {
-    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-work-local-"));
-    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
-    const internals = pendingGoalInternals(service);
-    const runtime = pendingGoalRuntime(service);
-    const lifecycle = pendingGoalLifecycle(service);
-    const manager = await internals.getPastedTextAttachmentManager();
-    const source = await manager.createRawSource({ text: "Raw goal source sent locally" });
-    const originalCleanup = manager.cleanupGoalSources.bind(manager);
-    const cleanupGate = createGate();
-    let cleanupCalls = 0;
-    let materializeCalls = 0;
-    let metadataCalls = 0;
-    let heartbeatCalls = 0;
-    let launchedInput: PendingGoalLaunchInput | null = null;
-    manager.cleanupGoalSources = async (draft, fallbackHostId) => {
-      cleanupCalls += 1;
-      await cleanupGate.promise;
-      await originalCleanup(draft, fallbackHostId);
-    };
-    runtime.dependencies.createWorktree = async (_entry, context) =>
-      await new Promise<never>((_resolve, reject) => {
-        context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
-          once: true,
-        });
-      });
-    internals.materializePendingWorktreeGoal = async () => {
-      materializeCalls += 1;
-      throw new Error("Work locally must not materialize a goal");
-    };
-    internals.startDynamicCreatedConversation = async (input) => {
-      launchedInput = input;
-      input.onThreadCreated("thread-pending-goal-work-local");
-      return { threadId: "thread-pending-goal-work-local" };
-    };
-    internals.persistClientThreadIdentity = () => {};
-    internals.applyPendingWorktreeConversationMetadata = async () => {
-      metadataCalls += 1;
-    };
-    internals.createPendingWorktreeHeartbeat = () => {
-      heartbeatCalls += 1;
-    };
-
-    try {
-      const createInput = pendingGoalCreateInput(source);
-      const created = lifecycle.createPendingWorktree(createInput);
-      await flushAsyncWork(1);
-      let localResult: { readonly threadId: string } | null = null;
-      const localLaunch = lifecycle
-        .workLocallyFromPendingWorktree("local", created.pendingWorktreeId)
-        .then((result) => {
-          localResult = result;
-          return result;
-        });
-      await waitForCondition(() => cleanupCalls === 1, 2_000);
-      await flushAsyncWork();
-
-      const realizedLocalResult = localResult as { readonly threadId: string } | null;
-      const realizedLaunch = launchedInput as PendingGoalLaunchInput | null;
-      expect(realizedLocalResult?.threadId).toBe("thread-pending-goal-work-local");
-      expect(cleanupCalls).toBe(1);
-      expect(fs.existsSync(source.file.fsPath)).toBe(true);
-      expect(materializeCalls).toBe(0);
-      expect(metadataCalls).toBe(0);
-      expect(heartbeatCalls).toBe(0);
-      expect(JSON.stringify(realizedLaunch?.firstTurnInput)).toBe(
-        JSON.stringify(createInput.startConversationParamsInput.input),
-      );
-      const attachmentPaths =
-        realizedLaunch?.firstTurnAttachments.map((attachment) => attachment.path) ?? [];
-      expect(attachmentPaths.includes("ordinary.txt")).toBe(true);
-      expect(attachmentPaths.includes("added.txt")).toBe(true);
-      expect(attachmentPaths.includes(source.file.path)).toBe(true);
-      expect(realizedLaunch?.managedWorktreePath).toBe(null);
-      expect(realizedLaunch?.target.cwd).toBe(createInput.sourceWorkspaceRoot);
-      expect(JSON.stringify(realizedLaunch?.target.workspaceRoots)).toBe(
-        JSON.stringify([createInput.sourceWorkspaceRoot]),
-      );
-      expect(Object.prototype.hasOwnProperty.call(realizedLaunch ?? {}, "worktreeInit")).toBe(
-        false,
-      );
-
-      cleanupGate.release();
-      await localLaunch;
-      await waitForCondition(() => !fs.existsSync(source.file.fsPath), 2_000);
-      expect(fs.existsSync(source.file.fsPath)).toBe(false);
-    } finally {
-      cleanupGate.release();
-      manager.cleanupGoalSources = originalCleanup;
-      await service.shutdown();
-      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
-    }
-  });
-
-  test("eager-local cleanup waits for goal metadata and retains raw sources on metadata failure", async () => {
-    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-local-raw-cleanup-"));
-    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
-    const internals = pendingGoalInternals(service);
-    const manager = await internals.getPastedTextAttachmentManager();
-    const successSource = await manager.createRawSource({ text: "remove after metadata" });
-    const failedSource = await manager.createRawSource({ text: "retain after metadata failure" });
-    const threadGoals = Reflect.get(service as object, "threadGoals") as {
-      set: CodexThreadGoalRuntimePromiseAdapter["set"];
-    };
-    const originalSetThreadGoal = threadGoals.set;
-    const originalCleanup = manager.cleanupGoalSources.bind(manager);
-    const events: string[] = [];
-
-    try {
-      manager.cleanupGoalSources = async (draft, fallbackHostId) => {
-        events.push("cleanup");
-        await originalCleanup(draft, fallbackHostId);
-      };
-      threadGoals.set = async () => {
-        events.push("metadata");
-        return null;
-      };
-      await internals.applyStartedSessionThreadGoal({
-        threadId: "thread-eager-local-success",
-        objective: "Finish the eager-local goal",
-        rawDraft: {
-          objective: "Finish the eager-local goal",
-          pastedTextAttachments: [successSource],
-          imageAttachments: [],
-        },
-      });
-      events.push("returned");
-
-      expect(events.join(",")).toBe("metadata,cleanup,returned");
-      expect(fs.existsSync(successSource.file.fsPath)).toBe(false);
-
-      threadGoals.set = async () => {
-        events.push("metadata-failed");
-        throw new Error("goal metadata failed");
-      };
-      let errorMessage = "";
-      try {
-        await internals.applyStartedSessionThreadGoal({
-          threadId: "thread-eager-local-failure",
-          objective: "Retain the eager-local source",
-          rawDraft: {
-            objective: "Retain the eager-local source",
-            pastedTextAttachments: [failedSource],
-            imageAttachments: [],
-          },
-        });
-      } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error);
-      }
-
-      expect(errorMessage).toBe("goal metadata failed");
-      expect(fs.existsSync(failedSource.file.fsPath)).toBe(true);
-    } finally {
-      threadGoals.set = originalSetThreadGoal;
-      manager.cleanupGoalSources = originalCleanup;
-      await manager.remove(failedSource.file.path).catch(() => undefined);
-      await service.shutdown();
-      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
     }
   });
 });

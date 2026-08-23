@@ -43,7 +43,6 @@ import {
   live as coreApplicationProjectionRuntimeLive,
 } from "../core-runtime/CoreApplicationProjectionRuntime";
 import {
-  createDesktopAutomationModuleBridge,
   DesktopDocumentSessionRuntime,
   desktopDocumentSessionRuntimeLive,
   createDesktopProjectWorkspaceBridge,
@@ -107,9 +106,12 @@ import { ComposerCatalog, live as composerCatalogLive } from "../codex-applicati
 import { makeComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import {
   ConversationCommands,
-  ConversationCommandProjectionError,
   live as conversationCommandsLive,
 } from "../codex-application/ConversationCommands";
+import {
+  CodexConversationArchive,
+  make as makeCodexConversationArchive,
+} from "../codex-application/CodexConversationArchive";
 import {
   CodexBackgroundProcesses,
   make as makeCodexBackgroundProcesses,
@@ -230,10 +232,16 @@ import {
 } from "../codex-application/ManagedWorktreeHandoff";
 import {
   CodexPendingWorktreeRuntime,
-  CodexPendingWorktreeEffectError,
   make as makeCodexPendingWorktreeRuntime,
 } from "../codex-application/CodexPendingWorktreeRuntime";
-import { makeCodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
+import {
+  CodexClientThreadIdentity,
+  make as makeCodexClientThreadIdentity,
+} from "../codex-application/CodexClientThreadIdentity";
+import {
+  CodexConversationCreation,
+  make as makeCodexConversationCreation,
+} from "../codex-application/CodexConversationCreation";
 import {
   CodexConversationHistoryRuntime,
   make as makeCodexConversationHistoryRuntime,
@@ -298,10 +306,8 @@ import {
 } from "../codex-application/CodexThreadLaunchCompletion";
 import {
   CodexForkSidePanelTransfer,
-  CodexForkSidePanelAdapterError,
   make as makeCodexForkSidePanelTransferRuntime,
 } from "../codex-application/CodexForkSidePanelTransferRuntime";
-import { makeCodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
 import {
   CodexPostResumeGoalRuntime,
   make as makeCodexPostResumeGoalRuntime,
@@ -377,7 +383,6 @@ import {
 } from "../codex-application/CodexThreadDurableProjection";
 import { make as makeManagedWorktreeCatalog } from "../codex-application/ManagedWorktreeCatalog";
 import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
-import { createCodexForkBrowserSnapshotAdapter } from "../codex/codex-fork-browser-snapshot-adapter";
 import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
 import {
   CodexPreferences,
@@ -508,6 +513,10 @@ import {
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import { projectSessionIdFromTerminalSessionId } from "../browser/browser-local-server-runtime";
 import {
+  BrowserApplication,
+  live as browserApplicationLive,
+} from "../browser-application/BrowserApplication";
+import {
   BrowserUseRuntime,
   live as browserUseRuntimeLive,
 } from "../host-runtime/BrowserUseRuntime";
@@ -515,10 +524,6 @@ import {
   BrowserProfileRuntime,
   live as browserProfileRuntimeLive,
 } from "../host-runtime/BrowserProfileRuntime";
-import {
-  BrowserSidebarRuntime,
-  live as browserSidebarRuntimeLive,
-} from "../host-runtime/BrowserSidebarRuntime";
 import {
   BrowserPresentationRuntime,
   live as browserPresentationRuntimeLive,
@@ -918,21 +923,19 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const browserSiteStatus = Context.get(browserSiteStatusContext, BrowserSiteStatusRuntime);
-        const browserSidebarContext = yield* Layer.buildWithScope(
-          browserSidebarRuntimeLive(userDataPath).pipe(
+        const browserApplicationContext = yield* Layer.buildWithScope(
+          browserApplicationLive(userDataPath).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(FileSystem.FileSystem, fileSystem),
                 Layer.succeed(ElectronNet.ElectronNet, electronNet),
                 Layer.succeed(BrowserSiteStatusRuntime, browserSiteStatus),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
               ),
             ),
           ),
           runtimeScope,
-        ).pipe(Effect.mapError((cause) => runtimeError("browser-sidebar-runtime", cause)));
-        const browserSidebar = Context.get(browserSidebarContext, BrowserSidebarRuntime);
-        const browserSidebarService = browserSidebar.browser;
+        ).pipe(Effect.mapError((cause) => runtimeError("browser-application", cause)));
+        const browser = Context.get(browserApplicationContext, BrowserApplication);
         const appUpdateContext = yield* Layer.buildWithScope(
           appUpdateRuntimeLive.pipe(
             Layer.provide(
@@ -1009,8 +1012,8 @@ export const live: Layer.Layer<
         );
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
-            browserSidebarEvents: browserSidebar.events,
-            browserSidebarService,
+            browserSidebarEvents: browser.events,
+            isThreadSurfacePresented: browser.projection.hasPresentedSurfaceForThread,
             platform: config.platform as NodeJS.Platform,
             preferenceFilePath: `${userDataPath}/remote-hosted-pip-preferences.json`,
           }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
@@ -1073,9 +1076,10 @@ export const live: Layer.Layer<
             platform: config.platform as NodeJS.Platform,
           }).pipe(
             Layer.provide(
-              Layer.merge(
-                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+              Layer.mergeAll(
+                Layer.succeed(BrowserApplication, browser),
                 Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
               ),
             ),
           ),
@@ -1266,7 +1270,7 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(BrowserProfileHelperPlatform, browserProfileHelper),
-                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(BrowserApplication, browser),
                 Layer.succeed(ElectronApp, electron),
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(FileSystem.FileSystem, fileSystem),
@@ -1291,7 +1295,7 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(BrowserProfileRuntime, browserProfile),
-                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(BrowserApplication, browser),
                 Layer.succeed(BrowserSiteStatusRuntime, browserSiteStatus),
                 Layer.succeed(BrowserUseRuntime, browserUse),
               ),
@@ -1339,10 +1343,7 @@ export const live: Layer.Layer<
             return projectWorkspace.getProjectSession(projectSessionId).pipe(
               Effect.flatMap((session) =>
                 typeof session?.projectId === "string"
-                  ? browserSidebar.localServers.observePtyData(
-                      session.projectId,
-                      event.payload.data,
-                    )
+                  ? browser.localServers.observePtyData(session.projectId, event.payload.data)
                   : Effect.void,
               ),
               Effect.catch((cause) =>
@@ -1409,7 +1410,7 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(BrowserProfileRuntime, browserProfile),
-                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(BrowserApplication, browser),
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(ElectronWindowHost, windowHost),
@@ -1424,6 +1425,7 @@ export const live: Layer.Layer<
           BrowserSidebarIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(BrowserApplication, browser),
                 Layer.succeed(BrowserPresentationRuntime, browserPresentation),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(ElectronWindowHost, windowHost),
@@ -1522,10 +1524,6 @@ export const live: Layer.Layer<
           worktreeEnvironmentContext,
           WorktreeEnvironmentRuntime,
         );
-        const legacyAutomationModule = createDesktopAutomationModuleBridge({
-          authority: legacyDataAuthority,
-          routing: automationRouting,
-        });
         const canvasPresenceContext = yield* Layer.buildWithScope(
           canvasPresenceRuntimeLive(),
           runtimeScope,
@@ -1589,6 +1587,37 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const managedWorktrees = Context.get(managedWorktreeContext, ManagedWorktreeRuntime);
+        const nodexAgentResourceAccessContext = yield* Layer.buildWithScope(
+          nodexAgentResourceAccessLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(CoreModules, coreModules),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const nodexAgentResourceAccess = Context.get(
+          nodexAgentResourceAccessContext,
+          NodexAgentResourceAccess,
+        );
+        const nodexAgentAuthorizationContext = yield* Layer.buildWithScope(
+          nodexAgentAuthorizationRuntimeLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(NodexAgentResourceAccess, nodexAgentResourceAccess),
+                Layer.succeed(RendererClientRuntime, rendererClients),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const nodexAgentAuthorization = Context.get(
+          nodexAgentAuthorizationContext,
+          NodexAgentAuthorizationRuntime,
+        );
         yield* Layer.buildWithScope(
           ExecutionHostIpc.live.pipe(
             Layer.provide(
@@ -1894,31 +1923,21 @@ export const live: Layer.Layer<
           Effect.provideService(CodexTurnCommands, turnCommands),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const conversationArchive = yield* makeCodexConversationArchive.pipe(
+          Effect.provideService(AutomationApplication, automationApplication),
+          Effect.provideService(AutomationRoutingIndex, automationRouting),
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
+          Effect.provideService(NodexAgentAuthorizationRuntime, nodexAgentAuthorization),
+          Effect.provideService(ProjectWorkspace, projectWorkspace),
+        );
         const conversationCommandsContext = yield* Layer.buildWithScope(
-          conversationCommandsLive({
-            archive: (threadId) =>
-              Effect.tryPromise({
-                try: () => requireCodexService().applyThreadArchiveProjection(threadId),
-                catch: (cause) =>
-                  new ConversationCommandProjectionError({
-                    operation: "archive",
-                    threadId,
-                    cause,
-                  }),
-              }),
-            unarchive: (threadId) =>
-              Effect.tryPromise({
-                try: () => requireCodexService().applyThreadUnarchiveProjection(threadId),
-                catch: (cause) =>
-                  new ConversationCommandProjectionError({
-                    operation: "unarchive",
-                    threadId,
-                    cause,
-                  }),
-              }),
-          }).pipe(
+          conversationCommandsLive.pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(CodexConversationArchive, conversationArchive),
                 Layer.succeed(CodexConversationProjection, conversationProjection),
                 Layer.succeed(CodexGateway, codexGateway),
                 Layer.succeed(CodexQueuedFollowUps, queuedFollowUps),
@@ -1965,74 +1984,88 @@ export const live: Layer.Layer<
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const pendingWorktrees = yield* makeCodexPendingWorktreeRuntime({
-          createWorktree: (entry, onEvent) =>
-            Effect.tryPromise({
-              try: (signal) =>
-                requireCodexService().createPendingManagedWorktree(entry, {
-                  signal,
-                  onEvent,
-                }),
-              catch: (cause) =>
-                new CodexPendingWorktreeEffectError({ operation: "create-worktree", cause }),
-            }),
-          launchConversation: (entry, workspaceRoot, context) =>
-            Effect.tryPromise({
-              try: () =>
-                requireCodexService().launchPendingWorktreeConversation(
-                  entry,
-                  workspaceRoot,
-                  context,
-                ),
-              catch: (cause) =>
-                new CodexPendingWorktreeEffectError({
-                  operation: "launch-conversation",
-                  cause,
-                }),
-            }),
-          removeWorktree: (hostId, worktreeGitRoot) =>
-            managedWorktrees.remove({ hostId, worktreeGitRoot, reason: "cancel" }).pipe(
-              Effect.asVoid,
-              Effect.mapError(
-                (cause) =>
-                  new CodexPendingWorktreeEffectError({
-                    operation: "remove-worktree",
-                    cause,
-                  }),
+        const threadExecutionContext = yield* Layer.buildWithScope(
+          codexThreadExecutionLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexConversationProjection, conversationProjection),
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(CodexTurnCommands, turnCommands),
+                Layer.succeed(ConversationCommands, conversationCommands),
+                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
+                Layer.succeed(CoreModules, coreModules),
+                Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
+                Layer.succeed(ExecutionHostRuntime, executionHosts),
               ),
             ),
-          cleanupGoalSources: (entry) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().cleanupPendingGoalSources(entry),
-              catch: (cause) =>
-                new CodexPendingWorktreeEffectError({
-                  operation: "cleanup-goal-sources",
-                  cause,
-                }),
-            }),
-          registerStableProject: (workspaceRoots, label) =>
-            projectWorkspace
-              .createProject({
-                name: label,
-                sources: [...workspaceRoots],
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new CodexPendingWorktreeEffectError({
-                      operation: "register-stable-project",
-                      cause,
-                    }),
-                ),
-                Effect.asVoid,
-              ),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        yield* pendingWorktrees.changes.pipe(
-          Stream.runForEach((entries) =>
-            Effect.sync(() => requireCodexService().projectPendingWorktreeSnapshot(entries)),
           ),
-          Effect.forkIn(runtimeScope),
-          Effect.asVoid,
+          runtimeScope,
+        );
+        const threadExecution = Context.get(threadExecutionContext, CodexThreadExecution);
+        const threadCatalog = yield* makeCodexThreadCatalog({
+          foldPathCase: config.platform === "win32",
+        }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexInternalThreadRegistry, internalThreadRegistry),
+          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadExecution, threadExecution),
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const clientThreadIdentity = yield* makeCodexClientThreadIdentity(persistedAtoms).pipe(
+          Effect.provideService(ProjectWorkspace, projectWorkspace),
+        );
+        const forkSidePanelTransfers = yield* makeCodexForkSidePanelTransferRuntime.pipe(
+          Effect.provideService(BrowserApplication, browser),
+          Effect.provideService(CodexClientThreadIdentity, clientThreadIdentity),
+          Effect.provideService(ProjectWorkspace, projectWorkspace),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const forkTitlePolicy = yield* makeCodexForkTitlePolicy.pipe(
+          Effect.provideService(CoreModules, coreModules),
+        );
+        const conversationFork = yield* makeCodexConversationFork.pipe(
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexForkTitlePolicy, forkTitlePolicy),
+          Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
+          Effect.provideService(
+            CodexRendererConversationCoordinator,
+            rendererConversationCoordinator,
+          ),
+          Effect.provideService(CodexForkSidePanelTransfer, forkSidePanelTransfers),
+          Effect.provideService(CodexThreadCatalog, threadCatalog),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+        );
+        const conversationCreation = yield* makeCodexConversationCreation.pipe(
+          Effect.provideService(CodexAttachments, attachments),
+          Effect.provideService(CodexClientThreadIdentity, clientThreadIdentity),
+          Effect.provideService(CodexConversationFork, conversationFork),
+          Effect.provideService(CodexForkSidePanelTransfer, forkSidePanelTransfers),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadGoalRuntime, threadGoals),
+          Effect.provideService(CodexThreadLaunchCompletion, threadLaunchCompletion),
+          Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
+          Effect.provideService(CodexTurnCommands, turnCommands),
+          Effect.provideService(DesktopToolRuntime, desktopToolRuntime),
+          Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
+          Effect.provideService(ProjectWorkspace, projectWorkspace),
+        );
+        const pendingWorktrees = yield* makeCodexPendingWorktreeRuntime.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexAttachments, attachments),
+          Effect.provideService(CodexConversationCreation, conversationCreation),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexGitProbe, gitProbe),
+          Effect.provideService(ExecutionHostRuntime, executionHosts),
+          Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
+          Effect.provideService(ProjectWorkspace, projectWorkspace),
+          Effect.provideService(Scope.Scope, runtimeScope),
         );
         const managedWorktreeRetentionContext = yield* Layer.buildWithScope(
           managedWorktreeRetentionRuntimeLive({
@@ -2050,6 +2083,7 @@ export const live: Layer.Layer<
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
                 Layer.succeed(CodexPendingWorktreeRuntime, pendingWorktrees),
                 Layer.succeed(ExecutionHostRuntime, executionHosts),
                 Layer.succeed(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
@@ -2101,35 +2135,6 @@ export const live: Layer.Layer<
           managedWorktreeHandoffContext,
           ManagedWorktreeHandoff,
         );
-        const threadExecutionContext = yield* Layer.buildWithScope(
-          codexThreadExecutionLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexConversationProjection, conversationProjection),
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(CodexTurnCommands, turnCommands),
-                Layer.succeed(ConversationCommands, conversationCommands),
-                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
-                Layer.succeed(CoreModules, coreModules),
-                Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
-                Layer.succeed(ExecutionHostRuntime, executionHosts),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const threadExecution = Context.get(threadExecutionContext, CodexThreadExecution);
-        const threadCatalog = yield* makeCodexThreadCatalog({
-          foldPathCase: config.platform === "win32",
-        }).pipe(
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(CodexInternalThreadRegistry, internalThreadRegistry),
-          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
-          Effect.provideService(CodexThreadDirectory, threadDirectory),
-          Effect.provideService(CodexThreadExecution, threadExecution),
-          Effect.provideService(CoreModules, coreModules),
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
         const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
           storage: makeCodexThreadHandoffJournalStorage(
             resolveCodexThreadHandoffJournalPath(runtimeStateHome),
@@ -2140,31 +2145,6 @@ export const live: Layer.Layer<
           Effect.provideService(ManagedWorktreeHandoff, managedWorktreeHandoff),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const forkBrowserSnapshotAdapter = createCodexForkBrowserSnapshotAdapter({
-          getProjectSession: (projectSessionId) =>
-            callbacks.runPromise(projectWorkspace.getProjectSession(projectSessionId)),
-          resolveBrowserConversationId: (conversationId) =>
-            requireCodexService().resolveForkBrowserConversationId(conversationId),
-          runtime: browserSidebarService,
-        });
-        const forkSidePanelTransfers = yield* makeCodexForkSidePanelTransferRuntime({
-          capture: (sourceConversationId, sourceSceneContext) =>
-            Effect.tryPromise({
-              try: () =>
-                forkBrowserSnapshotAdapter.capture(sourceConversationId, sourceSceneContext),
-              catch: (cause) => new CodexForkSidePanelAdapterError({ cause }),
-            }),
-          rebase: (snapshot, input) =>
-            Effect.tryPromise({
-              try: () => forkBrowserSnapshotAdapter.rebase(snapshot, input),
-              catch: (cause) => new CodexForkSidePanelAdapterError({ cause }),
-            }),
-          apply: (snapshot, input) =>
-            Effect.tryPromise({
-              try: () => forkBrowserSnapshotAdapter.apply(snapshot, input),
-              catch: (cause) => new CodexForkSidePanelAdapterError({ cause }),
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const agentImport = yield* makeAgentImportRuntime({ runtimeStateHome }).pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
           Effect.provideService(CodexExternalAgentImportRuntime, externalAgentImport),
@@ -2174,38 +2154,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const nodexAgentResourceAccessContext = yield* Layer.buildWithScope(
-          nodexAgentResourceAccessLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(CoreModules, coreModules),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const nodexAgentResourceAccess = Context.get(
-          nodexAgentResourceAccessContext,
-          NodexAgentResourceAccess,
-        );
         const dataAuthorityPromise = Promise.resolve(dataAuthority);
-        const nodexAgentAuthorizationContext = yield* Layer.buildWithScope(
-          nodexAgentAuthorizationRuntimeLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(NodexAgentResourceAccess, nodexAgentResourceAccess),
-                Layer.succeed(RendererClientRuntime, rendererClients),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const nodexAgentAuthorization = Context.get(
-          nodexAgentAuthorizationContext,
-          NodexAgentAuthorizationRuntime,
-        );
         const manualCompactionContext = yield* Layer.buildWithScope(
           codexManualCompactionRuntimeLive.pipe(
             Layer.provide(
@@ -2223,26 +2172,6 @@ export const live: Layer.Layer<
           Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
           Effect.provideService(CodexThreadDirectory, threadDirectory),
-          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
-        );
-        const forkTitlePolicy = yield* makeCodexForkTitlePolicy.pipe(
-          Effect.provideService(CoreModules, coreModules),
-          Effect.provideService(CodexPendingWorktreeRuntime, pendingWorktrees),
-        );
-        const conversationFork = yield* makeCodexConversationFork.pipe(
-          Effect.provideService(CoreModules, coreModules),
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(CodexConversationProjection, conversationProjection),
-          Effect.provideService(CodexForkTitlePolicy, forkTitlePolicy),
-          Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
-          Effect.provideService(
-            CodexRendererConversationCoordinator,
-            rendererConversationCoordinator,
-          ),
-          Effect.provideService(CodexForkSidePanelTransfer, forkSidePanelTransfers),
-          Effect.provideService(CodexThreadCatalog, threadCatalog),
-          Effect.provideService(CodexThreadDirectory, threadDirectory),
-          Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
         );
         const projectSessionFork = yield* makeCodexProjectSessionFork.pipe(
@@ -2279,6 +2208,7 @@ export const live: Layer.Layer<
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
         );
         const sessionThreadLaunch = yield* makeCodexSessionThreadLaunch.pipe(
+          Effect.provideService(CodexAttachments, attachments),
           Effect.provideService(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
           Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(CodexPendingWorktreeRuntime, pendingWorktrees),
@@ -2502,11 +2432,6 @@ export const live: Layer.Layer<
               conversationRuntimes,
               foldSidebarPathCase: config.platform === "win32",
               applicationEvents: codexApplicationEvents,
-              browserTransferStateReader: browserSidebarService,
-              forkSidePanelTransferLifecycle: makeCodexForkSidePanelTransferRuntimePromiseAdapter(
-                forkSidePanelTransfers,
-                callbacks,
-              ),
               agentProviderRuntime,
               composerCatalog,
               desktopTools,
@@ -2534,10 +2459,6 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               threadHandoffRuntime,
-              pendingWorktrees: makeCodexPendingWorktreeRuntimePromiseAdapter(
-                pendingWorktrees,
-                callbacks,
-              ),
               threadSettingsRuntime: makeCodexThreadSettingsRuntimePromiseAdapter(
                 threadSettingsRuntime,
                 callbacks,
@@ -2576,12 +2497,9 @@ export const live: Layer.Layer<
                 nodexAgentAuthorization,
                 callbacks,
               ),
-              automationModule: legacyAutomationModule,
               automationRouting,
               projectWorkspace: legacyProjectWorkspace,
               executionHosts,
-              managedWorktrees,
-              managedWorktreeRetention,
               terminalRuntime: {
                 getThreadSnapshot: (threadId) =>
                   callbacks.runPromise(terminals.getThreadSnapshot(threadId)),
@@ -2626,7 +2544,7 @@ export const live: Layer.Layer<
           projectLifecycleCommandsLive.pipe(
             Layer.provide(
               Layer.mergeAll(
-                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(BrowserApplication, browser),
                 Layer.succeed(ProjectArchiveBlockers, projectArchiveBlockers),
                 Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
                 Layer.succeed(ProjectWorkspace, projectWorkspace),
@@ -2690,11 +2608,15 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
-          CodexPendingWorktreeIpc.live({ codex: codexService }).pipe(
+          CodexPendingWorktreeIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(CodexClientThreadIdentity, clientThreadIdentity),
+                Layer.succeed(CodexForkSidePanelTransfer, forkSidePanelTransfers),
+                Layer.succeed(CodexPendingWorktreeRuntime, pendingWorktrees),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(ProjectWorkspace, projectWorkspace),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
@@ -2768,7 +2690,7 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(BrowserApplication, browser),
                 Layer.succeed(CodexProjectSessionFork, projectSessionFork),
                 Layer.succeed(CodexThreadTitlePersistence, threadTitlePersistence),
                 Layer.succeed(ConversationCommands, conversationCommands),
@@ -2915,7 +2837,7 @@ export const live: Layer.Layer<
         const applicationWindowContext = yield* Layer.buildWithScope(
           applicationWindowRuntimeLive({
             appUpdates,
-            browserSidebar: browserSidebarService,
+            browser: browser.guest,
             rendererConversations: rendererConversationCoordinator,
             desktopNotifications,
             iconPath: config.isPackaged

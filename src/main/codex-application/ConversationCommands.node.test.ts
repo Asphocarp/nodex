@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { CodexConversationArchive } from "./CodexConversationArchive";
 import {
   CodexConversationProjection,
   CodexConversationProjectionError,
@@ -92,12 +93,16 @@ it.effect(
           runExclusive,
         } as unknown as ConversationRuntimeMap["Service"]);
         const context = yield* Layer.build(
-          live({
-            archive: () => Effect.succeed(true),
-            unarchive: () => Effect.succeed(null),
-          }).pipe(
+          live.pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(
+                  CodexConversationArchive,
+                  CodexConversationArchive.of({
+                    archive: () => Effect.succeed(true),
+                    unarchive: () => Effect.succeed(null),
+                  }),
+                ),
                 Layer.succeed(CodexConversationProjection, projection),
                 Layer.succeed(CodexGateway, gateway),
                 Layer.succeed(CodexQueuedFollowUps, queued),

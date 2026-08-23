@@ -6,11 +6,14 @@ import { z } from "zod";
 import {
   type BrowserSidebarTabIdentity,
   type BrowserSidebarTabSnapshot,
+  type BrowserSidebarCommand,
+  type BrowserSidebarCommandResult,
   type BrowserSidebarViewport,
   type BrowserUseTabState,
 } from "../../shared/browser-sidebar";
 import { isAllowedBrowserNavigationUrl } from "../../shared/browser-url";
-import { BrowserSidebarService, type BrowserWebContentsLike } from "../browser-sidebar-service";
+import type { BrowserAutomationHost } from "../browser-application/BrowserApplication";
+import type { BrowserWebContentsLike } from "../platform/electron/BrowserElectronPlatform";
 import {
   buildBrowserUseInputTranslationScript,
   isSupportedBrowserUseInputMethod,
@@ -70,7 +73,8 @@ export interface BrowserUseIabApiOptions {
   appSessionId: string;
   appVersion: string;
   asyncRuntime: BrowserUseIabAsyncRuntime;
-  browserService: BrowserSidebarService;
+  applyCommand: (command: BrowserSidebarCommand) => Promise<BrowserSidebarCommandResult>;
+  browser: BrowserAutomationHost;
   buildFlavor: string;
   cdpCommandTimeoutMs?: number;
   route: BrowserUseRoute;
@@ -228,8 +232,9 @@ function assertAllowedBrowserUseNavigationUrl(value: unknown): string {
 class BrowserUseIabApiState implements BrowserUseIabApi {
   private readonly appSessionId: string;
   private readonly appVersion: string;
+  private readonly applyCommand: BrowserUseIabApiOptions["applyCommand"];
   private readonly asyncRuntime: BrowserUseIabAsyncRuntime;
-  private readonly browserService: BrowserSidebarService;
+  private readonly browser: BrowserAutomationHost;
   private readonly buildFlavor: string;
   private readonly cdpCommandTimeoutMs: number;
   private readonly controlledTabs = new Map<number, ControlledBrowserUseTab>();
@@ -257,8 +262,9 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
   constructor(options: BrowserUseIabApiOptions) {
     this.appSessionId = options.appSessionId;
     this.appVersion = options.appVersion;
+    this.applyCommand = options.applyCommand;
     this.asyncRuntime = options.asyncRuntime;
-    this.browserService = options.browserService;
+    this.browser = options.browser;
     this.buildFlavor = options.buildFlavor;
     this.cdpCommandTimeoutMs = Math.max(
       1,
@@ -375,7 +381,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
     }
     for (const tab of this.controlledTabs.values()) {
       try {
-        this.browserService.releaseBrowserUseTab(toIdentity(this.route, tab.browserTabId));
+        this.browser.releaseTab(toIdentity(this.route, tab.browserTabId));
       } catch (error) {
         failures.push(error);
       }
@@ -384,7 +390,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
     this.selectedTabId = null;
     this.clearPendingCapabilityIntents();
     try {
-      this.browserService.setActiveBrowserUseTab(this.route, null);
+      this.browser.setActiveTab(this.route, null);
     } catch (error) {
       failures.push(error);
     }
@@ -445,8 +451,8 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
     const controlledBrowserTabIds = new Set(
       [...this.controlledTabs.values()].map((tab) => tab.browserTabId),
     );
-    return this.browserService
-      .listTabSnapshots(this.route.browserConversationId, this.route.browserViewScopeId)
+    return this.browser
+      .listTabs(this.route.browserConversationId, this.route.browserViewScopeId)
       .filter((snapshot) => !controlledBrowserTabIds.has(snapshot.browserTabId))
       .map((snapshot) => ({
         id: this.getOrCreateUserTabId(snapshot.browserTabId),
@@ -479,8 +485,8 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
       webContentsId: null,
       viewport: makeBrowserUseViewport(),
     });
-    this.browserService.setActiveBrowserUseTab(this.route, browserTabId);
-    this.applyPendingCapabilityIntents(tab);
+    this.browser.setActiveTab(this.route, browserTabId);
+    await this.applyPendingCapabilityIntents(tab);
     await this.waitForLiveTab(tab);
     return this.serializeTab(tab);
   }
@@ -496,7 +502,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
       ([, userTabId]) => userTabId === params.tabId,
     );
     if (!resolvedEntry) throw new Error(`Unknown tab: ${params.tabId}`);
-    const snapshot = this.browserService.getTabSnapshot(toIdentity(this.route, resolvedEntry[0]));
+    const snapshot = this.browser.getTab(toIdentity(this.route, resolvedEntry[0]));
     if (!snapshot) throw new Error(`Unknown tab: ${params.tabId}`);
 
     const existing = [...this.controlledTabs.values()].find(
@@ -511,7 +517,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
     this.controlledTabs.set(tab.id, tab);
     this.selectedTabId = tab.id;
     this.publishControlledTab(tab, snapshot);
-    this.browserService.setActiveBrowserUseTab(this.route, snapshot.browserTabId);
+    this.browser.setActiveTab(this.route, snapshot.browserTabId);
     await this.waitForLiveTab(tab);
     return this.serializeTab(tab);
   }
@@ -525,7 +531,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
       .parse(rawParams);
     const tab = this.requireControlledTab(params.tabId);
     this.selectedTabId = tab.id;
-    this.browserService.setActiveBrowserUseTab(this.route, tab.browserTabId);
+    this.browser.setActiveTab(this.route, tab.browserTabId);
   }
 
   private nameSession(rawParams: unknown): void {
@@ -619,11 +625,11 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
       if (targetId !== this.topLevelTargetId(tab)) {
         throw new Error("Target.closeTarget can only close the current in-app browser tab");
       }
-      this.closeControlledTab(tab);
+      await this.closeControlledTab(tab);
       return { success: true };
     }
     if (params.method === "Page.close") {
-      this.closeControlledTab(tab);
+      await this.closeControlledTab(tab);
       return {};
     }
     if (
@@ -715,7 +721,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
     }
     const captureSurfaceSize = readCaptureSurfaceSize(params.method, params.commandParams);
     if (captureSurfaceSize) {
-      this.browserService.setBrowserUseCaptureSurface({
+      this.browser.setCaptureSurface({
         ...toIdentity(this.route, tab.browserTabId),
         surfaceSize: captureSurfaceSize,
       });
@@ -731,7 +737,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
       );
     } finally {
       if (captureSurfaceSize) {
-        this.browserService.setBrowserUseCaptureSurface({
+        this.browser.setCaptureSurface({
           ...toIdentity(this.route, tab.browserTabId),
           surfaceSize: null,
         });
@@ -769,7 +775,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
     };
   }
 
-  private executeUnhandledCommand(rawParams: unknown): Record<string, unknown> {
+  private async executeUnhandledCommand(rawParams: unknown): Promise<Record<string, unknown>> {
     const params = this.requireSession(rawParams);
     this.recordTurn(params);
     const type = typeof params.type === "string" ? params.type : "";
@@ -777,9 +783,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
       this.selectedTabId === null ? null : (this.controlledTabs.get(this.selectedTabId) ?? null);
     if (type === "browser_visibility_get") {
       return {
-        visible:
-          selected !== null &&
-          this.browserService.isBrowserVisibleForBrowserUse(this.route, selected.browserTabId),
+        visible: selected !== null && this.browser.isVisible(this.route, selected.browserTabId),
       };
     }
     if (type === "browser_visibility_set") {
@@ -788,11 +792,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
         this.pendingVisibility = visible;
         return {};
       }
-      this.browserService.setBrowserVisibleForBrowserUse(
-        this.route,
-        selected.browserTabId,
-        visible,
-      );
+      this.browser.setVisible(this.route, selected.browserTabId, visible);
       return {};
     }
     if (type === "browser_viewport_set") {
@@ -803,7 +803,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
         this.pendingViewport = viewport;
         return {};
       }
-      this.applyViewport(selected, viewport);
+      await this.applyViewport(selected, viewport);
       return {};
     }
     if (type === "browser_viewport_reset") {
@@ -811,7 +811,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
         this.pendingViewport = null;
         return {};
       }
-      this.browserService.setBrowserUseViewport({
+      this.browser.setViewport({
         ...toIdentity(this.route, selected.browserTabId),
         viewportSize: null,
       });
@@ -893,7 +893,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
     this.recordTurn(params);
     const tab = this.requireControlledTab(params.tabId);
     const moveSequence = this.nextCursorMoveSequence++;
-    const shouldWaitForArrival = this.browserService.setBrowserUseCursor({
+    const shouldWaitForArrival = this.browser.setCursor({
       ...toIdentity(this.route, tab.browserTabId),
       moveSequence,
       x: params.x,
@@ -950,11 +950,11 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
         this.releaseControlledTab(tab);
         continue;
       }
-      this.closeControlledTab(tab);
+      await this.closeControlledTab(tab);
     }
     const selected =
       this.selectedTabId === null ? null : (this.controlledTabs.get(this.selectedTabId) ?? null);
-    this.browserService.setActiveBrowserUseTab(this.route, selected?.browserTabId ?? null);
+    this.browser.setActiveTab(this.route, selected?.browserTabId ?? null);
     this.clearPendingCapabilityIntents();
   }
 
@@ -974,18 +974,18 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
       released: false,
       updatedAt: Date.now(),
     };
-    this.browserService.upsertBrowserUseTab(state);
+    this.browser.upsertTab(state);
   }
 
   private refreshControlledTabs(): void {
     for (const tab of this.controlledTabs.values()) {
-      const snapshot = this.browserService.getTabSnapshot(toIdentity(this.route, tab.browserTabId));
+      const snapshot = this.browser.getTab(toIdentity(this.route, tab.browserTabId));
       if (snapshot) this.publishControlledTab(tab, snapshot);
     }
   }
 
   private serializeTab(tab: ControlledBrowserUseTab): BrowserUseIabTabInfo {
-    const snapshot = this.browserService.getTabSnapshot(toIdentity(this.route, tab.browserTabId));
+    const snapshot = this.browser.getTab(toIdentity(this.route, tab.browserTabId));
     return {
       active: tab.id === this.selectedTabId,
       id: tab.id,
@@ -1010,7 +1010,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
 
   private async waitForLiveTab(tab: ControlledBrowserUseTab): Promise<BrowserWebContentsLike> {
     const identity = toIdentity(this.route, tab.browserTabId);
-    const existing = this.browserService.getWebContentsForTab(identity);
+    const existing = this.browser.getWebContents(identity);
     if (existing && !existing.isDestroyed()) return existing;
 
     return await this.asyncRuntime.waitFor<BrowserWebContentsLike>(
@@ -1023,7 +1023,7 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
           ) {
             return;
           }
-          const contents = this.browserService.getWebContentsForTab(identity);
+          const contents = this.browser.getWebContents(identity);
           if (!contents || contents.isDestroyed()) return;
           succeed(contents);
         };
@@ -1089,38 +1089,39 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
     this.forgetDebuggerTargetSessionsForTab(tabId);
     const tab = this.controlledTabs.get(tabId);
     if (!tab) return;
-    const contents = this.browserService.getWebContentsForTab(
-      toIdentity(this.route, tab.browserTabId),
-    );
+    const contents = this.browser.getWebContents(toIdentity(this.route, tab.browserTabId));
     if (!contents?.debugger?.isAttached()) return;
-    this.browserService.releaseBrowserUseDebugger(contents);
+    this.browser.releaseDebugger(contents);
   }
 
   private releaseControlledTab(tab: ControlledBrowserUseTab): void {
-    this.browserService.releaseBrowserUseTab(toIdentity(this.route, tab.browserTabId));
+    this.browser.releaseTab(toIdentity(this.route, tab.browserTabId));
     this.controlledTabs.delete(tab.id);
     if (this.selectedTabId === tab.id) this.selectedTabId = null;
   }
 
-  private applyPendingCapabilityIntents(tab: ControlledBrowserUseTab): void {
+  private async applyPendingCapabilityIntents(tab: ControlledBrowserUseTab): Promise<void> {
     const viewport = this.pendingViewport;
     this.pendingViewport = null;
-    if (viewport) this.applyViewport(tab, viewport);
+    if (viewport) await this.applyViewport(tab, viewport);
     if (!this.pendingVisibility) return;
     this.pendingVisibility = false;
-    this.browserService.setBrowserVisibleForBrowserUse(this.route, tab.browserTabId, true);
+    this.browser.setVisible(this.route, tab.browserTabId, true);
   }
 
-  private applyViewport(tab: ControlledBrowserUseTab, viewport: BrowserSidebarViewport): void {
+  private async applyViewport(
+    tab: ControlledBrowserUseTab,
+    viewport: BrowserSidebarViewport,
+  ): Promise<void> {
     const identity = toIdentity(this.route, tab.browserTabId);
-    this.browserService.setBrowserUseViewport({
+    this.browser.setViewport({
       ...identity,
       viewportSize: {
         width: viewport.width,
         height: viewport.height,
       },
     });
-    void this.browserService.handleCommand({
+    await this.applyCommand({
       type: "set-viewport",
       ...identity,
       viewport,
@@ -1132,8 +1133,10 @@ class BrowserUseIabApiState implements BrowserUseIabApi {
     this.pendingViewport = null;
   }
 
-  private closeControlledTab(tab: ControlledBrowserUseTab): void {
-    this.browserService.closeBrowserTab(toIdentity(this.route, tab.browserTabId));
+  private async closeControlledTab(tab: ControlledBrowserUseTab): Promise<void> {
+    const identity = toIdentity(this.route, tab.browserTabId);
+    const result = await this.applyCommand({ type: "close-tab", ...identity });
+    if (!result.ok) throw new Error(result.message);
     this.controlledTabs.delete(tab.id);
     if (this.selectedTabId === tab.id) this.selectedTabId = null;
   }

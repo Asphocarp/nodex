@@ -13,6 +13,7 @@ import {
   ProjectWorkspace,
   type ProjectWorkspaceService,
 } from "../project-application/ProjectWorkspace";
+import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
@@ -99,6 +100,10 @@ const buildRuntime = (
       }).pipe(
         Layer.provide(
           Layer.mergeAll(
+            Layer.succeed(
+              CodexApplicationEventHub,
+              CodexApplicationEventHub.of({ events: Stream.empty, publish: () => undefined }),
+            ),
             Layer.succeed(ExecutionHostRuntime, options.executionHosts ?? executionHosts()),
             Layer.succeed(
               ProjectWorkspace,

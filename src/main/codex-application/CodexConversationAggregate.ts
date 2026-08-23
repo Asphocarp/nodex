@@ -1,4 +1,5 @@
 import type {
+  CodexCanonicalWorktreeInitItem,
   CodexCanonicalLiveTurnParams,
   CodexCanonicalHydratedPermissionContext,
   CodexCanonicalConversationState,
@@ -12,6 +13,7 @@ import type {
   CodexThreadStreamCheckpoint,
 } from "../../shared/types";
 import {
+  appendCodexCanonicalWorktreeInitItem,
   appendCodexCanonicalInProgressSyntheticItem,
   removeCodexCanonicalLocalSyntheticItem,
   type CodexCanonicalContextCompactionItem,
@@ -268,6 +270,7 @@ export interface CodexConversationAggregate {
   /** Admits one optimistic Main-owned turn into canonical state and every accepted projection. */
   readonly admitOptimisticTurn: (input: {
     readonly params: CodexCanonicalLiveTurnParams;
+    readonly worktreeInit?: CodexCanonicalWorktreeInitItem;
     readonly currentCollaborationModel?: string;
     readonly startedAtMs: number;
     readonly projectReplica: boolean;
@@ -1154,14 +1157,23 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
         }
         return true;
       },
-      admitOptimisticTurn: ({ params, currentCollaborationModel, startedAtMs, projectReplica }) => {
+      admitOptimisticTurn: ({
+        params,
+        worktreeInit,
+        currentCollaborationModel,
+        startedAtMs,
+        projectReplica,
+      }) => {
         const before = aggregate.canonicalState;
         if (!before) return false;
-        const after = appendCodexCanonicalOptimisticTurn(before, {
+        const optimistic = appendCodexCanonicalOptimisticTurn(before, {
           params,
           ...(currentCollaborationModel ? { currentCollaborationModel } : {}),
           startedAtMs,
         });
+        const after = worktreeInit
+          ? appendCodexCanonicalWorktreeInitItem(optimistic, worktreeInit)
+          : optimistic;
         const changed = projectCanonicalState(after, startedAtMs, projectReplica);
         if (changed) aggregate.isStreaming = true;
         return changed;

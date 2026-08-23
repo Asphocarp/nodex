@@ -2,10 +2,9 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { assert, it } from "@effect/vitest";
-import type { BrowserSidebarService } from "../browser-sidebar-service";
+import { BrowserApplication } from "../browser-application/BrowserApplication";
 import { BrowserProfileRuntime } from "./BrowserProfileRuntime";
 import { BrowserPresentationRuntime, live } from "./BrowserPresentationRuntime";
-import { BrowserSidebarRuntime } from "./BrowserSidebarRuntime";
 import { BrowserSiteStatusRuntime } from "./BrowserSiteStatusRuntime";
 import { BrowserUseRuntime } from "./BrowserUseRuntime";
 
@@ -17,22 +16,22 @@ it.effect(
         const baseCommands: string[] = [];
         const capturedSessions: string[] = [];
         let downloadClears = 0;
-        const browser = {
-          clearBrowsingData: () => Promise.resolve({ ok: true as const }),
-          getTabSnapshot: () => ({ url: "https://blocked.example/" }),
-          handleCommand: (command: { readonly type: string }) => {
-            baseCommands.push(command.type);
-            return Promise.resolve({ ok: true as const });
+        const browser = BrowserApplication.of({
+          applyCommand: (command: { readonly type: string }) =>
+            Effect.sync(() => {
+              baseCommands.push(command.type);
+              return { ok: true as const };
+            }),
+          clearBrowsingData: () => Effect.succeed({ ok: true as const }),
+          projection: {
+            getTab: () => ({ url: "https://blocked.example/" }),
           },
-        } as unknown as BrowserSidebarService;
+        } as unknown as BrowserApplication["Service"]);
         const context = yield* Layer.build(
           live.pipe(
             Layer.provide(
               Layer.mergeAll(
-                Layer.succeed(
-                  BrowserSidebarRuntime,
-                  BrowserSidebarRuntime.of({ browser } as BrowserSidebarRuntime["Service"]),
-                ),
+                Layer.succeed(BrowserApplication, browser),
                 Layer.succeed(
                   BrowserProfileRuntime,
                   BrowserProfileRuntime.of({

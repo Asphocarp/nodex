@@ -5,6 +5,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type {
+  CodexCanonicalWorktreeInitItem,
   CodexCanonicalConversationState,
   CodexCanonicalHydratedPermissionContext,
   CodexCanonicalLiveTurnParams,
@@ -55,6 +56,7 @@ export interface CodexConversationProjectionService {
     readonly params: CodexCanonicalLiveTurnParams;
     readonly currentCollaborationModel?: string;
     readonly startedAtMs: number;
+    readonly worktreeInit?: CodexCanonicalWorktreeInitItem;
   }) => Effect.Effect<void, CodexConversationProjectionError>;
   readonly configureTurn: (input: {
     readonly threadId: string;
@@ -330,6 +332,7 @@ export const make: Effect.Effect<
             ? { currentCollaborationModel: input.currentCollaborationModel }
             : {}),
           startedAtMs: input.startedAtMs,
+          ...(input.worktreeInit ? { worktreeInit: input.worktreeInit } : {}),
           projectReplica: projectReplica(input.threadId),
         }),
       ),

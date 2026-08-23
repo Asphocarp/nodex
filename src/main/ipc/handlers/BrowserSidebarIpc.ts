@@ -24,6 +24,7 @@ import {
   BrowserHistoryListInputSchema,
 } from "../../../shared/browser-profile";
 import { MainConfig } from "../../app/MainConfig";
+import { BrowserApplication } from "../../browser-application/BrowserApplication";
 import { computeBrowserAnnotationEvidenceCrop } from "../../browser/browser-annotation-evidence";
 import { isBrowserLocalServerCommand } from "../../browser/browser-local-server-runtime";
 import {
@@ -72,11 +73,17 @@ const commandViewScope = (command: BrowserSidebarCommand): string | null => {
 export const live: Layer.Layer<
   never,
   never,
-  BrowserPresentationRuntime | ElectronIpc | ElectronWindowHost | MainConfig | WindowSessionCatalog
+  | BrowserApplication
+  | BrowserPresentationRuntime
+  | ElectronIpc
+  | ElectronWindowHost
+  | MainConfig
+  | WindowSessionCatalog
 > = Layer.effectDiscard(
   Effect.gen(function* () {
     const presentation = yield* BrowserPresentationRuntime;
-    const { browser, events, history, localServers, localServerThumbnail } = presentation.sidebar;
+    const browser = yield* BrowserApplication;
+    const { events, history, localServers, localServerThumbnail, projection } = browser;
     const config = yield* MainConfig;
     const ipc = yield* ElectronIpc;
     const windows = yield* ElectronWindowHost;
@@ -157,13 +164,12 @@ export const live: Layer.Layer<
         Effect.andThen(resolveViewScope(event.sender.id)),
         Effect.flatMap((browserViewScopeId) =>
           attempt("read-browser-runtime", () => ({
-            state: filterBrowserStateForViewScope(browser.getStateSnapshot(), browserViewScopeId),
+            state: filterBrowserStateForViewScope(projection.getState(), browserViewScopeId),
             browserUseState: filterBrowserUseStateForViewScope(
-              browser.getBrowserUseStateSnapshot(),
+              projection.getBrowserUseState(),
               browserViewScopeId,
             ),
-            presentationRequests:
-              browser.listPendingBrowserUsePresentationRequests(browserViewScopeId),
+            presentationRequests: projection.listPendingPresentations(browserViewScopeId),
           })),
         ),
       ),
@@ -195,9 +201,14 @@ export const live: Layer.Layer<
           ),
           Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
           Effect.flatMap((input) =>
-            attempt("register-browser-webview", () =>
-              browser.handleWebviewHostCreated(input, event.sender.id),
-            ),
+            browser
+              .webviewHostCreated(input, event.sender.id)
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new BrowserSidebarIpcError({ operation: "register-browser-webview", cause }),
+                ),
+              ),
           ),
         ),
     );
@@ -212,7 +223,14 @@ export const live: Layer.Layer<
           ),
           Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
           Effect.flatMap((input) =>
-            attempt("release-browser-webview", () => browser.handleWebviewDestroyed(input)),
+            browser
+              .webviewDestroyed(input)
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new BrowserSidebarIpcError({ operation: "release-browser-webview", cause }),
+                ),
+              ),
           ),
         ),
     );
@@ -256,8 +274,8 @@ export const live: Layer.Layer<
         Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
         Effect.flatMap((input) =>
           attempt("capture-browser-annotation-evidence", async () => {
-            const contents = browser.getWebContentsForTab(input);
-            const snapshot = browser.getTabSnapshot(input);
+            const contents = projection.getWebContents(input);
+            const snapshot = projection.getTab(input);
             if (!contents || !snapshot || contents.isDestroyed()) {
               throw new Error("Browser annotation page is unavailable");
             }
@@ -305,7 +323,7 @@ export const live: Layer.Layer<
         ),
         Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
         Effect.flatMap((input) => {
-          const admission = browser.admitLocalServerThumbnail(input);
+          const admission = projection.admitLocalServerThumbnail(input);
           if (admission._tag === "Denied") return Effect.succeed(admission.result);
           return localServers.isDiscovered(input.projectId, admission.url).pipe(
             Effect.flatMap((discovered) =>
@@ -342,7 +360,7 @@ export const live: Layer.Layer<
           ),
         ),
       );
-    const sendFilteredState = (snapshot: ReturnType<typeof browser.getStateSnapshot>) =>
+    const sendFilteredState = (snapshot: ReturnType<typeof projection.getState>) =>
       windows.all.pipe(
         Effect.flatMap((all) =>
           Effect.forEach(
@@ -366,7 +384,7 @@ export const live: Layer.Layer<
         ),
       );
     const sendFilteredBrowserUseState = (
-      snapshot: ReturnType<typeof browser.getBrowserUseStateSnapshot>,
+      snapshot: ReturnType<typeof projection.getBrowserUseState>,
     ) =>
       windows.all.pipe(
         Effect.flatMap((all) =>

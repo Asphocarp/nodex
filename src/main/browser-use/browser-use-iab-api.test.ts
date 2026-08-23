@@ -9,7 +9,7 @@ import type {
   BrowserSidebarTabSnapshot,
   BrowserUseTabState,
 } from "../../shared/browser-sidebar";
-import type { BrowserWebContentsLike } from "../browser-sidebar-service";
+import type { BrowserWebContentsLike } from "../platform/electron/BrowserElectronPlatform";
 import {
   makeBrowserUseIabApi,
   type BrowserUseIabApi,
@@ -174,10 +174,7 @@ class FakeBrowserService extends EventEmitter {
     return `${identity.browserConversationId}:${identity.browserViewScopeId}:${identity.browserTabId}`;
   }
 
-  listTabSnapshots(
-    browserConversationId: string,
-    browserViewScopeId: string,
-  ): BrowserSidebarTabSnapshot[] {
+  listTabs(browserConversationId: string, browserViewScopeId: string): BrowserSidebarTabSnapshot[] {
     return [...this.snapshots.values()].filter(
       (snapshot) =>
         snapshot.browserConversationId === browserConversationId &&
@@ -185,15 +182,15 @@ class FakeBrowserService extends EventEmitter {
     );
   }
 
-  getTabSnapshot(identity: BrowserSidebarTabIdentity): BrowserSidebarTabSnapshot | null {
+  getTab(identity: BrowserSidebarTabIdentity): BrowserSidebarTabSnapshot | null {
     return this.snapshots.get(this.key(identity)) ?? null;
   }
 
-  getWebContentsForTab(): BrowserWebContentsLike {
+  getWebContents(): BrowserWebContentsLike {
     return this.contents as unknown as BrowserWebContentsLike;
   }
 
-  upsertBrowserUseTab(tab: BrowserUseTabState): void {
+  upsertTab(tab: BrowserUseTabState): void {
     this.tabs.set(this.key(tab), tab);
     this.snapshots.set(this.key(tab), {
       ...tab,
@@ -223,14 +220,14 @@ class FakeBrowserService extends EventEmitter {
     } as unknown as BrowserSidebarTabSnapshot);
   }
 
-  setActiveBrowserUseTab(
+  setActiveTab(
     _route: Omit<BrowserSidebarTabIdentity, "browserTabId">,
     browserTabId: string | null,
   ): void {
     this.activeTabs.push(browserTabId);
   }
 
-  setBrowserVisibleForBrowserUse(
+  setVisible(
     _route: Omit<BrowserSidebarTabIdentity, "browserTabId">,
     browserTabId: string,
     visible: boolean,
@@ -239,39 +236,36 @@ class FakeBrowserService extends EventEmitter {
     this.visible = visible;
   }
 
-  isBrowserVisibleForBrowserUse(): boolean {
+  isVisible(): boolean {
     return this.visible;
   }
 
-  setBrowserUseCaptureSurface(event: {
-    surfaceSize: { height: number; width: number } | null;
-  }): void {
+  setCaptureSurface(event: { surfaceSize: { height: number; width: number } | null }): void {
     this.captures.push(event);
   }
 
-  setBrowserUseCursor(cursor: unknown): boolean {
+  setCursor(cursor: unknown): boolean {
     this.cursors.push(cursor);
     return this.visible;
   }
 
-  setBrowserUseViewport(viewport: unknown): void {
+  setViewport(viewport: unknown): void {
     this.viewports.push(viewport);
   }
 
-  async handleCommand(command?: unknown): Promise<{ ok: true }> {
+  applyCommand(command?: unknown): void {
     this.commands.push(command);
-    return { ok: true };
   }
 
-  releaseBrowserUseTab(identity: BrowserSidebarTabIdentity): void {
+  releaseTab(identity: BrowserSidebarTabIdentity): void {
     this.released.push(identity);
   }
 
-  releaseBrowserUseDebugger(): void {
+  releaseDebugger(): void {
     this.debuggerReleases += 1;
   }
 
-  closeBrowserTab(identity: BrowserSidebarTabIdentity): void {
+  closeTab(identity: BrowserSidebarTabIdentity): void {
     this.closed.push(identity);
   }
 }
@@ -282,8 +276,13 @@ const makeApi = (policyStore?: BrowserUsePolicyReader) => {
   return makeBrowserUseIabApi({
     appSessionId: "app-session-1",
     appVersion: "1.0.0",
+    applyCommand: async (command) => {
+      service.applyCommand(command);
+      if (command.type === "close-tab") service.closed.push(command);
+      return { ok: true };
+    },
     asyncRuntime: testAsyncRuntime,
-    browserService: service as never,
+    browser: service as never,
     buildFlavor: "production",
     grantDownload,
     policyStore,

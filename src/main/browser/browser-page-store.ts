@@ -82,14 +82,6 @@ export interface BrowserSerializedPage {
   };
 }
 
-export interface BrowserPageSnapshotStore {
-  readonly get: (browserStorageId: string) => Promise<BrowserSerializedPage | null>;
-  readonly set: (page: BrowserSerializedPage) => Promise<void>;
-  readonly delete: (browserStorageId: string) => Promise<void>;
-  readonly clear: () => Promise<void>;
-  readonly reassociate: (sourceStorageId: string, targetStorageId: string) => Promise<void>;
-}
-
 export class BrowserPageRuntimeError extends Schema.TaggedError<BrowserPageRuntimeError>()(
   "BrowserPageRuntimeError",
   { operation: Schema.String, cause: Schema.Defect() },

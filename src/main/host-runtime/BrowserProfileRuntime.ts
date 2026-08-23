@@ -5,7 +5,10 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { BROWSER_SIDEBAR_PARTITION } from "../../shared/browser-sidebar";
 import type { BrowserDownloadsSnapshot } from "../../shared/browser-download";
-import type { BrowserSidebarService } from "../browser-sidebar-service";
+import {
+  BrowserApplication,
+  type BrowserProjection,
+} from "../browser-application/BrowserApplication";
 import {
   makeBrowserDownloadRuntime,
   type BrowserDownloadRuntime,
@@ -46,7 +49,6 @@ import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
-import { BrowserSidebarRuntime } from "./BrowserSidebarRuntime";
 
 export class BrowserProfileRuntimeError extends Schema.TaggedError<BrowserProfileRuntimeError>()(
   "BrowserProfileRuntimeError",
@@ -84,7 +86,7 @@ const downloadKey = (input: {
 }) => `${input.browserConversationId}\0${input.browserViewScopeId}\0${input.browserTabId}`;
 
 const projectDownloadState = (
-  browserSidebar: BrowserSidebarService,
+  browser: BrowserProjection,
   snapshot: BrowserDownloadsSnapshot,
 ): void => {
   const activeDownloadKeys = new Set(
@@ -97,8 +99,8 @@ const projectDownloadState = (
       )
       .map(downloadKey),
   );
-  for (const tab of browserSidebar.getStateSnapshot().tabs) {
-    browserSidebar.setDownloadActive(tab, activeDownloadKeys.has(downloadKey(tab)));
+  for (const tab of browser.getState().tabs) {
+    browser.setDownloadActive(tab, activeDownloadKeys.has(downloadKey(tab)));
   }
 };
 
@@ -113,14 +115,14 @@ export const live = (
   | ElectronDesktop
   | ElectronSessionHost
   | ElectronWindowHost
-  | BrowserSidebarRuntime
+  | BrowserApplication
   | ScopedCallbackRuntime
 > =>
   Layer.effect(
     BrowserProfileRuntime,
     Effect.gen(function* () {
       const app = yield* ElectronApp;
-      const { browser: browserSidebar } = yield* BrowserSidebarRuntime;
+      const browser = yield* BrowserApplication;
       const callbacks = yield* ScopedCallbackRuntime;
       const desktop = yield* ElectronDesktop;
       const profileHelperPlatform = yield* BrowserProfileHelperPlatform;
@@ -146,11 +148,9 @@ export const live = (
       });
       const credentials = yield* makeBrowserCredentialRuntime({
         vault: credentialVault,
-        resolveGuest: (identity) => browserSidebar.getWebContentsForTab(identity),
-        resolveGuestIdentity: (webContentsId) =>
-          browserSidebar.getIdentityForWebContents(webContentsId),
-        resolveGuestOwner: (webContentsId) =>
-          browserSidebar.getOwnerWebContentsIdForGuest(webContentsId),
+        resolveGuest: (identity) => browser.projection.getWebContents(identity),
+        resolveGuestIdentity: (webContentsId) => browser.guest.getIdentity(webContentsId),
+        resolveGuestOwner: (webContentsId) => browser.guest.getOwnerWebContentsId(webContentsId),
       });
       const localServerPreferences = yield* makeBrowserLocalServerPreferencesRuntime(
         `${options.userDataPath}/browser-local-server-preferences.json`,
@@ -179,15 +179,18 @@ export const live = (
         platform: options.platform,
       });
       const extensions = makeBrowserExtensionsRuntime(browserSession.extensions ?? null);
-      const siteInfo = makeBrowserSiteInfoRuntime(browserSidebar, browserSession.cookies);
+      const siteInfo = makeBrowserSiteInfoRuntime(
+        { getTabSnapshot: browser.projection.getTab },
+        browserSession.cookies,
+      );
 
       const download = yield* makeBrowserDownloadRuntime({
         downloadsDirectory: downloadsPath,
         historyFilePath: `${options.userDataPath}/browser-downloads.json`,
-        isAgentControlled: (identity) => browserSidebar.isBrowserUseIdentity(identity),
+        isAgentControlled: (identity) => browser.projection.isBrowserUseIdentity(identity),
         logger,
         onSnapshot: (snapshot) => {
-          projectDownloadState(browserSidebar, snapshot);
+          projectDownloadState(browser.projection, snapshot);
           callbacks.fork(
             windows.all.pipe(
               Effect.tap((all) =>
@@ -199,7 +202,7 @@ export const live = (
             ),
           );
         },
-        resolveIdentity: (webContentsId) => browserSidebar.getIdentityForWebContents(webContentsId),
+        resolveIdentity: (webContentsId) => browser.guest.getIdentity(webContentsId),
         session: browserSession,
         shell: desktop.shell,
       }).pipe(

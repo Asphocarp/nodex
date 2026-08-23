@@ -14,6 +14,7 @@ import {
 } from "../../shared/codex-reasoning-summary-policy";
 import { buildCodexSteeringCompareKey } from "../../shared/codex-conversation-state/codex-steering-compare";
 import type {
+  CodexCanonicalWorktreeInitItem,
   CodexCanonicalLiveTurnParams,
   CodexCanonicalHydratedPermissionContext,
   CodexCollaborationModeKind,
@@ -55,6 +56,7 @@ export interface CodexTurnStartPlan {
   readonly verifiedBuiltinFullAccess: boolean;
   readonly promptText: string;
   readonly startedAtMs: number;
+  readonly worktreeInit?: CodexCanonicalWorktreeInitItem;
 }
 
 export interface CodexTurnSteerPlan {
@@ -97,6 +99,7 @@ export interface CodexTurnStartPreparationInput {
     readonly summary?: TurnStartParams["summary"];
     readonly permissionMode?: import("../../shared/types").CodexPermissionMode;
     readonly responsesapiClientMetadata?: TurnStartParams["responsesapiClientMetadata"];
+    readonly worktreeInit?: CodexCanonicalWorktreeInitItem;
   };
   readonly rendererOwnsState: boolean;
 }
@@ -461,6 +464,7 @@ export const make: Effect.Effect<
         verifiedBuiltinFullAccess: permission.verifiedBuiltinFullAccess,
         promptText: prepared.promptText,
         startedAtMs,
+        ...(input.overrides?.worktreeInit ? { worktreeInit: input.overrides.worktreeInit } : {}),
       } satisfies CodexTurnStartPlan;
     }).pipe(
       Effect.mapError((cause) =>

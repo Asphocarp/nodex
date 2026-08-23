@@ -1,21 +1,23 @@
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import type { BrowserSidebarTabSnapshot } from "../../../shared/browser-sidebar";
-import { BrowserSidebarService } from "../../browser-sidebar-service";
+import { BrowserState } from "../../browser-application/BrowserState";
+import { BrowserApplication } from "../../browser-application/BrowserApplication";
 import { makeBrowserRuntimeRegistry } from "../../browser/browser-runtime-registry";
-import { makeBrowserPageEmulationElectronPortUnsafe } from "../../browser/browser-page-emulation";
+import { makeBrowserPageEmulationRuntimeUnsafe } from "../../browser/browser-page-emulation";
 import { makeBrowserEarlyPageRestoreRuntime } from "../../browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntime } from "../../browser/BrowserWebContentsListenerRuntime";
 import { BrowserProfileRuntime } from "../../host-runtime/BrowserProfileRuntime";
-import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { MainConfig } from "../../app/MainConfig";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
+import { browserElectronPlatform } from "../../platform/electron/BrowserElectronPlatform";
 import { WindowSessionCatalog } from "../../window-runtime/WindowSessionCatalog";
 import { live } from "./BrowserProfileIpc";
 
@@ -42,19 +44,32 @@ it.effect("registers and releases Browser Profile ingress with the Main Scope", 
         ).pipe(Effect.asVoid),
     });
     const scope = yield* Scope.make();
-    const browserSidebar = new BrowserSidebarService({
+    const runBackground = yield* FiberSet.makeRuntime<never, void, never>();
+    const browserSidebar = new BrowserState({
       earlyPageRestores:
         yield* makeBrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>().pipe(
           Effect.provideService(Scope.Scope, scope),
         ),
+      electron: browserElectronPlatform,
       events: { publish: () => undefined },
       runtimeRegistry: makeBrowserRuntimeRegistry(),
-      pageEmulation: makeBrowserPageEmulationElectronPortUnsafe(),
+      fork: (effect) => void runBackground(effect),
+      pageEmulation: makeBrowserPageEmulationRuntimeUnsafe(),
       siteStatus: { cachedCommentModeBlocked: () => null },
       webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
         Effect.provideService(Scope.Scope, scope),
       ),
     });
+    const browser = BrowserApplication.of({
+      applyCommand: browserSidebar.handleCommand.bind(browserSidebar),
+      guest: {
+        endImageDrag: (id: number) => browserSidebar.endBrowserImageDrag(id),
+        getIdentity: (id: number) => browserSidebar.getIdentityForWebContents(id),
+        getOwnerWebContentsId: (id: number) => browserSidebar.getOwnerWebContentsIdForGuest(id),
+        isAuthorized: (id: number) => browserSidebar.isAuthorizedGuestWebContents(id),
+        startImageDrag: (id: number, url: string) => browserSidebar.startBrowserImageDrag(id, url),
+      },
+    } as unknown as BrowserApplication["Service"]);
     yield* Layer.buildWithScope(
       live.pipe(
         Layer.provide(
@@ -71,12 +86,7 @@ it.effect("registers and releases Browser Profile ingress with the Main Scope", 
                 siteInfo: {} as never,
               }),
             ),
-            Layer.succeed(
-              BrowserSidebarRuntime,
-              BrowserSidebarRuntime.of({
-                browser: browserSidebar,
-              } as BrowserSidebarRuntime["Service"]),
-            ),
+            Layer.succeed(BrowserApplication, browser),
             Layer.succeed(
               ElectronDesktop,
               ElectronDesktop.of({

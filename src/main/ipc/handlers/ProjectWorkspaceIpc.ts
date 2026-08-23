@@ -23,7 +23,7 @@ import { resolveNodexProjectsDirectory } from "../../nodex-projects-directory";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
-import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
+import { BrowserApplication } from "../../browser-application/BrowserApplication";
 import { deleteProjectSessionWithBrowserCleanupUsing } from "../../project-session-browser-ownership";
 import { ProjectLifecycleCommands } from "../../project-application/ProjectLifecycleCommands";
 import {
@@ -49,7 +49,7 @@ type CoreValue<Channel extends keyof IpcApi> =
 export const live: Layer.Layer<
   never,
   never,
-  | BrowserSidebarRuntime
+  | BrowserApplication
   | CodexProjectSessionFork
   | CodexThreadTitlePersistence
   | ConversationCommands
@@ -70,10 +70,9 @@ export const live: Layer.Layer<
     const projects = yield* ProjectWorkspace;
     const threadTitles = yield* CodexThreadTitlePersistence;
     const windows = yield* WindowRuntime;
-    const browserSidebar = yield* BrowserSidebarRuntime;
+    const browser = yield* BrowserApplication;
     const projectSessionBrowserRuntime = {
-      closeBrowserConversation: (browserConversationId: string) =>
-        Effect.sync(() => browserSidebar.browser.closeBrowserConversation(browserConversationId)),
+      closeBrowserConversation: browser.closeConversation,
     };
     const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
       ipc.handle(channel, handler);
