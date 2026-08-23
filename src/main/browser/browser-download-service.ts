@@ -16,7 +16,6 @@ import type {
   BrowserDownloadsSnapshot,
 } from "../../shared/browser-download";
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
-import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import {
   normalizeBrowserDownloadHistory,
   parseBrowserDownloadHistory,
@@ -111,10 +110,6 @@ export interface BrowserDownloadRuntime {
     request: BrowserDownloadActionRequest,
   ) => Effect.Effect<BrowserDownloadActionResult, BrowserDownloadRuntimeError>;
   readonly clearHistory: Effect.Effect<void, BrowserDownloadRuntimeError>;
-}
-
-export interface BrowserDownloadSidebarPort {
-  readonly clearHistory: () => Promise<void>;
 }
 
 const runtimeError = (operation: string, cause: unknown): BrowserDownloadRuntimeError =>
@@ -502,10 +497,3 @@ export const makeBrowserDownloadRuntime = (
       ),
     } satisfies BrowserDownloadRuntime;
   });
-
-export const makeBrowserDownloadSidebarPort = (
-  runtime: BrowserDownloadRuntime,
-  callbacks: ScopedCallbackRuntime["Service"],
-): BrowserDownloadSidebarPort => ({
-  clearHistory: () => callbacks.runPromise(runtime.clearHistory),
-});

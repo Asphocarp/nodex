@@ -6,7 +6,6 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { z } from "zod";
-import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import type { ChatGptDesktopError } from "../codex-application/ChatGptDesktop";
 import type { ChatGptDesktopRequestInput } from "../codex/chatgpt-desktop-request";
 
@@ -18,12 +17,6 @@ const SiteStatusResponseSchema = z.strictObject({
 
 interface SiteStatusLogger {
   readonly warn: (message: string, fields?: Record<string, unknown>) => void;
-}
-
-/** Promise projection consumed only by the legacy Browser sidebar callback seam. */
-export interface SiteStatusPolicyService {
-  readonly cachedCommentModeBlocked: (url: string) => boolean | null;
-  readonly isCommentModeBlocked: (url: string) => Promise<boolean>;
 }
 
 export interface SiteStatusPolicyRuntime {
@@ -192,11 +185,3 @@ export const makeSiteStatusPolicyRuntime = (
 
     return { cachedCommentModeBlocked, isCommentModeBlocked };
   });
-
-export const makeSiteStatusPolicyPromiseAdapter = (
-  runtime: SiteStatusPolicyRuntime,
-  callbacks: ScopedCallbackRuntime["Service"],
-): SiteStatusPolicyService => ({
-  cachedCommentModeBlocked: runtime.cachedCommentModeBlocked,
-  isCommentModeBlocked: (url) => callbacks.runPromise(runtime.isCommentModeBlocked(url)),
-});

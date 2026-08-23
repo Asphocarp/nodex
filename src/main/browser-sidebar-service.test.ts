@@ -15,6 +15,7 @@ import type {
 import { makeBrowserRuntimeRegistry } from "./browser/browser-runtime-registry";
 import { makeBrowserEarlyPageRestoreRuntimeUnsafe } from "./browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntimeUnsafe } from "./browser/BrowserWebContentsListenerRuntime";
+import { makeBrowserPageEmulationElectronPortUnsafe } from "./browser/browser-page-emulation";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
@@ -250,10 +251,6 @@ class MemoryPageStore implements BrowserPageSnapshotStore {
 function createService(
   contentsById = new Map<number, FakeWebContents>(),
   pageStore?: BrowserPageSnapshotStore,
-  siteStatusPolicy?: {
-    cachedCommentModeBlocked(url: string): boolean | null;
-    isCommentModeBlocked(url: string): Promise<boolean>;
-  },
   contextMenuPresenter?: (
     template: MenuItemConstructorOptions[],
     ownerWebContentsId: number,
@@ -261,6 +258,7 @@ function createService(
   saveBrowserImage?: NonNullable<
     ConstructorParameters<typeof BrowserSidebarService>[0]
   >["saveBrowserImage"],
+  cachedCommentModeBlocked: (url: string) => boolean | null = () => null,
 ) {
   const testEvents = new TestBrowserSidebarEvents();
   const service = new BrowserSidebarService({
@@ -290,10 +288,11 @@ function createService(
       info: () => undefined,
       warn: () => undefined,
     },
+    pageEmulation: makeBrowserPageEmulationElectronPortUnsafe(),
     pageStore,
     runtimeRegistry: makeBrowserRuntimeRegistry(),
     saveBrowserImage,
-    siteStatusPolicy,
+    siteStatus: { cachedCommentModeBlocked },
     webContentsListeners: makeBrowserWebContentsListenerRuntimeUnsafe(),
   });
   return Object.assign(service, { testEvents });
@@ -343,7 +342,6 @@ describe("BrowserSidebarService webview lifecycle", () => {
     }));
     const service = createService(
       new Map([[101, contents]]),
-      undefined,
       undefined,
       undefined,
       saveBrowserImage,
@@ -421,14 +419,16 @@ describe("BrowserSidebarService webview lifecycle", () => {
   test("owns Browser context-menu actions and routes quick annotation to the guest", async () => {
     const contents = new FakeWebContents();
     const presentedMenus: MenuItemConstructorOptions[][] = [];
+    let commentModeBlocked = false;
     const service = createService(
       new Map([[101, contents]]),
-      undefined,
       undefined,
       (template, ownerWebContentsId) => {
         expect(ownerWebContentsId).toBe(501);
         presentedMenus.push(template);
       },
+      undefined,
+      () => commentModeBlocked,
     );
     await service.handleCommand({
       type: "register-tab",
@@ -485,6 +485,26 @@ describe("BrowserSidebarService webview lifecycle", () => {
       action: "quick-annotate",
       point: { x: 20, y: 40 },
     });
+
+    commentModeBlocked = true;
+    contents.emit(
+      "context-menu",
+      {},
+      {
+        x: 40,
+        y: 80,
+        linkURL: "",
+        srcURL: "",
+        mediaType: "none",
+        hasImageContents: false,
+        isEditable: false,
+        selectionText: "",
+        formControlType: "none",
+        editFlags: { canCopy: false, canCut: false, canPaste: false },
+      },
+    );
+    expect(presentedMenus[1]?.some((item) => item.label === "Quick annotate")).toBe(false);
+    expect(presentedMenus[1]?.some((item) => item.label === "Annotate")).toBe(false);
 
     const result = await service.handleCommand({
       type: "quick-annotate",
@@ -1441,46 +1461,6 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(requests).toHaveLength(1);
   });
 
-  test("consults the site-status policy before entering comment mode", async () => {
-    const isCommentModeBlocked = vi.fn(async (url: string) => url === "https://blocked.example/");
-    const service = createService(new Map(), undefined, {
-      cachedCommentModeBlocked: () => null,
-      isCommentModeBlocked,
-    });
-    await registerTab(service);
-    await service.handleCommand({
-      type: "navigate",
-      ...browserIdentity,
-      url: "https://blocked.example/",
-    });
-
-    const blocked = await service.handleCommand({
-      type: "set-interaction-mode",
-      ...browserIdentity,
-      mode: "comment",
-    });
-    expect(blocked).toEqual({
-      ok: false,
-      message: "Comment mode is unavailable for this site.",
-    });
-    expect(readTab(service).interactionMode).toBe("browse");
-
-    await service.handleCommand({
-      type: "navigate",
-      ...browserIdentity,
-      url: "https://allowed.example/",
-    });
-    const allowed = await service.handleCommand({
-      type: "set-interaction-mode",
-      ...browserIdentity,
-      mode: "comment",
-    });
-    expect(allowed.ok).toBe(true);
-    expect(readTab(service).interactionMode).toBe("comment");
-    expect(isCommentModeBlocked).toHaveBeenNthCalledWith(1, "https://blocked.example/");
-    expect(isCommentModeBlocked).toHaveBeenNthCalledWith(2, "https://allowed.example/");
-  });
-
   test("keeps the same browser tab id independent across window scopes", async () => {
     const service = createService();
     const otherIdentity = {
@@ -1657,18 +1637,6 @@ describe("BrowserSidebarService webview lifecycle", () => {
       requests.push(request);
     });
 
-    await service.handleCommand(
-      {
-        type: "capture-browser-use-route",
-        browserConversationId: route.browserConversationId,
-        browserViewScopeId: route.browserViewScopeId,
-        codexSessionId: route.codexSessionId,
-        projectId: route.projectId,
-      },
-      {
-        ownerWebContentsId: route.ownerWebContentsId,
-      },
-    );
     await service.handleCommand({
       type: "browser-use-upsert-tab",
       tab: {
@@ -1719,142 +1687,6 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(service.listPendingBrowserUsePresentationRequests(route.browserViewScopeId)).toEqual([
       currentRequest,
     ]);
-  });
-
-  test("awaits explicit route capture and never binds Browser Use while registering tabs", async () => {
-    const service = createService();
-    let releaseCapture: () => void = () => undefined;
-    const captureHandler = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseCapture = resolve;
-        }),
-    );
-    service.setBrowserUseRouteCaptureHandler(captureHandler);
-
-    let settled = false;
-    const capture = service
-      .handleCommand(
-        {
-          type: "capture-browser-use-route",
-          browserConversationId: "project:alpha",
-          browserViewScopeId: "window-session-1",
-          codexSessionId: "project-session-1",
-          projectId: "alpha",
-        },
-        { ownerWebContentsId: 7 },
-      )
-      .then((result) => {
-        settled = true;
-        return result;
-      });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    expect(captureHandler).toHaveBeenCalledWith({
-      browserConversationId: "project:alpha",
-      browserViewScopeId: "window-session-1",
-      codexSessionId: "project-session-1",
-      ownerWebContentsId: 7,
-      projectId: "alpha",
-    });
-
-    releaseCapture();
-    await expect(capture).resolves.toEqual({ ok: true });
-    await service.handleCommand({
-      type: "register-tab",
-      browserConversationId: "project:alpha",
-      browserViewScopeId: "window-session-1",
-      browserTabId: "manual-tab",
-      projectId: "alpha",
-      initialUrl: "https://example.com",
-    });
-    expect(captureHandler).toHaveBeenCalledTimes(1);
-
-    const promoteHandler = vi.fn(async () => undefined);
-    service.setBrowserUseRouteCaptureHandler(promoteHandler);
-    await service.promoteBrowserUseRoute({
-      browserConversationId: "project:alpha",
-      browserViewScopeId: "window-session-1",
-      codexSessionId: "thread-real",
-      projectId: "alpha",
-    });
-    expect(promoteHandler).toHaveBeenCalledWith({
-      browserConversationId: "project:alpha",
-      browserViewScopeId: "window-session-1",
-      codexSessionId: "thread-real",
-      ownerWebContentsId: 7,
-      projectId: "alpha",
-    });
-
-    service.setBrowserUseRouteCaptureHandler(async () => {
-      throw new Error("route is busy");
-    });
-    await expect(
-      service.handleCommand(
-        {
-          type: "capture-browser-use-route",
-          browserConversationId: "project:beta",
-          browserViewScopeId: "window-session-1",
-          codexSessionId: "project-session-2",
-          projectId: "beta",
-        },
-        { ownerWebContentsId: 7 },
-      ),
-    ).resolves.toEqual({
-      ok: false,
-      message: "route is busy",
-    });
-  });
-
-  test("requests a no-transition presentation when another conversation is active", async () => {
-    const service = createService();
-    const route = {
-      browserConversationId: browserIdentity.browserConversationId,
-      browserViewScopeId: browserIdentity.browserViewScopeId,
-      codexSessionId: "thread-1",
-      ownerWebContentsId: 7,
-      projectId: "alpha",
-    };
-    let transition: string | null = null;
-    service.testEvents.subscribe("browserUsePresentationRequest", (request) => {
-      transition = request.transition;
-    });
-    await service.handleCommand(
-      {
-        type: "capture-browser-use-route",
-        browserConversationId: "another-session",
-        browserViewScopeId: route.browserViewScopeId,
-        codexSessionId: "another-thread",
-        projectId: "alpha",
-      },
-      {
-        ownerWebContentsId: route.ownerWebContentsId,
-      },
-    );
-    await service.handleCommand({
-      type: "browser-use-upsert-tab",
-      tab: {
-        ...browserIdentity,
-        codexSessionId: route.codexSessionId,
-        projectId: "alpha",
-        title: "Browser",
-        url: "https://example.com",
-        webContentsId: null,
-        viewport: {
-          width: 1_280,
-          height: 720,
-          zoomPercent: 100,
-          presetId: "browser-use",
-        },
-        captureActive: true,
-        released: false,
-        updatedAt: 1,
-      },
-    });
-
-    service.setBrowserVisibleForBrowserUse(route, browserIdentity.browserTabId, true);
-    expect(transition).toBe("none");
-    expect(service.isBrowserVisibleForBrowserUse(route, browserIdentity.browserTabId)).toBe(false);
   });
 
   test("conversation teardown removes only that composite browser namespace", async () => {

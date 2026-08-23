@@ -63,13 +63,11 @@ import type {
 } from "./browser/BrowserEarlyPageRestoreRuntime";
 import { selectBrowserTabsToSuspend } from "./browser/browser-tab-budget";
 import {
-  BrowserPageEmulationController,
+  type BrowserPageEmulationElectronPort,
   type BrowserPageEmulationTarget,
 } from "./browser/browser-page-emulation";
 import type { BrowserHistoryStore } from "./browser/browser-history-store";
-import type { BrowserDownloadSidebarPort } from "./browser/browser-download-service";
 import { getLogger, type BackendLogger } from "./logging/logger";
-import type { SiteStatusPolicyService } from "./browser-use/site-status-policy-service";
 import {
   buildBrowserContextMenuTemplate,
   type BrowserContextMenuParams,
@@ -77,6 +75,7 @@ import {
 import { fetchBrowserImage } from "./browser/browser-image-attachment";
 import { saveUploadedImage } from "./local-store/assets";
 import type { BrowserSidebarEventPublisher } from "./browser/BrowserSidebarEventHub";
+import type { SiteStatusPolicyRuntime } from "./browser-use/site-status-policy-service";
 
 type BrowserUseCommand = Extract<
   BrowserSidebarCommand,
@@ -176,7 +175,8 @@ interface BrowserSidebarServiceDeps {
   logger?: Pick<BackendLogger, "debug" | "info" | "warn">;
   pageStore?: BrowserPageSnapshotStore;
   historyStore?: Pick<BrowserHistoryStore, "clear" | "record">;
-  siteStatusPolicy?: SiteStatusPolicyService;
+  pageEmulation: BrowserPageEmulationElectronPort;
+  siteStatus: Pick<SiteStatusPolicyRuntime, "cachedCommentModeBlocked">;
   saveBrowserImage?: typeof saveUploadedImage;
 }
 
@@ -202,8 +202,6 @@ interface BrowserUseCapturedRoute {
   ownerWebContentsId: number;
   projectId: string | null;
 }
-
-type BrowserUseRouteCaptureHandler = (route: BrowserUseCapturedRoute) => Promise<void>;
 
 interface PendingBrowserUsePresentation {
   request: BrowserUsePresentationRequest;
@@ -379,23 +377,20 @@ export class BrowserSidebarService {
     ownerWebContentsId: number,
   ) => void;
   private readonly logger: Pick<BackendLogger, "debug" | "info" | "warn">;
-  private downloadService: BrowserDownloadSidebarPort | null = null;
   private readonly browserUseActiveTabIdsByConversationScope = new Map<string, string>();
-  private readonly browserUseCapturedRoutesByViewScope = new Map<string, BrowserUseCapturedRoute>();
   private readonly pendingBrowserUsePresentations = new Map<
     string,
     PendingBrowserUsePresentation
   >();
   private readonly browserUseCursors = new Map<string, BrowserUseCursorState>();
   private readonly invalidatedPageStorageIds = new Set<string>();
-  private readonly pageEmulationController = new BrowserPageEmulationController();
+  private readonly pageEmulation: BrowserPageEmulationElectronPort;
   private readonly runtimeRegistry: BrowserRuntimeRegistry;
   private readonly webContentsListeners: BrowserWebContentsListenerRuntime;
   private readonly saveBrowserImage: typeof saveUploadedImage;
+  private readonly siteStatus: Pick<SiteStatusPolicyRuntime, "cachedCommentModeBlocked">;
   private pageStore: BrowserPageSnapshotStore | null;
   private historyStore: Pick<BrowserHistoryStore, "clear" | "record"> | null;
-  private siteStatusPolicy: SiteStatusPolicyService | null;
-  private browserUseRouteCaptureHandler: BrowserUseRouteCaptureHandler | null = null;
   private teardownSequence = 0;
 
   constructor(deps: BrowserSidebarServiceDeps) {
@@ -418,45 +413,12 @@ export class BrowserSidebarService {
       });
     this.logger = deps.logger ?? getLogger({ subsystem: "browser-sidebar" });
     this.pageStore = deps.pageStore ?? null;
+    this.pageEmulation = deps.pageEmulation;
     this.historyStore = deps.historyStore ?? null;
-    this.siteStatusPolicy = deps.siteStatusPolicy ?? null;
     this.runtimeRegistry = deps.runtimeRegistry;
     this.webContentsListeners = deps.webContentsListeners;
     this.saveBrowserImage = deps.saveBrowserImage ?? saveUploadedImage;
-  }
-
-  setDownloadService(service: BrowserDownloadSidebarPort | null): void {
-    this.downloadService = service;
-  }
-
-  setSiteStatusPolicy(siteStatusPolicy: SiteStatusPolicyService | null): void {
-    this.siteStatusPolicy = siteStatusPolicy;
-  }
-
-  setBrowserUseRouteCaptureHandler(handler: BrowserUseRouteCaptureHandler | null): void {
-    this.browserUseRouteCaptureHandler = handler;
-  }
-
-  async promoteBrowserUseRoute(input: {
-    browserConversationId: string;
-    browserViewScopeId: string;
-    codexSessionId: string;
-    projectId: string | null;
-  }): Promise<void> {
-    const captured = this.browserUseCapturedRoutesByViewScope.get(input.browserViewScopeId);
-    if (!captured) {
-      throw new Error("Browser Use route is unavailable");
-    }
-    if (captured.browserConversationId !== input.browserConversationId) {
-      throw new Error("Browser Use route belongs to another presentation surface");
-    }
-    const promoted: BrowserUseCapturedRoute = {
-      ...captured,
-      codexSessionId: input.codexSessionId,
-      projectId: input.projectId,
-    };
-    await this.captureBrowserUseRoute(promoted);
-    this.browserUseCapturedRoutesByViewScope.set(promoted.browserViewScopeId, promoted);
+    this.siteStatus = deps.siteStatus;
   }
 
   authorizeWebviewAttachment(ownerWebContentsId: number, route: BrowserSidebarHostRouteIdentity) {
@@ -486,17 +448,6 @@ export class BrowserSidebarService {
   releaseRendererOwner(ownerWebContentsId: number): void {
     this.clearBrowserImageDrag(ownerWebContentsId);
     this.runtimeRegistry.releaseOwner(ownerWebContentsId);
-    const releasedScopeIds = new Set<string>();
-    for (const [scopeId, route] of this.browserUseCapturedRoutesByViewScope) {
-      if (route.ownerWebContentsId !== ownerWebContentsId) continue;
-      releasedScopeIds.add(scopeId);
-      this.browserUseCapturedRoutesByViewScope.delete(scopeId);
-    }
-    for (const [key, pending] of this.pendingBrowserUsePresentations) {
-      if (releasedScopeIds.has(pending.request.browserViewScopeId)) {
-        this.pendingBrowserUsePresentations.delete(key);
-      }
-    }
     this.events.publish({ kind: "browserUseOwnerReleased", value: { ownerWebContentsId } });
   }
 
@@ -598,15 +549,13 @@ export class BrowserSidebarService {
     this.setActiveBrowserUseTab(identity, browserTabId);
     if (this.isBrowserVisibleForBrowserUse(route, browserTabId)) return;
 
-    const capturedRoute = this.browserUseCapturedRoutesByViewScope.get(route.browserViewScopeId);
     const request: BrowserUsePresentationRequest = {
       ...identity,
       requestId: randomUUID(),
       codexSessionId: route.codexSessionId,
       projectId: route.projectId,
       visible: true,
-      transition:
-        capturedRoute?.browserConversationId === route.browserConversationId ? "default" : "none",
+      transition: "default",
       source: "browser-use",
     };
     this.pendingBrowserUsePresentations.set(key, {
@@ -628,13 +577,6 @@ export class BrowserSidebarService {
       browserViewScopeId: route.browserViewScopeId,
       browserTabId,
     };
-    const capturedRoute = this.browserUseCapturedRoutesByViewScope.get(route.browserViewScopeId);
-    if (
-      capturedRoute?.browserConversationId !== route.browserConversationId ||
-      capturedRoute.codexSessionId !== route.codexSessionId
-    ) {
-      return false;
-    }
     if (
       this.browserUseActiveTabIdsByConversationScope.get(browserConversationScopeKey(identity)) !==
       browserTabId
@@ -716,7 +658,7 @@ export class BrowserSidebarService {
       !debuggerPort ||
       contents.isDestroyed() ||
       !debuggerPort.isAttached() ||
-      this.pageEmulationController.isDebuggerRetained(contents)
+      this.pageEmulation.isDebuggerRetained(contents)
     ) {
       return;
     }
@@ -1139,13 +1081,10 @@ export class BrowserSidebarService {
     );
   }
 
-  async clearBrowsingData(kind: BrowserBrowsingDataKind): Promise<BrowserBrowsingDataClearResult> {
+  async clearBrowsingData(
+    kind: Exclude<BrowserBrowsingDataKind, "downloads">,
+  ): Promise<BrowserBrowsingDataClearResult> {
     try {
-      if (kind === "downloads") {
-        if (!this.downloadService) throw new Error("Browser download service is unavailable");
-        await this.downloadService.clearHistory();
-        return { ok: true };
-      }
       if (kind === "history") {
         await Promise.all([this.pageStore?.clear(), this.historyStore?.clear()]);
         for (const tab of this.tabs.values()) {
@@ -1212,7 +1151,7 @@ export class BrowserSidebarService {
     let snapshot: BrowserSidebarTabSnapshot = attachedSnapshot;
     const contents = this.electron.webContents.fromId(event.webContentsId);
     if (contents && !contents.isDestroyed()) {
-      this.pageEmulationController.retainDebugger(contents);
+      void this.pageEmulation.retainDebugger(contents);
       const initialColorSchemeSync = this.syncPageColorScheme(
         attachedSnapshot,
         contents,
@@ -1408,23 +1347,7 @@ export class BrowserSidebarService {
     }
 
     if (command.type === "capture-browser-use-route") {
-      if (context.ownerWebContentsId === undefined) {
-        return { ok: false, message: "Browser route owner is unavailable" };
-      }
-      const route: BrowserUseCapturedRoute = {
-        browserConversationId: command.browserConversationId,
-        browserViewScopeId: command.browserViewScopeId,
-        codexSessionId: command.codexSessionId,
-        ownerWebContentsId: context.ownerWebContentsId,
-        projectId: command.projectId,
-      };
-      try {
-        await this.captureBrowserUseRoute(route);
-      } catch (error) {
-        return { ok: false, message: readBoundedErrorMessage(error) };
-      }
-      this.browserUseCapturedRoutesByViewScope.set(command.browserViewScopeId, route);
-      return { ok: true };
+      return { ok: false, message: "Browser Use route requires the presentation runtime" };
     }
 
     if (command.type === "register-tab") {
@@ -1648,27 +1571,11 @@ export class BrowserSidebarService {
     }
 
     if (command.type === "set-interaction-mode") {
-      if (
-        command.mode === "comment" &&
-        this.siteStatusPolicy &&
-        (await this.siteStatusPolicy.isCommentModeBlocked(tab.url))
-      ) {
-        return {
-          ok: false,
-          message: "Comment mode is unavailable for this site.",
-        };
-      }
       const snapshot = this.updateTab(key, { interactionMode: command.mode });
       return { ok: true, snapshot };
     }
 
     if (command.type === "quick-annotate") {
-      if (this.siteStatusPolicy && (await this.siteStatusPolicy.isCommentModeBlocked(tab.url))) {
-        return {
-          ok: false,
-          message: "Comment mode is unavailable for this site.",
-        };
-      }
       const contents = this.getAttachedWebContents(tab);
       if (!contents || contents.isDestroyed()) {
         return { ok: false, message: "Browser webview is not attached" };
@@ -1836,7 +1743,7 @@ export class BrowserSidebarService {
     const identity = browserIdentity(ownership.identity);
     const annotationScale = Math.max(tab.zoomPercent / 100, 0.01);
     const template = buildBrowserContextMenuTemplate({
-      canAnnotate: this.siteStatusPolicy?.cachedCommentModeBlocked(tab.url) !== true,
+      canAnnotate: this.siteStatus.cachedCommentModeBlocked(tab.url) !== true,
       canGoBack: contents.canGoBack(),
       canGoForward: contents.canGoForward(),
       canReload: tab.hasBrowserPage || tab.failure !== undefined,
@@ -2162,6 +2069,8 @@ export class BrowserSidebarService {
     const detachedWebContentsId =
       typeof webContentsId === "number" ? webContentsId : current.webContentsId;
     if (detachedWebContentsId !== null && detachedWebContentsId !== undefined) {
+      const contents = this.electron.webContents.fromId(detachedWebContentsId);
+      if (contents) this.pageEmulation.release(contents);
       this.webContentsTabIds.delete(detachedWebContentsId);
       this.webContentsListeners.release(detachedWebContentsId);
     }
@@ -2220,6 +2129,7 @@ export class BrowserSidebarService {
         const ownership = this.attachedWebviewOwnership.get(webContentsId);
         if (ownership) this.clearBrowserImageDrag(ownership.ownerWebContentsId);
         this.attachedWebviewOwnership.delete(webContentsId);
+        this.pageEmulation.release(contents);
         this.runtimeRegistry.releaseGuest(webContentsId);
         this.earlyPageRestores.release(webContentsId);
         this.detachWebview(activeTabId, webContentsId);
@@ -2448,8 +2358,8 @@ export class BrowserSidebarService {
     contents: BrowserWebContentsLike,
   ): Promise<void> {
     const result = tab.deviceToolbarVisible
-      ? await this.pageEmulationController.syncDeviceMetrics(contents, tab.viewport)
-      : await this.pageEmulationController.clearDeviceMetrics(contents);
+      ? await this.pageEmulation.syncDeviceMetrics(contents, tab.viewport)
+      : await this.pageEmulation.clearDeviceMetrics(contents);
     if (result.ok || result.reason === "debugger-unavailable") return;
     this.logger.warn("Browser device emulation could not be synchronized", {
       ...browserIdentity(tab),
@@ -2462,7 +2372,7 @@ export class BrowserSidebarService {
     contents: BrowserWebContentsLike,
     themeVariant: BrowserSidebarThemeVariant,
   ): Promise<void> {
-    const result = await this.pageEmulationController.syncColorScheme(contents, themeVariant);
+    const result = await this.pageEmulation.syncColorScheme(contents, themeVariant);
     const context = {
       ...browserIdentity(identity),
       themeVariant,
@@ -2829,10 +2739,6 @@ export class BrowserSidebarService {
 
   private emitBrowserUseState(): void {
     this.events.publish({ kind: "browserUseState", value: this.getBrowserUseStateSnapshot() });
-  }
-
-  private async captureBrowserUseRoute(route: BrowserUseCapturedRoute): Promise<void> {
-    await this.browserUseRouteCaptureHandler?.(route);
   }
 
   private handleBrowserUseCommand(command: BrowserUseCommand): void {

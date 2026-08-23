@@ -30,7 +30,7 @@ import {
   filterBrowserStateForViewScope,
   filterBrowserUseStateForViewScope,
 } from "../../browser/browser-event-routing";
-import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
+import { BrowserPresentationRuntime } from "../../host-runtime/BrowserPresentationRuntime";
 import { safeBroadcastToWindows, safeSendToWebContents } from "../../ipc-safe-send";
 import { saveUploadedImage } from "../../local-store/assets";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -72,11 +72,11 @@ const commandViewScope = (command: BrowserSidebarCommand): string | null => {
 export const live: Layer.Layer<
   never,
   never,
-  BrowserSidebarRuntime | ElectronIpc | ElectronWindowHost | MainConfig | WindowSessionCatalog
+  BrowserPresentationRuntime | ElectronIpc | ElectronWindowHost | MainConfig | WindowSessionCatalog
 > = Layer.effectDiscard(
   Effect.gen(function* () {
-    const { browser, events, history, localServers, localServerThumbnail } =
-      yield* BrowserSidebarRuntime;
+    const presentation = yield* BrowserPresentationRuntime;
+    const { browser, events, history, localServers, localServerThumbnail } = presentation.sidebar;
     const config = yield* MainConfig;
     const ipc = yield* ElectronIpc;
     const windows = yield* ElectronWindowHost;
@@ -133,12 +133,20 @@ export const live: Layer.Layer<
                   ? localServers
                       .applyCommand(command)
                       .pipe(Effect.as({ ok: true as const } satisfies BrowserSidebarCommandResult))
-                  : attempt("apply-browser-command", () =>
-                      browser.handleCommand(command, {
+                  : presentation
+                      .applyCommand(command, {
                         browserViewScopeId,
                         ownerWebContentsId: event.sender.id,
-                      }),
-                    ),
+                      })
+                      .pipe(
+                        Effect.mapError(
+                          (cause) =>
+                            new BrowserSidebarIpcError({
+                              operation: "apply-browser-command",
+                              cause,
+                            }),
+                        ),
+                      ),
             ),
           ),
         ),
@@ -166,7 +174,13 @@ export const live: Layer.Layer<
           parse("parse-browsing-data-kind", () => BrowserBrowsingDataKindSchema.parse(rawKind)),
         ),
         Effect.flatMap((kind) =>
-          attempt("clear-browser-data", () => browser.clearBrowsingData(kind)),
+          presentation
+            .clearBrowsingData(kind)
+            .pipe(
+              Effect.mapError(
+                (cause) => new BrowserSidebarIpcError({ operation: "clear-browser-data", cause }),
+              ),
+            ),
         ),
       ),
     );

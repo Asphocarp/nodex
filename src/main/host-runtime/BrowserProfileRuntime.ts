@@ -8,7 +8,6 @@ import type { BrowserDownloadsSnapshot } from "../../shared/browser-download";
 import type { BrowserSidebarService } from "../browser-sidebar-service";
 import {
   makeBrowserDownloadRuntime,
-  makeBrowserDownloadSidebarPort,
   type BrowserDownloadRuntime,
 } from "../browser/browser-download-service";
 import {
@@ -40,12 +39,6 @@ import {
   makeBrowserUsePolicyRuntime,
   type BrowserUsePolicyRuntime,
 } from "../browser-use/browser-use-policy-store";
-import {
-  makeSiteStatusPolicyPromiseAdapter,
-  makeSiteStatusPolicyRuntime,
-} from "../browser-use/site-status-policy-service";
-import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
-import { DEFAULT_CHATGPT_BASE_URL } from "../codex/chatgpt-base-url";
 import { safeBroadcastToWindows } from "../ipc-safe-send";
 import { getLogger } from "../logging/logger";
 import { ElectronApp } from "../platform/electron/ElectronApp";
@@ -53,6 +46,7 @@ import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
+import { BrowserSidebarRuntime } from "./BrowserSidebarRuntime";
 
 export class BrowserProfileRuntimeError extends Schema.TaggedError<BrowserProfileRuntimeError>()(
   "BrowserProfileRuntimeError",
@@ -73,7 +67,6 @@ export class BrowserProfileRuntime extends Context.Service<
 >()("nodex/main/host-runtime/BrowserProfileRuntime") {}
 
 export interface BrowserProfileRuntimeOptions {
-  readonly browserSidebar: BrowserSidebarService;
   readonly environment: Readonly<Record<string, string>>;
   readonly homeDirectory: string;
   readonly isPackaged: boolean;
@@ -116,19 +109,19 @@ export const live = (
   BrowserProfileRuntimeError,
   | FileSystem.FileSystem
   | BrowserProfileHelperPlatform
-  | ChatGptDesktop
   | ElectronApp
   | ElectronDesktop
   | ElectronSessionHost
   | ElectronWindowHost
+  | BrowserSidebarRuntime
   | ScopedCallbackRuntime
 > =>
   Layer.effect(
     BrowserProfileRuntime,
     Effect.gen(function* () {
       const app = yield* ElectronApp;
+      const { browser: browserSidebar } = yield* BrowserSidebarRuntime;
       const callbacks = yield* ScopedCallbackRuntime;
-      const chatGpt = yield* ChatGptDesktop;
       const desktop = yield* ElectronDesktop;
       const profileHelperPlatform = yield* BrowserProfileHelperPlatform;
       const sessions = yield* ElectronSessionHost;
@@ -153,11 +146,11 @@ export const live = (
       });
       const credentials = yield* makeBrowserCredentialRuntime({
         vault: credentialVault,
-        resolveGuest: (identity) => options.browserSidebar.getWebContentsForTab(identity),
+        resolveGuest: (identity) => browserSidebar.getWebContentsForTab(identity),
         resolveGuestIdentity: (webContentsId) =>
-          options.browserSidebar.getIdentityForWebContents(webContentsId),
+          browserSidebar.getIdentityForWebContents(webContentsId),
         resolveGuestOwner: (webContentsId) =>
-          options.browserSidebar.getOwnerWebContentsIdForGuest(webContentsId),
+          browserSidebar.getOwnerWebContentsIdForGuest(webContentsId),
       });
       const localServerPreferences = yield* makeBrowserLocalServerPreferencesRuntime(
         `${options.userDataPath}/browser-local-server-preferences.json`,
@@ -186,25 +179,15 @@ export const live = (
         platform: options.platform,
       });
       const extensions = makeBrowserExtensionsRuntime(browserSession.extensions ?? null);
-      const siteInfo = makeBrowserSiteInfoRuntime(options.browserSidebar, browserSession.cookies);
-      const siteStatusRuntime = yield* makeSiteStatusPolicyRuntime({
-        apiBaseUrl: DEFAULT_CHATGPT_BASE_URL,
-        logger,
-        request: chatGpt.request,
-      });
-      const siteStatusPolicy = makeSiteStatusPolicyPromiseAdapter(siteStatusRuntime, callbacks);
-      options.browserSidebar.setSiteStatusPolicy(siteStatusPolicy);
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => options.browserSidebar.setSiteStatusPolicy(null)),
-      );
+      const siteInfo = makeBrowserSiteInfoRuntime(browserSidebar, browserSession.cookies);
 
       const download = yield* makeBrowserDownloadRuntime({
         downloadsDirectory: downloadsPath,
         historyFilePath: `${options.userDataPath}/browser-downloads.json`,
-        isAgentControlled: (identity) => options.browserSidebar.isBrowserUseIdentity(identity),
+        isAgentControlled: (identity) => browserSidebar.isBrowserUseIdentity(identity),
         logger,
         onSnapshot: (snapshot) => {
-          projectDownloadState(options.browserSidebar, snapshot);
+          projectDownloadState(browserSidebar, snapshot);
           callbacks.fork(
             windows.all.pipe(
               Effect.tap((all) =>
@@ -216,20 +199,13 @@ export const live = (
             ),
           );
         },
-        resolveIdentity: (webContentsId) =>
-          options.browserSidebar.getIdentityForWebContents(webContentsId),
+        resolveIdentity: (webContentsId) => browserSidebar.getIdentityForWebContents(webContentsId),
         session: browserSession,
         shell: desktop.shell,
       }).pipe(
         Effect.mapError(
           (cause) => new BrowserProfileRuntimeError({ operation: "initialize-downloads", cause }),
         ),
-      );
-      options.browserSidebar.setDownloadService(
-        makeBrowserDownloadSidebarPort(download, callbacks),
-      );
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => options.browserSidebar.setDownloadService(null)),
       );
       return BrowserProfileRuntime.of({
         credentials,

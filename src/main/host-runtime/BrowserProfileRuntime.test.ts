@@ -14,9 +14,9 @@ import type { BrowserSidebarTabSnapshot } from "../../shared/browser-sidebar";
 import { BrowserSidebarService } from "../browser-sidebar-service";
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import { makeBrowserRuntimeRegistry } from "../browser/browser-runtime-registry";
+import { makeBrowserPageEmulationElectronPortUnsafe } from "../browser/browser-page-emulation";
 import { makeBrowserEarlyPageRestoreRuntime } from "../browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntime } from "../browser/BrowserWebContentsListenerRuntime";
-import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronNet } from "../platform/electron/ElectronNet";
@@ -24,6 +24,7 @@ import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { layer as callbackLayer, ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import { BrowserProfileRuntime, live } from "./BrowserProfileRuntime";
+import { BrowserSidebarRuntime } from "./BrowserSidebarRuntime";
 
 class FakeBrowserSession extends EventEmitter {
   readonly cookies = {};
@@ -45,6 +46,8 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
               ),
             events: { publish: () => undefined },
             runtimeRegistry: makeBrowserRuntimeRegistry(),
+            pageEmulation: makeBrowserPageEmulationElectronPortUnsafe(),
+            siteStatus: { cachedCommentModeBlocked: () => null },
             webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
               Effect.provideService(Scope.Scope, scope),
             ),
@@ -53,7 +56,6 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
           const callbacks = Context.get(callbacksContext, ScopedCallbackRuntime);
           const context = yield* Layer.buildWithScope(
             live({
-              browserSidebar,
               environment: {},
               homeDirectory: root,
               isPackaged: false,
@@ -66,12 +68,10 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
               Layer.provide(
                 Layer.mergeAll(
                   Layer.succeed(
-                    ChatGptDesktop,
-                    ChatGptDesktop.of({
-                      authStatus: () => Effect.die("unused"),
-                      authMethod: Effect.die("unused"),
-                      request: () => Effect.die("unused"),
-                    }),
+                    BrowserSidebarRuntime,
+                    BrowserSidebarRuntime.of({
+                      browser: browserSidebar,
+                    } as BrowserSidebarRuntime["Service"]),
                   ),
                   Layer.succeed(
                     ElectronApp,

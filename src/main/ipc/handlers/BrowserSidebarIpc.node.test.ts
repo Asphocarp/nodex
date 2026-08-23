@@ -10,9 +10,10 @@ import { MainConfig } from "../../app/MainConfig";
 import { BrowserSidebarService } from "../../browser-sidebar-service";
 import { make as makeBrowserSidebarEventHub } from "../../browser/BrowserSidebarEventHub";
 import { makeBrowserRuntimeRegistry } from "../../browser/browser-runtime-registry";
+import { makeBrowserPageEmulationElectronPortUnsafe } from "../../browser/browser-page-emulation";
 import { makeBrowserEarlyPageRestoreRuntime } from "../../browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntime } from "../../browser/BrowserWebContentsListenerRuntime";
-import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
+import { BrowserPresentationRuntime } from "../../host-runtime/BrowserPresentationRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { WindowSessionCatalog } from "../../window-runtime/WindowSessionCatalog";
@@ -47,23 +48,35 @@ it.effect(
           ),
         events,
         runtimeRegistry: makeBrowserRuntimeRegistry(),
+        pageEmulation: makeBrowserPageEmulationElectronPortUnsafe(),
+        siteStatus: { cachedCommentModeBlocked: () => null },
         webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
           Effect.provideService(Scope.Scope, scope),
         ),
       });
+      const sidebar = {
+        browser,
+        events,
+        history: {} as never,
+        localServers: { updates: Stream.empty } as never,
+        localServerThumbnail: {} as never,
+        pages: {} as never,
+      };
       yield* Layer.buildWithScope(
         live.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.succeed(
-                BrowserSidebarRuntime,
-                BrowserSidebarRuntime.of({
+                BrowserPresentationRuntime,
+                BrowserPresentationRuntime.of({
                   browser,
-                  events,
-                  history: {} as never,
-                  localServers: { updates: Stream.empty } as never,
-                  localServerThumbnail: {} as never,
-                  pages: {} as never,
+                  sidebar,
+                  applyCommand: (command, context) =>
+                    Effect.promise(() => browser.handleCommand(command, context)),
+                  clearBrowsingData: (kind) =>
+                    kind === "downloads"
+                      ? Effect.succeed({ ok: true })
+                      : Effect.promise(() => browser.clearBrowsingData(kind)),
                 }),
               ),
               Layer.succeed(ElectronIpc, ipc),

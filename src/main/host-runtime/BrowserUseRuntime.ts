@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -12,11 +11,7 @@ import * as Stream from "effect/Stream";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
 import { resolveBrowserUseHostCapability } from "../../shared/browser-use-host-capability";
-import type { BrowserSidebarService } from "../browser-sidebar-service";
-import type {
-  BrowserSidebarEvent,
-  BrowserSidebarEventHubService,
-} from "../browser/BrowserSidebarEventHub";
+import type { BrowserSidebarEvent } from "../browser/BrowserSidebarEventHub";
 import { makeBrowserUseIabApi } from "../browser-use/browser-use-iab-api";
 import { makeBrowserUseNativePipeServer } from "../browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../browser-use/browser-use-peer-authorizer";
@@ -30,6 +25,7 @@ import {
 import type { BrowserRuntimeAvailability } from "../codex/browser-runtime-bundle";
 import { getLogger } from "../logging/logger";
 import { DesktopToolRuntime } from "./DesktopToolRuntime";
+import { BrowserSidebarRuntime } from "./BrowserSidebarRuntime";
 
 export class BrowserUseRuntimeError extends Schema.TaggedError<BrowserUseRuntimeError>()(
   "BrowserUseRuntimeError",
@@ -49,16 +45,20 @@ export interface BrowserUseRuntimeInstallInput {
 export class BrowserUseRuntime extends Context.Service<
   BrowserUseRuntime,
   {
+    readonly captureRoute: (
+      input: BrowserUseRouteCapture,
+    ) => Effect.Effect<void, BrowserUseRuntimeError>;
     readonly install: (
       input: BrowserUseRuntimeInstallInput,
     ) => Effect.Effect<void, BrowserUseRuntimeError>;
+    readonly promoteRoute: (input: {
+      readonly browserConversationId: string;
+      readonly browserViewScopeId: string;
+      readonly codexSessionId: string;
+      readonly projectId: string | null;
+    }) => Effect.Effect<void, BrowserUseRuntimeError>;
   }
 >()("nodex/main/host-runtime/BrowserUseRuntime") {}
-
-type BrowserSidebarPort = Pick<
-  BrowserSidebarService,
-  "promoteBrowserUseRoute" | "setBrowserUseRouteCaptureHandler"
->;
 
 interface BrowserUseRegistryPort {
   readonly availableBackends: () => readonly BrowserRuntimeBackend[];
@@ -89,7 +89,6 @@ type DesktopToolPort = Pick<
 
 export interface BrowserUseRuntimePorts {
   readonly browserEvents: Stream.Stream<BrowserSidebarEvent>;
-  readonly browserSidebar: BrowserSidebarPort;
   readonly desktopTools: DesktopToolPort;
   readonly makeRegistry: (
     input: BrowserUseRuntimeInstallInput,
@@ -122,11 +121,61 @@ const make = (
 ): Effect.Effect<BrowserUseRuntime["Service"], never, Scope.Scope> =>
   Effect.gen(function* () {
     const installation = yield* Ref.make<Scope.Closeable | null>(null);
+    const activeRegistry = yield* Ref.make<BrowserUseRegistryPort | null>(null);
+    const capturedRoutes = yield* Ref.make<ReadonlyMap<string, BrowserUseRouteCapture>>(new Map());
     const lock = yield* Semaphore.make(1);
+    const routeLock = yield* Semaphore.make(1);
     yield* Effect.addFinalizer(() =>
       Ref.get(installation).pipe(
         Effect.flatMap((scope) => (scope === null ? Effect.void : Scope.close(scope, Exit.void))),
       ),
+    );
+
+    const captureRouteUnlocked = Effect.fn("BrowserUseRuntime.captureRouteUnlocked")(function* (
+      input: BrowserUseRouteCapture,
+    ) {
+      const registry = yield* Ref.get(activeRegistry);
+      if (registry === null) {
+        return yield* new BrowserUseRuntimeError({
+          operation: "capture-route",
+          cause: new Error("Browser Use runtime is not installed"),
+        });
+      }
+      if (registry.availableBackends().length === 0) return;
+      yield* registry.captureRoute(input).pipe(Effect.asVoid);
+      yield* Ref.update(capturedRoutes, (current) =>
+        new Map(current).set(input.browserViewScopeId, input),
+      );
+    });
+
+    const captureRoute = (input: BrowserUseRouteCapture) =>
+      routeLock.withPermits(1)(captureRouteUnlocked(input));
+
+    const promoteRoute = Effect.fn("BrowserUseRuntime.promoteRoute")(
+      (input: {
+        readonly browserConversationId: string;
+        readonly browserViewScopeId: string;
+        readonly codexSessionId: string;
+        readonly projectId: string | null;
+      }) =>
+        routeLock.withPermits(1)(
+          Effect.gen(function* () {
+            const captured = (yield* Ref.get(capturedRoutes)).get(input.browserViewScopeId);
+            if (!captured) {
+              return yield* new BrowserUseRuntimeError({
+                operation: "promote-route",
+                cause: new Error("Browser Use route is unavailable"),
+              });
+            }
+            if (captured.browserConversationId !== input.browserConversationId) {
+              return yield* new BrowserUseRuntimeError({
+                operation: "promote-route",
+                cause: new Error("Browser Use route belongs to another presentation surface"),
+              });
+            }
+            yield* captureRouteUnlocked({ ...captured, ...input });
+          }),
+        ),
     );
 
     const install = (input: BrowserUseRuntimeInstallInput) =>
@@ -144,6 +193,13 @@ const make = (
               const registry = yield* ports
                 .makeRegistry(input)
                 .pipe(Effect.provideService(Scope.Scope, childScope));
+              yield* Ref.set(activeRegistry, registry);
+              yield* Scope.addFinalizer(
+                childScope,
+                Ref.set(activeRegistry, null).pipe(
+                  Effect.andThen(Ref.set(capturedRoutes, new Map())),
+                ),
+              );
 
               ports.desktopTools.setAvailableBackendsResolver(() => registry.availableBackends());
               yield* Scope.addFinalizer(
@@ -152,37 +208,29 @@ const make = (
               );
               yield* ports.desktopTools.installBrowserUseBindings({
                 lifecycle: registry,
-                routePromoter: {
-                  promote: (route) =>
-                    Effect.tryPromise({
-                      try: () => ports.browserSidebar.promoteBrowserUseRoute(route),
-                      catch: (cause) =>
-                        new BrowserUseRuntimeError({ operation: "promote-route", cause }),
-                    }),
-                },
+                routePromoter: { promote: promoteRoute },
               });
               yield* Scope.addFinalizer(childScope, ports.desktopTools.clearBrowserUseBindings);
-
-              const runPromise = yield* FiberSet.makeRuntimePromise<
-                never,
-                unknown,
-                BrowserUseRuntimeError
-              >().pipe(Effect.provideService(Scope.Scope, childScope));
-              ports.browserSidebar.setBrowserUseRouteCaptureHandler((route) =>
-                registry.availableBackends().length === 0
-                  ? Promise.resolve()
-                  : runPromise(registry.captureRoute(route).pipe(Effect.asVoid)),
-              );
-              yield* Scope.addFinalizer(
-                childScope,
-                Effect.sync(() => ports.browserSidebar.setBrowserUseRouteCaptureHandler(null)),
-              );
 
               yield* ports.browserEvents.pipe(
                 Stream.runForEach((event) => {
                   if (event.kind === "browserUseOwnerReleased") {
                     return input.releaseCredentialOwner(event.value.ownerWebContentsId).pipe(
                       Effect.andThen(registry.releaseOwner(event.value.ownerWebContentsId)),
+                      Effect.ensuring(
+                        routeLock.withPermits(1)(
+                          Ref.update(
+                            capturedRoutes,
+                            (current) =>
+                              new Map(
+                                [...current].filter(
+                                  ([, route]) =>
+                                    route.ownerWebContentsId !== event.value.ownerWebContentsId,
+                                ),
+                              ),
+                          ),
+                        ),
+                      ),
                       Effect.catch((error) => logFailure(error.operation, error.cause)),
                     );
                   }
@@ -211,14 +259,12 @@ const make = (
         }),
       );
 
-    return BrowserUseRuntime.of({ install });
+    return BrowserUseRuntime.of({ captureRoute, install, promoteRoute });
   });
 
 export interface BrowserUseRuntimeOptions {
   readonly appVersion: string;
   readonly browserRuntime: BrowserRuntimeAvailability;
-  readonly browserEvents: BrowserSidebarEventHubService;
-  readonly browserSidebar: BrowserSidebarService;
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly isPackaged: boolean;
   readonly platform: NodeJS.Platform;
@@ -226,10 +272,11 @@ export interface BrowserUseRuntimeOptions {
 
 export const live = (
   options: BrowserUseRuntimeOptions,
-): Layer.Layer<BrowserUseRuntime, never, DesktopToolRuntime> =>
+): Layer.Layer<BrowserUseRuntime, never, BrowserSidebarRuntime | DesktopToolRuntime> =>
   Layer.effect(
     BrowserUseRuntime,
     Effect.gen(function* () {
+      const browserSidebar = yield* BrowserSidebarRuntime;
       const desktopTools = yield* DesktopToolRuntime;
       const capability = resolveBrowserUseHostCapability({
         browserRuntimeStatus: options.browserRuntime.status,
@@ -254,8 +301,7 @@ export const live = (
         platform: options.platform,
       });
       return yield* make({
-        browserEvents: options.browserEvents.events,
-        browserSidebar: options.browserSidebar,
+        browserEvents: browserSidebar.events.events,
         desktopTools,
         makeRegistry: (input) => {
           const appSessionId = randomUUID();
@@ -265,9 +311,9 @@ export const live = (
                 appSessionId,
                 appVersion: options.appVersion,
                 asyncRuntime,
-                browserService: options.browserSidebar,
+                browserService: browserSidebar.browser,
                 subscribeWebviewAttached: (listener) =>
-                  options.browserEvents.subscribeWebviewAttached(listener),
+                  browserSidebar.events.subscribeWebviewAttached(listener),
                 buildFlavor:
                   options.browserRuntime.status === "available"
                     ? options.browserRuntime.bundle.manifest.buildFlavor

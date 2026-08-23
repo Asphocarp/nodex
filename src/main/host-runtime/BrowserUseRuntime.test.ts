@@ -13,13 +13,6 @@ import { BrowserUseRuntime, testLayer, type BrowserUseRuntimePorts } from "./Bro
 
 it.effect("installs Browser Use bindings once and releases every ingress with its Scope", () =>
   Effect.gen(function* () {
-    let routeCapture: ((route: never) => Promise<void>) | null = null;
-    const sidebar = {
-      setBrowserUseRouteCaptureHandler: (handler: typeof routeCapture) => {
-        routeCapture = handler;
-      },
-      promoteBrowserUseRoute: async () => undefined,
-    } as unknown as BrowserUseRuntimePorts["browserSidebar"];
     let resolver: () => readonly ("chrome" | "iab")[] = () => [];
     let bindings: BrowserUseRuntimeBindings | null = null;
     let cleared = 0;
@@ -40,7 +33,8 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
     const browserEvents = yield* PubSub.unbounded<BrowserSidebarEvent>();
     const registry = {
       availableBackends: () => ["iab"] as const,
-      captureRoute: () => Effect.sync(() => void events.push("capture")),
+      captureRoute: (route: { codexSessionId: string }) =>
+        Effect.sync(() => void events.push(`capture:${route.codexSessionId}`)),
       notifyCursorArrived: () => Effect.sync(() => void events.push("cursor")),
       releaseOwner: () => Effect.sync(() => void events.push("release-owner")),
       releaseSession: () => Effect.void,
@@ -51,7 +45,6 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
     const context = yield* Layer.buildWithScope(
       testLayer({
         browserEvents: Stream.fromPubSub(browserEvents),
-        browserSidebar: sidebar,
         desktopTools,
         makeRegistry: () => Effect.succeed(registry),
       }),
@@ -69,18 +62,19 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
 
     assert.deepEqual(resolver(), ["iab"]);
     assert.isNotNull(bindings);
-    const capture = routeCapture as ((route: unknown) => Promise<void>) | null;
-    if (capture) {
-      yield* Effect.promise(() =>
-        capture({
-          browserConversationId: "conversation",
-          browserViewScopeId: "scope",
-          codexSessionId: "session",
-          ownerWebContentsId: 1,
-          projectId: null,
-        }),
-      );
-    }
+    yield* runtime.captureRoute({
+      browserConversationId: "conversation",
+      browserViewScopeId: "scope",
+      codexSessionId: "session",
+      ownerWebContentsId: 1,
+      projectId: null,
+    });
+    yield* runtime.promoteRoute({
+      browserConversationId: "conversation",
+      browserViewScopeId: "scope",
+      codexSessionId: "promoted-session",
+      projectId: "project",
+    });
     yield* PubSub.publish(browserEvents, {
       kind: "browserUseOwnerReleased",
       value: { ownerWebContentsId: 1 },
@@ -97,14 +91,26 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
     });
     yield* Effect.yieldNow;
     assert.includeMembers(events, [
-      "capture",
+      "capture:session",
+      "capture:promoted-session",
       "cursor",
       "release-credential-owner",
       "release-owner",
     ]);
+    assert.isTrue(
+      Exit.isFailure(
+        yield* Effect.exit(
+          runtime.promoteRoute({
+            browserConversationId: "conversation",
+            browserViewScopeId: "scope",
+            codexSessionId: "released-session",
+            projectId: "project",
+          }),
+        ),
+      ),
+    );
 
     yield* Scope.close(scope, Exit.void);
-    assert.strictEqual(routeCapture, null);
     assert.deepEqual(resolver(), []);
     assert.strictEqual(cleared, 1);
   }),

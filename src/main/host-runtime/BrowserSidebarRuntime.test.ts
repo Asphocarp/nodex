@@ -8,6 +8,7 @@ import { assert, it } from "@effect/vitest";
 import { layer as callbackLayer } from "../app/ScopedCallbackRuntime";
 import { ElectronNet } from "../platform/electron/ElectronNet";
 import { BrowserSidebarRuntime, live } from "./BrowserSidebarRuntime";
+import { BrowserSiteStatusRuntime } from "./BrowserSiteStatusRuntime";
 
 it.layer(NodeServices.layer)("BrowserSidebarRuntime", (it) => {
   it.effect("owns the Browser sidebar service with the Main Scope", () =>
@@ -16,7 +17,7 @@ it.layer(NodeServices.layer)("BrowserSidebarRuntime", (it) => {
       const context = yield* Layer.buildWithScope(
         live("/tmp/nodex-browser-sidebar-runtime").pipe(
           Layer.provide(
-            Layer.merge(
+            Layer.mergeAll(
               callbackLayer,
               Layer.succeed(
                 ElectronNet,
@@ -24,6 +25,13 @@ it.layer(NodeServices.layer)("BrowserSidebarRuntime", (it) => {
                   appVersion: "test",
                   fetch: () => Effect.die("unused"),
                   readBase64: () => Effect.die("unused"),
+                }),
+              ),
+              Layer.succeed(
+                BrowserSiteStatusRuntime,
+                BrowserSiteStatusRuntime.of({
+                  cachedCommentModeBlocked: () => null,
+                  isCommentModeBlocked: () => Effect.die("unused"),
                 }),
               ),
             ),

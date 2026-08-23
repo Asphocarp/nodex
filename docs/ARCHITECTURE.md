@@ -199,12 +199,20 @@ the fiber. Because Electron's underlying Promise cannot be canceled, every post-
 commit revalidates that generation; a late native completion can therefore neither republish
 the guest nor overwrite its released tab snapshot.
 
-Browser site-status policy is a Browser Profile-scoped Effect runtime, not an HTTP client or a
-Sidebar-owned cache. It borrows authenticated requests from `ChatGptDesktop`, keeps only valid
+Browser page emulation is a Sidebar-scoped keyed resource family. One `LayerMap` entry owns the
+debugger session for each exact guest generation, and one semaphore serializes device metrics,
+touch, and color-scheme commands for that guest. Guest release closes admission before invalidating
+the entry; invalidation or Sidebar Scope close interrupts pending commands and deterministically
+detaches the debugger. CDP Promises exist only at the Electron adapter projection, while deadlines
+and serialization remain inside the scoped runtime.
+
+Browser site-status policy is a profile-independent Main-scoped Effect runtime, not an HTTP client
+or a Sidebar-owned cache. It borrows authenticated requests from `ChatGptDesktop`, keeps only valid
 hostname decisions in a `Ref`, and coalesces each hostname's in-flight lookup in a scoped
-`FiberMap`; malformed and failed responses fail open without entering the cache. The synchronous
-cache read and Promise callback exposed to Browser Sidebar are projections of that owner, and
-closing the Browser Profile interrupts all pending lookups.
+`FiberMap`; malformed and failed responses fail open without entering the cache. Browser Sidebar
+receives only the pure cached decision required to construct a synchronous context menu, while the
+Browser presentation coordinator invokes the typed decision Effect directly before admitting
+comment-mode commands. Main Scope close interrupts all pending lookups.
 
 Browser Use approval policy is owned by the same Browser Profile but remains a distinct typed
 runtime. A single semaphore serializes policy mutations; each mutation builds an immutable next
@@ -219,7 +227,8 @@ path assignment before returning; accepted progress then enters a scoped FiberSe
 state projection owns live items and history, and one serialized Effect lane atomically publishes
 the bounded JSON history. Scope release removes session ingress, interrupts callback fibers, clears
 ephemeral grants and live handles, and leaves completed files untouched. IPC calls typed download
-Effects directly; Browser Sidebar receives only a tracked `clearHistory` Promise projection.
+Effects directly; the Browser presentation coordinator invokes the same typed clear-history Effect
+for the unified browsing-data command.
 
 Browser credentials and contact information share one Browser Profile-scoped Effect runtime. Its
 immutable candidate `Ref` and single semaphore own candidate expiry, renderer-owner release, and all
@@ -249,17 +258,22 @@ updates through one semaphore. A mutation atomically publishes and fsyncs the co
 before committing its `Ref`, so concurrent partial updates cannot overwrite one another and a failed
 write cannot advance the visible snapshot. IPC reads and mutates this runtime directly.
 
-Browser Sidebar projections have one typed event hub inside the Sidebar Main Scope. The imperative
-Sidebar state machine receives only its synchronous publisher; renderer IPC, Browser Use, and Remote
-Hosted PiP consume independent Streams whose fibers start before their owning Layer reports ready and
-close with that Scope. The only callback observation capability is the exact `webviewAttached`
-subscription required by the IAB Promise adapter to close its check/register race; the hub closes and
-clears that registration with the same Scope. `BrowserSidebarService` is not an EventEmitter and owns
-no projection subscriber or disposer list. Browser host/guest identity is a synchronous functional
-state machine with no physical resource handles. A separate Sidebar-scoped listener runtime owns the
-exact listener release for every attached guest; detach releases that guest immediately, while Main
-Scope close releases all remaining listeners and replaces each live guest's window-open callback with
-a deny-only handler. The presentation state machine therefore has no `dispose()` lifecycle of its own.
+Browser presentation has one fixed Effect coordinator over the Sidebar state owner, Browser Profile,
+Browser site-status policy, and Browser Use. Renderer command ingress crosses that interface once:
+site policy, download history, and route capture are typed Context dependencies rather than
+late-installed setters or callback bags.
+Browser Use owns captured-route promotion and owner release as part of its session capability. Browser
+Sidebar projections still use one typed event hub inside the Sidebar Main Scope; renderer IPC, Browser
+Use, and Remote Hosted PiP consume independent Streams whose fibers start before their owning Layer
+reports ready and close with that Scope. The only callback observation capability is the exact
+`webviewAttached` subscription required by the IAB Promise adapter to close its check/register race;
+the hub closes and clears that registration with the same Scope. `BrowserSidebarService` is not an
+EventEmitter and owns no projection subscriber or disposer list. Browser host/guest identity is a
+synchronous functional state machine with no physical resource handles. A separate Sidebar-scoped
+listener runtime owns the exact listener release for every attached guest; detach releases that guest
+immediately, while Main Scope close releases all remaining listeners and replaces each live guest's
+window-open callback with a deny-only handler. The presentation state machine therefore has no
+`dispose()` lifecycle of its own.
 
 Local-server thumbnails belong to the Browser Sidebar runtime rather than the Sidebar state machine.
 An Effect Cache provides bounded TTL and same-URL single-flight, a semaphore bounds capture

@@ -404,6 +404,14 @@ import {
   BrowserSidebarRuntime,
   live as browserSidebarRuntimeLive,
 } from "../host-runtime/BrowserSidebarRuntime";
+import {
+  BrowserPresentationRuntime,
+  live as browserPresentationRuntimeLive,
+} from "../host-runtime/BrowserPresentationRuntime";
+import {
+  BrowserSiteStatusRuntime,
+  live as browserSiteStatusRuntimeLive,
+} from "../host-runtime/BrowserSiteStatusRuntime";
 import { AppUpdateRuntime, live as appUpdateRuntimeLive } from "../host-runtime/AppUpdateRuntime";
 import * as AppProtocolRuntime from "../host-runtime/AppProtocolRuntime";
 import * as SessionPolicyRuntime from "../host-runtime/SessionPolicyRuntime";
@@ -788,12 +796,30 @@ export const live: Layer.Layer<
         );
         const electronNetContext = yield* Layer.buildWithScope(ElectronNet.live, runtimeScope);
         const electronNet = Context.get(electronNetContext, ElectronNet.ElectronNet);
+        const chatGptContext = yield* Layer.buildWithScope(
+          chatGptDesktopLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(ElectronNet.ElectronNet, electronNet),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const chatGpt = Context.get(chatGptContext, ChatGptDesktop);
+        const browserSiteStatusContext = yield* Layer.buildWithScope(
+          browserSiteStatusRuntimeLive.pipe(Layer.provide(Layer.succeed(ChatGptDesktop, chatGpt))),
+          runtimeScope,
+        );
+        const browserSiteStatus = Context.get(browserSiteStatusContext, BrowserSiteStatusRuntime);
         const browserSidebarContext = yield* Layer.buildWithScope(
           browserSidebarRuntimeLive(userDataPath).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(FileSystem.FileSystem, fileSystem),
                 Layer.succeed(ElectronNet.ElectronNet, electronNet),
+                Layer.succeed(BrowserSiteStatusRuntime, browserSiteStatus),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
               ),
             ),
@@ -1020,12 +1046,17 @@ export const live: Layer.Layer<
           browserUseRuntimeLive({
             appVersion: config.appVersion,
             browserRuntime: codexRuntime.browserRuntime,
-            browserEvents: browserSidebar.events,
-            browserSidebar: browserSidebarService,
             environment: config.environment,
             isPackaged: config.isPackaged,
             platform: config.platform as NodeJS.Platform,
-          }).pipe(Layer.provide(Layer.succeed(DesktopToolRuntime, desktopToolRuntime))),
+          }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const browserUse = Context.get(browserUseContext, BrowserUseRuntime);
@@ -1176,21 +1207,8 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const codexToolRuntimeService = Context.get(codexToolRuntimeContext, CodexToolRuntime);
-        const chatGptContext = yield* Layer.buildWithScope(
-          chatGptDesktopLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(ElectronNet.ElectronNet, electronNet),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const chatGpt = Context.get(chatGptContext, ChatGptDesktop);
         const browserProfileContext = yield* Layer.buildWithScope(
           browserProfileRuntimeLive({
-            browserSidebar: browserSidebarService,
             environment: config.environment,
             homeDirectory: config.homeDirectory,
             isPackaged: config.isPackaged,
@@ -1202,8 +1220,8 @@ export const live: Layer.Layer<
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
-                Layer.succeed(ChatGptDesktop, chatGpt),
                 Layer.succeed(BrowserProfileHelperPlatform, browserProfileHelper),
+                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
                 Layer.succeed(ElectronApp, electron),
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(FileSystem.FileSystem, fileSystem),
@@ -1223,6 +1241,23 @@ export const live: Layer.Layer<
           policyStore: browserProfile.policy,
           releaseCredentialOwner: browserProfile.credentials.releaseOwner,
         });
+        const browserPresentationContext = yield* Layer.buildWithScope(
+          browserPresentationRuntimeLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(BrowserProfileRuntime, browserProfile),
+                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(BrowserSiteStatusRuntime, browserSiteStatus),
+                Layer.succeed(BrowserUseRuntime, browserUse),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const browserPresentation = Context.get(
+          browserPresentationContext,
+          BrowserPresentationRuntime,
+        );
         const codexMediaContext = yield* Layer.buildWithScope(
           codexMediaLive.pipe(
             Layer.provide(
@@ -1350,10 +1385,11 @@ export const live: Layer.Layer<
             Effect.sync(() => windows.resolveSessionId(webContentsId)),
         });
         yield* Layer.buildWithScope(
-          BrowserProfileIpc.live({ browserSidebar: browserSidebarService }).pipe(
+          BrowserProfileIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(BrowserProfileRuntime, browserProfile),
+                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(ElectronWindowHost, windowHost),
@@ -1368,7 +1404,7 @@ export const live: Layer.Layer<
           BrowserSidebarIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
-                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(BrowserPresentationRuntime, browserPresentation),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(ElectronWindowHost, windowHost),
                 Layer.succeed(MainConfig, config),

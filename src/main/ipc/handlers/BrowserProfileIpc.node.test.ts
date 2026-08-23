@@ -7,9 +7,11 @@ import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import type { BrowserSidebarTabSnapshot } from "../../../shared/browser-sidebar";
 import { BrowserSidebarService } from "../../browser-sidebar-service";
 import { makeBrowserRuntimeRegistry } from "../../browser/browser-runtime-registry";
+import { makeBrowserPageEmulationElectronPortUnsafe } from "../../browser/browser-page-emulation";
 import { makeBrowserEarlyPageRestoreRuntime } from "../../browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntime } from "../../browser/BrowserWebContentsListenerRuntime";
 import { BrowserProfileRuntime } from "../../host-runtime/BrowserProfileRuntime";
+import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { MainConfig } from "../../app/MainConfig";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -47,14 +49,14 @@ it.effect("registers and releases Browser Profile ingress with the Main Scope", 
         ),
       events: { publish: () => undefined },
       runtimeRegistry: makeBrowserRuntimeRegistry(),
+      pageEmulation: makeBrowserPageEmulationElectronPortUnsafe(),
+      siteStatus: { cachedCommentModeBlocked: () => null },
       webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
         Effect.provideService(Scope.Scope, scope),
       ),
     });
     yield* Layer.buildWithScope(
-      live({
-        browserSidebar,
-      }).pipe(
+      live.pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(
@@ -68,6 +70,12 @@ it.effect("registers and releases Browser Profile ingress with the Main Scope", 
                 profileImport: {} as never,
                 siteInfo: {} as never,
               }),
+            ),
+            Layer.succeed(
+              BrowserSidebarRuntime,
+              BrowserSidebarRuntime.of({
+                browser: browserSidebar,
+              } as BrowserSidebarRuntime["Service"]),
             ),
             Layer.succeed(
               ElectronDesktop,

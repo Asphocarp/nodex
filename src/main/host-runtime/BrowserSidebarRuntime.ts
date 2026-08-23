@@ -31,7 +31,12 @@ import {
 import { makeBrowserRuntimeRegistry } from "../browser/browser-runtime-registry";
 import { makeBrowserWebContentsListenerRuntime } from "../browser/BrowserWebContentsListenerRuntime";
 import { makeBrowserEarlyPageRestoreRuntime } from "../browser/BrowserEarlyPageRestoreRuntime";
+import {
+  makeBrowserPageEmulationElectronPort,
+  makeBrowserPageEmulationRuntime,
+} from "../browser/browser-page-emulation";
 import { ElectronNet } from "../platform/electron/ElectronNet";
+import { BrowserSiteStatusRuntime } from "./BrowserSiteStatusRuntime";
 
 export class BrowserSidebarRuntime extends Context.Service<
   BrowserSidebarRuntime,
@@ -55,16 +60,19 @@ export const live = (
 ): Layer.Layer<
   BrowserSidebarRuntime,
   BrowserSidebarRuntimeError,
-  ElectronNet | FileSystem.FileSystem | ScopedCallbackRuntime
+  BrowserSiteStatusRuntime | ElectronNet | FileSystem.FileSystem | ScopedCallbackRuntime
 > =>
   Layer.effect(
     BrowserSidebarRuntime,
     Effect.gen(function* () {
       const callbacks = yield* ScopedCallbackRuntime;
+      const siteStatus = yield* BrowserSiteStatusRuntime;
       const electronNet = yield* ElectronNet;
       const events = yield* makeBrowserSidebarEventHub;
       const earlyPageRestores =
         yield* makeBrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>();
+      const pageEmulation = yield* makeBrowserPageEmulationRuntime;
+      const pageEmulationPort = makeBrowserPageEmulationElectronPort(pageEmulation, callbacks);
       const runtimeRegistry = makeBrowserRuntimeRegistry();
       const webContentsListeners = yield* makeBrowserWebContentsListenerRuntime;
       const localServerThumbnail = yield* makeBrowserLocalServerThumbnailRuntime();
@@ -102,8 +110,10 @@ export const live = (
         earlyPageRestores,
         events,
         historyStore,
+        pageEmulation: pageEmulationPort,
         pageStore,
         runtimeRegistry,
+        siteStatus,
         webContentsListeners,
       });
       return BrowserSidebarRuntime.of({
