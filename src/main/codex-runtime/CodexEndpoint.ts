@@ -178,12 +178,23 @@ export const live = (
               .pipe(Effect.provideService(Scope.Scope, attemptScope));
             yield* session.client
               .handleServerNotificationFallback((method, params) =>
-                eventHub.publish({
-                  kind: "notification",
-                  hostId,
-                  generation: currentGeneration,
-                  value: { method, params },
-                }),
+                requestInbox
+                  .publishNotification({
+                    hostId,
+                    generation: currentGeneration,
+                    method,
+                    params,
+                  })
+                  .pipe(
+                    Effect.andThen(
+                      eventHub.publish({
+                        kind: "notification",
+                        hostId,
+                        generation: currentGeneration,
+                        value: { method, params },
+                      }),
+                    ),
+                  ),
               )
               .pipe(Effect.provideService(Scope.Scope, attemptScope));
             return session;

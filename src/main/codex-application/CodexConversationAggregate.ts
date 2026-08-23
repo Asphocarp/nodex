@@ -14,6 +14,10 @@ import type {
 import type { CodexCanonicalSteeringUserMessageItem } from "../../shared/codex-conversation-state/codex-conversation-state";
 import type { Turn } from "@nodex/codex-app-server-protocol/v2";
 import {
+  reduceCodexConversationEventWithEffects,
+  type CodexConversationReducerEffect,
+} from "../../shared/codex-conversation-state/codex-conversation-reducer";
+import {
   appendCodexCanonicalOptimisticTurn,
   bindCodexCanonicalOptimisticTurn,
   failCodexCanonicalOptimisticTurn,
@@ -91,6 +95,11 @@ export interface CodexConversationServerRequestCommitResult {
   readonly hasUnreadTurn: boolean;
   readonly stateChanged: boolean;
   readonly unreadChanged: boolean;
+}
+
+export interface CodexConversationProtocolEventCommitResult {
+  readonly effects: readonly CodexConversationReducerEffect[];
+  readonly stateChanged: boolean;
 }
 
 export interface CodexConversationAggregateSnapshot {
@@ -229,6 +238,13 @@ export interface CodexConversationAggregate {
       readonly projectReplica: boolean;
     },
   ) => CodexConversationServerRequestCommitResult;
+  /** Applies one transport-ordered notification to canonical state and accepted projections. */
+  readonly commitProtocolNotification: (input: {
+    readonly notification: CodexServerNotification;
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+    readonly createId: () => `${string}-${string}-${string}-${string}-${string}`;
+  }) => CodexConversationProtocolEventCommitResult;
   readonly completePlanImplementation: (turnId: string, projectReplica: boolean) => boolean;
   /** Admits one optimistic Main-owned turn into canonical state and every accepted projection. */
   readonly admitOptimisticTurn: (input: {
@@ -992,6 +1008,19 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           stateChanged: true,
           unreadChanged: hasUnreadTurn !== previousHasUnreadTurn,
           hasUnreadTurn,
+        };
+      },
+      commitProtocolNotification: ({ notification, observedAtMs, projectReplica, createId }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return { effects: [], stateChanged: false };
+        const reduced = reduceCodexConversationEventWithEffects(
+          before,
+          { type: "notification", notification },
+          { now: () => observedAtMs, createId },
+        );
+        return {
+          effects: reduced.effects,
+          stateChanged: projectCanonicalState(reduced.state, observedAtMs, projectReplica),
         };
       },
       completePlanImplementation: (turnId, projectReplica) => {
