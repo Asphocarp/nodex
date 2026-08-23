@@ -14,6 +14,7 @@ import type {
   CodexSshExecutionHostConfig,
   UpdateCodexExecutionHostSettingsInput,
 } from "../../shared/types";
+import { CodexEphemeralThreadRouting } from "../codex-runtime/CodexEphemeralThreadRouting";
 import { CodexGateway, CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import { codexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { CoreModules } from "../core-runtime/CoreModules";
@@ -594,14 +595,21 @@ export const live = (
   );
 
 /** Resolves routing from Core's durable Workspace authority, never from RPC payload heuristics. */
-export const threadHostResolverLive: Layer.Layer<CodexThreadHostResolver, never, CoreModules> =
-  Layer.effect(
-    CodexThreadHostResolver,
-    CoreModules.use((core) =>
-      Effect.succeed(
-        CodexThreadHostResolver.of({
-          resolve: (threadId) =>
-            core.workspace.read({ kind: "thread", thread_id: threadId }).pipe(
+export const threadHostResolverLive: Layer.Layer<
+  CodexThreadHostResolver,
+  never,
+  CodexEphemeralThreadRouting | CoreModules
+> = Layer.effect(
+  CodexThreadHostResolver,
+  Effect.gen(function* () {
+    const ephemeral = yield* CodexEphemeralThreadRouting;
+    const core = yield* CoreModules;
+    return CodexThreadHostResolver.of({
+      resolve: (threadId) =>
+        ephemeral.resolve(threadId).pipe(
+          Effect.flatMap((ephemeralHostId) => {
+            if (ephemeralHostId) return Effect.succeed(ephemeralHostId);
+            return core.workspace.read({ kind: "thread", thread_id: threadId }).pipe(
               Effect.mapError((cause) =>
                 codexRuntimeError({
                   operation: "thread-host.resolve",
@@ -622,8 +630,9 @@ export const threadHostResolverLive: Layer.Layer<CodexThreadHostResolver, never,
                       }),
                     ),
               ),
-            ),
-        }),
-      ),
-    ),
-  );
+            );
+          }),
+        ),
+    });
+  }),
+);

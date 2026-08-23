@@ -8,11 +8,15 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { assert, it } from "@effect/vitest";
 import type { CodexExecutionHostSettings, CodexSshExecutionHostConfig } from "../../shared/types";
-import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { CodexEphemeralThreadRouting } from "../codex-runtime/CodexEphemeralThreadRouting";
+import { CodexGateway, CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import type { CodexExecutionHostConfig } from "../codex-runtime/CodexEndpointMap";
+import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
+import { CoreModules, type CoreModuleClients } from "../core-runtime/CoreModules";
 import {
   ExecutionHostRuntime,
   live as executionHostRuntimeLive,
+  threadHostResolverLive,
   type ExecutionHostRuntimeFactories,
   type RemoteExecutionHostTransport,
 } from "./ExecutionHostRuntime";
@@ -37,6 +41,49 @@ const sshHost = (
   codexHome: null,
   enabled: true,
 });
+
+it.effect("routes ephemeral Threads before the durable Workspace authority", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const durableReads: string[] = [];
+      const core = CoreModules.of({
+        workspace: {
+          read: (read: { readonly kind: string; readonly thread_id?: string }) =>
+            Effect.sync(() => {
+              durableReads.push(read.thread_id ?? "");
+              return {
+                value: {
+                  kind: "thread",
+                  thread: { execution_host_id: "remote-durable" },
+                },
+              } as ProjectWorkspaceReadSnapshot;
+            }),
+        },
+      } as unknown as CoreModuleClients);
+      const ephemeral = CodexEphemeralThreadRouting.of({
+        resolve: (threadId) =>
+          Effect.succeed(threadId === "thread:ephemeral" ? "remote-ephemeral" : null),
+        register: () => Effect.void,
+        remove: () => Effect.void,
+      });
+      const context = yield* Layer.build(
+        threadHostResolverLive.pipe(
+          Layer.provide(
+            Layer.merge(
+              Layer.succeed(CoreModules, core),
+              Layer.succeed(CodexEphemeralThreadRouting, ephemeral),
+            ),
+          ),
+        ),
+      );
+      const resolver = Context.get(context, CodexThreadHostResolver);
+
+      assert.strictEqual(yield* resolver.resolve("thread:ephemeral"), "remote-ephemeral");
+      assert.strictEqual(yield* resolver.resolve("thread:durable"), "remote-durable");
+      assert.deepStrictEqual(durableReads, ["thread:durable"]);
+    }),
+  ),
+);
 
 const makeHarness = (failedHostId?: string) => {
   let settings: CodexExecutionHostSettings = { sshHosts: [] };
