@@ -108,9 +108,15 @@ import { makeCodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-a
 import { make as makeCodexRendererConversationRuntime } from "../codex-application/CodexRendererConversationRuntime";
 import {
   CodexSidebarSyncError,
+  CodexSidebarSyncRuntime,
   make as makeCodexSidebarSyncRuntime,
 } from "../codex-application/CodexSidebarSyncRuntime";
 import { makeCodexSidebarSyncRuntimePromiseAdapter } from "../codex-application/CodexSidebarSyncRuntimePromiseAdapter";
+import {
+  CodexThreadCatalogError,
+  make as makeCodexThreadCatalog,
+} from "../codex-application/CodexThreadCatalog";
+import { makeCodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
 import { make as makeCodexSidebarSweepRuntime } from "../codex-application/CodexSidebarSweepRuntime";
 import { makeCodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
@@ -1405,6 +1411,26 @@ export const live: Layer.Layer<
           observeNotificationScheduled: (event) =>
             requireCodexService().recordSidebarNotificationScheduled(event),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const threadCatalog = yield* makeCodexThreadCatalog({
+          readSidebarOverview: (after) =>
+            Effect.tryPromise({
+              try: () => projectWorkspace.readSidebarOverview(false, { after, first: 200 }),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "list-pinned", cause }),
+            }),
+          setThreadPinned: (threadId, pinned, beforeThreadId) =>
+            Effect.tryPromise({
+              try: () => projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "set-pinned", cause }),
+            }),
+          reorderPinnedThreads: (orderedThreadIds) =>
+            Effect.tryPromise({
+              try: () => projectWorkspace.reorderPinnedThreads(orderedThreadIds),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "reorder-pinned", cause }),
+            }).pipe(Effect.asVoid),
+        }).pipe(
+          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const sidebarSweep = yield* makeCodexSidebarSweepRuntime().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
@@ -1959,6 +1985,7 @@ export const live: Layer.Layer<
                 conversationCommands,
                 callbacks,
               ),
+              threadCatalog: makeCodexThreadCatalogPromiseAdapter(threadCatalog, callbacks),
               postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
                 postResumeGoals,
                 callbacks,
@@ -2644,6 +2671,7 @@ export const live: Layer.Layer<
             threadSettings: threadSettingsRuntime,
             threadTitles: threadTitlePersistence,
             conversationCommands,
+            threadCatalog,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

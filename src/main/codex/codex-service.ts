@@ -676,6 +676,7 @@ import {
 import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
 import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
+import type { CodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
 import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
@@ -1230,6 +1231,7 @@ type CodexServiceOptions = {
   pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
+  threadCatalog: CodexThreadCatalogPromiseAdapter;
   conversationCommands: ConversationCommandsPromiseAdapter;
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
@@ -2419,6 +2421,7 @@ export class CodexService {
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
+  private readonly threadCatalog: CodexThreadCatalogPromiseAdapter;
   private readonly conversationCommands: ConversationCommandsPromiseAdapter;
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
@@ -2529,6 +2532,7 @@ export class CodexService {
     this.pendingWorktreeRuntime = options.pendingWorktrees;
     this.threadSettingsRuntime = options.threadSettingsRuntime;
     this.threadTitlePersistence = options.threadTitlePersistence;
+    this.threadCatalog = options.threadCatalog;
     this.conversationCommands = options.conversationCommands;
     this.postResumeGoals = options.postResumeGoals;
     this.conversationHistory = options.conversationHistory;
@@ -6950,63 +6954,6 @@ export class CodexService {
   ): Promise<CodexSidebarThreadMoveResult> {
     const parsed = CodexSidebarThreadMoveInputSchema.parse(input);
     return await this.sidebarThreadMoveRuntime.run(() => this.runSidebarThreadMove(parsed));
-  }
-
-  async listPinnedThreads(): Promise<string[]> {
-    const threadIds: string[] = [];
-    let after: string | null = null;
-    do {
-      const window = await this.projectWorkspace.readSidebarOverview(false, {
-        after,
-        first: 200,
-      });
-      threadIds.push(
-        ...window.items.flatMap((task) => (task.thread ? [task.thread.threadId] : [])),
-      );
-      after = window.nextCursor;
-    } while (after !== null);
-    return threadIds;
-  }
-
-  async setThreadPinned(
-    threadId: string,
-    pinned: boolean,
-    beforeThreadId?: string | null,
-  ): Promise<CodexSidebarSnapshot> {
-    const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId) {
-      this.invalidateSidebarSnapshotCache();
-      return (await this.sidebarSync.sync({ policy: "read", reason: "session-change" })).snapshot;
-    }
-
-    const sidebar = await this.projectWorkspace.setThreadPinned(
-      normalizedThreadId,
-      pinned,
-      beforeThreadId,
-    );
-    const thread = sidebar.threads.find((candidate) => candidate.threadId === normalizedThreadId);
-    if (!thread) {
-      this.invalidateSidebarSnapshotCache();
-      return (await this.sidebarSync.sync({ policy: "read", reason: "session-change" })).snapshot;
-    }
-
-    const metadata = createSidebarThreadSyncMetadata();
-    markSidebarSyncScopeChanged(metadata, thread.projectId);
-    const result = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-      metadata,
-      "session-change",
-    );
-    return result.snapshot;
-  }
-
-  async setPinnedThreadOrder(orderedThreadIds: readonly string[]): Promise<CodexSidebarSnapshot> {
-    await this.projectWorkspace.reorderPinnedThreads(orderedThreadIds);
-    const result = await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-      createSidebarThreadSyncMetadata(),
-      "session-change",
-      { force: true },
-    );
-    return result.snapshot;
   }
 
   async ensureSidebarThreadSession(threadId: string): Promise<ProjectSession | null> {
@@ -19997,7 +19944,7 @@ export class CodexService {
     const onlyIfUntitled = entry.initialThreadTitle == null && entry.labelEdited;
     if (entry.isPinned) {
       try {
-        await this.setThreadPinned(threadId, true, entry.pinnedBeforeThreadId);
+        await this.threadCatalog.setPinned(threadId, true, entry.pinnedBeforeThreadId);
       } catch (error) {
         this.logger.warn("Worktree conversation started without pinned metadata", {
           pendingWorktreeId: entry.id,
@@ -20996,7 +20943,7 @@ export class CodexService {
         if (!threadId || typeof args.pinned !== "boolean") {
           throw new Error("set_thread_pinned requires threadId and pinned");
         }
-        await this.setThreadPinned(threadId, args.pinned);
+        await this.threadCatalog.setPinned(threadId, args.pinned);
         return this.buildDynamicToolSuccess({ threadId, pinned: args.pinned });
       }
 

@@ -8,6 +8,7 @@ import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRunt
 import { CodexManualCompactionRuntime } from "../../codex-application/CodexManualCompactionRuntime";
 import { CodexThreadGoalRuntime } from "../../codex-application/CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "../../codex-application/CodexThreadSettingsRuntime";
+import { CodexThreadCatalog } from "../../codex-application/CodexThreadCatalog";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import type { CodexService } from "../../codex/codex-service";
@@ -56,6 +57,11 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         threadTitles: CodexThreadTitlePersistence.of({
           set: () => Effect.die(new Error("Unexpected Thread title operation")),
           setRequired: () => Effect.die(new Error("Unexpected required Thread title operation")),
+        }),
+        threadCatalog: CodexThreadCatalog.of({
+          listPinned: Effect.die("unused"),
+          setPinned: () => Effect.die("unused"),
+          reorderPinned: () => Effect.die("unused"),
         }),
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),

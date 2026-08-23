@@ -15,6 +15,7 @@ import type { CodexService } from "./codex/codex-service";
 import type { CodexManualCompactionRuntime } from "./codex-application/CodexManualCompactionRuntime";
 import type { CodexThreadGoalRuntime } from "./codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadSettingsRuntime } from "./codex-application/CodexThreadSettingsRuntime";
+import type { CodexThreadCatalog } from "./codex-application/CodexThreadCatalog";
 import type { CodexThreadTitlePersistence } from "./codex-application/CodexThreadTitlePersistence";
 import type { ConversationCommands } from "./codex-application/ConversationCommands";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
@@ -102,6 +103,7 @@ interface CodexIpcOptions {
   manualCompaction: CodexManualCompactionRuntime["Service"];
   threadGoals: CodexThreadGoalRuntime["Service"];
   threadSettings: CodexThreadSettingsRuntime["Service"];
+  threadCatalog: CodexThreadCatalog["Service"];
   threadTitles: CodexThreadTitlePersistence["Service"];
   conversationCommands: ConversationCommands["Service"];
   rendererClientRouter: RendererClientRuntimeService;
@@ -270,18 +272,36 @@ export const codexIpcLive = (
         codexService.moveSidebarThread(input),
       );
 
-      registerHandle(
-        "codex:threads:pinned:list",
-        async () => await codexService.listPinnedThreads(),
+      registerEffectHandle("codex:threads:pinned:list", () =>
+        options.threadCatalog.listPinned.pipe(
+          Effect.map((threadIds) => [...threadIds]),
+          Effect.mapError(
+            (cause) => new CodexIpcError({ operation: "codex:threads:pinned:list", cause }),
+          ),
+        ),
       );
 
-      registerHandle("codex:threads:pinned:set", (_, threadId: string, input) =>
-        codexService.setThreadPinned(threadId, input.pinned),
+      registerEffectHandle("codex:threads:pinned:set", (_, threadId: string, input) =>
+        options.threadCatalog
+          .setPinned(threadId, input.pinned)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:threads:pinned:set", cause }),
+            ),
+          ),
       );
 
-      registerHandle("codex:threads:pinned:reorder", (_, orderedThreadIds) =>
-        codexService.setPinnedThreadOrder(
-          requireNonBlankStringArray(orderedThreadIds, "Pinned thread order"),
+      registerEffectHandle("codex:threads:pinned:reorder", (_, orderedThreadIds) =>
+        Effect.try({
+          try: () => requireNonBlankStringArray(orderedThreadIds, "Pinned thread order"),
+          catch: (cause) => new CodexIpcError({ operation: "codex:threads:pinned:reorder", cause }),
+        }).pipe(
+          Effect.flatMap(options.threadCatalog.reorderPinned),
+          Effect.mapError((cause) =>
+            cause instanceof CodexIpcError
+              ? cause
+              : new CodexIpcError({ operation: "codex:threads:pinned:reorder", cause }),
+          ),
         ),
       );
 

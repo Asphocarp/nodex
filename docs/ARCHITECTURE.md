@@ -681,6 +681,13 @@ failure releases the permit, queued caller interruption removes that operation, 
 interrupts active and waiting projections through the application callback runtime. `CodexService`
 keeps the move's domain validation and state transition but owns no Promise chain or recovery tail.
 
+Thread Catalog pin state is owned by `CodexThreadCatalog`. Paginated pin reads, pin/unpin placement,
+and full pinned-order replacement share the Project Workspace source of truth; mutations pass through
+one Main-scoped semaphore and publish the exact Project/projectless invalidation through
+`CodexSidebarSyncRuntime` only after Core commits. Renderer ingress calls the typed Module directly,
+while pending-worktree and dynamic-tool flows use a stateless tracked projection. Scope closure
+interrupts active and queued mutations. `CodexService` owns no public pin query or mutation command.
+
 Thread archive and unarchive are complete `ConversationCommands` transactions. A reference-counted
 per-Thread lane serializes the typed Gateway transition with automation/worktree cleanup, Project
 Workspace persistence, canonical projection, sidebar publication, and conversation-runtime eviction.

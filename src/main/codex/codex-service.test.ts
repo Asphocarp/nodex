@@ -213,14 +213,6 @@ interface TestableCodexService {
     policy?: import("../../shared/types").CodexSidebarRefreshPolicy;
     reason?: import("../../shared/types").CodexSidebarRefreshReason;
   }) => Promise<import("../../shared/types").CodexSidebarSyncResult>;
-  setPinnedThreadOrder: (
-    orderedThreadIds: readonly string[],
-  ) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
-  setThreadPinned: (
-    threadId: string,
-    pinned: boolean,
-    beforeThreadId?: string | null,
-  ) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
   moveSidebarThread: (
     input: import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveInput,
   ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveResult>;
@@ -1795,6 +1787,40 @@ function createService(options?: {
     },
   });
   const projectWorkspace = options?.projectWorkspace ?? createTestProjectWorkspace();
+  const threadCatalog = {
+    listPinned: async (): Promise<readonly string[]> => {
+      const threadIds: string[] = [];
+      let after: string | null = null;
+      do {
+        const window = await projectWorkspace.readSidebarOverview(false, { after, first: 200 });
+        threadIds.push(
+          ...window.items.flatMap((session) => (session.thread ? [session.thread.threadId] : [])),
+        );
+        after = window.nextCursor;
+      } while (after !== null);
+      return threadIds;
+    },
+    setPinned: async (threadId: string, pinned: boolean, beforeThreadId?: string | null) => {
+      await projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId);
+      return {
+        items: [],
+        pinnedThreadIds: [],
+        projectAssignments: {},
+        projectlessThreadIds: [],
+        generatedAt: 1,
+      };
+    },
+    reorderPinned: async (orderedThreadIds: readonly string[]) => {
+      await projectWorkspace.reorderPinnedThreads(orderedThreadIds);
+      return {
+        items: [],
+        pinnedThreadIds: [...orderedThreadIds],
+        projectAssignments: {},
+        projectlessThreadIds: [],
+        generatedAt: 1,
+      };
+    },
+  };
   const pendingWorktrees = new CodexPendingWorktreeRuntime({
     createWorktree: async (entry, context) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2171,6 +2197,7 @@ function createService(options?: {
     pendingWorktrees,
     threadSettingsRuntime,
     threadTitlePersistence,
+    threadCatalog,
     conversationCommands,
     postResumeGoals,
     conversationHistory,
@@ -12745,11 +12772,13 @@ describe("codex-service approval fallback", () => {
         options?: { readonly persistClientThreadIdentity?: boolean },
       ) => Promise<{ threadId: string }>;
       persistClientThreadIdentity: (threadId: string, clientThreadId: string) => void;
-      setThreadPinned: (
-        threadId: string,
-        pinned: boolean,
-        beforeThreadId?: string | null,
-      ) => Promise<unknown>;
+      threadCatalog: {
+        setPinned: (
+          threadId: string,
+          pinned: boolean,
+          beforeThreadId?: string | null,
+        ) => Promise<unknown>;
+      };
     };
     let launchedInput: Record<string, unknown> | null = null;
     let pinnedCall: {
@@ -12768,7 +12797,7 @@ describe("codex-service approval fallback", () => {
     serviceInternals.persistClientThreadIdentity = (threadId, clientThreadId) => {
       realizationEvents.push(`map:${threadId}:${clientThreadId}`);
     };
-    serviceInternals.setThreadPinned = async (threadId, pinned, beforeThreadId) => {
+    serviceInternals.threadCatalog.setPinned = async (threadId, pinned, beforeThreadId) => {
       realizationEvents.push("metadata");
       pinnedCall = { threadId, pinned, beforeThreadId };
       return {};
