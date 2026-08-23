@@ -6,6 +6,16 @@ import * as RcMap from "effect/RcMap";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
+interface ProjectRuntimeLifecycleLease {
+  readonly projectId: string;
+  readonly ownerFiberId: number;
+}
+
+const CurrentProjectRuntimeLifecycleLease = Context.Reference<ProjectRuntimeLifecycleLease | null>(
+  "nodex/main/host-runtime/ProjectRuntimeLifecycleRuntime/CurrentLease",
+  { defaultValue: () => null },
+);
+
 export class ProjectRuntimeLifecycleRuntime extends Context.Service<
   ProjectRuntimeLifecycleRuntime,
   {
@@ -42,14 +52,36 @@ export const live: Layer.Layer<ProjectRuntimeLifecycleRuntime> = Layer.effect(
       const normalizedProjectId = projectId?.trim() || null;
       if (!normalizedProjectId) return runOwned(operation);
 
-      return runOwned(
-        Effect.scoped(
-          Effect.gen(function* () {
-            const gate = yield* RcMap.get(gates, normalizedProjectId);
-            return yield* gate.withPermit(operation);
-          }),
-        ),
-      );
+      return Effect.gen(function* () {
+        const currentLease = yield* CurrentProjectRuntimeLifecycleLease;
+        const currentFiberId = yield* Effect.fiberId;
+        if (
+          currentLease?.projectId === normalizedProjectId &&
+          currentLease.ownerFiberId === currentFiberId
+        ) {
+          return yield* operation;
+        }
+
+        return yield* runOwned(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const gate = yield* RcMap.get(gates, normalizedProjectId);
+              return yield* gate.withPermit(
+                Effect.fiberId.pipe(
+                  Effect.flatMap((ownerFiberId) =>
+                    operation.pipe(
+                      Effect.provideService(CurrentProjectRuntimeLifecycleLease, {
+                        projectId: normalizedProjectId,
+                        ownerFiberId,
+                      }),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        );
+      });
     };
 
     return ProjectRuntimeLifecycleRuntime.of({ runExclusive });

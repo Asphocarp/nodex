@@ -68,3 +68,36 @@ it.effect("interrupts admitted work when the owning Main Scope closes", () =>
     if (result._tag === "Failure") assert.isTrue(Cause.hasInterruptsOnly(result.cause));
   }),
 );
+
+it.effect("allows only the owning fiber to re-enter one Project transaction", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(projectRuntimeLifecycleLive, scope);
+    const lifecycle = Context.get(context, ProjectRuntimeLifecycleRuntime);
+    const childEntered = yield* Deferred.make<void>();
+    const releaseOuter = yield* Deferred.make<void>();
+
+    const outer = yield* lifecycle
+      .runExclusive(
+        "project-1",
+        lifecycle.runExclusive("project-1", Effect.succeed("nested")).pipe(
+          Effect.tap((value) => Effect.sync(() => assert.strictEqual(value, "nested"))),
+          Effect.tap(() =>
+            lifecycle
+              .runExclusive("project-1", Deferred.succeed(childEntered, undefined))
+              .pipe(Effect.forkIn(scope, { startImmediately: true })),
+          ),
+          Effect.andThen(Deferred.await(releaseOuter)),
+        ),
+      )
+      .pipe(Effect.forkChild({ startImmediately: true }));
+
+    yield* Effect.yieldNow;
+    assert.isFalse(yield* Deferred.isDone(childEntered));
+    yield* Deferred.succeed(releaseOuter, undefined);
+    yield* Fiber.join(outer);
+    yield* Deferred.await(childEntered);
+
+    yield* Scope.close(scope, Exit.void);
+  }),
+);

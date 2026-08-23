@@ -110,6 +110,10 @@ import {
   make as makeCodexSideChatCommands,
 } from "../codex-application/CodexSideChatCommands";
 import {
+  CodexSessionThreadLaunchProjectionError,
+  make as makeCodexSessionThreadLaunch,
+} from "../codex-application/CodexSessionThreadLaunch";
+import {
   CodexActiveGoalContinuationError,
   make as makeCodexActiveGoalContinuation,
 } from "../codex-application/CodexActiveGoalContinuation";
@@ -2423,6 +2427,101 @@ export const live: Layer.Layer<
           Effect.provideService(CodexTurnCommands, turnCommands),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
         );
+        const sessionThreadLaunch = yield* makeCodexSessionThreadLaunch({
+          prepare: (input, context) =>
+            Effect.tryPromise({
+              try: (signal) =>
+                requireCodexService().prepareSessionThreadLaunchForModule(input, context, signal),
+              catch: (cause) =>
+                new CodexSessionThreadLaunchProjectionError({
+                  operation: "prepare",
+                  sessionId: input.sessionId,
+                  cause,
+                }),
+            }),
+          enqueuePending: (prepared) =>
+            Effect.tryPromise({
+              try: (signal) =>
+                requireCodexService().enqueuePendingSessionThreadLaunchForModule(prepared, signal),
+              catch: (cause) =>
+                new CodexSessionThreadLaunchProjectionError({
+                  operation: "enqueue-pending",
+                  sessionId: prepared.sessionId,
+                  cause,
+                }),
+            }),
+          begin: (prepared) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().beginSessionThreadLaunchForModule(prepared),
+              catch: (cause) =>
+                new CodexSessionThreadLaunchProjectionError({
+                  operation: "begin",
+                  sessionId: prepared.sessionId,
+                  cause,
+                }),
+            }),
+          commit: (prepared, response) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().commitSessionThreadLaunchForModule(prepared, response),
+              catch: (cause) =>
+                new CodexSessionThreadLaunchProjectionError({
+                  operation: "commit",
+                  sessionId: prepared.sessionId,
+                  cause,
+                }),
+            }),
+          end: (prepared) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().endSessionThreadLaunchForModule(prepared),
+              catch: (cause) =>
+                new CodexSessionThreadLaunchProjectionError({
+                  operation: "end",
+                  sessionId: prepared.sessionId,
+                  cause,
+                }),
+            }),
+          prepareCompletion: (committed) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().prepareSessionThreadLaunchCompletionForModule(committed),
+              catch: (cause) =>
+                new CodexSessionThreadLaunchProjectionError({
+                  operation: "prepare-completion",
+                  sessionId: committed.sessionId,
+                  cause,
+                }),
+            }),
+          finishFirstTurn: (prepared, turn) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().finishSessionThreadLaunchFirstTurnForModule(prepared, turn),
+              catch: (cause) =>
+                new CodexSessionThreadLaunchProjectionError({
+                  operation: "finish-first-turn",
+                  sessionId: prepared.sessionId,
+                  cause,
+                }),
+            }),
+          fail: (input) =>
+            Effect.tryPromise(() =>
+              requireCodexService().failSessionThreadLaunchForModule(input),
+            ).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("Failed to project Session Thread launch failure").pipe(
+                  Effect.annotateLogs({
+                    sessionId: input.request.sessionId,
+                    cause: String(cause),
+                  }),
+                ),
+              ),
+            ),
+        }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexTurnCommands, turnCommands),
+          Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
@@ -3205,7 +3304,6 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           codexIpcLive({
-            codexService,
             managedWorktreeCatalog,
             manualCompaction,
             threadGoals,
@@ -3226,6 +3324,7 @@ export const live: Layer.Layer<
             serverRequestResponses,
             turnCommands,
             sideChatCommands,
+            sessionThreadLaunch,
             rendererClientRouter: rendererClients,
           }).pipe(
             Layer.provide(

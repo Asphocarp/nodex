@@ -22,7 +22,6 @@ import { CodexBackgroundProcesses } from "../../codex-application/CodexBackgroun
 import { CodexSubagentCatalog } from "../../codex-application/CodexSubagentCatalog";
 import { CodexServerRequestResponses } from "../../codex-application/CodexServerRequestResponses";
 import { CodexSidebarSyncRuntime } from "../../codex-application/CodexSidebarSyncRuntime";
-import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import { codexIpcLive } from "../../ipc-handlers";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -44,7 +43,6 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       codexIpcLive({
-        codexService: {} as CodexService,
         managedWorktreeCatalog: ManagedWorktreeCatalog.of({
           list: Effect.die("unused"),
           inspectThread: () => Effect.die("unused"),
@@ -164,6 +162,9 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         sideChatCommands: {
           start: () => Effect.die("unused"),
           discard: () => Effect.die("unused"),
+        },
+        sessionThreadLaunch: {
+          start: () => Effect.die("unused"),
         },
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),

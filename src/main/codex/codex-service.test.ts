@@ -27,8 +27,6 @@ import type {
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
-  CodexThreadStartForSessionInput,
-  CodexThreadStartForSessionResult,
   CodexThreadOwnerStreamStatePublishInput,
   CodexThreadOwnerStreamStatePublishResult,
   CodexThreadStreamCheckpoint,
@@ -264,9 +262,8 @@ interface TestableCodexService {
     response: "accept" | "decline" | "cancel" | CodexMcpServerElicitationResponse,
     conversationId?: string,
   ) => Promise<boolean>;
-  startThreadForSession: (
-    input: CodexThreadStartForSessionInput,
-  ) => Promise<CodexThreadStartForSessionResult>;
+  prepareSessionThreadLaunchForModule: CodexService["prepareSessionThreadLaunchForModule"];
+  failSessionThreadLaunchForModule: CodexService["failSessionThreadLaunchForModule"];
   prepareTurnInterruptForModule: (threadId: string, turnId?: string) => Promise<string>;
   applyTurnInterruptForModule: (input: {
     threadId: string;
@@ -9810,7 +9807,7 @@ describe("codex-service collaboration modes", () => {
   });
 });
 
-describe("codex-service startThreadForSession", () => {
+describe("codex-service Session Thread launch projections", () => {
   test("rejects a second Thread start for an already linked Session", async () => {
     const sessionId = "session-already-linked";
     const threadId = "thread-already-linked";
@@ -9862,12 +9859,16 @@ describe("codex-service startThreadForSession", () => {
 
     try {
       await expect(
-        service.startThreadForSession({
-          projectId: "alpha",
-          sessionId,
-          prompt: "Do not create another Thread",
-          runInTarget: "localProject",
-        }),
+        service.prepareSessionThreadLaunchForModule(
+          {
+            projectId: "alpha",
+            sessionId,
+            prompt: "Do not create another Thread",
+            runInTarget: "localProject",
+          },
+          { browserViewScopeId: "test", ownerClientId: null },
+          new AbortController().signal,
+        ),
       ).rejects.toThrow(`Project session is already linked to Codex thread: ${threadId}`);
       expect(requests).toEqual([]);
     } finally {
@@ -11298,22 +11299,33 @@ describe("codex-service pending goal draft lifecycle", () => {
     };
 
     try {
+      const request = {
+        projectId: "missing-project",
+        sessionId: "missing-session",
+        prompt: materialized.objective,
+        threadGoalDraft: {
+          objective: "Retry the eager-local goal",
+          pastedTextAttachments: [source],
+          imageAttachments: [],
+        },
+        threadGoalMaterializedDraft: materialized,
+        runInTarget: "localProject" as const,
+      };
       let errorMessage = "";
       try {
-        await service.startThreadForSession({
-          projectId: "missing-project",
-          sessionId: "missing-session",
-          prompt: materialized.objective,
-          threadGoalDraft: {
-            objective: "Retry the eager-local goal",
-            pastedTextAttachments: [source],
-            imageAttachments: [],
-          },
-          threadGoalMaterializedDraft: materialized,
-          runInTarget: "localProject",
-        });
+        await service.prepareSessionThreadLaunchForModule(
+          request,
+          { browserViewScopeId: "test", ownerClientId: null },
+          new AbortController().signal,
+        );
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);
+        await service.failSessionThreadLaunchForModule({
+          request,
+          prepared: null,
+          committedThreadId: null,
+          cause: error,
+        });
       }
 
       expect(errorMessage).toBe("app-server unavailable");

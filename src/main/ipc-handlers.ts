@@ -10,7 +10,6 @@ import {
   type OpenDialogOptions,
 } from "electron";
 import { MainConfig } from "./app/MainConfig";
-import type { CodexService } from "./codex/codex-service";
 import type { CodexManualCompactionRuntime } from "./codex-application/CodexManualCompactionRuntime";
 import type { CodexThreadGoalRuntime } from "./codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadSettingsRuntime } from "./codex-application/CodexThreadSettingsRuntime";
@@ -22,6 +21,7 @@ import type { CodexSubagentCatalog } from "./codex-application/CodexSubagentCata
 import type { CodexServerRequestResponsesService } from "./codex-application/CodexServerRequestResponses";
 import type { CodexTurnCommandsService } from "./codex-application/CodexTurnCommands";
 import type { CodexSideChatCommandsService } from "./codex-application/CodexSideChatCommands";
+import type { CodexSessionThreadLaunchService } from "./codex-application/CodexSessionThreadLaunch";
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
@@ -108,7 +108,6 @@ async function showDirectoryPicker(
 }
 
 interface CodexIpcOptions {
-  codexService: CodexService;
   managedWorktreeCatalog: ManagedWorktreeCatalog["Service"];
   manualCompaction: CodexManualCompactionRuntime["Service"];
   threadGoals: CodexThreadGoalRuntime["Service"];
@@ -129,6 +128,7 @@ interface CodexIpcOptions {
   serverRequestResponses: CodexServerRequestResponsesService;
   turnCommands: CodexTurnCommandsService;
   sideChatCommands: CodexSideChatCommandsService;
+  sessionThreadLaunch: CodexSessionThreadLaunchService;
   rendererClientRouter: RendererClientRuntimeService;
 }
 
@@ -142,7 +142,6 @@ export const codexIpcLive = (
 ): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
-      const { codexService } = options;
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
       const windows = yield* WindowRuntime;
@@ -212,6 +211,22 @@ export const codexIpcLive = (
       const resolveRendererClientId = (event: IpcMainInvokeEvent): string =>
         options.rendererClientRouter.ensureClient(event.sender as RendererClientWebContents)
           .clientId;
+      const interruptWhenRendererIsDestroyed = <A, E, R>(
+        event: IpcMainInvokeEvent,
+        operation: Effect.Effect<A, E, R>,
+      ): Effect.Effect<A, E, R> =>
+        Effect.raceFirst(
+          operation,
+          Effect.callback<never>((resume) => {
+            if (event.sender.isDestroyed()) {
+              resume(Effect.interrupt);
+              return;
+            }
+            const interrupt = (): void => resume(Effect.interrupt);
+            event.sender.once("destroyed", interrupt);
+            return Effect.sync(() => event.sender.removeListener("destroyed", interrupt));
+          }),
+        );
 
       // Codex
       registerEffectHandle("codex:threads:list", (_, projectId, input) =>
@@ -467,25 +482,24 @@ export const codexIpcLive = (
         });
       });
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:start-for-session",
-        async (event, input: CodexThreadStartForSessionInput, fiberSignal) => {
-          const controller = new AbortController();
-          const abortWhenRendererCloses = (): void => controller.abort();
-          event.sender.once("destroyed", abortWhenRendererCloses);
-          try {
-            return await codexService.startThreadForSession(input, {
-              signal: fiberSignal
-                ? AbortSignal.any([fiberSignal, controller.signal])
-                : controller.signal,
-              browserViewScopeId:
-                windows.resolveSessionId(event.sender.id) ?? `headless:${input.sessionId}`,
-              ownerClientId: resolveRendererClientId(event),
-            });
-          } finally {
-            event.sender.removeListener("destroyed", abortWhenRendererCloses);
-          }
-        },
+        (event, input: CodexThreadStartForSessionInput) =>
+          interruptWhenRendererIsDestroyed(
+            event,
+            options.sessionThreadLaunch
+              .start(input, {
+                browserViewScopeId:
+                  windows.resolveSessionId(event.sender.id) ?? `headless:${input.sessionId}`,
+                ownerClientId: resolveRendererClientId(event),
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new CodexIpcError({ operation: "codex:thread:start-for-session", cause }),
+                ),
+              ),
+          ),
       );
 
       registerEffectHandle("codex:thread:side-chat:start", (_, input: CodexSideChatStartInput) =>

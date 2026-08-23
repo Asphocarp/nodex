@@ -311,7 +311,11 @@ Project lifecycle mutation and admission of Project-owned host work share one Ma
 Project-keyed coordination runtime. Codex turns, Terminal sessions, and background runtime
 actions revalidate the durable Project lifecycle inside the same exclusive boundary used by
 archive and restore. No feature owns a parallel per-Project lock map; projectless work remains
-independent, and Main Scope closure interrupts admitted or queued work.
+independent, and Main Scope closure interrupts admitted or queued work. Composite application
+transactions may re-enter the same Project gate only from the exact owning fiber; a forked child
+inherits no lock authority and queues normally. This permits deep Modules to compose smaller
+Project-owned commands without either releasing the lifecycle fence between commits or exposing an
+unsafe “already locked” bypass API.
 
 Core application invalidation enters one process-scoped database notification runtime. That
 runtime is the typed publication capability: it performs synchronous renderer projection itself
@@ -769,6 +773,20 @@ Promise adapter, while `CodexService` supplies only the preparation and projecti
 longer owns the production request, missing-Thread retry policy, command lane or cancellation
 lifetime. Renderer-owned fresh-Thread launch remains a separate application transaction because it
 additionally owns reservation, adoption and first-Turn admission.
+
+Creating a Thread for a Project Session is a complete `CodexSessionThreadLaunch` transaction keyed
+by Session identity. Preparation performs no durable pending-worktree admission. Both the managed
+worktree path and the immediate local path enter the shared Project lifecycle gate and re-read
+Session ownership, existing Thread linkage, and active Project lifecycle before committing. The
+immediate path brackets notification deferral around the typed local `thread/start` request and
+durable Session link; if that link fails or the Main Scope interrupts first, the unlinked app-server
+Thread is deleted best-effort and the deferral always closes. Main-owned first-Turn work composes
+`CodexTurnCommands` directly inside the same Project transaction; renderer-owned work instead
+commits a fresh-launch reservation for the separate adoption protocol. Renderer destruction and
+Main shutdown interrupt the same command fiber. The concentrated Codex IPC layer depends only on
+the typed application Module and no longer imports or calls `CodexService`; that class supplies
+temporary preparation/projection ports but has no public Session-launch command or production
+transport interpreter.
 
 Steering an active Turn belongs to that same command owner and shared lane. Main-owned steering
 uses the Effect clock and random service for correlation identity, appends the optimistic steering
