@@ -24,10 +24,6 @@ export { connectOrStartCore, resolveCoreExecutable } from "./core-launcher";
 export { initializeStandaloneDataAuthority } from "./standalone-data-authority";
 export { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 export {
-  createDesktopLibraryModuleBridge,
-  mapCoreLibraryEvent,
-} from "./desktop-library-module-bridge";
-export {
   createDesktopAutomationModuleBridge,
   mapCoreAutomationEvent,
   type AutomationArchiveMessages,
@@ -76,8 +72,4 @@ export type {
   CoreLibraryModuleAdapter,
   CoreLibraryModuleAdapterInput,
 } from "./library-module-adapter";
-export type {
-  DesktopLibraryModuleBridge,
-  DesktopLibraryModuleBridgeInput,
-} from "./desktop-library-module-bridge";
 export type * from "./types";
