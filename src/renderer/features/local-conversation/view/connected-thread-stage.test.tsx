@@ -135,6 +135,7 @@ vi.mock("../local-conversation-deps", () => ({
       }
     };
   },
+  subscribeCodexEvents: () => () => undefined,
   subscribeCodexRendererClientRequests: () => () => {},
 }));
 

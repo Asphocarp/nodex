@@ -156,6 +156,7 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
                     ElectronSessionHost.of({
                       defaultSession: Effect.die("unused"),
                       fromPartition: () => Effect.succeed(browserSession as unknown as Session),
+                      hasOwnerWindow: () => false,
                       protocol: null as never,
                       scopedRegistration: () => Effect.void,
                     }),

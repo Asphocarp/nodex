@@ -102,6 +102,101 @@ interface CommandResult {
   readonly stdout: string;
 }
 
+export type PackagedMacCodeObjectRole =
+  | "electron-helper"
+  | "main-app"
+  | "native-helper"
+  | "sparkle";
+
+export interface PackagedMacCodeObjectEntitlements {
+  readonly artifactPath: string;
+  readonly entitlements: Readonly<Record<string, boolean | "present">>;
+  readonly role: PackagedMacCodeObjectRole;
+}
+
+const MAC_AUDIO_INPUT_ENTITLEMENT = "com.apple.security.device.audio-input";
+const MAC_SANDBOX_MICROPHONE_ENTITLEMENT = "com.apple.security.device.microphone";
+const ELECTRON_RUNTIME_ENTITLEMENTS = [
+  "com.apple.security.cs.allow-dyld-environment-variables",
+  "com.apple.security.cs.allow-jit",
+  "com.apple.security.cs.allow-unsigned-executable-memory",
+  "com.apple.security.cs.disable-library-validation",
+] as const;
+
+function decodeXmlText(value: string): string {
+  return value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'");
+}
+
+/** Parses the boolean capability shape emitted by `codesign --entitlements :-`. */
+export function parseMacCodeSigningEntitlements(
+  output: string,
+): Readonly<Record<string, boolean | "present">> {
+  const entitlements: Record<string, boolean | "present"> = {};
+  const entries = output.matchAll(/<key>\s*([^<]+?)\s*<\/key>\s*(?:<(true|false)\s*\/>|<[^>]+>)/gu);
+  for (const [, rawKey, booleanValue] of entries) {
+    if (!rawKey) continue;
+    const key = decodeXmlText(rawKey.trim());
+    if (!key || Object.hasOwn(entitlements, key)) {
+      throw new Error("Code signing entitlements contain an invalid or duplicate key");
+    }
+    entitlements[key] = booleanValue ? booleanValue === "true" : "present";
+  }
+  return entitlements;
+}
+
+/** Enforces least privilege across the final signed macOS code-object closure. */
+export function assertPackagedMacCodeObjectEntitlements(
+  codeObjects: readonly PackagedMacCodeObjectEntitlements[],
+): void {
+  const mainApps = codeObjects.filter(({ role }) => role === "main-app");
+  if (mainApps.length !== 1) {
+    throw new Error(`Expected one main app entitlement record, found ${mainApps.length}`);
+  }
+
+  const seenPaths = new Set<string>();
+  for (const codeObject of codeObjects) {
+    if (seenPaths.has(codeObject.artifactPath)) {
+      throw new Error(`Duplicate code object entitlement record: ${codeObject.artifactPath}`);
+    }
+    seenPaths.add(codeObject.artifactPath);
+
+    if (Object.hasOwn(codeObject.entitlements, MAC_SANDBOX_MICROPHONE_ENTITLEMENT)) {
+      throw new Error(
+        `Hardened runtime code object carries the App Sandbox microphone entitlement: ${codeObject.artifactPath}`,
+      );
+    }
+
+    if (codeObject.role === "main-app") {
+      if (codeObject.entitlements[MAC_AUDIO_INPUT_ENTITLEMENT] !== true) {
+        throw new Error(
+          `Packaged main app lacks audio-input entitlement: ${codeObject.artifactPath}`,
+        );
+      }
+      continue;
+    }
+
+    if (Object.hasOwn(codeObject.entitlements, MAC_AUDIO_INPUT_ENTITLEMENT)) {
+      throw new Error(
+        `Microphone entitlement leaked outside the main app: ${codeObject.artifactPath}`,
+      );
+    }
+
+    if (
+      (codeObject.role === "native-helper" || codeObject.role === "sparkle") &&
+      ELECTRON_RUNTIME_ENTITLEMENTS.some((key) => Object.hasOwn(codeObject.entitlements, key))
+    ) {
+      throw new Error(
+        `Non-Electron code object carries Electron runtime entitlements: ${codeObject.artifactPath}`,
+      );
+    }
+  }
+}
+
 const expectedFileArchitecture = (architecture: NativeRuntimeArchitecture): string =>
   architecture === "arm64" ? "arm64" : "x86_64";
 
@@ -165,6 +260,17 @@ const run = (command: string, arguments_: readonly string[], label: string): Com
   }
   return { stderr: result.stderr, stdout: result.stdout };
 };
+
+export function readMacCodeObjectEntitlements(
+  artifactPath: string,
+): Readonly<Record<string, boolean | "present">> {
+  const result = run(
+    "codesign",
+    ["-d", "--entitlements", ":-", artifactPath],
+    `Inspect ${artifactPath} entitlements`,
+  );
+  return parseMacCodeSigningEntitlements(`${result.stdout}\n${result.stderr}`);
+}
 
 const assertRegularExecutable = (filePath: string): void => {
   const metadata = lstatSync(filePath);
@@ -234,6 +340,51 @@ const verifySignatures = (
       throw new Error("Native runtime signature is inconsistent with the enclosing Nodex.app");
     }
   }
+};
+
+const verifyMacCodeObjectEntitlements = (input: {
+  readonly appPath: string;
+  readonly nativeCodeObjects: readonly string[];
+  readonly sparkleCodeObjects: readonly string[];
+}): void => {
+  const productName = basename(input.appPath, ".app");
+  const electronCodeObjects = [
+    join(input.appPath, "Contents/Frameworks/Electron Framework.framework"),
+    join(input.appPath, `Contents/Frameworks/${productName} Helper.app`),
+    join(input.appPath, `Contents/Frameworks/${productName} Helper (GPU).app`),
+    join(input.appPath, `Contents/Frameworks/${productName} Helper (Plugin).app`),
+    join(input.appPath, `Contents/Frameworks/${productName} Helper (Renderer).app`),
+  ];
+  for (const artifactPath of electronCodeObjects) {
+    if (!existsSync(artifactPath)) {
+      throw new Error(`Packaged Electron code-object closure is incomplete: ${artifactPath}`);
+    }
+  }
+
+  const nativeHelperApp = join(input.appPath, "Contents/Helpers/Nodex Service.app");
+  const records: PackagedMacCodeObjectEntitlements[] = [
+    {
+      artifactPath: input.appPath,
+      entitlements: readMacCodeObjectEntitlements(input.appPath),
+      role: "main-app",
+    },
+    ...electronCodeObjects.map((artifactPath) => ({
+      artifactPath,
+      entitlements: readMacCodeObjectEntitlements(artifactPath),
+      role: "electron-helper" as const,
+    })),
+    ...[...input.nativeCodeObjects, nativeHelperApp].map((artifactPath) => ({
+      artifactPath,
+      entitlements: readMacCodeObjectEntitlements(artifactPath),
+      role: "native-helper" as const,
+    })),
+    ...input.sparkleCodeObjects.map((artifactPath) => ({
+      artifactPath,
+      entitlements: readMacCodeObjectEntitlements(artifactPath),
+      role: "sparkle" as const,
+    })),
+  ];
+  assertPackagedMacCodeObjectEntitlements(records);
 };
 
 const assertSymlinksStayInside = (rootPath: string, currentPath = rootPath): void => {
@@ -382,20 +533,6 @@ const verifySparkleRuntime = (
     join(frameworkPath, "Versions/B/Updater.app"),
     frameworkPath,
   ];
-  if (options.verifySignatures) {
-    for (const codeObject of sparkleCodeObjects) {
-      const entitlements = spawnSync("codesign", ["-d", "--entitlements", ":-", codeObject], {
-        encoding: "utf8",
-      });
-      const output = `${entitlements.stdout ?? ""}\n${entitlements.stderr ?? ""}`;
-      if (
-        output.includes("com.apple.security.cs.allow-jit") ||
-        output.includes("com.apple.security.cs.allow-unsigned-executable-memory")
-      ) {
-        throw new Error(`Sparkle code object carries Electron runtime entitlements: ${codeObject}`);
-      }
-    }
-  }
   return sparkleCodeObjects;
 };
 
@@ -862,6 +999,65 @@ const smokeBrowserProfileHelper = (appPath: string): void => {
   }
 };
 
+const smokeDictationHelper = async (appPath: string): Promise<void> => {
+  const helper = join(appPath, "Contents/Resources/bin/nodex-dictation-helper");
+  const child = spawn(helper, [], { stdio: ["pipe", "pipe", "pipe"] });
+  child.stdout.setEncoding("utf8");
+  child.stderr.resume();
+  let stdout = "";
+  let ready = false;
+  let response = false;
+  await new Promise<void>((resolveSmoke, rejectSmoke) => {
+    const timeout = setTimeout(() => {
+      child.kill();
+      rejectSmoke(new Error("Packaged dictation helper smoke timed out"));
+    }, 5_000);
+    const fail = (error: Error): void => {
+      clearTimeout(timeout);
+      child.kill();
+      rejectSmoke(error);
+    };
+    child.once("error", fail);
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      let newline = stdout.indexOf("\n");
+      while (newline >= 0) {
+        const line = stdout.slice(0, newline);
+        stdout = stdout.slice(newline + 1);
+        let message: Record<string, unknown>;
+        try {
+          message = JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          fail(new Error("Packaged dictation helper emitted invalid JSON"));
+          return;
+        }
+        if (message.type === "ready" && message.protocolVersion === 1) {
+          ready = true;
+          child.stdin.write(
+            `${JSON.stringify({ id: "smoke-capabilities", type: "capabilities" })}\n`,
+          );
+        } else if (
+          message.type === "response" &&
+          message.id === "smoke-capabilities" &&
+          message.ok === true &&
+          typeof (message.value as Record<string, unknown> | undefined)?.inputMonitoring ===
+            "boolean" &&
+          typeof (message.value as Record<string, unknown> | undefined)?.accessibility === "boolean"
+        ) {
+          response = true;
+          child.stdin.end();
+        }
+        newline = stdout.indexOf("\n");
+      }
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      if (code === 0 && ready && response) resolveSmoke();
+      else rejectSmoke(new Error(`Packaged dictation helper smoke exited with code ${code}`));
+    });
+  });
+};
+
 const runWithEnvironment = (
   command: string,
   arguments_: readonly string[],
@@ -1115,12 +1311,20 @@ export function verifyPackagedNativeRuntimeStructure(
       `Packaged app bundle version is ${bundleVersion}, expected build version ${options.expectedBuildVersion}`,
     );
   }
+  const microphonePurpose = run(
+    "/usr/bin/plutil",
+    ["-extract", "NSMicrophoneUsageDescription", "raw", "-o", "-", infoPlist],
+    "Read packaged microphone usage description",
+  ).stdout.trim();
+  if (!microphonePurpose) {
+    throw new Error("Packaged app microphone usage description is empty");
+  }
   if (manifest.targetArch !== options.targetArch) {
     throw new Error(
       `Native runtime manifest is ${manifest.targetArch}, expected ${options.targetArch}`,
     );
   }
-  const binaryPaths = manifest.binaries.map((binary) => {
+  const nativeBinaryPaths = manifest.binaries.map((binary) => {
     const binaryPath = join(contentsPath, ...binary.bundlePath.split("/"));
     assertRegularExecutable(binaryPath);
     const metadata = statSync(binaryPath);
@@ -1133,8 +1337,8 @@ export function verifyPackagedNativeRuntimeStructure(
   const cliRipgrep = join(contentsPath, "Resources/codex-path/rg");
   assertRegularExecutable(cliRipgrep);
   assertMachOArchitecture(cliRipgrep, options.targetArch);
-  binaryPaths.push(cliRipgrep);
-  binaryPaths.push(...verifySparkleRuntime(appPath, options));
+  nativeBinaryPaths.push(cliRipgrep);
+  const sparkleCodeObjects = verifySparkleRuntime(appPath, options);
   assertLegacyPackagedRuntimePathsAbsent(contentsPath);
   const resourcesService = join(contentsPath, "Resources/bin/nodex-service");
   if (existsSync(resourcesService)) {
@@ -1149,7 +1353,16 @@ export function verifyPackagedNativeRuntimeStructure(
     throw new Error("Packaged ServiceManagement helper bundle is incomplete");
   }
   if (options.verifySignatures) {
-    verifySignatures(appPath, binaryPaths, options.requireDeveloperId);
+    verifySignatures(
+      appPath,
+      [...nativeBinaryPaths, ...sparkleCodeObjects],
+      options.requireDeveloperId,
+    );
+    verifyMacCodeObjectEntitlements({
+      appPath,
+      nativeCodeObjects: nativeBinaryPaths,
+      sparkleCodeObjects,
+    });
   }
   if (options.verifyNotarization) {
     run("spctl", ["--assess", "--type", "execute", "--verbose=4", appPath], "Assess notarization");
@@ -1183,6 +1396,7 @@ const verifyPackagedNativeRuntimeSmoke = (
     yield* attempt("verify-browser-profile-helper", () =>
       smokeBrowserProfileHelper(identity.appPath),
     );
+    yield* attemptPromise("verify-dictation-helper", () => smokeDictationHelper(identity.appPath));
     if (options.launchApp) {
       yield* attemptPromise("verify-app-launch", () =>
         launchAppSmoke(identity.appPath, identity.coreSha256),

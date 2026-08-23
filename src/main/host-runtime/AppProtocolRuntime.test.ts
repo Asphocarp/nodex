@@ -34,6 +34,7 @@ it.effect("owns application protocol handlers with the Main Scope", () =>
               ElectronSessionHost.of({
                 defaultSession: Effect.succeed(defaultSession),
                 fromPartition: () => Effect.die("unused"),
+                hasOwnerWindow: () => false,
                 protocol: null as never,
                 scopedRegistration: () => Effect.void,
               }),

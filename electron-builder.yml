@@ -44,6 +44,7 @@ extraResources:
     filter:
       - nodex
       - nodex-appshot-helper
+      - nodex-dictation-helper
       - nodex-browser-profile-helper
       - nodex-core
       - rust-core-runtime.json
@@ -86,6 +87,7 @@ mac:
   binaries:
     - Contents/Resources/bin/nodex
     - Contents/Resources/bin/nodex-appshot-helper
+    - Contents/Resources/bin/nodex-dictation-helper
     - Contents/Resources/bin/nodex-browser-profile-helper
     - Contents/Resources/bin/nodex-core
     - Contents/Resources/bin/interpreter
@@ -97,9 +99,9 @@ mac:
     - Contents/Resources/browser-runtime/bin/node_repl
     - Contents/Helpers/Nodex Service.app/Contents/MacOS/nodex-service
   entitlements: resources/entitlements.mac.plist
-  entitlementsInherit: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.inherit.plist
   extendInfo:
-    NSMicrophoneUsageDescription: Nodex uses your microphone for thread composer dictation.
+    NSMicrophoneUsageDescription: Nodex uses your microphone for dictation.
     SUPublicEDKey: YNySLZ74gjVAOpEdMo9OOEPvuTEMZf8fMnI+oQD7Ifs=
     SURequireSignedFeed: true
     SUVerifyUpdateBeforeExtraction: true

@@ -109,6 +109,21 @@ import type {
   StructuralClipboardWriteInput,
   StructuralClipboardWriteResult,
 } from "../../shared/clipboard-paste";
+import type {
+  DictationSettings,
+  DictationSettingsPatch,
+  GlobalDictationPermissionSnapshot,
+  MicrophoneAccessResult,
+  MicrophoneAccessStatus,
+} from "../../shared/dictation";
+import type {
+  DictationRecordingAppendInput,
+  DictationRecordingAudio,
+  DictationRecordingCreateInput,
+  DictationRecordingFinalizeInput,
+  DictationRecordingMetadata,
+  DictationRecordingSetTranscriptInput,
+} from "../../shared/dictation-history";
 
 let gitWorkerClient: GitWorkerClient | null = null;
 
@@ -130,6 +145,111 @@ export async function invoke(channel: string, ...args: unknown[]): Promise<unkno
 export async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   const transport = resolveInvokeTransport();
   return transport.invoke(channel, ...args);
+}
+
+export function readMicrophoneAccess(): Promise<MicrophoneAccessStatus> {
+  return invoke("codex:dictation:microphone-access:read");
+}
+
+export function readDictationCapabilityState() {
+  return invoke("codex:dictation:state:read");
+}
+
+export function requestMicrophoneAccess(): Promise<MicrophoneAccessResult> {
+  return invoke("codex:dictation:microphone-access:request");
+}
+
+export function acquireDictationMicrophoneLease(
+  sessionId: string,
+  surface: import("../../shared/dictation").DictationSurface,
+): Promise<boolean> {
+  return invoke("codex:dictation:microphone-lease:acquire", { sessionId, surface });
+}
+
+export function releaseDictationMicrophoneLease(sessionId: string): Promise<boolean> {
+  return invoke("codex:dictation:microphone-lease:release", sessionId);
+}
+
+export function openMicrophoneSettings(): Promise<void> {
+  return invoke("codex:dictation:microphone-access:open-settings");
+}
+
+export function readBuiltInMicrophoneRouteHint(): Promise<string | null> {
+  return invoke("codex:dictation:microphone-route-hint:read");
+}
+
+export function readGlobalDictationPermissions(): Promise<GlobalDictationPermissionSnapshot> {
+  return invoke("codex:dictation:global-permissions:read");
+}
+
+export function requestGlobalDictationInputMonitoring(): Promise<GlobalDictationPermissionSnapshot> {
+  return invoke("codex:dictation:global-permissions:request-input-monitoring");
+}
+
+export function requestGlobalDictationAccessibility(): Promise<GlobalDictationPermissionSnapshot> {
+  return invoke("codex:dictation:global-permissions:request-accessibility");
+}
+
+export function openGlobalDictationInputMonitoringSettings(): Promise<void> {
+  return invoke("codex:dictation:global-permissions:open-input-monitoring-settings");
+}
+
+export function openGlobalDictationAccessibilitySettings(): Promise<void> {
+  return invoke("codex:dictation:global-permissions:open-accessibility-settings");
+}
+
+export function readDictationSettings(): Promise<DictationSettings> {
+  return invoke("codex:dictation:settings:read");
+}
+
+export function updateDictationSettings(patch: DictationSettingsPatch): Promise<DictationSettings> {
+  return invoke("codex:dictation:settings:update", patch);
+}
+
+export function consumeGlobalDictationShortcutNudge(): Promise<boolean> {
+  return invoke("codex:dictation:settings:consume-global-shortcut-nudge");
+}
+
+export function createDictationRecording(
+  input: DictationRecordingCreateInput,
+): Promise<DictationRecordingMetadata> {
+  return invoke("codex:dictation:history:create", input);
+}
+
+export function appendDictationRecording(
+  input: DictationRecordingAppendInput,
+): Promise<DictationRecordingMetadata> {
+  return invoke("codex:dictation:history:append", input);
+}
+
+export function finalizeDictationRecording(
+  input: DictationRecordingFinalizeInput,
+): Promise<DictationRecordingMetadata> {
+  return invoke("codex:dictation:history:finalize", input);
+}
+
+export function setDictationRecordingTranscript(
+  input: DictationRecordingSetTranscriptInput,
+): Promise<DictationRecordingMetadata> {
+  return invoke("codex:dictation:history:set-transcript", input);
+}
+
+export function listDictationRecordings(): Promise<DictationRecordingMetadata[]> {
+  return invoke("codex:dictation:history:list");
+}
+
+export function readDictationRecordingAudio(id: string): Promise<DictationRecordingAudio> {
+  return invoke("codex:dictation:history:read-audio", id);
+}
+
+export function downloadDictationRecording(
+  id: string,
+): Promise<{ readonly status: "cancelled" | "saved" }> {
+  return invoke("codex:dictation:history:download", id);
+}
+
+export function deleteDictationRecording(id: string): Promise<void> {
+  return invoke("codex:dictation:history:delete", id);
 }
 
 export function writeStructuralClipboard(

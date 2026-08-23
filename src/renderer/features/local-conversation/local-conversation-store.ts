@@ -278,7 +278,11 @@ import {
   logAssistantStreamingDebug,
   logAssistantStreamingDebugSampled,
 } from "../../lib/assistant-streaming-debug";
-import { invoke, subscribeCodexRendererClientRequests } from "./local-conversation-deps";
+import {
+  invoke,
+  subscribeCodexEvents,
+  subscribeCodexRendererClientRequests,
+} from "./local-conversation-deps";
 import {
   subscribeCodexAppServerMessage,
   type CodexClientStatusChangedEvent,
@@ -535,9 +539,28 @@ function resolveCodexDraftRequestSettings(
 const DEFAULT_CODEX_DICTATION_STATE: CodexDictationStateSnapshot = {
   isEnabled: false,
   authMethod: null,
-  isRealtimeVoiceActive: false,
   shortcutLabel: "Ctrl+M",
+  capabilities: {
+    composer: false,
+    global: false,
+    history: true,
+    streaming: "unavailable",
+    semanticCleanup: false,
+    microphoneOwner: "none",
+    auth: "unsupported",
+  },
 };
+const areDictationCapabilitiesEqual = (
+  left: CodexDictationStateSnapshot["capabilities"],
+  right: CodexDictationStateSnapshot["capabilities"],
+): boolean =>
+  left.composer === right.composer &&
+  left.global === right.global &&
+  left.history === right.history &&
+  left.streaming === right.streaming &&
+  left.semanticCleanup === right.semanticCleanup &&
+  left.microphoneOwner === right.microphoneOwner &&
+  left.auth === right.auth;
 const COMPLETE_HISTORY_WAIT_TIMEOUT_MS = 30_000;
 
 interface OwnerStreamRevisionResult {
@@ -3753,6 +3776,9 @@ export class CodexAppServerManager {
   ) {
     this.isOpenAIFormElicitationsEnabled = options.isOpenAIFormElicitationsEnabled ?? (() => true);
     this.busUnsubscribers.push(
+      subscribeCodexEvents((event) => {
+        if (event.type === "dictationState") this.setDictationState(event.state);
+      }),
       subscribeCodexAppServerMessage("shared-object-updated", (event) => {
         this.handleSharedObjectUpdated(event);
       }),
@@ -7173,8 +7199,8 @@ export class CodexAppServerManager {
     if (
       this.dictationState.isEnabled === nextState.isEnabled &&
       this.dictationState.authMethod === nextState.authMethod &&
-      this.dictationState.isRealtimeVoiceActive === nextState.isRealtimeVoiceActive &&
-      this.dictationState.shortcutLabel === nextState.shortcutLabel
+      this.dictationState.shortcutLabel === nextState.shortcutLabel &&
+      areDictationCapabilitiesEqual(this.dictationState.capabilities, nextState.capabilities)
     ) {
       return;
     }
@@ -10928,8 +10954,8 @@ export function useCodexDictationState(): CodexDictationStateSnapshot {
     (left, right) =>
       left.isEnabled === right.isEnabled &&
       left.authMethod === right.authMethod &&
-      left.isRealtimeVoiceActive === right.isRealtimeVoiceActive &&
-      left.shortcutLabel === right.shortcutLabel,
+      left.shortcutLabel === right.shortcutLabel &&
+      areDictationCapabilitiesEqual(left.capabilities, right.capabilities),
   );
 }
 

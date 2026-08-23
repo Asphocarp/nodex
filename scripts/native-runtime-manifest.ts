@@ -11,6 +11,7 @@ export const swiftTargetForNativeRuntime = (
 export type NativeRuntimeBinaryName =
   | "nodex"
   | "nodex-appshot-helper"
+  | "nodex-dictation-helper"
   | "nodex-browser-profile-helper"
   | "nodex-core"
   | "nodex-service";
@@ -28,7 +29,7 @@ export interface NativeRuntimeManifest {
   readonly minimumMacOS: "12.0";
   readonly productVersion: string;
   readonly rustTarget: "aarch64-apple-darwin" | "x86_64-apple-darwin";
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly targetArch: NativeRuntimeArchitecture;
   readonly targetPlatform: "darwin";
 }
@@ -36,6 +37,7 @@ export interface NativeRuntimeManifest {
 export const NATIVE_RUNTIME_BINARY_PATHS: Readonly<Record<NativeRuntimeBinaryName, string>> = {
   nodex: "Resources/bin/nodex",
   "nodex-appshot-helper": "Resources/bin/nodex-appshot-helper",
+  "nodex-dictation-helper": "Resources/bin/nodex-dictation-helper",
   "nodex-browser-profile-helper": "Resources/bin/nodex-browser-profile-helper",
   "nodex-core": "Resources/bin/nodex-core",
   "nodex-service": "Helpers/Nodex Service.app/Contents/MacOS/nodex-service",
@@ -44,6 +46,7 @@ export const NATIVE_RUNTIME_BINARY_PATHS: Readonly<Record<NativeRuntimeBinaryNam
 const EXPECTED_BINARY_NAMES = new Set<NativeRuntimeBinaryName>([
   "nodex",
   "nodex-appshot-helper",
+  "nodex-dictation-helper",
   "nodex-browser-profile-helper",
   "nodex-core",
   "nodex-service",
@@ -90,7 +93,7 @@ const parseBinary = (value: unknown): NativeRuntimeBinaryManifest => {
 
 export function parseNativeRuntimeManifest(value: unknown): NativeRuntimeManifest {
   if (!isObject(value)) throw new Error("Invalid native runtime manifest");
-  if (value.schemaVersion !== 3) {
+  if (value.schemaVersion !== 4) {
     throw new Error("Unsupported native runtime manifest schema");
   }
   if (value.targetPlatform !== "darwin") {
@@ -129,7 +132,7 @@ export function parseNativeRuntimeManifest(value: unknown): NativeRuntimeManifes
     minimumMacOS: "12.0",
     productVersion,
     rustTarget: expectedRustTarget,
-    schemaVersion: 3,
+    schemaVersion: 4,
     targetArch: value.targetArch,
     targetPlatform: "darwin",
   };

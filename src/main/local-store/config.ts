@@ -990,11 +990,52 @@ export function updateCommandKeybinding(
   return getCommandKeymapState(source);
 }
 
+export interface PreparedCommandKeymapMutation {
+  readonly previousState: CommandKeymapState;
+  readonly nextState: CommandKeymapState;
+  readonly commit: () => CommandKeymapState;
+}
+
+/** Separates OS-global shortcut admission from the durable settings commit. */
+export function prepareCommandKeybindingUpdate(
+  commandId: string,
+  update: CommandKeybindingUpdate,
+  source = currentProcessSettingsSource(),
+): PreparedCommandKeymapMutation {
+  const currentOverrides = getCommandKeybindingOverrides(source);
+  const nextOverrides = applyCommandKeybindingUpdate(currentOverrides, commandId, update);
+  const previousState = createCommandKeymapState(currentOverrides);
+  const nextState = createCommandKeymapState(nextOverrides);
+  return {
+    previousState,
+    nextState,
+    commit: () => {
+      writeCommandKeybindingOverrides(source, nextOverrides);
+      return nextState;
+    },
+  };
+}
+
 export function resetCommandKeybindings(
   source = currentProcessSettingsSource(),
 ): CommandKeymapState {
   writeCommandKeybindingOverrides(source, {});
   return getCommandKeymapState(source);
+}
+
+export function prepareCommandKeybindingsReset(
+  source = currentProcessSettingsSource(),
+): PreparedCommandKeymapMutation {
+  const previousState = getCommandKeymapState(source);
+  const nextState = createCommandKeymapState({});
+  return {
+    previousState,
+    nextState,
+    commit: () => {
+      writeCommandKeybindingOverrides(source, {});
+      return nextState;
+    },
+  };
 }
 
 function writeCommandKeybindingOverrides(

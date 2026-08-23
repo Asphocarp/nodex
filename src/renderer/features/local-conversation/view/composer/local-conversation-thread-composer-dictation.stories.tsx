@@ -180,7 +180,6 @@ function ComposerDictationStory({ state }: ComposerDictationStoryProps) {
       value: {
         invoke: async () => null,
         on: () => () => {},
-        requestMicrophonePermission: () => {},
       },
     });
     Object.defineProperty(navigator, "mediaDevices", {

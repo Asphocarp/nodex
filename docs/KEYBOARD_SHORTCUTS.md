@@ -128,6 +128,15 @@ unless a separately listed app command owns an accelerator.
 | `↓`                  | Walk prompt history forward or clear recall | Thread composer only when traversing recalled history. It walks toward newer entries; pressing from the newest recalled entry clears the composer and exits traversal.                                                             |
 | `Ctrl+M`             | Hold to dictate                             | Electron-only thread composer dictation. Keydown starts recording; keyup stops and inserts the transcript. Button click also starts dictation, and the active dictation footer exposes `Stop dictation` and `Transcribe and send`. |
 
+### macOS Global Dictation
+
+| Shortcut                   | Action                      | Notes                                                                                                                                                                                                                |
+| -------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Configurable global hold   | Hold to dictate in any app  | macOS only. Press begins and release stops. Bare modifiers and Fn chords are supported after Input Monitoring access. A focused Nodex Composer accepts the session in-app; otherwise the compact global bar appears. |
+| Configurable global toggle | Toggle dictation in any app | macOS only. First press begins and the next press stops; key auto-repeat never starts another session. Accessibility is required only to paste outside Nodex.                                                        |
+
+Configure Composer hold, global hold, and global toggle independently in Settings → Keyboard shortcuts. Voice settings shows the separate microphone, Input Monitoring, and Accessibility controls.
+
 ### Request Input Cards
 
 | Shortcut          | Action                             | Notes                                                                                                              |

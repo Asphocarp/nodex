@@ -129,6 +129,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           "browser-guest": resolve(__dirname, "src/preload/browser-guest.ts"),
+          "global-dictation": resolve(__dirname, "src/preload/global-dictation.ts"),
           index: resolve(__dirname, "src/preload/index.ts"),
           "mcp-app-sandbox-guest": resolve(__dirname, "src/preload/mcp-app-sandbox-guest.ts"),
         },

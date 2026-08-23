@@ -26,6 +26,7 @@ const browserRuntimeSchemaVersion = 4;
 const expectedBinaryPaths = new Map([
   ["nodex", "Resources/bin/nodex"],
   ["nodex-appshot-helper", "Resources/bin/nodex-appshot-helper"],
+  ["nodex-dictation-helper", "Resources/bin/nodex-dictation-helper"],
   ["nodex-browser-profile-helper", "Resources/bin/nodex-browser-profile-helper"],
   ["nodex-core", "Resources/bin/nodex-core"],
   ["nodex-service", "Helpers/Nodex Service.app/Contents/MacOS/nodex-service"],
@@ -148,7 +149,7 @@ const refreshSignedNativeRuntimeManifest = (appPath) => {
   const manifestPath = path.join(appPath, nativeManifestRelativePath);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
-  if (manifest.schemaVersion !== 3 || !Array.isArray(manifest.binaries)) {
+  if (manifest.schemaVersion !== 4 || !Array.isArray(manifest.binaries)) {
     throw new Error(`Unsupported native runtime manifest: ${manifestPath}`);
   }
   if (manifest.binaries.length !== expectedBinaryPaths.size) {
@@ -392,8 +393,40 @@ export const applyMacSigningMode = (options, mode = process.env.NODEX_MAC_SIGN_M
   };
 };
 
+const isElectronRuntimeCodeObject = (appPath, filePath) => {
+  const productName = path.basename(appPath, ".app");
+  if (filePath === appPath) return true;
+  if (filePath === path.join(appPath, "Contents", "MacOS", productName)) return true;
+  if (
+    isInside(path.join(appPath, "Contents", "Frameworks", "Electron Framework.framework"), filePath)
+  ) {
+    return true;
+  }
+  return [
+    `${productName} Helper.app`,
+    `${productName} Helper (GPU).app`,
+    `${productName} Helper (Plugin).app`,
+    `${productName} Helper (Renderer).app`,
+  ].some((helperName) =>
+    isInside(path.join(appPath, "Contents", "Frameworks", helperName), filePath),
+  );
+};
+
+/** Prevents native tools and helpers from inheriting Electron's JIT/dyld capabilities. */
+export const applyMacCodeObjectEntitlementPolicy = (options) => {
+  const baseOptionsForFile = options.optionsForFile;
+  return {
+    ...options,
+    optionsForFile: (filePath) => {
+      const baseOptions = baseOptionsForFile ? baseOptionsForFile(filePath) : {};
+      if (isElectronRuntimeCodeObject(options.app, filePath)) return baseOptions;
+      return { ...baseOptions, entitlements: [] };
+    },
+  };
+};
+
 export const sign = async (options) => {
-  const signOptions = applyMacSigningMode(options);
+  const signOptions = applyMacCodeObjectEntitlementPolicy(applyMacSigningMode(options));
   if (signOptions.platform !== "darwin") {
     await signWithRetry(signOptions);
     return;

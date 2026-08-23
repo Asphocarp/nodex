@@ -47,7 +47,6 @@ import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { MainConfig } from "../../app/MainConfig";
-import { validateDictationTranscriptionInput } from "../../dictation-transcription-input";
 
 export class CodexApplicationIpcError extends Schema.TaggedError<CodexApplicationIpcError>()(
   "CodexApplicationIpcError",
@@ -322,17 +321,6 @@ export const live: Layer.Layer<
     yield* ipc.handle("agent-runtime:credential:delete", (_event, input: unknown) =>
       validate("agent-provider-credential-delete", () => parseProviderCredentialDelete(input)).pipe(
         Effect.flatMap(agentProviders.deleteCredential),
-      ),
-    );
-    yield* ipc.handle("codex:dictation:state:read", () => media.dictationState);
-    yield* ipc.handle("codex:dictation:transcribe", (event, input: unknown) =>
-      trusted(event, "Dictation transcription").pipe(
-        Effect.andThen(
-          validate("dictation-transcription-input", () =>
-            validateDictationTranscriptionInput(input),
-          ),
-        ),
-        Effect.flatMap(media.transcribe),
       ),
     );
     yield* ipc.handle(

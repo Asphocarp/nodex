@@ -198,6 +198,14 @@ export const CODEX_COMMAND_REGISTRY = [
     ["Ctrl+Shift+M"],
   ),
   command(
+    "composerDictationHold",
+    "Hold to dictate",
+    "Hold to dictate in the active composer",
+    76,
+    "app",
+    ["Ctrl+M"],
+  ),
+  command(
     "focusBrowserAddressBar",
     "Focus browser address bar",
     "Focus the active Browser tab address bar",
@@ -682,6 +690,10 @@ export function createCommandKeymapState(
 
       return {
         ...entry,
+        available:
+          entry.available ||
+          (platform === "macOS" &&
+            (entry.id === "globalDictationHold" || entry.id === "globalDictationToggle")),
         defaultKeybindings: entry.defaultKeybindings.map(cloneKeybinding),
         keybindings: keybindings.map(cloneKeybinding),
         customKeybindings: customKeybindings?.map(cloneKeybinding) ?? null,

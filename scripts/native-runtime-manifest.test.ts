@@ -3,7 +3,7 @@ import { describe, expect, test } from "vite-plus/test";
 import { parseNativeRuntimeManifest, swiftTargetForNativeRuntime } from "./native-runtime-manifest";
 
 const manifest = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   targetPlatform: "darwin",
   targetArch: "arm64",
   rustTarget: "aarch64-apple-darwin",
@@ -39,6 +39,13 @@ const manifest = {
       file: "Mach-O 64-bit executable arm64",
     },
     {
+      name: "nodex-dictation-helper",
+      bundlePath: "Resources/bin/nodex-dictation-helper",
+      sourceSha256: "f".repeat(64),
+      sourceSize: 15,
+      file: "Mach-O 64-bit executable arm64",
+    },
+    {
       name: "nodex-service",
       bundlePath: "Helpers/Nodex Service.app/Contents/MacOS/nodex-service",
       sourceSha256: "d".repeat(64),
@@ -71,6 +78,7 @@ describe("native runtime manifest", () => {
           manifest.binaries[1],
           manifest.binaries[2],
           manifest.binaries[3],
+          manifest.binaries[4],
         ],
       }),
     ).toThrow("each required binary exactly once");

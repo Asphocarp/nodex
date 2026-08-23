@@ -6,9 +6,11 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vite-plus/test";
 
 import {
+  assertPackagedMacCodeObjectEntitlements,
   assertContentAddressedStoreMigrationBackup,
   assertLegacyPackagedRuntimePathsAbsent,
   isPackagedAppReady,
+  parseMacCodeSigningEntitlements,
   removePrivateTemporaryDirectory,
   selectPackagedSmokeProjectId,
 } from "./verify-native-runtime";
@@ -29,6 +31,118 @@ afterEach(() => {
 });
 
 describe("packaged native runtime verification", () => {
+  test("parses boolean capabilities from codesign entitlement output", () => {
+    expect(
+      parseMacCodeSigningEntitlements(`
+        Executable=/Applications/Nodex.app/Contents/MacOS/Nodex
+        <plist version="1.0"><dict>
+          <key>com.apple.security.device.audio-input</key><true/>
+          <key>com.apple.security.cs.allow-jit</key><false/>
+          <key>application-identifier</key><string>TEAM.app.jyu.nodex</string>
+        </dict></plist>
+      `),
+    ).toEqual({
+      "application-identifier": "present",
+      "com.apple.security.cs.allow-jit": false,
+      "com.apple.security.device.audio-input": true,
+    });
+  });
+
+  test("accepts audio input only on the main app while preserving Electron helper runtime needs", () => {
+    expect(() =>
+      assertPackagedMacCodeObjectEntitlements([
+        {
+          artifactPath: "/Applications/Nodex.app",
+          entitlements: { "com.apple.security.device.audio-input": true },
+          role: "main-app",
+        },
+        {
+          artifactPath: "/Applications/Nodex.app/Contents/Frameworks/Nodex Helper.app",
+          entitlements: { "com.apple.security.cs.allow-jit": true },
+          role: "electron-helper",
+        },
+        {
+          artifactPath: "/Applications/Nodex.app/Contents/Resources/bin/nodex-core",
+          entitlements: {},
+          role: "native-helper",
+        },
+        {
+          artifactPath: "/Applications/Nodex.app/Contents/Frameworks/Sparkle.framework",
+          entitlements: {},
+          role: "sparkle",
+        },
+      ]),
+    ).not.toThrow();
+  });
+
+  test("rejects a missing main capability and microphone leakage to every child role", () => {
+    expect(() =>
+      assertPackagedMacCodeObjectEntitlements([
+        {
+          artifactPath: "/Applications/Nodex.app",
+          entitlements: {},
+          role: "main-app",
+        },
+      ]),
+    ).toThrow("lacks audio-input entitlement");
+
+    for (const role of ["electron-helper", "native-helper", "sparkle"] as const) {
+      expect(() =>
+        assertPackagedMacCodeObjectEntitlements([
+          {
+            artifactPath: "/Applications/Nodex.app",
+            entitlements: { "com.apple.security.device.audio-input": true },
+            role: "main-app",
+          },
+          {
+            artifactPath: `/Applications/Nodex.app/${role}`,
+            entitlements: { "com.apple.security.device.audio-input": true },
+            role,
+          },
+        ]),
+      ).toThrow("Microphone entitlement leaked outside the main app");
+    }
+  });
+
+  test("rejects App Sandbox microphone and Electron runtime capabilities on native code", () => {
+    expect(() =>
+      assertPackagedMacCodeObjectEntitlements([
+        {
+          artifactPath: "/Applications/Nodex.app",
+          entitlements: {
+            "com.apple.security.device.audio-input": true,
+            "com.apple.security.device.microphone": true,
+          },
+          role: "main-app",
+        },
+      ]),
+    ).toThrow("App Sandbox microphone entitlement");
+
+    for (const role of ["native-helper", "sparkle"] as const) {
+      for (const entitlement of [
+        "com.apple.security.cs.allow-dyld-environment-variables",
+        "com.apple.security.cs.allow-jit",
+        "com.apple.security.cs.allow-unsigned-executable-memory",
+        "com.apple.security.cs.disable-library-validation",
+      ]) {
+        expect(() =>
+          assertPackagedMacCodeObjectEntitlements([
+            {
+              artifactPath: "/Applications/Nodex.app",
+              entitlements: { "com.apple.security.device.audio-input": true },
+              role: "main-app",
+            },
+            {
+              artifactPath: `/Applications/Nodex.app/${role}`,
+              entitlements: { [entitlement]: true },
+              role,
+            },
+          ]),
+        ).toThrow("Non-Electron code object carries Electron runtime entitlements");
+      }
+    }
+  });
+
   test("verifies the migration backup digest encoded in its filename", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-migration-backup-"));
     temporaryDirectories.push(directory);

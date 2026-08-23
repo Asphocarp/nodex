@@ -635,6 +635,16 @@ The detailed product contracts are
 The process and resource boundary is fixed by
 [ADR 0048](adr/0048-effect-main-application-kernel.md).
 
+### Dictation capture and global routing
+
+Dictation splits media capture from privileged desktop effects. A mounted Composer or the compact global renderer owns one generation-fenced capture controller, browser `MediaStream`, `MediaRecorder`, waveform graph, and AudioWorklet. It records continuously while sending best-effort PCM frames through a dedicated MessagePort. No renderer owns permission policy, streaming credentials, history files, global hotkeys, or the clipboard.
+
+The Profile Scope owns one `DictationRuntime` for microphone/settings/history/global-routing resources and one `CodexMedia` capability for authenticated transcription and streaming preparation. `CodexMedia` derives and publishes the single capability snapshot from account, connection, streaming, and native-helper changes; a scoped `DictationIpc` Layer is the only renderer transport. Renderer disposal, transcription cancellation, helper/window teardown, and IPC removal therefore follow the Main application Scope instead of an independent shutdown graph.
+
+On macOS, a narrowly scoped signed helper reports global press/release events, captures foreground identity, resolves the built-in microphone route, and performs exact-target paste. Main's global manager gives a focused Nodex Composer a bounded in-app handoff before falling back to a separate non-activating BrowserWindow with a dictation-only preload. That auxiliary renderer cannot access Core, filesystem, Workbench, or general application IPC.
+
+The complete user-visible and recovery contracts are [Dictation Behavior](product-specs/dictation-behavior.md), [Security](SECURITY.md), and [Reliability](RELIABILITY.md).
+
 ### Window Session and Workbench presentation
 
 A Window Session owns one restorable Workbench layout with owner-scoped Scenes. A Scene owner is a Project, Session, or the window-local Pages context. Project and Session owners have semantic primary surfaces; Pages has no protected primary. Right and bottom split trees are the only surface placement and ordering source.

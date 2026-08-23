@@ -4,10 +4,15 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import { assert, it } from "@effect/vitest";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { ElectronNet } from "../platform/electron/ElectronNet";
+import { DictationRuntime } from "../host-runtime/DictationRuntime";
 import { ChatGptDesktop } from "./ChatGptDesktop";
+import { CodexAccount } from "./CodexAccount";
+import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
+import { CodexConnection } from "./CodexConnection";
 import { CodexMedia, live as codexMediaLive } from "./CodexMedia";
 
 const unsupported = () => Effect.die(new Error("Unsupported test operation"));
@@ -34,13 +39,44 @@ const gateway = CodexGateway.of({
   restartHost: unsupported,
 });
 
-const build = (chatgpt: ChatGptDesktop["Service"], scope: Scope.Closeable) =>
-  Layer.buildWithScope(
+const build = Effect.fn("CodexMediaTest.build")(function* (
+  chatgpt: ChatGptDesktop["Service"],
+  scope: Scope.Closeable,
+) {
+  const accountSnapshot = yield* SubscriptionRef.make({
+    account: null,
+    requiresOpenAiAuth: false,
+  });
+  return yield* Layer.buildWithScope(
     codexMediaLive.pipe(
       Layer.provide(
         Layer.mergeAll(
           Layer.succeed(CodexGateway, gateway),
           Layer.succeed(ChatGptDesktop, chatgpt),
+          Layer.succeed(
+            CodexAccount,
+            CodexAccount.of({ snapshot: accountSnapshot } as CodexAccount["Service"]),
+          ),
+          Layer.succeed(
+            CodexApplicationEventHub,
+            CodexApplicationEventHub.of({ events: Stream.empty, publish: () => undefined }),
+          ),
+          Layer.succeed(
+            CodexConnection,
+            CodexConnection.of({
+              read: Effect.succeed({ status: "connected", retries: 0 }),
+              changes: Stream.empty,
+            }),
+          ),
+          Layer.succeed(
+            DictationRuntime,
+            DictationRuntime.of({
+              changes: Stream.empty,
+              globalAvailable: () => true,
+              microphoneOwner: () => "none",
+              setEnabled: () => Effect.void,
+            } as unknown as DictationRuntime["Service"]),
+          ),
           Layer.succeed(
             ElectronNet,
             ElectronNet.of({
@@ -63,6 +99,7 @@ const build = (chatgpt: ChatGptDesktop["Service"], scope: Scope.Closeable) =>
     ),
     scope,
   );
+});
 
 it.effect("owns dictation projection and transcription", () =>
   Effect.gen(function* () {
@@ -83,8 +120,16 @@ it.effect("owns dictation projection and transcription", () =>
     assert.deepEqual(yield* media.dictationState, {
       isEnabled: true,
       authMethod: "chatgpt",
-      isRealtimeVoiceActive: false,
       shortcutLabel: "Ctrl+M",
+      capabilities: {
+        composer: true,
+        global: true,
+        history: true,
+        streaming: "unknown",
+        semanticCleanup: false,
+        microphoneOwner: "none",
+        auth: "chatgpt",
+      },
     });
     assert.strictEqual(
       yield* media.transcribe({ contentType: "audio/webm", base64Payload: "AQID" }),

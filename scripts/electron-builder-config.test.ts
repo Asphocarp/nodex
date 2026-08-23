@@ -20,10 +20,32 @@ interface ElectronBuilderConfig {
   readonly extraResources?: readonly ElectronBuilderFileSet[];
   readonly mac?: {
     readonly binaries?: readonly string[];
+    readonly entitlements?: string;
+    readonly entitlementsInherit?: string;
     readonly extendInfo?: Record<string, unknown>;
+    readonly hardenedRuntime?: boolean;
+    readonly sign?: string;
     readonly target?: readonly string[];
   };
   readonly publish?: unknown;
+}
+
+function readBooleanPlist(filePath: string): Readonly<Record<string, boolean>> {
+  const source = fs.readFileSync(filePath, "utf8");
+  const entries = [...source.matchAll(/<key>\s*([^<]+?)\s*<\/key>\s*<(true|false)\s*\/>/gu)];
+  const keyCount = [...source.matchAll(/<key>/gu)].length;
+  if (entries.length !== keyCount) {
+    throw new Error(`Expected a boolean-only entitlement plist: ${filePath}`);
+  }
+
+  const result: Record<string, boolean> = {};
+  for (const [, key, value] of entries) {
+    if (!key || !value || Object.hasOwn(result, key)) {
+      throw new Error(`Invalid or duplicate entitlement key in ${filePath}`);
+    }
+    result[key] = value === "true";
+  }
+  return result;
 }
 
 describe("electron-builder runtime resources", () => {
@@ -72,5 +94,33 @@ describe("electron-builder runtime resources", () => {
     });
     expect(config.dmg).toMatchObject({ sign: true, writeUpdateInfo: false });
     expect(config.publish).toBeUndefined();
+  });
+
+  test("grants microphone capture only to the hardened top-level app", () => {
+    const configPath = path.resolve("electron-builder.yml");
+    const config = load(fs.readFileSync(configPath, "utf8")) as ElectronBuilderConfig;
+    const mainEntitlementsPath = config.mac?.entitlements;
+    const inheritedEntitlementsPath = config.mac?.entitlementsInherit;
+
+    expect(config.mac).toMatchObject({
+      hardenedRuntime: true,
+      sign: "scripts/sign-macos-runtime.mjs",
+    });
+    expect(mainEntitlementsPath).toBe("resources/entitlements.mac.plist");
+    expect(inheritedEntitlementsPath).toBe("resources/entitlements.mac.inherit.plist");
+    expect(mainEntitlementsPath).not.toBe(inheritedEntitlementsPath);
+    expect(config.mac?.extendInfo?.NSMicrophoneUsageDescription).toBe(
+      "Nodex uses your microphone for dictation.",
+    );
+    if (!mainEntitlementsPath || !inheritedEntitlementsPath) {
+      throw new Error("macOS entitlement paths are required");
+    }
+
+    const mainEntitlements = readBooleanPlist(path.resolve(mainEntitlementsPath));
+    const inheritedEntitlements = readBooleanPlist(path.resolve(inheritedEntitlementsPath));
+    expect(mainEntitlements["com.apple.security.device.audio-input"]).toBe(true);
+    expect(inheritedEntitlements).not.toHaveProperty("com.apple.security.device.audio-input");
+    expect(mainEntitlements).not.toHaveProperty("com.apple.security.device.microphone");
+    expect(inheritedEntitlements).not.toHaveProperty("com.apple.security.device.microphone");
   });
 });
