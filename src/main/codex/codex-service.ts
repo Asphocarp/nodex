@@ -16559,7 +16559,12 @@ export class CodexService {
     }
   }
 
-  async removePlanImplementationRequest(threadId: string, turnId: string): Promise<boolean> {
+  /** Effect Module projection operation; callers use CodexServerRequestResponses. */
+  completePlanImplementationRequestForModule(input: {
+    readonly threadId: string;
+    readonly turnId: string;
+  }): void {
+    const { threadId, turnId } = input;
     this.removePlanImplementationRequestFromRecord(threadId, turnId);
     this.completePlanImplementationItemsForTurn(threadId, turnId);
 
@@ -16567,7 +16572,6 @@ export class CodexService {
       syncRequests: true,
       syncCapabilityFlags: true,
     });
-    return true;
   }
 
   private buildDynamicToolSuccess(value: unknown): DynamicToolCallResponse {

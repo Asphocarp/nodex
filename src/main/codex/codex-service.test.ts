@@ -331,7 +331,10 @@ interface TestableCodexService {
     input: CodexThreadSettingsUpdateCommand,
     signal: AbortSignal,
   ) => Promise<CodexPreparedThreadSettingsUpdate>;
-  removePlanImplementationRequest: (threadId: string, turnId: string) => Promise<boolean>;
+  completePlanImplementationRequestForModule: (input: {
+    readonly threadId: string;
+    readonly turnId: string;
+  }) => void;
   setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
   getRendererConversationOwner: (threadId: string) => string | null;
   handleRendererOwnerAppServerRequest: (
@@ -16599,11 +16602,10 @@ describe("codex-service item lifecycle status fallback", () => {
         "implement-plan:turn_plan_impl_remove",
       );
 
-      const removed = await service.removePlanImplementationRequest(
-        "thr_plan_impl_remove",
-        "turn_plan_impl_remove",
-      );
-      expect(removed).toBe(true);
+      service.completePlanImplementationRequestForModule({
+        threadId: "thr_plan_impl_remove",
+        turnId: "turn_plan_impl_remove",
+      });
 
       requests = serviceInternals.listPendingConversationRequests("thr_plan_impl_remove");
       expect(requests.length).toBe(0);

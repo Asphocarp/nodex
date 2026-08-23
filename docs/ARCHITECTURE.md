@@ -986,14 +986,15 @@ until their exact occurrence token is completed. Disconnect, history pruning,
 Thread cleanup, and Main Scope close all settle the same inbox. Canonical
 conversation reducers remain the sole owner of transcript/request truth.
 `CodexServerRequestResponses` is the only application command owner for renderer,
-automatic, and interrupt-time responses. A per-Thread scoped lane serializes
+automatic, interrupt-time, and synthetic plan-implementation responses. A per-Thread scoped lane serializes
 target resolution, follower-host forwarding, canonical transition, projection
 cleanup, and exact occurrence settlement. Its pure response kernel is shared by
 the legacy reducer test harness, but production concurrency and I/O remain in the
 Effect Module. A failed follower decision leaves the occurrence queued and the
 canonical request unchanged; duplicate physical occurrences receive one protocol
-response and explicit no-response settlement for the rest. Renderer IPC never
-calls responder methods on `CodexService`, and the class owns no response facade,
+response and explicit no-response settlement for the rest. Synthetic request
+completion uses the same lane even though it needs no transport occurrence.
+Renderer IPC never calls responder methods on `CodexService`, and the class owns no response facade,
 completion callback, pending map, or shutdown path.
 
 `CodexThreadHandoffRuntime` is the single owner of the cross-system compensation

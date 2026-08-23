@@ -151,6 +151,7 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           optionPicker: () => Effect.die("unused"),
           setupContextPicker: () => Effect.die("unused"),
           setupCodexStep: () => Effect.die("unused"),
+          planImplementation: () => Effect.die("unused"),
           declineAll: () => Effect.die("unused"),
         }),
         conversationCommands: ConversationCommands.of({

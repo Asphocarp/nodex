@@ -106,9 +106,11 @@ const makeHarness = (
     }).pipe(Effect.provideService(Scope.Scope, scope));
     const states = new Map<string, CodexCanonicalConversationState>();
     const emitted: unknown[] = [];
+    const completedPlans: Array<{ readonly threadId: string; readonly turnId: string }> = [];
     const responses = yield* makeResponses({
       inbox,
       projection: {
+        completePlanImplementation: (input) => completedPlans.push(input),
         read: (threadId) => {
           const state = states.get(threadId);
           return state
@@ -139,8 +141,19 @@ const makeHarness = (
         respondFollowerApproval: () => respondFollowerApproval,
       },
     }).pipe(Effect.provideService(Scope.Scope, scope));
-    return { completions, emitted, inbox, responses, states };
+    return { completedPlans, completions, emitted, inbox, responses, states };
   });
+
+it.effect("settles a synthetic plan implementation request in the Thread response lane", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const harness = yield* makeHarness(scope, false, Effect.void);
+
+    assert.isTrue(yield* harness.responses.planImplementation("thread-plan", "turn-plan"));
+    assert.deepEqual(harness.completedPlans, [{ threadId: "thread-plan", turnId: "turn-plan" }]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
 
 it.effect("commits one owner response and explicitly releases duplicate physical occurrences", () =>
   Effect.gen(function* () {

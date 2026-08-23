@@ -746,10 +746,18 @@ export const codexIpcLive = (
             ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:plan-implementation:remove",
         (_, threadId: string, turnId: string) =>
-          codexService.removePlanImplementationRequest(threadId, turnId),
+          options.serverRequestResponses.planImplementation(threadId, turnId).pipe(
+            Effect.mapError(
+              (cause) =>
+                new CodexIpcError({
+                  operation: "codex:thread:plan-implementation:remove",
+                  cause,
+                }),
+            ),
+          ),
       );
 
       registerHandle(

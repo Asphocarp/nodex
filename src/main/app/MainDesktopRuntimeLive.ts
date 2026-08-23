@@ -2190,6 +2190,8 @@ export const live: Layer.Layer<
           projection: {
             read: (threadId) =>
               requireCodexService().readServerRequestConversationForModule(threadId),
+            completePlanImplementation: (input) =>
+              requireCodexService().completePlanImplementationRequestForModule(input),
             resolveThreadId: (requestId) =>
               requireCodexService().resolveServerRequestThreadIdForModule(requestId),
             applyCanonical: (input) =>

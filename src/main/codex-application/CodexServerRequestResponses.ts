@@ -34,6 +34,10 @@ export class CodexServerRequestResponseProjectionError extends Data.TaggedError(
 }> {}
 
 export interface CodexServerRequestResponseProjection extends CodexServerRequestResponseKernelProjection {
+  readonly completePlanImplementation: (input: {
+    readonly threadId: string;
+    readonly turnId: string;
+  }) => void;
   readonly observeUserInputResponse: (
     threadId: string,
     requestId: RequestId,
@@ -66,6 +70,10 @@ export interface CodexServerRequestResponsesService {
   ) => Effect.Effect<boolean, CodexServerRequestResponseProjectionError>;
   readonly setupCodexStep: (
     input: CodexSetupCodexStepResponseInput,
+  ) => Effect.Effect<boolean, CodexServerRequestResponseProjectionError>;
+  readonly planImplementation: (
+    threadId: string,
+    turnId: string,
   ) => Effect.Effect<boolean, CodexServerRequestResponseProjectionError>;
   readonly declineAll: (
     threadId: string,
@@ -219,6 +227,14 @@ export const make = (
       optionPicker,
       setupContextPicker,
       setupCodexStep,
+      planImplementation: (threadId, turnId) =>
+        runSerial(
+          threadId,
+          sync(() => {
+            options.projection.completePlanImplementation({ threadId, turnId });
+            return true;
+          }),
+        ),
       declineAll: (threadId) =>
         sync(() => [...kernel.requests(threadId)]).pipe(
           Effect.flatMap((requests) =>
