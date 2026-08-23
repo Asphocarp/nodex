@@ -9,8 +9,8 @@ import * as TestClock from "effect/testing/TestClock";
 import { assert, it } from "@effect/vitest";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
+import { NodexAgentResourceAccessError } from "../nodex-agent-application/NodexAgentResourceAccess";
 import {
-  NodexAgentAuthorizationPersistenceError,
   NodexAgentAuthorizationRuntime,
   type AuthorizeNodexAgentAccessInput,
   testLayer,
@@ -100,7 +100,7 @@ const buildRuntime = (input: {
         rendererClients: { request: input.rendererRequest },
         readStoreEpoch: input.readStoreEpoch,
         sessionEpoch: "session-1",
-        persistProjectGrants: input.persistProjectGrants,
+        persistProjectGrants: input.persistProjectGrants ?? (() => Effect.void),
       }),
       scope,
     );
@@ -276,7 +276,7 @@ it.effect("never persists when exact Turn authority is already stale", () =>
   }),
 );
 
-it.effect("fails closed without stable store, presentation, or Project persistence", () =>
+it.effect("fails closed without stable store or presentation", () =>
   Effect.gen(function* () {
     let requests = 0;
     const missingStore = yield* buildRuntime({
@@ -298,10 +298,6 @@ it.effect("fails closed without stable store, presentation, or Project persisten
     });
     assert.strictEqual(
       yield* noPresentation.runtime.authorize(authorizationInput({ presentation: null })),
-      "unavailable",
-    );
-    assert.strictEqual(
-      yield* noPresentation.runtime.authorize(authorizationInput()),
       "unavailable",
     );
     yield* Scope.close(noPresentation.scope, Exit.void);
@@ -338,6 +334,28 @@ it.effect("uses independent occurrences for concurrent renderer prompts", () =>
   }),
 );
 
+it.effect("fences renderer decisions that cross a Store epoch", () =>
+  Effect.gen(function* () {
+    let storeEpoch: string | null = "store-1";
+    const requested = yield* Deferred.make<void>();
+    const response = yield* Deferred.make<unknown>();
+    const { runtime, scope } = yield* buildRuntime({
+      rendererRequest: makeRendererRequest(() =>
+        Deferred.succeed(requested, undefined).pipe(Effect.andThen(Deferred.await(response))),
+      ),
+      readStoreEpoch: () => storeEpoch,
+    });
+    const pending = yield* Effect.forkChild(runtime.authorize(authorizationInput()));
+    yield* Deferred.await(requested);
+    storeEpoch = "store-2";
+    yield* Deferred.succeed(response, { decision: "allow_task" });
+
+    assert.strictEqual(yield* Fiber.join(pending), "unavailable");
+    assert.isUndefined(yield* runtime.getTaskAccess(authority));
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect("fences late renderer decisions after its owning Scope closes", () =>
   Effect.gen(function* () {
     const response = yield* Deferred.make<unknown>();
@@ -362,7 +380,10 @@ it.effect("fails closed when durable Project-grant publication fails", () =>
       readStoreEpoch: () => "store-1",
       persistProjectGrants: () =>
         Effect.fail(
-          new NodexAgentAuthorizationPersistenceError({ cause: new Error("Core unavailable") }),
+          new NodexAgentResourceAccessError({
+            operation: "persist",
+            cause: new Error("Core unavailable"),
+          }),
         ),
     });
     assert.strictEqual(yield* runtime.authorize(authorizationInput()), "unavailable");

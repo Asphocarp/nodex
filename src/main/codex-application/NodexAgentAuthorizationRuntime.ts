@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
@@ -19,6 +18,11 @@ import {
   type PersistNodexAgentProjectResourceGrantsInput,
 } from "../../shared/nodex-agent-resource-access";
 import type { NodexAgentDynamicAuthorizationInput } from "../nodex-agent-application/NodexAgentDynamicPolicy";
+import {
+  NodexAgentResourceAccess,
+  type NodexAgentResourceAccessError,
+} from "../nodex-agent-application/NodexAgentResourceAccess";
+import { CoreAuthority } from "../core-runtime/CoreAuthority";
 import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 
 export type NodexAgentAuthorizationOutcome =
@@ -57,21 +61,12 @@ export interface AuthorizeNodexAgentAccessInput extends NodexAgentDynamicAuthori
   readonly isAuthorityCurrent?: Effect.Effect<boolean>;
 }
 
-export class NodexAgentAuthorizationPersistenceError extends Data.TaggedError(
-  "NodexAgentAuthorizationPersistenceError",
-)<{
-  readonly cause: unknown;
-}> {}
-
-export interface NodexAgentAuthorizationRuntimeOptions {
-  readonly persistProjectGrants?: (
+interface NodexAgentAuthorizationTestOptions {
+  readonly persistProjectGrants: (
     input: PersistNodexAgentProjectResourceGrantsInput,
-  ) => Effect.Effect<unknown, NodexAgentAuthorizationPersistenceError>;
+  ) => Effect.Effect<void, NodexAgentResourceAccessError>;
   readonly readStoreEpoch: () => string | null;
   readonly sessionEpoch?: string;
-}
-
-interface NodexAgentAuthorizationRuntimeLayerOptions extends NodexAgentAuthorizationRuntimeOptions {
   readonly rendererClients: Pick<RendererClientRuntime["Service"], "request">;
 }
 
@@ -135,7 +130,7 @@ const taskOverlay = (
   grants: canonicalizeNodexAgentResourceGrantSpecs(grants),
 });
 
-const make = (options: NodexAgentAuthorizationRuntimeLayerOptions) =>
+const make = (options: NodexAgentAuthorizationTestOptions) =>
   Effect.gen(function* () {
     const sessionEpoch = options.sessionEpoch ?? randomUUID();
     const state = yield* Ref.make<NodexAgentAuthorizationState>({
@@ -350,7 +345,6 @@ const make = (options: NodexAgentAuthorizationRuntimeLayerOptions) =>
           .filter((requirement) => requirement.persistable)
           .map((requirement) => requirement.grant);
         if (persistable.length > 0) {
-          if (!options.persistProjectGrants) return "unavailable";
           const persisted = yield* options
             .persistProjectGrants({
               operationId: `nodex-agent-grants:${hashParts([
@@ -404,18 +398,25 @@ const make = (options: NodexAgentAuthorizationRuntimeLayerOptions) =>
     });
   });
 
-export const live = (
-  options: NodexAgentAuthorizationRuntimeOptions,
-): Layer.Layer<NodexAgentAuthorizationRuntime, never, RendererClientRuntime> =>
-  Layer.effect(
-    NodexAgentAuthorizationRuntime,
-    Effect.gen(function* () {
-      const rendererClients = yield* RendererClientRuntime;
-      return yield* make({ ...options, rendererClients });
-    }),
-  );
+export const live: Layer.Layer<
+  NodexAgentAuthorizationRuntime,
+  never,
+  CoreAuthority | NodexAgentResourceAccess | RendererClientRuntime
+> = Layer.effect(
+  NodexAgentAuthorizationRuntime,
+  Effect.gen(function* () {
+    const authority = yield* CoreAuthority;
+    const resources = yield* NodexAgentResourceAccess;
+    const rendererClients = yield* RendererClientRuntime;
+    return yield* make({
+      rendererClients,
+      readStoreEpoch: () => authority.identity.storeEpoch,
+      persistProjectGrants: resources.persistProjectGrants,
+    });
+  }),
+);
 
 export const testLayer = (
-  options: NodexAgentAuthorizationRuntimeLayerOptions,
+  options: NodexAgentAuthorizationTestOptions,
 ): Layer.Layer<NodexAgentAuthorizationRuntime> =>
   Layer.effect(NodexAgentAuthorizationRuntime, make(options));
