@@ -1,7 +1,7 @@
 # NFM Editor Page Connection Behavior
 
 Status: Active
-Last updated: 2026-08-21
+Last updated: 2026-08-23
 
 ## Purpose
 
@@ -70,6 +70,13 @@ Tooltips preserve useful context that does not fit in the row, including the ful
 No Block is created until a target is chosen.
 The resulting `pageRef` is a non-owning shell that can disclose the target Page body when authorized.
 Removing it removes only the shell.
+
+Any disclosed Page body—whether referenced or owning—is an independent editor.
+Pointer, keyboard, drag, resize, clipboard, and selection events inside it
+belong to that editor and never select or focus the enclosing shell. Only the
+active editor paints its Block selection; an inactive ancestor may retain its
+logical selection for return navigation but cannot add a blue wash over the
+disclosed body.
 
 The picker and `@Page` use Page ID as the candidate key and the same authorized candidate source.
 The embed picker retains the Page candidate order; the sectioned `@` menu ranks those candidates within the Page section and orders that section against Chat and Date by its strongest result.

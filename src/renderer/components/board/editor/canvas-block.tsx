@@ -26,6 +26,7 @@ import {
 import { useElementVisibility } from "@/lib/use-element-visibility";
 import { useCanvasInlineFrameHeight } from "@/lib/use-canvas-inline-frame-height";
 import { useLibraryCanvasTarget } from "@/lib/use-library-navigation";
+import { embeddedEditorSelectionContextAttributes } from "@/lib/editor-selection-presentation";
 import { canvasBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { toast } from "@/components/ui/toast";
 import {
@@ -95,6 +96,7 @@ export function CanvasBlockFrame({
     <section
       ref={containerRef}
       contentEditable={false}
+      {...embeddedEditorSelectionContextAttributes}
       data-canvas-block={canvasBlockId}
       data-canvas-block-active={active ? "true" : "false"}
       className="group/canvas my-2 w-full min-w-0 overflow-hidden rounded-lg border border-token-border-default bg-token-main-surface-primary focus-within:border-token-border-xstrong focus-within:ring-1 focus-within:ring-token-border-xstrong"

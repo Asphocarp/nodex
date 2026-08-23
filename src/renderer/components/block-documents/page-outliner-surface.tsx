@@ -23,6 +23,7 @@ import {
   referenceSurfaceActivationBudget,
   useReferenceSurfaceActivation,
 } from "@/lib/reference-surface-state";
+import { embeddedEditorSelectionContextAttributes } from "@/lib/editor-selection-presentation";
 import { useElementVisibility } from "@/lib/use-element-visibility";
 import { cn } from "@/lib/utils";
 
@@ -118,11 +119,12 @@ export function PageOutlinerFrame({
     <section
       ref={sectionRef}
       contentEditable={false}
+      {...embeddedEditorSelectionContextAttributes}
       data-page-outliner-target={targetBlockId}
       data-page-outliner-access={accessKind}
       data-page-outliner-expanded={expanded ? "true" : "false"}
       data-page-outliner-active={active ? "true" : "false"}
-      className="w-full min-w-0 self-stretch"
+      className="relative w-full min-w-0 self-stretch"
       onFocusCapture={handleFocus}
       onPointerDownCapture={handlePointerDown}
     >

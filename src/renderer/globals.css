@@ -1006,33 +1006,164 @@
   background-color: #1d4b77 !important;
 }
 
-/* ProseMirror decoration class applied to selected image block containers. */
-.nfm-editor
-  .nodex-selected-image-block
-  .bn-block-content[data-content-type="image"]
-  .bn-file-block-content-wrapper {
-  border-radius: 8px;
+/*
+ * Whole-Block selection and embedded-context focus are separate layers:
+ * authoritative Block selection uses a blue wash over its visual scope, while
+ * Page contexts use a quiet halo only while they own the active selection.
+ */
+[data-nodex-block-selection-presentation]
+  :is(
+    .bn-block-content.ProseMirror-selectednode > *,
+    .ProseMirror-selectednode > .bn-block-content > *
+  ) {
+  outline: none;
 }
 
-.nfm-editor
-  .nodex-selected-image-block
-  .bn-block-content[data-content-type="image"]
-  .bn-visual-media-wrapper {
+[data-nodex-block-selection-presentation]
+  :is(
+    .bn-block-content.ProseMirror-selectednode > *,
+    .ProseMirror-selectednode > .bn-block-content > *
+  )::after {
+  content: none;
+}
+
+[data-nodex-block-selection-presentation]
+  .bn-block-outer.nodex-selected-block[data-nodex-selected-block-scope="subtree"]
+  > .bn-block {
+  position: relative;
+}
+
+[data-nodex-block-selection-presentation]
+  .bn-block-outer.nodex-selected-block[data-nodex-selected-block-scope="subtree"]
+  > .bn-block::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  z-index: 81;
+  pointer-events: none;
+  background: rgba(35, 131, 226, 0.14);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+[data-nodex-block-selection-presentation][data-nodex-active-editor-selection-surface]
+  .bn-block-outer.nodex-selected-block[data-nodex-selected-block-scope="subtree"]
+  > .bn-block::after {
+  opacity: 1;
+}
+
+[data-nodex-block-selection-presentation]
+  :is(
+    .bn-block-content[data-nodex-selected-block-content]:not([data-content-type="image"]),
+    .bn-react-node-view-renderer[data-nodex-selected-block-content]
+      > .bn-block-content:not([data-content-type="image"])
+  ) {
+  position: relative;
+}
+
+[data-nodex-block-selection-presentation]
+  :is(
+    .bn-block-content[data-nodex-selected-block-content]:not([data-content-type="image"]),
+    .bn-react-node-view-renderer[data-nodex-selected-block-content]
+      > .bn-block-content:not([data-content-type="image"])
+  )::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  z-index: 81;
+  pointer-events: none;
+  background: rgba(35, 131, 226, 0.14);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+[data-nodex-block-selection-presentation][data-nodex-active-editor-selection-surface]
+  :is(
+    .bn-block-content[data-nodex-selected-block-content]:not([data-content-type="image"]),
+    .bn-react-node-view-renderer[data-nodex-selected-block-content]
+      > .bn-block-content:not([data-content-type="image"])
+  )::after {
+  opacity: 1;
+}
+
+[data-nodex-block-selection-presentation]
+  :is(
+    .bn-block-content[data-nodex-selected-block-content][data-content-type="image"],
+    .bn-react-node-view-renderer[data-nodex-selected-block-content]
+      > .bn-block-content[data-content-type="image"]
+  )
+  > :is(.bn-file-block-content-wrapper, .nfm-image-file-block-content-wrapper) {
   position: relative;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
-.nfm-editor
-  .nodex-selected-image-block
-  .bn-block-content[data-content-type="image"]
-  .bn-visual-media-wrapper::after {
+[data-nodex-block-selection-presentation]
+  :is(
+    .bn-block-content[data-nodex-selected-block-content][data-content-type="image"],
+    .bn-react-node-view-renderer[data-nodex-selected-block-content]
+      > .bn-block-content[data-content-type="image"]
+  )
+  > :is(.bn-file-block-content-wrapper, .nfm-image-file-block-content-wrapper)::after {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 81;
   pointer-events: none;
-  background: color-mix(in srgb, var(--accent-blue) 24%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-blue) 45%, transparent);
+  background: rgba(35, 131, 226, 0.14);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+[data-nodex-block-selection-presentation][data-nodex-active-editor-selection-surface]
+  :is(
+    .bn-block-content[data-nodex-selected-block-content][data-content-type="image"],
+    .bn-react-node-view-renderer[data-nodex-selected-block-content]
+      > .bn-block-content[data-content-type="image"]
+  )
+  > :is(.bn-file-block-content-wrapper, .nfm-image-file-block-content-wrapper)::after {
+  opacity: 1;
+}
+
+[data-page-outliner-target] {
+  --nodex-page-context-halo: #f3ddcb;
+}
+
+.dark [data-page-outliner-target] {
+  --nodex-page-context-halo: #53361f;
+}
+
+[data-page-outliner-target]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 82;
+  pointer-events: none;
+  border: 2px solid var(--nodex-page-context-halo);
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+[data-page-outliner-target]:focus-within::after,
+[data-page-outliner-target]:has([data-nodex-active-editor-selection-surface])::after,
+[data-nodex-block-selection-presentation][data-nodex-active-editor-selection-surface]
+  .bn-block-outer.nodex-selected-block
+  > .bn-block
+  > .bn-react-node-view-renderer
+  > .bn-block-content
+  > [data-page-outliner-target]::after,
+[data-nodex-block-selection-presentation][data-nodex-active-editor-selection-surface]
+  .bn-react-node-view-renderer[data-nodex-selected-block-content]
+  > .bn-block-content
+  > [data-page-outliner-target]::after,
+[data-nodex-block-selection-presentation][data-nodex-active-editor-selection-surface]
+  .bn-block-content[data-nodex-selected-block-content]
+  > [data-page-outliner-target]::after {
+  opacity: 1;
 }
 
 .nfm-editor > [data-toggle-drop-overlay] {

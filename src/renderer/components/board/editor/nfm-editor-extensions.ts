@@ -16,7 +16,7 @@ import { splitGfmTableRow } from "@/lib/nfm/table";
 import { nfmToBlockNote } from "@/lib/nfm";
 import { getNfmSearchState, nfmSearchExtension } from "./search-extension";
 import { selectCurrentBlockContent } from "./select-block-shortcut";
-import { selectedImageBlockDecorationsExtension } from "./selected-image-block-decorations";
+import { selectedBlockDecorationsExtension } from "./selected-block-decorations";
 import {
   handleChildGroupEmptyEnter,
   handleParentEnterSplitToFirstChild,
@@ -475,7 +475,7 @@ export function createNfmEditorExtensions(options: NfmEditorExtensionOptions = {
     threadSectionInputRule,
     mentionChipKeyboardNavigationExtension(),
     selectBlockShortcut,
-    selectedImageBlockDecorationsExtension(),
+    selectedBlockDecorationsExtension(),
     childGroupEnterExt,
     childGroupBackspaceExt,
   ];

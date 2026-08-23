@@ -30,7 +30,11 @@ export const ShowSelectionExtension = createExtension(({ editor }) => {
         props: {
           decorations: (state) => {
             const { doc, selection } = state;
-            if (store.state.enabledSet.size === 0) {
+            if (
+              store.state.enabledSet.size === 0 ||
+              selection.empty ||
+              !selection.visible
+            ) {
               return DecorationSet.empty;
             }
             const dec = Decoration.inline(selection.from, selection.to, {

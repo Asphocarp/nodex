@@ -381,6 +381,7 @@ describe("nfm side menu selection helpers", () => {
 
     expect(applied).toBe(true);
     expect(appliedSelection instanceof MultipleNodeSelection).toBe(true);
+    expect((appliedSelection as MultipleNodeSelection).visible).toBe(false);
   });
 
   test("reports adapter failure without throwing", () => {

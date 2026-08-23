@@ -5,6 +5,7 @@ import { BlockDocumentSyncStatus } from "@/components/block-documents/block-docu
 import { RegisteredOwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
 import type { BlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
 import { NodexButton } from "@/components/ui/button";
+import { embeddedEditorSelectionContextAttributes } from "@/lib/editor-selection-presentation";
 import { resolveOwnedDocumentInlineMode } from "@/lib/owned-document-inline-mode";
 import { libraryContentAccess } from "../../../../shared/content-access-context";
 import { NfmEditor } from "./nfm-editor";
@@ -94,6 +95,7 @@ export function EmbeddedOwnedBlockDocument({
               return (
                 <div
                   data-embedded-owned-document={ownerBlockId}
+                  {...embeddedEditorSelectionContextAttributes}
                   className="min-w-0 py-1"
                   onBeforeInput={stopNestedEditorEvent}
                   onClick={stopNestedEditorEvent}

@@ -1,7 +1,6 @@
 import { blockHasType, editorHasBlockWithType } from "@blocknote/core";
 import {
   FormattingToolbarExtension,
-  ShowSelectionExtension,
   SideMenuExtension,
   SuggestionMenu,
 } from "@blocknote/core/extensions";
@@ -63,6 +62,7 @@ import {
 import { NodexPopover, NodexPopoverAnchor } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { claimEditorSelectionSurface } from "@/lib/editor-selection-presentation";
 import { cn } from "@/lib/utils";
 import { hasTypedOwnerBlock } from "@/lib/typed-owner-blocks";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
@@ -264,7 +264,6 @@ const SIDE_MENU_MOTION_DURATION_MS = 200;
 const SIDE_MENU_MOTION_DELAY_MS = 30;
 const SIDE_MENU_EXIT_FALLBACK_MS = SIDE_MENU_MOTION_DURATION_MS + SIDE_MENU_MOTION_DELAY_MS + 50;
 const SIDE_MENU_CLOSED_SCALE = 0.97;
-const NFM_SIDE_MENU_OPEN_SELECTION_KEY = "nfmSideMenu";
 const SIDE_MENU_COLOR_VALUES = [
   "default",
   "gray",
@@ -1382,7 +1381,6 @@ function NfmSideMenuPopup({
   const formattingToolbar = useExtension(FormattingToolbarExtension, {
     editor: editor as never,
   });
-  const { showSelection } = useExtension(ShowSelectionExtension);
   const listboxId = useId();
   const comboboxId = useId();
   const popupRef = useRef<HTMLDivElement>(null);
@@ -1568,9 +1566,7 @@ function NfmSideMenuPopup({
   useEffect(() => {
     if (!openState || !visible) return;
     formattingToolbar.store.setState(false);
-    showSelection(true, NFM_SIDE_MENU_OPEN_SELECTION_KEY);
-    return () => showSelection(false, NFM_SIDE_MENU_OPEN_SELECTION_KEY);
-  }, [formattingToolbar.store, openState, showSelection, visible]);
+  }, [formattingToolbar.store, openState, visible]);
 
   const executeAction = useCallback(
     (key: NfmSideMenuActionKey) => {
@@ -1922,6 +1918,7 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
         selectionIntent ?? createSideMenuSelectionIntent(editor, block);
 
       setFormattingToolbarSuppressionRange(null);
+      if (editor.domElement) claimEditorSelectionSurface(editor.domElement);
       applySideMenuSelectionIntent(editor, resolvedSelectionIntent);
 
       if (freezeSideMenu) {

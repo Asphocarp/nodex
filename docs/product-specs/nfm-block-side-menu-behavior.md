@@ -1,7 +1,7 @@
 # NFM Block Side Menu Behavior
 
 Status: Active
-Last updated: 2026-08-16
+Last updated: 2026-08-23
 
 ## Purpose
 
@@ -90,6 +90,11 @@ committed React subtree and geometry, leaves editor interaction ownership, and
 is inert and hidden from assistive technology until unmounted. It must never
 materialize an eventless `draggable`, link, button, input, or other native HTML
 interaction from a serialized DOM snapshot.
+
+Opening the menu establishes one structural Block selection. Its blue overlay
+covers the complete selected subtree, while media Blocks remain bounded to
+their own visual width. The menu never adds a second inline text-selection
+paint over that overlay.
 
 Footer metadata is optional. Production hides the footer when there is no real metadata. Storybook fixtures may provide footer text.
 
