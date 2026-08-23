@@ -1,38 +1,72 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
-import type * as Scope from "effect/Scope";
-import type { IpcMainInvokeEvent } from "electron";
+import type { IpcMainInvokeEvent, WebContents } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
-import { registerAdditionalDocumentCommandIpcHandler } from "../../additional-document-command-ipc";
+import {
+  additionalDocumentCommandFailure,
+  additionalDocumentCommandTransportFailure,
+  bindAdditionalDocumentCommandToProject,
+} from "../../../shared/additional-document-command-transport";
+import {
+  bindTrustedBlockPropertyMutationV2,
+  bindTrustedLibraryBlockPropertyMutationV2,
+  blockPropertyMutationFailureV2,
+  blockPropertyMutationTransportFailureV2,
+  libraryBlockPropertyMutationTransportFailureV2,
+} from "../../../shared/block-property-mutation-v2-transport";
+import {
+  bindBlockTransferIntent,
+  bindBlockTransferUndoIntent,
+  blockTransferFailure,
+} from "../../../shared/block-transfer-transport";
+import type {
+  CreatedDocumentVersionSummary,
+  DocumentVersionDetail,
+  DocumentVersionSummary,
+} from "../../../shared/block-documents/document-history";
+import {
+  bindTrustedDocumentVersionCheckpoint,
+  documentHistoryFailure,
+  DocumentHistoryContractError,
+  parseGetDocumentVersion,
+  parseListDocumentVersions,
+  type DocumentHistoryCommandResult,
+} from "../../../shared/block-documents/document-history-transport";
+import {
+  bindTrustedDocumentMutation,
+  documentMutationFailure,
+} from "../../../shared/block-documents/document-operation-transport";
+import {
+  bindDatabaseApplyV2,
+  bindDatabaseModuleReadV2,
+  bindLibraryDatabaseApplyV2,
+  bindLibraryDatabaseModuleReadV2,
+  databaseModuleFailureV2,
+} from "../../../shared/database-module-v2-transport";
+import { parseContentAccessContext } from "../../../shared/content-access-context";
+import {
+  bindLibraryModuleApply,
+  bindLibraryModuleRead,
+  libraryModuleFailure,
+} from "../../../shared/library-module-transport";
+import {
+  bindTrustedPageLifecycleMutationV2,
+  pageLifecycleMutationFailureV2,
+  pageLifecycleTransportFailureV2,
+} from "../../../shared/page-lifecycle-v2-transport";
+import {
+  PageHistoryContractError,
+  pageHistoryFailure,
+  pageHistoryTransportFailure,
+  parseListPageHistoryRequest,
+} from "../../../shared/page-history-transport";
 import { MainConfig } from "../../app/MainConfig";
-import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
-import {
-  registerBlockPropertyMutationIpcHandler,
-  registerLibraryBlockPropertyMutationIpcHandler,
-} from "../../block-property-mutation-ipc";
-import {
-  registerBlockTransferIpcHandler,
-  registerBlockTransferUndoIpcHandler,
-} from "../../block-transfer-ipc";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopDocumentSessionService } from "../../core-client";
 import { DatabaseModule } from "../../database-application/DatabaseModule";
-import { registerDatabaseModuleIpcHandlers } from "../../database-module-ipc";
-import { registerDocumentHistoryIpcHandlers } from "../../document-history-ipc";
-import { registerDocumentMutationIpcHandler } from "../../document-operation-ipc";
-import { registerLibraryDatabaseModuleIpcHandler } from "../../library-database-module-ipc";
-import { registerLibraryModuleIpcHandler } from "../../library-module-ipc";
-import { registerLibraryPageDetailIpcHandler } from "../../library-page-detail-ipc";
-import { registerPageDetailIpcHandler } from "../../page-detail-ipc";
-import { registerPageHistoryIpcHandler } from "../../page-history-ipc";
-import {
-  registerPageLifecycleIpcHandler,
-  registerPageLifecyclePreflightIpcHandler,
-} from "../../page-lifecycle-ipc";
+import { LibraryModule } from "../../library-application/LibraryModule";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
-import { LibraryModule } from "../../library-application/LibraryModule";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface CoreMutationIpcOptions {
@@ -40,267 +74,696 @@ export interface CoreMutationIpcOptions {
   readonly rendererClients: RendererClientRuntimeService;
 }
 
-export class CoreMutationIpcError extends Schema.TaggedError<CoreMutationIpcError>()(
-  "CoreMutationIpcError",
-  { operation: Schema.String, cause: Schema.Defect() },
-) {}
+const messageOf = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
 
-type Handler<Channel extends keyof IpcApi> = (
-  event: IpcMainInvokeEvent,
-  ...args: IpcApi[Channel]["args"]
-) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
+const documentHistoryInvalid = <A>(error: unknown): DocumentHistoryCommandResult<A> => ({
+  ok: false,
+  error: documentHistoryFailure(
+    "invalid_document_history_request",
+    error instanceof DocumentHistoryContractError
+      ? error.message
+      : "Document history request is invalid",
+  ),
+});
+
+const documentHistoryUnavailable = <A>(error: unknown): DocumentHistoryCommandResult<A> => ({
+  ok: false,
+  error: documentHistoryFailure(
+    "unknown",
+    messageOf(error, "The durable Document history writer is unavailable"),
+    { retryable: true },
+  ),
+});
 
 export const live = (
   options: CoreMutationIpcOptions,
 ): Layer.Layer<
   never,
   never,
-  DatabaseModule | ElectronIpc | LibraryModule | MainConfig | ScopedCallbackRuntime | WindowRuntime
+  DatabaseModule | ElectronIpc | LibraryModule | MainConfig | WindowRuntime
 > =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
-      const callbacks = yield* ScopedCallbackRuntime;
       const database = yield* DatabaseModule;
       const ipc = yield* ElectronIpc;
       const library = yield* LibraryModule;
       const windows = yield* WindowRuntime;
-      const targetFor = (event: IpcMainInvokeEvent) => {
+
+      const trustedTarget = (event: IpcMainInvokeEvent): WebContents | null => {
         try {
           requireTrustedAppRendererSender(event, "Core mutation authority", config.rendererUrl);
-          if (!windows.has(event.sender.id)) return null;
-          return event.sender;
+          return windows.has(event.sender.id) ? event.sender : null;
         } catch {
           return null;
         }
       };
-      const authorize = (event: IpcMainInvokeEvent) =>
-        Effect.try({
-          try: () => {
-            if (!targetFor(event)) {
-              throw new Error("Core mutation authority requires an active Nodex window");
-            }
-          },
-          catch: (cause) => new CoreMutationIpcError({ operation: "authorize-renderer", cause }),
-        });
-      const invoke = <A>(operation: string, task: () => A | Promise<A>) =>
-        Effect.tryPromise({
-          try: () => Promise.resolve(task()),
-          catch: (cause) => new CoreMutationIpcError({ operation, cause }),
-        });
-      const registrations: Array<Effect.Effect<void, never, Scope.Scope>> = [];
-      const registerHandle = <Channel extends keyof IpcApi>(
-        channel: Channel,
-        listener: Handler<Channel>,
-      ): void => {
-        registrations.push(
-          ipc.handle(channel, (event, ...args: IpcApi[Channel]["args"]) =>
-            authorize(event).pipe(
-              Effect.flatMap(() => invoke(channel, () => listener(event, ...args))),
+      const trustedIdentity = (event: IpcMainInvokeEvent) => {
+        const target = trustedTarget(event);
+        if (!target) return null;
+        try {
+          const clientId = options.rendererClients.ensureClient(target).clientId;
+          return {
+            clientSessionId: clientId,
+            actor: { kind: "electron_renderer" as const, clientId },
+          };
+        } catch {
+          return null;
+        }
+      };
+
+      yield* ipc.handle(
+        "block-properties:mutate",
+        (event, projectId: string, rawRequest: IpcApi["block-properties:mutate"]["args"][1]) => {
+          const identity = trustedIdentity(event);
+          if (!identity) {
+            return Effect.succeed({
+              ok: false as const,
+              error: blockPropertyMutationFailureV2(
+                "invalid_property_mutation_request",
+                "Block property mutations are restricted to a trusted application window",
+              ),
+            });
+          }
+          const bound = bindTrustedBlockPropertyMutationV2(rawRequest, projectId, identity);
+          if (!bound.ok) return Effect.succeed(bound);
+          return library
+            .applyBlockPropertyMutation(bound.value)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.succeed(blockPropertyMutationTransportFailureV2(bound.value, error)),
+              ),
+            );
+        },
+      );
+
+      yield* ipc.handle(
+        "library-block-properties:mutate",
+        (event, rawRequest: IpcApi["library-block-properties:mutate"]["args"][0]) => {
+          const identity = trustedIdentity(event);
+          if (!identity) {
+            return Effect.succeed({
+              ok: false as const,
+              error: blockPropertyMutationFailureV2(
+                "invalid_property_mutation_request",
+                "Library Block property mutations are restricted to a trusted application window",
+              ),
+            });
+          }
+          const bound = bindTrustedLibraryBlockPropertyMutationV2(rawRequest, identity);
+          if (!bound.ok) return Effect.succeed(bound);
+          return library
+            .applyLibraryBlockPropertyMutation({
+              request: bound.value,
+              actor: bound.actor,
+              accessActor: "app_window",
+            })
+            .pipe(
+              Effect.catch((error) =>
+                Effect.succeed(libraryBlockPropertyMutationTransportFailureV2(bound.value, error)),
+              ),
+            );
+        },
+      );
+
+      yield* ipc.handle(
+        "database-module:read",
+        (event, projectId: string, rawRequest: IpcApi["database-module:read"]["args"][1]) => {
+          if (!trustedIdentity(event)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: databaseModuleFailureV2(
+                "invalid_request",
+                "Database Module reads are restricted to a trusted application window",
+              ),
+            });
+          }
+          let request;
+          try {
+            request = bindDatabaseModuleReadV2(rawRequest, projectId);
+          } catch (error) {
+            return Effect.succeed({
+              ok: false as const,
+              error: databaseModuleFailureV2(
+                "invalid_request",
+                messageOf(error, "Database Module read is invalid"),
+              ),
+            });
+          }
+          return database.read(request).pipe(
+            Effect.catch((error) =>
+              Effect.succeed({
+                ok: false as const,
+                error: databaseModuleFailureV2(
+                  "unknown",
+                  messageOf(error, "The durable Database Module reader is unavailable"),
+                ),
+              }),
             ),
+          );
+        },
+      );
+
+      yield* ipc.handle(
+        "database-module:apply",
+        (event, projectId: string, rawRequest: IpcApi["database-module:apply"]["args"][1]) => {
+          const identity = trustedIdentity(event);
+          if (!identity) {
+            return Effect.succeed({
+              ok: false as const,
+              error: databaseModuleFailureV2(
+                "invalid_request",
+                "Database Module writes are restricted to a trusted application window",
+              ),
+            });
+          }
+          let request;
+          try {
+            request = bindDatabaseApplyV2(rawRequest, projectId, identity);
+          } catch (error) {
+            return Effect.succeed({
+              ok: false as const,
+              error: databaseModuleFailureV2(
+                "invalid_request",
+                messageOf(error, "Database Module apply is invalid"),
+              ),
+            });
+          }
+          return database.apply(request).pipe(
+            Effect.catch((error) =>
+              Effect.succeed({
+                ok: false as const,
+                error: databaseModuleFailureV2(
+                  "unknown",
+                  messageOf(error, "The durable Database Module writer is unavailable"),
+                  request.operationId,
+                ),
+              }),
+            ),
+          );
+        },
+      );
+
+      yield* ipc.handle(
+        "library-module:read",
+        (event, rawAccess: unknown, rawRequest: IpcApi["library-module:read"]["args"][1]) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: libraryModuleFailure(
+                "invalid_request",
+                "Library reads are restricted to a trusted application window",
+              ),
+            });
+          }
+          let access;
+          let request;
+          try {
+            access = parseContentAccessContext(rawAccess);
+            request = bindLibraryModuleRead(rawRequest);
+          } catch (error) {
+            return Effect.succeed({
+              ok: false as const,
+              error: libraryModuleFailure(
+                "invalid_request",
+                messageOf(error, "Library read is invalid"),
+              ),
+            });
+          }
+          return library.read(access, request).pipe(
+            Effect.catch((error) =>
+              Effect.succeed({
+                ok: false as const,
+                error: libraryModuleFailure(
+                  "unknown",
+                  messageOf(error, "The durable Library reader is unavailable"),
+                  true,
+                ),
+              }),
+            ),
+          );
+        },
+      );
+
+      yield* ipc.handle(
+        "library-module:apply",
+        (event, rawAccess: unknown, rawRequest: IpcApi["library-module:apply"]["args"][1]) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: libraryModuleFailure(
+                "invalid_request",
+                "Library writes are restricted to a trusted application window",
+              ),
+            });
+          }
+          let access;
+          let request;
+          try {
+            access = parseContentAccessContext(rawAccess);
+            request = bindLibraryModuleApply(rawRequest);
+          } catch (error) {
+            return Effect.succeed({
+              ok: false as const,
+              error: libraryModuleFailure(
+                "invalid_request",
+                messageOf(error, "Library write is invalid"),
+              ),
+            });
+          }
+          return library.apply(access, request).pipe(
+            Effect.catch((error) =>
+              Effect.succeed({
+                ok: false as const,
+                error: libraryModuleFailure(
+                  "unknown",
+                  messageOf(error, "The durable Library writer is unavailable"),
+                  true,
+                ),
+              }),
+            ),
+          );
+        },
+      );
+
+      yield* ipc.handle(
+        "library-database-module:read",
+        (event, rawRequest: IpcApi["library-database-module:read"]["args"][0]) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: databaseModuleFailureV2(
+                "invalid_request",
+                "Library Database reads are restricted to a trusted application window",
+              ),
+            });
+          }
+          let request;
+          try {
+            request = bindLibraryDatabaseModuleReadV2(rawRequest);
+          } catch (error) {
+            return Effect.succeed({
+              ok: false as const,
+              error: databaseModuleFailureV2(
+                "invalid_request",
+                messageOf(error, "Library Database read is invalid"),
+              ),
+            });
+          }
+          return database.readLibrary(request).pipe(
+            Effect.catch((error) =>
+              Effect.succeed({
+                ok: false as const,
+                error: databaseModuleFailureV2(
+                  "unknown",
+                  messageOf(error, "The durable Library Database reader is unavailable"),
+                ),
+              }),
+            ),
+          );
+        },
+      );
+
+      yield* ipc.handle(
+        "library-database-module:apply",
+        (event, rawRequest: IpcApi["library-database-module:apply"]["args"][0]) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: databaseModuleFailureV2(
+                "invalid_request",
+                "Library Database writes are restricted to a trusted application window",
+              ),
+            });
+          }
+          let request;
+          try {
+            request = bindLibraryDatabaseApplyV2(rawRequest);
+          } catch (error) {
+            return Effect.succeed({
+              ok: false as const,
+              error: databaseModuleFailureV2(
+                "invalid_request",
+                messageOf(error, "Library Database write is invalid"),
+              ),
+            });
+          }
+          return database.applyLibrary(request).pipe(
+            Effect.catch((error) =>
+              Effect.succeed({
+                ok: false as const,
+                error: databaseModuleFailureV2(
+                  "unknown",
+                  messageOf(error, "The durable Library Database writer is unavailable"),
+                  request.operationId,
+                ),
+              }),
+            ),
+          );
+        },
+      );
+
+      yield* ipc.handle(
+        "pages:detail:get",
+        (event, projectId: string, pageId: string, minimumCommitSeq?: number) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: {
+                code: "authorization_denied" as const,
+                message: "Page Detail is restricted to a trusted application window",
+                retryable: false,
+              },
+            });
+          }
+          return library.readProjectPageDetail(projectId, pageId, minimumCommitSeq).pipe(
+            Effect.catch((error) =>
+              Effect.succeed({
+                ok: false as const,
+                error: {
+                  code: "unknown" as const,
+                  message: messageOf(error, "Page Detail is unavailable"),
+                  retryable: true,
+                },
+              }),
+            ),
+          );
+        },
+      );
+
+      yield* ipc.handle(
+        "library-pages:detail:get",
+        (event, pageId: string, minimumCommitSeq?: number) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: {
+                code: "authorization_denied" as const,
+                message: "Library Page Detail is restricted to a trusted application window",
+                retryable: false,
+              },
+            });
+          }
+          return library.readLibraryPageDetail(pageId, undefined, minimumCommitSeq).pipe(
+            Effect.catch((error) =>
+              Effect.succeed({
+                ok: false as const,
+                error: {
+                  code: "unknown" as const,
+                  message: messageOf(error, "Library Page Detail is unavailable"),
+                  retryable: true,
+                },
+              }),
+            ),
+          );
+        },
+      );
+
+      yield* ipc.handle("pages:lifecycle:preflight", (event, projectId: string, pageId: string) => {
+        if (!trustedTarget(event)) {
+          return Effect.succeed({
+            ok: false as const,
+            error: {
+              code: "authorization_denied" as const,
+              message: "Page lifecycle preflight requires a trusted application window",
+              retryable: false,
+            },
+          });
+        }
+        return library.readPageLifecyclePreflight(projectId, pageId).pipe(
+          Effect.catch((error) =>
+            Effect.succeed({
+              ok: false as const,
+              error: {
+                code: "unknown" as const,
+                message: messageOf(error, "Page lifecycle preflight is unavailable"),
+                retryable: true,
+              },
+            }),
           ),
         );
-      };
-      const resolveTrustedIdentity = (rawEvent: unknown) => {
-        const event = rawEvent as IpcMainInvokeEvent;
-        const target = targetFor(event);
-        if (!target) return null;
-        const clientId = options.rendererClients.ensureClient(target).clientId;
-        return {
-          clientSessionId: clientId,
-          actor: { kind: "electron_renderer" as const, clientId },
-        };
-      };
-
-      registerBlockPropertyMutationIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, projectId, request) =>
-            listener(event, projectId, request),
-          );
-        },
-        resolveTrustedIdentity,
-        applyMutation: (request) =>
-          callbacks.runPromise(library.applyBlockPropertyMutation(request)),
-      });
-      registerLibraryBlockPropertyMutationIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, request) => listener(event, request));
-        },
-        resolveTrustedIdentity,
-        applyMutation: (request) =>
-          callbacks.runPromise(library.applyLibraryBlockPropertyMutation(request)),
-      });
-      registerDatabaseModuleIpcHandlers({
-        registerHandle: (channel, listener) => {
-          registerHandle(
-            channel,
-            (event, projectId, request) =>
-              listener(event, projectId, request) as
-                | IpcApi[typeof channel]["result"]
-                | Promise<IpcApi[typeof channel]["result"]>,
-          );
-        },
-        resolveTrustedIdentity,
-        apply: (request) => callbacks.runPromise(database.apply(request)),
-        read: (request) => callbacks.runPromise(database.read(request)),
-      });
-      registerLibraryModuleIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(
-            channel,
-            (event, accessContext, request) =>
-              listener(event, accessContext, request) as
-                | IpcApi[typeof channel]["result"]
-                | Promise<IpcApi[typeof channel]["result"]>,
-          );
-        },
-        isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
-        read: (accessContext, request) =>
-          callbacks.runPromise(library.read(accessContext, request)),
-        apply: (accessContext, request) =>
-          callbacks.runPromise(library.apply(accessContext, request)),
-      });
-      registerLibraryDatabaseModuleIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(
-            channel,
-            (event, request) =>
-              listener(event, request) as
-                | IpcApi[typeof channel]["result"]
-                | Promise<IpcApi[typeof channel]["result"]>,
-          );
-        },
-        isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
-        read: (request) => callbacks.runPromise(database.readLibrary(request)),
-        apply: (request) => callbacks.runPromise(database.applyLibrary(request)),
-      });
-      registerPageDetailIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, projectId, pageId, minimumCommitSeq) =>
-            listener(event, projectId, pageId, minimumCommitSeq),
-          );
-        },
-        isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
-        read: (projectId, pageId, minimumCommitSeq) =>
-          callbacks.runPromise(library.readProjectPageDetail(projectId, pageId, minimumCommitSeq)),
-      });
-      registerLibraryPageDetailIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, pageId, minimumCommitSeq) =>
-            listener(event, pageId, minimumCommitSeq),
-          );
-        },
-        isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
-        read: (pageId, minimumCommitSeq) =>
-          callbacks.runPromise(library.readLibraryPageDetail(pageId, undefined, minimumCommitSeq)),
-      });
-      registerPageLifecyclePreflightIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, projectId, pageId) => listener(event, projectId, pageId));
-        },
-        readPreflight: (projectId, pageId) =>
-          callbacks.runPromise(library.readPageLifecyclePreflight(projectId, pageId)),
-      });
-      registerPageLifecycleIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, projectId, request) =>
-            listener(event, projectId, request),
-          );
-        },
-        getTrustedIdentity: resolveTrustedIdentity,
-        applyMutation: (request) =>
-          callbacks.runPromise(library.applyPageLifecycleMutation(request)),
-      });
-      registerDocumentMutationIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, projectId, documentId, request) =>
-            listener(event, projectId, documentId, request),
-          );
-        },
-        resolveTrustedIdentity,
-        applyMutation: (request) =>
-          callbacks.runPromise(options.documents.applyDocumentMutation(request)),
-      });
-      registerAdditionalDocumentCommandIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, projectId, request) =>
-            listener(event, projectId, request),
-          );
-        },
-        resolveTrustedIdentity,
-        applyCommand: (request) =>
-          callbacks.runPromise(options.documents.applyAdditionalDocumentCommand(request)),
-      });
-      registerBlockTransferIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, projectId, intent) => listener(event, projectId, intent));
-        },
-        resolveTrustedIdentity,
-        transfer: (intent) => callbacks.runPromise(options.documents.transferBlocks(intent)),
-      });
-      registerBlockTransferUndoIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, projectId, intent) => listener(event, projectId, intent));
-        },
-        resolveTrustedIdentity: (event) => targetFor(event as IpcMainInvokeEvent),
-        undo: (intent) => callbacks.runPromise(options.documents.undoBlockTransfer(intent)),
-      });
-      registerDocumentHistoryIpcHandlers({
-        registerHandle: (channel, listener) => {
-          if (channel === "block-documents:history:checkpoint") {
-            registerHandle(
-              channel,
-              (event, projectId, documentId, request) =>
-                listener(event, projectId, documentId, request) as
-                  | IpcApi["block-documents:history:checkpoint"]["result"]
-                  | Promise<IpcApi["block-documents:history:checkpoint"]["result"]>,
-            );
-            return;
-          }
-          if (channel === "block-documents:history:list") {
-            registerHandle(
-              channel,
-              (event, request) =>
-                listener(event, request) as
-                  | IpcApi["block-documents:history:list"]["result"]
-                  | Promise<IpcApi["block-documents:history:list"]["result"]>,
-            );
-            return;
-          }
-          if (channel === "block-documents:history:get") {
-            registerHandle(
-              channel,
-              (event, request) =>
-                listener(event, request) as
-                  | IpcApi["block-documents:history:get"]["result"]
-                  | Promise<IpcApi["block-documents:history:get"]["result"]>,
-            );
-            return;
-          }
-          registerHandle(
-            channel,
-            (event, projectId, documentId, request) =>
-              listener(event, projectId, documentId, request) as
-                | IpcApi["block-documents:history:restore"]["result"]
-                | Promise<IpcApi["block-documents:history:restore"]["result"]>,
-          );
-        },
-        resolveTrustedIdentity,
-        createCheckpoint: (request) =>
-          callbacks.runPromise(options.documents.createCheckpoint(request)),
-        listVersions: (request) => callbacks.runPromise(options.documents.listVersions(request)),
-        getVersion: (request) => callbacks.runPromise(options.documents.getVersion(request)),
-        restoreVersion: (request) =>
-          callbacks.runPromise(options.documents.restoreVersion(request)),
-      });
-      registerPageHistoryIpcHandler({
-        registerHandle: (channel, listener) => {
-          registerHandle(channel, (event, request) => listener(event, request));
-        },
-        isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
-        listHistory: (request) => callbacks.runPromise(library.listPageHistory(request)),
       });
 
-      yield* Effect.all(registrations, { discard: true });
+      yield* ipc.handle(
+        "pages:lifecycle:apply",
+        (event, projectId: string, rawRequest: IpcApi["pages:lifecycle:apply"]["args"][1]) => {
+          const identity = trustedIdentity(event);
+          if (!identity) {
+            return Effect.succeed({
+              ok: false as const,
+              error: pageLifecycleMutationFailureV2(
+                "invalid_page_lifecycle_request",
+                "Page lifecycle mutations are restricted to a trusted application window",
+                rawRequest,
+              ),
+            });
+          }
+          const bound = bindTrustedPageLifecycleMutationV2(rawRequest, projectId, identity);
+          if (!bound.ok) return Effect.succeed(bound);
+          return library
+            .applyPageLifecycleMutation(bound.value)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.succeed(pageLifecycleTransportFailureV2(bound.value, error)),
+              ),
+            );
+        },
+      );
+
+      yield* ipc.handle(
+        "block-documents:mutate",
+        (
+          event,
+          projectId: string,
+          documentId: string,
+          rawRequest: IpcApi["block-documents:mutate"]["args"][2],
+        ) => {
+          const identity = trustedIdentity(event);
+          if (!identity) {
+            return Effect.succeed({
+              ok: false as const,
+              error: documentMutationFailure(
+                "invalid_document_operation_request",
+                "Document mutations are restricted to a trusted application window",
+              ),
+            });
+          }
+          const bound = bindTrustedDocumentMutation(rawRequest, projectId, documentId, identity);
+          if (!bound.ok) return Effect.succeed(bound);
+          return options.documents.applyDocumentMutation(bound.value);
+        },
+      );
+
+      yield* ipc.handle(
+        "block-documents:command",
+        (event, projectId: string, rawRequest: IpcApi["block-documents:command"]["args"][1]) => {
+          const identity = trustedIdentity(event);
+          if (!identity) {
+            return Effect.succeed({
+              ok: false as const,
+              error: additionalDocumentCommandFailure(
+                "invalid_request",
+                "Additional Document commands are restricted to a trusted application window",
+              ),
+            });
+          }
+          const bound = bindAdditionalDocumentCommandToProject(rawRequest, projectId, identity);
+          if (!bound.ok) return Effect.succeed(bound);
+          return options.documents
+            .applyAdditionalDocumentCommand(bound.value)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.succeed(additionalDocumentCommandTransportFailure(bound.value, error)),
+              ),
+            );
+        },
+      );
+
+      yield* ipc.handle(
+        "blocks:transfer",
+        (event, projectId: string, rawIntent: IpcApi["blocks:transfer"]["args"][1]) => {
+          const identity = trustedIdentity(event);
+          if (!identity) {
+            return Effect.succeed({
+              ok: false as const,
+              error: blockTransferFailure(
+                "invalid_transfer_request",
+                "Block transfer is restricted to a trusted application window",
+              ),
+            });
+          }
+          const bound = bindBlockTransferIntent(rawIntent, projectId, identity);
+          if (!bound.ok) return Effect.succeed(bound);
+          return options.documents.transferBlocks(bound.value);
+        },
+      );
+
+      yield* ipc.handle(
+        "blocks:transfer:undo",
+        (event, projectId: string, rawIntent: IpcApi["blocks:transfer:undo"]["args"][1]) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: blockTransferFailure(
+                "invalid_transfer_request",
+                "Block transfer Undo is restricted to a trusted application window",
+              ),
+            });
+          }
+          const bound = bindBlockTransferUndoIntent(rawIntent, projectId);
+          if (!bound.ok) return Effect.succeed(bound);
+          return options.documents.undoBlockTransfer(bound.value);
+        },
+      );
+
+      yield* ipc.handle(
+        "block-documents:history:checkpoint",
+        (
+          event,
+          projectId: string,
+          documentId: string,
+          rawRequest: IpcApi["block-documents:history:checkpoint"]["args"][2],
+        ) => {
+          const identity = trustedIdentity(event);
+          if (!identity) {
+            return Effect.succeed(
+              documentHistoryInvalid<CreatedDocumentVersionSummary>("untrusted"),
+            );
+          }
+          let request;
+          try {
+            request = bindTrustedDocumentVersionCheckpoint(
+              rawRequest,
+              projectId,
+              documentId,
+              identity.actor,
+            );
+          } catch (error) {
+            return Effect.succeed(documentHistoryInvalid<CreatedDocumentVersionSummary>(error));
+          }
+          return options.documents
+            .createCheckpoint(request)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.succeed(documentHistoryUnavailable<CreatedDocumentVersionSummary>(error)),
+              ),
+            );
+        },
+      );
+
+      yield* ipc.handle(
+        "block-documents:history:list",
+        (event, rawRequest: IpcApi["block-documents:history:list"]["args"][0]) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed(
+              documentHistoryInvalid<readonly DocumentVersionSummary[]>("untrusted"),
+            );
+          }
+          let request;
+          try {
+            request = parseListDocumentVersions(rawRequest);
+          } catch (error) {
+            return Effect.succeed(documentHistoryInvalid<readonly DocumentVersionSummary[]>(error));
+          }
+          return options.documents
+            .listVersions(request)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.succeed(
+                  documentHistoryUnavailable<readonly DocumentVersionSummary[]>(error),
+                ),
+              ),
+            );
+        },
+      );
+
+      yield* ipc.handle(
+        "block-documents:history:get",
+        (event, rawRequest: IpcApi["block-documents:history:get"]["args"][0]) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed(documentHistoryInvalid<DocumentVersionDetail>("untrusted"));
+          }
+          let request;
+          try {
+            request = parseGetDocumentVersion(rawRequest);
+          } catch (error) {
+            return Effect.succeed(documentHistoryInvalid<DocumentVersionDetail>(error));
+          }
+          return options.documents
+            .getVersion(request)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.succeed(documentHistoryUnavailable<DocumentVersionDetail>(error)),
+              ),
+            );
+        },
+      );
+
+      yield* ipc.handle(
+        "block-documents:history:restore",
+        (
+          event,
+          projectId: string,
+          documentId: string,
+          rawRequest: IpcApi["block-documents:history:restore"]["args"][2],
+        ) => {
+          const identity = trustedIdentity(event);
+          if (!identity) {
+            return Effect.succeed({
+              ok: false as const,
+              error: documentMutationFailure(
+                "invalid_document_operation_request",
+                "Document restore requires a trusted window and valid scope",
+              ),
+            });
+          }
+          const bound = bindTrustedDocumentMutation(rawRequest, projectId, documentId, identity);
+          if (!bound.ok) return Effect.succeed(bound);
+          if (!("versionId" in bound.value)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: documentMutationFailure(
+                "invalid_document_operation_request",
+                "Document history restore requires a versionId",
+                { mutationId: bound.value.mutationId },
+              ),
+            });
+          }
+          return options.documents.restoreVersion(bound.value);
+        },
+      );
+
+      yield* ipc.handle(
+        "pages:history:list",
+        (event, rawRequest: IpcApi["pages:history:list"]["args"][0]) => {
+          if (!trustedTarget(event)) {
+            return Effect.succeed({
+              ok: false as const,
+              error: pageHistoryFailure(
+                "invalid_page_history_request",
+                "Page history requires a trusted window",
+              ),
+            });
+          }
+          let request;
+          try {
+            request = parseListPageHistoryRequest(rawRequest);
+          } catch (error) {
+            return Effect.succeed({
+              ok: false as const,
+              error: pageHistoryFailure(
+                "invalid_page_history_request",
+                error instanceof PageHistoryContractError
+                  ? error.message
+                  : "Page history request is invalid",
+              ),
+            });
+          }
+          return library
+            .listPageHistory(request)
+            .pipe(Effect.catch(() => Effect.succeed(pageHistoryTransportFailure())));
+        },
+      );
     }),
   );
