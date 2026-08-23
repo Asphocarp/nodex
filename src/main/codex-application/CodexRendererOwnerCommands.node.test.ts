@@ -3,6 +3,7 @@ import { assert, it } from "@effect/vitest";
 import { ConversationCommands } from "./ConversationCommands";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
+import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import {
   CodexRendererConversationRegistry,
   makeCodexRendererConversationRegistryState,
@@ -33,7 +34,6 @@ interface HarnessEvents {
     readonly threadId: string;
     readonly turnId: string;
     readonly message: string;
-    readonly ownerClientId: string;
   }>;
 }
 
@@ -93,6 +93,13 @@ const makeHarness = () => {
   }).pipe(
     Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
     Effect.provideService(
+      CodexRendererConversationCoordinator,
+      CodexRendererConversationCoordinator.of({
+        setOwner: (forkedThreadId, clientId) =>
+          Effect.sync(() => rendererConversations.setOwner(forkedThreadId, clientId) !== null),
+      } as CodexRendererConversationCoordinator["Service"]),
+    ),
+    Effect.provideService(
       CodexFreshThreadLaunchRuntime,
       CodexFreshThreadLaunchRuntime.of({
         register: () => undefined,
@@ -139,7 +146,7 @@ const makeHarness = () => {
     Effect.provideService(CodexTurnCommands, turnCommands),
     Effect.provideService(ConversationCommands, conversations),
   );
-  return { commands, events };
+  return { commands, events, rendererConversations };
 };
 
 it.effect("rejects a non-owner before dispatching any command", () =>
@@ -213,7 +220,7 @@ it.effect("preserves owner terminal paging and termination response contracts", 
 
 it.effect("passes the exact renderer owner into the fork transaction", () =>
   Effect.gen(function* () {
-    const { commands, events } = makeHarness();
+    const { commands, events, rendererConversations } = makeHarness();
     const service = yield* commands;
     const result = yield* service.execute(ownerClientId, {
       conversationId: threadId,
@@ -224,8 +231,7 @@ it.effect("passes the exact renderer owner into the fork transaction", () =>
     });
 
     assert.deepEqual(result, { threadId: "thread-forked" });
-    assert.deepEqual(events.forks, [
-      { threadId, turnId: "turn-a", message: "edit", ownerClientId },
-    ]);
+    assert.deepEqual(events.forks, [{ threadId, turnId: "turn-a", message: "edit" }]);
+    assert.strictEqual(rendererConversations.getOwnerClientId("thread-forked"), ownerClientId);
   }),
 );

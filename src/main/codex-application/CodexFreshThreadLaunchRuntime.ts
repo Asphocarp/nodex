@@ -21,6 +21,7 @@ import type {
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 
 type GatewayTurnStartParams = ClientRequestParamsByMethod["turn/start"];
 
@@ -105,12 +106,6 @@ export class CodexFreshThreadLaunchError extends Error {
 }
 
 export interface CodexFreshThreadLaunchRuntimeOptions {
-  readonly adopt: (
-    launch: CodexFreshThreadLaunch,
-  ) => Effect.Effect<AdoptionResult, CodexFreshThreadLaunchError>;
-  readonly readAdopted: (
-    launch: CodexFreshThreadLaunch,
-  ) => Effect.Effect<AdoptionResult, CodexFreshThreadLaunchError>;
   readonly prepareStart: (
     launch: CodexFreshThreadLaunch,
   ) => Effect.Effect<CodexPreparedFreshThreadFirstTurn, CodexFreshThreadLaunchError>;
@@ -168,12 +163,17 @@ export const make = (
 ): Effect.Effect<
   CodexFreshThreadLaunchRuntimeService,
   never,
-  CodexGateway | ConversationRuntimeMap | ProjectRuntimeLifecycleRuntime | Scope.Scope
+  | CodexGateway
+  | CodexRendererConversationCoordinator
+  | ConversationRuntimeMap
+  | ProjectRuntimeLifecycleRuntime
+  | Scope.Scope
 > =>
   Effect.gen(function* () {
     const conversations = yield* ConversationRuntimeMap;
     const gateway = yield* CodexGateway;
     const projectLifecycle = yield* ProjectRuntimeLifecycleRuntime;
+    const rendererConversations = yield* CodexRendererConversationCoordinator;
     const adoptions = yield* FiberMap.make<string, AdoptionResult, CodexFreshThreadLaunchError>();
     const starts = yield* FiberMap.make<string, TurnStartResponse, CodexFreshThreadLaunchError>();
     const runAdoption = yield* FiberMap.runtime(adoptions)();
@@ -181,6 +181,57 @@ export const make = (
     const admission = yield* Semaphore.make(1);
     const entries = new Map<string, FreshLaunchEntry>();
     let closed = false;
+
+    const adoptionError = (launch: CodexFreshThreadLaunch, cause: unknown) =>
+      new CodexFreshThreadLaunchError(
+        "operation-failed",
+        {
+          launchId: launch.launchId,
+          ownerClientId: launch.rendererClientId,
+          threadId: launch.threadId,
+        },
+        { cause },
+      );
+    const readAdopted = (launch: CodexFreshThreadLaunch) =>
+      Effect.try({
+        try: (): AdoptionResult => {
+          const state = rendererConversations.readRendererState(launch.threadId);
+          if (state.ownerClientId !== launch.rendererClientId || !state.acceptedConversation) {
+            throw new Error(`Fresh thread '${launch.threadId}' has no matching renderer owner`);
+          }
+          if (!state.checkpoint) {
+            throw new Error(`Fresh thread '${launch.threadId}' has no accepted owner replica`);
+          }
+          return {
+            role: "owner",
+            conversation: state.acceptedConversation,
+            revision: state.revision,
+            checkpoint: state.checkpoint,
+          };
+        },
+        catch: (cause) => adoptionError(launch, cause),
+      });
+    const adoptLaunch = (launch: CodexFreshThreadLaunch) => {
+      const state = rendererConversations.readRendererState(launch.threadId);
+      if (!state.acceptedConversation) {
+        return Effect.fail(
+          adoptionError(
+            launch,
+            new Error(`Fresh thread '${launch.threadId}' has no materialized conversation`),
+          ),
+        );
+      }
+      return rendererConversations
+        .adoptRendererOwner({
+          conversationId: launch.threadId,
+          ownerClientId: launch.rendererClientId,
+          conversation: state.acceptedConversation,
+        })
+        .pipe(
+          Effect.flatMap(() => readAdopted(launch)),
+          Effect.mapError((cause) => adoptionError(launch, cause)),
+        );
+    };
 
     const startFirstTurn = (launch: CodexFreshThreadLaunch) =>
       conversations.runExclusive(
@@ -237,7 +288,7 @@ export const make = (
           if (entry.state === "adopting") entry.state = "prepared";
 
           entry.state = "adopting";
-          const physical = options.adopt(entry.launch).pipe(
+          const physical = adoptLaunch(entry.launch).pipe(
             Effect.mapError((cause) => operationError(identity, cause)),
             Effect.onExit((exit) =>
               Effect.sync(() => {
@@ -259,9 +310,9 @@ export const make = (
       Effect.gen(function* () {
         const acquired = yield* acquireAdoption(identity);
         if (acquired._tag === "Fiber") return yield* Fiber.join(acquired.fiber);
-        return yield* options
-          .readAdopted(acquired.launch)
-          .pipe(Effect.mapError((cause) => operationError(identity, cause)));
+        return yield* readAdopted(acquired.launch).pipe(
+          Effect.mapError((cause) => operationError(identity, cause)),
+        );
       });
 
     const acquireStart = (identity: CodexFreshThreadLaunchIdentity) =>

@@ -14,6 +14,7 @@ import type {
 } from "../../shared/types";
 import { ConversationCommands } from "./ConversationCommands";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
+import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
@@ -26,7 +27,6 @@ export interface CodexRendererOwnerCommandProjection {
     readonly threadId: string;
     readonly turnId: string;
     readonly message: string;
-    readonly ownerClientId: string;
   }) => Effect.Effect<CodexThreadActionResult, CodexRendererOwnerCommandProjectionError>;
 }
 
@@ -203,6 +203,7 @@ export const make = (
   CodexRendererOwnerCommands["Service"],
   never,
   | CodexRendererConversationRegistry
+  | CodexRendererConversationCoordinator
   | CodexFreshThreadLaunchRuntime
   | CodexManualCompactionRuntime
   | CodexThreadGoalRuntime
@@ -213,6 +214,7 @@ export const make = (
 > =>
   Effect.gen(function* () {
     const rendererConversations = yield* CodexRendererConversationRegistry;
+    const rendererConversationCoordinator = yield* CodexRendererConversationCoordinator;
     const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
     const manualCompaction = yield* CodexManualCompactionRuntime;
     const threadGoals = yield* CodexThreadGoalRuntime;
@@ -242,12 +244,30 @@ export const make = (
                 numTurns: request.params.numTurns,
               });
             case "thread/fork":
-              return projection.forkFromTurn({
-                threadId,
-                turnId: request.params.turnId,
-                message: request.params.message,
-                ownerClientId,
-              });
+              return projection
+                .forkFromTurn({
+                  threadId,
+                  turnId: request.params.turnId,
+                  message: request.params.message,
+                })
+                .pipe(
+                  Effect.flatMap((result) =>
+                    rendererConversationCoordinator.setOwner(result.threadId, ownerClientId).pipe(
+                      Effect.filterOrFail(
+                        (accepted) => accepted,
+                        () =>
+                          new CodexRendererOwnerCommandError({
+                            method,
+                            threadId: result.threadId,
+                            cause: new Error(
+                              `Renderer client '${ownerClientId}' could not own fork '${result.threadId}'`,
+                            ),
+                          }),
+                      ),
+                      Effect.as(result),
+                    ),
+                  ),
+                );
             case "turn/start":
               return Effect.try({
                 try: () => readPreparedPrompt(request.params.preparedPrompt),

@@ -5,12 +5,15 @@ import * as FiberMap from "effect/FiberMap";
 import type * as Scope from "effect/Scope";
 import type {
   CodexHostMessage,
+  CodexConversationSnapshot,
+  CodexConversationResumeState,
   CodexThreadFollowerActionInput,
   CodexThreadFollowerSnapshotAppliedInput,
   CodexThreadOwnerNotificationAckInput,
   CodexThreadOwnerServerRequest,
   CodexThreadOwnerStreamStatePublishInput,
   CodexThreadOwnerStreamStatePublishResult,
+  CodexThreadStreamCheckpoint,
   CodexThreadStreamResyncRequestInput,
 } from "../../shared/types";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
@@ -37,6 +40,22 @@ import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
 export interface CodexRendererConversationCoordinatorService {
+  readonly readRendererState: (conversationId: string) => {
+    readonly acceptedConversation: CodexConversationSnapshot | null;
+    readonly checkpoint: CodexThreadStreamCheckpoint | null;
+    readonly ownerClientId: string | null;
+    readonly resumeState: CodexConversationResumeState | null;
+    readonly revision: number;
+  };
+  readonly adoptRendererOwner: (input: {
+    readonly conversationId: string;
+    readonly ownerClientId: string;
+    readonly conversation: CodexConversationSnapshot;
+  }) => Effect.Effect<{
+    readonly checkpoint: CodexThreadStreamCheckpoint | null;
+    readonly ownerClientId: string | null;
+    readonly revision: number;
+  }>;
   readonly setOwner: (conversationId: string, clientId: string) => Effect.Effect<boolean>;
   readonly setFollowing: (
     conversationId: string,
@@ -286,6 +305,55 @@ export const make: Effect.Effect<
   };
 
   const service: CodexRendererConversationCoordinatorService = {
+    readRendererState: (conversationId) => {
+      const state = aggregate(conversationId)?.read();
+      return {
+        acceptedConversation: state?.acceptedReplica?.conversation ?? null,
+        checkpoint: state?.acceptedReplica?.checkpoint ?? null,
+        ownerClientId: registry.getOwnerClientId(conversationId),
+        resumeState: state?.acceptedReplica?.conversation.resumeState ?? null,
+        revision: state?.revision ?? 0,
+      };
+    },
+    adoptRendererOwner: (input) =>
+      Effect.gen(function* () {
+        if (registry.isClientDisposed(input.ownerClientId)) {
+          return {
+            checkpoint: null,
+            ownerClientId: null,
+            revision: aggregate(input.conversationId)?.read().revision ?? 0,
+          };
+        }
+        const currentOwner = registry.getOwnerClientId(input.conversationId);
+        if (currentOwner && currentOwner !== input.ownerClientId) {
+          const current = aggregate(input.conversationId)?.read();
+          return {
+            checkpoint: current?.acceptedReplica?.checkpoint ?? null,
+            ownerClientId: currentOwner,
+            revision: current?.revision ?? 0,
+          };
+        }
+        const conversation =
+          aggregate(input.conversationId) ?? conversations.conversation(input.conversationId);
+        conversation.setStreamRole("owner");
+        if (!(yield* setOwner(input.conversationId, input.ownerClientId))) {
+          return { checkpoint: null, ownerClientId: null, revision: conversation.read().revision };
+        }
+        const before = conversation.read();
+        if (!before.acceptedReplica) {
+          conversation.acceptReplica({
+            conversation: input.conversation,
+            revision: before.revision,
+            ownerEpoch: registry.getOwnerEpoch(input.conversationId) ?? 0,
+          });
+        }
+        const after = conversation.read();
+        return {
+          checkpoint: after.acceptedReplica?.checkpoint ?? null,
+          ownerClientId: registry.getOwnerClientId(input.conversationId),
+          revision: after.revision,
+        };
+      }),
     setOwner,
     setFollowing: (conversationId, clientId, following, options) =>
       Effect.sync(() => registry.setFollowing(conversationId, clientId, following, options)).pipe(

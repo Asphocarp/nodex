@@ -14,6 +14,9 @@ import type {
   CodexRendererConversationResumeResult,
   CodexThreadStreamCheckpoint,
 } from "../../shared/types";
+import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
+import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
+import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 
 export interface CodexConversationResumeInput {
   readonly threadId: string;
@@ -55,31 +58,16 @@ export interface CodexConversationResumeRendererAdoption {
   readonly revision: number;
 }
 
-export interface CodexConversationResumeProjection {
-  readonly snapshot: (
-    threadId: string,
-  ) => Effect.Effect<CodexConversationSnapshot | null, CodexConversationResumeError>;
-  readonly readRendererState: (
-    threadId: string,
-  ) => Effect.Effect<CodexConversationResumeRendererState, CodexConversationResumeError>;
-  readonly isRendererClientDisposed: (
-    clientId: string,
-  ) => Effect.Effect<boolean, CodexConversationResumeError>;
-  readonly adoptRenderer: (input: {
-    readonly threadId: string;
-    readonly ownerClientId: string;
-    readonly conversation: CodexConversationSnapshot;
-  }) => Effect.Effect<CodexConversationResumeRendererAdoption, CodexConversationResumeError>;
-  readonly releaseBuffer: (
-    threadId: string,
-  ) => Effect.Effect<boolean, CodexConversationResumeError>;
-}
-
 export interface CodexConversationResumeRuntimeOptions {
   readonly run: (
     input: CodexConversationResumeDemand,
   ) => Effect.Effect<CodexConversationSnapshot | null, CodexConversationResumeError>;
-  readonly projection: CodexConversationResumeProjection;
+  readonly snapshot: (
+    threadId: string,
+  ) => Effect.Effect<CodexConversationSnapshot | null, CodexConversationResumeError>;
+  readonly releaseBuffer: (
+    threadId: string,
+  ) => Effect.Effect<boolean, CodexConversationResumeError>;
   readonly observe?: (outcome: CodexConversationResumeOutcome) => void;
 }
 
@@ -134,8 +122,18 @@ const unavailableReplica = (
 
 export const make = (
   options: CodexConversationResumeRuntimeOptions,
-): Effect.Effect<CodexConversationResumeRuntime["Service"], never, Scope.Scope> =>
+): Effect.Effect<
+  CodexConversationResumeRuntime["Service"],
+  never,
+  | CodexFreshThreadLaunchRuntime
+  | CodexRendererConversationCoordinator
+  | CodexRendererConversationRegistry
+  | Scope.Scope
+> =>
   Effect.gen(function* () {
+    const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
+    const rendererCoordinator = yield* CodexRendererConversationCoordinator;
+    const rendererRegistry = yield* CodexRendererConversationRegistry;
     const resumes = yield* FiberMap.make<
       string,
       CodexConversationSnapshot | null,
@@ -269,7 +267,22 @@ export const make = (
       return runRendererSerial(
         threadId,
         Effect.gen(function* () {
-          const before = yield* options.projection.readRendererState(threadId);
+          const readRendererState = (): Effect.Effect<
+            CodexConversationResumeRendererState,
+            CodexConversationResumeError
+          > =>
+            options.snapshot(threadId).pipe(
+              Effect.map((serializedConversation) => {
+                const state = rendererCoordinator.readRendererState(threadId);
+                return {
+                  ...state,
+                  freshLaunchOwnerClientId:
+                    freshThreadLaunch.reservation(threadId)?.rendererClientId ?? null,
+                  serializedConversation,
+                };
+              }),
+            );
+          const before = yield* readRendererState();
           if (before.freshLaunchOwnerClientId && !before.ownerClientId) {
             if (before.freshLaunchOwnerClientId === ownerClientId) return null;
             return yield* followerResult(threadId, before.freshLaunchOwnerClientId, before);
@@ -277,7 +290,7 @@ export const make = (
           if (before.ownerClientId && before.ownerClientId !== ownerClientId) {
             return yield* followerResult(threadId, before.ownerClientId, before);
           }
-          if (yield* options.projection.isRendererClientDisposed(ownerClientId)) {
+          if (rendererRegistry.isClientDisposed(ownerClientId)) {
             return yield* Effect.fail(
               new CodexConversationResumeError({
                 cause: new Error(`Renderer client '${ownerClientId}' is unavailable`),
@@ -298,11 +311,11 @@ export const make = (
             }));
           if (!resumed || resumed.resumeState !== "resumed") return null;
 
-          const afterResume = yield* options.projection.readRendererState(threadId);
+          const afterResume = yield* readRendererState();
           if (afterResume.ownerClientId && afterResume.ownerClientId !== ownerClientId) {
             return yield* followerResult(threadId, afterResume.ownerClientId, afterResume);
           }
-          if (yield* options.projection.isRendererClientDisposed(ownerClientId)) {
+          if (rendererRegistry.isClientDisposed(ownerClientId)) {
             return yield* Effect.fail(
               new CodexConversationResumeError({
                 cause: new Error(
@@ -312,8 +325,8 @@ export const make = (
             );
           }
 
-          const adoption = yield* options.projection.adoptRenderer({
-            threadId,
+          const adoption = yield* rendererCoordinator.adoptRendererOwner({
+            conversationId: threadId,
             ownerClientId,
             conversation: resumed,
           });
@@ -343,7 +356,7 @@ export const make = (
       rawThreadId: string,
     ): Effect.Effect<CodexConversationSnapshot | null, CodexConversationResumeError> => {
       const threadId = rawThreadId.trim();
-      return threadId ? options.projection.snapshot(threadId) : Effect.succeed(null);
+      return threadId ? options.snapshot(threadId) : Effect.succeed(null);
     };
 
     const releaseBuffer = (
@@ -351,7 +364,7 @@ export const make = (
     ): Effect.Effect<boolean, CodexConversationResumeError> => {
       const threadId = rawThreadId.trim();
       if (!threadId) return Effect.fail(invalidIdentity("Thread"));
-      return runRendererSerial(threadId, options.projection.releaseBuffer(threadId));
+      return runRendererSerial(threadId, options.releaseBuffer(threadId));
     };
 
     const clear = (threadId: string): void => {

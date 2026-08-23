@@ -1870,42 +1870,6 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexConversationHistoryError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const conversationResume = yield* makeCodexConversationResumeRuntime({
-          run: (input) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().runConversationResume(input),
-              catch: (cause) => new CodexConversationResumeError({ cause }),
-            }),
-          projection: {
-            snapshot: (threadId) =>
-              Effect.tryPromise({
-                try: () => requireCodexService().readConversationSnapshotForModule(threadId),
-                catch: (cause) => new CodexConversationResumeError({ cause }),
-              }),
-            readRendererState: (threadId) =>
-              Effect.try({
-                try: () =>
-                  requireCodexService().readConversationResumeRendererStateForModule(threadId),
-                catch: (cause) => new CodexConversationResumeError({ cause }),
-              }),
-            isRendererClientDisposed: (clientId) =>
-              Effect.try({
-                try: () => requireCodexService().isRendererClientDisposedForModule(clientId),
-                catch: (cause) => new CodexConversationResumeError({ cause }),
-              }),
-            adoptRenderer: (input) =>
-              Effect.try({
-                try: () => requireCodexService().adoptRendererConversationForModule(input),
-                catch: (cause) => new CodexConversationResumeError({ cause }),
-              }),
-            releaseBuffer: (threadId) =>
-              Effect.tryPromise({
-                try: () => requireCodexService().releaseConversationResumeBufferForModule(threadId),
-                catch: (cause) => new CodexConversationResumeError({ cause }),
-              }),
-          },
-          observe: (outcome) => requireCodexService().recordConversationResumeOutcome(outcome),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const conversationEventBuffer = yield* makeCodexConversationEventBufferRuntime({
           compact: (threadId, events) =>
             requireCodexService().compactBufferedConversationEvents(threadId, events),
@@ -1952,16 +1916,6 @@ export const live: Layer.Layer<
             { cause },
           );
         const freshThreadLaunch = yield* makeCodexFreshThreadLaunchRuntime({
-          adopt: (launch) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().adoptFreshThreadLaunch(launch),
-              catch: (cause) => freshThreadLaunchError(launch, cause),
-            }),
-          readAdopted: (launch) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().readAdoptedFreshThreadLaunch(launch),
-              catch: (cause) => freshThreadLaunchError(launch, cause),
-            }),
           prepareStart: (launch) =>
             Effect.try({
               try: () => requireCodexService().prepareFreshThreadFirstTurnForModule(launch),
@@ -1992,8 +1946,38 @@ export const live: Layer.Layer<
             requireCodexService().abandonFreshThreadLaunch(launch, reason),
         }).pipe(
           Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(
+            CodexRendererConversationCoordinator,
+            rendererConversationCoordinator,
+          ),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const conversationResume = yield* makeCodexConversationResumeRuntime({
+          run: (input) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().runConversationResume(input),
+              catch: (cause) => new CodexConversationResumeError({ cause }),
+            }),
+          snapshot: (threadId) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().readConversationSnapshotForModule(threadId),
+              catch: (cause) => new CodexConversationResumeError({ cause }),
+            }),
+          releaseBuffer: (threadId) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().releaseConversationResumeBufferForModule(threadId),
+              catch: (cause) => new CodexConversationResumeError({ cause }),
+            }),
+          observe: (outcome) => requireCodexService().recordConversationResumeOutcome(outcome),
+        }).pipe(
+          Effect.provideService(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
+          Effect.provideService(
+            CodexRendererConversationCoordinator,
+            rendererConversationCoordinator,
+          ),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const backgroundSubagentMetadataRepair = yield* makeCodexBackgroundSubagentMetadataRepair({
@@ -2408,6 +2392,10 @@ export const live: Layer.Layer<
             }),
         }).pipe(
           Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(
+            CodexRendererConversationCoordinator,
+            rendererConversationCoordinator,
+          ),
           Effect.provideService(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
           Effect.provideService(CodexManualCompactionRuntime, manualCompaction),
           Effect.provideService(CodexThreadGoalRuntime, threadGoals),
@@ -3439,11 +3427,12 @@ export const live: Layer.Layer<
           codexThreadNotificationRuntimeLive({
             events: codexApplicationEvents,
             getSettings: getThreadNotificationSettings,
-            isAppForegrounded: () => codexService.hasForegroundRendererClient(),
+            isAppForegrounded: () => rendererConversations.hasForegroundClient(),
             isConversationPresentedInForeground: (conversationId) =>
-              codexService.isRendererConversationPresentedInForeground(conversationId),
+              rendererConversations.isPresentedInForeground(conversationId),
             resolveTargetClientId: (conversationId) => {
-              const presenting = codexService.resolveRendererPresentedSurfaceClient(conversationId);
+              const presenting =
+                rendererConversations.resolvePresentedSurfaceClient(conversationId);
               if (presenting) return presenting;
               const fallbackWindow = windows.getLastFocused();
               if (!fallbackWindow) return null;
