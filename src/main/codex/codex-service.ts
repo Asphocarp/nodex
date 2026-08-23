@@ -12,8 +12,6 @@ import type {
 } from "@nodex/codex-app-server-protocol";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
-import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
-import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
@@ -181,17 +179,11 @@ import {
 } from "./codex-permission-resolver";
 import { reconcileCodexThreadTimestamps } from "./codex-thread-timestamps";
 import { resolveCodexThreadMaterializationOwner } from "./codex-thread-materialization-owner";
-import {
-  nodexAgentAuthorityFingerprint,
-  type FrozenNodexAgentTurnAuthority,
-} from "../../shared/nodex-agent-authority";
-import type { NodexAgentResourceIntent } from "../../shared/nodex-agent-resource-access";
-import { canAutoApproveNodexAgentWrite, resolveNodexAgentWriteAccess } from "./nodex-agent-access";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type {
   NodexAgentAuthorityPort,
   NodexAgentTurnAuthorityLaunch,
 } from "../nodex-agent-authority-port";
-import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
 import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application/CodexActiveGoalContinuation";
 import type { CodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import type { CodexRendererConversationRegistryService } from "../codex-application/CodexRendererConversationRegistry";
@@ -351,15 +343,9 @@ import {
 } from "../../shared/codex-thread-title";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
-import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
-import type { NodexAgentAccess } from "../../shared/nodex-agent-tools/read-runtime";
 import { resolveDynamicToolCatalogBindings } from "./codex-dynamic-tool-catalog-bindings";
-import type { NodexAgentAuthorizationPresentationTarget } from "../codex-application/NodexAgentAuthorizationRuntime";
 import type { NodexAgentAuthorizationRuntimePromiseAdapter } from "../codex-application/NodexAgentAuthorizationRuntimePromiseAdapter";
-import {
-  buildNodexAgentDynamicToolSpecs,
-  type NodexAgentDynamicTools,
-} from "../nodex-agent-application/NodexAgentDynamicTools";
+import { buildNodexAgentDynamicToolSpecs } from "../nodex-agent-application/NodexAgentDynamicTools";
 import {
   buildCodexAppMetaThreadToolSpecs,
   CODEX_APP_LOCAL_HOST_ID,
@@ -766,9 +752,7 @@ type CodexServiceOptions = {
   sessionStore: CodexSessionStore;
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
-  nodexAgentDynamicTools: Pick<NodexAgentDynamicTools["Service"], "execute">;
   nodexAgentAuthority: NodexAgentAuthorityPort;
-  nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort;
   nodexAgentAuthorization: NodexAgentAuthorizationRuntimePromiseAdapter;
   automationModule: DesktopAutomationModulePort;
   automationRouting: Pick<
@@ -1405,7 +1389,6 @@ export class CodexService {
   private readonly preferences: Pick<CodexPreferences["Service"], "current">;
   private readonly permissions: CodexPermissionsPromiseAdapter;
   private readonly runtimeStateHome: string;
-  private readonly nodexAgentDynamicTools: CodexServiceOptions["nodexAgentDynamicTools"];
   private readonly runtimeVersion: string | null;
   private readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   private readonly activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
@@ -1453,7 +1436,6 @@ export class CodexService {
   private readonly projectWorkspace: DesktopProjectWorkspacePort;
   private readonly workspaceThreadProjectionById = new Map<string, DesktopProjectWorkspaceThread>();
   private readonly nodexAgentAuthorityRegistry: NodexAgentAuthorityPort;
-  private readonly nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort;
 
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly conversationRuntimes: CodexServiceOptions["conversationRuntimes"];
@@ -1492,9 +1474,7 @@ export class CodexService {
         getThreadSnapshot: async () => null,
       } satisfies CodexTerminalRuntimePort);
     this.runtimeStateHome = path.resolve(options.runtimeStateHome);
-    this.nodexAgentDynamicTools = options.nodexAgentDynamicTools;
     this.nodexAgentAuthorityRegistry = options.nodexAgentAuthority;
-    this.nodexAgentResourceAuthority = options.nodexAgentResourceAuthority;
     this.nodexAgentAuthorization = options.nodexAgentAuthorization;
     this.automationModule = options.automationModule;
     this.automationRouting = options.automationRouting;
@@ -1545,13 +1525,6 @@ export class CodexService {
     this.forkSidePanelTransferLifecycle = options?.forkSidePanelTransferLifecycle;
     this.userInputAutoResolution = options.userInputAutoResolution;
     this.client = options.client;
-  }
-
-  resolveThreadExecutionHostId(threadId: string): string {
-    return (
-      this.workspaceThreadProjectionById.get(threadId.trim())?.executionHostId ??
-      CODEX_APP_LOCAL_HOST_ID
-    );
   }
 
   private emitEvent(event: CodexEvent): void {
@@ -11298,162 +11271,6 @@ export class CodexService {
       builtinFullAccess,
       inheritedAuthority,
     });
-  }
-
-  private async captureNodexAgentTurnAuthority(
-    params: DynamicToolCallParams,
-  ): Promise<FrozenNodexAgentTurnAuthority | null> {
-    const rootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
-    const actorProjectId =
-      this.parseThreadRef(params.threadId)?.projectId ??
-      this.parseThreadRef(rootThreadId)?.projectId ??
-      null;
-    if (!actorProjectId) return null;
-    const captureInput = {
-      threadId: params.threadId,
-      turnId: params.turnId,
-      rootThreadId,
-      actorProjectId,
-    };
-    const persisted = await this.nodexAgentAuthorityRegistry.capturePersisted(captureInput);
-    if (persisted) return persisted;
-    if (await this.nodexAgentAuthorityRegistry.hasRecordedAuthority(captureInput)) {
-      return null;
-    }
-    return await this.nodexAgentAuthorityRegistry.capture(captureInput);
-  }
-
-  private resolveNodexAgentAuthorizationPresentation(
-    threadId: string,
-    turnId: string,
-    rootThreadId: string,
-  ): NodexAgentAuthorizationPresentationTarget | null {
-    const directClientId = this.rendererConversations.resolvePresentationClient(threadId);
-    if (directClientId) {
-      return {
-        clientId: directClientId,
-        threadId,
-        turnId,
-      };
-    }
-
-    if (rootThreadId === threadId) return null;
-    const rootClientId = this.rendererConversations.resolvePresentationClient(rootThreadId);
-    if (!rootClientId) return null;
-    const rootTurnId =
-      [...this.listKnownTurns(rootThreadId)].reverse().find((turn) => turn.turnId !== null)
-        ?.turnId ?? null;
-    if (!rootTurnId) return null;
-    return {
-      clientId: rootClientId,
-      threadId: rootThreadId,
-      turnId: rootTurnId,
-    };
-  }
-
-  private async handleNodexAgentDynamicToolCall(
-    params: DynamicToolCallParams,
-    frozenAuthority?: FrozenNodexAgentTurnAuthority | null,
-  ): Promise<DynamicToolCallResponse> {
-    const rootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
-    const authority =
-      frozenAuthority === undefined
-        ? await this.captureNodexAgentTurnAuthority(params)
-        : frozenAuthority;
-    const projectId = authority?.actorProjectId ?? null;
-    const broker = this.nodexAgentAuthorization;
-    const writeAccess: NodexAgentAccess["write"] = resolveNodexAgentWriteAccess({
-      authorityScope: authority?.scope ?? null,
-      hasActorProject: projectId !== null,
-    });
-    const access: NodexAgentAccess = {
-      read: "allowed",
-      write: writeAccess,
-      domains: ["document", "placement", "database"],
-    };
-    const executionContext = await this.projectWorkspace.readThreadExecutionContext(
-      params.threadId,
-    );
-    const toolsetRevision =
-      executionContext?.dynamicToolCatalogs.find(
-        (catalog) => catalog.namespace === NODEX_APP_TOOL_NAMESPACE,
-      )?.toolsetRevision ?? null;
-    const taskResourceAccess = authority ? await broker.getTaskAccess(authority) : undefined;
-
-    return await this.controlPlane.runPromise(
-      this.nodexAgentDynamicTools.execute(params, {
-        toolsetRevision,
-        authority,
-        access,
-        ...(taskResourceAccess ? { resourceAccess: taskResourceAccess } : {}),
-        ...(authority
-          ? {
-              recordTaskResourceAccess: (grants) =>
-                Effect.promise(() => broker.extendTaskAccess(authority, grants)),
-            }
-          : {}),
-        resolveResourceAccess: (intents: readonly NodexAgentResourceIntent[]) => {
-          if (!authority) {
-            return Effect.succeed({
-              kind: "denied" as const,
-              intent: intents[0] ?? {
-                target: { kind: "library", libraryId: "unavailable" },
-                action: "read",
-              },
-              reason: "project_not_found" as const,
-            });
-          }
-          return Effect.promise(async () => {
-            const currentTaskAccess = await broker.getTaskAccess(authority);
-            return await this.nodexAgentResourceAuthority.plan({
-              authority,
-              callId: params.callId,
-              intents,
-              ...(currentTaskAccess ? { taskAccess: currentTaskAccess } : {}),
-            });
-          });
-        },
-        authorize: (authorization) =>
-          Effect.promise(async () => {
-            if (authority?.scope === "library") {
-              const current = await this.captureNodexAgentTurnAuthority(params);
-              if (canAutoApproveNodexAgentWrite(authority, current)) {
-                return { decision: "allow_once" };
-              }
-              return "unavailable";
-            }
-            if (!authority) return "unavailable";
-            const currentPresentation = this.resolveNodexAgentAuthorizationPresentation(
-              params.threadId,
-              params.turnId,
-              rootThreadId,
-            );
-            const isAuthorityCurrent = async (): Promise<boolean> => {
-              const currentRootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
-              const currentProjectId =
-                this.parseThreadRef(params.threadId)?.projectId ??
-                this.parseThreadRef(currentRootThreadId)?.projectId ??
-                null;
-              const currentAuthority = await this.captureNodexAgentTurnAuthority(params);
-              return (
-                currentRootThreadId === rootThreadId &&
-                currentProjectId === projectId &&
-                currentAuthority !== null &&
-                nodexAgentAuthorityFingerprint(currentAuthority) ===
-                  nodexAgentAuthorityFingerprint(authority)
-              );
-            };
-            const decision = await broker.authorize({
-              ...authorization,
-              rootThreadId,
-              authority,
-              presentation: currentPresentation,
-              isAuthorityCurrent,
-            });
-            return (await isAuthorityCurrent()) ? decision : "unavailable";
-          }),
-      }),
-    );
   }
 
   private clearApprovalRequestAttachment(

@@ -102,7 +102,6 @@ import {
   ThreadGoalAttachmentDirectoryManager,
 } from "../thread-goal-attachments";
 import type { NodexAgentAuthorityPort } from "../nodex-agent-authority-port";
-import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
 import type { DesktopAutomationModulePort } from "../core-client/desktop-automation-module-bridge";
 import type {
   DesktopProjectWorkspacePort,
@@ -786,13 +785,6 @@ const TEST_NODEX_AGENT_AUTHORITY: NodexAgentAuthorityPort = {
   capturePersisted: async () => null,
   hasRecordedAuthority: async () => false,
   capture: async () => null,
-};
-
-const TEST_NODEX_AGENT_RESOURCE_AUTHORITY: NodexAgentResourceAuthorityPort = {
-  plan: async () => {
-    throw new Error("Nodex Agent resource authority is unavailable in this fixture");
-  },
-  persistProjectGrants: async () => undefined,
 };
 
 const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
@@ -1802,15 +1794,7 @@ function createService(options?: {
     client: testClient,
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome,
-    nodexAgentDynamicTools: {
-      execute: () =>
-        Effect.succeed({
-          contentItems: [{ type: "inputText", text: "Nodex Agent tools are unavailable" }],
-          success: false,
-        }),
-    },
     nodexAgentAuthority: TEST_NODEX_AGENT_AUTHORITY,
-    nodexAgentResourceAuthority: TEST_NODEX_AGENT_RESOURCE_AUTHORITY,
     nodexAgentAuthorization: {
       authorize: async () => "unavailable",
       extendTaskAccess: async () => undefined,

@@ -392,6 +392,7 @@ import { makeCodexPermissionsPromiseAdapter } from "../codex-application/CodexPe
 import {
   ExecutionHostRuntime,
   live as executionHostRuntimeLive,
+  threadHostResolverLive,
 } from "../codex-application/ExecutionHostRuntime";
 import {
   ExecutionHostConfiguration,
@@ -729,6 +730,11 @@ export const live: Layer.Layer<
         );
         const authority = Context.get(authorityContext, CoreAuthority);
         const access = Context.get(authorityContext, CoreSessionAccess);
+        const coreModulesContext = yield* Layer.buildWithScope(
+          coreModulesLive.pipe(Layer.provide(Layer.succeed(CoreSessionAccess, access))),
+          runtimeScope,
+        );
+        const coreModules = Context.get(coreModulesContext, CoreModules);
         const dataAuthority = yield* makeDesktopDataAuthority(callbacks).pipe(
           Effect.provideService(CoreAuthority, authority),
           Effect.provideService(CoreSessionAccess, access),
@@ -759,19 +765,18 @@ export const live: Layer.Layer<
           ephemeralThreadRoutingContext,
           CodexEphemeralThreadRouting,
         );
-        const threadHostResolver = CodexThreadHostResolver.of({
-          resolve: (threadId) =>
-            ephemeralThreadRouting
-              .resolve(threadId)
-              .pipe(
-                Effect.map(
-                  (hostId) =>
-                    hostId ??
-                    codexService?.resolveThreadExecutionHostId(threadId) ??
-                    CODEX_APP_LOCAL_HOST_ID,
-                ),
+        const threadHostResolverContext = yield* Layer.buildWithScope(
+          threadHostResolverLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CodexEphemeralThreadRouting, ephemeralThreadRouting),
+                Layer.succeed(CoreModules, coreModules),
               ),
-        });
+            ),
+          ),
+          runtimeScope,
+        );
+        const threadHostResolver = Context.get(threadHostResolverContext, CodexThreadHostResolver);
         const applicationRequestInbox = yield* makeCodexApplicationRequestInbox.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
@@ -1447,11 +1452,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const coreModulesContext = yield* Layer.buildWithScope(
-          coreModulesLive.pipe(Layer.provide(Layer.succeed(CoreSessionAccess, access))),
-          runtimeScope,
-        );
-        const coreModules = Context.get(coreModulesContext, CoreModules);
         const automationRoutingContext = yield* Layer.buildWithScope(
           automationRoutingIndexLive.pipe(Layer.provide(Layer.succeed(CoreModules, coreModules))),
           runtimeScope,
@@ -2629,11 +2629,9 @@ export const live: Layer.Layer<
               client: codexClient,
               runtime: codexRuntime,
               runtimeStateHome,
-              nodexAgentDynamicTools,
               nodexAgentAuthority: createDesktopNodexAgentAuthorityPort({
                 authority: dataAuthorityPromise,
               }),
-              nodexAgentResourceAuthority,
               nodexAgentAuthorization: makeNodexAgentAuthorizationRuntimePromiseAdapter(
                 nodexAgentAuthorization,
                 callbacks,
