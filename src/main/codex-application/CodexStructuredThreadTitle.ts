@@ -22,6 +22,7 @@ import {
   CODEX_THREAD_TITLE_TIMEOUT_MS,
   parseGeneratedThreadTitleResponse,
 } from "../codex/thread-title-generator";
+import { CodexInternalThreadRegistry } from "./CodexInternalThreadRegistry";
 
 type ThreadStartParams = ClientRequestParamsByMethod["thread/start"];
 type ThreadStartResponse = ClientRequestResponsesByMethod["thread/start"];
@@ -78,8 +79,6 @@ export interface CodexStructuredThreadTitleOptions {
   readonly unsubscribeThread: (
     threadId: string,
   ) => Effect.Effect<unknown, CodexStructuredThreadTitleError>;
-  readonly registerInternalThread: (threadId: string) => Effect.Effect<void>;
-  readonly releaseInternalThread: (threadId: string) => Effect.Effect<void>;
   readonly timeout?: Duration.Input;
 }
 
@@ -162,8 +161,13 @@ const textFromCompletedItem = (
 
 export const make = (
   options: CodexStructuredThreadTitleOptions,
-): Effect.Effect<CodexStructuredThreadTitle["Service"], never, Scope.Scope> =>
+): Effect.Effect<
+  CodexStructuredThreadTitle["Service"],
+  never,
+  CodexInternalThreadRegistry | Scope.Scope
+> =>
   Effect.gen(function* () {
+    const internalThreads = yield* CodexInternalThreadRegistry;
     const closed = yield* Latch.make();
     yield* Effect.addFinalizer(() => closed.open);
 
@@ -232,14 +236,10 @@ export const make = (
                 serviceTier: null,
                 ...(input.serviceName === undefined ? {} : { serviceName: input.serviceName }),
               })
-              .pipe(Effect.tap((response) => options.registerInternalThread(response.thread.id))),
-            (response) =>
-              options
-                .unsubscribeThread(response.thread.id)
-                .pipe(
-                  Effect.ignore,
-                  Effect.ensuring(options.releaseInternalThread(response.thread.id)),
-                ),
+              .pipe(
+                Effect.tap((response) => internalThreads.leaseStructuredTitle(response.thread.id)),
+              ),
+            (response) => options.unsubscribeThread(response.thread.id).pipe(Effect.ignore),
           );
           const threadId = thread.thread.id;
           const notifications = yield* Queue.unbounded<TitleNotification>();

@@ -37,6 +37,7 @@ import {
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexAutomationInbox } from "./CodexAutomationInbox";
 import { compactCodexApplicationProtocolOccurrences } from "./CodexConversationEventProjection";
+import { CodexNotificationAdmission } from "./CodexNotificationAdmission";
 import {
   CodexOneShotServerRequests,
   isCodexOneShotServerRequest,
@@ -281,6 +282,7 @@ export const make: Effect.Effect<
   | CodexApplicationEventHub
   | CodexApplicationRequestInbox
   | CodexAutomationInbox
+  | CodexNotificationAdmission
   | CodexOneShotServerRequests
   | CodexPendingServerRequestRuntime
   | CodexProtocolNotificationEffects
@@ -294,6 +296,7 @@ export const make: Effect.Effect<
   const applicationEvents = yield* CodexApplicationEventHub;
   const inbox = yield* CodexApplicationRequestInbox;
   const automationInbox = yield* CodexAutomationInbox;
+  const notificationAdmission = yield* CodexNotificationAdmission;
   const oneShot = yield* CodexOneShotServerRequests;
   const pending = yield* CodexPendingServerRequestRuntime;
   const notificationEffects = yield* CodexProtocolNotificationEffects;
@@ -512,7 +515,18 @@ export const make: Effect.Effect<
   const observeNotification = (
     notification: CodexServerNotification,
     occurrenceToken: number,
-  ): Effect.Effect<void> => notificationEffects.apply({ notification, occurrenceToken });
+  ): Effect.Effect<void> => {
+    const threadId = codexProtocolNotificationThreadId(notification);
+    return notificationAdmission
+      .decide({ notification, threadId })
+      .pipe(
+        Effect.flatMap((decision) =>
+          decision._tag === "Admit"
+            ? notificationEffects.apply({ notification, occurrenceToken })
+            : Effect.void,
+        ),
+      );
+  };
 
   const interpretOperation = (
     occurrence: CodexApplicationRequestOccurrence,
@@ -790,6 +804,7 @@ export const live: Layer.Layer<
   | CodexApplicationEventHub
   | CodexApplicationRequestInbox
   | CodexAutomationInbox
+  | CodexNotificationAdmission
   | CodexOneShotServerRequests
   | CodexPendingServerRequestRuntime
   | CodexProtocolNotificationEffects

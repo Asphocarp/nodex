@@ -538,12 +538,13 @@ shutdown path. Codex child environment materialization receives only the Adapter
 so concurrent startup observes either the complete prior file or the complete replacement and cannot
 become a second credential writer.
 
-Decoded, generation-fenced app-server notifications flow from `CodexGateway.events` through one
-Main-scoped Stream consumer into a lossless Queue actor. The consumer subscribes before its Layer is
-ready and offers each event in Stream order; the actor awaits each route before taking the next
-notification, supervises failures per envelope, and abandons both active work and backlog when the
-Main Scope closes. `CodexService` temporarily supplies the canonical notification reducer operation,
-but it owns no subscription, Promise chain, queue recovery, or notification-ingress lifetime.
+Decoded, generation-fenced app-server occurrences enter `CodexApplicationProtocol` through the
+scoped request Inbox. Independent Threads may progress concurrently, while every request,
+notification admission, and projection consequence for one Thread runs in its single causal lane.
+`CodexNotificationAdmission` observes accepted Turn authority, inherits library authority into a
+spawned child, classifies internal helpers, and updates subagent presentation membership before any
+durable or renderer-visible notification effect. Internal helper traffic and unopened background
+subagent deltas stop at that gate instead of entering a second reducer or callback route.
 
 Manual context compaction is one Main-scoped application transaction. Its Module owns per-Thread
 admission counts, inserts the single optimistic compaction item through the canonical projection
@@ -705,11 +706,12 @@ cursors are fenced and Scope release interrupts discovery or hydration. The sole
 projection is mechanical and lives beside `CodexGateway`.
 
 `CodexSubagentCatalog` therefore owns only known/full-fidelity presentation membership and the
-background-delta delivery gate; its background and panel reads delegate root-scoped authorization,
-discovery, materialization, and hydration to the Directory. Opening a child moves it to full-fidelity
-delivery, Thread removal clears both indexes, and Main Scope release clears the generation. Metadata
-repair remains the separate keyed policy above because its retry/completion lifecycle differs from
-inventory and presentation fidelity.
+background-delta delivery gate; notification admission observes child identity before projection,
+while background and panel reads delegate root-scoped authorization, discovery, materialization,
+and hydration to the Directory. Opening a child moves it to full-fidelity delivery, Thread removal
+clears both indexes, and Main Scope release clears the generation. Metadata repair remains the
+separate keyed policy above because its retry/completion lifecycle differs from inventory and
+presentation fidelity.
 
 Queued follow-up entries, ordering, pause state, and generation belong to the same
 `ConversationRuntimeMap` aggregate as their Thread. Accepted renderer-owner replica ingress
@@ -913,11 +915,13 @@ and Main Scope closure interrupts the request, subscription, deadline, and wait 
 heartbeat notification handler, resolver Promise, timer, or cleanup path.
 
 Structured Thread-title generation is one Main-scoped ephemeral operation Module. It acquires a
-system Thread, registers it with the existing internal-Thread projection, subscribes to the
+system Thread and leases its identity from `CodexInternalThreadRegistry`, subscribes to the
 generation-fenced local Gateway stream before starting its Turn, and aggregates only the exact
 Thread/Turn agent-message stream. A completed agent message replaces partial deltas; terminal
 failure and the single Effect-clock deadline interrupt the active Turn, while every exit path
-unsubscribes and releases the helper Thread. Scope closure performs the same structured release.
+unsubscribes and releases the helper Thread. Once `thread/started` confirms the helper identity, the
+registry retains suppression until terminal Thread lifecycle even if the operation lease closes.
+Scope closure performs the same structured release.
 Manual generation ingress invokes the typed Module directly and converts its typed failure to the
 product's best-effort null result at that boundary. `CodexService` retains only automatic-title
 fallback normalization and persistence; it exposes no public generation command and does not own the

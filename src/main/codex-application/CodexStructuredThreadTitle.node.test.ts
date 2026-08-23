@@ -13,6 +13,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
+import { CodexInternalThreadRegistry } from "./CodexInternalThreadRegistry";
 import { make, type CodexStructuredThreadTitleOptions } from "./CodexStructuredThreadTitle";
 
 type ThreadStartResponse = ClientRequestResponsesByMethod["thread/start"];
@@ -48,12 +49,30 @@ const makeOptions = (
     startTurn: () => Effect.succeed(turnStarted("turn-title")),
     interruptTurn: (_threadId, turnId) => Effect.sync(() => lifecycle.push(`interrupt:${turnId}`)),
     unsubscribeThread: (threadId) => Effect.sync(() => lifecycle.push(`unsubscribe:${threadId}`)),
-    registerInternalThread: (threadId) => Effect.sync(() => lifecycle.push(`register:${threadId}`)),
-    releaseInternalThread: (threadId) => Effect.sync(() => lifecycle.push(`release:${threadId}`)),
     ...overrides,
   };
   return { lifecycle, options };
 };
+
+const makeRuntime = (options: CodexStructuredThreadTitleOptions, lifecycle: string[]) =>
+  make(options).pipe(
+    Effect.provideService(
+      CodexInternalThreadRegistry,
+      CodexInternalThreadRegistry.of({
+        leaseStructuredTitle: (threadId) =>
+          Effect.gen(function* () {
+            lifecycle.push(`register:${threadId}`);
+            yield* Effect.addFinalizer(() =>
+              Effect.sync(() => lifecycle.push(`release:${threadId}`)),
+            );
+          }),
+        observeStarted: () => null,
+        classification: () => null,
+        shouldSuppress: () => false,
+        clear: () => undefined,
+      }),
+    ),
+  );
 
 it.effect("buffers an exact-host title completion that arrives before turn/start responds", () =>
   Effect.gen(function* () {
@@ -105,7 +124,7 @@ it.effect("buffers an exact-host title completion that arrives before turn/start
         );
       },
     });
-    const runtime = yield* make(options);
+    const runtime = yield* makeRuntime(options, lifecycle);
 
     assert.strictEqual(
       yield* runtime.generate({
@@ -131,7 +150,7 @@ it.effect("buffers an exact-host title completion that arrives before turn/start
 it.effect("uses the completed agent message instead of partial deltas", () =>
   Effect.gen(function* () {
     const events = yield* PubSub.unbounded<CodexEndpointEvent>();
-    const { options } = makeOptions(events, {
+    const { lifecycle, options } = makeOptions(events, {
       startTurn: () =>
         PubSub.publish(
           events,
@@ -169,7 +188,7 @@ it.effect("uses the completed agent message instead of partial deltas", () =>
           Effect.as(turnStarted("turn-title")),
         ),
     });
-    const runtime = yield* make(options);
+    const runtime = yield* makeRuntime(options, lifecycle);
     assert.strictEqual(yield* runtime.generate({ prompt: "Fix flaky", cwd: null }), "Fix flaky");
   }),
 );
@@ -200,7 +219,7 @@ it.effect("reports terminal failure and best-effort interrupts and unsubscribes"
           Effect.as(turnStarted("turn-failed")),
         ),
     });
-    const runtime = yield* make(options);
+    const runtime = yield* makeRuntime(options, lifecycle);
     const error = yield* runtime
       .generate({ prompt: "Fix title flow", cwd: null })
       .pipe(Effect.flip);
@@ -224,7 +243,7 @@ it.effect("uses the Effect clock for the sole operation deadline", () =>
       startTurn: () =>
         Deferred.succeed(started, undefined).pipe(Effect.as(turnStarted("turn-timeout"))),
     });
-    const runtime = yield* make(options);
+    const runtime = yield* makeRuntime(options, lifecycle);
     const timedOut = yield* Effect.forkChild(
       runtime.generate({ prompt: "Timeout", cwd: null }).pipe(Effect.flip),
     );
@@ -250,7 +269,9 @@ it.effect("releases the helper Thread when the Main Scope closes", () =>
       startTurn: () =>
         Deferred.succeed(started, undefined).pipe(Effect.as(turnStarted("turn-closing"))),
     });
-    const runtime = yield* make(options).pipe(Effect.provideService(Scope.Scope, scope));
+    const runtime = yield* makeRuntime(options, lifecycle).pipe(
+      Effect.provideService(Scope.Scope, scope),
+    );
     const closed = yield* Effect.forkChild(
       runtime.generate({ prompt: "Closing", cwd: null }).pipe(Effect.flip),
     );

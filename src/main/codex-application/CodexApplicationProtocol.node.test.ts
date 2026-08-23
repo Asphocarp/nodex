@@ -26,6 +26,7 @@ import {
   CodexPendingServerRequestRuntime,
   make as makePending,
 } from "./CodexPendingServerRequestRuntime";
+import { CodexNotificationAdmission } from "./CodexNotificationAdmission";
 import { CodexProtocolNotificationEffects } from "./CodexProtocolNotificationEffects";
 import {
   CodexRendererConversationCoordinator,
@@ -141,11 +142,15 @@ const withProtocol = <A, E>(
           for (const entry of entries) pending.complete(entry, CodexAppServerNoResponse);
         }),
     });
+    const notificationAdmission = CodexNotificationAdmission.of({
+      decide: () => Effect.succeed({ _tag: "Admit" }),
+    });
 
     const protocol = yield* makeProtocol.pipe(
       Effect.provideService(CodexApplicationEventHub, applicationEvents),
       Effect.provideService(CodexApplicationRequestInbox, inbox),
       Effect.provideService(CodexAutomationInbox, automationInbox),
+      Effect.provideService(CodexNotificationAdmission, notificationAdmission),
       Effect.provideService(CodexOneShotServerRequests, oneShot),
       Effect.provideService(CodexPendingServerRequestRuntime, pending),
       Effect.provideService(CodexProtocolNotificationEffects, notificationEffects),

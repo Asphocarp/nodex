@@ -103,6 +103,9 @@ const makeHarness = (input: {
     const authority = CodexTurnAuthority.of({
       begin: () => Effect.sync(() => (events.push("authority:begin"), null)),
       bind: () => Effect.sync(() => events.push("authority:bind")),
+      observeStarted: () => Effect.die("unused"),
+      capture: () => Effect.die("unused"),
+      inherit: () => Effect.die("unused"),
       abort: () => events.push("authority:abort"),
     });
     const queued = CodexQueuedFollowUps.of({
