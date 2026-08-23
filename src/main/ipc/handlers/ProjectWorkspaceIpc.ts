@@ -11,6 +11,7 @@ import { MainConfig } from "../../app/MainConfig";
 import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import type { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import type { ConversationCommands } from "../../codex-application/ConversationCommands";
+import type { CodexBackgroundProcesses } from "../../codex-application/CodexBackgroundProcesses";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { coreResultFrom } from "../../core-result-ipc";
@@ -35,6 +36,7 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface ProjectWorkspaceIpcOptions {
   readonly codex: CodexService;
+  readonly backgroundProcesses: CodexBackgroundProcesses["Service"];
   readonly projects: DesktopProjectWorkspacePort;
   readonly threadTitles: CodexThreadTitlePersistence["Service"];
   readonly conversationCommands: ConversationCommands["Service"];
@@ -156,7 +158,7 @@ export const live = (
         browserRuntime: projectSessionBrowserRuntime,
         listCodexBlockers: (threadIds) => options.codex.listProjectArchiveBlockers(threadIds),
         listBackgroundProcessRows: (threadId) =>
-          options.codex.listBackgroundProcessRows({ threadId }),
+          callbacks.runPromise(options.backgroundProcesses.list({ threadId })),
         listLiveTerminalSessions: (input) =>
           options.terminals?.listLiveSessionsForOwners(input) ?? Promise.resolve([]),
         discardExitedTerminalSessions: (input) =>

@@ -6,8 +6,6 @@ import os from "node:os";
 import path from "node:path";
 import type {
   CodexBackgroundProcessRecord,
-  CodexBackgroundProcessRow,
-  CodexBackgroundProcessRunActionInput,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexSubagentPanelHydrateInput,
   CodexAgentMode,
@@ -64,7 +62,6 @@ import { TestCodexPendingServerRequestRuntime } from "./codex-pending-server-req
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
-  ThreadBackgroundTerminal,
   ThreadItem,
   ThreadGoal,
   ThreadGoalSetParams,
@@ -275,13 +272,6 @@ interface TestableCodexService {
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
-  listBackgroundProcessRows: (input: {
-    threadId: string;
-    observedTerminals?: ThreadBackgroundTerminal[];
-  }) => Promise<CodexBackgroundProcessRow[]>;
-  registerBackgroundProcessRunAction: (
-    input: CodexBackgroundProcessRunActionInput,
-  ) => Promise<CodexBackgroundProcessRow[]>;
   markSubagentThreadOpened: (threadId: string) => boolean;
   hydrateBackgroundSubagentThreads: (
     input: CodexBackgroundSubagentThreadsHydrateInput,

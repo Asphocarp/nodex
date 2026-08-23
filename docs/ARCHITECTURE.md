@@ -726,6 +726,16 @@ none calls a public `CodexService` lifecycle command. `CodexService` temporarily
 post-Gateway domain projection operations while those state owners are split further. The Module
 exposes only complete named commands, not a generic protocol request escape hatch.
 
+Background-process discovery and local terminal actions are owned by `CodexBackgroundProcesses`.
+One owner-scoped read drains the typed app-server terminal cursor, degrades a failed live observation
+to the durable Project Workspace catalog, records successful observations, refreshes local PTY
+metrics, and returns one joined process view. A local action revalidates the Thread's active Project
+both before and inside the shared Project lifecycle gate, durably records the action, invokes the
+Effect-owned Terminal Session, and only then returns the refreshed catalog. Main Scope closure
+interrupts active or queued actions. Renderer and Project lifecycle ingress borrow this Module;
+`CodexService` owns no public background-process read/write operation and temporarily exposes only a
+synchronous conversation title/item projection.
+
 Next-turn Thread settings use one Main-scoped application Module. Its reference-counted lanes
 serialize the complete validation → local projection → typed remote update transaction within a
 Thread while unrelated Threads remain independent; Turn start and active-goal continuation join the

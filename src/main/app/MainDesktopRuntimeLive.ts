@@ -85,6 +85,7 @@ import {
   live as conversationCommandsLive,
 } from "../codex-application/ConversationCommands";
 import { makeConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
+import { make as makeCodexBackgroundProcesses } from "../codex-application/CodexBackgroundProcesses";
 import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
 import {
   ApprovalCoordinator,
@@ -2200,12 +2201,8 @@ export const live: Layer.Layer<
                 callbacks.fork(managedWorktreeRetention.request),
               projectRuntimeLifecycle: projectRuntimeLifecycleAdapter,
               terminalRuntime: {
-                getSessionSnapshot: (sessionId) =>
-                  callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),
                 getThreadSnapshot: (threadId) =>
                   callbacks.runPromise(terminals.getThreadSnapshot(threadId)),
-                refreshSessionProcessMetrics: (sessionIds) =>
-                  callbacks.runPromise(terminals.refreshSessionProcessMetrics(sessionIds)),
               },
             });
           },
@@ -2220,6 +2217,16 @@ export const live: Layer.Layer<
           ),
           Effect.forkIn(runtimeScope, { startImmediately: true }),
           Effect.asVoid,
+        );
+        const backgroundProcesses = yield* makeCodexBackgroundProcesses({
+          projectWorkspace,
+          conversationProjection: (threadId) =>
+            codexService.readBackgroundProcessProjectionForModule(threadId),
+        }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+          Effect.provideService(Scope.Scope, runtimeScope),
+          Effect.provideService(TerminalSessions, terminals),
         );
         const managedWorktreeCatalog = yield* makeManagedWorktreeCatalog({
           projectWorkspace,
@@ -2364,6 +2371,7 @@ export const live: Layer.Layer<
         yield* Layer.buildWithScope(
           ProjectWorkspaceIpc.live({
             codex: codexService,
+            backgroundProcesses,
             conversationCommands,
             projects: projectWorkspace,
             threadTitles: threadTitlePersistence,
@@ -2856,27 +2864,13 @@ export const live: Layer.Layer<
             queuedFollowUps,
             freshThreadLaunch,
             structuredThreadTitle,
-            projectWorkspace,
+            backgroundProcesses,
             rendererClientRouter: rendererClients,
-            terminalRuntime: {
-              runAction: (input) =>
-                callbacks.runPromise(
-                  terminals.runAction(
-                    {
-                      webContentsId: input.webContentsId,
-                      windowSessionId: input.windowSessionId,
-                    },
-                    input.request,
-                  ),
-                ),
-            },
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
-                Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),

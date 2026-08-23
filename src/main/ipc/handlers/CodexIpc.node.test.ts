@@ -4,7 +4,6 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
-import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
 import { CodexManualCompactionRuntime } from "../../codex-application/CodexManualCompactionRuntime";
 import { CodexThreadGoalRuntime } from "../../codex-application/CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "../../codex-application/CodexThreadSettingsRuntime";
@@ -18,12 +17,11 @@ import { ManagedWorktreeCatalog } from "../../codex-application/ManagedWorktreeC
 import type { CodexFreshThreadLaunchRuntimeService } from "../../codex-application/CodexFreshThreadLaunchRuntime";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
+import { CodexBackgroundProcesses } from "../../codex-application/CodexBackgroundProcesses";
 import { CodexSidebarSyncRuntime } from "../../codex-application/CodexSidebarSyncRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
-import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { codexIpcLive } from "../../ipc-handlers";
-import { live as projectRuntimeLifecycleLive } from "../../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
@@ -123,6 +121,10 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         structuredThreadTitle: CodexStructuredThreadTitle.of({
           generate: () => Effect.die("unused"),
         }),
+        backgroundProcesses: CodexBackgroundProcesses.of({
+          list: () => Effect.die("unused"),
+          runAction: () => Effect.die("unused"),
+        }),
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),
           unarchive: () => Effect.die("unused"),
@@ -132,16 +134,12 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           listBackgroundTerminals: () => Effect.die("unused"),
           terminateBackgroundTerminal: () => Effect.die("unused"),
         }),
-        projectWorkspace: {} as DesktopProjectWorkspacePort,
         rendererClientRouter: {} as RendererClientRuntimeService,
-        terminalRuntime: { runAction: () => Promise.resolve() },
       }).pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
-            projectRuntimeLifecycleLive,
-            scopedCallbackRuntimeLive,
             Layer.succeed(WindowRuntime, {
               has: () => true,
               resolveSessionId: () => "window-session",

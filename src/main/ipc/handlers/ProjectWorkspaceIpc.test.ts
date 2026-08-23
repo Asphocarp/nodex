@@ -7,6 +7,7 @@ import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
+import { CodexBackgroundProcesses } from "../../codex-application/CodexBackgroundProcesses";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
@@ -33,6 +34,10 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
     yield* Layer.buildWithScope(
       live({
         codex: {} as CodexService,
+        backgroundProcesses: CodexBackgroundProcesses.of({
+          list: () => Effect.die("unused"),
+          runAction: () => Effect.die("unused"),
+        }),
         projects: {} as DesktopProjectWorkspacePort,
         threadTitles: CodexThreadTitlePersistence.of({
           set: () => Effect.die("unused"),

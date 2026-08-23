@@ -10,7 +10,6 @@ import {
   type OpenDialogOptions,
 } from "electron";
 import { MainConfig } from "./app/MainConfig";
-import { ScopedCallbackRuntime } from "./app/ScopedCallbackRuntime";
 import type { CodexService } from "./codex/codex-service";
 import type { CodexManualCompactionRuntime } from "./codex-application/CodexManualCompactionRuntime";
 import type { CodexThreadGoalRuntime } from "./codex-application/CodexThreadGoalRuntime";
@@ -18,6 +17,7 @@ import type { CodexThreadSettingsRuntime } from "./codex-application/CodexThread
 import type { CodexThreadCatalog } from "./codex-application/CodexThreadCatalog";
 import type { CodexThreadTitlePersistence } from "./codex-application/CodexThreadTitlePersistence";
 import type { ConversationCommands } from "./codex-application/ConversationCommands";
+import type { CodexBackgroundProcesses } from "./codex-application/CodexBackgroundProcesses";
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
@@ -36,7 +36,6 @@ import type {
   CodexApprovalResponse,
   CodexCollaborationModeKind,
   CodexProtocolRequestId,
-  TerminalRunActionRequest,
 } from "../shared/types";
 import type {
   AgentImportApplyInput,
@@ -53,10 +52,6 @@ import { captureMainException } from "./observability/sentry-main";
 import { ElectronIpc } from "./platform/electron/ElectronIpc";
 import { WindowRuntime } from "./window-runtime/WindowRuntime";
 import type { IpcApi } from "../shared/ipc-api";
-import { runWithTerminalProjectAdmission } from "./project-lifecycle-service";
-import { ProjectRuntimeLifecycleRuntime } from "./host-runtime/ProjectRuntimeLifecycleRuntime";
-import { makeProjectRuntimeLifecyclePromiseAdapter } from "./host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
-import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import type {
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexSubagentPanelHydrateInput,
@@ -122,15 +117,8 @@ interface CodexIpcOptions {
   queuedFollowUps: CodexQueuedFollowUpRuntime["Service"];
   freshThreadLaunch: CodexFreshThreadLaunchRuntimeService;
   structuredThreadTitle: CodexStructuredThreadTitle["Service"];
+  backgroundProcesses: CodexBackgroundProcesses["Service"];
   rendererClientRouter: RendererClientRuntimeService;
-  projectWorkspace: DesktopProjectWorkspacePort;
-  terminalRuntime: {
-    readonly runAction: (input: {
-      readonly webContentsId: number;
-      readonly windowSessionId: string;
-      readonly request: TerminalRunActionRequest;
-    }) => Promise<void>;
-  };
 }
 
 export class CodexIpcError extends Schema.TaggedError<CodexIpcError>()("CodexIpcError", {
@@ -140,23 +128,13 @@ export class CodexIpcError extends Schema.TaggedError<CodexIpcError>()("CodexIpc
 
 export const codexIpcLive = (
   options: CodexIpcOptions,
-): Layer.Layer<
-  never,
-  never,
-  ElectronIpc | MainConfig | ProjectRuntimeLifecycleRuntime | ScopedCallbackRuntime | WindowRuntime
-> =>
+): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const { codexService } = options;
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
-      const projectRuntimeLifecycle = yield* ProjectRuntimeLifecycleRuntime;
-      const callbacks = yield* ScopedCallbackRuntime;
       const windows = yield* WindowRuntime;
-      const projectRuntimeLifecycleAdapter = makeProjectRuntimeLifecyclePromiseAdapter(
-        projectRuntimeLifecycle,
-        callbacks,
-      );
       const registrations: Array<Effect.Effect<void, never, Scope.Scope>> = [];
       const authorize = (event: IpcMainInvokeEvent) =>
         Effect.try({
@@ -213,7 +191,6 @@ export const codexIpcLive = (
       ): void => {
         requireTrustedAppRendererSenderWithOrigin(event, capabilityName, config.rendererUrl);
       };
-      const projectWorkspace = options.projectWorkspace;
       const requireAssignedWindowSessionId = (senderId: number): string => {
         const windowSessionId = windows.resolveSessionId(senderId);
         if (!windowSessionId) {
@@ -882,7 +859,7 @@ export const codexIpcLive = (
         codexService.cleanBackgroundTerminalsSilently(threadId),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:background-processes:list",
         (
           _,
@@ -890,39 +867,44 @@ export const codexIpcLive = (
             threadId: string;
             observedTerminals?: ThreadBackgroundTerminal[];
           },
-        ) => codexService.listBackgroundProcessRows(input),
+        ) =>
+          options.backgroundProcesses.list(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new CodexIpcError({
+                  operation: "codex:thread:background-processes:list",
+                  cause,
+                }),
+            ),
+          ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:background-processes:run-action",
-        async (event, input: CodexBackgroundProcessRunActionInput) => {
-          const sender = event.sender;
-          const terminalInput = {
-            sessionId: input.terminalSessionId,
-            conversationId: input.threadId,
-            cwd: input.cwd,
-            command: input.command,
-            title: input.command,
-          };
-          await runWithTerminalProjectAdmission(
-            projectWorkspace,
-            terminalInput,
-            async () => {
-              await codexService.registerBackgroundProcessRunAction(input);
-              if (!options.terminalRuntime) throw new Error("Terminal runtime is unavailable");
-              await options.terminalRuntime.runAction({
-                webContentsId: sender.id,
-                windowSessionId: requireAssignedWindowSessionId(sender.id),
-                request: terminalInput,
-              });
-            },
-            projectRuntimeLifecycleAdapter,
-          );
-          return codexService.listBackgroundProcessRows({
-            threadId: input.threadId,
-            observedTerminals: [],
-          });
-        },
+        (event, input: CodexBackgroundProcessRunActionInput) =>
+          Effect.try({
+            try: () => ({
+              action: input,
+              owner: {
+                webContentsId: event.sender.id,
+                windowSessionId: requireAssignedWindowSessionId(event.sender.id),
+              },
+            }),
+            catch: (cause) =>
+              new CodexIpcError({
+                operation: "codex:thread:background-processes:run-action",
+                cause,
+              }),
+          }).pipe(
+            Effect.flatMap(options.backgroundProcesses.runAction),
+            Effect.mapError(
+              (cause) =>
+                new CodexIpcError({
+                  operation: "codex:thread:background-processes:run-action",
+                  cause,
+                }),
+            ),
+          ),
       );
 
       registerHandle("mcp-app:open-external", async (event, value) => {

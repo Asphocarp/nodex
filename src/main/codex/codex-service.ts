@@ -28,7 +28,6 @@ import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/Mode
 import type { PermissionsRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalResponse";
 import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
-import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type { ThreadBackgroundTerminalsCleanResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsCleanResponse";
 import type { ThreadBackgroundTerminalsListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsListResponse";
 import type { ThreadBackgroundTerminalsTerminateResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsTerminateResponse";
@@ -65,9 +64,6 @@ import type {
   CodexAutomationRunsUpdatedEvent,
   CodexApprovalRequest,
   CodexApprovalResponse,
-  CodexBackgroundProcessRecord,
-  CodexBackgroundProcessRow,
-  CodexBackgroundProcessRunActionInput,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexSubagentPanelHydrateInput,
   CodexBackgroundTerminalRow,
@@ -249,13 +245,13 @@ import {
   CodexThreadGoalStatusSchema,
   parseCodexThreadTokenUsage,
 } from "../../shared/schemas/codex";
-import { buildCodexBackgroundProcessRow } from "./background-process-rows";
 import { ProjectSessionForkInputSchema } from "../../shared/schemas/project-sessions";
 import {
   PastedTextAttachmentManager,
   ThreadGoalAttachmentDirectoryManager,
 } from "../thread-goal-attachments";
 import type { CodexAttachments } from "../codex-application/CodexAttachments";
+import type { CodexBackgroundProcessConversationProjection } from "../codex-application/CodexBackgroundProcesses";
 import type { CodexPendingServerRequestRuntimeService } from "../codex-application/CodexPendingServerRequestRuntime";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import {
@@ -535,7 +531,6 @@ import {
   setCodexClientThreadIdentity,
 } from "./codex-client-thread-identity";
 import type { PersistedAtomStore } from "../local-store/persisted-atoms";
-import { makeCodexBackgroundProcessRecordId } from "../../shared/codex-background-processes";
 import {
   CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS,
   buildCodexScheduledAutomationHeartbeatPrompt,
@@ -1146,9 +1141,7 @@ type CodexServiceOptions = {
 };
 
 export interface CodexTerminalRuntimePort {
-  readonly getSessionSnapshot: (sessionId: string) => Promise<TerminalSessionSnapshot | null>;
   readonly getThreadSnapshot: (threadId: string) => Promise<TerminalSessionSnapshot | null>;
-  readonly refreshSessionProcessMetrics: (sessionIds: readonly string[]) => Promise<void>;
 }
 
 type CodexConversationStreamRole = "owner" | "follower" | null;
@@ -2314,9 +2307,7 @@ export class CodexService {
     this.terminalRuntime =
       options.terminalRuntime ??
       ({
-        getSessionSnapshot: async () => null,
         getThreadSnapshot: async () => null,
-        refreshSessionProcessMetrics: async () => undefined,
       } satisfies CodexTerminalRuntimePort);
     this.runtimeStateHome = path.resolve(options.runtimeStateHome);
     this.nodexAgentDynamicService = options.nodexAgentDynamicService;
@@ -16560,204 +16551,30 @@ export class CodexService {
     return true;
   }
 
-  async listBackgroundProcessRows(input: {
-    threadId: string;
-    observedTerminals?: ThreadBackgroundTerminal[];
-  }): Promise<CodexBackgroundProcessRow[]> {
-    const threadId = input.threadId.trim();
-    if (!threadId) {
-      return [];
-    }
-
-    let terminals: ThreadBackgroundTerminal[];
-    if (input.observedTerminals) {
-      terminals = input.observedTerminals;
-    } else {
-      try {
-        const rows: ThreadBackgroundTerminal[] = [];
-        let cursor: string | null = null;
-        do {
-          const response: ThreadBackgroundTerminalsListResponse = await this.client.request<
-            "thread/backgroundTerminals/list",
-            ThreadBackgroundTerminalsListResponse
-          >("thread/backgroundTerminals/list", { threadId, cursor, limit: 100 });
-          rows.push(...response.data);
-          cursor = response.nextCursor;
-        } while (cursor);
-        terminals = rows;
-      } catch (error) {
-        this.logger.warn(
-          "Falling back to registered background process rows without live terminal snapshots",
-          {
-            threadId,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        );
-        terminals = [];
-      }
-    }
-
-    await this.recordObservedBackgroundTerminals(threadId, terminals);
-    const records = await this.projectWorkspace.listBackgroundProcesses(threadId);
-    await this.refreshBackgroundProcessTerminalSessionMetrics(records);
-    return await this.buildBackgroundProcessRows(threadId, records, terminals);
-  }
-
-  async registerBackgroundProcessRunAction(
-    input: CodexBackgroundProcessRunActionInput,
-  ): Promise<CodexBackgroundProcessRow[]> {
-    const threadId = input.threadId.trim();
-    const itemId = input.itemId.trim();
-    const command = input.command.trim();
-    const cwd = input.cwd.trim();
-    const terminalSessionId = input.terminalSessionId.trim();
-    if (!threadId || !itemId || !command || !cwd || !terminalSessionId) {
-      return [];
-    }
-
-    const now = Date.now();
-    await this.projectWorkspace.upsertBackgroundProcess(
-      {
-        id: makeCodexBackgroundProcessRecordId({ threadId, itemId }),
-        threadId,
-        threadTitle:
-          input.threadTitle?.trim() || this.resolveBackgroundProcessThreadTitle(threadId),
-        itemId,
-        turnId: input.turnId?.trim() || null,
-        command,
-        cwd,
-        processId: null,
-        osPid: null,
-        terminalSessionId,
-        source: "terminal-action",
-        startedAtMs: now,
-        updatedAtMs: now,
-      },
-      { preserveStartedAt: false },
-    );
-
-    const records = await this.projectWorkspace.listBackgroundProcesses(threadId);
-    return await this.buildBackgroundProcessRows(threadId, records, []);
-  }
-
-  private async recordObservedBackgroundTerminals(
+  /** Temporary read-only projection while the conversation replica remains in this class. */
+  readBackgroundProcessProjectionForModule(
     threadId: string,
-    terminals: readonly ThreadBackgroundTerminal[],
-  ): Promise<void> {
-    if (terminals.length === 0) {
-      return;
-    }
-
-    const threadTitle = this.resolveBackgroundProcessThreadTitle(threadId);
-    const conversationRowByTerminalKey =
-      this.getBackgroundTerminalConversationRowsByTerminalKey(threadId);
-    const now = Date.now();
-
-    for (const terminal of terminals) {
-      const command = terminal.command.trim();
-      if (!command) {
-        continue;
-      }
-
-      const conversationRow =
-        conversationRowByTerminalKey.get(terminal.itemId) ??
-        conversationRowByTerminalKey.get(String(terminal.processId));
-      const processId = terminal.processId.trim() || null;
-      const recordId = makeCodexBackgroundProcessRecordId({
-        threadId,
-        itemId: terminal.itemId,
-      });
-      await this.projectWorkspace.upsertBackgroundProcess({
-        id: recordId,
-        threadId,
-        threadTitle,
-        itemId: terminal.itemId,
-        turnId: conversationRow?.turnId ?? null,
-        command,
-        cwd: terminal.cwd,
-        processId,
-        osPid: terminal.osPid,
-        terminalSessionId: null,
-        source: "app-server",
-        startedAtMs: conversationRow?.createdAt ?? now,
-        updatedAtMs: now,
-      });
-    }
-  }
-
-  private getBackgroundTerminalConversationRowsByTerminalKey(
-    threadId: string,
-  ): Map<string, Pick<CodexConversationItem, "turnId" | "createdAt">> {
-    const transcript = this.getMaybeConversationRecord(threadId)?.detail?.transcript;
-    const rows = new Map<string, Pick<CodexConversationItem, "turnId" | "createdAt">>();
-    if (!transcript) {
-      return rows;
-    }
-
-    for (const item of transcript) {
-      if (item.kind !== "commandExecution") {
-        continue;
-      }
-      rows.set(item.itemId, item);
-      if (item.processId !== null && item.processId !== undefined) {
-        rows.set(String(item.processId), item);
-      }
-    }
-
-    return rows;
-  }
-
-  private resolveBackgroundProcessThreadTitle(threadId: string): string | null {
-    const thread = this.getMaybeConversationRecord(threadId)?.detail;
-    return thread?.threadName?.trim() || thread?.threadPreview?.trim() || null;
-  }
-
-  private async buildBackgroundProcessRows(
-    threadId: string,
-    records: readonly CodexBackgroundProcessRecord[],
-    terminals: readonly ThreadBackgroundTerminal[],
-  ): Promise<CodexBackgroundProcessRow[]> {
-    const terminalByRecordKey = new Map<string, ThreadBackgroundTerminal>();
-    for (const terminal of terminals) {
-      const recordId = makeCodexBackgroundProcessRecordId({
-        threadId,
-        itemId: terminal.itemId,
-      });
-      terminalByRecordKey.set(recordId, terminal);
-    }
-
-    return await Promise.all(
-      records.map(async (record) => {
-        const terminal = terminalByRecordKey.get(record.id) ?? null;
-        const terminalSession = await this.getBackgroundProcessTerminalSession(
-          record.terminalSessionId,
-        );
-        return buildCodexBackgroundProcessRow({ record, terminal, terminalSession });
-      }),
-    );
-  }
-
-  private async refreshBackgroundProcessTerminalSessionMetrics(
-    records: readonly CodexBackgroundProcessRecord[],
-  ): Promise<void> {
-    const terminalSessionIds = records
-      .map((record) => record.terminalSessionId)
-      .filter((sessionId): sessionId is string => sessionId !== null);
-    await this.terminalRuntime.refreshSessionProcessMetrics(terminalSessionIds);
-  }
-
-  private async getBackgroundProcessTerminalSession(
-    sessionId: string | null,
-  ): Promise<TerminalSessionSnapshot | null> {
-    if (!sessionId) {
-      return null;
-    }
-
-    const snapshot = await this.terminalRuntime.getSessionSnapshot(sessionId);
-    if (!snapshot || snapshot.exited) {
-      return null;
-    }
-    return snapshot;
+  ): CodexBackgroundProcessConversationProjection {
+    const detail = this.getMaybeConversationRecord(threadId)?.detail;
+    return {
+      threadTitle: detail?.threadName?.trim() || detail?.threadPreview?.trim() || null,
+      terminalItems:
+        detail?.transcript.flatMap((item) =>
+          item.kind === "commandExecution"
+            ? [
+                {
+                  itemId: item.itemId,
+                  processId:
+                    item.processId === null || item.processId === undefined
+                      ? null
+                      : String(item.processId),
+                  turnId: item.turnId,
+                  createdAt: item.createdAt,
+                },
+              ]
+            : [],
+        ) ?? [],
+    };
   }
 
   private markBackgroundTerminalsInterruptedSilently(threadId: string): void {
