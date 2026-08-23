@@ -43,12 +43,20 @@ import {
   type CodexApplicationRequestOccurrence,
 } from "../codex-runtime/CodexApplicationRequestInbox";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
+import { CodexAutomationInbox } from "./CodexAutomationInbox";
 import { compactCodexApplicationProtocolOccurrences } from "./CodexConversationEventProjection";
+import {
+  CodexOneShotServerRequests,
+  isCodexOneShotServerRequest,
+} from "./CodexOneShotServerRequests";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
+import { CodexProtocolNotificationProjection } from "./CodexProtocolNotificationProjection";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
+import { NodexAgentProtocolTools } from "../nodex-agent-application/NodexAgentProtocolTools";
 
 const ProtocolRequestPending = Symbol("CodexApplicationProtocol.ProtocolRequestPending");
 const ProtocolRequestBuffered = Symbol("CodexApplicationProtocol.ProtocolRequestBuffered");
@@ -70,7 +78,7 @@ export class CodexApplicationProtocol extends Context.Service<
 >()("nodex/main/codex-application/CodexApplicationProtocol") {}
 
 const threadIdForRequest = (request: CodexServerRequest): string | null => {
-  if (request.method === "currentTime/read" || request.method === "inbox-items-create") return null;
+  if (request.method === "inbox-items-create") return null;
   if ("threadId" in request.params && typeof request.params.threadId === "string") {
     return request.params.threadId;
   }
@@ -277,20 +285,28 @@ export const make: Effect.Effect<
   never,
   | CodexApplicationEventHub
   | CodexApplicationRequestInbox
+  | CodexAutomationInbox
+  | CodexOneShotServerRequests
   | CodexPendingServerRequestRuntime
+  | CodexProtocolNotificationProjection
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
   | CodexUserInputAutoResolution
   | ConversationRuntimeMap
+  | NodexAgentProtocolTools
   | Scope.Scope
 > = Effect.gen(function* () {
   const applicationEvents = yield* CodexApplicationEventHub;
   const inbox = yield* CodexApplicationRequestInbox;
+  const automationInbox = yield* CodexAutomationInbox;
+  const oneShot = yield* CodexOneShotServerRequests;
   const pending = yield* CodexPendingServerRequestRuntime;
+  const notificationProjection = yield* CodexProtocolNotificationProjection;
   const renderer = yield* CodexRendererConversationCoordinator;
   const rendererRegistry = yield* CodexRendererConversationRegistry;
   const autoResolution = yield* CodexUserInputAutoResolution;
   const conversations = yield* ConversationRuntimeMap;
+  const nodexAgentTools = yield* NodexAgentProtocolTools;
   let threadStartDeferralDepth = 0;
   const deferredThreadStarts = new Set<string>();
 
@@ -460,19 +476,26 @@ export const make: Effect.Effect<
   const handleRequest = Effect.fn("CodexApplicationProtocol.handleRequest")(function* (
     request: CodexServerRequest,
   ) {
-    if (request.method === "inbox-items-create") return CodexAppServerNoResponse;
+    if (isCodexOneShotServerRequest(request)) return yield* oneShot.handle(request);
+    if (request.method === "inbox-items-create") {
+      const occurrenceToken = request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN];
+      if (occurrenceToken === undefined) {
+        return yield* Effect.die(
+          new Error("Automation inbox request is missing its Effect occurrence token"),
+        );
+      }
+      return yield* automationInbox.create(request.params, { occurrenceToken });
+    }
     const threadId = threadIdForRequest(request);
     const observedAtMs = yield* Clock.currentTimeMillis;
-    if (!threadId) {
-      if (request.method === "currentTime/read") {
-        return { currentTimeAt: Math.floor(observedAtMs / 1_000) };
-      }
-      return CodexAppServerNoResponse;
-    }
+    if (!threadId) return CodexAppServerNoResponse;
     const lifecycle = reduceRequest(threadId, request as CodexCanonicalServerRequest, observedAtMs);
     const response = responseEffect(lifecycle);
     if (response !== undefined) return response;
     if (lifecycle.disposition === "dispatched" && request.method === "item/tool/call") {
+      if (request.params.namespace === NODEX_APP_TOOL_NAMESPACE) {
+        return yield* nodexAgentTools.execute(request.params);
+      }
       if (!rendererRegistry.hasOwner(threadId)) return CodexAppServerNoResponse;
       pending.register({
         kind: "dynamic-tool",
@@ -521,6 +544,7 @@ export const make: Effect.Effect<
   const observeNotification = Effect.fn("CodexApplicationProtocol.observeNotification")(function* (
     notification: CodexServerNotification,
   ) {
+    if (yield* notificationProjection.observe(notification)) return;
     if (!isCodexThreadOwnerNotification(notification)) return;
     const threadId = getCodexThreadOwnerNotificationThreadId(notification);
     const ownerRouted = renderer.forwardNotificationForConversation(threadId, notification);
@@ -654,7 +678,11 @@ export const make: Effect.Effect<
   const observe: CodexApplicationProtocol["Service"]["observe"] = (occurrence) => {
     const notification = parseNotification(occurrence);
     if (!notification) return Effect.void;
-    if (!isCodexThreadOwnerNotification(notification)) return Effect.void;
+    if (!isCodexThreadOwnerNotification(notification)) {
+      return inbox
+        .interpretNotification(occurrence, observeNotification(notification))
+        .pipe(Effect.asVoid);
+    }
     const threadId = getCodexThreadOwnerNotificationThreadId(notification);
     return inbox
       .interpretNotification(
@@ -836,9 +864,13 @@ export const live: Layer.Layer<
   never,
   | CodexApplicationEventHub
   | CodexApplicationRequestInbox
+  | CodexAutomationInbox
+  | CodexOneShotServerRequests
   | CodexPendingServerRequestRuntime
+  | CodexProtocolNotificationProjection
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
   | CodexUserInputAutoResolution
   | ConversationRuntimeMap
+  | NodexAgentProtocolTools
 > = Layer.effect(CodexApplicationProtocol, make);

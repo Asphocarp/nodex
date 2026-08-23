@@ -16,10 +16,19 @@ import {
   CodexApplicationEventHub,
   make as makeApplicationEvents,
 } from "./CodexApplicationEventHub";
+import { CodexAutomationInbox } from "./CodexAutomationInbox";
+import {
+  CodexOneShotServerRequests,
+  live as oneShotServerRequestsLive,
+} from "./CodexOneShotServerRequests";
 import {
   CodexPendingServerRequestRuntime,
   make as makePending,
 } from "./CodexPendingServerRequestRuntime";
+import {
+  CodexProtocolNotificationProjection,
+  live as protocolNotificationProjectionLive,
+} from "./CodexProtocolNotificationProjection";
 import {
   CodexRendererConversationCoordinator,
   type CodexRendererConversationCoordinatorService,
@@ -37,6 +46,7 @@ import {
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
 import { CodexApplicationProtocol, make as makeProtocol } from "./CodexApplicationProtocol";
+import { NodexAgentProtocolTools } from "../nodex-agent-application/NodexAgentProtocolTools";
 
 const coordinator = CodexRendererConversationCoordinator.of({
   forwardNotificationForConversation: () => false,
@@ -89,6 +99,18 @@ const withProtocol = <A, E>(
     const applicationEvents = yield* makeApplicationEvents.pipe(
       Effect.provideService(Scope.Scope, rootScope),
     );
+    const oneShotContext = yield* Layer.buildWithScope(oneShotServerRequestsLive, rootScope);
+    const oneShot = Context.get(oneShotContext, CodexOneShotServerRequests);
+    const notificationContext = yield* Layer.buildWithScope(
+      protocolNotificationProjectionLive({ supportsChatGptApps: true }).pipe(
+        Layer.provide(Layer.succeed(CodexApplicationEventHub, applicationEvents)),
+      ),
+      rootScope,
+    );
+    const notificationProjection = Context.get(
+      notificationContext,
+      CodexProtocolNotificationProjection,
+    );
     const rendererRegistry = yield* makeRendererRegistry().pipe(
       Effect.provideService(Scope.Scope, rootScope),
     );
@@ -109,15 +131,29 @@ const withProtocol = <A, E>(
           ),
         }),
     }).pipe(Effect.provideService(Scope.Scope, rootScope));
+    const automationInbox = CodexAutomationInbox.of({
+      create: () => Effect.succeed({ items: [] }),
+    });
+    const nodexAgentTools = NodexAgentProtocolTools.of({
+      execute: (params) =>
+        Effect.succeed({
+          success: true,
+          contentItems: [{ type: "inputText", text: params.tool }],
+        }),
+    });
 
     const protocol = yield* makeProtocol.pipe(
       Effect.provideService(CodexApplicationEventHub, applicationEvents),
       Effect.provideService(CodexApplicationRequestInbox, inbox),
+      Effect.provideService(CodexAutomationInbox, automationInbox),
+      Effect.provideService(CodexOneShotServerRequests, oneShot),
       Effect.provideService(CodexPendingServerRequestRuntime, pending),
+      Effect.provideService(CodexProtocolNotificationProjection, notificationProjection),
       Effect.provideService(CodexRendererConversationCoordinator, coordinator),
       Effect.provideService(CodexRendererConversationRegistry, rendererRegistry),
       Effect.provideService(CodexUserInputAutoResolution, autoResolution),
       Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(NodexAgentProtocolTools, nodexAgentTools),
       Effect.provideService(Scope.Scope, rootScope),
     );
 
@@ -151,6 +187,43 @@ it.effect(
         assert.deepEqual(conversations.conversation("thread-a").readServerRequests(), []);
       }),
     ),
+);
+
+it.effect("settles Nodex Agent calls directly from the protocol command lane", () =>
+  withProtocol(({ inbox }) =>
+    Effect.gen(function* () {
+      const generationScope = yield* Scope.make();
+      const generation = yield* inbox
+        .openGeneration("local", 4)
+        .pipe(Effect.provideService(Scope.Scope, generationScope));
+      const settled = yield* generation.settlements.pipe(Stream.runHead, Effect.forkChild);
+      yield* generation.admit({
+        requestId: "nodex-call",
+        method: "item/tool/call",
+        params: {
+          threadId: "thread-a",
+          turnId: "turn-a",
+          callId: "call-a",
+          namespace: "nodex_app",
+          tool: "get_context",
+          arguments: {},
+        },
+      });
+
+      const settlement = yield* Fiber.join(settled);
+      assert.strictEqual(settlement._tag, "Some");
+      if (settlement._tag === "Some") {
+        assert.deepEqual(settlement.value.outcome, {
+          kind: "result",
+          value: {
+            success: true,
+            contentItems: [{ type: "inputText", text: "get_context" }],
+          },
+        });
+      }
+      yield* Scope.close(generationScope, Exit.void);
+    }),
+  ),
 );
 
 it.effect("lets another Thread respond while the first Thread command lane is occupied", () =>
