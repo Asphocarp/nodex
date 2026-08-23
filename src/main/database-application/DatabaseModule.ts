@@ -24,7 +24,10 @@ import type {
   DatabaseViewWindowSnapshot,
   ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
+import type { ProjectionCursor } from "../../shared/projection-stream";
+import type { DatabasePage } from "../../shared/types";
 import { parseDatabaseViewId } from "../../shared/database-identities";
+import { projectCoreDatabaseRowDetail } from "../../shared/database-page-projection";
 import {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
@@ -109,6 +112,12 @@ export class DatabaseModule extends Context.Service<
     readonly resolveDatabaseViewReference: (
       input: ReadDatabaseViewReferenceInput,
     ) => DatabaseEffect<DatabaseViewReadModel | null>;
+    readonly readRowPage: (input: {
+      readonly projectId: string;
+      readonly pageId: string;
+      readonly status?: DatabasePage["status"];
+      readonly minimumCommitCursor?: ProjectionCursor;
+    }) => DatabaseEffect<DatabasePage | null>;
   }
 >()("nodex/main/database-application/DatabaseModule") {}
 
@@ -361,6 +370,31 @@ export const live: Layer.Layer<DatabaseModule, never, CoreAuthority | CoreSessio
               evaluate("database.resolveDatabaseViewReference.project", () =>
                 projectDatabaseViewReferenceModel(window, input),
               ),
+            ),
+            Effect.catch((error) =>
+              isUnavailableReference(error) ? Effect.succeed(null) : Effect.fail(error),
+            ),
+          );
+        },
+        readRowPage: ({ projectId, pageId, status, minimumCommitCursor }) => {
+          const minimumCommitSeq =
+            minimumCommitCursor?.storeEpoch === identity.storeEpoch
+              ? minimumCommitCursor.commitSeq
+              : 0;
+          return readProjection(
+            { kind: "project", projectId },
+            "database.rowPage",
+            { kind: "row_detail", page_id: pageId },
+            minimumCommitSeq,
+          ).pipe(
+            Effect.flatMap((snapshot) =>
+              evaluate("database.rowPage.project", () => {
+                if (snapshot.value.kind !== "row_detail") {
+                  throw new Error("Database Core returned a non-detail Page snapshot");
+                }
+                const page = projectCoreDatabaseRowDetail(snapshot.value.value);
+                return status && page.status !== status ? null : page;
+              }),
             ),
             Effect.catch((error) =>
               isUnavailableReference(error) ? Effect.succeed(null) : Effect.fail(error),

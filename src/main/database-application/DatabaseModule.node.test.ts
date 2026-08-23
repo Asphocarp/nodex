@@ -118,6 +118,62 @@ const viewGroupsSnapshot = (commitHead: number): DatabaseReadSnapshot => ({
   },
 });
 
+const rowDetailSnapshot = (commitHead: number): DatabaseReadSnapshot => ({
+  contract_version: 4,
+  store_epoch: identity.storeEpoch,
+  commit_head: commitHead,
+  authorization: authorizedReadStampFixture({
+    deliveryAddress: {
+      kind: "project",
+      library_id: identity.libraryId,
+      project_id: projectId,
+    },
+    subject: { kind: "page", page_id: "page:test" },
+    storeEpoch: identity.storeEpoch,
+    commitSeq: commitHead,
+  }),
+  value: {
+    kind: "row_detail",
+    value: {
+      body_nfm: "Canonical details",
+      summary: {
+        created_at: "2026-08-23T00:00:00.000Z",
+        database_value_revisions: { status: 1 },
+        database_values: { status: "ship" },
+        description_length: 17,
+        description_preview: "Canonical details",
+        document_generation: 1,
+        document_head_seq: 1,
+        document_id: "document:test",
+        has_description: true,
+        intrinsic_properties: {
+          "schedule.isAllDay": false,
+          "recurrence.config": null,
+          "reminders.config": [],
+          "schedule.timezone": null,
+          "run.target": "localProject",
+          "run.localPath": null,
+          "run.baseBranch": null,
+          "run.worktreePath": null,
+          "run.environmentPath": null,
+        },
+        lifecycle: "active",
+        membership_created_at: "2026-08-23T00:00:00.000Z",
+        membership_id: "membership:test",
+        membership_revision: 1,
+        metadata_revision: 2,
+        page_id: "page:test",
+        page_key: "TASK-1",
+        parent_revision: 1,
+        rich_title: [],
+        task_parent_value_revision: 1,
+        title: "Release",
+        updated_at: "2026-08-23T00:00:00.000Z",
+      },
+    },
+  },
+});
+
 const enqueueDatabaseViewReference = (client: FakeCoreClient): void => {
   const commitHead = 23;
   const authorization = authorizedReadStampFixture({
@@ -395,6 +451,32 @@ it.effect("resolves a Database View reference from one bounded authoritative win
           "data_source",
           "property_window",
         ],
+      );
+    }),
+  );
+});
+
+it.effect("reads a causally fenced Database row through the Project authority", () => {
+  const client = new FakeCoreClient();
+  client.enqueueDatabaseRead(rowDetailSnapshot(31));
+
+  return withDatabaseModule(client, (database, projectScopes) =>
+    Effect.gen(function* () {
+      const page = yield* database.readRowPage({
+        projectId,
+        pageId: "page:test",
+        status: "ship",
+        minimumCommitCursor: { storeEpoch: identity.storeEpoch, commitSeq: 31 },
+      });
+
+      assert.isNotNull(page);
+      assert.strictEqual(page?.id, "page:test");
+      assert.strictEqual(page?.description, "Canonical details");
+      assert.strictEqual(page?.status, "ship");
+      assert.deepEqual(projectScopes, [projectId]);
+      assert.deepEqual(
+        client.databaseReads.map(({ kind }) => kind),
+        ["row_detail"],
       );
     }),
   );
