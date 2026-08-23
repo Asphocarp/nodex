@@ -7,7 +7,7 @@ import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import type { PageSearchCommandResult } from "../../../shared/types";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
-import type { DesktopLibraryModuleBridge } from "../../core-client";
+import { LibraryModule } from "../../library-application/LibraryModule";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./PageSearchIpc";
@@ -32,22 +32,19 @@ it.effect("cancels an owned search and releases every handler with the Main Scop
       observeStarted = resolve;
     });
     const library = {
-      searchPages: (_input: unknown, signal: AbortSignal) =>
-        new Promise<never>((_resolve, reject) => {
+      searchPages: () =>
+        Effect.callback<never>(() => {
           observeStarted?.();
-          signal.addEventListener(
-            "abort",
-            () => reject(new DOMException("The search was cancelled", "AbortError")),
-            { once: true },
-          );
+          return Effect.void;
         }),
-    } as unknown as DesktopLibraryModuleBridge;
+    } as unknown as LibraryModule["Service"];
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      live({ authorizeSender: () => true, library }).pipe(
+      live({ authorizeSender: () => true }).pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
+            Layer.succeed(LibraryModule, library),
             mainConfigLayer(),
             Layer.succeed(WindowRuntime, {
               has: () => true,

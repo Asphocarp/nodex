@@ -16,11 +16,8 @@ import {
   registerBlockTransferUndoIpcHandler,
 } from "../../block-transfer-ipc";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
-import type {
-  DesktopDatabaseModuleBridge,
-  DesktopDocumentSessionService,
-  DesktopLibraryModuleBridge,
-} from "../../core-client";
+import type { DesktopDocumentSessionService } from "../../core-client";
+import { DatabaseModule } from "../../database-application/DatabaseModule";
 import { registerDatabaseModuleIpcHandlers } from "../../database-module-ipc";
 import { registerDocumentHistoryIpcHandlers } from "../../document-history-ipc";
 import { registerDocumentMutationIpcHandler } from "../../document-operation-ipc";
@@ -35,12 +32,11 @@ import {
 } from "../../page-lifecycle-ipc";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
+import { LibraryModule } from "../../library-application/LibraryModule";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface CoreMutationIpcOptions {
-  readonly database: DesktopDatabaseModuleBridge;
   readonly documents: DesktopDocumentSessionService;
-  readonly library: DesktopLibraryModuleBridge;
   readonly rendererClients: RendererClientRuntimeService;
 }
 
@@ -56,12 +52,18 @@ type Handler<Channel extends keyof IpcApi> = (
 
 export const live = (
   options: CoreMutationIpcOptions,
-): Layer.Layer<never, never, ElectronIpc | MainConfig | ScopedCallbackRuntime | WindowRuntime> =>
+): Layer.Layer<
+  never,
+  never,
+  DatabaseModule | ElectronIpc | LibraryModule | MainConfig | ScopedCallbackRuntime | WindowRuntime
+> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
       const callbacks = yield* ScopedCallbackRuntime;
+      const database = yield* DatabaseModule;
       const ipc = yield* ElectronIpc;
+      const library = yield* LibraryModule;
       const windows = yield* WindowRuntime;
       const targetFor = (event: IpcMainInvokeEvent) => {
         try {
@@ -117,14 +119,16 @@ export const live = (
           );
         },
         resolveTrustedIdentity,
-        applyMutation: options.library.applyBlockPropertyMutation,
+        applyMutation: (request) =>
+          callbacks.runPromise(library.applyBlockPropertyMutation(request)),
       });
       registerLibraryBlockPropertyMutationIpcHandler({
         registerHandle: (channel, listener) => {
           registerHandle(channel, (event, request) => listener(event, request));
         },
         resolveTrustedIdentity,
-        applyMutation: options.library.applyLibraryBlockPropertyMutation,
+        applyMutation: (request) =>
+          callbacks.runPromise(library.applyLibraryBlockPropertyMutation(request)),
       });
       registerDatabaseModuleIpcHandlers({
         registerHandle: (channel, listener) => {
@@ -137,8 +141,8 @@ export const live = (
           );
         },
         resolveTrustedIdentity,
-        apply: options.database.apply,
-        read: options.database.read,
+        apply: (request) => callbacks.runPromise(database.apply(request)),
+        read: (request) => callbacks.runPromise(database.read(request)),
       });
       registerLibraryModuleIpcHandler({
         registerHandle: (channel, listener) => {
@@ -151,8 +155,10 @@ export const live = (
           );
         },
         isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
-        read: options.library.read,
-        apply: options.library.apply,
+        read: (accessContext, request) =>
+          callbacks.runPromise(library.read(accessContext, request)),
+        apply: (accessContext, request) =>
+          callbacks.runPromise(library.apply(accessContext, request)),
       });
       registerLibraryDatabaseModuleIpcHandler({
         registerHandle: (channel, listener) => {
@@ -165,8 +171,8 @@ export const live = (
           );
         },
         isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
-        read: options.database.readLibrary,
-        apply: options.database.applyLibrary,
+        read: (request) => callbacks.runPromise(database.readLibrary(request)),
+        apply: (request) => callbacks.runPromise(database.applyLibrary(request)),
       });
       registerPageDetailIpcHandler({
         registerHandle: (channel, listener) => {
@@ -175,7 +181,8 @@ export const live = (
           );
         },
         isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
-        read: options.library.readProjectPageDetail,
+        read: (projectId, pageId, minimumCommitSeq) =>
+          callbacks.runPromise(library.readProjectPageDetail(projectId, pageId, minimumCommitSeq)),
       });
       registerLibraryPageDetailIpcHandler({
         registerHandle: (channel, listener) => {
@@ -185,13 +192,14 @@ export const live = (
         },
         isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
         read: (pageId, minimumCommitSeq) =>
-          options.library.readLibraryPageDetail(pageId, undefined, minimumCommitSeq),
+          callbacks.runPromise(library.readLibraryPageDetail(pageId, undefined, minimumCommitSeq)),
       });
       registerPageLifecyclePreflightIpcHandler({
         registerHandle: (channel, listener) => {
           registerHandle(channel, (event, projectId, pageId) => listener(event, projectId, pageId));
         },
-        readPreflight: options.library.readPageLifecyclePreflight,
+        readPreflight: (projectId, pageId) =>
+          callbacks.runPromise(library.readPageLifecyclePreflight(projectId, pageId)),
       });
       registerPageLifecycleIpcHandler({
         registerHandle: (channel, listener) => {
@@ -200,7 +208,8 @@ export const live = (
           );
         },
         getTrustedIdentity: resolveTrustedIdentity,
-        applyMutation: options.library.applyPageLifecycleMutation,
+        applyMutation: (request) =>
+          callbacks.runPromise(library.applyPageLifecycleMutation(request)),
       });
       registerDocumentMutationIpcHandler({
         registerHandle: (channel, listener) => {
@@ -289,7 +298,7 @@ export const live = (
           registerHandle(channel, (event, request) => listener(event, request));
         },
         isTrustedEvent: (event) => targetFor(event as IpcMainInvokeEvent) !== null,
-        listHistory: options.library.listPageHistory,
+        listHistory: (request) => callbacks.runPromise(library.listPageHistory(request)),
       });
 
       yield* Effect.all(registrations, { discard: true });

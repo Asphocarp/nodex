@@ -46,9 +46,10 @@ import {
   createDesktopDatabaseModuleBridge,
   DesktopDocumentSessionRuntime,
   desktopDocumentSessionRuntimeLive,
-  createDesktopLibraryModuleBridge,
   createDesktopProjectWorkspaceBridge,
 } from "../core-client";
+import { DatabaseModule, live as databaseModuleLive } from "../database-application/DatabaseModule";
+import { LibraryModule, live as libraryModuleLive } from "../library-application/LibraryModule";
 import { createDesktopNodexAgentAuthorityPort } from "../core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentV3DynamicService } from "../core-client/desktop-nodex-agent-dynamic-service";
 import { createDesktopNodexAgentResourceAuthorityPort } from "../core-client/desktop-nodex-agent-resource-authority";
@@ -1399,6 +1400,19 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const coreModules = Context.get(coreModulesContext, CoreModules);
+        const applicationDataModulesContext = yield* Layer.buildWithScope(
+          Layer.merge(libraryModuleLive, databaseModuleLive).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(CoreSessionAccess, access),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const libraryModule = Context.get(applicationDataModulesContext, LibraryModule);
+        const databaseModule = Context.get(applicationDataModulesContext, DatabaseModule);
         const storeAdministrationContext = yield* Layer.buildWithScope(
           storeAdministrationLive.pipe(Layer.provide(Layer.succeed(CoreModules, coreModules))),
           runtimeScope,
@@ -1436,14 +1450,13 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const documentSync = Context.get(documentSessionContext, DesktopDocumentSessionRuntime);
-        const libraryModule = createDesktopLibraryModuleBridge({ authority: legacyDataAuthority });
-        const databaseModule = createDesktopDatabaseModuleBridge({
+        const legacyDatabaseModule = createDesktopDatabaseModuleBridge({
           authority: legacyDataAuthority,
         });
         const nodexAgentDynamicService = createDesktopNodexAgentV3DynamicService({
           authority: legacyDataAuthority,
           projectWorkspace,
-          databaseModule,
+          databaseModule: legacyDatabaseModule,
         });
         const executionHostConfigurationContext = yield* Layer.buildWithScope(
           executionHostConfigurationLive,
@@ -2292,6 +2305,7 @@ export const live: Layer.Layer<
                 Layer.succeed(CodexGateway, codexGateway),
                 Layer.succeed(CodexTurnCommands, turnCommands),
                 Layer.succeed(ConversationCommands, conversationCommands),
+                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
                 Layer.succeed(CoreModules, coreModules),
                 Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
                 Layer.succeed(ExecutionHostRuntime, executionHosts),
@@ -2906,14 +2920,14 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           CoreDocumentIpc.live({
-            database: databaseModule,
             documents: documentSync,
-            library: libraryModule,
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ConversationCommands, conversationCommands),
+                Layer.succeed(DatabaseModule, databaseModule),
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(LibraryModule, libraryModule),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
@@ -2924,14 +2938,14 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           CoreMutationIpc.live({
-            database: databaseModule,
             documents: documentSync,
-            library: libraryModule,
             rendererClients,
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(DatabaseModule, databaseModule),
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(LibraryModule, libraryModule),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
@@ -2941,9 +2955,10 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
-          DatabaseProjectionIpc.live({ database: databaseModule }).pipe(
+          DatabaseProjectionIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
+                Layer.succeed(DatabaseModule, databaseModule),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
@@ -3087,10 +3102,11 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
-          PageSearchIpc.live({ library: libraryModule }).pipe(
+          PageSearchIpc.live({}).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(LibraryModule, libraryModule),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
               ),
@@ -3158,10 +3174,9 @@ export const live: Layer.Layer<
         const deepLinkContext = yield* Layer.buildWithScope(
           deepLinkRuntimeLive({
             focusWindow: applicationWindows.focusLast,
-            library: libraryModule,
             projectWorkspace,
             windows,
-          }),
+          }).pipe(Layer.provide(Layer.succeed(LibraryModule, libraryModule))),
           runtimeScope,
         );
         const deepLinks = Context.get(deepLinkContext, DeepLinkRuntime);

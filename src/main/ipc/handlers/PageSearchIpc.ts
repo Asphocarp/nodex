@@ -8,8 +8,7 @@ import * as Schema from "effect/Schema";
 import type { IpcMainInvokeEvent } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
 import { MainConfig } from "../../app/MainConfig";
-import type { DesktopLibraryModuleBridge } from "../../core-client";
-import { cancellableCoreResultFrom } from "../../core-result-ipc";
+import { LibraryModule } from "../../library-application/LibraryModule";
 import { getLogger } from "../../logging/logger";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
@@ -17,7 +16,6 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface PageSearchIpcOptions {
   readonly authorizeSender?: (event: IpcMainInvokeEvent) => boolean;
-  readonly library: DesktopLibraryModuleBridge;
 }
 
 export class PageSearchIpcError extends Schema.TaggedError<PageSearchIpcError>()(
@@ -30,11 +28,12 @@ const approximateJsonPayloadBytes = (value: unknown): number =>
 
 export const live = (
   options: PageSearchIpcOptions,
-): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
+): Layer.Layer<never, never, ElectronIpc | LibraryModule | MainConfig | WindowRuntime> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
+      const library = yield* LibraryModule;
       const windows = yield* WindowRuntime;
       const pending = yield* Ref.make(HashMap.empty<string, Deferred.Deferred<void>>());
       const logger = getLogger({ subsystem: "ipc", component: "page-search" });
@@ -52,11 +51,8 @@ export const live = (
           },
           catch: (cause) => new PageSearchIpcError({ operation: "authorize-renderer", cause }),
         });
-      const run = <A>(operation: string, task: (signal: AbortSignal) => Promise<A>) =>
-        Effect.tryPromise({
-          try: task,
-          catch: (cause) => new PageSearchIpcError({ operation, cause }),
-        });
+      const run = <A, E, R>(operation: string, task: Effect.Effect<A, E, R>) =>
+        task.pipe(Effect.mapError((cause) => new PageSearchIpcError({ operation, cause })));
       const validateRequestId = (requestId: string) =>
         Effect.try({
           try: () => {
@@ -92,25 +88,17 @@ export const live = (
             }
 
             const startedAt = performance.now();
-            const search = run("search-pages", (signal) =>
-              cancellableCoreResultFrom(signal, () => options.library.searchPages(input, signal)),
-            ).pipe(
-              Effect.map((result) =>
-                result.status === "cancelled"
-                  ? result
-                  : { status: "completed" as const, snapshot: result.value },
-              ),
+            const search = run("search-pages", library.searchPages(input)).pipe(
+              Effect.map((snapshot) => ({ status: "completed" as const, snapshot })),
               Effect.tap((result) =>
-                result.status === "cancelled"
-                  ? Effect.void
-                  : Effect.sync(() => {
-                      logger.info("Page search payload served", {
-                        projectCount: input.projectIds.length,
-                        resultCount: result.snapshot.results.length,
-                        approxPayloadBytes: approximateJsonPayloadBytes(result.snapshot),
-                        durationMs: Math.round(performance.now() - startedAt),
-                      });
-                    }),
+                Effect.sync(() => {
+                  logger.info("Page search payload served", {
+                    projectCount: input.projectIds.length,
+                    resultCount: result.snapshot.results.length,
+                    approxPayloadBytes: approximateJsonPayloadBytes(result.snapshot),
+                    durationMs: Math.round(performance.now() - startedAt),
+                  });
+                }),
               ),
             );
             return yield* Effect.raceFirst(
@@ -153,9 +141,7 @@ export const live = (
         ) =>
           authorize(event).pipe(
             Effect.andThen(
-              run("read-page-search-metadata", () =>
-                options.library.pageSearchMetadata(projectIds, pageIds),
-              ),
+              run("read-page-search-metadata", library.pageSearchMetadata(projectIds, pageIds)),
             ),
             Effect.tap((snapshot) =>
               Effect.sync(() => {
@@ -172,9 +158,7 @@ export const live = (
         "pages:search-facets",
         (event, projectIds: IpcApi["pages:search-facets"]["args"][0]) =>
           authorize(event).pipe(
-            Effect.andThen(
-              run("read-page-search-facets", () => options.library.pageSearchFacets(projectIds)),
-            ),
+            Effect.andThen(run("read-page-search-facets", library.pageSearchFacets(projectIds))),
           ),
       );
     }),
