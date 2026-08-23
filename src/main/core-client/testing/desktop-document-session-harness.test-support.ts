@@ -9,6 +9,10 @@ import {
   createElectronLibraryDocumentSyncAdapter,
 } from "../../../renderer/lib/electron-document-sync-adapter";
 import type { ElectronRendererBridge } from "../../../renderer/lib/electron-renderer-transport";
+import {
+  layer as scopedCallbackRuntimeLayer,
+  ScopedCallbackRuntime,
+} from "../../app/ScopedCallbackRuntime";
 import { CoreAuthority, CoreSessionAccess } from "../../core-runtime/CoreAuthority";
 import { CoreModules, live as coreModulesLive } from "../../core-runtime/CoreModules";
 import { classifyCoreOperationFailure } from "../../core-runtime/CoreRuntimeError";
@@ -47,7 +51,7 @@ const omitProjectScope = (value: unknown): unknown => {
   return request;
 };
 
-/** Reusable integration harness for the real renderer boundary and final Main Effect services. */
+/** Integration test support for the real renderer boundary and final Main Effect services. */
 export const makeDesktopDocumentSessionHarness = Effect.fn("DesktopDocumentSessionHarness.make")(
   function* (client: CoreGenerationClient, scope: ContentAccessContext) {
     const access = CoreSessionAccess.of({
@@ -64,6 +68,8 @@ export const makeDesktopDocumentSessionHarness = Effect.fn("DesktopDocumentSessi
     const coreModulesLayer = coreModulesLive.pipe(Layer.provide(accessLayer));
     const coreModulesContext = yield* Layer.build(coreModulesLayer);
     const coreModules = Context.get(coreModulesContext, CoreModules);
+    const callbackContext = yield* Layer.build(scopedCallbackRuntimeLayer);
+    const callbacks = Context.get(callbackContext, ScopedCallbackRuntime);
     const authority = CoreAuthority.of({
       identity: {
         libraryId: client.handshake.library_id,
@@ -82,27 +88,25 @@ export const makeDesktopDocumentSessionHarness = Effect.fn("DesktopDocumentSessi
     );
     const session = Context.get(sessionContext, DesktopDocumentSessionRuntime);
     const target = new HarnessTarget();
-    const effectContext = yield* Effect.context();
-    const runPromise = Effect.runPromiseWith(effectContext);
     const bridge = {
       invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
         const request = omitProjectScope(args[0]);
         switch (channel) {
           case "document-sync:subscribe":
           case "library-document-sync:subscribe":
-            return runPromise(session.subscribe(scope, target, request as never));
+            return callbacks.runPromise(session.subscribe(scope, target, request as never));
           case "document-sync:unsubscribe":
           case "library-document-sync:unsubscribe":
-            return runPromise(session.unsubscribe(scope, target, request as never));
+            return callbacks.runPromise(session.unsubscribe(scope, target, request as never));
           case "document-sync:sync":
           case "library-document-sync:sync":
-            return runPromise(session.sync(scope, target, request as never));
+            return callbacks.runPromise(session.sync(scope, target, request as never));
           case "document-sync:apply":
           case "library-document-sync:apply":
-            return runPromise(session.applyUpdate(scope, target, request as never));
+            return callbacks.runPromise(session.applyUpdate(scope, target, request as never));
           case "document-sync:awareness:publish":
           case "library-document-sync:awareness:publish":
-            return runPromise(session.publishAwareness(scope, target, request as never));
+            return callbacks.runPromise(session.publishAwareness(scope, target, request as never));
           default:
             return Promise.reject(new Error(`Unexpected Electron harness channel: ${channel}`));
         }
