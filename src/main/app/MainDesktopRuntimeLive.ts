@@ -1945,6 +1945,23 @@ export const live: Layer.Layer<
             },
             { cause },
           );
+        const freshThreadFirstTurnError = (
+          prepared: {
+            readonly launchId: string;
+            readonly ownerClientId: string;
+            readonly threadId: string;
+          },
+          cause: unknown,
+        ) =>
+          new CodexFreshThreadLaunchError(
+            "operation-failed",
+            {
+              launchId: prepared.launchId,
+              ownerClientId: prepared.ownerClientId,
+              threadId: prepared.threadId,
+            },
+            { cause },
+          );
         const freshThreadLaunch = yield* makeCodexFreshThreadLaunchRuntime({
           adopt: (launch) =>
             Effect.tryPromise({
@@ -1956,14 +1973,40 @@ export const live: Layer.Layer<
               try: () => requireCodexService().readAdoptedFreshThreadLaunch(launch),
               catch: (cause) => freshThreadLaunchError(launch, cause),
             }),
-          start: (launch) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().runFreshThreadLaunchFirstTurn(launch),
+          prepareStart: (launch) =>
+            Effect.try({
+              try: () => requireCodexService().prepareFreshThreadFirstTurnForModule(launch),
               catch: (cause) => freshThreadLaunchError(launch, cause),
             }),
+          beginStart: (prepared) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().beginFreshThreadFirstTurnForModule(prepared),
+              catch: (cause) => freshThreadFirstTurnError(prepared, cause),
+            }),
+          commitStart: (prepared, response) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().commitFreshThreadFirstTurnForModule(prepared, response),
+              catch: (cause) => freshThreadFirstTurnError(prepared, cause),
+            }),
+          finishStart: (prepared, response) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().finishFreshThreadFirstTurnForModule(prepared, response),
+              catch: (cause) => freshThreadFirstTurnError(prepared, cause),
+            }),
+          rollbackStart: (prepared) =>
+            Effect.sync(() =>
+              requireCodexService().rollbackFreshThreadFirstTurnForModule(prepared),
+            ),
           abandon: (launch, reason) =>
             requireCodexService().abandonFreshThreadLaunch(launch, reason),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const backgroundSubagentMetadataRepair = yield* makeCodexBackgroundSubagentMetadataRepair({
           isRepairNeeded: (parentThreadId, childThreadId) =>
             requireCodexService().isBackgroundSubagentMetadataRepairNeeded(

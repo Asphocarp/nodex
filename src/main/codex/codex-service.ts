@@ -670,6 +670,7 @@ import type { CodexConversationEventBufferRuntimePromiseAdapter } from "../codex
 import type {
   CodexFreshThreadLaunch,
   CodexFreshThreadLaunchReservation,
+  CodexPreparedFreshThreadFirstTurn,
 } from "../codex-application/CodexFreshThreadLaunchRuntime";
 import type { CodexFreshThreadLaunchRuntimePromiseAdapter } from "../codex-application/CodexFreshThreadLaunchRuntimePromiseAdapter";
 import {
@@ -2032,6 +2033,12 @@ interface CodexSessionThreadLaunchCommittedState extends CodexSessionThreadLaunc
   readonly threadStart: ThreadStartResponse;
   readonly link: CodexThreadSummary;
   readonly effectiveCwd: string;
+}
+
+interface CodexFreshThreadFirstTurnTransactionState {
+  readonly launch: CodexFreshThreadLaunch;
+  authorityLaunch: NodexAgentTurnAuthorityLaunch | null;
+  protocolAccepted: boolean;
 }
 
 /** Electron retains this app-private sidecar in the raw turn/start JSON payload. */
@@ -15276,38 +15283,77 @@ export class CodexService {
     return await this.freshThreadLaunch.start({ launchId, ownerClientId, threadId });
   }
 
-  /** Effect Module adapter operation; runs one admitted fresh Thread first turn. */
-  async runFreshThreadLaunchFirstTurn(launch: CodexFreshThreadLaunch): Promise<TurnStartResponse> {
-    const { threadId } = launch;
-    let authorityLaunch: NodexAgentTurnAuthorityLaunch | null = null;
-    let response: TurnStartResponse;
-    try {
-      authorityLaunch = await this.beginNodexAgentTurnAuthority(
-        threadId,
-        launch.verifiedBuiltinFullAccess,
-      );
-      response = await this.client.request<"turn/start", TurnStartResponse>(
-        "turn/start",
-        launch.turnStartParams,
-      );
-      if (!this.asTurnSummary(threadId, response.turn)) {
-        throw new Error("Codex turn/start returned an invalid turn payload");
-      }
-      await this.nodexAgentAuthorityRegistry.bindTurn(authorityLaunch, response.turn.id);
-    } catch (error) {
-      this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
-      this.emitThreadStartProgress({
-        projectId: launch.projectId,
-        sessionId: launch.sessionId,
-        runInTarget: launch.runInTarget,
-        threadId,
-        phase: "failed",
-        message: "Message could not be sent.",
-        stream: "stderr",
-      });
-      throw error;
-    }
+  prepareFreshThreadFirstTurnForModule(
+    launch: CodexFreshThreadLaunch,
+  ): CodexPreparedFreshThreadFirstTurn {
+    const { attachments: _attachments, ...request } = launch.turnStartParams;
+    return {
+      launchId: launch.launchId,
+      ownerClientId: launch.rendererClientId,
+      projectId: launch.projectId,
+      threadId: launch.threadId,
+      request,
+      state: {
+        launch,
+        authorityLaunch: null,
+        protocolAccepted: false,
+      } satisfies CodexFreshThreadFirstTurnTransactionState,
+    };
+  }
 
+  private readFreshThreadFirstTurnTransaction(
+    prepared: CodexPreparedFreshThreadFirstTurn,
+  ): CodexFreshThreadFirstTurnTransactionState {
+    const transaction = prepared.state as CodexFreshThreadFirstTurnTransactionState;
+    if (
+      prepared.threadId !== transaction.launch.threadId ||
+      prepared.projectId !== transaction.launch.projectId ||
+      prepared.launchId !== transaction.launch.launchId ||
+      prepared.ownerClientId !== transaction.launch.rendererClientId
+    ) {
+      throw new Error("Fresh Thread first Turn identity changed");
+    }
+    return transaction;
+  }
+
+  async beginFreshThreadFirstTurnForModule(
+    prepared: CodexPreparedFreshThreadFirstTurn,
+  ): Promise<void> {
+    const transaction = this.readFreshThreadFirstTurnTransaction(prepared);
+    if (prepared.projectId) {
+      const project = await this.projectWorkspace.getProject(prepared.projectId);
+      if (project?.lifecycle !== "active") {
+        throw new Error("Codex turns cannot be started for an inactive or removed project");
+      }
+    }
+    transaction.authorityLaunch = await this.beginNodexAgentTurnAuthority(
+      prepared.threadId,
+      transaction.launch.verifiedBuiltinFullAccess,
+    );
+  }
+
+  async commitFreshThreadFirstTurnForModule(
+    prepared: CodexPreparedFreshThreadFirstTurn,
+    response: TurnStartResponse,
+  ): Promise<TurnStartResponse> {
+    const transaction = this.readFreshThreadFirstTurnTransaction(prepared);
+    const { launch } = transaction;
+    const { threadId } = launch;
+    if (!this.asTurnSummary(threadId, response.turn)) {
+      throw new Error("Codex turn/start returned an invalid turn payload");
+    }
+    transaction.protocolAccepted = true;
+    await this.nodexAgentAuthorityRegistry.bindTurn(transaction.authorityLaunch, response.turn.id);
+    return response;
+  }
+
+  async finishFreshThreadFirstTurnForModule(
+    prepared: CodexPreparedFreshThreadFirstTurn,
+    response: TurnStartResponse,
+  ): Promise<TurnStartResponse> {
+    const transaction = this.readFreshThreadFirstTurnTransaction(prepared);
+    const { launch } = transaction;
+    const { threadId } = launch;
     await this.markAutomationRunAcceptedForUserContinuation(threadId).catch((error) => {
       this.logger.warn("Could not mark fresh thread continuation accepted", {
         threadId,
@@ -15336,6 +15382,11 @@ export class CodexService {
         sessionId: launch.sessionId,
         threadId,
         heartbeatAutomation: launch.heartbeatAutomation,
+      }).catch((error) => {
+        this.logger.warn("Started fresh thread but could not create its heartbeat", {
+          threadId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
     }
 
@@ -15355,6 +15406,22 @@ export class CodexService {
       outputDelta: launch.runInTarget === "newWorktree" ? "[info] Worktree ready.\n" : undefined,
     });
     return response;
+  }
+
+  rollbackFreshThreadFirstTurnForModule(prepared: CodexPreparedFreshThreadFirstTurn): void {
+    const transaction = this.readFreshThreadFirstTurnTransaction(prepared);
+    if (transaction.protocolAccepted) return;
+    this.nodexAgentAuthorityRegistry.abortTurn(transaction.authorityLaunch);
+    const { launch } = transaction;
+    this.emitThreadStartProgress({
+      projectId: launch.projectId,
+      sessionId: launch.sessionId,
+      runInTarget: launch.runInTarget,
+      threadId: launch.threadId,
+      phase: "failed",
+      message: "Message could not be sent.",
+      stream: "stderr",
+    });
   }
 
   async forkConversationFromTurn(

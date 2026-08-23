@@ -619,13 +619,19 @@ loop.
 Fresh renderer-owned Thread launch is a Main-scoped three-phase protocol rather than a class-local
 registry. The launch runtime reserves the initiating renderer, coalesces an exact adoption, blocks
 the first-turn command until adoption commits, and admits exactly one physical first-turn fiber.
+That fiber enters the shared Thread-generation lane and Project lifecycle gate, revalidates the
+active Project, begins the authorization projection, sends typed `turn/start` through
+`CodexGateway`, and commits the accepted response in an uninterruptible finite projection step.
+Failure or interruption before protocol acceptance aborts authorization and projects launch
+failure; downstream goal, active-state, and heartbeat bookkeeping cannot reinterpret an accepted
+Turn as a failed transport command.
 Disconnect removes prepared/adopting/adopted launches and releases their event fence, while a launch
 whose first Turn has started is allowed to finish. Thread removal and Main Scope close interrupt the
 same adoption/start fibers; successful or failed first-turn completion consumes the launch. The
 renderer adoption ingress invokes this typed owner directly. The canonical conversation owner
-supplies adoption projection and first-turn domain operations, but exposes no public adoption
-command and owns no launch Map, mutable state enum, duplicate-start race, renderer-disconnect scan,
-or shutdown entry.
+supplies only adoption and first-turn prepare/begin/commit/rollback projection stages; it owns no
+first-turn transport, Project gate, command lane, public adoption command, launch Map, mutable state
+enum, duplicate-start race, renderer-disconnect scan, or shutdown entry.
 
 Fork side-panel transfer is a Main-scoped application protocol, not state hidden inside the
 conversation projection. One immutable state keeps pending-worktree captures and target-conversation

@@ -74,6 +74,7 @@ import type {
   ThreadResumeResponse,
   ThreadRollbackResponse,
   Turn,
+  TurnStartResponse,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ServerNotification as CodexServerNotification } from "@nodex/codex-app-server-protocol";
 import type { AgentProviderCatalog } from "../../shared/agent-runtime";
@@ -210,6 +211,11 @@ interface TestableCodexService {
   adoptRendererConversationForModule: CodexService["adoptRendererConversationForModule"];
   applyRendererConversationViewActiveForModule: CodexService["applyRendererConversationViewActiveForModule"];
   freshThreadLaunch: import("../codex-application/CodexFreshThreadLaunchRuntimePromiseAdapter").CodexFreshThreadLaunchRuntimePromiseAdapter;
+  prepareFreshThreadFirstTurnForModule: CodexService["prepareFreshThreadFirstTurnForModule"];
+  beginFreshThreadFirstTurnForModule: CodexService["beginFreshThreadFirstTurnForModule"];
+  commitFreshThreadFirstTurnForModule: CodexService["commitFreshThreadFirstTurnForModule"];
+  finishFreshThreadFirstTurnForModule: CodexService["finishFreshThreadFirstTurnForModule"];
+  rollbackFreshThreadFirstTurnForModule: CodexService["rollbackFreshThreadFirstTurnForModule"];
   releaseConversationResumeBufferForModule: CodexService["releaseConversationResumeBufferForModule"];
   replayRendererOwnerPendingRequests: (threadId: string, ownerClientId: string) => number;
   ackRendererThreadOwnerNotification: (
@@ -1980,7 +1986,19 @@ function createService(options?: {
     },
     start: async (launch) => {
       if (!service) throw new Error("Codex test service is not constructed");
-      return await service.runFreshThreadLaunchFirstTurn(launch);
+      const prepared = service.prepareFreshThreadFirstTurnForModule(launch);
+      try {
+        await service.beginFreshThreadFirstTurnForModule(prepared);
+        const client = Reflect.get(service as object, "client") as {
+          request: (method: string, params: unknown) => Promise<TurnStartResponse>;
+        };
+        const response = await client.request("turn/start", prepared.request);
+        const committed = await service.commitFreshThreadFirstTurnForModule(prepared, response);
+        return await service.finishFreshThreadFirstTurnForModule(prepared, committed);
+      } catch (error) {
+        service.rollbackFreshThreadFirstTurnForModule(prepared);
+        throw error;
+      }
     },
     abandon: (launch, reason) => service?.abandonFreshThreadLaunch(launch, reason),
   });
@@ -6463,6 +6481,7 @@ describe("codex-service renderer owner stream publishing", () => {
       cwd: "/workspace/project",
       attachments: [],
     };
+    const { attachments: _attachments, ...protocolTurnStartParams } = turnStartParams;
     const requests: Array<{ method: string; params: unknown }> = [];
     const client = Reflect.get(service as object, "client") as {
       request: (method: string, params: unknown) => Promise<unknown>;
@@ -6526,7 +6545,7 @@ describe("codex-service renderer owner stream publishing", () => {
     serviceInternals.registerFreshThreadLaunch({
       launchId,
       rendererClientId: ownerClientId,
-      projectId: "project-1",
+      projectId: null,
       sessionId: "session-fresh-owner-first-turn",
       threadId,
       runInTarget: "localProject",
@@ -6551,7 +6570,7 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(requests).toEqual([
         {
           method: "turn/start",
-          params: turnStartParams,
+          params: protocolTurnStartParams,
         },
       ]);
       expect(serviceInternals.getFreshThreadLaunchReservation(threadId)).toBeNull();

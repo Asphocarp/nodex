@@ -6,6 +6,7 @@ import * as FiberMap from "effect/FiberMap";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
+import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
 import type { TurnStartParams } from "@nodex/codex-app-server-protocol/v2/TurnStartParams";
 import type { TurnStartResponse } from "@nodex/codex-app-server-protocol/v2/TurnStartResponse";
 import type {
@@ -17,6 +18,11 @@ import type {
   CodexThreadStartForSessionInput,
   PageRunInTarget,
 } from "../../shared/types";
+import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+
+type GatewayTurnStartParams = ClientRequestParamsByMethod["turn/start"];
 
 export type CodexFreshThreadLaunchTurnStartParams = TurnStartParams & {
   readonly attachments: readonly CodexLiveFileAttachment[];
@@ -51,6 +57,16 @@ export interface CodexFreshThreadLaunchIdentity {
 export interface CodexFreshThreadLaunchReservation {
   readonly rendererClientId: string;
   readonly state: "prepared" | "adopting" | "adopted" | "starting";
+}
+
+export interface CodexPreparedFreshThreadFirstTurn {
+  readonly launchId: string;
+  readonly ownerClientId: string;
+  readonly projectId: string | null;
+  readonly threadId: string;
+  readonly request: TurnStartParams;
+  /** Opaque mutable transaction state owned exclusively by the projection. */
+  readonly state: object;
 }
 
 type AdoptionResult = Extract<CodexRendererConversationResumeResult, { readonly role: "owner" }>;
@@ -95,9 +111,24 @@ export interface CodexFreshThreadLaunchRuntimeOptions {
   readonly readAdopted: (
     launch: CodexFreshThreadLaunch,
   ) => Effect.Effect<AdoptionResult, CodexFreshThreadLaunchError>;
-  readonly start: (
+  readonly prepareStart: (
     launch: CodexFreshThreadLaunch,
+  ) => Effect.Effect<CodexPreparedFreshThreadFirstTurn, CodexFreshThreadLaunchError>;
+  readonly beginStart: (
+    prepared: CodexPreparedFreshThreadFirstTurn,
+  ) => Effect.Effect<void, CodexFreshThreadLaunchError>;
+  readonly commitStart: (
+    prepared: CodexPreparedFreshThreadFirstTurn,
+    response: TurnStartResponse,
   ) => Effect.Effect<TurnStartResponse, CodexFreshThreadLaunchError>;
+  readonly finishStart: (
+    prepared: CodexPreparedFreshThreadFirstTurn,
+    response: TurnStartResponse,
+  ) => Effect.Effect<TurnStartResponse, CodexFreshThreadLaunchError>;
+  readonly rollbackStart: (
+    prepared: CodexPreparedFreshThreadFirstTurn,
+    cause: unknown,
+  ) => Effect.Effect<void>;
   readonly abandon: (launch: CodexFreshThreadLaunch, reason: unknown) => void;
 }
 
@@ -134,8 +165,15 @@ const operationError = (
 
 export const make = (
   options: CodexFreshThreadLaunchRuntimeOptions,
-): Effect.Effect<CodexFreshThreadLaunchRuntimeService, never, Scope.Scope> =>
+): Effect.Effect<
+  CodexFreshThreadLaunchRuntimeService,
+  never,
+  CodexGateway | ConversationRuntimeMap | ProjectRuntimeLifecycleRuntime | Scope.Scope
+> =>
   Effect.gen(function* () {
+    const conversations = yield* ConversationRuntimeMap;
+    const gateway = yield* CodexGateway;
+    const projectLifecycle = yield* ProjectRuntimeLifecycleRuntime;
     const adoptions = yield* FiberMap.make<string, AdoptionResult, CodexFreshThreadLaunchError>();
     const starts = yield* FiberMap.make<string, TurnStartResponse, CodexFreshThreadLaunchError>();
     const runAdoption = yield* FiberMap.runtime(adoptions)();
@@ -143,6 +181,35 @@ export const make = (
     const admission = yield* Semaphore.make(1);
     const entries = new Map<string, FreshLaunchEntry>();
     let closed = false;
+
+    const startFirstTurn = (launch: CodexFreshThreadLaunch) =>
+      conversations.runExclusive(
+        launch.threadId,
+        options.prepareStart(launch).pipe(
+          Effect.flatMap((prepared) =>
+            projectLifecycle.runExclusive(
+              prepared.projectId,
+              options.beginStart(prepared).pipe(
+                Effect.andThen(
+                  gateway.requestForThread(
+                    prepared.threadId,
+                    "turn/start",
+                    prepared.request as GatewayTurnStartParams,
+                  ),
+                ),
+                Effect.map((response) => response as unknown as TurnStartResponse),
+                Effect.flatMap((response) =>
+                  options.commitStart(prepared, response).pipe(Effect.uninterruptible),
+                ),
+                Effect.onExit((exit) =>
+                  Exit.isFailure(exit) ? options.rollbackStart(prepared, exit.cause) : Effect.void,
+                ),
+                Effect.flatMap((response) => options.finishStart(prepared, response)),
+              ),
+            ),
+          ),
+        ),
+      );
 
     const lookup = (
       identity: CodexFreshThreadLaunchIdentity,
@@ -214,7 +281,7 @@ export const make = (
           }
 
           entry.state = "starting";
-          const physical = options.start(entry.launch).pipe(
+          const physical = startFirstTurn(entry.launch).pipe(
             Effect.mapError((cause) => operationError(identity, cause)),
             Effect.ensuring(
               Effect.sync(() => {
