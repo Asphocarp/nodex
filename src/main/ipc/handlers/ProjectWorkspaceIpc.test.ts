@@ -5,9 +5,9 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
+import { CodexProjectSessionFork } from "../../codex-application/CodexProjectSessionFork";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
-import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
 import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
@@ -32,7 +32,6 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live({
-        codex: {} as CodexService,
         projects: {} as DesktopProjectWorkspacePort,
         threadTitles: CodexThreadTitlePersistence.of({
           set: () => Effect.die("unused"),
@@ -55,6 +54,10 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
+            Layer.succeed(
+              CodexProjectSessionFork,
+              CodexProjectSessionFork.of({ fork: () => Effect.die("unused") }),
+            ),
             Layer.succeed(BrowserSidebarRuntime, {
               browser: { closeBrowserConversation: () => undefined },
               localServers: { closeProject: () => Effect.void },

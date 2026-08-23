@@ -8,9 +8,9 @@ import { WorkbenchSceneSnapshotSchema } from "../../../shared/schemas/workbench-
 import { ProjectLifecycleInputSchema } from "../../../shared/schemas/projects";
 import { MainConfig } from "../../app/MainConfig";
 import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
+import { CodexProjectSessionFork } from "../../codex-application/CodexProjectSessionFork";
 import type { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import type { ConversationCommands } from "../../codex-application/ConversationCommands";
-import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { coreResultFrom } from "../../core-result-ipc";
 import { createProjectWithDefaultSource } from "../../default-project-source";
@@ -31,7 +31,6 @@ import { renameProjectSessionChat } from "../../project-session-rename-service";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface ProjectWorkspaceIpcOptions {
-  readonly codex: CodexService;
   readonly projects: DesktopProjectWorkspacePort;
   readonly threadTitles: CodexThreadTitlePersistence["Service"];
   readonly conversationCommands: ConversationCommands["Service"];
@@ -56,6 +55,7 @@ export const live = (
   never,
   never,
   | BrowserSidebarRuntime
+  | CodexProjectSessionFork
   | ElectronDesktop
   | ElectronIpc
   | MainConfig
@@ -66,6 +66,7 @@ export const live = (
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
+      const projectSessionFork = yield* CodexProjectSessionFork;
       const desktop = yield* ElectronDesktop;
       const ipc = yield* ElectronIpc;
       const projectLifecycle = yield* ProjectLifecycleCommands;
@@ -273,21 +274,38 @@ export const live = (
       yield* invoke("project-sessions:mark-unread", (_, sessionId, input) =>
         options.projects.markProjectSessionUnread(sessionId, input),
       );
-      yield* invoke("project-sessions:fork", (event, sessionId, input, sourceSceneContext) => {
-        if (
-          sourceSceneContext &&
-          windows.resolveSessionId(event.sender.id) !== sourceSceneContext.browserViewScopeId
-        ) {
-          throw new Error("Browser view scope does not belong to the requesting window");
-        }
-        const parsedSceneContext = sourceSceneContext
-          ? {
-              browserViewScopeId: sourceSceneContext.browserViewScopeId,
-              scene: WorkbenchSceneSnapshotSchema.parse(sourceSceneContext.scene),
-            }
-          : undefined;
-        return options.codex.forkProjectSessionThread(sessionId, input, parsedSceneContext);
-      });
+      yield* handle("project-sessions:fork", (event, sessionId, input, sourceSceneContext) =>
+        authorize(event).pipe(
+          Effect.andThen(
+            Effect.try({
+              try: () => {
+                if (
+                  sourceSceneContext &&
+                  windows.resolveSessionId(event.sender.id) !==
+                    sourceSceneContext.browserViewScopeId
+                ) {
+                  throw new Error("Browser view scope does not belong to the requesting window");
+                }
+                return sourceSceneContext
+                  ? {
+                      browserViewScopeId: sourceSceneContext.browserViewScopeId,
+                      scene: WorkbenchSceneSnapshotSchema.parse(sourceSceneContext.scene),
+                    }
+                  : undefined;
+              },
+              catch: (cause) =>
+                new ProjectWorkspaceIpcError({ operation: "project-sessions:fork", cause }),
+            }),
+          ),
+          Effect.flatMap((parsedSceneContext) =>
+            projectSessionFork.fork({
+              sessionId,
+              input,
+              ...(parsedSceneContext ? { sourceSceneContext: parsedSceneContext } : {}),
+            }),
+          ),
+        ),
+      );
       yield* invoke("project-session-threads:attach", (_, input) =>
         options.projects.upsertProjectSessionThreadLink(input),
       );

@@ -8,11 +8,6 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import { appendCodexCanonicalForkedFromConversationItem } from "../../shared/codex-conversation-state/codex-conversation-state";
 import type { CodexForkBrowserSceneContext } from "../../shared/codex-fork-browser-transfer";
-import {
-  resolveCodexForkChildThreadTitleFromCatalog,
-  resolveCodexForkSourceConversationTitle,
-  type CodexForkTitleThread,
-} from "../../shared/codex-thread-title";
 import type {
   CodexComposerIntent,
   CodexConversationSnapshot,
@@ -20,12 +15,11 @@ import type {
 } from "../../shared/types";
 import { buildCodexThreadConfigOverrides } from "../codex/codex-thread-capabilities";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
-import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexForkSidePanelTransfer } from "./CodexForkSidePanelTransferRuntime";
+import { CodexForkTitlePolicy } from "./CodexForkTitlePolicy";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
-import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexThreadCatalog } from "./CodexThreadCatalog";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
@@ -75,9 +69,9 @@ export const make: Effect.Effect<
   never,
   | CodexConversationProjection
   | CodexForkSidePanelTransfer
+  | CodexForkTitlePolicy
   | CodexGateway
   | CodexOwnerNotificationDrainRuntime
-  | CodexPendingWorktreeRuntime
   | CodexRendererConversationCoordinator
   | CodexThreadCatalog
   | CodexThreadDirectory
@@ -89,9 +83,9 @@ export const make: Effect.Effect<
   const gateway = yield* CodexGateway;
   const projection = yield* CodexConversationProjection;
   const notificationDrain = yield* CodexOwnerNotificationDrainRuntime;
-  const pendingWorktrees = yield* CodexPendingWorktreeRuntime;
   const rendererConversations = yield* CodexRendererConversationCoordinator;
   const sidePanelTransfers = yield* CodexForkSidePanelTransfer;
+  const forkTitles = yield* CodexForkTitlePolicy;
   const catalog = yield* CodexThreadCatalog;
   const directory = yield* CodexThreadDirectory;
   const titles = yield* CodexThreadTitlePersistence;
@@ -102,45 +96,6 @@ export const make: Effect.Effect<
     sourceThreadId: string,
     cause: unknown,
   ) => new CodexConversationForkError({ operation, sourceThreadId, cause });
-
-  const listTitleCatalog = Effect.fn("CodexConversationFork.listTitleCatalog")(function* (
-    sourceThreadId: string,
-    projectId: string | null,
-  ) {
-    const known: CodexForkTitleThread[] = [];
-    const seenCursors = new Set<string>();
-    let after: string | null = null;
-    do {
-      const response: ProjectWorkspaceReadSnapshot = yield* core.workspace
-        .read({
-          kind: "task_window",
-          project_id: projectId,
-          include_archived: false,
-          window: { after, first: 200 },
-        })
-        .pipe(Effect.mapError((cause) => error("project", sourceThreadId, cause)));
-      if (response.value.kind !== "task_window") {
-        return yield* error(
-          "project",
-          sourceThreadId,
-          new Error("Core returned a non-task-window read variant for fork title derivation"),
-        );
-      }
-      for (const task of response.value.tasks.items) {
-        if (!task.thread) continue;
-        known.push({
-          conversationId: task.thread.thread_id,
-          forkedFromId: task.thread.forked_from_id ?? null,
-          title: task.thread.thread_name ?? null,
-        });
-      }
-      const next: string | null = response.value.tasks.next_cursor ?? null;
-      if (!next || seenCursors.has(next)) break;
-      seenCursors.add(next);
-      after = next;
-    } while (after);
-    return known;
-  });
 
   const forkPhysical = Effect.fn("CodexConversationFork.forkPhysical")(function* (
     input: CodexConversationForkInput,
@@ -184,29 +139,15 @@ export const make: Effect.Effect<
       }
     }
 
-    const knownTitles = yield* listTitleCatalog(sourceThreadId, source.durable.projectId);
-    const sourceTitle = resolveCodexForkSourceConversationTitle({
-      explicitTitle: source.summary.threadName,
-      firstTurnInput: current.canonical.turns[0]?.sidecar.params?.input,
-      firstTurnCommentAttachments: current.canonical.turns[0]?.sidecar.params?.commentAttachments,
-    });
-    const childTitle = resolveCodexForkChildThreadTitleFromCatalog({
-      source: {
-        conversationId: sourceThreadId,
+    const { childTitle, sourceTitle } = yield* forkTitles
+      .derive({
+        threadId: sourceThreadId,
+        projectId: source.durable.projectId,
         forkedFromId: source.summary.forkedFromId ?? null,
-        title: source.summary.threadName,
-      },
-      storedThreads: knownTitles,
-      activeThreads: [],
-      pendingForks: pendingWorktrees
-        .list()
-        .filter((entry) => entry.launchMode === "fork-conversation" && entry.sourceConversationId)
-        .map((entry) => ({
-          conversationId: entry.id,
-          forkedFromId: entry.sourceConversationId,
-          title: entry.initialThreadTitle ?? entry.label,
-        })),
-    });
+        threadName: source.summary.threadName,
+        canonical: current.canonical,
+      })
+      .pipe(Effect.mapError((cause) => error("project", sourceThreadId, cause)));
     const execution = yield* core.workspace
       .read({ kind: "execution_context", thread_id: sourceThreadId })
       .pipe(Effect.mapError((cause) => error("project", sourceThreadId, cause)));

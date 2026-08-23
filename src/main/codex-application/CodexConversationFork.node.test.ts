@@ -11,8 +11,8 @@ import { CoreModules, type CoreModuleClients } from "../core-runtime/CoreModules
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { make } from "./CodexConversationFork";
 import { CodexForkSidePanelTransfer } from "./CodexForkSidePanelTransferRuntime";
+import { CodexForkTitlePolicy } from "./CodexForkTitlePolicy";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
-import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexThreadCatalog } from "./CodexThreadCatalog";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
@@ -185,23 +185,16 @@ const makeHarness = (responseTurnId = "turn-a") => {
     Effect.provideService(CodexGateway, gateway),
     Effect.provideService(CodexConversationProjection, projection),
     Effect.provideService(
+      CodexForkTitlePolicy,
+      CodexForkTitlePolicy.of({
+        derive: () =>
+          Effect.succeed({ sourceTitle: "Source title", childTitle: "Source title (3)" }),
+      }),
+    ),
+    Effect.provideService(
       CodexOwnerNotificationDrainRuntime,
       CodexOwnerNotificationDrainRuntime.of({
         awaitCurrent: () => Effect.sync(() => order.push("owner:drain")).pipe(Effect.asVoid),
-      } as never),
-    ),
-    Effect.provideService(
-      CodexPendingWorktreeRuntime,
-      CodexPendingWorktreeRuntime.of({
-        list: () => [
-          {
-            id: "pending-fork",
-            launchMode: "fork-conversation",
-            sourceConversationId: sourceThreadId,
-            initialThreadTitle: "Source title (2)",
-            label: "pending",
-          } as never,
-        ],
       } as never),
     ),
     Effect.provideService(
