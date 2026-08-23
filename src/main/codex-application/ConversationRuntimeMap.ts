@@ -15,6 +15,11 @@ import {
   CodexAppServerInputStreamEndedError,
   type CodexAppServerError,
 } from "@nodex/effect-codex-app-server/errors";
+import {
+  makeCodexConversationAggregateRegistry,
+  type CodexConversationAggregate,
+  type CodexConversationAggregateRegistry,
+} from "./CodexConversationAggregate";
 
 export interface ConversationServerRequest {
   readonly hostId: string;
@@ -83,6 +88,10 @@ export class ConversationRuntime extends Context.Service<
 export class ConversationRuntimeMap extends Context.Service<
   ConversationRuntimeMap,
   {
+    /** Acquires the canonical semantic capability for one Thread generation. */
+    readonly conversation: (threadId: string) => CodexConversationAggregate;
+    /** Pure query that never creates or resurrects a Thread generation. */
+    readonly currentConversation: (threadId: string) => CodexConversationAggregate | null;
     /** Lossless process ingress for the single application request dispatcher. */
     readonly requests: Stream.Stream<ConversationServerRequestEnvelope>;
     readonly runtime: (threadId: string) => Effect.Effect<ConversationRuntime["Service"]>;
@@ -97,10 +106,12 @@ export class ConversationRuntimeMap extends Context.Service<
 const runtimeLayer = (
   threadId: string,
   ingress: Queue.Enqueue<ConversationServerRequestEnvelope>,
+  aggregate: CodexConversationAggregateRegistry,
 ): Layer.Layer<ConversationRuntime> =>
   Layer.effect(
     ConversationRuntime,
     Effect.gen(function* () {
+      const aggregateGeneration = aggregate.acquire(threadId).generation;
       const state = yield* SubscriptionRef.make<ConversationRuntimeState>({
         kind: "active",
         sequence: 0,
@@ -149,6 +160,7 @@ const runtimeLayer = (
             { discard: true },
           );
           yield* PubSub.shutdown(events);
+          aggregate.releaseGeneration(threadId, aggregateGeneration);
         }),
       );
 
@@ -251,12 +263,20 @@ const runtimeLayer = (
 export const live: Layer.Layer<ConversationRuntimeMap> = Layer.effect(
   ConversationRuntimeMap,
   Effect.gen(function* () {
+    const aggregate = makeCodexConversationAggregateRegistry();
     const ingress = yield* Queue.unbounded<ConversationServerRequestEnvelope>();
-    yield* Effect.addFinalizer(() => Queue.shutdown(ingress));
-    const runtimes = yield* LayerMap.make((threadId: string) => runtimeLayer(threadId, ingress), {
-      idleTimeToLive: Duration.infinity,
-    });
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => aggregate.releaseAll()).pipe(Effect.andThen(Queue.shutdown(ingress))),
+    );
+    const runtimes = yield* LayerMap.make(
+      (threadId: string) => runtimeLayer(threadId, ingress, aggregate),
+      {
+        idleTimeToLive: Duration.infinity,
+      },
+    );
     return ConversationRuntimeMap.of({
+      conversation: aggregate.acquire,
+      currentConversation: aggregate.current,
       requests: Stream.fromQueue(ingress),
       runtime: (threadId) =>
         Effect.scoped(runtimes.contextEffect(threadId)).pipe(
@@ -272,7 +292,18 @@ export const live: Layer.Layer<ConversationRuntimeMap> = Layer.effect(
               ),
             ),
         ),
-      close: runtimes.invalidate,
+      close: (threadId) => {
+        const generation = aggregate.current(threadId)?.generation;
+        return runtimes
+          .invalidate(threadId)
+          .pipe(
+            Effect.ensuring(
+              generation === undefined
+                ? Effect.void
+                : Effect.sync(() => aggregate.releaseGeneration(threadId, generation)),
+            ),
+          );
+      },
     });
   }),
 );

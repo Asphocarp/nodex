@@ -456,9 +456,10 @@ import { convertImmerPatchesToCodexConversationStateUpdates } from "../../shared
 import {
   applyCodexThreadOwnerPublication,
   areCodexThreadStreamCheckpointsEqual,
-  buildCodexThreadStreamCheckpoint,
   type CodexThreadStreamReplica,
 } from "../../shared/codex-owner-follower-replication";
+import type { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
+import type { CodexConversationAggregate } from "../codex-application/CodexConversationAggregate";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
 import type { DesktopToolRuntimePromiseAdapter } from "../host-runtime/DesktopToolRuntime";
 import type {
@@ -1050,6 +1051,10 @@ type CodexManagedWorktreeSettingsPort = {
 };
 
 type CodexServiceOptions = {
+  conversationRuntimes: Pick<
+    ConversationRuntimeMap["Service"],
+    "conversation" | "currentConversation"
+  >;
   applicationEvents: CodexApplicationEventPublisher;
   foldSidebarPathCase: boolean;
   agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
@@ -1134,10 +1139,9 @@ export interface CodexTerminalRuntimePort {
 type CodexConversationStreamRole = "owner" | "follower" | null;
 
 interface CodexConversationRecord {
-  canonicalState: CodexCanonicalConversationState | null;
+  readonly threadId: string;
   detail: CodexThreadDetail | null;
   itemsByTurn: Map<string, Map<string, CodexItemView>>;
-  preHydrationServerRequests: CodexCanonicalServerRequest[];
   hasUnreadTurn: boolean;
   unreadMessageCount?: number;
   planImplementationRequestsByTurnId: Map<string, CodexPlanImplementationServerRequest>;
@@ -2145,6 +2149,7 @@ export class CodexService {
   private readonly nodexAgentResourceAuthority: NodexAgentResourceAuthorityPort;
 
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
+  private readonly conversationRuntimes: CodexServiceOptions["conversationRuntimes"];
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
@@ -2168,13 +2173,6 @@ export class CodexService {
     string,
     FrozenNodexAgentTurnAuthority
   >();
-  private readonly acceptedConversationDocumentById = new Map<string, CodexConversationSnapshot>();
-  private readonly conversationVersionById = new Map<string, number>();
-  private readonly conversationStreamRevisionById = new Map<string, number>();
-  private readonly conversationStreamCheckpointById = new Map<
-    string,
-    CodexThreadStreamCheckpoint
-  >();
   private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   private readonly terminalInputBuffers = new Map<string, string>();
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
@@ -2182,7 +2180,7 @@ export class CodexService {
 
   /** Temporary canonical projection port while conversation state is still owned by this class. */
   readonly manualCompactionProjection: CodexManualCompactionProjectionPort = {
-    read: (threadId) => this.getMaybeConversationRecord(threadId)?.canonicalState ?? null,
+    read: (threadId) => this.readCanonicalConversationState(threadId) ?? null,
     commit: (input) => this.commitCanonicalLocalTurnMutation(input),
     publish: (threadId, turnId) => {
       if (turnId === null) {
@@ -2200,12 +2198,15 @@ export class CodexService {
   readonly threadGoalProjection: CodexThreadGoalProjectionPort = {
     applySet: ({ threadId, goal, appendTranscriptItem, dismissResumeConfirmation, objective }) => {
       const record = this.getMaybeConversationRecord(threadId);
-      const before = record?.canonicalState;
+      const before = record ? this.readCanonicalConversationState(record.threadId) : null;
       if (record && before) {
         const updated = reduceCodexConversationThreadGoalUpdated(before, threadId, goal).state;
-        record.canonicalState = dismissResumeConfirmation
-          ? reduceCodexConversationThreadGoalResumeConfirmationDismissed(updated, threadId)
-          : updated;
+        this.acceptCanonicalConversationState(
+          threadId,
+          dismissResumeConfirmation
+            ? reduceCodexConversationThreadGoalResumeConfirmationDismissed(updated, threadId)
+            : updated,
+        );
         this.projectCanonicalMainThreadMetadata(threadId);
       } else {
         this.applyThreadGoalUpdated(threadId, goal);
@@ -2219,6 +2220,7 @@ export class CodexService {
   };
 
   constructor(options: CodexServiceOptions) {
+    this.conversationRuntimes = options.conversationRuntimes;
     this.applicationEvents = options.applicationEvents;
     this.agentProviderRuntime = options.agentProviderRuntime;
     this.composerCatalog = options.composerCatalog;
@@ -2346,8 +2348,13 @@ export class CodexService {
       title: detail?.threadName ?? summary?.threadName ?? null,
       threadSource: detail?.threadSource ?? summary?.threadSource ?? null,
       parentThreadId:
-        record?.canonicalState?.protocol.parentThreadId ?? localParentThreadId ?? null,
-      source: record?.canonicalState?.protocol.source ?? source,
+        (record ? this.readCanonicalConversationState(record.threadId) : null)?.protocol
+          .parentThreadId ??
+        localParentThreadId ??
+        null,
+      source:
+        (record ? this.readCanonicalConversationState(record.threadId) : null)?.protocol.source ??
+        source,
       sideConversationParentNavigationPath:
         detail?.source?.sideConversationParentNavigationPath ??
         summary?.source?.sideConversationParentNavigationPath ??
@@ -2644,7 +2651,7 @@ export class CodexService {
 
   async releaseConversationResumeBufferForModule(threadId: string): Promise<boolean> {
     await this.releaseConversationResumeBufferCore(threadId);
-    const revision = this.conversationStreamRevisionById.get(threadId) ?? 0;
+    const revision = this.readConversationAggregate(threadId)?.revision ?? 0;
     if (this.postResumeGoals.release(threadId, revision)) return true;
 
     this.scheduleRemainingThreadTurnsLoad(threadId);
@@ -2740,7 +2747,7 @@ export class CodexService {
     }
 
     const duplicateCharactersByKey = new Map<string, number>();
-    const canonicalTurns = this.getMaybeConversationRecord(threadId)?.canonicalState?.turns ?? [];
+    const canonicalTurns = this.readCanonicalConversationState(threadId)?.turns ?? [];
     for (const [key, buffered] of bufferedDeltasByKey) {
       const turn = canonicalTurns.find((candidate) => candidate.protocol.id === buffered.turnId);
       const item = turn?.items.find(
@@ -2857,7 +2864,7 @@ export class CodexService {
             revision: replica.checkpoint.revision,
             conversationState: replica.conversation,
           },
-          version: this.conversationVersionById.get(threadId) ?? 0,
+          version: this.readConversationAggregate(threadId)?.version ?? 0,
           sourceClientId: ownerClientId,
           checkpoint: replica.checkpoint,
           baseCheckpoint: null,
@@ -2943,9 +2950,7 @@ export class CodexService {
   }
 
   private getNextConversationVersion(threadId: string): number {
-    const nextVersion = (this.conversationVersionById.get(threadId) ?? 0) + 1;
-    this.conversationVersionById.set(threadId, nextVersion);
-    return nextVersion;
+    return this.conversationAggregate(threadId).incrementVersion();
   }
 
   private setAcceptedConversationReplica(
@@ -2953,50 +2958,30 @@ export class CodexService {
     conversation: CodexConversationSnapshot,
     revision: number,
     ownerEpoch = this.rendererConversations.getOwnerEpoch(threadId) ??
-      this.conversationStreamCheckpointById.get(threadId)?.ownerEpoch ??
+      this.readConversationAggregate(threadId)?.checkpoint?.ownerEpoch ??
       0,
   ): CodexThreadStreamCheckpoint {
-    const checkpoint = buildCodexThreadStreamCheckpoint({
+    return this.conversationAggregate(threadId).acceptReplica({
       ownerEpoch,
       revision,
       conversation,
-    });
-    this.acceptedConversationDocumentById.set(threadId, conversation);
-    this.conversationStreamRevisionById.set(threadId, revision);
-    this.conversationStreamCheckpointById.set(threadId, checkpoint);
-    return checkpoint;
+    }).checkpoint;
   }
 
   private getAcceptedConversationReplica(threadId: string): CodexThreadStreamReplica | null {
-    const conversation = this.acceptedConversationDocumentById.get(threadId);
-    if (!conversation) return null;
-    const revision = this.conversationStreamRevisionById.get(threadId) ?? 0;
+    const aggregate = this.readConversationAggregate(threadId);
+    const replica = aggregate?.acceptedReplica ?? null;
+    if (!replica) return null;
     const expectedOwnerEpoch =
-      this.rendererConversations.getOwnerEpoch(threadId) ??
-      this.conversationStreamCheckpointById.get(threadId)?.ownerEpoch ??
-      0;
-    const existingCheckpoint = this.conversationStreamCheckpointById.get(threadId);
-    const expectedCheckpoint = buildCodexThreadStreamCheckpoint({
-      ownerEpoch: expectedOwnerEpoch,
-      revision,
-      conversation,
-    });
-    const checkpoint =
-      existingCheckpoint &&
-      areCodexThreadStreamCheckpointsEqual(existingCheckpoint, expectedCheckpoint)
-        ? existingCheckpoint
-        : this.setAcceptedConversationReplica(threadId, conversation, revision, expectedOwnerEpoch);
-    return { checkpoint, conversation };
-  }
-
-  private advanceConversationStreamRevision(threadId: string): {
-    baseRevision: number;
-    revision: number;
-  } {
-    const baseRevision = this.conversationStreamRevisionById.get(threadId) ?? 0;
-    const revision = baseRevision + 1;
-    this.conversationStreamRevisionById.set(threadId, revision);
-    return { baseRevision, revision };
+      this.rendererConversations.getOwnerEpoch(threadId) ?? aggregate?.checkpoint?.ownerEpoch ?? 0;
+    if (replica.checkpoint.ownerEpoch === expectedOwnerEpoch) return replica;
+    this.setAcceptedConversationReplica(
+      threadId,
+      replica.conversation,
+      aggregate?.revision ?? 0,
+      expectedOwnerEpoch,
+    );
+    return this.readConversationAggregate(threadId)?.acceptedReplica ?? null;
   }
 
   private storeDormantConversationSnapshot(
@@ -3006,8 +2991,13 @@ export class CodexService {
   ): void {
     void _reason;
     if (this.rendererConversations.hasOwner(threadId)) return;
-    const { revision } = this.advanceConversationStreamRevision(threadId);
-    this.setAcceptedConversationReplica(threadId, conversation, revision);
+    this.conversationAggregate(threadId).advanceReplica({
+      conversation,
+      ownerEpoch:
+        this.rendererConversations.getOwnerEpoch(threadId) ??
+        this.readConversationAggregate(threadId)?.checkpoint?.ownerEpoch ??
+        0,
+    });
   }
 
   private storeDormantConversationPatches(
@@ -3019,20 +3009,25 @@ export class CodexService {
       return;
     }
     if (this.rendererConversations.hasOwner(threadId)) return;
-    const { revision } = this.advanceConversationStreamRevision(threadId);
-    this.setAcceptedConversationReplica(threadId, conversation, revision);
+    this.conversationAggregate(threadId).advanceReplica({
+      conversation,
+      ownerEpoch:
+        this.rendererConversations.getOwnerEpoch(threadId) ??
+        this.readConversationAggregate(threadId)?.checkpoint?.ownerEpoch ??
+        0,
+    });
   }
 
   setRendererConversationOwner(threadId: string, clientId: string | null | undefined): void {
     if (!clientId) return;
     const ownerResult = this.rendererConversations.setOwner(threadId, clientId);
     if (!ownerResult) return;
-    const acceptedConversation = this.acceptedConversationDocumentById.get(threadId);
+    const acceptedConversation = this.readConversationAggregate(threadId)?.acceptedReplica;
     if (acceptedConversation) {
       this.setAcceptedConversationReplica(
         threadId,
-        acceptedConversation,
-        this.conversationStreamRevisionById.get(threadId) ?? 0,
+        acceptedConversation.conversation,
+        acceptedConversation.checkpoint.revision,
         ownerResult.ownerEpoch,
       );
     }
@@ -3262,9 +3257,7 @@ export class CodexService {
 
     const ownerClientId = this.rendererConversations.clearConversation(threadId);
     this.releaseOwnerNotificationDrain(threadId);
-    this.conversationStreamRevisionById.delete(threadId);
-    this.conversationStreamCheckpointById.delete(threadId);
-    this.acceptedConversationDocumentById.delete(threadId);
+    this.conversationRuntimes.currentConversation(threadId)?.clearReplica();
     if (ownerClientId) {
       this.emitHostMessage({
         type: "threadOwnerUnavailable",
@@ -3648,7 +3641,8 @@ export class CodexService {
     threadId: string,
     recipe: (draft: CodexConversationSnapshot) => void | CodexConversationSnapshot,
   ): void {
-    const currentConversation = this.acceptedConversationDocumentById.get(threadId);
+    const currentConversation =
+      this.readConversationAggregate(threadId)?.acceptedReplica?.conversation;
     if (!currentConversation) {
       this.syncDormantConversationFromRecord(threadId, "durable-recovery");
       return;
@@ -3677,7 +3671,8 @@ export class CodexService {
     if (this.rendererConversations.hasOwner(threadId)) {
       return;
     }
-    const currentConversation = this.acceptedConversationDocumentById.get(threadId);
+    const currentConversation =
+      this.readConversationAggregate(threadId)?.acceptedReplica?.conversation;
     if (!currentConversation) {
       return;
     }
@@ -3687,7 +3682,7 @@ export class CodexService {
       this.setAcceptedConversationReplica(
         threadId,
         nextConversation,
-        this.conversationStreamRevisionById.get(threadId) ?? 0,
+        this.readConversationAggregate(threadId)?.revision ?? 0,
       );
     } catch (error) {
       this.logger.warn("Could not update accepted conversation document cache silently", {
@@ -3702,16 +3697,18 @@ export class CodexService {
     options: { advanceRevision?: boolean } = {},
   ): number {
     if (this.rendererConversations.hasOwner(threadId)) {
-      return this.conversationStreamRevisionById.get(threadId) ?? 0;
+      return this.readConversationAggregate(threadId)?.revision ?? 0;
     }
     const conversation = this.serializeConversationSnapshot(threadId);
     if (!conversation) {
-      return this.conversationStreamRevisionById.get(threadId) ?? 0;
+      return this.readConversationAggregate(threadId)?.revision ?? 0;
     }
     if (options.advanceRevision === true) {
-      this.advanceConversationStreamRevision(threadId);
+      const current = this.readConversationAggregate(threadId);
+      this.setAcceptedConversationReplica(threadId, conversation, (current?.revision ?? 0) + 1);
+      return (current?.revision ?? 0) + 1;
     }
-    const revision = this.conversationStreamRevisionById.get(threadId) ?? 0;
+    const revision = this.readConversationAggregate(threadId)?.revision ?? 0;
     this.setAcceptedConversationReplica(threadId, conversation, revision);
     return revision;
   }
@@ -3757,7 +3754,7 @@ export class CodexService {
     this.setAcceptedConversationReplica(
       threadId,
       conversation,
-      this.conversationStreamRevisionById.get(threadId) ?? 0,
+      this.readConversationAggregate(threadId)?.revision ?? 0,
     );
   }
 
@@ -3956,7 +3953,7 @@ export class CodexService {
     options: { repairMissing?: boolean } = {},
   ): void {
     const conversation =
-      this.acceptedConversationDocumentById.get(parentThreadId) ??
+      this.readConversationAggregate(parentThreadId)?.acceptedReplica?.conversation ??
       this.buildConversationBaseSnapshot(parentThreadId);
     if (!conversation) return;
     this.syncParentChildMembershipMetadataFromConversation(conversation, options);
@@ -4381,10 +4378,10 @@ export class CodexService {
     if (latestThreadSettings.collaborationMode) {
       record.latestCollaborationMode = latestThreadSettings.collaborationMode;
     }
-    const canonical = record.canonicalState;
+    const canonical = this.readCanonicalConversationState(record.threadId);
     const hydrationContext = canonical?.sidecar.hydrationContext ?? null;
     if (canonical && hydrationContext && !protocolSettings) {
-      record.canonicalState = {
+      this.acceptCanonicalConversationState(threadId, {
         ...canonical,
         sidecar: {
           ...canonical.sidecar,
@@ -4402,7 +4399,7 @@ export class CodexService {
             },
           },
         },
-      };
+      });
     } else if (canonical && hydrationContext && protocolSettings) {
       const currentPermissions = {
         activePermissionProfile: protocolSettings.activePermissionProfile,
@@ -4411,7 +4408,7 @@ export class CodexService {
         approvalsReviewer: protocolSettings.approvalsReviewer,
         sandboxPolicy: protocolSettings.sandboxPolicy,
       } satisfies CodexCanonicalHydratedPermissionContext;
-      record.canonicalState = {
+      this.acceptCanonicalConversationState(threadId, {
         ...canonical,
         sidecar: {
           ...canonical.sidecar,
@@ -4440,7 +4437,7 @@ export class CodexService {
             currentPermissions,
           },
         },
-      };
+      });
     }
     if (!record.detail) {
       return;
@@ -4476,10 +4473,10 @@ export class CodexService {
       collaborationMode: latestCollaborationMode,
       personality: record.latestThreadSettings?.personality ?? this.preferences.current(),
     };
-    const canonical = record.canonicalState;
+    const canonical = this.readCanonicalConversationState(record.threadId);
     const hydrationContext = canonical?.sidecar.hydrationContext ?? null;
     if (canonical && hydrationContext) {
-      record.canonicalState = {
+      this.acceptCanonicalConversationState(threadId, {
         ...canonical,
         sidecar: {
           ...canonical.sidecar,
@@ -4494,7 +4491,7 @@ export class CodexService {
             },
           },
         },
-      };
+      });
     }
     if (!record.detail) {
       return;
@@ -4545,12 +4542,11 @@ export class CodexService {
     });
   }
 
-  private createConversationRecord(): CodexConversationRecord {
+  private createConversationRecord(threadId: string): CodexConversationRecord {
     return {
-      canonicalState: null,
+      threadId,
       detail: null,
       itemsByTurn: new Map<string, Map<string, CodexItemView>>(),
-      preHydrationServerRequests: [],
       hasUnreadTurn: false,
       planImplementationRequestsByTurnId: new Map<string, CodexPlanImplementationServerRequest>(),
       pendingSteers: [],
@@ -4574,7 +4570,7 @@ export class CodexService {
   private ensureConversationRecord(threadId: string): CodexConversationRecord {
     const existing = this.getMaybeConversationRecord(threadId);
     if (existing) return existing;
-    const created = this.createConversationRecord();
+    const created = this.createConversationRecord(threadId);
     created.hasUnreadTurn = this.getThreadLinkSafely(threadId)?.hasUnreadTurn ?? false;
     this.conversationRecords.set(threadId, created);
     return created;
@@ -4584,34 +4580,38 @@ export class CodexService {
     return this.ensureConversationRecord(threadId);
   }
 
+  private conversationAggregate(threadId: string): CodexConversationAggregate {
+    return this.conversationRuntimes.conversation(threadId);
+  }
+
+  private readConversationAggregate(threadId: string) {
+    return this.conversationRuntimes.currentConversation(threadId)?.read() ?? null;
+  }
+
+  private readCanonicalConversationState(threadId: string): CodexCanonicalConversationState | null {
+    return this.conversationRuntimes.currentConversation(threadId)?.readCanonicalState() ?? null;
+  }
+
   private readConversationServerRequests(
     record: CodexConversationRecord,
   ): readonly CodexCanonicalServerRequest[] {
-    return record.canonicalState?.requests ?? record.preHydrationServerRequests;
+    return (
+      this.conversationRuntimes.currentConversation(record.threadId)?.readServerRequests() ?? []
+    );
   }
 
   private replaceConversationServerRequests(
-    record: CodexConversationRecord,
+    threadId: string,
     requests: readonly CodexCanonicalServerRequest[],
   ): void {
-    if (!record.canonicalState) {
-      record.preHydrationServerRequests = [...requests];
-      return;
-    }
-    record.canonicalState = {
-      ...record.canonicalState,
-      requests: [...requests],
-    };
-    record.preHydrationServerRequests = [];
+    this.conversationAggregate(threadId).replaceServerRequests(requests);
   }
 
   private acceptCanonicalConversationState(
-    record: CodexConversationRecord,
+    threadId: string,
     state: CodexCanonicalConversationState,
   ): CodexCanonicalConversationState {
-    record.canonicalState = state;
-    record.preHydrationServerRequests = [];
-    return state;
+    return this.conversationAggregate(threadId).acceptCanonicalState(state);
   }
 
   private resolveCanonicalResumePermissionContext(
@@ -4743,9 +4743,11 @@ export class CodexService {
     projectless: boolean,
     persistedWritableRoots: readonly string[],
   ): CodexResumePermissionSelection {
-    const hydrationContext = record.canonicalState?.sidecar.hydrationContext ?? null;
+    const hydrationContext =
+      this.readCanonicalConversationState(record.threadId)?.sidecar.hydrationContext ?? null;
     const latestSettings = hydrationContext?.latestThreadSettings ?? null;
-    const latestParams = record.canonicalState?.turns.at(-1)?.sidecar.params ?? null;
+    const latestParams =
+      this.readCanonicalConversationState(record.threadId)?.turns.at(-1)?.sidecar.params ?? null;
     const currentPermissions = hydrationContext?.currentPermissions ?? null;
     const defaults =
       projectless && defaultWorkspaceRoots.length === 0
@@ -4876,9 +4878,10 @@ export class CodexService {
       pendingRequests,
       hasUnreadTurn: record.hasUnreadTurn,
     });
+    const previousCanonical = this.readCanonicalConversationState(record.threadId);
     const mergedTurns =
-      options.mergeExistingTurns && record.canonicalState
-        ? mergeCodexCanonicalTurnStates(record.canonicalState.turns, canonicalState.turns)
+      options.mergeExistingTurns && previousCanonical
+        ? mergeCodexCanonicalTurnStates(previousCanonical.turns, canonicalState.turns)
         : canonicalState.turns;
     const turns = options.overlayResponseTurnParams
       ? overlayCodexCanonicalTurnHydration(mergedTurns, {
@@ -4890,7 +4893,8 @@ export class CodexService {
           effort: input.reasoningEffort,
         })
       : mergedTurns;
-    const previousHydrationContext = record.canonicalState?.sidecar.hydrationContext ?? null;
+    const previousHydrationContext =
+      this.readCanonicalConversationState(record.threadId)?.sidecar.hydrationContext ?? null;
     const latestModel =
       options.latestModel ??
       (options.mergeExistingTurns ? previousHydrationContext?.latestModel : null) ??
@@ -4899,7 +4903,8 @@ export class CodexService {
       options.latestReasoningEffort === undefined
         ? input.reasoningEffort
         : options.latestReasoningEffort;
-    const previousThreadSettings = record.canonicalState?.sidecar.latestThreadSettings ?? null;
+    const previousThreadSettings =
+      this.readCanonicalConversationState(record.threadId)?.sidecar.latestThreadSettings ?? null;
     const latestThreadSettings: ThreadSettings = {
       cwd: currentCwd ?? fallbackHydrationCwd,
       approvalPolicy: currentPermissions.approvalPolicy,
@@ -4940,7 +4945,7 @@ export class CodexService {
         },
       },
     };
-    return this.acceptCanonicalConversationState(record, nextCanonicalState);
+    return this.acceptCanonicalConversationState(record.threadId, nextCanonicalState);
   }
 
   private mergeCanonicalOlderTurnPage(
@@ -4950,7 +4955,7 @@ export class CodexService {
     pageHydrationContext: CodexOlderTurnHydrationContext,
   ): CodexCanonicalConversationState {
     const record = this.ensureConversationRecord(threadId);
-    const current = record.canonicalState;
+    const current = this.readCanonicalConversationState(record.threadId);
     const hydrationContext = current?.sidecar.hydrationContext ?? null;
     if (!current || !hydrationContext) {
       throw new Error(
@@ -4989,7 +4994,7 @@ export class CodexService {
         hasUnreadTurn: record.hasUnreadTurn,
       },
     };
-    return this.acceptCanonicalConversationState(record, nextCanonicalState);
+    return this.acceptCanonicalConversationState(record.threadId, nextCanonicalState);
   }
 
   /** Exact `GQe`: snapshot page hydration settings before the network request starts. */
@@ -4997,7 +5002,7 @@ export class CodexService {
     threadId: string,
   ): CodexOlderTurnHydrationContext {
     const record = this.ensureConversationRecord(threadId);
-    const canonical = record.canonicalState;
+    const canonical = this.readCanonicalConversationState(record.threadId);
     const hydrationContext = canonical?.sidecar.hydrationContext ?? null;
     if (!canonical || !hydrationContext) {
       throw new Error(
@@ -5112,7 +5117,8 @@ export class CodexService {
       record.hasUnreadTurn = hasUnreadTurn;
       if (!hasUnreadTurn) record.unreadMessageCount = 0;
     }
-    const acceptedConversation = this.acceptedConversationDocumentById.get(threadId);
+    const acceptedConversation =
+      this.readConversationAggregate(threadId)?.acceptedReplica?.conversation;
     if (acceptedConversation && acceptedConversation.hasUnreadTurn !== hasUnreadTurn) {
       this.mutateAcceptedConversationDocumentSilently(threadId, (draft) => {
         draft.hasUnreadTurn = hasUnreadTurn;
@@ -5258,7 +5264,7 @@ export class CodexService {
         return typeof turnId !== "string" || shouldRetainTurn(turnId);
       });
       if (requests.length !== sourceRequests.length) {
-        this.replaceConversationServerRequests(record, requests);
+        this.replaceConversationServerRequests(threadId, requests);
       }
       this.userInputAutoResolution.reconcilePendingRequests(
         threadId,
@@ -5274,10 +5280,7 @@ export class CodexService {
       retainTurnless: false,
     });
     this.conversationRecords.delete(threadId);
-    this.acceptedConversationDocumentById.delete(threadId);
-    this.conversationVersionById.delete(threadId);
-    this.conversationStreamRevisionById.delete(threadId);
-    this.conversationStreamCheckpointById.delete(threadId);
+    this.conversationRuntimes.currentConversation(threadId)?.reset();
     this.rendererConversations.clearConversation(threadId);
     this.userInputAutoResolution.clearConversation(threadId);
     this.rendererOwnerRetention.clear(threadId);
@@ -6133,10 +6136,10 @@ export class CodexService {
         projectlessWorkspaceBrowserRoot: input.move.next.projectlessWorkspaceBrowserRoot,
       };
     }
-    const canonical = record.canonicalState;
+    const canonical = this.readCanonicalConversationState(record.threadId);
     const hydrationContext = canonical?.sidecar.hydrationContext ?? null;
     if (canonical && hydrationContext) {
-      record.canonicalState = {
+      this.acceptCanonicalConversationState(input.threadId, {
         ...canonical,
         sidecar: {
           ...canonical.sidecar,
@@ -6153,7 +6156,7 @@ export class CodexService {
             },
           },
         },
-      };
+      });
     }
     this.syncAcceptedConversationDocument(input.threadId, { syncDetail: true });
   }
@@ -8348,8 +8351,7 @@ export class CodexService {
     workspaceRoots: readonly string[],
   ): CodexCanonicalHydratedPermissionContext {
     const existing =
-      this.getMaybeConversationRecord(threadId)?.canonicalState?.sidecar.hydrationContext
-        ?.currentPermissions;
+      this.readCanonicalConversationState(threadId)?.sidecar.hydrationContext?.currentPermissions;
     if (!existing) return createCodexCanonicalWorkspacePermissionContext(workspaceRoots);
     return {
       ...existing,
@@ -9582,7 +9584,7 @@ export class CodexService {
   }
 
   private resolveLoadedCanonicalThread(threadId: string): Thread | null {
-    const state = this.getMaybeConversationRecord(threadId)?.canonicalState;
+    const state = this.readCanonicalConversationState(threadId);
     if (!state) return null;
 
     return {
@@ -9760,7 +9762,7 @@ export class CodexService {
     const turnIndex = input.after.turns.findIndex((turn) => turn.protocol.id === input.turnId);
     const afterTurn = input.after.turns[turnIndex];
     if (!afterTurn) return false;
-    record.canonicalState = input.after;
+    this.acceptCanonicalConversationState(input.threadId, input.after);
     this.applyCanonicalLifecycleTurnProjection({
       threadId: input.threadId,
       turnIndex,
@@ -9781,7 +9783,7 @@ export class CodexService {
     const record = this.getMaybeConversationRecord(input.threadId);
     if (!record) return;
 
-    record.canonicalState = input.after;
+    this.acceptCanonicalConversationState(input.threadId, input.after);
     if (input.after.turns.length < input.before.turns.length) {
       if (!record.detail) return;
       const timeline = this.buildThreadTimelineFromCanonicalState(input.after);
@@ -9815,7 +9817,7 @@ export class CodexService {
     const threadId = typeof params?.threadId === "string" ? params.threadId : null;
     if (!threadId) return [];
     const record = this.getMaybeConversationRecord(threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before) {
       this.logger.warn("Dropping turn metadata without canonical conversation state", {
         threadId,
@@ -9832,7 +9834,7 @@ export class CodexService {
         createId: () => randomUUID(),
       },
     );
-    record.canonicalState = result.state;
+    this.acceptCanonicalConversationState(threadId, result.state);
     const changedTurnIds: string[] = [];
     for (const [turnIndex, afterTurn] of result.state.turns.entries()) {
       const beforeTurn = before.turns[turnIndex] ?? null;
@@ -9875,7 +9877,7 @@ export class CodexService {
           : null;
     if (!threadId) return [];
     const record = this.getMaybeConversationRecord(threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before) {
       this.logger.warn("Dropping thread metadata without canonical conversation state", {
         threadId,
@@ -9892,14 +9894,14 @@ export class CodexService {
         createId: () => randomUUID(),
       },
     );
-    record.canonicalState = result.state;
+    this.acceptCanonicalConversationState(threadId, result.state);
     this.projectCanonicalMainThreadMetadata(threadId);
     return result.effects;
   }
 
   private projectCanonicalMainThreadMetadata(threadId: string): void {
     const record = this.getMaybeConversationRecord(threadId);
-    const canonical = record?.canonicalState;
+    const canonical = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !canonical) return;
     const status = parseThreadStatus(canonical.protocol.status);
     const protocolSettings = canonical.sidecar.latestThreadSettings;
@@ -9959,7 +9961,7 @@ export class CodexService {
     observedAtMs: number;
   }): string | null {
     const record = this.getMaybeConversationRecord(input.threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before) return null;
     const result = reduceCodexConversationTurnLifecycle(before, {
       conversationId: input.threadId,
@@ -9967,7 +9969,7 @@ export class CodexService {
       turn: input.turn,
       observedAtMs: input.observedAtMs,
     });
-    this.acceptCanonicalConversationState(record, result.state);
+    this.acceptCanonicalConversationState(record.threadId, result.state);
     record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
     let targetTurnId: string | null = null;
     for (const [turnIndex, afterTurn] of result.state.turns.entries()) {
@@ -9990,7 +9992,7 @@ export class CodexService {
   ): string | null {
     const threadId = notification.params.threadId;
     const record = this.getMaybeConversationRecord(threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before) {
       this.logger.warn("Dropping item lifecycle without canonical conversation state", {
         threadId,
@@ -10011,7 +10013,7 @@ export class CodexService {
           this.resolveLoadedCanonicalThread(receiverThreadId),
       },
     );
-    record.canonicalState = result.state;
+    this.acceptCanonicalConversationState(threadId, result.state);
     record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
 
     for (const effect of result.effects) {
@@ -10175,7 +10177,7 @@ export class CodexService {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return null;
     return {
-      canonicalState: record.canonicalState,
+      canonicalState: this.readCanonicalConversationState(record.threadId),
       rawState: this.buildTransportOnlyServerRequestRawState(threadId, record),
       streamRole: record.streamRole,
     };
@@ -10262,7 +10264,7 @@ export class CodexService {
     if (!record || !result.stateChanged) return;
 
     const previousHasUnreadTurn = record.hasUnreadTurn;
-    this.replaceConversationServerRequests(record, result.state.requests);
+    this.replaceConversationServerRequests(threadId, result.state.requests);
     record.hasUnreadTurn = result.state.hasUnreadTurn;
     if (record.hasUnreadTurn !== previousHasUnreadTurn) {
       void this.threadReadState.persistProjected({
@@ -10281,7 +10283,7 @@ export class CodexService {
     if (!record || !result.stateChanged) return;
 
     const previousHasUnreadTurn = record.hasUnreadTurn;
-    this.acceptCanonicalConversationState(record, result.state);
+    this.acceptCanonicalConversationState(record.threadId, result.state);
     record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
     if (record.hasUnreadTurn !== previousHasUnreadTurn) {
       void this.threadReadState.persistProjected({
@@ -10352,7 +10354,7 @@ export class CodexService {
     }
 
     const record = this.getMaybeConversationRecord(threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before) {
       const transportOnly = reduceCodexServerRequestRawState(
         {
@@ -10418,7 +10420,7 @@ export class CodexService {
     request: CodexCanonicalServerRequest,
   ): CodexServerRequestRawLifecycleResult {
     const existingRecord = this.getMaybeConversationRecord(threadId);
-    const record = existingRecord ?? this.createConversationRecord();
+    const record = existingRecord ?? this.createConversationRecord(threadId);
     const state = this.buildTransportOnlyServerRequestRawState(threadId, record);
     const result = reduceCodexServerRequestRawState(state, request, {
       now: () => Date.now(),
@@ -10452,13 +10454,13 @@ export class CodexService {
     suppressConversationSync: boolean,
   ): void {
     const record = this.getMaybeConversationRecord(update.conversationId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before || before.turns.length === 0) return;
 
     const result = reduceCodexConversationFileChangePatch(before, update, {
       now: () => Date.now(),
     });
-    record.canonicalState = result.state;
+    this.acceptCanonicalConversationState(update.conversationId, result.state);
     if (result.disposition !== "applied") {
       this.logger.warn("Dropping fileChange/patchUpdated for missing turn", {
         threadId: update.conversationId,
@@ -10502,13 +10504,13 @@ export class CodexService {
     suppressConversationSync: boolean,
   ): void {
     const record = this.getMaybeConversationRecord(update.conversationId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before || before.turns.length === 0) return;
 
     const result = reduceCodexConversationMcpToolCallProgress(before, update, {
       now: () => Date.now(),
     });
-    record.canonicalState = result.state;
+    this.acceptCanonicalConversationState(update.conversationId, result.state);
     if (result.disposition !== "applied") return;
     if (result.matchedItemIndex >= 0) {
       this.logger.debug("Ignoring mcpToolCall progress message", {
@@ -10554,7 +10556,7 @@ export class CodexService {
 
   private appendThreadGoalTranscriptTurn(threadId: string, goal: ThreadGoal): void {
     const record = this.getMaybeConversationRecord(threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record?.detail || !before) return;
     const after = appendCodexCanonicalThreadGoalTranscriptTurn(before, goal);
     this.commitCanonicalLocalTurnMutation({
@@ -10601,7 +10603,8 @@ export class CodexService {
     expectedRevision: number,
     goal: ThreadGoal | null,
   ): boolean {
-    if ((this.conversationStreamRevisionById.get(threadId) ?? 0) !== expectedRevision) return false;
+    if ((this.readConversationAggregate(threadId)?.revision ?? 0) !== expectedRevision)
+      return false;
     this.applyThreadGoalHydratedAfterResume(threadId, goal);
     this.publishPostResumeGoalSnapshot(threadId);
     return true;
@@ -10692,10 +10695,11 @@ export class CodexService {
   private removePlanImplementationRequestFromRecord(threadId: string, turnId: string): void {
     const record = this.ensureConversationRecord(threadId);
     record.planImplementationRequestsByTurnId.delete(turnId);
-    if (!record.canonicalState) return;
+    const canonical = this.readCanonicalConversationState(threadId);
+    if (!canonical) return;
     this.acceptCanonicalConversationState(
-      record,
-      completeCodexCanonicalPlanImplementationRequest(record.canonicalState, turnId),
+      threadId,
+      completeCodexCanonicalPlanImplementationRequest(canonical, turnId),
     );
   }
 
@@ -10988,7 +10992,7 @@ export class CodexService {
     turnId: string,
     rawTurn: Turn,
   ): string | null {
-    const canonicalTurn = this.getMaybeConversationRecord(threadId)?.canonicalState?.turns.find(
+    const canonicalTurn = this.readCanonicalConversationState(threadId)?.turns.find(
       (turn) => turn.protocol.id === turnId,
     );
     for (let index = (canonicalTurn?.items.length ?? 0) - 1; index >= 0; index -= 1) {
@@ -11172,7 +11176,7 @@ export class CodexService {
       (candidate) => (candidate.entryId ?? candidate.itemId) === steerId,
     );
     const record = this.getMaybeConversationRecord(threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!entry || entry.turnId === null || !record || !before) return;
 
     const after = removeCodexCanonicalSteeringItem(before, entry.turnId, steerId);
@@ -11704,7 +11708,7 @@ export class CodexService {
 
   private hydrateCanonicalThreadRead(thread: Thread): CodexCanonicalConversationState {
     const record = this.ensureConversationRecord(thread.id);
-    const previousState = record.canonicalState;
+    const previousState = this.readCanonicalConversationState(record.threadId);
     const runtimeWorkspaceRoots: readonly string[] = [];
     const permissions = createCodexCanonicalWorkspacePermissionContext(runtimeWorkspaceRoots);
     const cwd = thread.cwd || "/";
@@ -11735,7 +11739,7 @@ export class CodexService {
         hydrationContext,
       },
     };
-    return this.acceptCanonicalConversationState(record, state);
+    return this.acceptCanonicalConversationState(record.threadId, state);
   }
 
   private buildThreadDetailFromRead(
@@ -13021,7 +13025,7 @@ export class CodexService {
         attachments: firstTurnAttachments,
       };
       const record = this.getConversationRecord(link.threadId);
-      const canonicalState = record.canonicalState;
+      const canonicalState = this.readCanonicalConversationState(record.threadId);
       const hydration = canonicalState?.sidecar.hydrationContext;
       if (!canonicalState || !hydration) {
         throw new Error("Codex thread/start did not initialize canonical conversation state");
@@ -13719,9 +13723,11 @@ export class CodexService {
     const projectRuntimeContext = threadRef?.projectId
       ? await this.maybeResolveProjectRuntimeContext(threadRef.projectId)
       : null;
-    const previousHydrationContext = record.canonicalState?.sidecar.hydrationContext ?? null;
+    const previousHydrationContext =
+      this.readCanonicalConversationState(record.threadId)?.sidecar.hydrationContext ?? null;
     const projectless = threadRef?.projectId === null;
-    const latestParams = record.canonicalState?.turns.at(-1)?.sidecar.params ?? null;
+    const latestParams =
+      this.readCanonicalConversationState(record.threadId)?.turns.at(-1)?.sidecar.params ?? null;
     const projectlessSandbox =
       previousHydrationContext?.latestThreadSettings?.sandboxPolicy ??
       latestParams?.sandboxPolicy ??
@@ -13910,7 +13916,10 @@ export class CodexService {
     const resumeParams: ThreadResumeParams = {
       threadId,
       history: null,
-      path: metadataThread?.path ?? record.canonicalState?.protocol.path ?? null,
+      path:
+        metadataThread?.path ??
+        this.readCanonicalConversationState(record.threadId)?.protocol.path ??
+        null,
       model: threadRef?.executionProfile?.modelId ?? null,
       modelProvider: resumeLaunchParams.modelProvider,
       serviceTier: resumeLaunchParams.serviceTier,
@@ -14103,7 +14112,7 @@ export class CodexService {
             revision = this.syncAcceptedConversationDocumentSilently(threadId);
           } else {
             this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-            revision = this.conversationStreamRevisionById.get(threadId) ?? 0;
+            revision = this.readConversationAggregate(threadId)?.revision ?? 0;
           }
           this.startPostResumeGoalFlow(threadId, revision);
         }
@@ -14163,7 +14172,7 @@ export class CodexService {
     const syncOrEmitSnapshot = (): number => {
       if (syncDormantConversationSnapshots) {
         this.syncDormantConversationFromRecord(threadId, "explicit-resync");
-        return this.conversationStreamRevisionById.get(threadId) ?? 0;
+        return this.readConversationAggregate(threadId)?.revision ?? 0;
       }
 
       return this.syncAcceptedConversationDocumentSilently(threadId);
@@ -14261,7 +14270,8 @@ export class CodexService {
   readConversationResumeRendererStateForModule(
     threadId: string,
   ): CodexConversationResumeRendererState {
-    const acceptedConversation = this.acceptedConversationDocumentById.get(threadId) ?? null;
+    const acceptedConversation =
+      this.readConversationAggregate(threadId)?.acceptedReplica?.conversation ?? null;
     const replica = acceptedConversation ? this.getAcceptedConversationReplica(threadId) : null;
     return {
       acceptedConversation,
@@ -14270,7 +14280,7 @@ export class CodexService {
         this.getFreshThreadLaunchReservation(threadId)?.rendererClientId ?? null,
       ownerClientId: this.getRendererConversationOwner(threadId),
       resumeState: this.getMaybeConversationRecord(threadId)?.resumeState ?? null,
-      revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
+      revision: this.readConversationAggregate(threadId)?.revision ?? 0,
       serializedConversation: this.serializeConversationSnapshot(threadId),
     };
   }
@@ -14285,17 +14295,17 @@ export class CodexService {
     readonly conversation: CodexConversationSnapshot;
   }): CodexConversationResumeRendererAdoption {
     this.setRendererConversationOwner(input.threadId, input.ownerClientId);
-    if (!this.acceptedConversationDocumentById.has(input.threadId)) {
+    if (!this.readConversationAggregate(input.threadId)?.acceptedReplica) {
       this.setAcceptedConversationReplica(
         input.threadId,
         input.conversation,
-        this.conversationStreamRevisionById.get(input.threadId) ?? 0,
+        this.readConversationAggregate(input.threadId)?.revision ?? 0,
       );
     }
     return {
       checkpoint: this.getAcceptedConversationReplica(input.threadId)?.checkpoint ?? null,
       ownerClientId: this.getRendererConversationOwner(input.threadId),
-      revision: this.conversationStreamRevisionById.get(input.threadId) ?? 0,
+      revision: this.readConversationAggregate(input.threadId)?.revision ?? 0,
     };
   }
 
@@ -14311,17 +14321,17 @@ export class CodexService {
 
   private buildFreshThreadOwnerResult(
     threadId: string,
-    conversation = this.acceptedConversationDocumentById.get(threadId) ??
+    conversation = this.readConversationAggregate(threadId)?.acceptedReplica?.conversation ??
       this.serializeConversationSnapshot(threadId),
   ): Extract<CodexRendererConversationResumeResult, { role: "owner" }> {
     if (!conversation) {
       throw new Error(`Fresh thread '${threadId}' could not be serialized`);
     }
-    if (!this.acceptedConversationDocumentById.has(threadId)) {
+    if (!this.readConversationAggregate(threadId)?.acceptedReplica) {
       this.setAcceptedConversationReplica(
         threadId,
         conversation,
-        this.conversationStreamRevisionById.get(threadId) ?? 0,
+        this.readConversationAggregate(threadId)?.revision ?? 0,
       );
     }
     const replica = this.getAcceptedConversationReplica(threadId);
@@ -14331,7 +14341,7 @@ export class CodexService {
     return {
       role: "owner",
       conversation,
-      revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
+      revision: this.readConversationAggregate(threadId)?.revision ?? 0,
       checkpoint: replica.checkpoint,
     };
   }
@@ -14372,7 +14382,7 @@ export class CodexService {
       record.isStreaming = true;
       this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
       const conversation =
-        this.acceptedConversationDocumentById.get(threadId) ??
+        this.readConversationAggregate(threadId)?.acceptedReplica?.conversation ??
         this.serializeConversationSnapshot(threadId);
       if (!conversation) {
         throw new Error(`Fresh thread '${threadId}' could not be serialized`);
@@ -14824,9 +14834,10 @@ export class CodexService {
   }): string | null {
     const record = this.getMaybeConversationRecord(detail.threadId);
     const hasEligibleFirstTurn =
-      record?.canonicalState !== null && record?.turnPagination.hasLoadedOldest === true;
+      (record ? this.readCanonicalConversationState(record.threadId) : null) !== null &&
+      record?.turnPagination.hasLoadedOldest === true;
     const firstTurnParams = hasEligibleFirstTurn
-      ? record.canonicalState?.turns[0]?.sidecar.params
+      ? this.readCanonicalConversationState(record.threadId)?.turns[0]?.sidecar.params
       : undefined;
     return resolveCodexForkSourceConversationTitle({
       explicitTitle: detail.threadName,
@@ -14852,7 +14863,7 @@ export class CodexService {
     const activeThreads = [...this.conversationRecords].map(([threadId, record]) => ({
       conversationId: threadId,
       forkedFromId:
-        record.canonicalState?.protocol.forkedFromId ??
+        this.readCanonicalConversationState(record.threadId)?.protocol.forkedFromId ??
         storedThreadsById.get(threadId)?.forkedFromId ??
         null,
       title: record.detail?.threadName ?? storedThreadsById.get(threadId)?.title ?? null,
@@ -14884,11 +14895,11 @@ export class CodexService {
     sourceThreadId: string,
     sourceTitle: string | null,
   ): void {
-    const record = this.ensureConversationRecord(targetThreadId);
-    if (!record.canonicalState) {
+    this.ensureConversationRecord(targetThreadId);
+    const before = this.readCanonicalConversationState(targetThreadId);
+    if (!before) {
       throw new Error(`Forked thread '${targetThreadId}' has no canonical conversation state`);
     }
-    const before = record.canonicalState;
     const after = appendCodexCanonicalForkedFromConversationItem(before, {
       id: randomUUID(),
       type: "forkedFromConversation",
@@ -14919,7 +14930,7 @@ export class CodexService {
       );
     }
     const record = this.ensureConversationRecord(input.threadId);
-    const previousCanonical = record.canonicalState;
+    const previousCanonical = this.readCanonicalConversationState(record.threadId);
     const hydrationContext = previousCanonical?.sidecar.hydrationContext ?? null;
     const cwd = input.response.thread.cwd || hydrationContext?.cwd || input.fallbackCwd || "/";
     const historyPermissions = createCodexCanonicalWorkspacePermissionContext(
@@ -14938,7 +14949,7 @@ export class CodexService {
       pendingRequests: [],
       hasUnreadTurn: false,
     });
-    this.acceptCanonicalConversationState(record, {
+    this.acceptCanonicalConversationState(record.threadId, {
       ...replacement,
       requests: [],
       sidecar: {
@@ -15622,7 +15633,7 @@ export class CodexService {
     const hadUnreadState = Boolean(
       previous?.hasUnreadTurn ||
       this.getMaybeConversationRecord(threadId)?.hasUnreadTurn ||
-      this.acceptedConversationDocumentById.get(threadId)?.hasUnreadTurn,
+      this.readConversationAggregate(threadId)?.acceptedReplica?.conversation.hasUnreadTurn,
     );
     this.rememberWorkspaceSidebar(await this.projectWorkspace.setThreadArchived(threadId, true));
     if (previous) {
@@ -16018,7 +16029,7 @@ export class CodexService {
       buildRequest,
     };
 
-    const canonicalState = record.canonicalState;
+    const canonicalState = this.readCanonicalConversationState(record.threadId);
     const hydration = canonicalState?.sidecar.hydrationContext;
     const canonicalPermissionContext = hydration
       ? this.resolveCanonicalResumePermissionContext(
@@ -16109,7 +16120,7 @@ export class CodexService {
     });
     if (!transaction.canonicalParams || transaction.rendererOwnsState) return;
 
-    const beforeAppend = transaction.record.canonicalState;
+    const beforeAppend = this.readCanonicalConversationState(transaction.threadId);
     if (!beforeAppend) {
       throw new Error("Cannot start a canonical turn before conversation hydration");
     }
@@ -16174,7 +16185,7 @@ export class CodexService {
         transaction.authorityLaunch ?? null,
         response.turn.id,
       );
-      const beforeBind = transaction.record.canonicalState;
+      const beforeBind = this.readCanonicalConversationState(transaction.threadId);
       if (!beforeBind || !transaction.canonicalParams) {
         throw new Error("Canonical conversation state disappeared during turn/start");
       }
@@ -16256,7 +16267,7 @@ export class CodexService {
     if (transaction.protocolCommitted) return;
     this.nodexAgentAuthorityRegistry.abortTurn(transaction.authorityLaunch ?? null);
     if (!transaction.canonicalParams || transaction.rendererOwnsState) return;
-    const beforeFailure = transaction.record.canonicalState;
+    const beforeFailure = this.readCanonicalConversationState(transaction.threadId);
     if (!beforeFailure) return;
     const afterFailure = failCodexCanonicalOptimisticTurn(
       beforeFailure,
@@ -16357,7 +16368,7 @@ export class CodexService {
       serviceTier: normalizeCodexServiceTier(command.serviceTier),
       ...(command.summary !== undefined ? { summary: command.summary } : {}),
     };
-    const canonicalBefore = this.getMaybeConversationRecord(threadId)?.canonicalState;
+    const canonicalBefore = this.readCanonicalConversationState(threadId);
     if (!canonicalBefore) {
       throw new Error(`Cannot steer '${threadId}' before canonical conversation state is loaded`);
     }
@@ -16420,7 +16431,7 @@ export class CodexService {
   beginTurnSteerForModule(prepared: CodexPreparedTurnSteer): void {
     const transaction = this.readTurnSteerTransaction(prepared);
     const record = this.getMaybeConversationRecord(transaction.threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before) {
       throw new Error(
         `Cannot steer '${transaction.threadId}' before canonical conversation state is loaded`,
@@ -16475,7 +16486,7 @@ export class CodexService {
     if (!transaction.optimisticAdmitted) return;
     transaction.optimisticAdmitted = false;
     const record = this.getMaybeConversationRecord(transaction.threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (record && before) {
       const after = removeCodexCanonicalSteeringItem(
         before,
@@ -16583,11 +16594,11 @@ export class CodexService {
 
   private markBackgroundTerminalsInterruptedSilently(threadId: string): void {
     const record = this.getMaybeConversationRecord(threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before) return;
     const after = reduceCodexBackgroundTerminalCleanup(before);
     if (after === before) return;
-    record.canonicalState = after;
+    this.acceptCanonicalConversationState(threadId, after);
     after.turns.forEach((turn, turnIndex) => {
       if (turn === before.turns[turnIndex]) return;
       this.applyCanonicalLifecycleTurnProjection({
@@ -16711,10 +16722,11 @@ export class CodexService {
   private completeStalePlanImplementationItems(threadId: string, activeTurnId: string): void {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return;
-    if (record.canonicalState) {
+    const canonical = this.readCanonicalConversationState(threadId);
+    if (canonical) {
       this.acceptCanonicalConversationState(
-        record,
-        applyCodexCanonicalPlanImplementationTurnStartedState(record.canonicalState, activeTurnId),
+        threadId,
+        applyCodexCanonicalPlanImplementationTurnStartedState(canonical, activeTurnId),
       );
     }
     for (const turnId of record.planImplementationRequestsByTurnId.keys()) {
@@ -17569,7 +17581,10 @@ export class CodexService {
     hostMode: CodexDynamicCreatePermissionMode = "auto",
   ): Promise<CodexDynamicCreatePermissionSelection> {
     const sourceRecord = this.getMaybeConversationRecord(sourceThreadId);
-    const sourceHydration = sourceRecord?.canonicalState?.sidecar.hydrationContext ?? null;
+    const sourceHydration = sourceRecord
+      ? (this.readCanonicalConversationState(sourceRecord.threadId)?.sidecar.hydrationContext ??
+        null)
+      : null;
     const sourceContext = sourceHydration?.currentPermissions ?? null;
     const sourceMode = sourceContext ? inferCodexDynamicCreatePermissionMode(sourceContext) : null;
     const source: CodexDynamicCreatePermissionSource | null =
@@ -18203,11 +18218,11 @@ export class CodexService {
       this.resolveForkedFromConversationTitle(source),
     );
     if (worktreeInit) {
-      const record = this.ensureConversationRecord(fork.threadId);
-      if (!record.canonicalState) {
+      this.ensureConversationRecord(fork.threadId);
+      const before = this.readCanonicalConversationState(fork.threadId);
+      if (!before) {
         throw new Error(`Forked thread '${fork.threadId}' has no canonical conversation state`);
       }
-      const before = record.canonicalState;
       const after = appendCodexCanonicalWorktreeInitItem(before, worktreeInit, "new-turn");
       this.commitCanonicalLocalTurnMutation({
         threadId: fork.threadId,
@@ -18371,8 +18386,8 @@ export class CodexService {
   ): Promise<void> {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return;
-    if (record.canonicalState) {
-      const before = record.canonicalState;
+    const before = this.readCanonicalConversationState(threadId);
+    if (before) {
       const failed = failCodexCanonicalOptimisticTurn(before, clientUserMessageId, randomUUID());
       const hydrationContext = failed.sidecar.hydrationContext;
       const after = hydrationContext
@@ -18478,8 +18493,8 @@ export class CodexService {
         );
         await this.nodexAgentAuthorityRegistry.bindTurn(authorityLaunch, response.turn.id);
         const record = this.getMaybeConversationRecord(input.threadId);
-        if (record?.canonicalState) {
-          const before = record.canonicalState;
+        const before = this.readCanonicalConversationState(input.threadId);
+        if (record && before) {
           const after = bindCodexCanonicalOptimisticTurn(
             before,
             input.clientUserMessageId,
@@ -18797,8 +18812,8 @@ export class CodexService {
         ? { commentAttachments: [...input.firstTurnCommentAttachments] }
         : {}),
     };
-    if (record.canonicalState) {
-      const before = record.canonicalState;
+    const before = this.readCanonicalConversationState(threadId);
+    if (before) {
       // Worktree initialization is app-owned activity for the first Turn. It
       // is staged before server items so the Turn renders user → activity →
       // assistant and keeps the activity under the worked-time disclosure.
@@ -19987,7 +20002,9 @@ export class CodexService {
     const { threadId, turnId } = request.params;
     const record = this.getMaybeConversationRecord(threadId);
     if (!record?.detail?.turns.some((turn) => turn.turnId === turnId)) return;
-    const canonicalTurn = record?.canonicalState?.turns.find((turn) => turn.protocol.id === turnId);
+    const canonicalTurn = (
+      record ? this.readCanonicalConversationState(record.threadId) : null
+    )?.turns.find((turn) => turn.protocol.id === turnId);
     const projected = projectCodexHistoryRequestViews({
       threadId,
       turnId,
@@ -20359,7 +20376,7 @@ export class CodexService {
 
     for (const [threadId, threadUpdates] of groupCodexFrameTextDeltasByConversation(updates)) {
       const record = this.getMaybeConversationRecord(threadId);
-      const before = record?.canonicalState;
+      const before = record ? this.readCanonicalConversationState(record.threadId) : null;
       if (!record || !before || before.turns.length === 0) {
         this.logger.warn("Dropping frame-text delta batch without canonical conversation state", {
           threadId,
@@ -20372,7 +20389,7 @@ export class CodexService {
       const result = reduceCodexConversationFrameTextDeltas(before, threadUpdates, {
         now: () => observedAtMs,
       });
-      record.canonicalState = result.state;
+      this.acceptCanonicalConversationState(threadId, result.state);
       for (const outcome of result.outcomes) {
         if (outcome.disposition === "applied") continue;
         this.logger.warn("Skipping frame-text delta at canonical raw boundary", {
@@ -20444,7 +20461,7 @@ export class CodexService {
 
     for (const [threadId, threadUpdates] of groupCodexCommandOutputUpdatesByConversation(updates)) {
       const record = this.getMaybeConversationRecord(threadId);
-      const before = record?.canonicalState;
+      const before = record ? this.readCanonicalConversationState(record.threadId) : null;
       if (!record || !before || before.turns.length === 0) continue;
 
       let state = before;
@@ -20460,7 +20477,7 @@ export class CodexService {
           });
         }
       }
-      record.canonicalState = state;
+      this.acceptCanonicalConversationState(threadId, state);
       if (state === before || !record.detail) continue;
 
       for (const [turnIndex, afterTurn] of state.turns.entries()) {
@@ -20498,7 +20515,7 @@ export class CodexService {
     if (parsed.commands.length === 0) return;
 
     const record = this.getMaybeConversationRecord(input.threadId);
-    const before = record?.canonicalState;
+    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
     if (!record || !before || before.turns.length === 0) return;
     const result = reduceCodexConversationTerminalCommands(before, {
       conversationId: input.threadId,
@@ -20506,7 +20523,7 @@ export class CodexService {
       itemId: input.itemId,
       commands: parsed.commands,
     });
-    record.canonicalState = result.state;
+    this.acceptCanonicalConversationState(input.threadId, result.state);
     if (result.disposition !== "applied") {
       this.logger.warn("Dropping commandExecution/terminalInteraction for missing item", {
         threadId: input.threadId,
@@ -20570,7 +20587,7 @@ export class CodexService {
       params: { threadId, requestId },
     };
     let lifecycle: CodexServerRequestRawLifecycleResult | CodexServerRequestLifecycleResult;
-    if (!record.canonicalState) {
+    if (!this.readCanonicalConversationState(record.threadId)) {
       const transportOnly = this.buildTransportOnlyServerRequestRawState(threadId, record);
       const rawLifecycle = reduceCodexServerRequestResolvedRawState(transportOnly, notification, {
         now: () => Date.now(),
@@ -20579,7 +20596,7 @@ export class CodexService {
       lifecycle = rawLifecycle;
       this.applyTransportOnlyServerRequestRawLifecycleResult(threadId, rawLifecycle);
     } else {
-      const before = record.canonicalState;
+      const before = this.readCanonicalConversationState(record.threadId);
       if (!before) return;
       const canonicalLifecycle = reduceCodexConversationServerRequestResolved(
         before,
@@ -20821,7 +20838,7 @@ export class CodexService {
       });
       const summary = result.summary;
       if (summary) {
-        if (this.getMaybeConversationRecord(summary.threadId)?.canonicalState) {
+        if (this.readCanonicalConversationState(summary.threadId)) {
           this.reduceCanonicalMainThreadMetadataNotification(notification);
         }
         const ownerRouted = this.forwardNotificationToRendererOwnerForConversation(
@@ -20922,7 +20939,8 @@ export class CodexService {
       const hadUnreadState = Boolean(
         previous?.hasUnreadTurn ||
         this.getMaybeConversationRecord(payload.threadId)?.hasUnreadTurn ||
-        this.acceptedConversationDocumentById.get(payload.threadId)?.hasUnreadTurn,
+        this.readConversationAggregate(payload.threadId)?.acceptedReplica?.conversation
+          .hasUnreadTurn,
       );
       this.rememberWorkspaceSidebar(
         await this.projectWorkspace.setThreadArchived(payload.threadId, archived),
@@ -20973,7 +20991,8 @@ export class CodexService {
       const hadUnreadState = Boolean(
         existingThread?.hasUnreadTurn ||
         this.getMaybeConversationRecord(payload.threadId)?.hasUnreadTurn ||
-        this.acceptedConversationDocumentById.get(payload.threadId)?.hasUnreadTurn,
+        this.readConversationAggregate(payload.threadId)?.acceptedReplica?.conversation
+          .hasUnreadTurn,
       );
       const deleted = await this.projectWorkspace.deleteThread(payload.threadId);
       if (deleted.deleted) {
@@ -21581,7 +21600,7 @@ export class CodexService {
       detail,
       resumeState: this.resolveConversationResumeState(threadId),
       requests,
-      canonicalState: record.canonicalState,
+      canonicalState: this.readCanonicalConversationState(record.threadId),
       canonicalRequests: this.readConversationServerRequests(record),
       hasUnreadTurn: record.hasUnreadTurn,
       unreadMessageCount: record.unreadMessageCount,

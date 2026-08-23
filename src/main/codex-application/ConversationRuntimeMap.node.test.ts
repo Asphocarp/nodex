@@ -10,6 +10,10 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { assert, it } from "@effect/vitest";
+import type {
+  CodexCanonicalConversationState,
+  CodexConversationSnapshot,
+} from "../../shared/types";
 import {
   CodexServerRequestRuntime,
   type CodexServerRequestRuntime as CodexServerRequestRuntimeTag,
@@ -68,6 +72,58 @@ it.effect("serializes application commands across owners in one Thread generatio
     yield* Fiber.join(first);
     yield* Fiber.join(second);
     assert.deepEqual(order, ["first:start", "first:end", "second"]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("keeps canonical state and the accepted renderer replica in one generation", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversations = Context.get(context, ConversationRuntimeMap);
+    yield* conversations.runtime("thread-a");
+    const canonical = { requests: [] } as unknown as CodexCanonicalConversationState;
+    const conversation = {
+      threadId: "thread-a",
+      requests: [],
+    } as unknown as CodexConversationSnapshot;
+
+    const aggregate = conversations.conversation("thread-a");
+    aggregate.acceptCanonicalState(canonical);
+    const generation = aggregate.generation;
+    aggregate.acceptReplica({
+      conversation,
+      revision: 4,
+      ownerEpoch: 2,
+    });
+
+    const accepted = aggregate.read();
+    assert.strictEqual(accepted?.generation, generation);
+    assert.strictEqual(accepted?.canonicalState, canonical);
+    assert.strictEqual(accepted?.acceptedReplica?.conversation, conversation);
+    assert.strictEqual(accepted?.revision, 4);
+    assert.strictEqual(accepted?.checkpoint?.ownerEpoch, 2);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("evicts a closed generation without recreating it from reads", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversations = Context.get(context, ConversationRuntimeMap);
+    const aggregate = conversations.conversation("thread-a");
+    aggregate.replaceServerRequests([]);
+    const firstGeneration = aggregate.generation;
+
+    yield* conversations.close("thread-a");
+    assert.isNull(conversations.currentConversation("thread-a"));
+    aggregate.acceptCanonicalState({ requests: [] } as unknown as CodexCanonicalConversationState);
+    assert.isNull(conversations.currentConversation("thread-a"));
+
+    yield* conversations.runtime("thread-a");
+    const secondGeneration = conversations.currentConversation("thread-a")?.generation;
+    assert.notStrictEqual(secondGeneration, firstGeneration);
     yield* Scope.close(scope, Exit.void);
   }),
 );

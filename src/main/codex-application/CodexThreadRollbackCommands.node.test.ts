@@ -5,6 +5,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { make } from "./CodexThreadRollbackCommands";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
 
 const unused = () => Effect.die(new Error("Unsupported test operation"));
 
@@ -37,14 +38,18 @@ const ownerDrain = (events: string[]): CodexOwnerNotificationDrainRuntime["Servi
     clear: () => undefined,
   });
 
-const conversationLane = (events: string[]): ConversationRuntimeMap["Service"] =>
-  ConversationRuntimeMap.of({
+const conversationLane = (events: string[]): ConversationRuntimeMap["Service"] => {
+  const conversations = makeCodexConversationAggregateRegistry();
+  return ConversationRuntimeMap.of({
+    conversation: conversations.acquire,
+    currentConversation: conversations.current,
     requests: Stream.empty,
     runtime: () => Effect.die("unused"),
     runExclusive: (threadId, operation) =>
       Effect.sync(() => events.push(`lane:${threadId}`)).pipe(Effect.andThen(operation)),
     close: () => Effect.void,
   });
+};
 
 it.effect("runs owner drain, validation, Gateway, and projection commit in the Thread lane", () =>
   Effect.gen(function* () {

@@ -2633,6 +2633,7 @@ export const live: Layer.Layer<
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
+              conversationRuntimes,
               foldSidebarPathCase: config.platform === "win32",
               applicationEvents: codexApplicationEvents,
               browserTransferStateReader: browserSidebarService,
