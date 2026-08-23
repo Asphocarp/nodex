@@ -17,6 +17,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { codexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
 import { CodexThreadCatalogError, make } from "./CodexThreadCatalog";
+import { resolveSidebarProjectIdForCwd } from "./CodexThreadCatalogProjection";
 
 const snapshot = (pinnedThreadIds: readonly string[] = []): CodexSidebarSnapshot => ({
   items: [],
@@ -81,6 +82,7 @@ const makeSearchCatalog = (
   projects: readonly Project[] = [],
 ) =>
   make({
+    foldPathCase: false,
     readSidebarOverview: () => Effect.succeed(emptyWindow()),
     listProjectWindow: () => Effect.succeed(emptyWindow()),
     listProjects: Effect.succeed(projects),
@@ -93,6 +95,26 @@ const makeSearchCatalog = (
     Effect.provideService(CodexSidebarSyncRuntime, searchSidebar),
     Effect.provideService(Scope.Scope, scope),
   );
+
+it.effect("uses the injected path case policy for project inference", () =>
+  Effect.sync(() => {
+    const projects = [
+      {
+        id: "project-a",
+        sources: [{ root: "/Workspace/Repository" }],
+      },
+    ] as unknown as readonly Project[];
+
+    assert.strictEqual(
+      resolveSidebarProjectIdForCwd("/workspace/repository/src", projects, true),
+      "project-a",
+    );
+    assert.strictEqual(
+      resolveSidebarProjectIdForCwd("/workspace/repository/src", projects, false),
+      null,
+    );
+  }),
+);
 
 it.effect("owns paginated pin reads and complete mutation publication", () =>
   Effect.gen(function* () {
@@ -109,6 +131,7 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
     });
     const scope = yield* Scope.make();
     const catalog = yield* make({
+      foldPathCase: false,
       readSidebarOverview: ({ after }) =>
         Effect.sync(
           () =>
@@ -197,6 +220,7 @@ it.effect("interrupts active and queued pin mutations with its owning Scope", ()
     });
     const scope = yield* Scope.make();
     const catalog = yield* make({
+      foldPathCase: false,
       readSidebarOverview: () => Effect.die("unused"),
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.die("unused"),
@@ -283,6 +307,7 @@ it.effect("owns Project and command-palette Thread projections", () =>
     } as unknown as ProjectSessionSummaryWindow;
     const emptyWindow = { ...window, items: [] };
     const catalog = yield* make({
+      foldPathCase: false,
       readSidebarOverview: () => Effect.succeed(window),
       listProjectWindow: (projectId) =>
         Effect.succeed(projectId === "project-a" ? window : emptyWindow),

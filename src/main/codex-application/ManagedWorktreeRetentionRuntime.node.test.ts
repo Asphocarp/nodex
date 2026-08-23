@@ -329,7 +329,10 @@ it.effect("caps deletion at three and lets peer failures settle independently", 
     const plan = yield* Fiber.join(sweep);
 
     assert.strictEqual(plan.status, "planned");
-    assert.deepEqual(started.sort((left, right) => left - right), [0, 1, 2, 3]);
+    assert.deepEqual(
+      started.sort((left, right) => left - right),
+      [0, 1, 2, 3],
+    );
     yield* Scope.close(scope, Exit.void);
   }),
 );

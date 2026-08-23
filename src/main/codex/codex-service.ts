@@ -1113,6 +1113,7 @@ type CodexManagedWorktreeSettingsPort = {
 
 type CodexServiceOptions = {
   applicationEvents: CodexApplicationEventPublisher;
+  foldSidebarPathCase: boolean;
   agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   composerCatalog: ComposerCatalogPromiseAdapter;
   preferences: Pick<CodexPreferences["Service"], "current">;
@@ -2206,6 +2207,7 @@ function isUnsupportedThreadSettingsUpdateError(error: unknown): boolean {
 }
 
 export class CodexService {
+  private readonly foldSidebarPathCase: boolean;
   private readonly logger = codexLogger;
   private readonly client: CodexGatewayPromiseClient;
   private readonly applicationEvents: CodexApplicationEventPublisher;
@@ -2348,6 +2350,7 @@ export class CodexService {
     this.agentProviderRuntime = options.agentProviderRuntime;
     this.composerCatalog = options.composerCatalog;
     this.preferences = options.preferences;
+    this.foldSidebarPathCase = options.foldSidebarPathCase;
     this.permissions = options.permissions;
     const runtime = options.runtime;
     this.runtimeVersion = runtime.codexCompatibilityVersion ?? runtime.version;
@@ -7118,7 +7121,11 @@ export class CodexService {
     const previousSummary = previousThread
       ? this.buildWorkspaceThreadSummary(previousThread)
       : null;
-    const inferredProjectId = resolveSidebarProjectIdForCwd(cwd, input.projects);
+    const inferredProjectId = resolveSidebarProjectIdForCwd(
+      cwd,
+      input.projects,
+      this.foldSidebarPathCase,
+    );
     const projectId = resolveCodexThreadMaterializationOwner({
       existingThreadFound: previousThread !== null,
       existingProjectId: previousThread?.projectId ?? null,

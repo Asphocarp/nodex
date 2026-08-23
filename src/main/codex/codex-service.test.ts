@@ -2001,6 +2001,7 @@ function createService(options?: {
   });
   const testService = new CodexService({
     applicationEvents,
+    foldSidebarPathCase: false,
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
       resolveExecutionProfile: async (requested) => requested,

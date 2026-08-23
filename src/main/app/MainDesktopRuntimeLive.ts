@@ -1412,6 +1412,7 @@ export const live: Layer.Layer<
             requireCodexService().recordSidebarNotificationScheduled(event),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const threadCatalog = yield* makeCodexThreadCatalog({
+          foldPathCase: config.platform === "win32",
           readSidebarOverview: (input) =>
             Effect.tryPromise({
               try: () => projectWorkspace.readSidebarOverview(false, input),
@@ -1988,6 +1989,7 @@ export const live: Layer.Layer<
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
+              foldSidebarPathCase: config.platform === "win32",
               applicationEvents: codexApplicationEvents,
               browserTransferStateReader: browserSidebarService,
               forkSidePanelTransferLifecycle: makeCodexForkSidePanelTransferRuntimePromiseAdapter(

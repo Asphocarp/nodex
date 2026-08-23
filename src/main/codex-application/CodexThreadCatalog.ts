@@ -51,6 +51,7 @@ export class CodexThreadCatalogError extends Data.TaggedError("CodexThreadCatalo
 }> {}
 
 export interface CodexThreadCatalogOptions {
+  readonly foldPathCase: boolean;
   readonly readSidebarOverview: (
     input: ProjectSessionSummaryWindowInput,
   ) => Effect.Effect<ProjectSessionSummaryWindow, CodexThreadCatalogError>;
@@ -372,7 +373,11 @@ export const make = (
                 seenThreadIds.add(thread.id);
 
                 const local = localByThreadId.get(thread.id);
-                const inferredProjectId = resolveSidebarProjectIdForCwd(thread.cwd, projects);
+                const inferredProjectId = resolveSidebarProjectIdForCwd(
+                  thread.cwd,
+                  projects,
+                  options.foldPathCase,
+                );
                 const projectId = local?.projectId ?? inferredProjectId;
                 const parsedStatus = parseThreadStatus(thread.status);
                 const createdAt = Number(thread.createdAt) * 1_000;

@@ -17,12 +17,15 @@ export interface ParsedThreadStatus {
   readonly threadRuntimeStatus: CodexThreadRuntimeStatus;
 }
 
-const normalizeSidebarPath = (value: string | null | undefined): string | null => {
+const normalizeSidebarPath = (
+  value: string | null | undefined,
+  foldPathCase: boolean,
+): string | null => {
   const trimmed = value?.trim();
   if (!trimmed) return null;
   try {
     const resolved = path.resolve(trimmed);
-    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+    return foldPathCase ? resolved.toLowerCase() : resolved;
   } catch {
     return null;
   }
@@ -37,14 +40,15 @@ const isSameOrDescendantPath = (candidatePath: string, rootPath: string): boolea
 export const resolveSidebarProjectIdForCwd = (
   cwd: string | null | undefined,
   projects: readonly Project[],
+  foldPathCase: boolean,
 ): string | null => {
-  const normalizedCwd = normalizeSidebarPath(cwd);
+  const normalizedCwd = normalizeSidebarPath(cwd, foldPathCase);
   if (!normalizedCwd) return null;
 
   let best: { projectId: string; sourcePath: string } | null = null;
   for (const project of projects) {
     for (const source of project.sources) {
-      const sourcePath = normalizeSidebarPath(source.root);
+      const sourcePath = normalizeSidebarPath(source.root, foldPathCase);
       if (!sourcePath || !isSameOrDescendantPath(normalizedCwd, sourcePath)) continue;
       if (!best || sourcePath.length > best.sourcePath.length) {
         best = { projectId: project.id, sourcePath };
