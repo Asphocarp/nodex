@@ -162,14 +162,17 @@ export const applicationRequestIngressLive: Layer.Layer<
     yield* inbox.requests.pipe(
       Stream.mapEffect(
         (occurrence) =>
-          coordinator
-            .handle(
-              occurrence.hostId,
-              occurrence.generation,
-              occurrence.requestId,
-              occurrence.method,
-              occurrence.params,
-              occurrence.occurrenceToken,
+          inbox
+            .interpret(
+              occurrence,
+              coordinator.handle(
+                occurrence.hostId,
+                occurrence.generation,
+                occurrence.requestId,
+                occurrence.method,
+                occurrence.params,
+                occurrence.occurrenceToken,
+              ),
             )
             .pipe(
               Effect.matchEffect({
@@ -178,7 +181,9 @@ export const applicationRequestIngressLive: Layer.Layer<
                     kind: "error",
                     error: CodexAppServerRequestError.fromAppServerError(error, occurrence.method),
                   }),
-                onSuccess: (response) => {
+                onSuccess: (interpretation) => {
+                  if (interpretation.kind === "withdrawn") return Effect.void;
+                  const response = interpretation.value;
                   if (response === CodexApplicationRequestPending) return Effect.void;
                   return inbox.settle(
                     occurrence,

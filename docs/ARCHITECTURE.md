@@ -1099,9 +1099,12 @@ settlement drain before installing request fallbacks, and returns no-response
 immediately after admission so an approval waiting on UI cannot block the wire
 reader or later notifications. Result and error writes use that generation's
 raw session; exact occurrence tokens and generation leases reject duplicate or
-stale settlements. `ApprovalCoordinator` consumes the Inbox and routes each
-occurrence to the Thread-scoped `ConversationRuntimeMap`; its `Deferred` waits
-only for application interpretation and never owns the physical transport.
+stale settlements. Semantic interpretation runs as a child of that Endpoint
+generation Scope: closing the session interrupts in-flight work, and an
+occurrence still queued after release is withdrawn before it can create UI or
+canonical state. `ApprovalCoordinator` consumes the Inbox and routes each
+live occurrence to the Thread-scoped `ConversationRuntimeMap`; its `Deferred`
+waits only for application interpretation and never owns the physical transport.
 `CodexPendingServerRequestRuntime` owns the presentation queue for approval,
 user-input, permission, MCP elicitation, private picker, and dynamic tool
 occurrences. Its FIFO lanes preserve duplicate scalar JSON-RPC ids and keep

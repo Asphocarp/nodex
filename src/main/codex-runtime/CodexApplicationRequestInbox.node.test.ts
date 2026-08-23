@@ -1,8 +1,10 @@
 import { assert, it } from "@effect/vitest";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { CodexApplicationRequestGenerationUnavailable, make } from "./CodexApplicationRequestInbox";
@@ -84,6 +86,57 @@ it.effect("fences stale generation leases and rejects all live occurrences expli
     assert.isTrue(current.occurrenceToken > outstanding.occurrenceToken);
 
     yield* Scope.close(replacementScope, Exit.void);
+    yield* Scope.close(rootScope, Exit.void);
+  }),
+);
+
+it.effect("withdraws queued and in-flight interpretation when its Endpoint generation closes", () =>
+  Effect.gen(function* () {
+    const rootScope = yield* Scope.make();
+    const generationScope = yield* Scope.make();
+    const inbox = yield* make.pipe(Effect.provideService(Scope.Scope, rootScope));
+    const generation = yield* inbox
+      .openGeneration("remote:a", 9)
+      .pipe(Effect.provideService(Scope.Scope, generationScope));
+    const inFlight = yield* generation.admit({
+      requestId: "in-flight",
+      method: "approval",
+      params: {},
+    });
+    const queued = yield* generation.admit({
+      requestId: "queued",
+      method: "user-input",
+      params: {},
+    });
+    const started = yield* Deferred.make<void>();
+    const interrupted = yield* Deferred.make<void>();
+    const interpretationFiber = yield* inbox
+      .interpret(
+        inFlight,
+        Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.ensuring(Deferred.succeed(interrupted, undefined)),
+        ),
+      )
+      .pipe(Effect.forkIn(rootScope, { startImmediately: true }));
+    yield* Deferred.await(started);
+
+    yield* Scope.close(generationScope, Exit.void);
+    assert.deepEqual(yield* Fiber.join(interpretationFiber), { kind: "withdrawn" });
+    yield* Deferred.await(interrupted);
+
+    let lateInterpretationRan = false;
+    assert.deepEqual(
+      yield* inbox.interpret(
+        queued,
+        Effect.sync(() => {
+          lateInterpretationRan = true;
+        }),
+      ),
+      { kind: "withdrawn" },
+    );
+    assert.isFalse(lateInterpretationRan);
+    assert.isFalse(yield* inbox.settle(queued, { kind: "result", value: "stale" }));
     yield* Scope.close(rootScope, Exit.void);
   }),
 );

@@ -1,10 +1,13 @@
 import type { RequestId } from "@nodex/codex-app-server-protocol";
 import type { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
-import type * as Scope from "effect/Scope";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
@@ -26,6 +29,10 @@ export interface CodexApplicationRequestSettlement {
   readonly occurrence: CodexApplicationRequestOccurrence;
   readonly outcome: CodexApplicationRequestOutcome;
 }
+
+export type CodexApplicationRequestInterpretation<A> =
+  | { readonly kind: "completed"; readonly value: A }
+  | { readonly kind: "withdrawn" };
 
 export class CodexApplicationRequestGenerationUnavailable extends Schema.TaggedError<CodexApplicationRequestGenerationUnavailable>()(
   "CodexApplicationRequestGenerationUnavailable",
@@ -66,6 +73,11 @@ export interface CodexApplicationRequestInboxService {
     occurrence: CodexApplicationRequestOccurrence,
     outcome: CodexApplicationRequestOutcome,
   ) => Effect.Effect<boolean>;
+  /** Runs semantic interpretation only while the exact Endpoint generation remains alive. */
+  readonly interpret: <A, E, R>(
+    occurrence: CodexApplicationRequestOccurrence,
+    operation: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<CodexApplicationRequestInterpretation<A>, E, R>;
 }
 
 export class CodexApplicationRequestInbox extends Context.Service<
@@ -76,6 +88,7 @@ export class CodexApplicationRequestInbox extends Context.Service<
 interface GenerationState {
   readonly lease: object;
   readonly pending: ReadonlyMap<number, CodexApplicationRequestOccurrence>;
+  readonly processingScope: Scope.Scope;
   readonly settlements: Queue.Queue<CodexApplicationRequestSettlement>;
 }
 
@@ -98,6 +111,9 @@ const unavailable = (
   generation: number,
   reason: CodexApplicationRequestGenerationUnavailable["reason"],
 ) => new CodexApplicationRequestGenerationUnavailable({ hostId, generation, reason });
+
+const isInterruptedOnly = (cause: Cause.Cause<unknown>): boolean =>
+  cause.reasons.length > 0 && cause.reasons.every(Cause.isInterruptReason);
 
 /**
  * Owns physical server-request completion before any Codex endpoint is opened. Each endpoint
@@ -137,6 +153,7 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
         }
         const key = generationKey(hostId, generation);
         const settlements = yield* Queue.unbounded<CodexApplicationRequestSettlement>();
+        const processingScope = yield* Effect.scope;
         const lease = {};
         const registered = yield* SynchronizedRef.modifyEffect(state, (current) => {
           if (current.closed) {
@@ -146,7 +163,7 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
             return Effect.succeed([unavailable(hostId, generation, "conflict"), current] as const);
           }
           const generations = new Map(current.generations);
-          generations.set(key, { lease, pending: new Map(), settlements });
+          generations.set(key, { lease, pending: new Map(), processingScope, settlements });
           return Effect.succeed([null, { ...current, generations }] as const);
         });
         if (registered) {
@@ -240,6 +257,26 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
         releaseGeneration(opened),
       ).pipe(Effect.map((opened) => opened as CodexApplicationRequestGeneration));
 
+    const interpret: CodexApplicationRequestInboxService["interpret"] = (occurrence, operation) =>
+      Effect.gen(function* () {
+        const current = yield* SynchronizedRef.get(state);
+        const active = current.generations.get(
+          generationKey(occurrence.hostId, occurrence.generation),
+        );
+        if (active?.pending.get(occurrence.occurrenceToken) !== occurrence) {
+          return { kind: "withdrawn" } as const;
+        }
+
+        const exit = yield* Effect.acquireUseRelease(
+          operation.pipe(Effect.forkIn(active.processingScope, { startImmediately: true })),
+          Fiber.await,
+          Fiber.interrupt,
+        );
+        if (Exit.isSuccess(exit)) return { kind: "completed", value: exit.value } as const;
+        if (isInterruptedOnly(exit.cause)) return { kind: "withdrawn" } as const;
+        return yield* Effect.failCause(exit.cause);
+      });
+
     yield* Effect.addFinalizer(() =>
       SynchronizedRef.modifyEffect(state, (current) =>
         Effect.forEach(
@@ -257,5 +294,6 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
       requests: Stream.fromQueue(requests),
       openGeneration,
       settle,
+      interpret,
     });
   });
