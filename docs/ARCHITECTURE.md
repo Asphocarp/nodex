@@ -758,11 +758,11 @@ projection. Point resolution delegates durable identity and app-server materiali
 `CodexThreadDirectory`, then publishes only a changed Project/projectless sidebar scope. Paginated
 pin reads, pin/unpin placement, full pinned-order
 replacement, and cross-Project/sidebar-lane moves share that source of truth. All
-mutations pass through one Main-scoped semaphore; reads remain concurrent but close with Main Scope.
-Ensuring a sidebar Session and preparing a move use the canonical Sidebar synchronization mutation
-lane. Root Threads reuse an existing owner or atomically create and link one; a failed link deletes
-the partial Session. Moves validate source and pin lanes, fence Project access grants with the target
-binding revision, commit Core placement and execution metadata, then delegate loaded-runtime and
+Catalog mutations pass through one Main-scoped semaphore; reads remain concurrent but close with
+Main Scope. Session ensure delegates to the Sidebar synchronization runtime's own mutation lane.
+Root Threads reuse an existing owner or atomically create and link one; a failed link deletes the
+partial Session. Moves validate source and pin lanes in Core, fence Project access grants with the
+target binding revision, commit placement and execution metadata, then delegate loaded-runtime and
 conversation relocation to `CodexThreadExecution`/`CodexConversationProjection` before publishing
 the exact changed scope. `CodexService` owns no catalog read/search, materialization, Session
 algorithm, pin/move command, cached projection, callback bag, or Promise adapter.
