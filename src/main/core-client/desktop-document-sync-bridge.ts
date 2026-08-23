@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
 
+import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as FiberSet from "effect/FiberSet";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
+
 import { revocationsFromVisibilityDelta } from "../../shared/local-commit-delivery";
 import type { ResourceRevocation } from "../../shared/resource-revocation-stream";
 
@@ -50,11 +58,6 @@ import {
   type LibraryAccessedDocumentDescriptor,
   type ProjectAccessedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
-import type {
-  ExecuteNodexAgentCreatePagesResult,
-  ExecuteNodexAgentDuplicatePageResult,
-  ExecuteNodexAgentMovePagesResult,
-} from "../../shared/nodex-agent-tools";
 import type {
   DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
@@ -107,115 +110,117 @@ const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
 
 export type DesktopDocumentSyncScope = ContentAccessContext;
 
-type NativeNodexAgentMutationResult =
-  | ExecuteNodexAgentCreatePagesResult
-  | ExecuteNodexAgentDuplicatePageResult
-  | ExecuteNodexAgentMovePagesResult;
+export class DesktopDocumentSessionError extends Schema.TaggedError<DesktopDocumentSessionError>()(
+  "DesktopDocumentSessionError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
 
-export interface NativeNodexAgentMutationExecution<Result extends NativeNodexAgentMutationResult> {
-  readonly projectId: string;
-  readonly storeEpoch: string;
-  readonly execute: () => Promise<Result>;
-  readonly failure: (message: string, recovery?: "get_block_again" | "none") => Result;
-  readonly operationLabel: string;
-  readonly conflictMessage: string;
-}
+type SessionEffect<Value> = Effect.Effect<Value, DesktopDocumentSessionError>;
 
-export interface DesktopDocumentSyncPort {
+export interface DesktopDocumentSessionService {
   /** Publishes exact Document effects to already-authorized active sessions. */
-  publishDocumentEffects(packet: CoreAuthorizedDeliveryPacket, documentId?: string): void;
+  publishDocumentEffects(
+    packet: CoreAuthorizedDeliveryPacket,
+    documentId?: string,
+  ): Effect.Effect<void>;
   /** Closes only sessions addressed by one Core-authored revocation. */
   publishResourceRevocation(
     packet: CoreAuthorizedDeliveryPacket,
     revocation: ResourceRevocation,
-  ): void;
+  ): Effect.Effect<void>;
   getOwnedDocumentDescriptor(
     projectId: string,
     ownerBlockId: string,
-  ): Promise<ProjectAccessedDocumentDescriptor>;
+  ): SessionEffect<ProjectAccessedDocumentDescriptor>;
   prepareOwnedBlockDocument(
     projectId: string,
     ownerBlockId: string,
-  ): Promise<DocumentSyncCommandResult<ProjectAccessedDocumentDescriptor>>;
+  ): Effect.Effect<DocumentSyncCommandResult<ProjectAccessedDocumentDescriptor>>;
   prepareLibraryOwnedBlockDocument(
     ownerBlockId: string,
-  ): Promise<DocumentSyncCommandResult<LibraryAccessedDocumentDescriptor>>;
+  ): Effect.Effect<DocumentSyncCommandResult<LibraryAccessedDocumentDescriptor>>;
   subscribe(
     scope: DesktopDocumentSyncScope,
     target: DocumentSyncClientTarget,
     request: DocumentSyncSubscribeRequest,
-  ): Promise<DocumentSyncCommandResult<DocumentSyncSubscriptionAck>>;
+  ): Effect.Effect<DocumentSyncCommandResult<DocumentSyncSubscriptionAck>>;
   unsubscribe(
     scope: DesktopDocumentSyncScope,
     target: DocumentSyncClientTarget,
     request: DocumentSyncSubscribeRequest,
-  ): Promise<DocumentSyncCommandResult<DocumentSyncUnsubscribeAck>>;
+  ): Effect.Effect<DocumentSyncCommandResult<DocumentSyncUnsubscribeAck>>;
   sync(
     scope: DesktopDocumentSyncScope,
     target: DocumentSyncClientTarget,
     request: DocumentSyncRequest,
-  ): Promise<DocumentSyncCommandResult<DocumentSyncResponse>>;
+  ): Effect.Effect<DocumentSyncCommandResult<DocumentSyncResponse>>;
   applyUpdate(
     scope: DesktopDocumentSyncScope,
     target: DocumentSyncClientTarget,
     request: DocumentSyncApplyRequest,
-  ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>;
+  ): Effect.Effect<DocumentSyncCommandResult<DocumentSyncApplyAck>>;
   publishAwareness(
     scope: DesktopDocumentSyncScope,
     target: DocumentSyncClientTarget,
     request: DocumentAwarenessPublishRequest,
-  ): Promise<DocumentSyncCommandResult<DocumentAwarenessPublishAck>>;
+  ): Effect.Effect<DocumentSyncCommandResult<DocumentAwarenessPublishAck>>;
   subscribeCanvasScene(
     target: DocumentSyncClientTarget,
     request: CanvasSceneSubscribeRequest,
-  ): Promise<CanvasSceneSubscriptionCommandResult>;
+  ): Effect.Effect<CanvasSceneSubscriptionCommandResult>;
   unsubscribeCanvasScene(
     target: DocumentSyncClientTarget,
     request: CanvasSceneSubscribeRequest,
-  ): Promise<CanvasSceneSubscriptionCommandResult>;
+  ): Effect.Effect<CanvasSceneSubscriptionCommandResult>;
   syncCanvasScene(
     target: DocumentSyncClientTarget,
     request: CanvasSceneSyncRequest,
-  ): Promise<CanvasSceneSyncCommandResult>;
+  ): Effect.Effect<CanvasSceneSyncCommandResult>;
   applyCanvasSceneMutation(
     target: DocumentSyncClientTarget,
     request: CanvasSceneMutationRequest,
-  ): Promise<CanvasSceneMutationCommandResult>;
+  ): Effect.Effect<CanvasSceneMutationCommandResult>;
   publishCanvasPresence(
     target: DocumentSyncClientTarget,
     request: CanvasPresencePublishRequest,
-  ): Promise<CanvasPresenceCommandResult>;
+  ): Effect.Effect<CanvasPresenceCommandResult>;
   readCanvasSceneCompaction(
     target: DocumentSyncClientTarget,
     request: CanvasSceneCompactionReadRequest,
-  ): Promise<CanvasSceneCompactionReadCommandResult>;
+  ): Effect.Effect<CanvasSceneCompactionReadCommandResult>;
   compactCanvasScene(
     target: DocumentSyncClientTarget,
     request: CanvasSceneCompactionRequest,
-  ): Promise<CanvasSceneCompactionCommandResult>;
+  ): Effect.Effect<CanvasSceneCompactionCommandResult>;
   applyAdditionalDocumentCommand(
     request: AdditionalDocumentCommandRequest,
-  ): Promise<AdditionalDocumentCommandResult>;
+  ): SessionEffect<AdditionalDocumentCommandResult>;
   createCheckpoint(
     request: CreateDocumentVersionCheckpoint,
-  ): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>>;
+  ): SessionEffect<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>>;
   listVersions(
     request: ListDocumentVersions,
-  ): Promise<DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>>;
+  ): SessionEffect<DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>>;
   getVersion(
     request: GetDocumentVersion,
-  ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
-  restoreVersion(request: PrepareDocumentVersionRestore): Promise<DocumentOperationCommandResult>;
-  applyDocumentMutation(request: DocumentMutationRequest): Promise<DocumentOperationCommandResult>;
-  transferBlocks(intent: BlockTransferIntent): Promise<BlockTransferCommandResult>;
-  undoBlockTransfer(intent: BlockTransferUndoIntent): Promise<BlockTransferUndoCommandResult>;
-  executeNodexAgentMutation<Result extends NativeNodexAgentMutationResult>(
-    options: NativeNodexAgentMutationExecution<Result>,
-  ): Promise<Result>;
+  ): SessionEffect<DocumentHistoryCommandResult<DocumentVersionDetail>>;
+  restoreVersion(
+    request: PrepareDocumentVersionRestore,
+  ): Effect.Effect<DocumentOperationCommandResult>;
+  applyDocumentMutation(
+    request: DocumentMutationRequest,
+  ): Effect.Effect<DocumentOperationCommandResult>;
+  transferBlocks(intent: BlockTransferIntent): Effect.Effect<BlockTransferCommandResult>;
+  undoBlockTransfer(intent: BlockTransferUndoIntent): Effect.Effect<BlockTransferUndoCommandResult>;
 }
 
-export interface DesktopDocumentSyncBridgeInput {
-  readonly authority: Promise<DesktopDataAuthorityRuntime>;
+export class DesktopDocumentSessionRuntime extends Context.Service<
+  DesktopDocumentSessionRuntime,
+  DesktopDocumentSessionService
+>()("nodex/main/core-client/DesktopDocumentSessionRuntime") {}
+
+export interface DesktopDocumentSessionRuntimeOptions {
+  readonly authority: DesktopDataAuthorityRuntime;
   readonly canvasPresenceHub?: CanvasPresenceHub;
   readonly documentLive: DocumentLiveRuntimeAdapter;
 }
@@ -255,10 +260,9 @@ interface NativeSubscription {
 
 interface PendingNativeSubscription {
   readonly targetId: number;
-  readonly settled: Promise<void>;
-  attachClose(close: () => void): void;
-  cancel(): void;
-  settle(): void;
+  readonly settled: Deferred.Deferred<void>;
+  close: (() => void) | null;
+  cancelled: boolean;
 }
 
 type NativeSubscriptionReservation =
@@ -419,9 +423,10 @@ const hasCanvasSceneIdentity = (request: CanvasSceneSubscribeRequest): boolean =
   }
 };
 
-export function createDesktopDocumentSyncBridge(
-  input: DesktopDocumentSyncBridgeInput,
-): DesktopDocumentSyncPort {
+const makeDesktopDocumentSessionState = (
+  input: DesktopDocumentSessionRuntimeOptions,
+  background: (effect: Effect.Effect<void>) => unknown,
+) => {
   const adapters = new Map<string, CoreDocumentSyncAdapter>();
   const canvasSceneAdapters = new Map<string, CoreCanvasSceneAdapter>();
   const blockTransferAdapters = new Map<string, CoreBlockTransferAdapter>();
@@ -429,37 +434,40 @@ export function createDesktopDocumentSyncBridge(
   const deliveredCommitKeys = new Map<string, Set<string>>();
   const bindings = new Map<string, string>();
   const pendingSubscriptions = new Map<string, PendingNativeSubscription>();
-  const boundTargets = new Set<number>();
+  const targetListeners = new Map<
+    number,
+    {
+      readonly target: DocumentSyncClientTarget;
+      readonly onDestroyed: () => void;
+    }
+  >();
   const canvasPresenceHub = input.canvasPresenceHub ?? createCanvasPresenceHub();
+  let accepting = true;
 
-  const adapterFor = (
-    runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
-    scope: DesktopDocumentSyncScope,
-  ): CoreDocumentSyncAdapter => {
+  const adapterFor = (scope: DesktopDocumentSyncScope): CoreDocumentSyncAdapter => {
     const key = scopeKey(scope);
     let adapter = adapters.get(key);
     if (adapter) return adapter;
     adapter = createCoreDocumentSyncAdapter(
-      scope.kind === "project" ? runtime.clientForProject(scope.projectId) : runtime.rootClient,
+      scope.kind === "project"
+        ? input.authority.clientForProject(scope.projectId)
+        : input.authority.rootClient,
       { live: input.documentLive },
     );
     adapters.set(key, adapter);
     return adapter;
   };
 
-  const canvasSceneAdapterFor = (
-    runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
-    accessContext: ContentAccessContext,
-  ): CoreCanvasSceneAdapter => {
+  const canvasSceneAdapterFor = (accessContext: ContentAccessContext): CoreCanvasSceneAdapter => {
     const key = contentAccessContextKey(accessContext);
     let adapter = canvasSceneAdapters.get(key);
     if (adapter) return adapter;
     adapter = createCoreCanvasSceneAdapter(
       accessContext.kind === "project"
-        ? runtime.clientForProject(accessContext.projectId)
-        : runtime.rootClient,
+        ? input.authority.clientForProject(accessContext.projectId)
+        : input.authority.rootClient,
       {
-        libraryId: runtime.identity.libraryId,
+        libraryId: input.authority.identity.libraryId,
         accessContext,
       },
       { live: input.documentLive },
@@ -468,17 +476,14 @@ export function createDesktopDocumentSyncBridge(
     return adapter;
   };
 
-  const blockTransferAdapterFor = (
-    runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
-    projectId: string,
-  ): CoreBlockTransferAdapter => {
+  const blockTransferAdapterFor = (projectId: string): CoreBlockTransferAdapter => {
     let adapter = blockTransferAdapters.get(projectId);
     if (adapter) return adapter;
     adapter = createCoreBlockTransferAdapter({
-      client: runtime.clientForProject(projectId),
-      libraryId: runtime.identity.libraryId,
+      client: input.authority.clientForProject(projectId),
+      libraryId: input.authority.identity.libraryId,
       projectId,
-      storeEpoch: runtime.identity.storeEpoch,
+      storeEpoch: input.authority.identity.storeEpoch,
     });
     blockTransferAdapters.set(projectId, adapter);
     return adapter;
@@ -497,6 +502,7 @@ export function createDesktopDocumentSyncBridge(
       bindings.delete(subscription.bindingKey);
     }
     subscription.close();
+    releaseTargetListenerIfIdle(subscription.targetId);
   };
 
   const rememberDeliveredCommit = (key: string, identity: string): void => {
@@ -575,56 +581,56 @@ export function createDesktopDocumentSyncBridge(
   const beginPendingSubscription = (
     ownerKey: string,
     targetId: number,
-  ): PendingNativeSubscription => {
-    let resolve: () => void = () => undefined;
-    let close: () => void = () => undefined;
-    let cancelled = false;
-    const settled = new Promise<void>((done) => {
-      resolve = done;
+  ): Effect.Effect<PendingNativeSubscription> =>
+    Effect.gen(function* () {
+      const settled = yield* Deferred.make<void>();
+      const pending: PendingNativeSubscription = {
+        targetId,
+        settled,
+        close: null,
+        cancelled: false,
+      };
+      pendingSubscriptions.set(ownerKey, pending);
+      return pending;
     });
-    const pending: PendingNativeSubscription = {
-      targetId,
-      settled,
-      attachClose: (attachedClose) => {
-        close = attachedClose;
-        if (cancelled) close();
-      },
-      cancel: () => {
-        cancelled = true;
-        close();
-      },
-      settle: () => {
-        if (pendingSubscriptions.get(ownerKey) === pending) {
-          pendingSubscriptions.delete(ownerKey);
-        }
-        resolve();
-      },
-    };
-    pendingSubscriptions.set(ownerKey, pending);
-    return pending;
+
+  const cancelPendingSubscription = (pending: PendingNativeSubscription): void => {
+    pending.cancelled = true;
+    pending.close?.();
   };
 
-  const reserveNativeSubscription = async (
+  const settlePendingSubscription = (
+    ownerKey: string,
+    pending: PendingNativeSubscription,
+  ): Effect.Effect<void> =>
+    Effect.sync(() => {
+      if (pendingSubscriptions.get(ownerKey) === pending) {
+        pendingSubscriptions.delete(ownerKey);
+      }
+    }).pipe(Effect.andThen(Deferred.succeed(pending.settled, undefined)), Effect.asVoid);
+
+  const reserveNativeSubscription = (
     ownerKey: string,
     key: string,
     target: DocumentSyncClientTarget,
-  ): Promise<NativeSubscriptionReservation> => {
-    while (true) {
+  ): Effect.Effect<NativeSubscriptionReservation> =>
+    Effect.suspend(() => {
+      if (!accepting || target.isDestroyed()) {
+        return Effect.succeed({ kind: "target_destroyed" } as const);
+      }
       const predecessor = pendingSubscriptions.get(ownerKey);
       if (predecessor) {
-        await predecessor.settled;
-        continue;
+        return Deferred.await(predecessor.settled).pipe(
+          Effect.andThen(reserveNativeSubscription(ownerKey, key, target)),
+        );
       }
-      if (target.isDestroyed()) return { kind: "target_destroyed" };
-      if (subscriptions.has(key)) return { kind: "existing" };
-      if (bindings.has(ownerKey)) return { kind: "conflict" };
+      if (subscriptions.has(key)) return Effect.succeed({ kind: "existing" } as const);
+      if (bindings.has(ownerKey)) return Effect.succeed({ kind: "conflict" } as const);
       bindings.set(ownerKey, key);
-      return {
-        kind: "reserved",
-        pending: beginPendingSubscription(ownerKey, target.id),
-      };
-    }
-  };
+      return beginPendingSubscription(ownerKey, target.id).pipe(
+        Effect.map((pending) => ({ kind: "reserved" as const, pending })),
+      );
+    });
 
   const adoptSubscriptionBoundary = (
     key: string,
@@ -939,18 +945,35 @@ export function createDesktopDocumentSyncBridge(
     return { ok: true, value: { subscribed: true } };
   };
 
+  const releaseTargetListenerIfIdle = (targetId: number): void => {
+    if ([...pendingSubscriptions.values()].some((pending) => pending.targetId === targetId)) return;
+    if ([...subscriptions.values()].some((subscription) => subscription.targetId === targetId)) {
+      return;
+    }
+    const listener = targetListeners.get(targetId);
+    if (!listener) return;
+    targetListeners.delete(targetId);
+    listener.target.removeListener("destroyed", listener.onDestroyed);
+  };
+
   const bindTargetLifecycle = (target: DocumentSyncClientTarget): void => {
-    if (boundTargets.has(target.id)) return;
-    boundTargets.add(target.id);
-    target.once("destroyed", () => {
-      boundTargets.delete(target.id);
+    const existing = targetListeners.get(target.id);
+    if (existing?.target === target) return;
+    if (existing) {
+      existing.target.removeListener("destroyed", existing.onDestroyed);
+      targetListeners.delete(target.id);
+    }
+    const onDestroyed = (): void => {
+      targetListeners.delete(target.id);
       for (const pending of pendingSubscriptions.values()) {
-        if (pending.targetId === target.id) pending.cancel();
+        if (pending.targetId === target.id) cancelPendingSubscription(pending);
       }
       for (const [key, subscription] of subscriptions) {
         if (subscription.targetId === target.id) closeSubscription(key);
       }
-    });
+    };
+    targetListeners.set(target.id, { target, onDestroyed });
+    target.once("destroyed", onDestroyed);
   };
 
   const hasNativeSubscription = (
@@ -971,93 +994,96 @@ export function createDesktopDocumentSyncBridge(
     return subscription?.target === target;
   };
 
-  const withRuntime = async <Value>(
-    run: (
-      runtime: DesktopDataAuthorityRuntime,
-    ) => Promise<DocumentSyncCommandResult<Value>> | DocumentSyncCommandResult<Value>,
-  ): Promise<DocumentSyncCommandResult<Value>> => {
-    try {
-      return await run(await input.authority);
-    } catch (error) {
-      return transportUnavailable(error);
-    }
-  };
+  const sessionError = (operation: string, cause: unknown): DesktopDocumentSessionError =>
+    new DesktopDocumentSessionError({ operation, cause });
 
-  const withCanvasSceneRuntime = async <Success extends { readonly ok: true }>(
-    run: (
-      runtime: DesktopDataAuthorityRuntime,
-    ) => Promise<Success | CanvasCommandFailure> | Success | CanvasCommandFailure,
-    mutationId?: string,
-  ): Promise<Success | CanvasCommandFailure> => {
-    try {
-      return await run(await input.authority);
-    } catch (error) {
-      return canvasSceneTransportUnavailable(error, mutationId);
-    }
-  };
-
-  const applyDocumentMutation = async (
-    request: DocumentMutationRequest,
-  ): Promise<DocumentOperationCommandResult> => {
-    let runtime: DesktopDataAuthorityRuntime;
-    try {
-      runtime = await input.authority;
-    } catch (error) {
-      return {
-        ok: false,
-        error: documentMutationFailure(
-          "unknown",
-          error instanceof Error ? error.message : String(error),
-          { mutationId: request.mutationId, retryable: true },
-        ),
-      };
-    }
-    const adapter = adapterFor(runtime, {
-      kind: "project",
-      projectId: request.projectId,
+  const corePromise = <Value>(
+    operation: string,
+    run: (signal: AbortSignal) => Promise<Value>,
+  ): SessionEffect<Value> =>
+    Effect.tryPromise({
+      try: run,
+      catch: (cause) => sessionError(operation, cause),
     });
-    const committed = await adapter.applyDocumentMutation(request);
-    if (!committed.ok) {
-      return committed;
-    }
-    return committed;
-  };
 
-  const compactCanvasScene = async (
+  const withDocumentResult = <Value>(
+    operation: string,
+    run: (signal: AbortSignal) => Promise<DocumentSyncCommandResult<Value>>,
+  ): Effect.Effect<DocumentSyncCommandResult<Value>> =>
+    corePromise(operation, run).pipe(
+      Effect.catch((error) => Effect.succeed(transportUnavailable<Value>(error.cause))),
+    );
+
+  const withCanvasResult = <Success extends { readonly ok: true }>(
+    operation: string,
+    run: (signal: AbortSignal) => Promise<Success | CanvasCommandFailure>,
+    mutationId?: string,
+  ): Effect.Effect<Success | CanvasCommandFailure> =>
+    corePromise(operation, run).pipe(
+      Effect.catch((error) =>
+        Effect.succeed(canvasSceneTransportUnavailable(error.cause, mutationId)),
+      ),
+    );
+
+  const applyDocumentMutation = (
+    request: DocumentMutationRequest,
+  ): Effect.Effect<DocumentOperationCommandResult> =>
+    corePromise("document.mutate", () =>
+      adapterFor({ kind: "project", projectId: request.projectId }).applyDocumentMutation(request),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.succeed({
+          ok: false as const,
+          error: documentMutationFailure(
+            "unknown",
+            error.cause instanceof Error ? error.cause.message : String(error.cause),
+            { mutationId: request.mutationId, retryable: true },
+          ),
+        }),
+      ),
+    );
+
+  const compactCanvasScene = (
     target: DocumentSyncClientTarget,
     request: CanvasSceneCompactionRequest,
-  ): Promise<CanvasSceneCompactionCommandResult> =>
-    await withCanvasSceneRuntime(async (runtime) => {
-      if (
-        !hasCanvasSceneIdentity(request) ||
-        !hasNativeCanvasSceneSubscription(target, request) ||
-        request.trigger !== "automatic_idle"
-      ) {
-        return canvasSceneUnauthorized(request.mutationId);
-      }
-      const adapter = canvasSceneAdapterFor(runtime, request.accessContext);
-      const eligibility = await adapter.readCompaction(request);
-      if (!eligibility.ok) return eligibility;
-      if (!eligibility.value.eligible) {
-        return canvasSceneFailure(
-          "future_base_head",
-          "Canvas maintenance is below its internal threshold",
-          { mutationId: request.mutationId, retryable: true },
-        );
-      }
-      const committed = await adapter.compact(request, eligibility.value);
-      if (!committed.ok) {
+  ): Effect.Effect<CanvasSceneCompactionCommandResult> =>
+    withCanvasResult(
+      "canvas.compact",
+      async () => {
+        if (
+          !hasCanvasSceneIdentity(request) ||
+          !hasNativeCanvasSceneSubscription(target, request) ||
+          request.trigger !== "automatic_idle"
+        ) {
+          return canvasSceneUnauthorized(request.mutationId);
+        }
+        const adapter = canvasSceneAdapterFor(request.accessContext);
+        const eligibility = await adapter.readCompaction(request);
+        if (!eligibility.ok) return eligibility;
+        if (!eligibility.value.eligible) {
+          return canvasSceneFailure(
+            "future_base_head",
+            "Canvas maintenance is below its internal threshold",
+            { mutationId: request.mutationId, retryable: true },
+          );
+        }
+        const committed = await adapter.compact(request, eligibility.value);
+        if (!committed.ok) {
+          return committed;
+        }
         return committed;
-      }
-      return committed;
-    }, request.mutationId);
+      },
+      request.mutationId,
+    );
 
   const publishDocumentEffects = (
     packet: CoreAuthorizedDeliveryPacket,
     onlyDocumentId?: string,
-  ): void => {
+  ): Effect.Effect<void> => {
+    if (!accepting) return Effect.void;
     const identity = packet.manifest.identity;
     const effects = packet.atoms;
+    const resourceDeliveries: Array<Effect.Effect<void>> = [];
     const invalidatedDocuments = new Set(
       effects
         .filter(
@@ -1134,25 +1160,28 @@ export function createDesktopDocumentSyncBridge(
           deliverResolvedEvent(inline);
           continue;
         }
-        void resolveAuthorizedDocumentEffect(effect, identity, async (request) => {
-          try {
-            const runtime = await input.authority;
-            return await adapterFor(runtime, scope).fetchUpdateResource(request);
-          } catch (error) {
-            return transportUnavailable(error);
-          }
-        })
-          .catch(() => ({
-            kind: "resync-required" as const,
-            documentId: reference.document_id,
-            storeEpoch: identity.store_epoch,
-            generation: reference.generation,
-            headSeq: reference.base_head_seq,
-            commitSeq: identity.commit_seq,
-            effectSequence: reference.effect_order,
-            reason: "resource-integrity-failure" as const,
-          }))
-          .then(deliverResolvedEvent);
+        resourceDeliveries.push(
+          corePromise("document.resolve-effect", () =>
+            resolveAuthorizedDocumentEffect(effect, identity, (request) =>
+              adapterFor(scope).fetchUpdateResource(request),
+            ),
+          ).pipe(
+            Effect.catch(() =>
+              Effect.succeed({
+                kind: "resync-required" as const,
+                documentId: reference.document_id,
+                storeEpoch: identity.store_epoch,
+                generation: reference.generation,
+                headSeq: reference.base_head_seq,
+                commitSeq: identity.commit_seq,
+                effectSequence: reference.effect_order,
+                reason: "resource-integrity-failure" as const,
+              }),
+            ),
+            Effect.tap((event) => Effect.sync(() => deliverResolvedEvent(event))),
+            Effect.asVoid,
+          ),
+        );
       }
     });
     effects.forEach((effect) => {
@@ -1243,123 +1272,112 @@ export function createDesktopDocumentSyncBridge(
         void delivered;
       }
     });
+    return Effect.forEach(resourceDeliveries, (delivery) => delivery, {
+      concurrency: "unbounded",
+      discard: true,
+    });
   };
 
   const publishResourceRevocation = (
     packet: CoreAuthorizedDeliveryPacket,
     revocation: ResourceRevocation,
-  ): void => {
-    if (revocation.resource_kind !== "document") return;
-    if (revocation.authorization_scope.kind !== "document") return;
-    const identity = packet.manifest.identity;
-    for (const [key, subscription] of [...subscriptions]) {
-      if (subscription.documentId !== revocation.resource_id) continue;
-      if (
-        !authorizationScopeMatchesDocumentScope(revocation.authorization_scope, subscription.scope)
-      )
-        continue;
-      if (subscription.engine !== "yjs") {
-        closeSubscription(key);
-        continue;
+  ): Effect.Effect<void> =>
+    Effect.sync(() => {
+      if (!accepting || revocation.resource_kind !== "document") return;
+      if (revocation.authorization_scope.kind !== "document") return;
+      const identity = packet.manifest.identity;
+      for (const [key, subscription] of [...subscriptions]) {
+        if (subscription.documentId !== revocation.resource_id) continue;
+        if (
+          !authorizationScopeMatchesDocumentScope(
+            revocation.authorization_scope,
+            subscription.scope,
+          )
+        )
+          continue;
+        if (subscription.engine !== "yjs") {
+          closeSubscription(key);
+          continue;
+        }
+        const delivered = deliverDocumentRealtimeEvent(
+          key,
+          subscription.target,
+          {
+            kind: "resync-required",
+            documentId: revocation.resource_id,
+            storeEpoch: identity.store_epoch,
+            generation: subscription.generation ?? 1,
+            headSeq: subscription.headSeq ?? 0,
+            commitSeq: identity.commit_seq,
+            effectSequence: packet.atoms.length,
+            reason: "access-revoked",
+          },
+          { revokeAfter: true },
+        );
+        void delivered;
       }
-      const delivered = deliverDocumentRealtimeEvent(
-        key,
-        subscription.target,
-        {
-          kind: "resync-required",
-          documentId: revocation.resource_id,
-          storeEpoch: identity.store_epoch,
-          generation: subscription.generation ?? 1,
-          headSeq: subscription.headSeq ?? 0,
-          commitSeq: identity.commit_seq,
-          effectSequence: packet.atoms.length,
-          reason: "access-revoked",
-        },
-        { revokeAfter: true },
-      );
-      void delivered;
-    }
-  };
+    });
 
-  const transferBlocks = async (
-    intent: BlockTransferIntent,
-  ): Promise<BlockTransferCommandResult> => {
-    let runtime: DesktopDataAuthorityRuntime;
-    try {
-      runtime = await input.authority;
-    } catch (error) {
-      return {
-        ok: false,
-        error: {
-          code: "unknown",
-          message: error instanceof Error ? error.message : String(error),
-          retryable: true,
-          reloadRequired: false,
-          operationId: intent.operationId,
-        },
-      };
-    }
-    const adapter = blockTransferAdapterFor(runtime, intent.projectId);
-    const result = await adapter.commit(intent);
-    return result;
-  };
+  const transferBlocks = (intent: BlockTransferIntent): Effect.Effect<BlockTransferCommandResult> =>
+    corePromise("block-transfer.commit", () =>
+      blockTransferAdapterFor(intent.projectId).commit(intent),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.succeed({
+          ok: false as const,
+          error: {
+            code: "unknown" as const,
+            message: error.cause instanceof Error ? error.cause.message : String(error.cause),
+            retryable: true,
+            reloadRequired: false,
+            operationId: intent.operationId,
+          },
+        }),
+      ),
+    );
 
-  const undoBlockTransfer = async (
+  const undoBlockTransfer = (
     intent: BlockTransferUndoIntent,
-  ): Promise<BlockTransferUndoCommandResult> => {
-    let runtime: DesktopDataAuthorityRuntime;
-    try {
-      runtime = await input.authority;
-    } catch (error) {
-      return {
-        ok: false,
-        error: {
-          code: "unknown",
-          message: error instanceof Error ? error.message : String(error),
-          retryable: true,
-          reloadRequired: false,
-          operationId: intent.operationId,
-        },
-      };
-    }
-    return blockTransferAdapterFor(runtime, intent.projectId).undo(intent);
-  };
+  ): Effect.Effect<BlockTransferUndoCommandResult> =>
+    corePromise("block-transfer.undo", () =>
+      blockTransferAdapterFor(intent.projectId).undo(intent),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.succeed({
+          ok: false as const,
+          error: {
+            code: "unknown" as const,
+            message: error.cause instanceof Error ? error.cause.message : String(error.cause),
+            retryable: true,
+            reloadRequired: false,
+            operationId: intent.operationId,
+          },
+        }),
+      ),
+    );
 
-  const executeNodexAgentMutation = async <Result extends NativeNodexAgentMutationResult>(
-    options: NativeNodexAgentMutationExecution<Result>,
-  ): Promise<Result> => {
-    let result: Result;
-    try {
-      result = await options.execute();
-    } catch {
-      return options.failure(`${options.operationLabel} commit failed`);
-    }
-    if (!result.ok) return result;
-
-    return result;
-  };
-
-  return {
+  const service = {
     publishDocumentEffects,
     publishResourceRevocation,
-    getOwnedDocumentDescriptor: async (projectId, ownerBlockId) => {
-      const runtime = await input.authority;
-      const descriptor = await adapterFor(runtime, { kind: "project", projectId }).readDescriptor({
-        ownerBlockId,
-        clientSessionId: "electron:owned-document:descriptor",
-      });
-      return requireProjectAccessedDocumentDescriptor(descriptor, projectId);
-    },
-    prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
-      await withRuntime(async (runtime) => {
+    getOwnedDocumentDescriptor: (projectId, ownerBlockId) =>
+      corePromise("document.read-descriptor", () =>
+        adapterFor({ kind: "project", projectId }).readDescriptor({
+          ownerBlockId,
+          clientSessionId: "electron:owned-document:descriptor",
+        }),
+      ).pipe(
+        Effect.map((descriptor) => requireProjectAccessedDocumentDescriptor(descriptor, projectId)),
+      ),
+    prepareOwnedBlockDocument: (projectId, ownerBlockId) =>
+      withDocumentResult("document.prepare-owner", async () => {
         const scope = { kind: "project", projectId } as const;
-        const prepared = await adapterFor(runtime, scope).prepareOwner({
+        const prepared = await adapterFor(scope).prepareOwner({
           ownerBlockId,
           ...ownerCommandIdentity(
             scope,
             ownerBlockId,
-            runtime.identity.storeEpoch,
-            runtime.rootClient.handshake.connection_binding,
+            input.authority.identity.storeEpoch,
+            input.authority.rootClient.handshake.connection_binding,
           ),
         });
         if (!prepared.ok) return prepared;
@@ -1368,16 +1386,16 @@ export function createDesktopDocumentSyncBridge(
           value: requireProjectAccessedDocumentDescriptor(prepared.value, projectId),
         };
       }),
-    prepareLibraryOwnedBlockDocument: async (ownerBlockId) =>
-      await withRuntime(async (runtime) => {
+    prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
+      withDocumentResult("document.prepare-library-owner", async () => {
         const scope = { kind: "library" } as const;
-        const prepared = await adapterFor(runtime, scope).prepareOwner({
+        const prepared = await adapterFor(scope).prepareOwner({
           ownerBlockId,
           ...ownerCommandIdentity(
             scope,
             ownerBlockId,
-            runtime.identity.storeEpoch,
-            runtime.rootClient.handshake.connection_binding,
+            input.authority.identity.storeEpoch,
+            input.authority.rootClient.handshake.connection_binding,
           ),
         });
         if (!prepared.ok) return prepared;
@@ -1386,26 +1404,34 @@ export function createDesktopDocumentSyncBridge(
           value: requireLibraryAccessedDocumentDescriptor(prepared.value),
         };
       }),
-    subscribe: async (scope, target, request) =>
-      await withRuntime(async (runtime) => {
-        if (target.isDestroyed()) return documentSyncUnauthorized();
-        const adapter = adapterFor(runtime, scope);
+    subscribe: (
+      scope,
+      target,
+      request,
+    ): Effect.Effect<DocumentSyncCommandResult<DocumentSyncSubscriptionAck>> =>
+      Effect.gen(function* () {
+        if (!accepting || target.isDestroyed()) {
+          return documentSyncUnauthorized<DocumentSyncSubscriptionAck>();
+        }
+        const adapter = adapterFor(scope);
         const key = subscriptionKey(target, scope, request);
         const ownerKey = bindingKey(request);
         bindTargetLifecycle(target);
-        const reservation = await reserveNativeSubscription(ownerKey, key, target);
+        const reservation = yield* reserveNativeSubscription(ownerKey, key, target);
         if (reservation.kind === "existing") {
           return { ok: true, value: { subscribed: true } };
         }
         if (reservation.kind === "target_destroyed") {
-          return documentSyncUnauthorized();
+          return documentSyncUnauthorized<DocumentSyncSubscriptionAck>();
         }
-        if (reservation.kind === "conflict") return documentSyncUnauthorized();
+        if (reservation.kind === "conflict") {
+          return documentSyncUnauthorized<DocumentSyncSubscriptionAck>();
+        }
         const { pending } = reservation;
-        try {
+        return yield* Effect.gen(function* () {
           let lifecycle: ReturnType<CoreDocumentSyncAdapter["subscribeWithLifecycle"]> | null =
             null;
-          try {
+          return yield* Effect.gen(function* () {
             let admitted = false;
             let openingOverflowed = false;
             const openingEvents: DocumentSyncRealtimeEvent[] = [];
@@ -1439,20 +1465,24 @@ export function createDesktopDocumentSyncBridge(
               }
               deliver(event);
             });
-            pending.attachClose(lifecycle.close);
-            const barrier = await lifecycle.ready;
+            pending.close = lifecycle.close;
+            if (pending.cancelled) lifecycle.close();
+            const barrier = yield* corePromise("document.subscribe.ready", () => lifecycle!.ready);
             if (
               openingOverflowed ||
               barrier.engine !== "yjs" ||
               barrier.document_id !== request.documentId ||
-              barrier.store_epoch !== runtime.identity.storeEpoch
+              barrier.store_epoch !== input.authority.identity.storeEpoch
             ) {
-              throw new Error("Core Document live barrier does not match the Yjs session");
+              return yield* sessionError(
+                "document.subscribe.barrier",
+                new Error("Core Document live barrier does not match the Yjs session"),
+              );
             }
-            if (target.isDestroyed()) {
+            if (!accepting || target.isDestroyed()) {
               lifecycle.close();
               if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
-              return documentSyncUnauthorized();
+              return documentSyncUnauthorized<DocumentSyncSubscriptionAck>();
             }
             const subscribed = addNativeSubscription(key, {
               engine: "yjs",
@@ -1467,33 +1497,46 @@ export function createDesktopDocumentSyncBridge(
             });
             admitted = true;
             openingEvents.forEach(deliver);
-            void lifecycle.done
-              .catch(() => undefined)
-              .finally(() => {
-                if (subscriptions.get(key)?.close === lifecycle?.close) {
-                  closeSubscription(key);
-                }
-              });
+            background(
+              corePromise("document.subscribe.done", () => lifecycle!.done).pipe(
+                Effect.ignore,
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    if (subscriptions.get(key)?.close === lifecycle?.close) {
+                      closeSubscription(key);
+                    }
+                  }),
+                ),
+              ),
+            );
             return subscribed;
-          } catch (error) {
-            lifecycle?.close();
-            closeSubscription(key);
-            if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
-            return transportUnavailable(error);
-          }
-        } finally {
-          pending.settle();
-        }
+          }).pipe(
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                lifecycle?.close();
+                closeSubscription(key);
+                if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
+                return transportUnavailable<DocumentSyncSubscriptionAck>(error.cause);
+              }),
+            ),
+          );
+        }).pipe(
+          Effect.ensuring(
+            settlePendingSubscription(ownerKey, pending).pipe(
+              Effect.tap(() => Effect.sync(() => releaseTargetListenerIfIdle(target.id))),
+            ),
+          ),
+        );
       }),
-    unsubscribe: async (scope, target, request) =>
-      await withRuntime(() => {
+    unsubscribe: (scope, target, request) =>
+      Effect.sync(() => {
         const key = subscriptionKey(target, scope, request);
         if (subscriptions.get(key)?.target === target) closeSubscription(key);
         return { ok: true, value: { unsubscribed: true } };
       }),
-    sync: async (scope, target, request) =>
-      await withRuntime(async (runtime) => {
-        const adapter = adapterFor(runtime, scope);
+    sync: (scope, target, request) =>
+      withDocumentResult("document.sync", async () => {
+        const adapter = adapterFor(scope);
         if (!hasNativeSubscription(target, scope, request)) {
           return documentSyncUnauthorized();
         }
@@ -1506,33 +1549,33 @@ export function createDesktopDocumentSyncBridge(
         }
         return result;
       }),
-    applyUpdate: async (scope, target, request) =>
-      await withRuntime(async (runtime) => {
-        const adapter = adapterFor(runtime, scope);
+    applyUpdate: (scope, target, request) =>
+      withDocumentResult("document.apply-update", async () => {
+        const adapter = adapterFor(scope);
         if (!hasNativeSubscription(target, scope, request)) {
           return documentSyncUnauthorized();
         }
         const result = await adapter.applyUpdate(request);
         return result;
       }),
-    publishAwareness: async (scope, target, request) =>
-      await withRuntime(async (runtime) => {
-        const adapter = adapterFor(runtime, scope);
+    publishAwareness: (scope, target, request) =>
+      withDocumentResult("document.publish-awareness", async () => {
+        const adapter = adapterFor(scope);
         if (!hasNativeSubscription(target, scope, request)) {
           return documentSyncUnauthorized();
         }
         return await adapter.publishAwareness(request);
       }),
-    subscribeCanvasScene: async (target, request) =>
-      await withCanvasSceneRuntime(async (runtime) => {
-        if (target.isDestroyed() || !hasCanvasSceneIdentity(request)) {
+    subscribeCanvasScene: (target, request): Effect.Effect<CanvasSceneSubscriptionCommandResult> =>
+      Effect.gen(function* () {
+        if (!accepting || target.isDestroyed() || !hasCanvasSceneIdentity(request)) {
           return canvasSceneUnauthorized();
         }
-        const adapter = canvasSceneAdapterFor(runtime, request.accessContext);
+        const adapter = canvasSceneAdapterFor(request.accessContext);
         const key = canvasSceneSubscriptionKey(target, request);
         const ownerKey = bindingKey(request);
         bindTargetLifecycle(target);
-        const reservation = await reserveNativeSubscription(ownerKey, key, target);
+        const reservation = yield* reserveNativeSubscription(ownerKey, key, target);
         if (reservation.kind === "existing") {
           return { ok: true, value: { subscribed: true } };
         }
@@ -1541,9 +1584,9 @@ export function createDesktopDocumentSyncBridge(
         }
         if (reservation.kind === "conflict") return canvasSceneUnauthorized();
         const { pending } = reservation;
-        try {
+        return yield* Effect.gen(function* () {
           let lifecycle: ReturnType<CoreCanvasSceneAdapter["subscribeWithLifecycle"]> | null = null;
-          try {
+          return yield* Effect.gen(function* () {
             let admitted = false;
             let openingOverflowed = false;
             const openingEvents: CanvasSceneRealtimeEvent[] = [];
@@ -1562,17 +1605,21 @@ export function createDesktopDocumentSyncBridge(
               }
               deliver(event);
             });
-            pending.attachClose(lifecycle.close);
-            const barrier = await lifecycle.ready;
+            pending.close = lifecycle.close;
+            if (pending.cancelled) lifecycle.close();
+            const barrier = yield* corePromise("canvas.subscribe.ready", () => lifecycle!.ready);
             if (
               openingOverflowed ||
               barrier.engine !== "canvas_scene" ||
               barrier.document_id !== request.documentId ||
-              barrier.store_epoch !== runtime.identity.storeEpoch
+              barrier.store_epoch !== input.authority.identity.storeEpoch
             ) {
-              throw new Error("Core Document live barrier does not match the Canvas session");
+              return yield* sessionError(
+                "canvas.subscribe.barrier",
+                new Error("Core Document live barrier does not match the Canvas session"),
+              );
             }
-            if (target.isDestroyed()) {
+            if (!accepting || target.isDestroyed()) {
               lifecycle.close();
               if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
               return canvasSceneUnauthorized();
@@ -1581,7 +1628,7 @@ export function createDesktopDocumentSyncBridge(
               engine: "canvas_scene",
               bindingKey: ownerKey,
               scope: request.accessContext,
-              libraryId: runtime.identity.libraryId,
+              libraryId: input.authority.identity.libraryId,
               documentId: request.documentId,
               clientSessionId: request.clientSessionId,
               target,
@@ -1593,7 +1640,7 @@ export function createDesktopDocumentSyncBridge(
             openingEvents.forEach(deliver);
             canvasPresenceHub.register({
               key,
-              libraryId: runtime.identity.libraryId,
+              libraryId: input.authority.identity.libraryId,
               accessContext: request.accessContext,
               documentId: request.documentId,
               clientSessionId: request.clientSessionId,
@@ -1604,138 +1651,183 @@ export function createDesktopDocumentSyncBridge(
                 }
               },
             });
-            void lifecycle.done
-              .catch(() => undefined)
-              .finally(() => {
-                if (subscriptions.get(key)?.close === lifecycle?.close) {
-                  closeSubscription(key);
-                }
-              });
+            background(
+              corePromise("canvas.subscribe.done", () => lifecycle!.done).pipe(
+                Effect.ignore,
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    if (subscriptions.get(key)?.close === lifecycle?.close) {
+                      closeSubscription(key);
+                    }
+                  }),
+                ),
+              ),
+            );
             return subscribed;
-          } catch (error) {
-            lifecycle?.close();
-            closeSubscription(key);
-            if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
-            return canvasSceneTransportUnavailable(error);
-          }
-        } finally {
-          pending.settle();
-        }
+          }).pipe(
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                lifecycle?.close();
+                closeSubscription(key);
+                if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
+                return canvasSceneTransportUnavailable(error.cause);
+              }),
+            ),
+          );
+        }).pipe(
+          Effect.ensuring(
+            settlePendingSubscription(ownerKey, pending).pipe(
+              Effect.tap(() => Effect.sync(() => releaseTargetListenerIfIdle(target.id))),
+            ),
+          ),
+        );
       }),
-    unsubscribeCanvasScene: async (target, request) =>
-      await withCanvasSceneRuntime(() => {
+    unsubscribeCanvasScene: (target, request) =>
+      Effect.sync(() => {
         if (!hasCanvasSceneIdentity(request)) return canvasSceneUnauthorized();
         const key = canvasSceneSubscriptionKey(target, request);
         if (subscriptions.get(key)?.target === target) closeSubscription(key);
         return { ok: true, value: { unsubscribed: true } };
       }),
-    syncCanvasScene: async (target, request) =>
-      await withCanvasSceneRuntime(async (runtime) => {
+    syncCanvasScene: (target, request) =>
+      withCanvasResult("canvas.sync", async () => {
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized();
         }
         const key = canvasSceneSubscriptionKey(target, request);
         suspendSubscriptionBoundary(key);
-        const result = await canvasSceneAdapterFor(runtime, request.accessContext).sync(request);
+        const result = await canvasSceneAdapterFor(request.accessContext).sync(request);
         if (result.ok) {
           adoptSubscriptionBoundary(key, result.value);
           drainCanvasRealtimeEvents(key, target);
         }
         return result;
       }),
-    applyCanvasSceneMutation: async (target, request) =>
-      await withCanvasSceneRuntime(async (runtime) => {
-        if (!hasNativeCanvasSceneSubscription(target, request)) {
-          return canvasSceneUnauthorized(request.mutationId);
+    applyCanvasSceneMutation: (target, request) =>
+      withCanvasResult(
+        "canvas.apply-mutation",
+        async () => {
+          if (!hasNativeCanvasSceneSubscription(target, request)) {
+            return canvasSceneUnauthorized(request.mutationId);
+          }
+          const result = await canvasSceneAdapterFor(request.accessContext).applyMutation(request);
+          return result;
+        },
+        request.mutationId,
+      ),
+    publishCanvasPresence: (target, request) =>
+      Effect.sync(() => {
+        let parsed: CanvasPresencePublishRequest;
+        try {
+          parsed = canonicalizeCanvasPresencePublishRequest(request);
+        } catch (error) {
+          return canvasPresenceFailure(
+            "invalid_presence",
+            error instanceof Error ? error.message : String(error),
+          );
         }
-        const result = await canvasSceneAdapterFor(runtime, request.accessContext).applyMutation(
-          request,
-        );
-        return result;
-      }, request.mutationId),
-    publishCanvasPresence: async (target, request) => {
-      let parsed: CanvasPresencePublishRequest;
-      try {
-        parsed = canonicalizeCanvasPresencePublishRequest(request);
-      } catch (error) {
-        return canvasPresenceFailure(
-          "invalid_presence",
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-      const subscriptionRequest: CanvasSceneSubscribeRequest = {
-        accessContext: parsed.accessContext,
-        documentId: parsed.publication.documentId,
-        clientSessionId: parsed.clientSessionId,
-      };
-      const key = canvasSceneSubscriptionKey(target, subscriptionRequest);
-      if (
-        !hasNativeCanvasSceneSubscription(target, subscriptionRequest) ||
-        subscriptions.get(key)?.generation === undefined
-      ) {
-        return canvasPresenceFailure(
-          "unauthorized",
-          "An exact active Canvas subscription is required for presence",
-        );
-      }
-      try {
-        return {
-          ok: true,
-          value: canvasPresenceHub.publish(key, parsed.publication),
+        const subscriptionRequest: CanvasSceneSubscribeRequest = {
+          accessContext: parsed.accessContext,
+          documentId: parsed.publication.documentId,
+          clientSessionId: parsed.clientSessionId,
         };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes("generation boundary")) {
-          return canvasPresenceFailure("generation_mismatch", message, {
-            resetRequired: true,
-          });
+        const key = canvasSceneSubscriptionKey(target, subscriptionRequest);
+        if (
+          !hasNativeCanvasSceneSubscription(target, subscriptionRequest) ||
+          subscriptions.get(key)?.generation === undefined
+        ) {
+          return canvasPresenceFailure(
+            "unauthorized",
+            "An exact active Canvas subscription is required for presence",
+          );
         }
-        if (error instanceof TypeError) {
-          return canvasPresenceFailure("invalid_presence", message);
+        try {
+          return {
+            ok: true,
+            value: canvasPresenceHub.publish(key, parsed.publication),
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.includes("generation boundary")) {
+            return canvasPresenceFailure("generation_mismatch", message, {
+              resetRequired: true,
+            });
+          }
+          if (error instanceof TypeError) {
+            return canvasPresenceFailure("invalid_presence", message);
+          }
+          return canvasPresenceFailure("unauthorized", message);
         }
-        return canvasPresenceFailure("unauthorized", message);
-      }
-    },
-    readCanvasSceneCompaction: async (target, request) =>
-      await withCanvasSceneRuntime(async (runtime) => {
+      }),
+    readCanvasSceneCompaction: (target, request) =>
+      withCanvasResult("canvas.read-compaction", async () => {
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized();
         }
-        return await canvasSceneAdapterFor(runtime, request.accessContext).readCompaction(request);
+        return await canvasSceneAdapterFor(request.accessContext).readCompaction(request);
       }),
     compactCanvasScene,
-    applyAdditionalDocumentCommand: async (request) => {
-      const runtime = await input.authority;
-      return await adapterFor(runtime, {
-        kind: "project",
-        projectId: request.projectId,
-      }).applyAdditionalDocumentCommand(request);
-    },
-    createCheckpoint: async (request) => {
-      const runtime = await input.authority;
-      return await adapterFor(runtime, {
-        kind: "project",
-        projectId: request.projectId,
-      }).createCheckpoint(request);
-    },
-    listVersions: async (request) => {
-      const runtime = await input.authority;
-      return await adapterFor(runtime, {
-        kind: "project",
-        projectId: request.projectId,
-      }).listVersions(request);
-    },
-    getVersion: async (request) => {
-      const runtime = await input.authority;
-      return await adapterFor(runtime, {
-        kind: "project",
-        projectId: request.projectId,
-      }).getVersion(request);
-    },
+    applyAdditionalDocumentCommand: (request) =>
+      corePromise("document.apply-additional-command", () =>
+        adapterFor({
+          kind: "project",
+          projectId: request.projectId,
+        }).applyAdditionalDocumentCommand(request),
+      ),
+    createCheckpoint: (request) =>
+      corePromise("document.create-checkpoint", () =>
+        adapterFor({ kind: "project", projectId: request.projectId }).createCheckpoint(request),
+      ),
+    listVersions: (request) =>
+      corePromise("document.list-versions", () =>
+        adapterFor({ kind: "project", projectId: request.projectId }).listVersions(request),
+      ),
+    getVersion: (request) =>
+      corePromise("document.get-version", () =>
+        adapterFor({ kind: "project", projectId: request.projectId }).getVersion(request),
+      ),
     applyDocumentMutation,
     transferBlocks,
     undoBlockTransfer,
-    executeNodexAgentMutation,
-    restoreVersion: async (request) => await applyDocumentMutation(request),
+    restoreVersion: applyDocumentMutation,
+  } satisfies DesktopDocumentSessionService;
+  const close = Effect.gen(function* () {
+    accepting = false;
+    const pending = [...pendingSubscriptions.entries()];
+    for (const [, reservation] of pending) cancelPendingSubscription(reservation);
+    for (const key of [...subscriptions.keys()]) closeSubscription(key);
+    for (const listener of targetListeners.values()) {
+        listener.target.removeListener("destroyed", listener.onDestroyed);
+    }
+    targetListeners.clear();
+    bindings.clear();
+    pendingSubscriptions.clear();
+    deliveredCommitKeys.clear();
+    adapters.clear();
+    canvasSceneAdapters.clear();
+    blockTransferAdapters.clear();
+    yield* Effect.forEach(pending, ([, reservation]) =>
+      Deferred.succeed(reservation.settled, undefined),
+    );
+  });
+
+  return {
+    close,
+    service: DesktopDocumentSessionRuntime.of(service),
   };
-}
+};
+
+export const makeDesktopDocumentSessionRuntime = (
+  input: DesktopDocumentSessionRuntimeOptions,
+): Effect.Effect<DesktopDocumentSessionService, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const background = yield* FiberSet.makeRuntime<never, void, never>();
+    const state = makeDesktopDocumentSessionState(input, background);
+    yield* Effect.addFinalizer(() => state.close);
+    return state.service;
+  });
+
+export const desktopDocumentSessionRuntimeLive = (
+  options: DesktopDocumentSessionRuntimeOptions,
+): Layer.Layer<DesktopDocumentSessionRuntime> =>
+  Layer.effect(DesktopDocumentSessionRuntime, makeDesktopDocumentSessionRuntime(options));

@@ -6,7 +6,7 @@ import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import type {
   DesktopDatabaseModuleBridge,
-  DesktopDocumentSyncPort,
+  DesktopDocumentSessionService,
   DesktopLibraryModuleBridge,
 } from "../../core-client";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -30,7 +30,7 @@ it.effect("owns the complete document and canvas ingress group with the Main Sco
     yield* Layer.buildWithScope(
       live({
         database: {} as DesktopDatabaseModuleBridge,
-        documents: {} as DesktopDocumentSyncPort,
+        documents: {} as DesktopDocumentSessionService,
         library: {} as DesktopLibraryModuleBridge,
       }).pipe(
         Layer.provide(

@@ -13,8 +13,11 @@ export {
   type CoreCanvasSceneAdapter,
 } from "./core-canvas-scene-adapter";
 export {
-  createDesktopDocumentSyncBridge,
-  type DesktopDocumentSyncPort,
+  DesktopDocumentSessionRuntime,
+  desktopDocumentSessionRuntimeLive,
+  makeDesktopDocumentSessionRuntime,
+  type DesktopDocumentSessionRuntimeOptions,
+  type DesktopDocumentSessionService,
 } from "./desktop-document-sync-bridge";
 export { readCoreRuntimeConnection } from "./runtime-descriptor";
 export { connectOrStartCore, resolveCoreExecutable } from "./core-launcher";

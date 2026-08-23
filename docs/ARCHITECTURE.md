@@ -444,6 +444,8 @@ Renderer projections advance by an exact Core-authored scope coordinate. A compl
 
 Exact Document live sync is resource-addressed and separate from the global durable ledger. Opening a Document establishes an authorized live barrier, performs canonical state-vector or scene synchronization, and then admits later live effects. It does not replay LocalCommit history from genesis.
 
+The Main-scoped Document Session Module is the single owner of Document/Canvas adapters, admitted subscriptions, pending owner reservations, delivery cursors, owner bindings, and renderer-destruction listeners. Scope release first closes admission, then cancels pending opens, closes every physical live lease, removes exact target listeners, and clears projection state. IPC and Projection delivery compose its typed Effects; only the Core transport and Electron handler edges adapt to Promises or callbacks.
+
 The complete recovery and authorization contracts live in [Reliability](docs/RELIABILITY.md), [Security](docs/SECURITY.md), [ADR 0024](docs/adr/0024-durable-projection-invalidation.md), and [ADR 0040](docs/adr/0040-local-commit-authority-and-causal-structural-mutations.md).
 
 ### Document and structural mutation
@@ -455,10 +457,10 @@ The public identity of an authorized Document observation is `(libraryId, access
 A mounted surface first resolves an authorized descriptor and completes its canonical synchronization barrier. Multiple surfaces may share the same process-local Document session while retaining independent editor, undo, cursor, camera, and presence state. Surface presentation never becomes durable content authority.
 
 Canvas presence is an ephemeral Main projection, not durable Core state. The
-Document bridge borrows one `CanvasPresenceHub` from `CanvasPresenceRuntime`;
+Document Session Module borrows one `CanvasPresenceHub` from `CanvasPresenceRuntime`;
 the hub is a synchronous state machine with no timer or process lifetime of its
 own. Its TTL sweep is one scoped Effect fiber, and closing the Main Scope clears
-the hub after interrupting that fiber. A bridge must never construct an
+the hub after interrupting that fiber. A Document adapter must never construct an
 autonomous presence scheduler.
 
 Before a structural command consumes a mounted Document's shape, the surface flushes pending durable updates and supplies an exact head token. Core rechecks the token while planning and applying the mutation. Ownership, membership, host-shell changes, Document updates, projections, and the receipt then commit atomically. Response loss is recovered by exact receipt replay or canonical synchronization, not by reconstructing the transaction in Electron.

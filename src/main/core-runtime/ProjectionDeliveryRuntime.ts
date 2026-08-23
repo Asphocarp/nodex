@@ -12,7 +12,7 @@ import type {
   CoreEventEnvelope,
   CoreStreamCheckpoint,
   DesktopDataAuthorityRuntime,
-  DesktopDocumentSyncPort,
+  DesktopDocumentSessionService,
 } from "../core-client";
 import { safeSendToWebContents } from "../ipc-safe-send";
 import { getLogger } from "../logging/logger";
@@ -34,7 +34,7 @@ export class ProjectionDeliveryError extends Schema.TaggedError<ProjectionDelive
 
 export interface ProjectionDeliveryRuntimeOptions {
   readonly authority: DesktopDataAuthorityRuntime;
-  readonly documentSync: DesktopDocumentSyncPort;
+  readonly documentSync: DesktopDocumentSessionService;
   readonly onNotification: (
     envelope: CoreEventEnvelope,
     atom: CoreAuthorizedDeliveryAtom,
@@ -84,7 +84,7 @@ export const live = (
         expectedLibraryId: coreIdentity.libraryId,
         expectedStoreEpoch: coreIdentity.storeEpoch,
         onDocument: (packet, documentId) =>
-          Effect.sync(() => options.documentSync.publishDocumentEffects(packet, documentId)),
+          options.documentSync.publishDocumentEffects(packet, documentId),
         onProjection: () => Effect.void,
         onNotification: (packet, atom) =>
           Effect.sync(() => {
@@ -98,13 +98,14 @@ export const live = (
             );
           }),
         onVisibility: (packet, delta) =>
-          Effect.sync(() => {
-            for (const revocation of revocationsFromVisibilityDelta(delta)) {
-              if (revocation.resource_kind === "document") {
-                options.documentSync.publishResourceRevocation(packet, revocation);
-              }
-            }
-          }),
+          Effect.forEach(
+            revocationsFromVisibilityDelta(delta),
+            (revocation) =>
+              revocation.resource_kind === "document"
+                ? options.documentSync.publishResourceRevocation(packet, revocation)
+                : Effect.void,
+            { discard: true },
+          ),
         onError: (failure) =>
           Effect.sync(() =>
             logger.error("LocalCommit delivery lane failed", {

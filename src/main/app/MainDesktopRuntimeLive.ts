@@ -40,7 +40,8 @@ import {
 import {
   createDesktopAutomationModuleBridge,
   createDesktopDatabaseModuleBridge,
-  createDesktopDocumentSyncBridge,
+  DesktopDocumentSessionRuntime,
+  desktopDocumentSessionRuntimeLive,
   createDesktopLibraryModuleBridge,
   createDesktopProjectWorkspaceBridge,
   createDesktopStoreAdministrationBridge,
@@ -1444,11 +1445,15 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const documentLive = Context.get(documentLiveContext, DocumentLiveRuntime);
-        const documentSync = createDesktopDocumentSyncBridge({
-          authority: legacyDataAuthority,
-          canvasPresenceHub: canvasPresence.hub,
-          documentLive: makeDocumentLiveRuntimeAdapter(documentLive, callbacks),
-        });
+        const documentSessionContext = yield* Layer.buildWithScope(
+          desktopDocumentSessionRuntimeLive({
+            authority: dataAuthority,
+            canvasPresenceHub: canvasPresence.hub,
+            documentLive: makeDocumentLiveRuntimeAdapter(documentLive, callbacks),
+          }),
+          runtimeScope,
+        );
+        const documentSync = Context.get(documentSessionContext, DesktopDocumentSessionRuntime);
         const libraryModule = createDesktopLibraryModuleBridge({ authority: legacyDataAuthority });
         const databaseModule = createDesktopDatabaseModuleBridge({
           authority: legacyDataAuthority,
@@ -1460,7 +1465,6 @@ export const live: Layer.Layer<
           authority: legacyDataAuthority,
           projectWorkspace,
           databaseModule,
-          documentSync,
         });
         const executionHostContext = yield* Layer.buildWithScope(
           executionHostRuntimeLive({
@@ -2857,6 +2861,7 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),

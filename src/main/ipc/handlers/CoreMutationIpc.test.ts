@@ -4,9 +4,10 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
+import { layer as scopedCallbackRuntimeLayer } from "../../app/ScopedCallbackRuntime";
 import type {
   DesktopDatabaseModuleBridge,
-  DesktopDocumentSyncPort,
+  DesktopDocumentSessionService,
   DesktopLibraryModuleBridge,
 } from "../../core-client";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
@@ -31,7 +32,7 @@ it.effect("owns Core mutation and history ingress with the Main Scope", () =>
     yield* Layer.buildWithScope(
       live({
         database: {} as DesktopDatabaseModuleBridge,
-        documents: {} as DesktopDocumentSyncPort,
+        documents: {} as DesktopDocumentSessionService,
         library: {} as DesktopLibraryModuleBridge,
         rendererClients: {} as RendererClientRuntimeService,
       }).pipe(
@@ -39,6 +40,7 @@ it.effect("owns Core mutation and history ingress with the Main Scope", () =>
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
+            scopedCallbackRuntimeLayer,
             Layer.succeed(WindowRuntime, {
               has: () => true,
             } as unknown as WindowRuntime["Service"]),

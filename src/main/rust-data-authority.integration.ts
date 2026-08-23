@@ -21,7 +21,6 @@ import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-node
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
-import { createDesktopDocumentSyncBridge } from "./core-client/desktop-document-sync-bridge";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
 import { createDesktopAutomationModuleBridge } from "./core-client/desktop-automation-module-bridge";
@@ -383,12 +382,11 @@ describe("Electron native data authority", () => {
           },
         },
       });
-      const desktopDocuments = createDesktopDocumentSyncBridge({
-        authority: Promise.resolve(runtime),
-        documentLive: documentLiveRuntimeTestDouble,
-      });
       await expect(
-        desktopDocuments.getOwnedDocumentDescriptor(projectId, nativeSourceBlockId),
+        projectDocuments.readDescriptor({
+          ownerBlockId: nativeSourceBlockId,
+          clientSessionId: "electron:owned-document:descriptor",
+        }),
       ).resolves.toMatchObject({
         documentId: nativeSourceDocumentId,
         generation: 1,
@@ -799,7 +797,6 @@ describe("Electron native data authority", () => {
         authority: Promise.resolve(runtime),
         projectWorkspace: desktopWorkspace,
         databaseModule: desktopDatabase,
-        documentSync: desktopDocuments,
       });
       const nativeAgentContext = await nativeAgentService.registry.execute(
         {

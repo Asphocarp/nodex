@@ -15,7 +15,6 @@ import {
 import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
-import type { DesktopDocumentSyncPort } from "./desktop-document-sync-bridge";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
 import { readNativeFetch } from "./native-nodex-agent-fetch";
 import { readNativeDatabaseQuery } from "./native-nodex-agent-query";
@@ -29,8 +28,19 @@ export interface DesktopNodexAgentDynamicServiceInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
   readonly projectWorkspace: DesktopProjectWorkspacePort;
   readonly databaseModule: DesktopDatabaseModuleBridge;
-  readonly documentSync: Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">;
 }
+
+const executeNativeNodexAgentMutation = async <Result>(options: {
+  readonly execute: () => Promise<Result>;
+  readonly failure: (message: string) => Result;
+  readonly operationLabel: string;
+}): Promise<Result> => {
+  try {
+    return await options.execute();
+  } catch {
+    return options.failure(`${options.operationLabel} commit failed`);
+  }
+};
 
 const nativeDuplicatePageFailure = (
   message: string,
@@ -284,37 +294,28 @@ export function createDesktopNodexAgentV3DynamicService(
     executeNodexAgentCreatePages: async (...args) => {
       const runtime = await input.authority;
       const [command, documentHeads] = args;
-      return await input.documentSync.executeNodexAgentMutation({
-        projectId: command.projectId,
-        storeEpoch: command.storeEpoch,
+      return await executeNativeNodexAgentMutation({
         execute: async () => await pageCreatesFor(runtime).execute(command, documentHeads),
         failure: nativeCreatePagesFailure,
         operationLabel: "Agent Page creation",
-        conflictMessage: "A target Page Document changed while preparing Page creation",
       });
     },
     executeNodexAgentDuplicatePage: async (...args) => {
       const runtime = await input.authority;
       const command = args[0];
-      return await input.documentSync.executeNodexAgentMutation({
-        projectId: command.projectId,
-        storeEpoch: command.storeEpoch,
+      return await executeNativeNodexAgentMutation({
         execute: async () => await pageCopiesFor(runtime).execute(command),
         failure: nativeDuplicatePageFailure,
         operationLabel: "Agent Page duplicate",
-        conflictMessage: "A copied Page Document changed while preparing duplication",
       });
     },
     executeNodexAgentMovePages: async (...args) => {
       const runtime = await input.authority;
       const command = args[0];
-      return await input.documentSync.executeNodexAgentMutation({
-        projectId: command.projectId,
-        storeEpoch: command.storeEpoch,
+      return await executeNativeNodexAgentMutation({
         execute: async () => await pageMovesFor(runtime).execute(command),
         failure: nativeMovePagesFailure,
         operationLabel: "Agent Page movement",
-        conflictMessage: "A Page Document changed while preparing Page movement",
       });
     },
   };

@@ -10,7 +10,6 @@ import {
 import type { NodexAgentDynamicExecutionContext } from "../agent-tools/dynamic-service-core";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
-import type { DesktopDocumentSyncPort } from "./desktop-document-sync-bridge";
 import { createDesktopNodexAgentV3DynamicService } from "./desktop-nodex-agent-dynamic-service";
 import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
@@ -32,11 +31,6 @@ const committedCoordinate = (commitSeq: number) => ({
     manifest_hash: "f".repeat(64),
   },
 });
-
-const documentSync = {
-  executeNodexAgentMutation: async (options: { readonly execute: () => Promise<unknown> }) =>
-    await options.execute(),
-} as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">;
 
 const context = {
   threadId: "thread-native-agent",
@@ -120,7 +114,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       databaseModule: {
         read: readDatabase,
       } as unknown as DesktopDatabaseModuleBridge,
-      documentSync,
     });
 
     const result = await service.registry.execute(
@@ -312,9 +305,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
         };
       },
     );
-    const coordinate = vi.fn(
-      async (options: { readonly execute: () => Promise<unknown> }) => await options.execute(),
-    );
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
@@ -327,9 +317,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
-      documentSync: {
-        executeNodexAgentMutation: coordinate,
-      } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">,
     });
 
     const result = await service.registry.execute(
@@ -374,7 +361,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       },
     });
     expect(libraryRead).toHaveBeenCalledTimes(2);
-    expect(coordinate).toHaveBeenCalledOnce();
     expect(libraryApply).toHaveBeenCalledOnce();
   });
 
@@ -515,9 +501,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
         };
       },
     );
-    const coordinate = vi.fn(
-      async (options: { readonly execute: () => Promise<unknown> }) => await options.execute(),
-    );
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
@@ -530,9 +513,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
-      documentSync: {
-        executeNodexAgentMutation: coordinate,
-      } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">,
     });
 
     const result = await service.registry.execute(
@@ -570,7 +550,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       },
     });
     expect(libraryRead).toHaveBeenCalledTimes(2);
-    expect(coordinate).toHaveBeenCalledOnce();
     expect(libraryApply).toHaveBeenCalledOnce();
   });
 
@@ -707,17 +686,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
         };
       },
     );
-    const coordinate = vi.fn(
-      async (options: {
-        readonly projectId: string;
-        readonly storeEpoch: string;
-        readonly execute: () => Promise<unknown>;
-      }) => {
-        expect(options.projectId).toBe("project-native-agent");
-        expect(options.storeEpoch).toBe("store-native-agent");
-        return await options.execute();
-      },
-    );
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
@@ -730,9 +698,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
-      documentSync: {
-        executeNodexAgentMutation: coordinate,
-      } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">,
     });
 
     const result = await service.registry.execute(
@@ -773,7 +738,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       },
     });
     expect(libraryRead).toHaveBeenCalledTimes(2);
-    expect(coordinate).toHaveBeenCalledOnce();
     expect(libraryApply).toHaveBeenCalledOnce();
   });
 
@@ -817,7 +781,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
-      documentSync,
     });
 
     const result = await service.registry.execute(
@@ -992,7 +955,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
-      documentSync,
     });
 
     const result = await service.registry.execute(
@@ -1147,7 +1109,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
-      documentSync,
     });
 
     const result = await service.registry.execute(
@@ -1342,7 +1303,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       authority: Promise.resolve(runtime),
       projectWorkspace: {} as DesktopProjectWorkspacePort,
       databaseModule: {} as DesktopDatabaseModuleBridge,
-      documentSync,
     });
 
     const result = await service.registry.execute(

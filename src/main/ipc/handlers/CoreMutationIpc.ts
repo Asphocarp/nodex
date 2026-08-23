@@ -6,6 +6,7 @@ import type { IpcMainInvokeEvent } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
 import { registerAdditionalDocumentCommandIpcHandler } from "../../additional-document-command-ipc";
 import { MainConfig } from "../../app/MainConfig";
+import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import {
   registerBlockPropertyMutationIpcHandler,
   registerLibraryBlockPropertyMutationIpcHandler,
@@ -17,7 +18,7 @@ import {
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type {
   DesktopDatabaseModuleBridge,
-  DesktopDocumentSyncPort,
+  DesktopDocumentSessionService,
   DesktopLibraryModuleBridge,
 } from "../../core-client";
 import { registerDatabaseModuleIpcHandlers } from "../../database-module-ipc";
@@ -38,7 +39,7 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface CoreMutationIpcOptions {
   readonly database: DesktopDatabaseModuleBridge;
-  readonly documents: DesktopDocumentSyncPort;
+  readonly documents: DesktopDocumentSessionService;
   readonly library: DesktopLibraryModuleBridge;
   readonly rendererClients: RendererClientRuntimeService;
 }
@@ -55,10 +56,11 @@ type Handler<Channel extends keyof IpcApi> = (
 
 export const live = (
   options: CoreMutationIpcOptions,
-): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
+): Layer.Layer<never, never, ElectronIpc | MainConfig | ScopedCallbackRuntime | WindowRuntime> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
+      const callbacks = yield* ScopedCallbackRuntime;
       const ipc = yield* ElectronIpc;
       const windows = yield* WindowRuntime;
       const targetFor = (event: IpcMainInvokeEvent) => {
@@ -207,7 +209,8 @@ export const live = (
           );
         },
         resolveTrustedIdentity,
-        applyMutation: options.documents.applyDocumentMutation,
+        applyMutation: (request) =>
+          callbacks.runPromise(options.documents.applyDocumentMutation(request)),
       });
       registerAdditionalDocumentCommandIpcHandler({
         registerHandle: (channel, listener) => {
@@ -216,21 +219,22 @@ export const live = (
           );
         },
         resolveTrustedIdentity,
-        applyCommand: options.documents.applyAdditionalDocumentCommand,
+        applyCommand: (request) =>
+          callbacks.runPromise(options.documents.applyAdditionalDocumentCommand(request)),
       });
       registerBlockTransferIpcHandler({
         registerHandle: (channel, listener) => {
           registerHandle(channel, (event, projectId, intent) => listener(event, projectId, intent));
         },
         resolveTrustedIdentity,
-        transfer: options.documents.transferBlocks,
+        transfer: (intent) => callbacks.runPromise(options.documents.transferBlocks(intent)),
       });
       registerBlockTransferUndoIpcHandler({
         registerHandle: (channel, listener) => {
           registerHandle(channel, (event, projectId, intent) => listener(event, projectId, intent));
         },
         resolveTrustedIdentity: (event) => targetFor(event as IpcMainInvokeEvent),
-        undo: options.documents.undoBlockTransfer,
+        undo: (intent) => callbacks.runPromise(options.documents.undoBlockTransfer(intent)),
       });
       registerDocumentHistoryIpcHandlers({
         registerHandle: (channel, listener) => {
@@ -273,10 +277,12 @@ export const live = (
           );
         },
         resolveTrustedIdentity,
-        createCheckpoint: options.documents.createCheckpoint,
-        listVersions: options.documents.listVersions,
-        getVersion: options.documents.getVersion,
-        restoreVersion: options.documents.restoreVersion,
+        createCheckpoint: (request) =>
+          callbacks.runPromise(options.documents.createCheckpoint(request)),
+        listVersions: (request) => callbacks.runPromise(options.documents.listVersions(request)),
+        getVersion: (request) => callbacks.runPromise(options.documents.getVersion(request)),
+        restoreVersion: (request) =>
+          callbacks.runPromise(options.documents.restoreVersion(request)),
       });
       registerPageHistoryIpcHandler({
         registerHandle: (channel, listener) => {

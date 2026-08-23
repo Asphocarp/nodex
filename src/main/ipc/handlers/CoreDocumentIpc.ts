@@ -6,7 +6,7 @@ import type { IpcApi } from "../../../shared/ipc-api";
 import { MainConfig } from "../../app/MainConfig";
 import type {
   DesktopDatabaseModuleBridge,
-  DesktopDocumentSyncPort,
+  DesktopDocumentSessionService,
   DesktopLibraryModuleBridge,
 } from "../../core-client";
 import {
@@ -19,7 +19,7 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface CoreDocumentIpcOptions {
   readonly database: DesktopDatabaseModuleBridge;
-  readonly documents: DesktopDocumentSyncPort;
+  readonly documents: DesktopDocumentSessionService;
   readonly library: DesktopLibraryModuleBridge;
 }
 
@@ -124,29 +124,17 @@ export const live = (
       );
       yield* handle("block-document:owned:get", (event, projectId, ownerBlockId) =>
         authorize(event).pipe(
-          Effect.andThen(
-            run("get-owned-document", () =>
-              options.documents.getOwnedDocumentDescriptor(projectId, ownerBlockId),
-            ),
-          ),
+          Effect.andThen(options.documents.getOwnedDocumentDescriptor(projectId, ownerBlockId)),
         ),
       );
       yield* handle("block-document:owned:prepare", (event, projectId, ownerBlockId) =>
         authorize(event).pipe(
-          Effect.andThen(
-            run("prepare-owned-document", () =>
-              options.documents.prepareOwnedBlockDocument(projectId, ownerBlockId),
-            ),
-          ),
+          Effect.andThen(options.documents.prepareOwnedBlockDocument(projectId, ownerBlockId)),
         ),
       );
       yield* handle("library-block-document:owned:prepare", (event, ownerBlockId) =>
         authorize(event).pipe(
-          Effect.andThen(
-            run("prepare-library-owned-document", () =>
-              options.documents.prepareLibraryOwnedBlockDocument(ownerBlockId),
-            ),
-          ),
+          Effect.andThen(options.documents.prepareLibraryOwnedBlockDocument(ownerBlockId)),
         ),
       );
 
@@ -163,12 +151,12 @@ export const live = (
         execute: (
           target: DocumentSyncClientTarget,
           request: IpcApi[Channel]["args"][0],
-        ) => Promise<IpcApi[Channel]["result"]>,
+        ) => Effect.Effect<IpcApi[Channel]["result"]>,
       ) =>
         handle(channel, (event, request) => {
           const target = targetFor(event);
           if (!target) return unauthorizedResult<IpcApi[Channel]["result"]>();
-          return run(operation, () => execute(target, request));
+          return execute(target, request).pipe(Effect.withSpan(`CoreDocumentIpc.${operation}`));
         });
 
       yield* projectDocumentCommand(
@@ -235,12 +223,12 @@ export const live = (
         execute: (
           target: DocumentSyncClientTarget,
           request: IpcApi[Channel]["args"][0],
-        ) => Promise<IpcApi[Channel]["result"]>,
+        ) => Effect.Effect<IpcApi[Channel]["result"]>,
       ) =>
         handle(channel, (event, request) => {
           const target = targetFor(event);
           if (!target) return unauthorizedResult<IpcApi[Channel]["result"]>();
-          return run(operation, () => execute(target, request));
+          return execute(target, request).pipe(Effect.withSpan(`CoreDocumentIpc.${operation}`));
         });
 
       yield* libraryDocumentCommand(
@@ -274,22 +262,18 @@ export const live = (
         const target = targetFor(event);
         if (!target)
           return Effect.succeed(canvasUnauthorized("Canvas scene subscription is unauthorized"));
-        return run("subscribe-canvas-scene", () =>
-          options.documents.subscribeCanvasScene(target, request),
-        );
+        return options.documents.subscribeCanvasScene(target, request);
       });
       yield* handle("canvas-scene:unsubscribe", (event, request) => {
         const target = targetFor(event);
         if (!target)
           return Effect.succeed(canvasUnauthorized("Canvas scene subscription is unauthorized"));
-        return run("unsubscribe-canvas-scene", () =>
-          options.documents.unsubscribeCanvasScene(target, request),
-        );
+        return options.documents.unsubscribeCanvasScene(target, request);
       });
       yield* handle("canvas-scene:sync", (event, request) => {
         const target = targetFor(event);
         if (!target) return Effect.succeed(canvasUnauthorized("Canvas scene sync is unauthorized"));
-        return run("sync-canvas-scene", () => options.documents.syncCanvasScene(target, request));
+        return options.documents.syncCanvasScene(target, request);
       });
       yield* handle("canvas-scene:apply", (event, request) => {
         const target = targetFor(event);
@@ -298,9 +282,7 @@ export const live = (
             canvasUnauthorized("Canvas scene mutation is unauthorized", request.mutationId),
           );
         }
-        return run("apply-canvas-scene", () =>
-          options.documents.applyCanvasSceneMutation(target, request),
-        );
+        return options.documents.applyCanvasSceneMutation(target, request);
       });
       yield* handle("canvas-scene:presence:publish", (event, request) => {
         const target = targetFor(event);
@@ -315,17 +297,13 @@ export const live = (
             },
           });
         }
-        return run("publish-canvas-presence", () =>
-          options.documents.publishCanvasPresence(target, request),
-        );
+        return options.documents.publishCanvasPresence(target, request);
       });
       yield* handle("canvas-scene:compaction:read", (event, request) => {
         const target = targetFor(event);
         if (!target)
           return Effect.succeed(canvasUnauthorized("Canvas compaction read is unauthorized"));
-        return run("read-canvas-compaction", () =>
-          options.documents.readCanvasSceneCompaction(target, request),
-        );
+        return options.documents.readCanvasSceneCompaction(target, request);
       });
       yield* handle("canvas-scene:compaction:apply", (event, request) => {
         const target = targetFor(event);
@@ -334,9 +312,7 @@ export const live = (
             canvasUnauthorized("Canvas compaction is unauthorized", request.mutationId),
           );
         }
-        return run("apply-canvas-compaction", () =>
-          options.documents.compactCanvasScene(target, request),
-        );
+        return options.documents.compactCanvasScene(target, request);
       });
     }),
   );
