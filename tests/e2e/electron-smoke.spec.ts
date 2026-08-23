@@ -3117,6 +3117,211 @@ test.describe("parallel functional Electron smoke", () => {
     }
   });
 
+  test("reorders an ordinary editor subtree across a Subpage with native DnD @editor-dnd-smoke", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "editor-subtree-dnd" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      const project = await createConvergenceProject(page, "Editor subtree DnD", workspace);
+      const source = await createConvergenceBoardPage(
+        page,
+        project,
+        "Editor subtree source",
+        "Page containing the same-Document DnD fixture",
+      );
+      const seeded = await seedConvergenceDocument(
+        page,
+        project,
+        source,
+        ["1111", "\t222", "middle", "3333"].join("\n"),
+      );
+      const sourceRootId = requireString(seeded.blockIds[0], "Parent Block id");
+      const childId = requireString(seeded.blockIds[1], "Child Block id");
+      const tailId = requireString(seeded.blockIds.at(-1), "Tail Block id");
+      const subpage = await createConvergenceSubpage(
+        page,
+        project,
+        source,
+        "Typed owner boundary",
+        tailId,
+      );
+
+      await page.getByRole("button", { name: "Open Editor subtree DnD", exact: true }).click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await board
+        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Editor subtree source" }).waitFor();
+
+      const sourcePanel = page.getByRole("tabpanel", { name: /Editor subtree source$/ });
+      const sourceEditor = sourcePanel.locator(".nfm-editor");
+      const sourceSurface = sourceEditor.locator('.ProseMirror[contenteditable="true"]');
+      const sourceBlock = sourceSurface.locator(`.bn-block[data-id="${sourceRootId}"]`);
+      const sourceOuter = sourceSurface.locator(`.bn-block-outer[data-id="${sourceRootId}"]`);
+      const child = sourceOuter.locator(`.bn-block[data-id="${childId}"]`);
+      const tail = sourceSurface.locator(`.bn-block[data-id="${tailId}"]`);
+      await expect(sourceBlock).toBeVisible({ timeout: 15_000 });
+      await expect(child).toBeVisible();
+      await expect(sourceSurface.locator(`.bn-block[data-id="${subpage.pageId}"]`)).toBeVisible();
+      await expect(tail).toBeVisible();
+
+      await dragBlockFromEditorWithMouse({
+        page,
+        sourceBlock,
+        sourceEditor,
+        target: tail,
+        targetYRatio: 0.85,
+        expectedFeedback: sourceEditor.locator("[data-block-transfer-drop-indicator]"),
+      });
+
+      await expect
+        .poll(
+          async () => {
+            const [sourceBox, tailBox] = await Promise.all([
+              sourceBlock.boundingBox(),
+              tail.boundingBox(),
+            ]);
+            return Boolean(sourceBox && tailBox && sourceBox.y > tailBox.y);
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await expect(child).toBeVisible();
+      await expect(
+        page.getByText("Nodex blocked an incomplete structural change.", { exact: false }),
+      ).toHaveCount(0);
+
+      await sourceBlock.click();
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Z`);
+      await expect
+        .poll(
+          async () => {
+            const [sourceBox, tailBox] = await Promise.all([
+              sourceBlock.boundingBox(),
+              tail.boundingBox(),
+            ]);
+            return Boolean(sourceBox && tailBox && sourceBox.y < tailBox.y);
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await expect(child).toBeVisible();
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("moves an editor subtree into a collapsed toggle with native DnD @editor-dnd-smoke", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "editor-toggle-dnd" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      const project = await createConvergenceProject(page, "Editor toggle DnD", workspace);
+      const source = await createConvergenceBoardPage(
+        page,
+        project,
+        "Editor toggle source",
+        "Page containing the collapsed-toggle DnD fixture",
+      );
+      const seeded = await seedConvergenceDocument(
+        page,
+        project,
+        source,
+        [
+          "Dragged parent",
+          "\tDragged child",
+          "▶ Target toggle",
+          "\tExisting toggle child",
+          "Tail",
+        ].join("\n"),
+      );
+      const sourceRootId = requireString(seeded.blockIds[0], "Dragged parent Block id");
+      const sourceChildId = requireString(seeded.blockIds[1], "Dragged child Block id");
+      const toggleId = requireString(seeded.blockIds[2], "Target toggle Block id");
+      const existingChildId = requireString(seeded.blockIds[3], "Existing toggle child Block id");
+
+      await page.getByRole("button", { name: "Open Editor toggle DnD", exact: true }).click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await board
+        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Editor toggle source" }).waitFor();
+
+      const sourcePanel = page.getByRole("tabpanel", { name: /Editor toggle source$/ });
+      const sourceEditor = sourcePanel.locator(".nfm-editor");
+      const sourceSurface = sourceEditor.locator('.ProseMirror[contenteditable="true"]');
+      const sourceBlock = sourceSurface.locator(`.bn-block[data-id="${sourceRootId}"]`);
+      const sourceOuter = sourceSurface.locator(`.bn-block-outer[data-id="${sourceRootId}"]`);
+      const sourceChild = sourceOuter.locator(`.bn-block[data-id="${sourceChildId}"]`);
+      const toggleBlock = sourceSurface.locator(`.bn-block[data-id="${toggleId}"]`);
+      const toggleOuter = sourceSurface.locator(`.bn-block-outer[data-id="${toggleId}"]`);
+      const toggleContent = toggleBlock.locator(":scope > .bn-block-content");
+      const toggleWrapper = toggleContent.locator(".bn-toggle-wrapper");
+      await expect(sourceBlock).toBeVisible({ timeout: 15_000 });
+      await expect(sourceChild).toBeVisible();
+      await expect(toggleBlock).toBeVisible();
+      await expect(toggleWrapper).toHaveAttribute("data-show-children", "false");
+
+      await dragBlockFromEditorWithMouse({
+        page,
+        sourceBlock,
+        sourceEditor,
+        target: toggleContent,
+        targetYRatio: 0.5,
+        expectedFeedback: sourceEditor.locator("[data-toggle-drop-overlay]"),
+        onFeedback: async () => {
+          await expect(sourceEditor.locator("[data-block-transfer-drop-indicator]")).toHaveCount(0);
+          await expect(toggleWrapper).toHaveAttribute("data-show-children", "false");
+        },
+      });
+
+      await expect(sourceBlock).toBeHidden({ timeout: 15_000 });
+      await expect(toggleWrapper).toHaveAttribute("data-show-children", "false");
+      await expect
+        .poll(async () =>
+          sourceSurface.evaluate(() => {
+            const anchor = document.getSelection()?.anchorNode;
+            const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+            return element?.closest<HTMLElement>(".bn-block[data-id]")?.dataset.id ?? null;
+          }),
+        )
+        .toBe(toggleId);
+
+      await toggleWrapper.locator(".bn-toggle-button").click();
+      await expect(toggleOuter.locator(`.bn-block[data-id="${existingChildId}"]`)).toBeVisible();
+      await expect(toggleOuter.locator(`.bn-block[data-id="${sourceRootId}"]`)).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(toggleOuter.locator(`.bn-block[data-id="${sourceChildId}"]`)).toBeVisible();
+      await expect
+        .poll(async () => {
+          const [existingBox, sourceBox] = await Promise.all([
+            toggleOuter.locator(`.bn-block[data-id="${existingChildId}"]`).boundingBox(),
+            toggleOuter.locator(`.bn-block[data-id="${sourceRootId}"]`).boundingBox(),
+          ]);
+          return Boolean(existingBox && sourceBox && existingBox.y < sourceBox.y);
+        })
+        .toBe(true);
+      await expect(
+        page.getByText("Nodex blocked an incomplete structural change.", { exact: false }),
+      ).toHaveCount(0);
+
+      await toggleBlock.click();
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Z`);
+      await expect(sourceBlock).toBeVisible({ timeout: 15_000 });
+      await expect(toggleOuter.locator(`.bn-block[data-id="${sourceRootId}"]`)).toHaveCount(0);
+      await expect(sourceChild).toBeVisible();
+    } finally {
+      await harness.close();
+    }
+  });
+
   // This is the native source-gesture smoke. High-pressure tests below remain on
   // the direct typed transfer boundary because they test transaction convergence,
   // not the handle-to-dragover pipeline exercised here.

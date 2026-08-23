@@ -229,11 +229,7 @@ describe("cross-surface Block transfer drag", () => {
     expect(coordinator.resolve(transfer)).toBeNull();
   });
 
-  test("preserves native same-surface reorder while yielding every cross-surface path", () => {
-    const surface = document.createElement("div");
-    const content = document.createElement("div");
-    surface.className = "nfm-editor";
-    surface.append(content);
+  test("yields every Nodex-managed side-menu drag to structural placement authority", () => {
     const session = {
       sessionId: "session-a",
       sourceSurfaceId: "surface-a",
@@ -250,29 +246,7 @@ describe("cross-surface Block transfer drag", () => {
       )!,
     };
 
-    expect(
-      shouldBlockNoteYieldManagedDrag({
-        session,
-        currentSurfaceId: "surface-a",
-        currentSurfaceElement: surface,
-        eventTarget: content,
-      }),
-    ).toBe(false);
-    expect(
-      shouldBlockNoteYieldManagedDrag({
-        session,
-        currentSurfaceId: "surface-b",
-        currentSurfaceElement: surface,
-        eventTarget: content,
-      }),
-    ).toBe(true);
-    expect(
-      shouldBlockNoteYieldManagedDrag({
-        session,
-        currentSurfaceId: "surface-a",
-        currentSurfaceElement: surface,
-        eventTarget: document.body,
-      }),
-    ).toBe(true);
+    expect(shouldBlockNoteYieldManagedDrag(null)).toBe(false);
+    expect(shouldBlockNoteYieldManagedDrag(session)).toBe(true);
   });
 });

@@ -9,12 +9,13 @@ import {
 import {
   setupBlockTransferDocumentDrop,
   type BlockTransferDropBoundary,
+  type BlockTransferDropEditor,
 } from "./block-transfer-drop";
 import { finalizeSideMenuBlockDrag } from "./side-menu-drag-lifecycle";
 import { setupToggleDrop } from "./toggle-drop";
 
 interface UseEditorDragBehaviorsOptions {
-  editor: Parameters<typeof setupToggleDrop>[1];
+  editor: Parameters<typeof setupToggleDrop>[1] & BlockTransferDropEditor;
   containerRef: RefObject<HTMLElement | null>;
   crossSurface?: {
     readonly surfaceId: string;
@@ -107,12 +108,7 @@ export function useEditorDragBehaviors({
     };
     const resolveExternalDragOwnership = (event: DragEvent) => {
       const session = resolveLocalBlockDragOverSession(event.dataTransfer);
-      return shouldBlockNoteYieldManagedDrag({
-        session,
-        currentSurfaceId: crossSurface.surfaceId,
-        currentSurfaceElement: element,
-        eventTarget: event.target,
-      });
+      return shouldBlockNoteYieldManagedDrag(session);
     };
     const releaseSideMenuOwnership = extensionRuntime
       .getExtension(SideMenuExtension)
@@ -129,16 +125,7 @@ export function useEditorDragBehaviors({
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !editor) return;
-    return setupToggleDrop(el, editor);
-  }, [containerRef, editor]);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !editor || !crossSurface) return;
-    return setupBlockTransferDocumentDrop(
-      el,
-      editor as unknown as Parameters<typeof setupBlockTransferDocumentDrop>[1],
-      crossSurface.blockTransferDrop,
-    );
+    if (!crossSurface) return setupToggleDrop(el, editor);
+    return setupBlockTransferDocumentDrop(el, editor, crossSurface.blockTransferDrop);
   }, [containerRef, crossSurface, editor]);
 }

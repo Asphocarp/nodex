@@ -35,13 +35,6 @@ export const containsDatabaseBlockDrag = (
   payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints">,
 ): boolean => payload.displayHints.includes("database");
 
-export const containsTypedOwnerBlockDrag = (
-  payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints">,
-): boolean =>
-  payload.displayHints.some((hint) =>
-    ["page", "canvas", "database", "structural"].includes(hint),
-  );
-
 export const isSingleCanvasBlockDrag = (
   payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints" | "rootBlockIds">,
 ): boolean =>
@@ -415,17 +408,12 @@ export const resolveLocalBlockDragDropSession = (
   dataTransfer: Pick<DataTransfer, "types" | "getData"> | null | undefined,
 ): LocalBlockDragSession | null => blockDragSessionCoordinator.resolveDrop(dataTransfer);
 
-export const shouldBlockNoteYieldManagedDrag = (input: {
-  readonly session: LocalBlockDragSession | null;
-  readonly currentSurfaceId: string;
-  readonly currentSurfaceElement: HTMLElement;
-  readonly eventTarget: EventTarget | null;
-}): boolean => {
-  if (!input.session) return false;
-  if (containsCanvasBlockDrag(input.session.payload)) return true;
-  if (input.session.sourceSurfaceId !== input.currentSurfaceId) return true;
-  if (!(input.eventTarget instanceof Element)) return true;
-  return input.eventTarget.closest(".nfm-editor") !== input.currentSurfaceElement;
+export const shouldBlockNoteYieldManagedDrag = (session: LocalBlockDragSession | null): boolean => {
+  // A local Nodex session means the side-menu gesture has a domain-level
+  // placement owner. This includes ordinary same-Document reorders: crossing a
+  // typed-owner sibling changes that owner's placement even when the dragged
+  // subtree itself contains only ordinary Blocks.
+  return session !== null;
 };
 
 /** Native cross-surface DnD is intentionally renderer-window local. */

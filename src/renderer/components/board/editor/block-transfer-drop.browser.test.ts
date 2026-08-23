@@ -18,6 +18,7 @@ const structuralPreparation = {
     generation: 1,
     expectedHeadSeq: 0,
   }),
+  structuralTransfer: async () => undefined,
 };
 
 describe("nested Block transfer targets in Chromium", () => {

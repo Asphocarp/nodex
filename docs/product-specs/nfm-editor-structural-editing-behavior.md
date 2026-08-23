@@ -9,7 +9,7 @@ This document is the user-visible source of truth for editing selections that co
 
 ## Selection boundary
 
-Purely ordinary selections use the editor's local collaborative fast path. If any selected root or descendant is an owning Page, Canvas, or Database, the complete selected forest—including ordinary Blocks—is handled by one Core operation.
+Purely ordinary text and Block-content edits use the editor's local collaborative fast path. If any selected root or descendant is an owning Page, Canvas, or Database, the complete selected forest—including ordinary Blocks—is handled by one Core operation. Side-menu drag-and-drop is also a Core-owned structural placement operation even when the dragged forest is ordinary: moving it can cross an owning sibling and therefore change protected placement relationships.
 
 A Block selection remains authoritative whether it was created by pointer drag, the side menu, keyboard navigation, or an atomic Block node selection. A single selected owner never falls back to the last text cursor merely because the editor's text-selection API has no range for that atomic node.
 
@@ -47,7 +47,9 @@ Pasting while a Block selection contains an owner replaces the complete selectio
 
 A cloned root title advances one canonical trailing positive-number suffix, or appends ` (1)` when no such suffix exists. Titles are display values, not uniqueness keys. Non-owning references inside the clone continue to target their original resources.
 
-Duplicate and structural drag/copy use the same closure planner without changing the system clipboard. Structural Move to and drag/move preserve identities and are rejected when the destination is inside the moved ownership closure. Mixed structural selections may move between Page Documents; destinations that would require converting ordinary Blocks into Database rows remain separate typed product actions.
+Duplicate and drag/copy use the same closure planner without changing the system clipboard. A same-Document drag moves the normalized root forest—including every child subtree—as one operation and keeps root order stable. Dropping at its current location or inside the moved subtree is a no-op. Drag/move otherwise preserves identities and is rejected when the destination is inside the moved ownership closure. Mixed structural selections may move between Page Documents; destinations that would require converting ordinary Blocks into Database rows remain separate typed product actions.
+
+The center of a collapsed Toggle list or toggle Heading is an append-to-children target. It presents one quiet blue highlight across the toggle header, moves or copies the complete selected root forest to the end of that toggle's children, and keeps the toggle collapsed. The narrow top and bottom edge bands remain before/after targets and present the ordinary insertion line instead. These feedback states are mutually exclusive and come from the same semantic target that is committed, so one gesture produces one fenced structural transaction and one Undo entry. After an append-to-children drop, focus remains on the visible toggle header rather than moving into a hidden child. In nested editors, only the deepest eligible editor owns the feedback and commit.
 
 ## Turn into
 

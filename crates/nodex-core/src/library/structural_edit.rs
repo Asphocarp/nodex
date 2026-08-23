@@ -6438,7 +6438,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_selection_delete_reverse_and_redo_preserve_page_identity() {
+    fn ordinary_subtree_move_across_owners_and_mixed_delete_history_preserve_identity() {
         const NOW: &str = "2026-08-21T16:00:00.000Z";
         const SOURCE_PAGE: &str = "018f0000-0000-7000-8000-000000000701";
         const SOURCE_DOCUMENT: &str = "document:structural-source";
@@ -6595,7 +6595,7 @@ mod tests {
                 },
             )
             .expect("create nested Database");
-        let (root_ids, source_head) = kernel
+        let (initial_root_ids, source_head) = kernel
             .readers()
             .read_default(|connection| {
                 let roots = connection
@@ -6614,12 +6614,152 @@ mod tests {
             })
             .expect("source authority");
         assert!(
-            root_ids.len() >= 2,
+            initial_root_ids.len() >= 2,
             "fixture has ordinary content and a subpage"
         );
-        assert!(root_ids.iter().any(|block_id| block_id == SUBPAGE));
-        assert!(root_ids.iter().any(|block_id| block_id == CANVAS));
-        assert!(root_ids.iter().any(|block_id| block_id == DATABASE));
+        assert!(initial_root_ids.iter().any(|block_id| block_id == SUBPAGE));
+        assert!(initial_root_ids.iter().any(|block_id| block_id == CANVAS));
+        assert!(initial_root_ids.iter().any(|block_id| block_id == DATABASE));
+
+        let ordinary_root_id = initial_root_ids
+            .iter()
+            .find(|block_id| ![SUBPAGE, CANVAS, DATABASE].contains(&block_id.as_str()))
+            .expect("ordinary root")
+            .clone();
+        let nested_replacement = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "structural:create-ordinary-subtree".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyStructuralEdit {
+                        command: Box::new(LibraryStructuralEditCommand::ReplaceSelection {
+                            selection: LibraryStructuralSelection {
+                                source_document_id: SOURCE_DOCUMENT.to_owned(),
+                                root_block_ids: vec![ordinary_root_id],
+                                source_head: nodex_core_contracts::library::LibraryDocumentHead {
+                                    document_id: SOURCE_DOCUMENT.to_owned(),
+                                    generation: source_head.0,
+                                    head_seq: source_head.1,
+                                },
+                            },
+                            replacement: LibraryStructuralReplacement::Blocks {
+                                blocks: vec![LibraryStructuralReplacementBlock {
+                                    block_type: "paragraph".to_owned(),
+                                    props: BTreeMap::new(),
+                                    content: Some(serde_json::json!([{
+                                        "type": "text",
+                                        "text": "1111",
+                                        "styles": {},
+                                    }])),
+                                    children: vec![LibraryStructuralReplacementBlock {
+                                        block_type: "paragraph".to_owned(),
+                                        props: BTreeMap::new(),
+                                        content: Some(serde_json::json!([{
+                                            "type": "text",
+                                            "text": "222",
+                                            "styles": {},
+                                        }])),
+                                        children: Vec::new(),
+                                    }],
+                                }],
+                            },
+                        }),
+                    },
+                },
+            )
+            .expect("create ordinary subtree before typed owners");
+        let nested_root_id = nested_replacement
+            .committed
+            .value
+            .structural_edit
+            .expect("ordinary subtree result")
+            .result_root_block_ids
+            .into_iter()
+            .next()
+            .expect("ordinary subtree root");
+        let source_head = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                        [SOURCE_DOCUMENT],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("source head before ordinary subtree move");
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "structural:move-ordinary-subtree-across-owners".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyStructuralEdit {
+                        command: Box::new(LibraryStructuralEditCommand::MoveSelection {
+                            selection: LibraryStructuralSelection {
+                                source_document_id: SOURCE_DOCUMENT.to_owned(),
+                                root_block_ids: vec![nested_root_id.clone()],
+                                source_head: nodex_core_contracts::library::LibraryDocumentHead {
+                                    document_id: SOURCE_DOCUMENT.to_owned(),
+                                    generation: source_head.0,
+                                    head_seq: source_head.1,
+                                },
+                            },
+                            target: LibraryStructuralTarget {
+                                target_document_id: SOURCE_DOCUMENT.to_owned(),
+                                parent_block_id: None,
+                                before_block_id: None,
+                                target_head: nodex_core_contracts::library::LibraryDocumentHead {
+                                    document_id: SOURCE_DOCUMENT.to_owned(),
+                                    generation: source_head.0,
+                                    head_seq: source_head.1,
+                                },
+                            },
+                        }),
+                    },
+                },
+            )
+            .expect("move ordinary subtree across typed owners");
+        let (root_ids, source_head, nested_child_count) = kernel
+            .readers()
+            .read_default(|connection| {
+                let roots = connection
+                    .prepare(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = ?1 AND parent_block_id IS NULL ORDER BY ordinal",
+                    )?
+                    .query_map([SOURCE_DOCUMENT], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                let head = connection.query_row(
+                    "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                    [SOURCE_DOCUMENT],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                let child_count = connection.query_row(
+                    "SELECT count(*) FROM document_block_index \
+                     WHERE document_id = ?1 AND parent_block_id = ?2",
+                    params![SOURCE_DOCUMENT, nested_root_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                Ok((roots, head, child_count))
+            })
+            .expect("source authority after ordinary subtree move");
+        assert_eq!(root_ids.last(), Some(&nested_root_id));
+        assert_eq!(nested_child_count, 1);
+        let nested_position = root_ids
+            .iter()
+            .position(|id| id == &nested_root_id)
+            .expect("moved ordinary subtree position");
+        for typed_owner_id in [SUBPAGE, CANVAS, DATABASE] {
+            assert!(
+                root_ids.iter().position(|id| id == typed_owner_id) < Some(nested_position),
+                "ordinary subtree moved after {typed_owner_id}",
+            );
+        }
 
         let rejected_turn = module
             .apply(

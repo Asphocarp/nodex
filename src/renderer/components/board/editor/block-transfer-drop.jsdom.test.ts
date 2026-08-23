@@ -1,6 +1,8 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import type { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import {
+  isSameDocumentBlockTargetInsideSelection,
+  isSameDocumentBlockMoveNoOp,
   resolveBlockTransferDocumentTarget,
   setupBlockTransferDocumentDrop,
   type BlockTransferDropEditor,
@@ -70,6 +72,7 @@ const structuralPreparation = {
     generation: 1,
     expectedHeadSeq: 0,
   }),
+  structuralTransfer: async () => undefined,
 };
 
 describe("Board Card Block transfer drop", () => {
@@ -96,6 +99,183 @@ describe("Board Card Block transfer drop", () => {
       }),
     ).toEqual({ parentBlockId: "parent" });
   });
+
+  test("recognizes same-Document subtree move no-ops without hiding real reorders", () => {
+    const editor: BlockTransferDropEditor = {
+      document: [
+        { id: "before" },
+        { id: "1111", children: [{ id: "222" }] },
+        { id: "middle" },
+        { id: "3333" },
+      ],
+    };
+
+    expect(
+      isSameDocumentBlockMoveNoOp(editor, ["1111"], {
+        beforeBlockId: "middle",
+      }),
+    ).toBe(true);
+    expect(
+      isSameDocumentBlockMoveNoOp(editor, ["1111"], {
+        parentBlockId: "1111",
+      }),
+    ).toBe(true);
+    expect(isSameDocumentBlockMoveNoOp(editor, ["1111"], {})).toBe(false);
+    expect(
+      isSameDocumentBlockTargetInsideSelection(editor, ["1111"], {
+        parentBlockId: "222",
+      }),
+    ).toBe(true);
+  });
+
+  test.each([
+    [false, "move"],
+    [true, "copy"],
+  ] as const)(
+    "uses one collapsed-toggle target for feedback and structural commit (alt=%s)",
+    async (altKey, mode) => {
+      const container = document.createElement("div");
+      container.className = "nfm-editor";
+      const outer = document.createElement("div");
+      outer.className = "bn-block-outer";
+      const block = document.createElement("div");
+      block.className = "bn-block";
+      block.dataset.id = "toggle";
+      const content = document.createElement("div");
+      content.className = "bn-block-content";
+      const wrapper = document.createElement("div");
+      wrapper.className = "bn-toggle-wrapper";
+      wrapper.dataset.showChildren = "false";
+      content.append(wrapper);
+      block.append(content);
+      outer.append(block);
+      container.append(outer);
+      document.body.append(container);
+
+      const headerRect = {
+        x: 40,
+        y: 100,
+        top: 100,
+        right: 360,
+        bottom: 140,
+        left: 40,
+        width: 320,
+        height: 40,
+        toJSON: () => undefined,
+      };
+      Object.defineProperties(content, { getBoundingClientRect: { value: () => headerRect } });
+      Object.defineProperties(block, { getBoundingClientRect: { value: () => headerRect } });
+      Object.defineProperties(container, {
+        getBoundingClientRect: {
+          value: () => ({ ...headerRect, x: 0, y: 0, top: 0, left: 0 }),
+        },
+      });
+      const previousElementsFromPoint = Object.getOwnPropertyDescriptor(
+        document,
+        "elementsFromPoint",
+      );
+      Object.defineProperty(document, "elementsFromPoint", {
+        configurable: true,
+        value: () => [wrapper],
+      });
+
+      const transfer = vi.fn();
+      const structuralTransfer = vi.fn(async () => undefined);
+      const cleanup = setupBlockTransferDocumentDrop(
+        container,
+        {
+          document: [
+            { id: "toggle", type: "toggleListItem", children: [] },
+            { id: "source", type: "paragraph" },
+            { id: "page", type: "page" },
+          ],
+        },
+        {
+          ...structuralPreparation,
+          surfaceId: "surface-page",
+          projectId: "project-a",
+          documentId: "document-target",
+          storeEpoch: "epoch-a",
+          hostPageId: "page-1",
+          ancestorPageIds: [],
+          createOperationId: () => "operation-toggle",
+          transfer,
+          structuralTransfer,
+          reportError: vi.fn(),
+        },
+      );
+      const values = new Map<string, string>();
+      const types: string[] = [];
+      const dataTransfer = {
+        types,
+        effectAllowed: "uninitialized",
+        dropEffect: "none",
+        setData: (type: string, value: string) => {
+          if (!types.includes(type)) types.push(type);
+          values.set(type, value);
+        },
+        getData: (type: string) => values.get(type) ?? "",
+      } as unknown as DataTransfer;
+      beginLocalBlockDragSession(
+        {
+          sourceSurfaceId: "surface-page",
+          projectId: "project-a",
+          storeEpoch: "epoch-a",
+          source: { kind: "page", pageId: "page-1" },
+          rootBlockIds: ["source", "page"],
+          displayHints: ["paragraph", "page"],
+        },
+        dataTransfer,
+      );
+      const dispatchDrag = (type: "dragover" | "drop", clientY: number) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, {
+          dataTransfer: { value: dataTransfer },
+          clientX: { value: 120 },
+          clientY: { value: clientY },
+          altKey: { value: altKey },
+        });
+        container.dispatchEvent(event);
+        return event;
+      };
+
+      try {
+        dispatchDrag("dragover", 120);
+        expect(container.hasAttribute("data-toggle-drop-active")).toBe(true);
+        expect(container.querySelectorAll("[data-toggle-drop-overlay]")).toHaveLength(1);
+        expect(container.querySelectorAll("[data-block-transfer-drop-indicator]")).toHaveLength(0);
+
+        dispatchDrag("dragover", 102);
+        expect(container.hasAttribute("data-toggle-drop-active")).toBe(false);
+        expect(container.querySelectorAll("[data-toggle-drop-overlay]")).toHaveLength(0);
+        expect(container.querySelectorAll("[data-block-transfer-drop-indicator]")).toHaveLength(1);
+
+        dispatchDrag("dragover", 120);
+        const drop = dispatchDrag("drop", 120);
+        await vi.waitFor(() => expect(structuralTransfer).toHaveBeenCalledOnce());
+        expect(drop.defaultPrevented).toBe(true);
+        expect(transfer).not.toHaveBeenCalled();
+        expect(structuralTransfer).toHaveBeenCalledWith({
+          mode,
+          rootBlockIds: ["source", "page"],
+          sourceHead: expect.objectContaining({ documentId: "document-target" }),
+          targetHead: expect.objectContaining({ documentId: "document-target" }),
+          target: { parentBlockId: "toggle", beforeBlockId: null },
+          preferredSelectionBlockId: "toggle",
+        });
+        expect(container.querySelectorAll("[data-toggle-drop-overlay]")).toHaveLength(0);
+      } finally {
+        cleanup();
+        endLocalBlockDragSession();
+        if (previousElementsFromPoint) {
+          Object.defineProperty(document, "elementsFromPoint", previousElementsFromPoint);
+        } else {
+          Reflect.deleteProperty(document, "elementsFromPoint");
+        }
+        container.remove();
+      }
+    },
+  );
 
   test("removes active drop feedback when the target is replaced", () => {
     const container = document.createElement("div");
@@ -220,43 +400,11 @@ describe("Board Card Block transfer drop", () => {
     cleanup();
   });
 
-  test("claims a managed editor drag before ProseMirror and submits one atomic transfer", async () => {
+  test("routes every managed editor drag through one structural transfer", async () => {
     const container = document.createElement("div");
     document.body.append(container);
-    const transfer = vi.fn(async (...args: [PublicBlockTransferIntent]) => {
-      void args;
-      return {
-        ok: true as const,
-        localCommit: {
-          status: "no_op" as const,
-          observed: { store_epoch: "epoch-a", commit_head: 2 },
-        },
-        value: {
-          version: 3 as const,
-          operationId: "operation-editor",
-          projectId: "project-a",
-          storeEpoch: "epoch-a",
-          mode: "copy" as const,
-          duplicate: false,
-          sourceRootBlockIds: ["block-source"],
-          resultRootBlockIds: ["block-copy"],
-          copiedBlockIds: { "block-source": "block-copy" },
-          transformationEvidence: [],
-          finalLocations: {
-            "block-copy": {
-              kind: "document" as const,
-              documentId: "document-target",
-            },
-          },
-          finalLocationRevisions: { "block-copy": 1 },
-          documentCommits: [],
-          affectedDatabaseBlockIds: [],
-          commitSeq: 2,
-          committedAt: "2026-07-13T00:00:00.000Z",
-          undoToken: null,
-        },
-      };
-    });
+    const transfer = vi.fn();
+    const structuralTransfer = vi.fn(async () => undefined);
     const prepareAndFence = vi.fn(async () => ({
       documentId: "document-target",
       storeEpoch: "epoch-a",
@@ -282,6 +430,7 @@ describe("Board Card Block transfer drop", () => {
         prepareSourceAndFence,
         createOperationId: () => "operation-editor",
         transfer,
+        structuralTransfer,
         reportError: vi.fn(),
       },
     );
@@ -318,13 +467,15 @@ describe("Board Card Block transfer drop", () => {
 
     try {
       container.dispatchEvent(drop);
-      await vi.waitFor(() => expect(transfer).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(structuralTransfer).toHaveBeenCalledOnce());
       expect(drop.defaultPrevented).toBe(true);
-      expect(transfer.mock.calls[0]?.[0]).toMatchObject({
+      expect(transfer).not.toHaveBeenCalled();
+      expect(structuralTransfer).toHaveBeenCalledWith({
         mode: "copy",
         rootBlockIds: ["block-source"],
-        source: { kind: "document", documentId: "document-source" },
-        target: { kind: "document", documentId: "document-target" },
+        sourceHead: expect.objectContaining({ documentId: "document-source" }),
+        targetHead: expect.objectContaining({ documentId: "document-target" }),
+        target: { parentBlockId: null, beforeBlockId: null },
       });
       expect(prepareAndFence).toHaveBeenCalledOnce();
       expect(prepareSourceAndFence).toHaveBeenCalledWith("surface-source");
@@ -407,6 +558,84 @@ describe("Board Card Block transfer drop", () => {
     }
   });
 
+  test("routes an ordinary subtree reorder across typed owners through structural authority", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const transfer = vi.fn();
+    const structuralTransfer = vi.fn(async () => undefined);
+    const cleanup = setupBlockTransferDocumentDrop(
+      container,
+      {
+        document: [
+          { id: "1111", children: [{ id: "222" }] },
+          { id: "subpage", children: [] },
+          { id: "3333" },
+        ],
+      },
+      {
+        ...structuralPreparation,
+        surfaceId: "surface-page",
+        projectId: "project-a",
+        documentId: "document-page",
+        storeEpoch: "epoch-a",
+        hostPageId: "page-1",
+        ancestorPageIds: [],
+        createOperationId: () => "operation-subtree",
+        transfer,
+        structuralTransfer,
+        reportError: vi.fn(),
+      },
+    );
+    const values = new Map<string, string>();
+    const types: string[] = [];
+    const dataTransfer = {
+      types,
+      effectAllowed: "uninitialized",
+      dropEffect: "none",
+      setData: (type: string, value: string) => {
+        if (!types.includes(type)) types.push(type);
+        values.set(type, value);
+      },
+      getData: (type: string) => values.get(type) ?? "",
+    } as unknown as DataTransfer;
+    beginLocalBlockDragSession(
+      {
+        sourceSurfaceId: "surface-page",
+        projectId: "project-a",
+        storeEpoch: "epoch-a",
+        source: { kind: "page", pageId: "page-1" },
+        rootBlockIds: ["1111"],
+        displayHints: ["paragraph"],
+      },
+      dataTransfer,
+    );
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperties(drop, {
+      dataTransfer: { value: dataTransfer },
+      clientX: { value: 0 },
+      clientY: { value: 0 },
+      altKey: { value: false },
+    });
+
+    try {
+      container.dispatchEvent(drop);
+      await vi.waitFor(() => expect(structuralTransfer).toHaveBeenCalledOnce());
+      expect(drop.defaultPrevented).toBe(true);
+      expect(transfer).not.toHaveBeenCalled();
+      expect(structuralTransfer).toHaveBeenCalledWith({
+        mode: "move",
+        rootBlockIds: ["1111"],
+        sourceHead: expect.objectContaining({ documentId: "document-target" }),
+        targetHead: expect.objectContaining({ documentId: "document-target" }),
+        target: { parentBlockId: null, beforeBlockId: null },
+      });
+    } finally {
+      cleanup();
+      endLocalBlockDragSession();
+      container.remove();
+    }
+  });
+
   test("routes a nested editor drop to the deepest semantic surface", async () => {
     const outer = document.createElement("div");
     const inner = document.createElement("div");
@@ -418,19 +647,10 @@ describe("Board Card Block transfer drop", () => {
     outer.append(outerTarget, inner);
     document.body.append(outer);
     const outerTransfer = vi.fn();
+    const outerStructuralTransfer = vi.fn(async () => undefined);
     const clearOuterDropCursor = vi.fn();
-    const innerTransfer = vi.fn(async (...args: [PublicBlockTransferIntent]) => {
-      void args;
-      return {
-        ok: false as const,
-        error: {
-          code: "unknown" as const,
-          message: "expected test terminal result",
-          retryable: false,
-          reloadRequired: false,
-        },
-      };
-    });
+    const innerTransfer = vi.fn();
+    const innerStructuralTransfer = vi.fn(async () => undefined);
     const outerCleanup = setupBlockTransferDocumentDrop(
       outer,
       {
@@ -446,6 +666,7 @@ describe("Board Card Block transfer drop", () => {
         ancestorPageIds: [],
         createOperationId: () => "operation-outer",
         transfer: outerTransfer,
+        structuralTransfer: outerStructuralTransfer,
         reportError: vi.fn(),
       },
     );
@@ -461,6 +682,7 @@ describe("Board Card Block transfer drop", () => {
         ancestorPageIds: [],
         createOperationId: () => "operation-inner",
         transfer: innerTransfer,
+        structuralTransfer: innerStructuralTransfer,
         reportError: vi.fn(),
       },
     );
@@ -511,11 +733,17 @@ describe("Board Card Block transfer drop", () => {
       expect(document.querySelectorAll("[data-block-transfer-drop-indicator]")).toHaveLength(1);
 
       const drop = dispatchDrag("drop", target);
-      await vi.waitFor(() => expect(innerTransfer).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(innerStructuralTransfer).toHaveBeenCalledOnce());
       expect(drop.defaultPrevented).toBe(true);
       expect(outerTransfer).not.toHaveBeenCalled();
-      expect(innerTransfer.mock.calls[0]?.[0]).toMatchObject({
-        target: { kind: "document", documentId: "document-inner" },
+      expect(outerStructuralTransfer).not.toHaveBeenCalled();
+      expect(innerTransfer).not.toHaveBeenCalled();
+      expect(innerStructuralTransfer).toHaveBeenCalledWith({
+        mode: "move",
+        rootBlockIds: ["block-source"],
+        sourceHead: expect.objectContaining({ documentId: "document-source" }),
+        targetHead: expect.objectContaining({ documentId: "document-target" }),
+        target: { parentBlockId: null, beforeBlockId: null },
       });
     } finally {
       innerCleanup();
