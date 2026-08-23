@@ -8,7 +8,6 @@ export interface TestCodexPostResumeGoalRuntimeOptions {
   readonly load: (threadId: string) => Promise<CodexPostResumeGoalLoadResult>;
   readonly commit: CodexPostResumeGoalRuntimeOptions["commit"];
   readonly requestContinuation: CodexPostResumeGoalRuntimeOptions["requestContinuation"];
-  readonly scheduleRemainingTurns: CodexPostResumeGoalRuntimeOptions["scheduleRemainingTurns"];
 }
 
 /** Mutable vertical harness used only by the legacy CodexService test suite. */
@@ -41,7 +40,6 @@ export class TestCodexPostResumeGoalRuntime implements CodexPostResumeGoalRuntim
             this.options.requestContinuation(threadId);
           }
         }
-        this.options.scheduleRemainingTurns(threadId);
       })
       .finally(() => {
         this.activeRequests.delete(threadId);

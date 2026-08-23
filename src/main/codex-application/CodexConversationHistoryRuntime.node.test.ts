@@ -1,158 +1,153 @@
 import { assert, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as Scope from "effect/Scope";
+import type { Thread, Turn } from "@nodex/codex-app-server-protocol/v2";
+import { createCodexCanonicalHydratedConversationState } from "../../shared/codex-conversation-state/codex-conversation-state";
+import type { CodexConversationSnapshot } from "../../shared/types";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
+import { make } from "./CodexConversationHistoryRuntime";
 import {
-  CodexConversationHistoryError,
-  make,
-  type CodexConversationHistoryRuntimeOptions,
-} from "./CodexConversationHistoryRuntime";
+  CodexRendererConversationRegistry,
+  makeCodexRendererConversationRegistryState,
+} from "./CodexRendererConversationRegistry";
+import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
-const options = (
-  overrides: Partial<CodexConversationHistoryRuntimeOptions> = {},
-): CodexConversationHistoryRuntimeOptions => ({
-  shouldLoadRemaining: () => true,
-  load: () => Effect.void,
-  snapshot: () => Effect.succeed(null),
-  ...overrides,
+const historyTurn = (id: string): Turn => ({
+  id,
+  items: [],
+  itemsView: "full",
+  status: "completed",
+  error: null,
+  startedAt: null,
+  completedAt: null,
+  durationMs: null,
 });
 
-it.effect("shares one physical history load for concurrent callers", () =>
+const historyThread = (turns: Turn[]): Thread => ({
+  id: "thread-history",
+  extra: null,
+  sessionId: "session-history",
+  forkedFromId: null,
+  parentThreadId: null,
+  preview: "",
+  ephemeral: false,
+  section: null,
+  sectionEnteredAt: null,
+  historyMode: "paginated",
+  modelProvider: "openai",
+  createdAt: 1,
+  updatedAt: 1,
+  recencyAt: 1,
+  status: { type: "idle" },
+  path: null,
+  cwd: "/workspace",
+  cliVersion: "test",
+  source: "appServer",
+  canAcceptDirectInput: true,
+  threadSource: null,
+  agentNickname: null,
+  agentRole: null,
+  gitInfo: null,
+  name: null,
+  turns,
+});
+
+it.effect("shares one page load and prepends it onto the latest canonical revision", () =>
   Effect.gen(function* () {
+    const currentTurn = historyTurn("turn-current");
+    const olderTurn = historyTurn("turn-older");
+    const liveTurn = historyTurn("turn-live");
+    const hydration: Parameters<typeof createCodexCanonicalHydratedConversationState>[1] = {
+      model: "gpt-test",
+      reasoningEffort: "high",
+      cwd: "/workspace",
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      activePermissionProfile: null,
+      runtimeWorkspaceRoots: ["/workspace"],
+    };
+    const canonical = createCodexCanonicalHydratedConversationState(
+      historyThread([currentTurn]),
+      hydration,
+    );
+    const aggregates = makeCodexConversationAggregateRegistry();
+    const aggregate = aggregates.acquire("thread-history");
+    aggregate.acceptCanonicalState(canonical);
+    const pagination = {
+      olderCursor: "cursor-older",
+      backwardsCursor: null,
+      oldestLoadedTurnId: "turn-current",
+      isLoadingOlder: false,
+      hasLoadedOldest: false,
+      loadedTurnCount: 1,
+      itemsView: "full" as const,
+    };
+    aggregate.installSnapshot({
+      threadId: "thread-history",
+      canonicalState: canonical,
+      turns: [
+        {
+          threadId: "thread-history",
+          turnId: "turn-current",
+          status: "completed",
+          itemIds: [],
+          items: [],
+        },
+      ],
+      turnPagination: pagination,
+    } as unknown as CodexConversationSnapshot);
+    aggregate.initializeHistory(pagination, 1);
+    const conversations = ConversationRuntimeMap.of({
+      conversation: aggregates.acquire,
+      currentConversation: aggregates.current,
+    } as unknown as ConversationRuntimeMap["Service"]);
     const started = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
-    let loads = 0;
-    let snapshots = 0;
-    const runtime = yield* make(
-      options({
-        load: () =>
-          Effect.sync(() => {
-            loads += 1;
-          }).pipe(
-            Effect.andThen(Deferred.succeed(started, undefined)),
-            Effect.andThen(Deferred.await(release)),
-          ),
-        snapshot: () =>
-          Effect.sync(() => {
-            snapshots += 1;
-            return null;
-          }),
-      }),
+    let requests = 0;
+    const gateway = CodexGateway.of({
+      requestForThread: () => {
+        requests += 1;
+        return Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Deferred.await(release)),
+          Effect.as({ data: [olderTurn], nextCursor: null, backwardsCursor: null }),
+        );
+      },
+      requestRawOnHost: () => Effect.die("unused"),
+    } as unknown as CodexGateway["Service"]);
+    const runtime = yield* make.pipe(
+      Effect.provideService(CodexGateway, gateway),
+      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(
+        CodexRendererConversationRegistry,
+        makeCodexRendererConversationRegistryState(),
+      ),
     );
-    const first = yield* Effect.forkChild(runtime.loadPage("thread-1"));
+
+    const first = yield* Effect.forkChild(runtime.loadPage("thread-history"));
     yield* Deferred.await(started);
-    const second = yield* Effect.forkChild(runtime.loadPage("thread-1"));
+    const second = yield* Effect.forkChild(runtime.loadPage("thread-history"));
     yield* Effect.yieldNow;
-    assert.strictEqual(loads, 1);
+    assert.strictEqual(requests, 1);
+    aggregate.acceptCanonicalState(
+      createCodexCanonicalHydratedConversationState(
+        historyThread([currentTurn, liveTurn]),
+        hydration,
+      ),
+    );
     yield* Deferred.succeed(release, undefined);
-    const results = yield* Effect.all([Fiber.join(first), Fiber.join(second)]);
-    assert.deepEqual(results, [null, null]);
-    assert.strictEqual(snapshots, 2);
-  }),
-);
+    const snapshots = yield* Effect.all([Fiber.join(first), Fiber.join(second)]);
 
-it.effect("escalates a joined page load to complete history after the page settles", () =>
-  Effect.gen(function* () {
-    const pageStarted = yield* Deferred.make<void>();
-    const releasePage = yield* Deferred.make<void>();
-    const modes: boolean[] = [];
-    const runtime = yield* make(
-      options({
-        load: ({ loadCompleteHistory }) =>
-          Effect.sync(() => {
-            modes.push(loadCompleteHistory);
-          }).pipe(
-            Effect.andThen(
-              loadCompleteHistory
-                ? Effect.void
-                : Deferred.succeed(pageStarted, undefined).pipe(
-                    Effect.andThen(Deferred.await(releasePage)),
-                  ),
-            ),
-          ),
-      }),
-    );
-    const page = yield* Effect.forkChild(runtime.loadPage("thread-1"));
-    yield* Deferred.await(pageStarted);
-    const complete = yield* Effect.forkChild(runtime.loadComplete("thread-1", false));
-    yield* Effect.yieldNow;
-    assert.deepEqual(modes, [false]);
-    yield* Deferred.succeed(releasePage, undefined);
-    yield* Fiber.join(page);
-    yield* Fiber.join(complete);
-    assert.deepEqual(modes, [false, true]);
-  }),
-);
-
-it.effect("caller interruption stops waiting without cancelling the shared physical load", () =>
-  Effect.gen(function* () {
-    const started = yield* Deferred.make<void>();
-    const release = yield* Deferred.make<void>();
-    let physicalInterrupted = false;
-    const runtime = yield* make(
-      options({
-        load: () =>
-          Deferred.succeed(started, undefined).pipe(
-            Effect.andThen(Deferred.await(release)),
-            Effect.onInterrupt(() =>
-              Effect.sync(() => {
-                physicalInterrupted = true;
-              }),
-            ),
-          ),
-      }),
-    );
-    const caller = yield* Effect.forkChild(runtime.loadPage("thread-1"));
-    yield* Deferred.await(started);
-    yield* Fiber.interrupt(caller);
-    assert.isFalse(physicalInterrupted);
-    const joining = yield* Effect.forkChild(runtime.loadPage("thread-1"));
-    yield* Deferred.succeed(release, undefined);
-    yield* Fiber.join(joining);
-  }),
-);
-
-it.effect("background remaining-history requests are supervised and Scope-owned", () =>
-  Effect.gen(function* () {
-    const ownerScope = yield* Scope.make();
-    const started = yield* Deferred.make<void>();
-    const interrupted = yield* Deferred.make<void>();
-    let attempts = 0;
-    const runtime = yield* make(
-      options({
-        load: () =>
-          Effect.sync(() => {
-            attempts += 1;
-          }).pipe(
-            Effect.andThen(Deferred.succeed(started, undefined)),
-            Effect.andThen(Effect.never),
-            Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
-          ),
-      }),
-    ).pipe(Effect.provideService(Scope.Scope, ownerScope));
-    runtime.requestRemaining("thread-1");
-    yield* Deferred.await(started);
-    assert.strictEqual(attempts, 1);
-    yield* Scope.close(ownerScope, Exit.void);
-    yield* Deferred.await(interrupted);
-  }),
-);
-
-it.effect("surfaces explicit history failures without poisoning the next load", () =>
-  Effect.gen(function* () {
-    let shouldFail = true;
-    const runtime = yield* make(
-      options({
-        load: () =>
-          shouldFail
-            ? Effect.fail(new CodexConversationHistoryError({ cause: new Error("load failed") }))
-            : Effect.void,
-      }),
-    );
-    yield* runtime.loadPage("thread-1").pipe(Effect.flip);
-    shouldFail = false;
-    yield* runtime.loadPage("thread-1");
+    for (const snapshot of snapshots) {
+      assert.deepEqual(
+        snapshot?.turns.map((turn) => turn.turnId),
+        ["turn-older", "turn-current", "turn-live"],
+      );
+      assert.isTrue(snapshot?.turnPagination?.hasLoadedOldest);
+    }
+    assert.strictEqual(aggregate.readCanonicalState()?.turns[0]?.protocol.id, "turn-older");
+    assert.strictEqual(aggregate.readCanonicalState()?.turns.at(-1)?.protocol.id, "turn-live");
   }),
 );

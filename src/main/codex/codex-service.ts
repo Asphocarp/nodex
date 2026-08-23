@@ -304,7 +304,6 @@ import {
   createCodexCanonicalWorkspacePermissionContext,
   createCodexCanonicalHydratedConversationState,
   isCodexCanonicalProtocolItem,
-  mergeCodexCanonicalOlderTurnStates,
   mergeCodexCanonicalTurnStates,
   overlayCodexCanonicalTurnHydration,
   resolveCodexCanonicalHydratedCwd,
@@ -597,7 +596,6 @@ import {
 } from "../codex-application/CodexThreadCatalogProjection";
 import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
-import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
 import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
 import type { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
 import type { CodexQueuedFollowUpRuntimePromiseAdapter } from "../codex-application/CodexQueuedFollowUpRuntimePromiseAdapter";
@@ -1052,7 +1050,6 @@ type CodexServiceOptions = {
   threadCatalog: CodexThreadCatalogPromiseAdapter;
   conversationCommands: ConversationCommandsPromiseAdapter;
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
-  conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   subagentCatalog: CodexSubagentCatalog["Service"];
   queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
@@ -1119,15 +1116,6 @@ interface CodexPersistentForkResult extends CodexPersistentForkMaterialization {
   readonly forkResponse: ThreadForkResponse;
   readonly resolvedCwd: string | null;
   readonly threadId: string;
-}
-
-interface CodexOlderTurnHydrationContext {
-  readonly model: string;
-  readonly reasoningEffort: NonNullable<TurnStartParams["effort"]> | null;
-  readonly cwd: string;
-  readonly approvalPolicy: NonNullable<TurnStartParams["approvalPolicy"]>;
-  readonly approvalsReviewer: NonNullable<TurnStartParams["approvalsReviewer"]>;
-  readonly sandboxPolicy: NonNullable<TurnStartParams["sandboxPolicy"]>;
 }
 
 interface SideChatDetailInput {
@@ -2042,7 +2030,6 @@ export class CodexService {
   private readonly threadCatalog: CodexThreadCatalogPromiseAdapter;
   private readonly conversationCommands: ConversationCommandsPromiseAdapter;
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
-  private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   private readonly subagentCatalog: CodexSubagentCatalog["Service"];
   private readonly queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
@@ -2151,7 +2138,6 @@ export class CodexService {
     this.threadCatalog = options.threadCatalog;
     this.conversationCommands = options.conversationCommands;
     this.postResumeGoals = options.postResumeGoals;
-    this.conversationHistory = options.conversationHistory;
     this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
     this.subagentCatalog = options.subagentCatalog;
     this.queuedFollowUps = options.queuedFollowUps;
@@ -2534,10 +2520,7 @@ export class CodexService {
   async releaseConversationResumeBufferForModule(threadId: string): Promise<boolean> {
     await this.releaseConversationResumeBufferCore(threadId);
     const revision = this.readConversationAggregate(threadId)?.revision ?? 0;
-    if (this.postResumeGoals.release(threadId, revision)) return true;
-
-    this.scheduleRemainingThreadTurnsLoad(threadId);
-    return true;
+    return this.postResumeGoals.release(threadId, revision);
   }
 
   /** Effect Module adapter operation; replays one request after its lifecycle fence opens. */
@@ -4198,97 +4181,6 @@ export class CodexService {
     return this.acceptCanonicalConversationState(record.threadId, nextCanonicalState);
   }
 
-  private mergeCanonicalOlderTurnPage(
-    threadId: string,
-    rawTurns: readonly Turn[],
-    oldestLoadedTurnId: string | null,
-    pageHydrationContext: CodexOlderTurnHydrationContext,
-  ): CodexCanonicalConversationState {
-    const record = this.ensureConversationRecord(threadId);
-    const current = this.readCanonicalConversationState(record.threadId);
-    const hydrationContext = current?.sidecar.hydrationContext ?? null;
-    if (!current || !hydrationContext) {
-      throw new Error(
-        `Cannot merge canonical history for '${threadId}' without complete hydration context`,
-      );
-    }
-
-    const pageState = createCodexCanonicalHydratedConversationState(
-      {
-        ...current.protocol,
-        turns: [...rawTurns],
-      },
-      {
-        model: pageHydrationContext.model,
-        reasoningEffort: pageHydrationContext.reasoningEffort,
-        cwd: pageHydrationContext.cwd,
-        approvalPolicy: pageHydrationContext.approvalPolicy,
-        approvalsReviewer: pageHydrationContext.approvalsReviewer,
-        sandboxPolicy: pageHydrationContext.sandboxPolicy,
-        activePermissionProfile: null,
-        runtimeWorkspaceRoots: [],
-        pendingRequests: current.requests,
-        hasUnreadTurn: this.conversationHasUnreadTurn(record.threadId),
-      },
-    );
-    const nextCanonicalState: CodexCanonicalConversationState = {
-      ...current,
-      turns: mergeCodexCanonicalOlderTurnStates({
-        olderTurns: pageState.turns,
-        currentTurns: current.turns,
-        oldestLoadedTurnId,
-      }),
-      requests: [...current.requests],
-      sidecar: {
-        ...current.sidecar,
-        hasUnreadTurn: this.conversationHasUnreadTurn(record.threadId),
-      },
-    };
-    return this.acceptCanonicalConversationState(record.threadId, nextCanonicalState);
-  }
-
-  /** Exact `GQe`: snapshot page hydration settings before the network request starts. */
-  private resolveCanonicalOlderTurnHydrationContext(
-    threadId: string,
-  ): CodexOlderTurnHydrationContext {
-    const record = this.ensureConversationRecord(threadId);
-    const canonical = this.readCanonicalConversationState(record.threadId);
-    const hydrationContext = canonical?.sidecar.hydrationContext ?? null;
-    if (!canonical || !hydrationContext) {
-      throw new Error(
-        `Cannot load canonical history for '${threadId}' without complete hydration context`,
-      );
-    }
-
-    const latestParams = canonical.turns.at(-1)?.sidecar.params ?? null;
-    const latestSettings = hydrationContext.latestThreadSettings;
-    const cwd = latestSettings?.cwd ?? hydrationContext.cwd ?? latestParams?.cwd ?? "/";
-    const defaultPermissions = createCodexCanonicalWorkspacePermissionContext([cwd]);
-    const currentPermissions = hydrationContext.currentPermissions;
-    return {
-      model: record.latestThreadSettings?.model ?? hydrationContext.latestModel,
-      reasoningEffort: record.latestThreadSettings
-        ? record.latestThreadSettings.reasoningEffort
-        : hydrationContext.latestReasoningEffort,
-      cwd,
-      approvalPolicy:
-        latestSettings?.approvalPolicy ??
-        latestParams?.approvalPolicy ??
-        currentPermissions.approvalPolicy ??
-        defaultPermissions.approvalPolicy,
-      approvalsReviewer:
-        latestSettings?.approvalsReviewer ??
-        latestParams?.approvalsReviewer ??
-        currentPermissions.approvalsReviewer ??
-        defaultPermissions.approvalsReviewer,
-      sandboxPolicy:
-        latestSettings?.sandboxPolicy ??
-        latestParams?.sandboxPolicy ??
-        currentPermissions.sandboxPolicy ??
-        defaultPermissions.sandboxPolicy,
-    };
-  }
-
   private getThreadLinkSafely(threadId: string) {
     const detail = this.getMaybeConversationRecord(threadId)?.detail;
     if (detail) return detail;
@@ -4485,7 +4377,6 @@ export class CodexService {
     this.manualCompaction.clear(threadId);
     this.activeGoalContinuation.clear(threadId);
     this.postResumeGoals.clear(threadId);
-    this.conversationHistory.clear(threadId);
     this.conversationResume.clear(threadId);
     this.conversationEventBuffer.clear(
       threadId,
@@ -12343,7 +12234,6 @@ export class CodexService {
       throw new Error(`Thread '${sourceThreadId}' could not be loaded for turn-scoped fork`);
     }
     if (parsed.turnId) {
-      await this.conversationHistory.loadComplete(sourceThreadId, false);
       sourceDetail = this.serializeThreadDetail(sourceThreadId) ?? sourceDetail;
     }
     const sourceTurn =
@@ -13354,238 +13244,6 @@ export class CodexService {
     });
   }
 
-  /** Effect Module adapter operation; callers use conversationHistory instead. */
-  async loadConversationHistory(input: {
-    readonly threadId: string;
-    readonly loadCompleteHistory: boolean;
-    readonly broadcastResult: boolean;
-  }): Promise<void> {
-    const { threadId, loadCompleteHistory, broadcastResult } = input;
-    for (;;) {
-      const record = this.getMaybeConversationRecord(threadId);
-      const pagination = this.readConversationTurnPagination(threadId);
-      if (
-        !record ||
-        pagination.isLoadingOlder ||
-        pagination.olderCursor === null ||
-        pagination.hasLoadedOldest
-      ) {
-        return;
-      }
-      const pageHydrationContext = this.resolveCanonicalOlderTurnHydrationContext(threadId);
-      const status = loadCompleteHistory
-        ? await this.loadRemainingThreadTurns(threadId, pageHydrationContext, { broadcastResult })
-        : await this.loadOlderThreadTurnsPage(
-            threadId,
-            {
-              broadcastLoading: broadcastResult,
-              broadcastResult,
-            },
-            pageHydrationContext,
-          );
-      if (status === "loaded") return;
-    }
-  }
-
-  private async loadOlderThreadTurnsPage(
-    threadId: string,
-    options: { broadcastLoading: boolean; broadcastResult: boolean },
-    pageHydrationContext: CodexOlderTurnHydrationContext,
-  ): Promise<"loaded" | "stale"> {
-    await this.ensureClientReady();
-    const detail = this.ensureConversationDetail(threadId);
-    if (!detail) return "loaded";
-
-    const aggregate = this.conversationAggregate(threadId);
-    const pagination = aggregate.readTurnPagination();
-    if (pagination.hasLoadedOldest || pagination.olderCursor === null) {
-      aggregate.initializeHistory(
-        this.buildCompleteTurnPagination(detail.turns.length),
-        detail.turns.length,
-      );
-      const snapshot = this.serializeConversationSnapshot(threadId);
-      if (snapshot && options.broadcastResult) {
-        this.storeDormantConversationSnapshot(threadId, snapshot, "explicit-resync");
-      }
-      return "loaded";
-    }
-
-    const fence = aggregate.beginHistoryLoad(detail.turns.length);
-    if (!fence) return "stale";
-    const requestedCursor = fence.olderCursor;
-    const requestedOldestLoadedTurnId = fence.oldestLoadedTurnId;
-    if (options.broadcastLoading) {
-      const loadingSnapshot = this.serializeConversationSnapshot(threadId);
-      if (loadingSnapshot) {
-        this.storeDormantConversationSnapshot(threadId, loadingSnapshot, "explicit-resync");
-      }
-    }
-
-    try {
-      const page = await this.client.request<"thread/turns/list", ThreadTurnsListResponse>(
-        "thread/turns/list",
-        {
-          threadId,
-          cursor: requestedCursor,
-          limit: THREAD_TURNS_PAGE_SIZE,
-          sortDirection: "desc",
-          itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
-        },
-      );
-      const currentDetail = this.ensureConversationDetail(threadId);
-      if (!currentDetail) {
-        aggregate.failHistoryLoad(fence);
-        return "loaded";
-      }
-      if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
-
-      if (page.nextCursor === requestedCursor) {
-        throw new Error("Codex older-turn pagination did not advance its cursor");
-      }
-
-      const rawPageTurns = [...page.data].reverse();
-      const canonicalState = this.mergeCanonicalOlderTurnPage(
-        threadId,
-        rawPageTurns,
-        requestedOldestLoadedTurnId,
-        pageHydrationContext,
-      );
-      const mergedDetail = this.buildThreadDetailFromCanonicalState(canonicalState);
-      if (!mergedDetail) {
-        throw new Error(`Canonical history projection failed for '${threadId}'`);
-      }
-      this.setConversationRecordDetail(mergedDetail, { preserveTurnPagination: true });
-      const nextPagination = this.buildTurnPaginationFromPage(
-        page,
-        mergedDetail.turns.length,
-        rawPageTurns[0]?.id ?? requestedOldestLoadedTurnId,
-      );
-      if (!aggregate.commitHistoryLoad(fence, nextPagination, mergedDetail.turns.length)) {
-        return "stale";
-      }
-      await this.persistThreadDetailSummary(mergedDetail);
-      const snapshot = this.serializeConversationSnapshot(threadId);
-      if (snapshot && options.broadcastResult) {
-        this.storeDormantConversationSnapshot(threadId, snapshot, "explicit-resync");
-      }
-      return "loaded";
-    } catch (error) {
-      if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
-      this.logger.warn("Failed to load older Codex thread turns", {
-        threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      aggregate.failHistoryLoad(fence);
-      throw error;
-    }
-  }
-
-  scheduleRemainingThreadTurnsLoad(threadId: string): void {
-    this.conversationHistory.requestRemaining(threadId);
-  }
-
-  shouldLoadRemainingThreadTurns(threadId: string): boolean {
-    const record = this.getMaybeConversationRecord(threadId);
-    if (!record) return false;
-    const pagination = this.readConversationTurnPagination(threadId);
-    return !(pagination.olderCursor === null || pagination.hasLoadedOldest === true);
-  }
-
-  private async loadRemainingThreadTurns(
-    threadId: string,
-    pageHydrationContext: CodexOlderTurnHydrationContext,
-    options: { broadcastResult: boolean },
-  ): Promise<"loaded" | "stale"> {
-    await this.ensureClientReady();
-    const detail = this.ensureConversationDetail(threadId);
-    if (!detail) return "loaded";
-
-    const aggregate = this.conversationAggregate(threadId);
-    const pagination = aggregate.readTurnPagination();
-    const requestedCursor = pagination.olderCursor;
-    if (pagination.hasLoadedOldest || requestedCursor === null) {
-      aggregate.initializeHistory(
-        this.buildCompleteTurnPagination(detail.turns.length),
-        detail.turns.length,
-      );
-      return "loaded";
-    }
-    const fence = aggregate.beginHistoryLoad(detail.turns.length);
-    if (!fence) return "stale";
-    const requestedOldestLoadedTurnId = fence.oldestLoadedTurnId;
-
-    const hydratedPages: Turn[][] = [];
-    let cursor: string | null = requestedCursor;
-    let lastPage: ThreadTurnsListResponse | null = null;
-    try {
-      while (cursor !== null) {
-        const page: ThreadTurnsListResponse = await this.client.request<
-          "thread/turns/list",
-          ThreadTurnsListResponse
-        >("thread/turns/list", {
-          threadId,
-          cursor,
-          limit: THREAD_TURNS_PAGE_SIZE,
-          sortDirection: "desc",
-          itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
-        });
-        if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
-        if (page.nextCursor === cursor) {
-          throw new Error("Codex older-turn pagination did not advance its cursor");
-        }
-        hydratedPages.push([...page.data].reverse());
-        lastPage = page;
-        cursor = page.nextCursor;
-      }
-
-      const currentDetail = this.ensureConversationDetail(threadId);
-      if (!currentDetail || !lastPage) {
-        aggregate.failHistoryLoad(fence);
-        return "loaded";
-      }
-      if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
-      const rawTurns = hydratedPages.reverse().flat();
-      const canonicalState = this.mergeCanonicalOlderTurnPage(
-        threadId,
-        rawTurns,
-        requestedOldestLoadedTurnId,
-        pageHydrationContext,
-      );
-      const combinedPage: ThreadTurnsListResponse = {
-        data: [...rawTurns].reverse(),
-        nextCursor: null,
-        backwardsCursor: lastPage.backwardsCursor,
-      };
-      const mergedDetail = this.buildThreadDetailFromCanonicalState(canonicalState);
-      if (!mergedDetail) {
-        throw new Error(`Canonical history projection failed for '${threadId}'`);
-      }
-      this.setConversationRecordDetail(mergedDetail, { preserveTurnPagination: true });
-      const nextPagination = this.buildTurnPaginationFromPage(
-        combinedPage,
-        mergedDetail.turns.length,
-        rawTurns[0]?.id ?? requestedOldestLoadedTurnId,
-      );
-      if (!aggregate.commitHistoryLoad(fence, nextPagination, mergedDetail.turns.length)) {
-        return "stale";
-      }
-      await this.persistThreadDetailSummary(mergedDetail);
-      const snapshot = this.serializeConversationSnapshot(threadId);
-      if (snapshot && options.broadcastResult) {
-        this.storeDormantConversationSnapshot(threadId, snapshot, "explicit-resync");
-      }
-      return "loaded";
-    } catch (error) {
-      if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
-      this.logger.warn("Failed to load older Codex thread turns", {
-        threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      aggregate.failHistoryLoad(fence);
-      throw error;
-    }
-  }
-
   private resolveLatestEditableTurn(detail: CodexThreadDetail): CodexTurnSummary | null {
     const latestTurn = detail.turns.at(-1) ?? null;
     if (!latestTurn || latestTurn.status === "inProgress") return null;
@@ -14105,7 +13763,6 @@ export class CodexService {
   ): Promise<CodexThreadActionResult> {
     await this.ensureClientReady();
 
-    await this.conversationHistory.loadComplete(threadId, false);
     const currentDetail =
       this.serializeThreadDetail(threadId) ?? (await this.readThread(threadId, true));
     if (!currentDetail) {
@@ -17059,7 +16716,6 @@ export class CodexService {
     let source = await this.resolveDynamicThreadDetail(entry.sourceConversationId);
     let trailingTurnCount = 0;
     if (entry.targetTurnId) {
-      await this.conversationHistory.loadComplete(entry.sourceConversationId, false);
       source = this.serializeThreadDetail(entry.sourceConversationId) ?? source;
       const sourceTurnIndex = source.turns.findIndex((turn) => turn.turnId === entry.targetTurnId);
       if (sourceTurnIndex < 0) {

@@ -6,6 +6,7 @@ import * as Fiber from "effect/Fiber";
 import * as FiberMap from "effect/FiberMap";
 import * as Option from "effect/Option";
 import type * as Scope from "effect/Scope";
+import { CodexConversationHistoryRuntime } from "./CodexConversationHistoryRuntime";
 
 export interface CodexPostResumeGoalLoadResult {
   readonly ok: boolean;
@@ -23,7 +24,6 @@ export interface CodexPostResumeGoalRuntimeOptions {
   /** Atomically checks the conversation revision and applies a valid hydration. */
   readonly commit: (threadId: string, expectedRevision: number, goal: ThreadGoal | null) => boolean;
   readonly requestContinuation: (threadId: string) => void;
-  readonly scheduleRemainingTurns: (threadId: string) => void;
 }
 
 export class CodexPostResumeGoalRuntime extends Context.Service<
@@ -39,8 +39,13 @@ export class CodexPostResumeGoalRuntime extends Context.Service<
 
 export const make = (
   options: CodexPostResumeGoalRuntimeOptions,
-): Effect.Effect<CodexPostResumeGoalRuntime["Service"], never, Scope.Scope> =>
+): Effect.Effect<
+  CodexPostResumeGoalRuntime["Service"],
+  never,
+  CodexConversationHistoryRuntime | Scope.Scope
+> =>
   Effect.gen(function* () {
+    const conversationHistory = yield* CodexConversationHistoryRuntime;
     const loads = yield* FiberMap.make<string, CodexPostResumeGoalLoadResult, never>();
     const requests = yield* FiberMap.make<string, void, never>();
     const runLoad = yield* FiberMap.runtime(loads)();
@@ -95,7 +100,7 @@ export const make = (
               options.requestContinuation(threadId);
             }
           }
-          options.scheduleRemainingTurns(threadId);
+          conversationHistory.requestRemaining(threadId);
           if (latestRequest.get(threadId)?.generation !== requested.generation) continue;
           latestRequest.delete(threadId);
           return;

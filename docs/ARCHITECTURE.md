@@ -667,8 +667,9 @@ Post-resume Thread-goal hydration is a separate Main-scoped lifecycle because it
 remote read with a particular conversation revision. Concurrent awaited hydrations share one keyed
 load while each retains its own revision fence; background resume requests coalesce to the newest
 revision, trigger active-goal continuation without awaiting it, and schedule remaining history only
-after hydration settles. Renderer-owner adoption may defer that flow until the resume notification
-buffer is released. Conversation removal and Main Scope close interrupt active loads and tails.
+after hydration settles by invoking the canonical history capability directly. Renderer-owner
+adoption may defer that flow until the resume notification buffer is released. Conversation removal
+and Main Scope close interrupt active loads and tails.
 `CodexService` retains the canonical projection and performs one atomic revision-fenced commit, but
 owns no hydration Promise map, deferred-flow Set, detached tail, or shutdown cleanup.
 
@@ -679,9 +680,11 @@ Thread removal and Main Scope close interrupt the shared physical load. Post-res
 work enters the same runtime as a supervised background request instead of a detached Promise.
 Awaited page/complete commands return the canonical snapshot observed after their required physical
 load, so renderer ingress invokes the typed runtime directly instead of re-entering a facade for the
-result projection. `CodexService` owns the canonical pagination reducer, page materialization, and
-snapshot projection ports, but owns no public history-load command, load Promise map, escalation
-tail, background error handler, or lifecycle cleanup.
+result projection. The runtime reads app-server pages through `CodexGateway`, materializes older
+Turns with a pure projector, and commits them through the `ConversationRuntimeMap` aggregate's
+cursor fence. That synchronous commit prepends history onto the latest canonical revision, so live
+updates observed during the request cannot be overwritten. `CodexService` owns no history command,
+pagination reducer, projection callback, Promise adapter, background tail, or lifecycle cleanup.
 
 Missing background-subagent metadata repair is owned by one Main-scoped keyed runtime. The canonical
 conversation projection decides whether a child still lacks a valid parent/friendly identity and

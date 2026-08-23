@@ -47,7 +47,6 @@ import type {
 } from "../codex-application/CodexThreadSettingsRuntime";
 import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistence.test-support";
 import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime.test-support";
-import { TestCodexConversationHistoryRuntime } from "./codex-conversation-history-runtime.test-support";
 import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-subagent-metadata-repair.test-support";
 import { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
 import { CodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
@@ -1739,14 +1738,6 @@ function createService(options?: {
       await service.persistThreadTitleInProjectWorkspace(threadId, name);
     },
   });
-  const conversationHistory = new TestCodexConversationHistoryRuntime({
-    shouldLoadRemaining: (threadId) => service?.shouldLoadRemainingThreadTurns(threadId) === true,
-    load: async (input) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      await service.loadConversationHistory(input);
-    },
-    snapshot: (threadId) => service?.serializeConversationSnapshot(threadId) ?? null,
-  });
   const backgroundSubagentMetadataRepair = new TestCodexBackgroundSubagentMetadataRepair({
     isRepairNeeded: (parentThreadId, childThreadId) =>
       service?.isBackgroundSubagentMetadataRepairNeeded(parentThreadId, childThreadId) === true,
@@ -2002,7 +1993,6 @@ function createService(options?: {
     commit: (threadId, expectedRevision, goal) =>
       service?.commitThreadGoalHydratedAfterResume(threadId, expectedRevision, goal) ?? false,
     requestContinuation: (threadId) => service?.requestActiveGoalContinuationAfterResume(threadId),
-    scheduleRemainingTurns: (threadId) => service?.scheduleRemainingThreadTurnsLoad(threadId),
   });
   const pendingServerRequests = new TestCodexPendingServerRequestRuntime({
     respond: (threadId, _requestId, occurrenceToken, response) => {
@@ -2194,7 +2184,6 @@ function createService(options?: {
     threadCatalog,
     conversationCommands,
     postResumeGoals,
-    conversationHistory,
     backgroundSubagentMetadataRepair,
     subagentCatalog,
     queuedFollowUps,
@@ -4324,11 +4313,9 @@ describe("codex-service session-backed transcript recovery", () => {
     const requests: string[] = [];
     const hostMessages: CodexHostMessage[] = [];
     let goalFlows = 0;
-    let tailLoads = 0;
     const serviceInternals = service as unknown as {
       hasResumeNotificationBuffer: (id: string) => boolean;
       startPostResumeGoalFlow: (id: string, revision: number) => Promise<void>;
-      scheduleRemainingThreadTurnsLoad: (id: string) => void;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -4342,9 +4329,6 @@ describe("codex-service session-backed transcript recovery", () => {
     serviceInternals.startPostResumeGoalFlow = async () => {
       goalFlows += 1;
     };
-    serviceInternals.scheduleRemainingThreadTurnsLoad = () => {
-      tailLoads += 1;
-    };
     service.on("hostMessage", (message) => hostMessages.push(message));
 
     try {
@@ -4354,7 +4338,6 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(requests.length).toBe(0);
       expect(serviceInternals.hasResumeNotificationBuffer(threadId)).toBe(false);
       expect(goalFlows).toBe(0);
-      expect(tailLoads).toBe(0);
       expect(hostMessages.length).toBe(0);
       expect(service.serializeConversationSnapshot(threadId)?.resumeState ?? "").toBe("resumed");
     } finally {
@@ -4619,82 +4602,6 @@ describe("codex-service session-backed transcript recovery", () => {
       await hydration;
       expect(service.serializeConversationSnapshot(threadId)?.threadGoal ?? null).toBe(null);
     } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("post-resume tail hydration does not wait for active-goal continuation", async () => {
-    const service = createService();
-    const threadId = "thr_goal_tail_independent";
-    let releaseContinuation: () => void = () => {};
-    const continuationGate = new Promise<void>((resolve) => {
-      releaseContinuation = resolve;
-    });
-    let continuationSettled = false;
-    let tailStarted = false;
-    const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (
-        input: ThreadResumeResponse,
-      ) => CodexCanonicalConversationState;
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      startPostResumeGoalFlow: (id: string, expectedRevision: number) => void;
-      maybeContinueActiveThreadGoal: (id: string) => Promise<void>;
-      scheduleRemainingThreadTurnsLoad: (id: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      if (method === "thread/goal/get") {
-        return {
-          goal: {
-            threadId,
-            objective: "Continue without blocking history",
-            status: "active",
-            tokenBudget: null,
-            tokensUsed: 1,
-            timeUsedSeconds: 1,
-            createdAt: 10,
-            updatedAt: 20,
-          },
-        };
-      }
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-    serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
-    serviceInternals.hydrateCanonicalConversationState(
-      makeCanonicalResumeResponse({
-        threadId,
-        initialTurnsPage: {
-          data: [],
-          nextCursor: "older-page",
-          backwardsCursor: null,
-        },
-      }),
-    );
-    serviceInternals.maybeContinueActiveThreadGoal = async () => {
-      await continuationGate;
-      continuationSettled = true;
-    };
-    serviceInternals.scheduleRemainingThreadTurnsLoad = () => {
-      tailStarted = true;
-    };
-
-    try {
-      serviceInternals.startPostResumeGoalFlow(threadId, 0);
-      await waitForCondition(() => tailStarted, 250);
-
-      expect(tailStarted).toBe(true);
-      expect(continuationSettled).toBe(false);
-
-      releaseContinuation();
-      await waitForCondition(() => continuationSettled, 250);
-      expect(continuationSettled).toBe(true);
-    } finally {
-      releaseContinuation();
       await service.shutdown();
     }
   });

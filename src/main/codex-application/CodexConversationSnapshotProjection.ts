@@ -92,11 +92,17 @@ export const projectCodexConversationSnapshot = (input: {
   canonicalRequests: [...input.after.requests],
   hasUnreadTurn: input.after.sidecar.hasUnreadTurn,
   turns: input.after.turns.map((afterTurn, turnIndex) => {
-    const beforeTurn = input.before?.turns[turnIndex] ?? null;
+    const turnId = afterTurn.protocol.id;
+    const beforeAtIndex = input.before?.turns[turnIndex] ?? null;
+    const beforeTurn =
+      beforeAtIndex?.protocol.id === turnId
+        ? beforeAtIndex
+        : (input.before?.turns.find((turn) => turn.protocol.id === turnId) ?? null);
+    const currentAtIndex = input.conversation.turns[turnIndex] ?? null;
     const current =
-      input.conversation.turns[turnIndex] ??
-      input.conversation.turns.find((turn) => turn.turnId === afterTurn.protocol.id) ??
-      null;
+      currentAtIndex?.turnId === turnId
+        ? currentAtIndex
+        : (input.conversation.turns.find((turn) => turn.turnId === turnId) ?? null);
     if (beforeTurn === afterTurn && current) return current;
     return projectTurn({
       threadId: input.conversation.threadId,

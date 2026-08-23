@@ -194,10 +194,9 @@ import {
 } from "../codex-application/CodexPendingWorktreeRuntime";
 import { makeCodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
 import {
-  CodexConversationHistoryError,
+  CodexConversationHistoryRuntime,
   make as makeCodexConversationHistoryRuntime,
 } from "../codex-application/CodexConversationHistoryRuntime";
-import { makeCodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
 import {
   CodexBackgroundSubagentMetadataRepairError,
   make as makeCodexBackgroundSubagentMetadataRepair,
@@ -1914,20 +1913,12 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexThreadTitlePersistenceEffectError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const conversationHistory = yield* makeCodexConversationHistoryRuntime({
-          shouldLoadRemaining: (threadId) =>
-            requireCodexService().shouldLoadRemainingThreadTurns(threadId),
-          load: (input) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().loadConversationHistory(input),
-              catch: (cause) => new CodexConversationHistoryError({ cause }),
-            }),
-          snapshot: (threadId) =>
-            Effect.try({
-              try: () => requireCodexService().serializeConversationSnapshot(threadId),
-              catch: (cause) => new CodexConversationHistoryError({ cause }),
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const conversationHistory = yield* makeCodexConversationHistoryRuntime.pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const conversationEventBuffer = yield* makeCodexConversationEventBufferRuntime({
           compact: (threadId, events) =>
             requireCodexService().compactBufferedConversationEvents(threadId, events),
@@ -2027,7 +2018,14 @@ export const live: Layer.Layer<
             Effect.tryPromise({
               try: () => requireCodexService().releaseConversationResumeBufferForModule(threadId),
               catch: (cause) => new CodexConversationResumeError({ cause }),
-            }),
+            }).pipe(
+              Effect.tap((releasedGoal) =>
+                Effect.sync(() => {
+                  if (!releasedGoal) conversationHistory.requestRemaining(threadId);
+                }),
+              ),
+              Effect.as(true),
+            ),
           observe: (outcome) => requireCodexService().recordConversationResumeOutcome(outcome),
         }).pipe(
           Effect.provideService(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
@@ -2113,8 +2111,10 @@ export const live: Layer.Layer<
             ),
           requestContinuation: (threadId) =>
             requireCodexService().requestActiveGoalContinuationAfterResume(threadId),
-          scheduleRemainingTurns: conversationHistory.requestRemaining,
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        }).pipe(
+          Effect.provideService(CodexConversationHistoryRuntime, conversationHistory),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
           scope: runtimeScope,
           storage: makeCodexThreadHandoffJournalStorage(
@@ -2696,10 +2696,6 @@ export const live: Layer.Layer<
               threadCatalog: makeCodexThreadCatalogPromiseAdapter(threadCatalog, callbacks),
               postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
                 postResumeGoals,
-                callbacks,
-              ),
-              conversationHistory: makeCodexConversationHistoryRuntimePromiseAdapter(
-                conversationHistory,
                 callbacks,
               ),
               backgroundSubagentMetadataRepair,
