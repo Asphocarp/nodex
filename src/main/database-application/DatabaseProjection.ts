@@ -1,11 +1,13 @@
 import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
 import {
+  projectDatabaseViewReference,
   projectCoreDatabaseRowSummaries,
   projectCoreDatabaseViewBoard,
   projectCoreDatabaseViewQuery,
 } from "../../shared/database-page-projection";
 import type {
   DatabaseContainerDescriptorV2,
+  DatabaseModuleErrorCodeV2,
   DatabaseModuleReadResultV2,
   DatabaseViewRecordV2,
   DataSourceDescriptorV2,
@@ -16,8 +18,10 @@ import type {
   DatabaseListWindowSnapshot,
   DatabaseViewGroupsInput,
   DatabaseViewGroupsSnapshot,
+  DatabaseViewReadModel,
   DatabaseViewWindowInput,
   DatabaseViewWindowSnapshot,
+  ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
 import {
   parseDatabaseId,
@@ -93,12 +97,23 @@ interface DescriptorByKind {
   readonly view: DatabaseViewRecordV2;
 }
 
+export class DatabaseProjectionDescriptorError extends Error {
+  constructor(
+    readonly code: DatabaseModuleErrorCodeV2,
+    message: string,
+  ) {
+    super(message);
+    this.name = "DatabaseProjectionDescriptorError";
+  }
+}
+
 const requireDescriptor = <Kind extends keyof DescriptorByKind>(
   result: DescriptorReadResult,
   kind: Kind,
 ): DescriptorByKind[Kind] => {
   if (!result.ok) {
-    throw new Error(
+    throw new DatabaseProjectionDescriptorError(
+      result.error.code,
       `Database ${kind} descriptor read failed (${result.error.code}): ${result.error.message}`,
     );
   }
@@ -290,6 +305,17 @@ export const projectDatabaseViewGroups = <ProjectScope extends string | null>(in
     })),
   };
 };
+
+export const projectDatabaseViewReferenceModel = (
+  window: DatabaseViewWindowSnapshot<string | null>,
+  input: ReadDatabaseViewReferenceInput,
+): DatabaseViewReadModel =>
+  projectDatabaseViewReference(window.query, input, {
+    libraryId: window.libraryId,
+    storeEpoch: window.storeEpoch,
+    commitSeq: window.commitSeq,
+    authorization: window.authorization,
+  });
 
 export const viewDescriptorReads = (snapshot: DatabaseReadSnapshot) => {
   if (snapshot.value.kind !== "view_window") {

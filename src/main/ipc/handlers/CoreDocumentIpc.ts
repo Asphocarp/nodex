@@ -4,23 +4,19 @@ import * as Schema from "effect/Schema";
 import type { IpcMainInvokeEvent } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
 import { MainConfig } from "../../app/MainConfig";
-import type {
-  DesktopDatabaseModuleBridge,
-  DesktopDocumentSessionService,
-  DesktopLibraryModuleBridge,
-} from "../../core-client";
+import type { DesktopDocumentSessionService } from "../../core-client";
+import { DatabaseModule } from "../../database-application/DatabaseModule";
 import {
   type DocumentSyncClientTarget,
   documentSyncUnauthorized,
 } from "../../document-sync-transport";
+import { LibraryModule } from "../../library-application/LibraryModule";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface CoreDocumentIpcOptions {
-  readonly database: DesktopDatabaseModuleBridge;
   readonly documents: DesktopDocumentSessionService;
-  readonly library: DesktopLibraryModuleBridge;
 }
 
 export class CoreDocumentIpcError extends Schema.TaggedError<CoreDocumentIpcError>()(
@@ -66,19 +62,20 @@ const canvasUnauthorized = (
 
 export const live = (
   options: CoreDocumentIpcOptions,
-): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
+): Layer.Layer<
+  never,
+  never,
+  DatabaseModule | ElectronIpc | LibraryModule | MainConfig | WindowRuntime
+> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
+      const database = yield* DatabaseModule;
       const ipc = yield* ElectronIpc;
+      const library = yield* LibraryModule;
       const windows = yield* WindowRuntime;
       const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
         ipc.handle(channel, handler);
-      const run = <A>(operation: string, task: () => Promise<A>) =>
-        Effect.tryPromise({
-          try: task,
-          catch: (cause) => new CoreDocumentIpcError({ operation, cause }),
-        });
       const targetFor = (event: IpcMainInvokeEvent): DocumentSyncClientTarget | null => {
         try {
           requireTrustedAppRendererSender(event, "Document authority", config.rendererUrl);
@@ -98,29 +95,13 @@ export const live = (
       const unauthorizedResult = <A>() => Effect.succeed(documentSyncUnauthorized() as A);
 
       yield* handle("page-target:resolve", (event, input) =>
-        authorize(event).pipe(
-          Effect.andThen(
-            run("resolve-page-target", () => options.library.resolvePageTarget(input)),
-          ),
-        ),
+        authorize(event).pipe(Effect.andThen(library.resolvePageTarget(input))),
       );
       yield* handle("page-ownership-path:resolve", (event, input) =>
-        authorize(event).pipe(
-          Effect.andThen(
-            run("resolve-page-ownership-path", () =>
-              options.library.resolvePageOwnershipPath(input),
-            ),
-          ),
-        ),
+        authorize(event).pipe(Effect.andThen(library.resolvePageOwnershipPath(input))),
       );
       yield* handle("database-view:reference:get", (event, input) =>
-        authorize(event).pipe(
-          Effect.andThen(
-            run("resolve-database-view-reference", () =>
-              options.database.resolveDatabaseViewReference(input),
-            ),
-          ),
-        ),
+        authorize(event).pipe(Effect.andThen(database.resolveDatabaseViewReference(input))),
       );
       yield* handle("block-document:owned:get", (event, projectId, ownerBlockId) =>
         authorize(event).pipe(

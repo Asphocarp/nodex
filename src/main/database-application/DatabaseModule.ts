@@ -19,15 +19,20 @@ import type {
   DatabaseListWindowSnapshot,
   DatabaseViewGroupsInput,
   DatabaseViewGroupsSnapshot,
+  DatabaseViewReadModel,
   DatabaseViewWindowInput,
   DatabaseViewWindowSnapshot,
+  ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
+import { parseDatabaseViewId } from "../../shared/database-identities";
 import {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
 } from "../core-client/database-module-adapter";
+import { CoreModuleResponseError } from "../core-client/core-client";
 import type { CoreClientPort, DatabaseRead, DatabaseReadSnapshot } from "../core-client/types";
 import { CoreAuthority, CoreSessionAccess } from "../core-runtime/CoreAuthority";
+import { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import {
   type CoreMinimumCommitTimeout,
   type CoreStoreEpochMismatch,
@@ -38,10 +43,12 @@ import {
   databaseListWindowRead,
   databaseViewGroupsRead,
   databaseViewWindowRead,
+  DatabaseProjectionDescriptorError,
   listDescriptorRead,
   minimumCommitSeqForDatabaseProjection,
   projectDatabaseListWindow,
   projectDatabaseViewGroups,
+  projectDatabaseViewReferenceModel,
   projectDatabaseViewWindow,
   viewDescriptorReads,
 } from "./DatabaseProjection";
@@ -99,6 +106,9 @@ export class DatabaseModule extends Context.Service<
       access: Access,
       input: ProjectionInput<Access, DatabaseViewGroupsInput>,
     ) => DatabaseEffect<DatabaseViewGroupsSnapshot<ProjectScope<Access>>>;
+    readonly resolveDatabaseViewReference: (
+      input: ReadDatabaseViewReferenceInput,
+    ) => DatabaseEffect<DatabaseViewReadModel | null>;
   }
 >()("nodex/main/database-application/DatabaseModule") {}
 
@@ -227,6 +237,56 @@ export const live: Layer.Layer<DatabaseModule, never, CoreAuthority | CoreSessio
           }),
         );
       };
+      const isUnavailableReference = (cause: unknown): boolean => {
+        if (cause instanceof DatabaseProjectionDescriptorError) {
+          return cause.code === "resource_not_found" || cause.code === "authorization_denied";
+        }
+        if (cause instanceof CoreModuleResponseError) {
+          return cause.coreError.code === "not_found" || cause.coreError.code === "unauthorized";
+        }
+        if (cause instanceof DatabaseModuleError || cause instanceof CoreRuntimeError) {
+          return isUnavailableReference(cause.cause);
+        }
+        return false;
+      };
+      const viewWindow = <Access extends ContentAccessContext>(
+        access: Access,
+        input: ProjectionInput<Access, DatabaseViewWindowInput>,
+      ): DatabaseEffect<DatabaseViewWindowSnapshot<ProjectScope<Access>>> =>
+        Effect.gen(function* () {
+          yield* validateProjectionAccess(access, input);
+          const minimumCommitSeq = minimumCommitSeqForDatabaseProjection(
+            input,
+            identity.storeEpoch,
+          );
+          const coreRead = yield* evaluate("database.viewWindow.request", () =>
+            databaseViewWindowRead(input),
+          );
+          const snapshot = yield* readProjection(
+            access,
+            "database.viewWindow",
+            coreRead,
+            minimumCommitSeq,
+          );
+          const reads = yield* evaluate("database.viewWindow.descriptors", () =>
+            viewDescriptorReads(snapshot),
+          );
+          const [view, database, dataSource] = yield* Effect.all([
+            descriptor(access, reads.view),
+            descriptor(access, reads.database),
+            descriptor(access, reads.dataSource),
+          ]);
+          return yield* evaluate("database.viewWindow.project", () =>
+            projectDatabaseViewWindow({
+              projectId: projectScopeForAccess(access),
+              libraryId: identity.libraryId,
+              snapshot,
+              view,
+              database,
+              dataSource,
+            }),
+          );
+        });
 
       return DatabaseModule.of({
         read,
@@ -239,41 +299,7 @@ export const live: Layer.Layer<DatabaseModule, never, CoreAuthority | CoreSessio
           use("database.applyLibrary", undefined, (client) =>
             libraryAdapter(client).apply(request),
           ),
-        viewWindow: (access, input) =>
-          Effect.gen(function* () {
-            yield* validateProjectionAccess(access, input);
-            const minimumCommitSeq = minimumCommitSeqForDatabaseProjection(
-              input,
-              identity.storeEpoch,
-            );
-            const coreRead = yield* evaluate("database.viewWindow.request", () =>
-              databaseViewWindowRead(input),
-            );
-            const snapshot = yield* readProjection(
-              access,
-              "database.viewWindow",
-              coreRead,
-              minimumCommitSeq,
-            );
-            const reads = yield* evaluate("database.viewWindow.descriptors", () =>
-              viewDescriptorReads(snapshot),
-            );
-            const [view, database, dataSource] = yield* Effect.all([
-              descriptor(access, reads.view),
-              descriptor(access, reads.database),
-              descriptor(access, reads.dataSource),
-            ]);
-            return yield* evaluate("database.viewWindow.project", () =>
-              projectDatabaseViewWindow({
-                projectId: projectScopeForAccess(access),
-                libraryId: identity.libraryId,
-                snapshot,
-                view,
-                database,
-                dataSource,
-              }),
-            );
-          }),
+        viewWindow,
         listWindow: (access, input) =>
           Effect.gen(function* () {
             yield* validateProjectionAccess(access, input);
@@ -323,6 +349,24 @@ export const live: Layer.Layer<DatabaseModule, never, CoreAuthority | CoreSessio
               }),
             );
           }),
+        resolveDatabaseViewReference: (input) => {
+          let viewId: ReturnType<typeof parseDatabaseViewId>;
+          try {
+            viewId = parseDatabaseViewId(input.databaseViewId);
+          } catch {
+            return Effect.succeed(null);
+          }
+          return viewWindow(input.accessContext, { databaseViewId: viewId, first: 50 }).pipe(
+            Effect.flatMap((window) =>
+              evaluate("database.resolveDatabaseViewReference.project", () =>
+                projectDatabaseViewReferenceModel(window, input),
+              ),
+            ),
+            Effect.catch((error) =>
+              isUnavailableReference(error) ? Effect.succeed(null) : Effect.fail(error),
+            ),
+          );
+        },
       });
     }),
   );

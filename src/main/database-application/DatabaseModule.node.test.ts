@@ -8,6 +8,7 @@ import * as Scope from "effect/Scope";
 import { TestClock } from "effect/testing";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import { parseDatabaseId } from "../../shared/database-identities";
+import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import type { CoreGenerationClient } from "../core-client/core-generation-client";
 import { createFakeCoreHandshake, FakeCoreClient } from "../core-client/testing/fake-core-client";
 import type { DatabaseReadSnapshot } from "../core-client/types";
@@ -26,7 +27,7 @@ const coreDatabase = () => ({
   library_id: identity.libraryId,
   name: "Tasks",
   lifecycle: "active" as const,
-  default_view_id: null,
+  default_view_id: "view:test",
   access_revision: 1,
   metadata_revision: 1,
   created_at: "2026-08-23T00:00:00.000Z",
@@ -116,6 +117,141 @@ const viewGroupsSnapshot = (commitHead: number): DatabaseReadSnapshot => ({
     },
   },
 });
+
+const enqueueDatabaseViewReference = (client: FakeCoreClient): void => {
+  const commitHead = 23;
+  const authorization = authorizedReadStampFixture({
+    deliveryAddress: {
+      kind: "project",
+      library_id: identity.libraryId,
+      project_id: projectId,
+    },
+    subject: { kind: "view", view_id: "view:test" },
+    storeEpoch: identity.storeEpoch,
+    commitSeq: commitHead,
+  });
+  const config = upgradeDatabaseViewConfigV2({
+    schemaKey: "nodex.database-view",
+    schemaVersion: 2,
+    filter: { kind: "group", operator: "and", children: [] },
+    sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
+    group: null,
+    display: { propertyIds: [], showTitle: true },
+  });
+  const base = {
+    contract_version: 10 as const,
+    store_epoch: identity.storeEpoch,
+    commit_head: commitHead,
+  };
+  client.enqueueDatabaseRead({
+    ...base,
+    authorization,
+    value: {
+      kind: "view_window",
+      value: {
+        database_id: "database:test",
+        data_source_id: "source:test",
+        view_id: "view:test",
+        projection: {
+          scope: {
+            schema_version: 1,
+            canonical_key: "scope:view:test",
+            scope: {
+              kind: "database_view",
+              project_id: projectId,
+              database_id: "database:test",
+              data_source_id: "source:test",
+              view_id: "view:test",
+            },
+          },
+          revision: commitHead,
+          covered_commit_seq: commitHead,
+          effect_hash: "a".repeat(64),
+        },
+        rows: {
+          items: [],
+          next_cursor: null,
+          authority: { projection_revision: commitHead },
+        },
+      },
+    },
+  });
+  client.enqueueDatabaseRead({
+    ...base,
+    authorization,
+    value: {
+      kind: "view",
+      value: {
+        view_id: "view:test",
+        database_id: "database:test",
+        data_source_id: "source:test",
+        name: "All tasks",
+        layout: "list",
+        definition: { filter: config.filter, presentation: config.presentation },
+        is_default: true,
+        revision: 2,
+        rank_key: "a",
+        lifecycle: "active",
+        created_at: "2026-08-23T00:00:00.000Z",
+        updated_at: "2026-08-23T00:00:00.000Z",
+      },
+    },
+  });
+  client.enqueueDatabaseRead({
+    ...base,
+    authorization: null,
+    value: { kind: "database", value: { database: coreDatabase() } },
+  });
+  client.enqueueDatabaseRead({
+    ...base,
+    authorization: null,
+    value: {
+      kind: "data_source_window",
+      data_sources: {
+        items: [],
+        next_cursor: null,
+        authority: { projection_revision: commitHead },
+      },
+    },
+  });
+  client.enqueueDatabaseRead({
+    ...base,
+    authorization: null,
+    value: {
+      kind: "view_descriptor_window",
+      views: { items: [], next_cursor: null, authority: { projection_revision: commitHead } },
+    },
+  });
+  client.enqueueDatabaseRead({
+    ...base,
+    authorization: null,
+    value: {
+      kind: "data_source",
+      value: {
+        data_source: {
+          data_source_id: "source:test",
+          library_id: identity.libraryId,
+          home_database_id: "database:test",
+          name: "Tasks",
+          schema_key: "nodex.database",
+          schema_revision: 1,
+          lifecycle: "active",
+          rank_key: "a",
+          created_at: "2026-08-23T00:00:00.000Z",
+          updated_at: "2026-08-23T00:00:00.000Z",
+        },
+      },
+    },
+  });
+  client.enqueueDatabaseRead({
+    ...base,
+    authorization: null,
+    value: {
+      kind: "property_window",
+      properties: { items: [], next_cursor: null, authority: { projection_revision: commitHead } },
+    },
+  });
+};
 
 const withDatabaseModule = <A, E, R>(
   client: FakeCoreClient,
@@ -222,6 +358,44 @@ it.effect("waits for the causal commit before projecting bounded View groups", (
         { groupKey: "triage", subgroupKey: null, totalRows: 4 },
         { groupKey: null, subgroupKey: null, totalRows: 3 },
       ]);
+    }),
+  );
+});
+
+it.effect("resolves a Database View reference from one bounded authoritative window", () => {
+  const client = new FakeCoreClient();
+  enqueueDatabaseViewReference(client);
+
+  return withDatabaseModule(client, (database, projectScopes) =>
+    Effect.gen(function* () {
+      const reference = yield* database.resolveDatabaseViewReference({
+        accessContext: { kind: "project", projectId },
+        databaseViewId: "view:test",
+      });
+
+      assert.isNotNull(reference);
+      if (reference === null) return;
+      assert.strictEqual(reference.commitSeq, 23);
+      assert.strictEqual(reference.dataSourceId, "source:test");
+      assert.strictEqual(reference.view.id, "view:test");
+      assert.strictEqual(reference.view.databaseBlockId, "database:test");
+      assert.strictEqual(reference.view.projectId, projectId);
+      assert.strictEqual(reference.view.name, "All tasks");
+      assert.isTrue(reference.view.isPrimary);
+      assert.deepEqual(reference.rows, []);
+      assert.deepEqual(projectScopes, [projectId, projectId, projectId, projectId]);
+      assert.deepEqual(
+        client.databaseReads.map(({ kind }) => kind),
+        [
+          "view_window",
+          "view",
+          "database",
+          "data_source_window",
+          "view_descriptor_window",
+          "data_source",
+          "property_window",
+        ],
+      );
     }),
   );
 });
