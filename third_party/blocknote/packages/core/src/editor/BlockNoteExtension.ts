@@ -1,6 +1,7 @@
 import { Store, StoreOptions } from "@tanstack/store";
 import { type AnyExtension } from "@tiptap/core";
 import type { Plugin as ProsemirrorPlugin } from "prosemirror-state";
+import type { EditorView } from "prosemirror-view";
 import type { PartialBlockNoDefaults } from "../schema/index.js";
 import type { BlockNoteEditor } from "./BlockNoteEditor.js";
 import { originalFactorySymbol } from "./managers/ExtensionManager/symbol.js";
@@ -20,9 +21,13 @@ export interface Extension<State = any, Key extends string = string> {
   readonly key: Key;
 
   /**
-   * Triggered when the extension is mounted to the editor.
+   * Triggered for each EditorView DOM attachment.
    */
   readonly mount?: (ctx: {
+    /**
+     * The mounted ProseMirror view. It remains valid until `signal` aborts.
+     */
+    view: EditorView;
     /**
      * The DOM element that the editor is mounted to.
      */
@@ -32,7 +37,8 @@ export interface Extension<State = any, Key extends string = string> {
      */
     root: Document | ShadowRoot;
     /**
-     * An {@link AbortSignal} that will be aborted when the extension is destroyed.
+     * An {@link AbortSignal} that aborts when this EditorView is unmounted or
+     * when the extension is unregistered.
      */
     signal: AbortSignal;
   }) => void | OnDestroy;

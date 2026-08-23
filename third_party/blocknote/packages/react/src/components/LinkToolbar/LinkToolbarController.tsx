@@ -45,10 +45,19 @@ export const LinkToolbarController = (props: {
       }
     | undefined
   >(undefined);
+
+  useEffect(() => {
+    if (editorDOMElement) return;
+    setLink(undefined);
+    setToolbarOpen(false);
+    setToolbarPositionFrozen(false);
+  }, [editorDOMElement]);
   // Updates the link to show the toolbar for. Uses the link found at the text
   // cursor position. If there is none, uses the link hovered by the mouse
   // cursor. Otherwise, the toolbar remains closed.
   useEffect(() => {
+    if (!editorDOMElement) return;
+
     const textCursorCallback = () => {
       const textCursorLink = linkToolbar.getLinkAtSelection();
       if (!textCursorLink) {
@@ -61,12 +70,19 @@ export const LinkToolbarController = (props: {
         return;
       }
 
+      const element = linkToolbar.getLinkElementAtPos(textCursorLink.range.from);
+      if (!element) {
+        setLink(undefined);
+        setToolbarOpen(false);
+        return;
+      }
+
       setLink({
         cursorType: "text",
         url: textCursorLink.mark.attrs.href as string,
         text: textCursorLink.text,
         range: textCursorLink.range,
-        element: linkToolbar.getLinkElementAtPos(textCursorLink.range.from)!,
+        element,
       });
 
       if (!toolbarPositionFrozen) {
@@ -94,12 +110,15 @@ export const LinkToolbarController = (props: {
         return;
       }
 
+      const element = linkToolbar.getLinkElementAtPos(mouseCursorLink.range.from);
+      if (!element) return;
+
       setLink({
         cursorType: "mouse",
         url: mouseCursorLink.mark.attrs.href as string,
         text: mouseCursorLink.text,
         range: mouseCursorLink.range,
-        element: linkToolbar.getLinkElementAtPos(mouseCursorLink.range.from)!,
+        element,
       });
     };
 
@@ -107,12 +126,12 @@ export const LinkToolbarController = (props: {
     const destroyOnSelectionChangeHandler =
       editor.onSelectionChange(textCursorCallback);
 
-    editorDOMElement?.addEventListener("mouseover", mouseCursorCallback);
+    editorDOMElement.addEventListener("mouseover", mouseCursorCallback);
 
     return () => {
       destroyOnChangeHandler();
       destroyOnSelectionChangeHandler();
-      editorDOMElement?.removeEventListener("mouseover", mouseCursorCallback);
+      editorDOMElement.removeEventListener("mouseover", mouseCursorCallback);
     };
   }, [editor, editorDOMElement, linkToolbar, link, toolbarPositionFrozen]);
 
@@ -120,7 +139,7 @@ export const LinkToolbarController = (props: {
     () => ({
       ...props.floatingUIOptions,
       useFloatingOptions: {
-        open: toolbarOpen,
+        open: Boolean(editorDOMElement) && toolbarOpen,
         onOpenChange: (open, _event, reason) => {
           if (toolbarPositionFrozen) {
             return;
@@ -149,7 +168,7 @@ export const LinkToolbarController = (props: {
       useHoverProps: {
         // `useHover` hook only enabled when a link is hovered with the
         // mouse.
-        enabled: link !== undefined && link.cursorType === "mouse",
+        enabled: Boolean(editorDOMElement) && link !== undefined && link.cursorType === "mouse",
         delay: {
           open: 250,
           close: 250,
@@ -168,12 +187,12 @@ export const LinkToolbarController = (props: {
         ...props.floatingUIOptions?.elementProps,
       },
     }),
-    [editor, link, props.floatingUIOptions, toolbarOpen, toolbarPositionFrozen],
+    [editor, editorDOMElement, link, props.floatingUIOptions, toolbarOpen, toolbarPositionFrozen],
   );
 
   const reference = useMemo<GenericPopoverReference | undefined>(
-    () => (link?.element ? { element: link.element } : undefined),
-    [link?.element],
+    () => (editorDOMElement && link?.element ? { element: link.element } : undefined),
+    [editorDOMElement, link?.element],
   );
 
   // TODO: this should be a hook to be reactive
@@ -189,7 +208,7 @@ export const LinkToolbarController = (props: {
       portalElement={props.portalElement}
       {...floatingUIOptions}
     >
-      {link && (
+      {editorDOMElement && link && (
         <Component
           url={link.url}
           text={link.text}

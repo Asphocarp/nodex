@@ -315,6 +315,7 @@ export class SideMenuView<
     private readonly editor: BlockNoteEditor<BSchema, I, S>,
     private readonly pmView: EditorView,
     emitUpdate: (state: SideMenuState<BSchema, I, S>) => void,
+    private readonly clearState: () => void,
     private readonly setPendingDroppedBlockIdsForSelection: (
       blockIds: string[],
     ) => void,
@@ -932,10 +933,9 @@ export class SideMenuView<
   }
 
   destroy() {
-    if (this.state?.show) {
-      this.state.show = false;
-      this.emitUpdate(this.state);
-    }
+    this.state = undefined;
+    this.clearState();
+    unsetDragImage(this.pmView.root);
     this.pmView.root.removeEventListener(
       "mousemove",
       this.onMouseMove as EventListener,
@@ -1021,6 +1021,10 @@ export const SideMenuExtension = createExtension(({ editor }) => {
               // `show`, this doesn't trigger an update.
               store.setState({ ...state });
             },
+            () => {
+              view = undefined;
+              store.setState(undefined);
+            },
             setPendingDroppedBlockIdsForSelection,
             (event) => externalDragOwnershipResolver(event),
           );
@@ -1042,9 +1046,10 @@ export const SideMenuExtension = createExtension(({ editor }) => {
         view.isDragOrigin = true;
       }
       const dragStartResult = dragStart(event, block, editor);
-      if (view && dragStartResult) {
+      const editorView = editor.prosemirrorView;
+      if (view && editorView && dragStartResult) {
         const selectionBlockIds = getSideMenuDroppedBlockIdsFromSelection(
-          editor.prosemirrorView.state.selection,
+          editorView.state.selection,
         );
         const draggedBlockIds =
           dragStartResult.blockIds.length > 0
@@ -1053,7 +1058,7 @@ export const SideMenuExtension = createExtension(({ editor }) => {
               ? selectionBlockIds
               : [block.id];
         view.setDraggedBlockIdsForDropSelection(draggedBlockIds);
-        editor.prosemirrorView.dragging = {
+        editorView.dragging = {
           slice: dragStartResult.slice,
           move: true,
         };
@@ -1075,7 +1080,7 @@ export const SideMenuExtension = createExtension(({ editor }) => {
      * Handles drag & drop events for blocks.
      */
     blockDragEnd() {
-      unsetDragImage(editor.prosemirrorView.root);
+      unsetDragImage();
       if (view) {
         view.isDragOrigin = false;
       }
@@ -1098,9 +1103,10 @@ export const SideMenuExtension = createExtension(({ editor }) => {
      * mouse cursor.
      */
     freezeMenu() {
-      view!.menuFrozen = true;
-      view!.state!.show = true;
-      view!.emitUpdate(view!.state!);
+      if (!view?.state) return;
+      view.menuFrozen = true;
+      view.state.show = true;
+      view.emitUpdate(view.state);
     },
 
     /**
@@ -1109,9 +1115,10 @@ export const SideMenuExtension = createExtension(({ editor }) => {
      * mouse cursor.
      */
     unfreezeMenu() {
-      view!.menuFrozen = false;
-      view!.state!.show = false;
-      view!.emitUpdate(view!.state!);
+      if (!view?.state) return;
+      view.menuFrozen = false;
+      view.state.show = false;
+      view.emitUpdate(view.state);
     },
 
     /**
@@ -1120,9 +1127,9 @@ export const SideMenuExtension = createExtension(({ editor }) => {
      * interfering with open submenus.
      */
     hideMenuIfNotFrozen() {
-      if (!view!.menuFrozen && view!.state?.show) {
-        view!.state.show = false;
-        view!.emitUpdate(view!.state!);
+      if (view && !view.menuFrozen && view.state?.show) {
+        view.state.show = false;
+        view.emitUpdate(view.state);
       }
     },
   } as const;

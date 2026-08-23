@@ -235,7 +235,7 @@ export class StyleManager<
       }
       tr.addMark(from, from + text.length, linkMark);
     });
-    this.editor.prosemirrorView.focus();
+    this.editor.prosemirrorView?.focus();
   }
 
   /**
@@ -257,6 +257,6 @@ export class StyleManager<
         true,
       );
     });
-    this.editor.prosemirrorView.focus();
+    this.editor.prosemirrorView?.focus();
   }
 }

@@ -917,6 +917,9 @@ describe("NfmSlashMenu", () => {
     };
     const editor = {
       domElement: editorElement,
+      prosemirrorView: { dom: editorElement },
+      onMount: () => () => undefined,
+      onUnmount: () => () => undefined,
       _tiptapEditor: { on: () => undefined, off: () => undefined },
       getExtension: () => suggestionMenu,
     } as unknown as BlockNoteEditor;
@@ -976,8 +979,12 @@ describe("NfmSlashMenu", () => {
         show: true,
       }),
     };
+    const editorElement = document.createElement("div");
     const editor = {
-      domElement: document.createElement("div"),
+      domElement: editorElement,
+      prosemirrorView: { dom: editorElement },
+      onMount: () => () => undefined,
+      onUnmount: () => () => undefined,
       _tiptapEditor: { on: () => undefined, off: () => undefined },
       getExtension: () => suggestionMenu,
     } as unknown as BlockNoteEditor;

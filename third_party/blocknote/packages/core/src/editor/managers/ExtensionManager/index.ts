@@ -61,14 +61,19 @@ export class ExtensionManager {
      * When the editor is first mounted, we need to initialize all the extensions
      */
     editor.onMount(() => {
+      const view = editor.prosemirrorView;
+      if (!view) {
+        throw new Error("Mounted BlockNote editor has no ProseMirror view");
+      }
       for (const extension of this.extensions) {
         // If the extension has an init function, we can initialize it, otherwise, it is already added to the editor
         if (extension.mount) {
           // We create an abort controller for each extension, so that we can abort the extension when the editor is unmounted
           const abortController = new window.AbortController();
           const unmountCallback = extension.mount({
-            dom: editor.prosemirrorView.dom,
-            root: editor.prosemirrorView.root,
+            view,
+            dom: view.dom,
+            root: view.root,
             signal: abortController.signal,
           });
           // If the extension returns a method to unmount it, we can register it to be called when the abort controller is aborted
@@ -321,7 +326,10 @@ export class ExtensionManager {
       plugins: update(currentState.plugins.slice()),
     });
 
-    this.editor.prosemirrorView.updateState(state);
+    // Tiptap's state proxy deliberately supports updateState while headless.
+    // Dynamic extension registration belongs to the editor model lifetime and
+    // must not require a mounted DOM view.
+    this.editor._tiptapEditor.view.updateState(state);
   }
 
   /**

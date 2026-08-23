@@ -3,7 +3,10 @@ import { createExtension } from "../../editor/BlockNoteExtension.js";
 
 export const LinkToolbarExtension = createExtension(({ editor }) => {
   function getLinkElementAtPos(pos: number) {
-    let currentNode = editor.prosemirrorView.nodeDOM(pos);
+    const view = editor.prosemirrorView;
+    if (!view) return null;
+
+    let currentNode = view.nodeDOM(pos);
     while (currentNode && currentNode.parentElement) {
       if (currentNode.nodeName === "A") {
         return currentNode as HTMLAnchorElement;
@@ -27,8 +30,10 @@ export const LinkToolbarExtension = createExtension(({ editor }) => {
         return linkData.text;
       },
       get position() {
+        const view = editor.prosemirrorView;
+        if (!view) return new DOMRect();
         return posToDOMRect(
-          editor.prosemirrorView,
+          view,
           linkData.from,
           linkData.to,
         ).toJSON() as DOMRect;
@@ -56,7 +61,9 @@ export const LinkToolbarExtension = createExtension(({ editor }) => {
 
     getLinkAtElement(element: HTMLElement) {
       return editor.transact(() => {
-        const posAtElement = editor.prosemirrorView.posAtDOM(element, 0) + 1;
+        const view = editor.prosemirrorView;
+        if (!view) return undefined;
+        const posAtElement = view.posAtDOM(element, 0) + 1;
         return getLinkAtPos(posAtElement);
       });
     },

@@ -7,6 +7,7 @@ import {
 } from "@tiptap/core";
 import { type Command, type Transaction } from "@tiptap/pm/state";
 import { Node, Schema } from "prosemirror-model";
+import type { EditorView } from "prosemirror-view";
 import type { BlocksChanged } from "../api/getBlocksChangedByTransaction.js";
 import { blockToNode } from "../api/nodeConversions/blockToNode.js";
 import {
@@ -813,11 +814,14 @@ export class BlockNoteEditor<
   }
 
   /**
-   * Get the underlying prosemirror view
+   * Get the mounted ProseMirror view.
+   *
+   * The editor model can intentionally outlive its DOM attachment. Callers
+   * must treat this view as a mounted-only capability and handle `undefined`.
    * @see https://prosemirror.net/docs/ref/#view.EditorView
    */
-  public get prosemirrorView() {
-    return this._stateManager.prosemirrorView;
+  public get prosemirrorView(): EditorView | undefined {
+    return this.headless ? undefined : this._stateManager.prosemirrorView;
   }
 
   public get domElement() {
@@ -889,7 +893,7 @@ export class BlockNoteEditor<
     if (this.headless) {
       return;
     }
-    this.prosemirrorView.focus();
+    this.prosemirrorView?.focus();
   }
 
   /**

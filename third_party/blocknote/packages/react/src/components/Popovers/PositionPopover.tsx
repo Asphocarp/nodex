@@ -2,7 +2,7 @@ import { posToDOMRect } from "@tiptap/core";
 import { ReactNode, useMemo } from "react";
 
 import { useBlockNoteEditor } from "../../hooks/useBlockNoteEditor.js";
-import { useEditorDOMElement } from "../../hooks/useEditorDomElement.js";
+import { useEditorView } from "../../hooks/useEditorView.js";
 import { FloatingUIOptions } from "./FloatingUIOptions.js";
 import { GenericPopover, GenericPopoverReference } from "./GenericPopover.js";
 
@@ -17,10 +17,11 @@ export const PositionPopover = (
   const { from, to } = position || {};
 
   const editor = useBlockNoteEditor<any, any, any>();
-  const editorDOMElement = useEditorDOMElement();
+  const editorView = useEditorView(editor);
+  const editorDOMElement = editorView?.dom;
 
   const reference = useMemo<GenericPopoverReference | undefined>(() => {
-    if (from === undefined || to === undefined) {
+    if (from === undefined || to === undefined || !editorView) {
       return undefined;
     }
 
@@ -30,9 +31,9 @@ export const PositionPopover = (
       // `contextElement` must be a descendant of the scroll container.
       element: editorDOMElement?.firstElementChild || undefined,
       getBoundingClientRect: () =>
-        posToDOMRect(editor.prosemirrorView, from, to ?? from),
+        posToDOMRect(editorView, from, to ?? from),
     };
-  }, [editor, editorDOMElement, from, to]);
+  }, [editorDOMElement, editorView, from, to]);
 
   return (
     <GenericPopover

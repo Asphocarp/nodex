@@ -246,7 +246,9 @@ describe("NfmEditor source boundary", () => {
       };
     };
     syncState.binding.mux(() => {
-      localEditor.prosemirrorView.dispatch(
+      const view = localEditor.prosemirrorView;
+      if (!view) throw new Error("Expected a mounted editor view");
+      view.dispatch(
         localEditor.prosemirrorState.tr
           .setNodeMarkup(stableMiddleBlockPosition, undefined, {
             ...middleBlock.attrs,

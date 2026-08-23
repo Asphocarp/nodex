@@ -2,6 +2,7 @@ import { getNodeById } from "@blocknote/core";
 import { ReactNode, useMemo } from "react";
 
 import { useBlockNoteEditor } from "../../hooks/useBlockNoteEditor.js";
+import { useEditorView } from "../../hooks/useEditorView.js";
 import { FloatingUIOptions } from "./FloatingUIOptions.js";
 import { GenericPopover, GenericPopoverReference } from "./GenericPopover.js";
 
@@ -15,11 +16,12 @@ export const BlockPopover = (
   const { blockId, children, portalElement, ...floatingUIOptions } = props;
 
   const editor = useBlockNoteEditor<any, any, any>();
+  const editorView = useEditorView(editor);
 
   const reference = useMemo<GenericPopoverReference | undefined>(
     () =>
       editor.transact((tr) => {
-        if (!blockId) {
+        if (!blockId || !editorView) {
           return undefined;
         }
 
@@ -29,7 +31,7 @@ export const BlockPopover = (
           return undefined;
         }
 
-        const { node } = editor.prosemirrorView.domAtPos(
+        const { node } = editorView.domAtPos(
           nodePosInfo.posBeforeNode + 1,
         );
         if (!(node instanceof Element)) {
@@ -40,7 +42,7 @@ export const BlockPopover = (
           element: node,
         };
       }),
-    [editor, blockId],
+    [editor, editorView, blockId],
   );
 
   return (

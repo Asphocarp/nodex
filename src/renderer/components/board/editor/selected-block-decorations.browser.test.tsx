@@ -9,6 +9,7 @@ import { BlockNoteView } from "@blocknote/shadcn";
 import { ShowSelectionExtension } from "@blocknote/core/extensions";
 import type { Node } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 import { act, render } from "@testing-library/react";
 import { describe, expect, test } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -47,6 +48,14 @@ const settleEditor = async () => {
   await Promise.resolve();
 };
 
+const requireMountedEditorView = (editor: {
+  readonly prosemirrorView?: EditorView;
+}): EditorView => {
+  const view = editor.prosemirrorView;
+  if (!view) throw new Error("Expected a mounted editor view");
+  return view;
+};
+
 function inlinePosition(doc: Node, blockId: string, offset: number) {
   let position: number | undefined;
   doc.descendants((node, pos) => {
@@ -83,6 +92,7 @@ describe("selected Block presentation in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const mountedView = requireMountedEditorView(editor);
       await act(async () => {
         editor.focus();
         editor.setTextCursorPosition("page");
@@ -114,7 +124,7 @@ describe("selected Block presentation in Chromium", () => {
 
       await act(async () => {
         const doc = editor.prosemirrorState.doc;
-        editor.prosemirrorView.dispatch(
+        mountedView.dispatch(
           editor.prosemirrorState.tr.setSelection(
             TextSelection.create(
               doc,
@@ -157,7 +167,7 @@ describe("selected Block presentation in Chromium", () => {
 
       await act(async () => {
         const doc = editor.prosemirrorState.doc;
-        editor.prosemirrorView.dispatch(
+        mountedView.dispatch(
           editor.prosemirrorState.tr.setSelection(
             TextSelection.create(
               doc,
@@ -214,6 +224,7 @@ describe("selected Block presentation in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const mountedView = requireMountedEditorView(editor);
       await act(async () => {
         editor.focus();
         editor.setTextCursorPosition("image");
@@ -243,7 +254,7 @@ describe("selected Block presentation in Chromium", () => {
 
       await act(async () => {
         const doc = editor.prosemirrorState.doc;
-        editor.prosemirrorView.dispatch(
+        mountedView.dispatch(
           editor.prosemirrorState.tr.setSelection(
             TextSelection.create(
               doc,
@@ -295,6 +306,7 @@ describe("selected Block presentation in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const mountedView = requireMountedEditorView(editor);
       await act(async () => {
         editor.focus();
         const parent = editor.getBlock("parent");
@@ -334,7 +346,7 @@ describe("selected Block presentation in Chromium", () => {
 
       expect(parentOuter.dataset.nodexSelectedBlockScope).toBe("subtree");
       expect(editor.prosemirrorState.selection.visible).toBe(false);
-      expect(editor.prosemirrorView.dom.classList.contains("ProseMirror-hideselection")).toBe(true);
+      expect(mountedView.dom.classList.contains("ProseMirror-hideselection")).toBe(true);
       editor.getExtension(ShowSelectionExtension)?.showSelection(true, "structural-selection-test");
       await act(settleEditor);
       expect(parentBlock.querySelector("[data-show-selection]")).toBeNull();
@@ -431,6 +443,8 @@ describe("selected Block presentation in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const outerView = requireMountedEditorView(outerEditor);
+      const innerView = requireMountedEditorView(innerEditor);
       await act(async () => {
         outerEditor.focus();
         outerEditor.setTextCursorPosition("page");
@@ -451,9 +465,7 @@ describe("selected Block presentation in Chromium", () => {
       }
 
       expect(pageContainer.classList.contains("nodex-selected-block")).toBe(true);
-      expect(
-        outerEditor.prosemirrorView.dom.hasAttribute(ACTIVE_EDITOR_SELECTION_SURFACE_ATTRIBUTE),
-      ).toBe(true);
+      expect(outerView.dom.hasAttribute(ACTIVE_EDITOR_SELECTION_SURFACE_ATTRIBUTE)).toBe(true);
 
       const firstImageWrapper = view.container.querySelector<HTMLElement>(
         '.bn-block-outer[data-id="image-one"] .bn-file-block-content-wrapper',
@@ -473,14 +485,10 @@ describe("selected Block presentation in Chromium", () => {
       });
 
       expect(pageContainer.classList.contains("nodex-selected-block")).toBe(true);
-      expect(outerEditor.prosemirrorView.hasFocus()).toBe(false);
-      expect(innerEditor.prosemirrorView.hasFocus()).toBe(true);
-      expect(
-        outerEditor.prosemirrorView.dom.hasAttribute(ACTIVE_EDITOR_SELECTION_SURFACE_ATTRIBUTE),
-      ).toBe(false);
-      expect(
-        innerEditor.prosemirrorView.dom.hasAttribute(ACTIVE_EDITOR_SELECTION_SURFACE_ATTRIBUTE),
-      ).toBe(true);
+      expect(outerView.hasFocus()).toBe(false);
+      expect(innerView.hasFocus()).toBe(true);
+      expect(outerView.dom.hasAttribute(ACTIVE_EDITOR_SELECTION_SURFACE_ATTRIBUTE)).toBe(false);
+      expect(innerView.dom.hasAttribute(ACTIVE_EDITOR_SELECTION_SURFACE_ATTRIBUTE)).toBe(true);
       expect(getComputedStyle(pageContent, "::after").opacity).toBe("0");
       expect(getComputedStyle(firstImageWrapper, "::after").backgroundColor).toBe(
         "rgba(35, 131, 226, 0.14)",

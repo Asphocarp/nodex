@@ -152,7 +152,10 @@ export async function handleFileInsertion<
           top: (event as DragEvent).clientY,
         };
 
-        const pos = editor.prosemirrorView.posAtCoords(coords);
+        const view = editor.prosemirrorView;
+        if (!view) return;
+
+        const pos = view.posAtCoords(coords);
 
         if (!pos) {
           return;

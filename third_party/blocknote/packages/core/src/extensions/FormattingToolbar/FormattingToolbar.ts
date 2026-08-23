@@ -47,7 +47,7 @@ export const FormattingToolbarExtension = createExtension(({ editor }) => {
   return {
     key: "formattingToolbar",
     store,
-    mount({ dom, signal }) {
+    mount({ dom, root, signal }) {
       /**
        * We want to mimic the Notion behavior of not showing the toolbar while the user is holding down the mouse button (to create a selection)
        */
@@ -79,7 +79,7 @@ export const FormattingToolbarExtension = createExtension(({ editor }) => {
         { signal },
       );
       // To mimic Notion's behavior, we listen to the mouse up event to reset the `preventShowWhileMouseDown` flag and show the toolbar (if it should)
-      editor.prosemirrorView.root.addEventListener(
+      root.addEventListener(
         "pointerup",
         () => {
           preventShowWhileMouseDown = false;
@@ -100,7 +100,7 @@ export const FormattingToolbarExtension = createExtension(({ editor }) => {
         { signal, capture: true },
       );
 
-      editor.prosemirrorView.root.addEventListener(
+      root.addEventListener(
         "dragstart",
         () => {
           preventShowWhileDragging = true;
@@ -109,7 +109,7 @@ export const FormattingToolbarExtension = createExtension(({ editor }) => {
         { signal },
       );
 
-      editor.prosemirrorView.root.addEventListener(
+      root.addEventListener(
         "dragend",
         () => {
           preventShowWhileDragging = false;
@@ -120,6 +120,7 @@ export const FormattingToolbarExtension = createExtension(({ editor }) => {
       signal.addEventListener("abort", () => {
         unsubscribeOnChange();
         unsubscribeOnSelectionChange();
+        store.setState(false);
       });
     },
   } as const;

@@ -109,7 +109,10 @@ const topLevelRoots = (
 };
 
 const selectedStructuralRoots = (editor: StructuralEditor): readonly StructuralEditorBlock[] => {
-  const blockSelectionIds = getNfmBlockSelectionIds(editor.prosemirrorView.state.selection);
+  const view = editor.prosemirrorView;
+  if (!view) return [];
+
+  const blockSelectionIds = getNfmBlockSelectionIds(view.state.selection);
   const blockSelection = blockSelectionIds
     .map((blockId) => editor.getBlock(blockId) as StructuralEditorBlock | undefined)
     .filter((block): block is StructuralEditorBlock => Boolean(block));
@@ -119,6 +122,8 @@ const selectedStructuralRoots = (editor: StructuralEditor): readonly StructuralE
 };
 
 const structuralRoots = (editor: StructuralEditor): readonly StructuralEditorBlock[] => {
+  if (!editor.prosemirrorView) return [];
+
   const selected = selectedStructuralRoots(editor);
   return selected.length ? selected : topLevelRoots(editor, [editor.getTextCursorPosition().block]);
 };
@@ -389,12 +394,14 @@ export class NfmStructuralEditingSession {
     }
     if (envelope.storeEpoch !== this.boundRuntime.source.storeEpoch) return false;
     const intent = this.capturePasteIntent();
+    if (!intent) return false;
     return this.start(async () => await this.pasteEnvelope(envelope, intent));
   }
 
   handlePendingPaste(pendingEnvelope: Promise<NodexClipboardEnvelopeV1 | null>): boolean {
     if (this.disposed) return false;
     const intent = this.capturePasteIntent();
+    if (!intent) return false;
     return this.start(async () => {
       const envelope = await pendingEnvelope;
       if (!envelope) throw new Error("The structural clipboard could not be prepared.");
@@ -714,7 +721,9 @@ export class NfmStructuralEditingSession {
     };
   }
 
-  private capturePasteIntent(): NfmStructuralPasteIntent {
+  private capturePasteIntent(): NfmStructuralPasteIntent | null {
+    if (!this.editor.prosemirrorView) return null;
+
     const selected = selectedStructuralRoots(this.editor);
     if (selected.length) {
       return {
