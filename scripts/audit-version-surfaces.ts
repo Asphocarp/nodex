@@ -333,13 +333,13 @@ const VERSION_SURFACES: readonly Surface[] = [
     "disable on older runtimes",
   ],
   [
-    "src/main/codex/codex-thread-handoff-journal.ts:JOURNAL_SCHEMA_VERSION",
+    "src/main/codex/codex-thread-handoff-journal.ts:CODEX_THREAD_HANDOFF_JOURNAL_SCHEMA_VERSION",
     "durableFormat",
     "Codex handoff journal",
     "decode or reject files",
   ],
   [
-    "src/main/codex/provider-credential-store.ts:CREDENTIAL_FILE_VERSION",
+    "src/main/platform/electron/ProviderCredentialStore.ts:CREDENTIAL_FILE_VERSION",
     "durableFormat",
     "provider credential store",
     "decode or reject files",
