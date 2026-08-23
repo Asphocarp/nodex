@@ -19,6 +19,13 @@ import {
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
+
 import {
   readNativeRuntimeManifest,
   sha256File,
@@ -26,15 +33,44 @@ import {
 } from "./native-runtime-manifest";
 import { cleanupIsolatedCore } from "./isolated-core-cleanup";
 import { verifyPackagedAgentSkills } from "./verify-packaged-agent-skills";
-import { ensureInitialProjectForVerification } from "./initial-project-bootstrap-runtime-adapter";
+import { layer as mainShutdownLive } from "../src/main/app/MainShutdown";
+import {
+  InitialProjectBootstrapRuntime,
+  live as initialProjectBootstrapLive,
+} from "../src/main/initial-project/InitialProjectBootstrapRuntime";
 import { resolveInitialProjectJournalPath } from "../src/main/initial-project/initial-project-journal-store";
-import { CoreClient } from "../src/main/core-client/core-client";
 import {
   acquireIsolatedRunLease,
   ISOLATED_RUN_ID_ENV,
   readIsolatedRunClaim,
 } from "../src/main/core-client/isolated-run-ownership";
-import { createCoreProjectWorkspaceAdapter } from "../src/main/core-client/project-workspace-adapter";
+import {
+  CoreSessionAccess,
+  live as coreAuthorityLive,
+} from "../src/main/core-runtime/CoreAuthority";
+import { CoreModules, live as coreModulesLive } from "../src/main/core-runtime/CoreModules";
+import { live as coreTransportLive } from "../src/main/core-runtime/CoreTransport";
+import {
+  make as makeProjectWorkspace,
+  ProjectWorkspace,
+} from "../src/main/project-application/ProjectWorkspace";
+
+export class PackagedNativeRuntimeVerificationError extends Schema.TaggedError<PackagedNativeRuntimeVerificationError>()(
+  "PackagedNativeRuntimeVerificationError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
+const attempt = <A>(operation: string, evaluate: () => A) =>
+  Effect.try({
+    try: evaluate,
+    catch: (cause) => new PackagedNativeRuntimeVerificationError({ operation, cause }),
+  });
+
+const attemptPromise = <A>(operation: string, evaluate: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) => new PackagedNativeRuntimeVerificationError({ operation, cause }),
+  });
 
 export interface PackagedNativeRuntimeStructureOptions {
   readonly appPath: string;
@@ -491,153 +527,239 @@ export const selectPackagedSmokeProjectId = (
   return projectId;
 };
 
-const bootstrapPackagedCliProject = async (
+const withPackagedProjectWorkspace = <A, E, R>(
   environment: NodeJS.ProcessEnv,
+  appResourcesPath: string,
+  use: (
+    workspace: ProjectWorkspace["Service"],
+    sessions: CoreSessionAccess["Service"],
+  ) => Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | PackagedNativeRuntimeVerificationError, R | Scope.Scope> =>
+  Effect.gen(function* () {
+    const nodexHome = environment.NODEX_HOME;
+    if (!nodexHome) {
+      return yield* new PackagedNativeRuntimeVerificationError({
+        operation: "connect-core",
+        cause: new Error("Packaged CLI smoke environment omits NODEX_HOME"),
+      });
+    }
+    const authorityContext = yield* Layer.build(
+      coreAuthorityLive({ jitter: false }).pipe(
+        Layer.provide(
+          Layer.merge(
+            coreTransportLive({
+              appResourcesPath,
+              buildId: "packaged-native-runtime-verification",
+              environment,
+              isPackaged: true,
+              nodexHome,
+            }),
+            mainShutdownLive,
+          ),
+        ),
+      ),
+    ).pipe(
+      Effect.mapError(
+        (cause) => new PackagedNativeRuntimeVerificationError({ operation: "connect-core", cause }),
+      ),
+    );
+    const sessions = Context.get(authorityContext, CoreSessionAccess);
+    const coreContext = yield* Layer.build(
+      coreModulesLive.pipe(Layer.provide(Layer.succeed(CoreSessionAccess, sessions))),
+    );
+    const core = Context.get(coreContext, CoreModules);
+    const workspace = yield* makeProjectWorkspace.pipe(Effect.provideService(CoreModules, core));
+    return yield* use(workspace, sessions);
+  });
+
+const bootstrapPackagedCliProject = (
   temporaryRoot: string,
-): Promise<{
-  readonly client: CoreClient;
-  readonly projectId: string;
-}> => {
-  const nodexHome = environment.NODEX_HOME;
-  if (!nodexHome) {
-    throw new Error("Packaged CLI smoke environment omits NODEX_HOME");
-  }
-  const client = await CoreClient.connect({
-    nodexHome,
-    clientKind: "electron_host",
-    buildId: "packaged-native-runtime-verification",
+): Effect.Effect<string, PackagedNativeRuntimeVerificationError, ProjectWorkspace | Scope.Scope> =>
+  Effect.gen(function* () {
+    const workspace = yield* ProjectWorkspace;
+    const bootstrapContext = yield* Layer.build(
+      initialProjectBootstrapLive({
+        projectsDirectory: join(temporaryRoot, "projects"),
+        journalPath: resolveInitialProjectJournalPath(join(temporaryRoot, "profile")),
+      }).pipe(Layer.provide(Layer.succeed(ProjectWorkspace, workspace))),
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new PackagedNativeRuntimeVerificationError({ operation: "bootstrap-project", cause }),
+      ),
+    );
+    yield* Context.get(bootstrapContext, InitialProjectBootstrapRuntime)
+      .ensure(() => Effect.void)
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new PackagedNativeRuntimeVerificationError({ operation: "bootstrap-project", cause }),
+        ),
+      );
+    return yield* workspace.listProjects.pipe(
+      Effect.mapError(
+        (cause) =>
+          new PackagedNativeRuntimeVerificationError({ operation: "list-projects", cause }),
+      ),
+      Effect.flatMap((projects) =>
+        attempt("select-bootstrap-project", () => selectPackagedSmokeProjectId(projects)),
+      ),
+    );
   });
-  const projectWorkspace = createCoreProjectWorkspaceAdapter(client);
-  await ensureInitialProjectForVerification({
-    projectWorkspace,
-    projectsDirectory: join(temporaryRoot, "projects"),
-    journalPath: resolveInitialProjectJournalPath(nodexHome),
-  });
-  return {
-    client,
-    projectId: selectPackagedSmokeProjectId(await projectWorkspace.listProjects()),
-  };
-};
 
-export const shutdownPackagedCore = async (
-  client: { shutdown(): Promise<{ readonly status: string }> },
+const shutdownPackagedCoreEffect = (
+  sessions: CoreSessionAccess["Service"],
   descriptor: string,
-): Promise<void> => {
-  const response = await client.shutdown();
-  if (response.status !== "draining") {
-    throw new Error(`Packaged Core rejected smoke-test shutdown with ${response.status}`);
-  }
-  await waitForRuntimeExit(descriptor);
-};
+): Effect.Effect<void, PackagedNativeRuntimeVerificationError> =>
+  Effect.gen(function* () {
+    const response = yield* sessions
+      .use("shutdown", (client) => client.shutdown(), { replayAfterRecovery: false })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new PackagedNativeRuntimeVerificationError({ operation: "shutdown-core", cause }),
+        ),
+      );
+    if (response.status !== "draining") {
+      return yield* new PackagedNativeRuntimeVerificationError({
+        operation: "shutdown-core",
+        cause: new Error(`Packaged Core rejected smoke-test shutdown with ${response.status}`),
+      });
+    }
+    yield* attemptPromise("await-core-exit", () => waitForRuntimeExit(descriptor));
+  });
 
-const smokeNativeRuntime = async (
+const smokeNativeRuntime = (
   appPath: string,
   expectedCoreSha256: string,
   expectedVersion: string,
-): Promise<void> => {
-  const directory = mkdtempSync("/tmp/ndx-pkg-");
-  const environment = restrictedEnvironment(directory);
-  const cli = join(appPath, "Contents/Resources/bin/nodex");
-  const linkedCliDirectory = join(directory, "cli-bin");
-  const linkedCli = join(linkedCliDirectory, "nodex");
-  const descriptor = join(environment.NODEX_HOME!, "run/core/core.json");
-  try {
-    chmodSync(directory, 0o700);
-    mkdirSync(environment.TMPDIR!, { mode: 0o700 });
-    mkdirSync(linkedCliDirectory, { mode: 0o700 });
-    symlinkSync(cli, linkedCli);
-    const version = runWithEnvironment(
-      linkedCli,
-      ["--version"],
-      environment,
-      "Run packaged nodex through its installed symlink",
-    );
-    if (version.stdout.trim() !== `nodex ${expectedVersion}`) {
-      throw new Error(
-        `Packaged nodex version mismatch: ${version.stdout.trim()}, expected nodex ${expectedVersion}`,
-      );
-    }
-    const doctor = runWithEnvironment(
-      linkedCli,
-      ["--json", "doctor"],
-      environment,
-      "Run packaged Core doctor through its installed symlink",
-    );
-    const envelope = JSON.parse(doctor.stdout) as { ok?: unknown };
-    if (envelope.ok !== true)
-      throw new Error("Packaged Core doctor did not return a successful envelope");
-    const firstCore = readPackagedCoreIdentity(descriptor, expectedCoreSha256);
-    const repeatedDoctor = runWithEnvironment(
-      linkedCli,
-      ["--json", "doctor"],
-      environment,
-      "Reuse packaged Core doctor",
-    );
-    if ((JSON.parse(repeatedDoctor.stdout) as { ok?: unknown }).ok !== true) {
-      throw new Error("Repeated packaged Core doctor did not return a successful envelope");
-    }
-    const reusedCore = readPackagedCoreIdentity(descriptor, expectedCoreSha256);
-    if (reusedCore.pid !== firstCore.pid || reusedCore.startNonce !== firstCore.startNonce) {
-      throw new Error("Compatible packaged CLI selectors did not reuse one Core generation");
-    }
-    const bootstrap = await bootstrapPackagedCliProject(environment, directory);
-    const searchSentinel = "packaged-native-cli-ripgrep-sentinel";
-    const searchBodyPath = join(directory, "search-smoke.nested.md");
-    writeFileSync(searchBodyPath, `${searchSentinel}\n`, { encoding: "utf8", mode: 0o600 });
-    const pageCreation = runWithEnvironment(
-      linkedCli,
-      [
-        "--json",
-        "--project",
-        bootstrap.projectId,
-        "page",
-        "create",
-        "--parent",
-        "library",
-        "--title",
-        "Packaged CLI search smoke",
-        "--file",
-        searchBodyPath,
-        "--idempotency-key",
-        "packaged-native-runtime-search-smoke",
-      ],
-      environment,
-      "Create packaged CLI search Page",
-    );
-    const pageEnvelope = JSON.parse(pageCreation.stdout) as {
-      ok?: unknown;
-      result?: { page_id?: unknown };
-    };
-    const pageId = pageEnvelope.result?.page_id;
-    if (pageEnvelope.ok !== true || typeof pageId !== "string" || pageId.length === 0) {
-      throw new Error("Packaged CLI search Page creation returned an invalid envelope");
-    }
-    const search = runWithEnvironment(
-      linkedCli,
-      ["--project", bootstrap.projectId, "rg", searchSentinel, `@${pageId}`],
-      environment,
-      "Run packaged CLI ripgrep",
-    );
-    if (!search.stdout.includes(searchSentinel) || !search.stdout.includes(pageId)) {
-      throw new Error("Packaged CLI ripgrep did not return the created Page");
-    }
-    const service = runWithEnvironment(
-      linkedCli,
-      ["--json", "service", "status"],
-      environment,
-      "Run packaged ServiceManagement status",
-    );
-    const serviceEnvelope = JSON.parse(service.stdout) as { ok?: unknown };
-    if (serviceEnvelope.ok !== true) {
-      throw new Error("Packaged ServiceManagement status did not return a successful envelope");
-    }
-    await shutdownPackagedCore(bootstrap.client, descriptor);
-  } finally {
-    if (!existsSync(descriptor)) {
-      removePrivateTemporaryDirectory(directory);
-    }
-  }
-};
+): Effect.Effect<void, PackagedNativeRuntimeVerificationError, Scope.Scope> =>
+  Effect.acquireUseRelease(
+    attempt("create-smoke-directory", () => mkdtempSync("/tmp/ndx-pkg-")),
+    (directory) => {
+      const environment = restrictedEnvironment(directory);
+      const cli = join(appPath, "Contents/Resources/bin/nodex");
+      const linkedCliDirectory = join(directory, "cli-bin");
+      const linkedCli = join(linkedCliDirectory, "nodex");
+      const descriptor = join(environment.NODEX_HOME!, "run/core/core.json");
+      return Effect.gen(function* () {
+        yield* attempt("prepare-smoke-directory", () => {
+          chmodSync(directory, 0o700);
+          mkdirSync(environment.TMPDIR!, { mode: 0o700 });
+          mkdirSync(linkedCliDirectory, { mode: 0o700 });
+          symlinkSync(cli, linkedCli);
+        });
+        yield* attempt("verify-cli-core-reuse", () => {
+          const version = runWithEnvironment(
+            linkedCli,
+            ["--version"],
+            environment,
+            "Run packaged nodex through its installed symlink",
+          );
+          if (version.stdout.trim() !== `nodex ${expectedVersion}`) {
+            throw new Error(
+              `Packaged nodex version mismatch: ${version.stdout.trim()}, expected nodex ${expectedVersion}`,
+            );
+          }
+          const doctor = runWithEnvironment(
+            linkedCli,
+            ["--json", "doctor"],
+            environment,
+            "Run packaged Core doctor through its installed symlink",
+          );
+          if ((JSON.parse(doctor.stdout) as { ok?: unknown }).ok !== true) {
+            throw new Error("Packaged Core doctor did not return a successful envelope");
+          }
+          const firstCore = readPackagedCoreIdentity(descriptor, expectedCoreSha256);
+          const repeatedDoctor = runWithEnvironment(
+            linkedCli,
+            ["--json", "doctor"],
+            environment,
+            "Reuse packaged Core doctor",
+          );
+          if ((JSON.parse(repeatedDoctor.stdout) as { ok?: unknown }).ok !== true) {
+            throw new Error("Repeated packaged Core doctor did not return a successful envelope");
+          }
+          const reusedCore = readPackagedCoreIdentity(descriptor, expectedCoreSha256);
+          if (reusedCore.pid !== firstCore.pid || reusedCore.startNonce !== firstCore.startNonce) {
+            throw new Error("Compatible packaged CLI selectors did not reuse one Core generation");
+          }
+        });
+        yield* withPackagedProjectWorkspace(
+          environment,
+          join(appPath, "Contents/Resources"),
+          (workspace, sessions) =>
+            Effect.gen(function* () {
+              const projectId = yield* bootstrapPackagedCliProject(directory).pipe(
+                Effect.provideService(ProjectWorkspace, workspace),
+              );
+              yield* attempt("verify-cli-project", () => {
+                const searchSentinel = "packaged-native-cli-ripgrep-sentinel";
+                const searchBodyPath = join(directory, "search-smoke.nested.md");
+                writeFileSync(searchBodyPath, `${searchSentinel}\n`, {
+                  encoding: "utf8",
+                  mode: 0o600,
+                });
+                const pageCreation = runWithEnvironment(
+                  linkedCli,
+                  [
+                    "--json",
+                    "--project",
+                    projectId,
+                    "page",
+                    "create",
+                    "--parent",
+                    "library",
+                    "--title",
+                    "Packaged CLI search smoke",
+                    "--file",
+                    searchBodyPath,
+                    "--idempotency-key",
+                    "packaged-native-runtime-search-smoke",
+                  ],
+                  environment,
+                  "Create packaged CLI search Page",
+                );
+                const pageEnvelope = JSON.parse(pageCreation.stdout) as {
+                  ok?: unknown;
+                  result?: { page_id?: unknown };
+                };
+                const pageId = pageEnvelope.result?.page_id;
+                if (pageEnvelope.ok !== true || typeof pageId !== "string" || pageId.length === 0) {
+                  throw new Error("Packaged CLI search Page creation returned an invalid envelope");
+                }
+                const search = runWithEnvironment(
+                  linkedCli,
+                  ["--project", projectId, "rg", searchSentinel, `@${pageId}`],
+                  environment,
+                  "Run packaged CLI ripgrep",
+                );
+                if (!search.stdout.includes(searchSentinel) || !search.stdout.includes(pageId)) {
+                  throw new Error("Packaged CLI ripgrep did not return the created Page");
+                }
+                const service = runWithEnvironment(
+                  linkedCli,
+                  ["--json", "service", "status"],
+                  environment,
+                  "Run packaged ServiceManagement status",
+                );
+                if ((JSON.parse(service.stdout) as { ok?: unknown }).ok !== true) {
+                  throw new Error(
+                    "Packaged ServiceManagement status did not return a successful envelope",
+                  );
+                }
+              });
+              yield* shutdownPackagedCoreEffect(sessions, descriptor);
+            }),
+        );
+      });
+    },
+    (directory) =>
+      Effect.sync(() => {
+        const descriptor = join(directory, "profile/run/core/core.json");
+        if (!existsSync(descriptor)) removePrivateTemporaryDirectory(directory);
+      }),
+  );
 
 const smokePreviousStoreMigration = async (
   appPath: string,
@@ -1044,19 +1166,32 @@ export function verifyPackagedNativeRuntimeStructure(
   };
 }
 
-export async function verifyPackagedNativeRuntimeSmoke(
+const verifyPackagedNativeRuntimeSmoke = (
   options: PackagedNativeRuntimeSmokeOptions,
-): Promise<void> {
-  const identity = verifyPackagedNativeRuntimeStructure(options);
-  await smokeNativeRuntime(identity.appPath, identity.coreSha256, identity.expectedVersion);
-  await smokePreviousStoreMigration(
-    identity.appPath,
-    resolve(options.previousStoreFixturePath ?? DEFAULT_PREVIOUS_STORE_FIXTURE),
-  );
-  smokeBrowserProfileHelper(identity.appPath);
-  if (options.launchApp) await launchAppSmoke(identity.appPath, identity.coreSha256);
-  process.stdout.write(`Verified packaged native runtime smoke ${identity.targetArch}\n`);
-}
+): Effect.Effect<void, PackagedNativeRuntimeVerificationError, Scope.Scope> =>
+  Effect.gen(function* () {
+    const identity = yield* attempt("verify-runtime-structure", () =>
+      verifyPackagedNativeRuntimeStructure(options),
+    );
+    yield* smokeNativeRuntime(identity.appPath, identity.coreSha256, identity.expectedVersion);
+    yield* attemptPromise("verify-store-migration", () =>
+      smokePreviousStoreMigration(
+        identity.appPath,
+        resolve(options.previousStoreFixturePath ?? DEFAULT_PREVIOUS_STORE_FIXTURE),
+      ),
+    );
+    yield* attempt("verify-browser-profile-helper", () =>
+      smokeBrowserProfileHelper(identity.appPath),
+    );
+    if (options.launchApp) {
+      yield* attemptPromise("verify-app-launch", () =>
+        launchAppSmoke(identity.appPath, identity.coreSha256),
+      );
+    }
+    yield* Effect.sync(() => {
+      process.stdout.write(`Verified packaged native runtime smoke ${identity.targetArch}\n`);
+    });
+  });
 
 const readOption = (arguments_: readonly string[], option: string): string | null => {
   const index = arguments_.indexOf(option);
@@ -1066,52 +1201,51 @@ const readOption = (arguments_: readonly string[], option: string): string | nul
   return value;
 };
 
-const main = async (): Promise<void> => {
-  const arguments_ = process.argv.slice(2);
-  const appPath = readOption(arguments_, "--app-path");
-  const targetArch = readOption(arguments_, "--target-arch");
-  const expectedVersion = readOption(arguments_, "--expected-version");
-  if (!appPath || !expectedVersion || (targetArch !== "arm64" && targetArch !== "x64")) {
-    throw new Error(
-      "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 " +
-        "--expected-version <semver> [--expected-build-version <build>] " +
-        "[--previous-store-fixture <store-v130.db>] [--verify-signatures] " +
-        "[--require-developer-id] [--verify-notarization] [--launch-app] " +
-        "[--expected-update-channel disabled|stable|nightly]",
-    );
-  }
-  const requireDeveloperId = arguments_.includes("--require-developer-id");
-  const verifyNotarization = arguments_.includes("--verify-notarization");
-  const expectedUpdateChannel = readOption(arguments_, "--expected-update-channel");
-  const expectedBuildVersion =
-    readOption(arguments_, "--expected-build-version") ?? expectedVersion;
-  if (
-    expectedUpdateChannel !== null &&
-    expectedUpdateChannel !== "disabled" &&
-    expectedUpdateChannel !== "stable" &&
-    expectedUpdateChannel !== "nightly"
-  ) {
-    throw new Error("--expected-update-channel must be disabled, stable, or nightly");
-  }
-  await verifyPackagedNativeRuntimeSmoke({
-    appPath,
-    expectedBuildVersion,
-    expectedVersion,
-    launchApp: arguments_.includes("--launch-app"),
-    previousStoreFixturePath: readOption(arguments_, "--previous-store-fixture") ?? undefined,
-    requireDeveloperId,
-    targetArch,
-    expectedUpdateChannel: expectedUpdateChannel ?? undefined,
-    verifyNotarization,
-    verifySignatures:
-      arguments_.includes("--verify-signatures") || requireDeveloperId || verifyNotarization,
+const main = Effect.gen(function* () {
+  const options = yield* attempt("parse-arguments", () => {
+    const arguments_ = process.argv.slice(2);
+    const appPath = readOption(arguments_, "--app-path");
+    const targetArch = readOption(arguments_, "--target-arch");
+    const expectedVersion = readOption(arguments_, "--expected-version");
+    if (!appPath || !expectedVersion || (targetArch !== "arm64" && targetArch !== "x64")) {
+      throw new Error(
+        "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 " +
+          "--expected-version <semver> [--expected-build-version <build>] " +
+          "[--previous-store-fixture <store-v130.db>] [--verify-signatures] " +
+          "[--require-developer-id] [--verify-notarization] [--launch-app] " +
+          "[--expected-update-channel disabled|stable|nightly]",
+      );
+    }
+    const requireDeveloperId = arguments_.includes("--require-developer-id");
+    const verifyNotarization = arguments_.includes("--verify-notarization");
+    const expectedUpdateChannel = readOption(arguments_, "--expected-update-channel");
+    const expectedBuildVersion =
+      readOption(arguments_, "--expected-build-version") ?? expectedVersion;
+    if (
+      expectedUpdateChannel !== null &&
+      expectedUpdateChannel !== "disabled" &&
+      expectedUpdateChannel !== "stable" &&
+      expectedUpdateChannel !== "nightly"
+    ) {
+      throw new Error("--expected-update-channel must be disabled, stable, or nightly");
+    }
+    return {
+      appPath,
+      expectedBuildVersion,
+      expectedVersion,
+      launchApp: arguments_.includes("--launch-app"),
+      previousStoreFixturePath: readOption(arguments_, "--previous-store-fixture") ?? undefined,
+      requireDeveloperId,
+      targetArch,
+      expectedUpdateChannel: expectedUpdateChannel ?? undefined,
+      verifyNotarization,
+      verifySignatures:
+        arguments_.includes("--verify-signatures") || requireDeveloperId || verifyNotarization,
+    } satisfies PackagedNativeRuntimeSmokeOptions;
   });
-};
+  yield* verifyPackagedNativeRuntimeSmoke(options);
+});
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void main().catch((error: unknown) => {
-    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-    process.stderr.write(`${message}\n`);
-    process.exitCode = 1;
-  });
+  NodeRuntime.runMain(Effect.scoped(main));
 }

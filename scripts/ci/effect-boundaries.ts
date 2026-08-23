@@ -110,6 +110,7 @@ const nodeRuntimeEntries = new Set([
   "packages/effect-codex-app-server/scripts/generate.ts",
   "scripts/codex-probe-session.ts",
   "scripts/dev-launcher.ts",
+  "scripts/verify-native-runtime.ts",
   "src/main/app/MainEntry.ts",
   "src/main/git-worker/entry.ts",
   "src/main/worktree-worker/entry.ts",
@@ -118,7 +119,6 @@ const nodeRuntimeEntries = new Set([
 
 const effectRunBoundaries = new Set([
   ...nodeRuntimeEntries,
-  "scripts/initial-project-bootstrap-runtime-adapter.ts",
   "scripts/scenarios/adapters/core-client-seed-runtime.ts",
 ]);
 

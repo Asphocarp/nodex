@@ -5,10 +5,7 @@ import { join, resolve } from "node:path";
 
 import { verifyPackagedBuildProvenance } from "../package-provenance.mjs";
 import { verifyCodexRuntime } from "../verify-codex-runtime";
-import {
-  verifyPackagedNativeRuntimeSmoke,
-  verifyPackagedNativeRuntimeStructure,
-} from "../verify-native-runtime";
+import { verifyPackagedNativeRuntimeStructure } from "../verify-native-runtime";
 import {
   recordArchitectureBuild,
   type ArchitectureBuildManifest,
@@ -186,17 +183,32 @@ const verifyApp = async (options: {
     verifySignatures: true,
   } as const;
   if (options.runtimeCheck.kind === "smoke") {
-    runTask(process.cwd(), "pnpm", [
+    runTask(process.cwd(), "vp", [
       "exec",
       "tsx",
       "scripts/run-browser-runtime-probe.ts",
       "--resources-path",
       join(options.appPath, "Contents/Resources"),
     ]);
-    await verifyPackagedNativeRuntimeSmoke({
-      ...runtimeOptions,
-      launchApp: options.runtimeCheck.launchApp,
-    });
+    runTask(process.cwd(), "vp", [
+      "exec",
+      "tsx",
+      "scripts/verify-native-runtime.ts",
+      "--app-path",
+      options.appPath,
+      "--target-arch",
+      options.architecture,
+      "--expected-version",
+      options.version,
+      "--expected-build-version",
+      options.buildVersion,
+      "--expected-update-channel",
+      options.channel,
+      "--verify-signatures",
+      "--require-developer-id",
+      "--verify-notarization",
+      ...(options.runtimeCheck.launchApp ? ["--launch-app"] : []),
+    ]);
   } else {
     verifyPackagedNativeRuntimeStructure(runtimeOptions);
   }
