@@ -10,7 +10,6 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import { parseDatabaseViewId } from "../../shared/database-identities";
-import { layer as scopedCallbackRuntimeLive } from "../app/ScopedCallbackRuntime";
 import { allProjectSessionInvalidation } from "../core-client/core-project-workspace-invalidation";
 import { WindowRuntime } from "../window-runtime/WindowRuntime";
 import { DatabaseNotifierRuntime, live } from "./DatabaseNotifierRuntime";
@@ -21,9 +20,7 @@ const emptyWindows = {
 } as unknown as WindowRuntime["Service"];
 
 const layer = (windows: WindowRuntime["Service"] = emptyWindows) =>
-  live.pipe(
-    Layer.provide(Layer.mergeAll(scopedCallbackRuntimeLive, Layer.succeed(WindowRuntime, windows))),
-  );
+  live.pipe(Layer.provide(Layer.succeed(WindowRuntime, windows)));
 
 const databaseEvent = (overrides: Partial<DatabaseChangeEvent> = {}): DatabaseChangeEvent => ({
   version: 3,
@@ -41,27 +38,19 @@ const databaseEvent = (overrides: Partial<DatabaseChangeEvent> = {}): DatabaseCh
   ...overrides,
 });
 
-it.effect("owns an independent typed stream in each Main Scope", () =>
+it.effect("closes typed observation with its owning Main Scope", () =>
   Effect.gen(function* () {
-    const firstScope = yield* Scope.make();
-    const secondScope = yield* Scope.make();
-    const first = Context.get(
-      yield* Layer.buildWithScope(layer(), firstScope),
+    const scope = yield* Scope.make();
+    const runtime = Context.get(
+      yield* Layer.buildWithScope(layer(), scope),
       DatabaseNotifierRuntime,
     );
-    const second = Context.get(
-      yield* Layer.buildWithScope(layer(), secondScope),
-      DatabaseNotifierRuntime,
-    );
-    assert.notStrictEqual(first, second);
-    assert.notStrictEqual(first.projectSessionInvalidations, second.projectSessionInvalidations);
 
-    const completion = yield* Stream.runHead(first.projectSessionInvalidations).pipe(
+    const completion = yield* Stream.runHead(runtime.projectSessionInvalidations).pipe(
       Effect.forkChild({ startImmediately: true }),
     );
-    yield* Scope.close(firstScope, Exit.void);
+    yield* Scope.close(scope, Exit.void);
     assert.isTrue(Option.isNone(yield* Fiber.join(completion)));
-    yield* Scope.close(secondScope, Exit.void);
   }),
 );
 
@@ -85,7 +74,7 @@ it.effect("broadcasts database projections and publishes session invalidations",
       DatabaseNotifierRuntime,
     );
 
-    runtime.notifyDatabaseChanged(
+    yield* runtime.notifyDatabaseChanged(
       databaseEvent({
         personalViewChanges: [
           {
@@ -102,7 +91,7 @@ it.effect("broadcasts database projections and publishes session invalidations",
       ["database-changed"],
     );
 
-    runtime.notifyDatabaseChanged(databaseEvent({ affectedDataSourceIds: ["source:test"] }));
+    yield* runtime.notifyDatabaseChanged(databaseEvent({ affectedDataSourceIds: ["source:test"] }));
     assert.deepEqual(
       sent.slice(-2).map((entry) => entry.channel),
       ["database-changed", "library-navigation-changed"],
@@ -112,7 +101,7 @@ it.effect("broadcasts database projections and publishes session invalidations",
     const received = yield* Stream.runHead(runtime.projectSessionInvalidations).pipe(
       Effect.forkChild({ startImmediately: true }),
     );
-    runtime.notifyProjectSessionInvalidation(sessionEvent);
+    yield* runtime.notifyProjectSessionInvalidation(sessionEvent);
     assert.deepEqual(yield* Fiber.join(received), Option.some(sessionEvent));
     assert.strictEqual(sent.at(-1)?.channel, "project-sessions-changed");
     yield* Scope.close(scope, Exit.void);

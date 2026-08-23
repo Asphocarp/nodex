@@ -22,11 +22,19 @@ it.effect(
       const sessionEvents: unknown[] = [];
       let synchronizeCount = 0;
       const notifications = DatabaseNotifierRuntime.of({
-        notifyDatabaseChanged: () => undefined,
-        notifyLibraryNavigationChanged: (event) => libraryEvents.push(event),
+        notifyDatabaseChanged: () => Effect.void,
+        notifyLibraryNavigationChanged: (event) =>
+          Effect.sync(() => {
+            libraryEvents.push(event);
+          }),
         notifyProjectsChanged: (changeType, projectId) =>
-          projectEvents.push({ changeType, projectId }),
-        notifyProjectSessionInvalidation: (event) => sessionEvents.push(event),
+          Effect.sync(() => {
+            projectEvents.push({ changeType, projectId });
+          }),
+        notifyProjectSessionInvalidation: (event) =>
+          Effect.sync(() => {
+            sessionEvents.push(event);
+          }),
         projectSessionInvalidations: Stream.empty,
       });
       const automationRouting = AutomationRoutingIndex.of({

@@ -89,26 +89,29 @@ export const live: Layer.Layer<
 
       if (projected.kind === "database") {
         const databaseEvent = projected.value;
-        notifications.notifyDatabaseChanged(databaseEvent);
+        yield* notifications.notifyDatabaseChanged(databaseEvent);
         if ((databaseEvent.affectedViewIds ?? []).length > 0) {
           // The Project catalog projects a Database's primary default View.
-          notifications.notifyProjectsChanged("update", databaseEvent.projectId);
+          yield* notifications.notifyProjectsChanged("update", databaseEvent.projectId);
         }
         return;
       }
 
       if (projected.kind === "library-navigation") {
-        notifications.notifyLibraryNavigationChanged(projected.value);
+        yield* notifications.notifyLibraryNavigationChanged(projected.value);
         return;
       }
 
       const workspaceEvent = projected.value;
       const planned = planCoreWorkspaceNotifications(workspaceEvent);
       if (planned.project) {
-        notifications.notifyProjectsChanged(planned.project.changeType, planned.project.projectId);
+        yield* notifications.notifyProjectsChanged(
+          planned.project.changeType,
+          planned.project.projectId,
+        );
       }
       if (planned.invalidateStandaloneRoots) {
-        notifications.notifyLibraryNavigationChanged({
+        yield* notifications.notifyLibraryNavigationChanged({
           version: 1,
           libraryId,
           storeEpoch: envelope.packet.manifest.identity.store_epoch,
@@ -120,16 +123,18 @@ export const live: Layer.Layer<
           affectedViewIds: [],
         });
       }
-      if (planned.sessions) notifications.notifyProjectSessionInvalidation(planned.sessions);
+      if (planned.sessions) {
+        yield* notifications.notifyProjectSessionInvalidation(planned.sessions);
+      }
     });
 
-    const publishResync = (input: {
-      readonly commitSeq: number;
-      readonly libraryId: string;
-      readonly storeEpoch: string | null;
-    }): Effect.Effect<void> =>
-      Effect.sync(() => {
-        notifications.notifyLibraryNavigationChanged({
+    const publishResync = Effect.fn("CoreApplicationProjectionRuntime.publishResync")(
+      function* (input: {
+        readonly commitSeq: number;
+        readonly libraryId: string;
+        readonly storeEpoch: string | null;
+      }) {
+        yield* notifications.notifyLibraryNavigationChanged({
           version: 1,
           libraryId: input.libraryId,
           storeEpoch: input.storeEpoch,
@@ -140,9 +145,10 @@ export const live: Layer.Layer<
           affectedDatabaseIds: [],
           affectedViewIds: [],
         });
-        notifications.notifyProjectsChanged("update");
-        notifications.notifyProjectSessionInvalidation(allProjectSessionInvalidation());
-      });
+        yield* notifications.notifyProjectsChanged("update");
+        yield* notifications.notifyProjectSessionInvalidation(allProjectSessionInvalidation());
+      },
+    );
 
     return CoreApplicationProjectionRuntime.of({ publish, publishResync });
   }),
