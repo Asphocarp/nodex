@@ -662,6 +662,19 @@ the fixed interval. Thread removal clears its repair generation, and Main Scope 
 physical reads. `CodexService` owns no repair Promise map, retry timestamp map, completed Set, or
 detached finalizer.
 
+Subagent inventory and renderer fidelity are owned by one Main-scoped catalog. The catalog owns
+known/full-fidelity membership, deduplicated explicit hydration, ancestor-chain authorization,
+app-server descendant pagination, Workspace-authored summaries, and the background-delta delivery
+gate. Hydration reads through the typed Effect Gateway and crosses into the transitional canonical
+reducer through one mechanical projection between the readonly Effect-generated DTO and the
+transport-neutral protocol type; it does not reopen the Promise client. Opening a child moves it to
+full-fidelity delivery before its complete read; Thread removal
+clears both indexes, and Main Scope release clears the whole generation and interrupts active
+hydration. Renderer IPC invokes the catalog directly. `CodexService` supplies only canonical parent,
+Thread materialization, Workspace read, and summary publication projection ports; it owns no public
+hydrate/open command or parallel membership Set. Metadata repair remains the separate keyed policy
+above because its retry/completion lifecycle differs from inventory and presentation fidelity.
+
 Queued follow-ups are owned by one Main-scoped keyed runtime. The Module owns creation with Effect
 Clock, queue order, pause state, remove/reorder, atomic claim, manual “send now”, failure restoration,
 and the physical submit fiber; accepted conversation state is a projection, not a second queue

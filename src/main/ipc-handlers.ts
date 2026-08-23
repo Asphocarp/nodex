@@ -18,6 +18,7 @@ import type { CodexThreadCatalog } from "./codex-application/CodexThreadCatalog"
 import type { CodexThreadTitlePersistence } from "./codex-application/CodexThreadTitlePersistence";
 import type { ConversationCommands } from "./codex-application/ConversationCommands";
 import type { CodexBackgroundProcesses } from "./codex-application/CodexBackgroundProcesses";
+import type { CodexSubagentCatalog } from "./codex-application/CodexSubagentCatalog";
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
@@ -120,6 +121,7 @@ interface CodexIpcOptions {
   freshThreadLaunch: CodexFreshThreadLaunchRuntimeService;
   structuredThreadTitle: CodexStructuredThreadTitle["Service"];
   backgroundProcesses: CodexBackgroundProcesses["Service"];
+  subagentCatalog: CodexSubagentCatalog["Service"];
   rendererClientRouter: RendererClientRuntimeService;
 }
 
@@ -585,19 +587,38 @@ export const codexIpcLive = (
           ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:background-subagents:hydrate",
         (_, input: CodexBackgroundSubagentThreadsHydrateInput) =>
-          codexService.hydrateBackgroundSubagentThreads(input),
+          options.subagentCatalog.hydrateBackground(input).pipe(
+            Effect.map((summaries) => [...summaries]),
+            Effect.mapError(
+              (cause) =>
+                new CodexIpcError({
+                  operation: "codex:thread:background-subagents:hydrate",
+                  cause,
+                }),
+            ),
+          ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:subagents-panel:hydrate",
-        (_, input: CodexSubagentPanelHydrateInput) => codexService.hydrateSubagentPanel(input),
+        (_, input: CodexSubagentPanelHydrateInput) =>
+          options.subagentCatalog.hydratePanel(input).pipe(
+            Effect.map((summaries) => [...summaries]),
+            Effect.mapError(
+              (cause) =>
+                new CodexIpcError({
+                  operation: "codex:thread:subagents-panel:hydrate",
+                  cause,
+                }),
+            ),
+          ),
       );
 
-      registerHandle("codex:subagent-thread:opened", (_, threadId: string) =>
-        codexService.markSubagentThreadOpened(threadId),
+      registerEffectHandle("codex:subagent-thread:opened", (_, threadId: string) =>
+        options.subagentCatalog.open(threadId),
       );
 
       registerEffectHandle("codex:thread:resume-buffer:release", (_, threadId: string) =>

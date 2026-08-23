@@ -164,6 +164,10 @@ import {
   make as makeCodexBackgroundSubagentMetadataRepair,
 } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
 import {
+  CodexSubagentCatalogError,
+  make as makeCodexSubagentCatalog,
+} from "../codex-application/CodexSubagentCatalog";
+import {
   CodexQueuedFollowUpRuntimeError,
   make as makeCodexQueuedFollowUpRuntime,
 } from "../codex-application/CodexQueuedFollowUpRuntime";
@@ -1877,6 +1881,33 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexBackgroundSubagentMetadataRepairError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const subagentCatalog = yield* makeCodexSubagentCatalog({
+          materializeRead: (thread, includeTurns) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().materializeSubagentThreadReadForModule(thread, includeTurns),
+              catch: (cause) => new CodexSubagentCatalogError({ operation: "hydrate", cause }),
+            }),
+          shouldRetryReadWithoutTurns: (cause) =>
+            requireCodexService().shouldRetrySubagentReadWithoutTurnsForModule(cause),
+          readWorkspaceThread: (threadId) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().readSubagentWorkspaceThreadForModule(threadId),
+              catch: (cause) => new CodexSubagentCatalogError({ operation: "hydrate", cause }),
+            }),
+          readCanonicalParent: (threadId) =>
+            requireCodexService().readSubagentCanonicalParentForModule(threadId),
+          materialize: (input) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().materializeSubagentThreadForModule(input),
+              catch: (cause) => new CodexSubagentCatalogError({ operation: "discover", cause }),
+            }),
+          publishSummary: (summary) =>
+            requireCodexService().publishSubagentSummaryForModule(summary),
+        }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const queuedFollowUps = yield* makeCodexQueuedFollowUpRuntime({
           isSubmissionEligible: (threadId) =>
             requireCodexService().isQueuedFollowUpSubmissionEligible(threadId),
@@ -2224,6 +2255,7 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               backgroundSubagentMetadataRepair,
+              subagentCatalog,
               queuedFollowUps: makeCodexQueuedFollowUpRuntimePromiseAdapter(
                 queuedFollowUps,
                 callbacks,
@@ -2945,6 +2977,7 @@ export const live: Layer.Layer<
             freshThreadLaunch,
             structuredThreadTitle,
             backgroundProcesses,
+            subagentCatalog,
             rendererClientRouter: rendererClients,
           }).pipe(
             Layer.provide(

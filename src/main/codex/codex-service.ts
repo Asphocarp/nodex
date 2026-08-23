@@ -63,8 +63,6 @@ import type {
   CodexAutomationRunsUpdatedEvent,
   CodexApprovalRequest,
   CodexApprovalResponse,
-  CodexBackgroundSubagentThreadsHydrateInput,
-  CodexSubagentPanelHydrateInput,
   CodexBackgroundTerminalRow,
   CodexCanonicalServerRequest,
   CodexCanonicalConversationState,
@@ -655,6 +653,7 @@ import type { ConversationCommandsPromiseAdapter } from "../codex-application/Co
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
 import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
+import type { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
 import type { CodexQueuedFollowUpRuntimePromiseAdapter } from "../codex-application/CodexQueuedFollowUpRuntimePromiseAdapter";
 import type { CodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import type {
@@ -664,6 +663,10 @@ import type {
   CodexConversationResumeOutcome,
 } from "../codex-application/CodexConversationResumeRuntime";
 import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
+import {
+  projectCodexGatewayThreadReadThread,
+  type CodexGatewayThreadReadThread,
+} from "../codex-runtime/CodexGatewayProtocolProjection";
 import type {
   CodexBufferedConversationEvent,
   CodexBufferedConversationRequest,
@@ -707,13 +710,6 @@ const AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES = [
   "The following is the Codex agent history",
   "The following is the Codex agent history added since your last approval assessment",
 ] as const;
-const CODEX_BACKGROUND_SUBAGENT_DELTA_METHODS = new Set<CodexServerNotification["method"]>([
-  "item/agentMessage/delta",
-  "item/plan/delta",
-  "item/reasoning/summaryTextDelta",
-  "item/reasoning/textDelta",
-  "item/commandExecution/outputDelta",
-] satisfies readonly CodexServerNotification["method"][]);
 const CODEX_HEARTBEAT_ROLLOUT_TAIL_BYTES = 256 * 1024;
 const CODEX_HEARTBEAT_TERMINAL_ROLLOUT_EVENTS = new Set([
   "task_complete",
@@ -1113,6 +1109,7 @@ type CodexServiceOptions = {
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
+  subagentCatalog: CodexSubagentCatalog["Service"];
   queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
   conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
   conversationResume: CodexConversationResumeRuntimePromiseAdapter;
@@ -1625,25 +1622,42 @@ function isConfirmedAutoReviewReviewerMetadata(
   return threadSource === "subagent" && isGuardianSubagentSource(metadata.source);
 }
 
-function isRolloutMaterializationError(error: unknown): boolean {
-  if (!(error instanceof CodexRpcError)) return false;
-  const message = error.message.toLowerCase();
-
+function isRolloutMaterializationMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
   const isLegacyRolloutError =
-    message.includes("failed to load rollout") &&
-    (message.includes("empty session file") ||
-      message.includes("materialized") ||
-      message.includes("is empty"));
+    normalized.includes("failed to load rollout") &&
+    (normalized.includes("empty session file") ||
+      normalized.includes("materialized") ||
+      normalized.includes("is empty"));
   if (isLegacyRolloutError) return true;
 
   // Newer app-server responses can skip "failed to load rollout" and directly report
   // includeTurns preconditions before the first user turn is materialized.
   const isPreMaterializedThreadError =
-    message.includes("not materialized yet") ||
-    (message.includes("includeturns") && message.includes("before first user message")) ||
-    message.includes("includeturns is unavailable");
+    normalized.includes("not materialized yet") ||
+    (normalized.includes("includeturns") && normalized.includes("before first user message")) ||
+    normalized.includes("includeturns is unavailable");
 
   return isPreMaterializedThreadError;
+}
+
+function isRolloutMaterializationError(error: unknown): boolean {
+  return error instanceof CodexRpcError && isRolloutMaterializationMessage(error.message);
+}
+
+function hasNestedRolloutMaterializationError(error: unknown): boolean {
+  let current: unknown = error;
+  const visited = new Set<object>();
+  while (typeof current === "object" && current !== null && !visited.has(current)) {
+    visited.add(current);
+    if (current instanceof Error && isRolloutMaterializationMessage(current.message)) return true;
+    const record = current as { readonly cause?: unknown; readonly message?: unknown };
+    if (typeof record.message === "string" && isRolloutMaterializationMessage(record.message)) {
+      return true;
+    }
+    current = record.cause;
+  }
+  return false;
 }
 
 function isThreadNotFoundError(error: unknown): boolean {
@@ -2235,6 +2249,7 @@ export class CodexService {
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
+  private readonly subagentCatalog: CodexSubagentCatalog["Service"];
   private readonly queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
   private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
   private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
@@ -2243,13 +2258,11 @@ export class CodexService {
   private readonly manualCompaction: CodexManualCompactionRuntimePromiseAdapter;
   private readonly threadGoals: CodexThreadGoalRuntimePromiseAdapter;
   private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
-  private readonly subagentThreadIds = new Set<string>();
   private readonly deletedThreadIds = new Set<string>();
   private readonly inheritedNodexAuthorityBySubagentThreadId = new Map<
     string,
     FrozenNodexAgentTurnAuthority
   >();
-  private readonly fullFidelitySubagentThreadIds = new Set<string>();
   private readonly acceptedConversationDocumentById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
   private readonly conversationStreamRevisionById = new Map<string, number>();
@@ -2348,6 +2361,7 @@ export class CodexService {
     this.postResumeGoals = options.postResumeGoals;
     this.conversationHistory = options.conversationHistory;
     this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
+    this.subagentCatalog = options.subagentCatalog;
     this.queuedFollowUps = options.queuedFollowUps;
     this.conversationDeltaBuffer = options.conversationDeltaBuffer;
     this.conversationResume = options.conversationResume;
@@ -2522,13 +2536,6 @@ export class CodexService {
     this.clearInternalThread(threadId);
   }
 
-  markSubagentThreadOpened(threadId: string): boolean {
-    const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId) return false;
-    this.fullFidelitySubagentThreadIds.add(normalizedThreadId);
-    return true;
-  }
-
   private registerInternalThreadFromStartedNotification(
     notification: CodexServerNotification,
   ): void {
@@ -2567,7 +2574,7 @@ export class CodexService {
 
     const threadId = typeof thread.id === "string" ? thread.id.trim() : "";
     if (threadId.length === 0) return;
-    this.subagentThreadIds.add(threadId);
+    this.subagentCatalog.observe(threadId);
     const parentThreadId = parseThreadParentThreadId(thread);
     if (!parentThreadId || this.inheritedNodexAuthorityBySubagentThreadId.has(threadId)) {
       return;
@@ -2603,19 +2610,6 @@ export class CodexService {
     const item = asRecord(eventParams?.item);
     if (typeof item?.threadId === "string") return item.threadId;
     return null;
-  }
-
-  private shouldDropUnopenedSubagentDeltaNotification(
-    method: CodexServerNotification["method"],
-    threadId: string | null,
-  ): boolean {
-    const normalizedThreadId = threadId?.trim();
-    if (!normalizedThreadId) return false;
-    return (
-      CODEX_BACKGROUND_SUBAGENT_DELTA_METHODS.has(method) &&
-      this.subagentThreadIds.has(normalizedThreadId) &&
-      !this.fullFidelitySubagentThreadIds.has(normalizedThreadId)
-    );
   }
 
   async routeAppServerNotification(notification: CodexServerNotification): Promise<void> {
@@ -2661,7 +2655,7 @@ export class CodexService {
       });
       return;
     }
-    if (this.shouldDropUnopenedSubagentDeltaNotification(notification.method, threadId)) {
+    if (this.subagentCatalog.shouldDropDelta(notification.method, threadId)) {
       this.logger.debug("Dropped unopened background subagent delta notification", {
         threadId,
         method: notification.method,
@@ -5367,6 +5361,7 @@ export class CodexService {
     );
     this.freshThreadLaunch.clear(threadId);
     this.backgroundSubagentMetadataRepair.clear(threadId);
+    this.subagentCatalog.clear(threadId);
     this.queuedFollowUps.clear(threadId);
   }
 
@@ -6631,130 +6626,41 @@ export class CodexService {
     }
   }
 
-  async hydrateBackgroundSubagentThreads(
-    input: CodexBackgroundSubagentThreadsHydrateInput,
-  ): Promise<CodexThreadSummary[]> {
-    const threadIds = Array.from(
-      new Set(input.threadIds.map((threadId) => threadId.trim()).filter(Boolean)),
-    );
-    if (threadIds.length === 0) return [];
-
-    await this.ensureClientReady();
-
-    const includeTurns = input.includeTurns === true;
-    const summaries: CodexThreadSummary[] = [];
-    for (const threadId of threadIds) {
-      await this.readThread(threadId, includeTurns);
-      const thread = await this.readWorkspaceThread(threadId);
-      if (thread) summaries.push(this.buildWorkspaceThreadSummary(thread));
-    }
-
-    return summaries;
+  async materializeSubagentThreadReadForModule(
+    thread: CodexGatewayThreadReadThread,
+    includeTurns: boolean,
+  ): Promise<void> {
+    await this.materializeReadThread(projectCodexGatewayThreadReadThread(thread), includeTurns);
   }
 
-  private async isKnownSubagentDescendant(
-    rootThreadId: string,
+  shouldRetrySubagentReadWithoutTurnsForModule(cause: unknown): boolean {
+    return hasNestedRolloutMaterializationError(cause);
+  }
+
+  readSubagentWorkspaceThreadForModule(
     threadId: string,
-  ): Promise<boolean> {
-    if (rootThreadId === threadId) return false;
-
-    const visited = new Set<string>();
-    let currentThreadId: string | null = threadId;
-    while (currentThreadId && !visited.has(currentThreadId)) {
-      visited.add(currentThreadId);
-      const recordParentThreadId: string | null | undefined =
-        this.getMaybeConversationRecord(currentThreadId)?.detail?.source?.parentThreadId;
-      const persisted: DesktopProjectWorkspaceThread | null =
-        recordParentThreadId === undefined ? await this.readWorkspaceThread(currentThreadId) : null;
-      const parentThreadId: string | null =
-        recordParentThreadId ?? persisted?.parentThreadId ?? null;
-      if (parentThreadId === rootThreadId) return true;
-      currentThreadId = parentThreadId;
-    }
-
-    return false;
+  ): Promise<DesktopProjectWorkspaceThread | null> {
+    return this.readWorkspaceThread(threadId);
   }
 
-  private async discoverSubagentDescendants(rootThreadId: string): Promise<CodexThreadSummary[]> {
-    const summaries: CodexThreadSummary[] = [];
-    const root = await this.readWorkspaceThread(rootThreadId);
-    const rootCreatedAtSeconds = Math.floor((root?.createdAt ?? 0) / 1000);
-    let cursor: string | null = null;
-
-    do {
-      const params: ThreadListParams = {
-        cursor,
-        limit: 200,
-        sortKey: "created_at",
-        sortDirection: "desc",
-        sourceKinds: ["subAgentThreadSpawn"],
-        archived: false,
-        useStateDbOnly: true,
-        ancestorThreadId: rootThreadId,
-      };
-      const response = await this.client.request<"thread/list", ThreadListResponse>(
-        "thread/list",
-        params,
-      );
-      for (const thread of response.data) {
-        const record = asRecord(thread);
-        if (!record) continue;
-        const parentThreadId = parseThreadParentThreadId(record);
-        if (!parentThreadId) continue;
-        const summary = await this.upsertBackgroundSubagentThreadFromAppServerThread(
-          record,
-          parentThreadId,
-          typeof record.cwd === "string" ? record.cwd : null,
-        );
-        if (!summary) continue;
-        summaries.push(summary);
-        this.emitEvent({ type: "threadSummary", thread: summary });
-      }
-      const reachedThreadsOlderThanRoot =
-        rootCreatedAtSeconds > 0 &&
-        response.data.some(
-          (thread) =>
-            typeof thread.createdAt === "number" && thread.createdAt < rootCreatedAtSeconds,
-        );
-      cursor = reachedThreadsOlderThanRoot ? null : response.nextCursor;
-    } while (cursor);
-
-    return summaries;
+  readSubagentCanonicalParentForModule(threadId: string): string | null | undefined {
+    return this.getMaybeConversationRecord(threadId)?.detail?.source?.parentThreadId;
   }
 
-  async hydrateSubagentPanel(input: CodexSubagentPanelHydrateInput): Promise<CodexThreadSummary[]> {
-    const rootThreadId = input.rootThreadId.trim();
-    if (!rootThreadId) return [];
-
-    await this.ensureClientReady();
-    const requestedThreadIds = Array.from(
-      new Set((input.threadIds ?? []).map((threadId) => threadId.trim()).filter(Boolean)),
+  materializeSubagentThreadForModule(input: {
+    readonly thread: Record<string, unknown>;
+    readonly parentThreadId: string;
+    readonly fallbackCwd: string | null;
+  }): Promise<CodexThreadSummary | null> {
+    return this.upsertBackgroundSubagentThreadFromAppServerThread(
+      input.thread,
+      input.parentThreadId,
+      input.fallbackCwd,
     );
-    if (requestedThreadIds.length === 0) {
-      return this.discoverSubagentDescendants(rootThreadId);
-    }
+  }
 
-    const knownDescendants = await Promise.all(
-      requestedThreadIds.map(async (threadId) => ({
-        threadId,
-        known: await this.isKnownSubagentDescendant(rootThreadId, threadId),
-      })),
-    );
-    if (knownDescendants.some(({ known }) => !known)) {
-      await this.discoverSubagentDescendants(rootThreadId);
-    }
-
-    const summaries: CodexThreadSummary[] = [];
-    for (const threadId of requestedThreadIds) {
-      if (!(await this.isKnownSubagentDescendant(rootThreadId, threadId))) continue;
-      if (input.includeTurns === true) {
-        this.markSubagentThreadOpened(threadId);
-      }
-      await this.readThread(threadId, input.includeTurns === true);
-      const thread = await this.readWorkspaceThread(threadId);
-      if (thread) summaries.push(this.buildWorkspaceThreadSummary(thread));
-    }
-    return summaries;
+  publishSubagentSummaryForModule(summary: CodexThreadSummary): void {
+    this.emitEvent({ type: "threadSummary", thread: summary });
   }
 
   private async upsertSidebarThreadFromAppServerThread(
@@ -12137,7 +12043,7 @@ export class CodexService {
     );
     if (!summary) return null;
 
-    this.subagentThreadIds.add(summary.threadId);
+    this.subagentCatalog.observe(summary.threadId);
     this.syncParentChildMembershipMetadata(parentThreadId);
     return summary;
   }
@@ -13557,7 +13463,13 @@ export class CodexService {
   ): Promise<CodexThreadReadMaterialization | null> {
     const thread = await this.fetchThreadWithTurnsFlag(threadId, includeTurns);
     if (!thread) return null;
+    return this.materializeReadThread(thread, includeTurns);
+  }
 
+  private async materializeReadThread(
+    thread: Thread,
+    includeTurns: boolean,
+  ): Promise<CodexThreadReadMaterialization | null> {
     const threadSummary = await this.upsertLinkFromThread(thread);
     if (threadSummary?.source?.parentThreadId) {
       this.syncParentChildMembershipMetadata(threadSummary.source.parentThreadId, {

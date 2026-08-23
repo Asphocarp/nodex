@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test, vi } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -6,8 +7,6 @@ import os from "node:os";
 import path from "node:path";
 import type {
   CodexBackgroundProcessRecord,
-  CodexBackgroundSubagentThreadsHydrateInput,
-  CodexSubagentPanelHydrateInput,
   CodexAgentMode,
   CodexApprovalResponse,
   CodexApprovalKind,
@@ -54,6 +53,7 @@ import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistenc
 import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime.test-support";
 import { TestCodexConversationHistoryRuntime } from "./codex-conversation-history-runtime.test-support";
 import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-subagent-metadata-repair.test-support";
+import { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
 import { TestCodexConversationDeltaBufferRuntime } from "./codex-conversation-delta-buffer-runtime.test-support";
 import { TestCodexConversationResumeRuntime } from "./codex-conversation-resume-runtime.test-support";
 import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
@@ -280,11 +280,12 @@ interface TestableCodexService {
     turnId: string;
     syncDormantConversationUpdates: boolean;
   }) => Promise<boolean>;
-  markSubagentThreadOpened: (threadId: string) => boolean;
-  hydrateBackgroundSubagentThreads: (
-    input: CodexBackgroundSubagentThreadsHydrateInput,
-  ) => Promise<CodexThreadSummary[]>;
-  hydrateSubagentPanel: (input: CodexSubagentPanelHydrateInput) => Promise<CodexThreadSummary[]>;
+  materializeSubagentThreadReadForModule: CodexService["materializeSubagentThreadReadForModule"];
+  shouldRetrySubagentReadWithoutTurnsForModule: CodexService["shouldRetrySubagentReadWithoutTurnsForModule"];
+  readSubagentWorkspaceThreadForModule: CodexService["readSubagentWorkspaceThreadForModule"];
+  readSubagentCanonicalParentForModule: CodexService["readSubagentCanonicalParentForModule"];
+  materializeSubagentThreadForModule: CodexService["materializeSubagentThreadForModule"];
+  publishSubagentSummaryForModule: CodexService["publishSubagentSummaryForModule"];
   respondToUserInput: (
     requestId: string | number,
     answers: Record<string, string[]>,
@@ -1881,6 +1882,43 @@ function createService(options?: {
       return await service.repairBackgroundSubagentMetadata(parentThreadId, childThreadId);
     },
   });
+  const knownSubagentThreadIds = new Set<string>();
+  const fullFidelitySubagentThreadIds = new Set<string>();
+  const subagentCatalog = CodexSubagentCatalog.of({
+    hydrateBackground: () => Effect.die("unused"),
+    hydratePanel: () => Effect.die("unused"),
+    open: (threadId) =>
+      Effect.sync(() => {
+        const normalized = threadId.trim();
+        if (!normalized) return false;
+        knownSubagentThreadIds.add(normalized);
+        fullFidelitySubagentThreadIds.add(normalized);
+        return true;
+      }),
+    observe: (threadId) => {
+      const normalized = threadId.trim();
+      if (normalized) knownSubagentThreadIds.add(normalized);
+    },
+    shouldDropDelta: (method, threadId) => {
+      const normalized = threadId?.trim() ?? "";
+      return (
+        normalized.length > 0 &&
+        [
+          "item/agentMessage/delta",
+          "item/plan/delta",
+          "item/reasoning/summaryTextDelta",
+          "item/reasoning/textDelta",
+          "item/commandExecution/outputDelta",
+        ].includes(method) &&
+        knownSubagentThreadIds.has(normalized) &&
+        !fullFidelitySubagentThreadIds.has(normalized)
+      );
+    },
+    clear: (threadId) => {
+      knownSubagentThreadIds.delete(threadId);
+      fullFidelitySubagentThreadIds.delete(threadId);
+    },
+  });
   const queuedFollowUps = {
     list: () => [],
     enqueue: async () => "test-follow-up",
@@ -2195,6 +2233,7 @@ function createService(options?: {
     postResumeGoals,
     conversationHistory,
     backgroundSubagentMetadataRepair,
+    subagentCatalog,
     queuedFollowUps,
     conversationDeltaBuffer,
     conversationResume,

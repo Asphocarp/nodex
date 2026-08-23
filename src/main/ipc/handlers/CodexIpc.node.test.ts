@@ -19,6 +19,7 @@ import type { CodexFreshThreadLaunchRuntimeService } from "../../codex-applicati
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { CodexBackgroundProcesses } from "../../codex-application/CodexBackgroundProcesses";
+import { CodexSubagentCatalog } from "../../codex-application/CodexSubagentCatalog";
 import { CodexSidebarSyncRuntime } from "../../codex-application/CodexSidebarSyncRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
@@ -132,6 +133,14 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         backgroundProcesses: CodexBackgroundProcesses.of({
           list: () => Effect.die("unused"),
           runAction: () => Effect.die("unused"),
+        }),
+        subagentCatalog: CodexSubagentCatalog.of({
+          hydrateBackground: () => Effect.die("unused"),
+          hydratePanel: () => Effect.die("unused"),
+          open: () => Effect.die("unused"),
+          observe: () => undefined,
+          shouldDropDelta: () => false,
+          clear: () => undefined,
         }),
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),
