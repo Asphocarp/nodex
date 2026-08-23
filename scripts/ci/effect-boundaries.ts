@@ -69,10 +69,6 @@ const synchronousCallbackUnsafeCalls = new Map<string, ReadonlySet<string>>([
     "src/main/codex-application/CodexActiveGoalContinuationCallbackAdapter.ts",
     new Set(["offerUnsafe"]),
   ],
-  [
-    "src/main/codex-application/CodexRendererOwnerRetentionCallbackAdapter.ts",
-    new Set(["offerUnsafe"]),
-  ],
 ]);
 
 function normalizeProjectPath(path: string): string {
