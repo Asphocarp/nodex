@@ -961,6 +961,59 @@ describe("Library Module transport", () => {
         operation: {
           kind: "apply_structural_edit",
           command: {
+            kind: "turn_selection_into",
+            selection: {
+              sourceDocumentId: "document:source",
+              rootBlockIds: ["block:one", "page:one"],
+              sourceHead: {
+                documentId: "document:source",
+                generation: 1,
+                expectedHeadSeq: 7,
+              },
+            },
+            target: { kind: "heading", level: "two", toggleable: true },
+          },
+        },
+      }),
+    ).toMatchObject({
+      operation: {
+        command: {
+          kind: "turn_selection_into",
+          target: { kind: "heading", level: "two", toggleable: true },
+        },
+      },
+    });
+
+    expect(() =>
+      bindLibraryModuleApply({
+        operationId: uuidV7(6),
+        storeEpoch: "epoch-1",
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "turn_selection_into",
+            selection: {
+              sourceDocumentId: "document:source",
+              rootBlockIds: ["page:one"],
+              sourceHead: {
+                documentId: "document:source",
+                generation: 1,
+                expectedHeadSeq: 7,
+              },
+            },
+            target: { kind: "heading", level: "four", toggleable: true },
+          },
+        },
+      }),
+    ).toThrow(/target\.level is unsupported/);
+
+    expect(
+      bindLibraryModuleApply({
+        operationId: uuidV7(7),
+        storeEpoch: "epoch-1",
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
             kind: "release_history",
             tokens: [
               {
@@ -980,7 +1033,7 @@ describe("Library Module transport", () => {
 
     expect(() =>
       bindLibraryModuleApply({
-        operationId: uuidV7(6),
+        operationId: uuidV7(8),
         storeEpoch: "epoch-1",
         operation: {
           kind: "reverse_structural_edit",

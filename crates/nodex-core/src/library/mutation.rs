@@ -2036,8 +2036,10 @@ pub(super) fn persist_parent_relocation_source_with_local_commit(
 
 /// Persists a structural relocation source and, when the move empties the
 /// source Page, creates the editor-owned empty paragraph in the same Document
-/// commit. Typed owner detaches remain explicit while the placeholder uses
-/// normal placement genesis evidence.
+/// commit. Typed owner detaches remain explicit; a newly materialized ordinary
+/// placeholder is registered by normal Document persistence and therefore is
+/// not placement genesis (that evidence is reserved for pre-registered typed
+/// shells).
 pub(super) fn persist_parent_relocation_source_with_placeholder(
     connection: &Connection,
     write: ParentDocumentWriteContext<'_>,
@@ -2045,22 +2047,16 @@ pub(super) fn persist_parent_relocation_source_with_placeholder(
     parent: &ResolvedParentDocument,
     operations: &[DocumentBlockOperation],
     relocated_block_ids: &[String],
-    placeholder_block_ids: &[String],
 ) -> Result<LibraryBlockTransferDocumentCommit, StoreError> {
-    let placement = if placeholder_block_ids.is_empty() {
-        ParentDocumentPlacement::Derived {
-            attachment_advances: &[],
-        }
-    } else {
-        ParentDocumentPlacement::Genesis(placeholder_block_ids)
-    };
     persist_parent_operations_detailed(
         connection,
         write,
         phase,
         parent,
         operations,
-        placement,
+        ParentDocumentPlacement::Derived {
+            attachment_advances: &[],
+        },
         StructuralDetachPolicy::Explicit(relocated_block_ids),
     )
 }

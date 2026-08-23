@@ -503,9 +503,7 @@ fn validate_document_page_references(connection: &Connection) -> Result<(), Stor
          LEFT JOIN block_documents ownership \
            ON ownership.document_id = reference.document_id \
           AND ownership.block_id = reference.source_owner_block_id \
-         LEFT JOIN blocks target ON target.id = reference.target_page_id \
-         WHERE ownership.block_id IS NULL \
-            OR (target.id IS NOT NULL AND target.type <> 'page')",
+         WHERE ownership.block_id IS NULL",
         [],
         |row| row.get(0),
     )?;

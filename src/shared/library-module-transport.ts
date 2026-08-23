@@ -284,13 +284,9 @@ const parseStructuralTarget = (value: unknown, label: string) => {
   return {
     targetDocumentId,
     parentBlockId:
-      target.parentBlockId === null
-        ? null
-        : string(target.parentBlockId, `${label}.parentBlockId`),
+      target.parentBlockId === null ? null : string(target.parentBlockId, `${label}.parentBlockId`),
     beforeBlockId:
-      target.beforeBlockId === null
-        ? null
-        : string(target.beforeBlockId, `${label}.beforeBlockId`),
+      target.beforeBlockId === null ? null : string(target.beforeBlockId, `${label}.beforeBlockId`),
     targetHead,
   };
 };
@@ -349,9 +345,7 @@ const parseStructuralReplacementBlocks = (value: unknown, label: string) => {
       blockType: string(block.blockType, `${blockLabel}.blockType`, 128),
       props: parseStructuralJson(props, `${blockLabel}.props`) as Readonly<Record<string, unknown>>,
       content:
-        block.content === null
-          ? null
-          : parseStructuralJson(block.content, `${blockLabel}.content`),
+        block.content === null ? null : parseStructuralJson(block.content, `${blockLabel}.content`),
       children: block.children.map((child, index) =>
         parseBlock(child, `${blockLabel}.children[${index}]`, depth + 1),
       ),
@@ -360,6 +354,35 @@ const parseStructuralReplacementBlocks = (value: unknown, label: string) => {
   const blocks = value.map((block, index) => parseBlock(block, `${label}[${index}]`, 0));
   parseStructuralJson(blocks, label);
   return blocks;
+};
+
+const parseStructuralTurnIntoTarget = (value: unknown, label: string) => {
+  const target = record(value, label);
+  if (target.kind === "heading") {
+    exactKeys(target, label, ["kind", "level", "toggleable"]);
+    if (target.level !== "one" && target.level !== "two" && target.level !== "three") {
+      throw new TypeError(`${label}.level is unsupported`);
+    }
+    return {
+      kind: target.kind,
+      level: target.level,
+      toggleable: boolean(target.toggleable, `${label}.toggleable`),
+    } as const;
+  }
+  if (
+    target.kind === "paragraph" ||
+    target.kind === "bulleted_list" ||
+    target.kind === "numbered_list" ||
+    target.kind === "todo_list" ||
+    target.kind === "toggle_list" ||
+    target.kind === "quote" ||
+    target.kind === "callout" ||
+    target.kind === "code"
+  ) {
+    exactKeys(target, label, ["kind"]);
+    return { kind: target.kind } as const;
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
 };
 
 const boolean = (value: unknown, label: string): boolean => {
@@ -1110,9 +1133,7 @@ export const bindLibraryModuleApply = (value: unknown): LibraryModuleApplyReques
             ),
           };
         }
-        throw new TypeError(
-          "libraryModuleApply.operation.command.replacement.kind is unsupported",
-        );
+        throw new TypeError("libraryModuleApply.operation.command.replacement.kind is unsupported");
       })();
       return {
         operationId,
@@ -1126,6 +1147,27 @@ export const bindLibraryModuleApply = (value: unknown): LibraryModuleApplyReques
               "libraryModuleApply.operation.command.selection",
             ),
             replacement: parsedReplacement,
+          },
+        },
+      };
+    }
+    if (command.kind === "turn_selection_into") {
+      exactKeys(command, "libraryModuleApply.operation.command", ["kind", "selection", "target"]);
+      return {
+        operationId,
+        storeEpoch,
+        operation: {
+          kind: operation.kind,
+          command: {
+            kind: command.kind,
+            selection: parseStructuralSelection(
+              command.selection,
+              "libraryModuleApply.operation.command.selection",
+            ),
+            target: parseStructuralTurnIntoTarget(
+              command.target,
+              "libraryModuleApply.operation.command.target",
+            ),
           },
         },
       };
@@ -1165,10 +1207,7 @@ export const bindLibraryModuleApply = (value: unknown): LibraryModuleApplyReques
       storeEpoch,
       operation: {
         kind: operation.kind,
-        token: parseStructuralHistoryToken(
-          operation.token,
-          "libraryModuleApply.operation.token",
-        ),
+        token: parseStructuralHistoryToken(operation.token, "libraryModuleApply.operation.token"),
       },
     };
   }

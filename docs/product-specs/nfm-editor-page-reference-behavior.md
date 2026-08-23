@@ -116,6 +116,11 @@ Removing a non-owning `pageRef`, Page Mention, or Page Link remains an ordinary 
 Page Mention, Page Reference Block, and Page Link occurrences derive first-class Page reference edges with presentations `mention`, `reference_block`, and `link`.
 Repeated occurrences in the same source Block and presentation aggregate an occurrence count.
 Owning Page shells do not derive backlinks.
+The normalized edge records the syntactic occurrence independently of the
+target's current Page capability. If the same target Block is temporarily
+ordinary, the occurrence remains normalized but resolves as unavailable and
+cannot grant access or expose a preview. Restoring the Page capability makes
+the existing occurrence resolve again without rewriting the source Document.
 Backlink rows and counts include only source Pages readable in the caller's content-access context.
 
 The Page Stage shows a collapsed `Referenced by` section below the body only when at least one authorized source Page is known.

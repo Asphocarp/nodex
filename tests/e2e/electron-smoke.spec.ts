@@ -1612,6 +1612,117 @@ test.describe("parallel functional Electron smoke", () => {
     }
   });
 
+  test("turns a mixed subpage selection into content and restores it", async () => {
+    test.setTimeout(180_000);
+    const harness = await ElectronScenarioHarness.create({ label: "subpage-turn-into" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      const project = await createConvergenceProject(page, "Subpage turn into", workspace);
+      const source = await createConvergenceBoardPage(
+        page,
+        project,
+        "Turn into source",
+        "Page containing the Turn into fixture",
+      );
+      const seeded = await seedConvergenceDocument(page, project, source, "before\nafter");
+      const subpage = await createConvergenceSubpage(
+        page,
+        project,
+        source,
+        "Owned details",
+        seeded.blockIds[1],
+      );
+      const subpageBody = await seedConvergenceDocument(
+        page,
+        project,
+        subpage,
+        "owned body\nowned tail",
+      );
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+
+      await page.getByRole("button", { name: "Open Subpage turn into", exact: true }).click();
+      await page.getByRole("tab", { name: "Project Home" }).waitFor();
+      const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
+      await expect(board).toBeVisible({ timeout: 15_000 });
+      await board
+        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
+        .locator('[data-card-context-menu-trigger="true"]')
+        .evaluate((element) => (element as HTMLElement).click());
+      await page.getByRole("tab", { name: "Turn into source" }).waitFor();
+
+      const sourcePanel = page.getByRole("tabpanel", { name: /Turn into source$/ });
+      const sourceEditor = sourcePanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+      const before = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[0]}"]`);
+      const owner = sourceEditor.locator(`.bn-block[data-id="${subpage.pageId}"]`);
+      const after = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[1]}"]`);
+      await expect(owner).toBeVisible({ timeout: 15_000 });
+
+      await selectEditorBlockRange({
+        page,
+        editor: sourceEditor,
+        firstBlock: before,
+        lastBlock: after,
+      });
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+/`);
+      await page.getByRole("dialog", { name: "Block actions" }).waitFor();
+      await page.getByRole("option", { name: /^Turn into/ }).click();
+      const turnIntoMenu = page.getByRole("dialog", { name: "Turn into" });
+      await turnIntoMenu.waitFor();
+      await turnIntoMenu.getByRole("menuitem", { name: "Toggle list" }).click();
+
+      const turnedOwner = sourceEditor.locator(`.bn-block[data-id="${subpage.pageId}"]`);
+      await expect(
+        turnedOwner.locator(':scope > .bn-block-content[data-content-type="toggleListItem"]'),
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(
+        before.locator(':scope > .bn-block-content[data-content-type="toggleListItem"]'),
+      ).toBeVisible();
+      await expect(
+        after.locator(':scope > .bn-block-content[data-content-type="toggleListItem"]'),
+      ).toBeVisible();
+      const turnedOwnerTree = sourceEditor.locator(`.bn-block-outer[data-id="${subpage.pageId}"]`);
+      for (const bodyBlockId of subpageBody.blockIds) {
+        await expect(turnedOwnerTree.locator(`.bn-block[data-id="${bodyBlockId}"]`)).toHaveCount(1);
+      }
+      await expect
+        .poll(async () =>
+          sourceEditor.evaluate((editor) => editor.contains(document.activeElement)),
+        )
+        .toBe(true);
+
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Z`);
+      const restoredOwner = sourceEditor.locator(`.bn-block[data-id="${subpage.pageId}"]`);
+      await expect(
+        restoredOwner.getByRole("button", { name: "Edit Owned details title" }),
+      ).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(
+        before.locator(':scope > .bn-block-content[data-content-type="paragraph"]'),
+      ).toBeVisible();
+      await expect(
+        after.locator(':scope > .bn-block-content[data-content-type="paragraph"]'),
+      ).toBeVisible();
+      await restoredOwner.getByRole("button", { name: "Expand Owned details" }).click();
+      await expect(restoredOwner.getByText("owned body", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Shift+Z`);
+      await expect(
+        sourceEditor
+          .locator(`.bn-block[data-id="${subpage.pageId}"]`)
+          .locator(':scope > .bn-block-content[data-content-type="toggleListItem"]'),
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await harness.close();
+    }
+  });
+
   test("pastes a mixed subpage selection after both Page Stage tabs remount", async () => {
     test.setTimeout(180_000);
     const harness = await ElectronScenarioHarness.create({ label: "structural-retained-paste" });

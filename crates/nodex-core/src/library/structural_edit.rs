@@ -8,18 +8,21 @@ use nodex_core_contracts::library::{
     LibraryStructuralClipboardToken, LibraryStructuralDeleteDirection,
     LibraryStructuralDeleteReason, LibraryStructuralEditCommand, LibraryStructuralEditResult,
     LibraryStructuralHistoryToken, LibraryStructuralReplacement, LibraryStructuralReplacementBlock,
-    LibraryStructuralSelection, LibraryStructuralTarget,
+    LibraryStructuralSelection, LibraryStructuralTarget, LibraryStructuralTurnIntoTarget,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::document::{
-    CanvasScene, DocumentBlockOperation, DocumentPlacementEvidence, PersistYjsGenesis,
-    clone_canvas_scene_genesis, load_canvas_scene, persist_yjs_genesis_with_local_commit,
-    prepare_yjs_clone_genesis, read_document_authority, sha256,
+    CanvasScene, DocumentBlockOperation, DocumentBlockUpdatePatch, DocumentPlacementEvidence,
+    PersistYjsGenesis, clone_canvas_scene_genesis, load_canvas_scene,
+    persist_yjs_genesis_with_local_commit, prepare_yjs_clone_genesis, read_document_authority,
+    sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::identity::stable_uuid_v7;
+use crate::domain::ordinary_block::canonical_ordinary_block_shape;
+use crate::domain::page_to_block::plan_page_to_block_transformation;
 use crate::domain::rich_text::RichTextItem;
 use crate::infrastructure::durable_mutation::{self, OperationIdentity};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -29,12 +32,13 @@ use super::mutation::{
     MutationEffects, ParentDocumentPlacement, ParentDocumentWriteContext, ResolvedParentDocument,
     ensure_default_page_intrinsic_properties, insert_page_read_model, library_commit_result,
     load_parent_document, persist_parent_operations_detailed_with_local_commit,
+    persist_parent_relocation_source_with_local_commit,
     persist_parent_relocation_source_with_placeholder, refresh_page_intrinsic_projection,
     require_project_in_library, seal_mutation_with, sqlite_now,
 };
 
 const SNAPSHOT_VERSION: u32 = 2;
-const RECIPE_VERSION: u32 = 2;
+const RECIPE_VERSION: u32 = 3;
 const MAX_STRUCTURAL_ROOTS: usize = 10_000;
 const MAX_STRUCTURAL_BLOCKS: usize = 10_000;
 const MAX_STRUCTURAL_DEPTH: usize = 128;
@@ -237,6 +241,28 @@ struct OwnershipClosureSnapshot {
     source: StructuralLocation,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DormantPageState {
+    page_id: String,
+    document_id: String,
+    generation: i64,
+    head_seq: i64,
+    placeholder_block_id: String,
+    moved_root_ids: Vec<String>,
+    moved_block_ids: Vec<String>,
+    revoked_grant_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TurnedSelectionState {
+    original: OwnershipClosureSnapshot,
+    active: OwnershipClosureSnapshot,
+    target: LibraryStructuralTurnIntoTarget,
+    dormant_pages: Vec<DormantPageState>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum StructuralRecipeAction {
@@ -259,6 +285,13 @@ enum StructuralRecipeAction {
         active: OwnershipClosureSnapshot,
         deleted: OwnershipClosureSnapshot,
         direction: LibraryStructuralDeleteDirection,
+    },
+    RestoreTurnedSelection {
+        state: TurnedSelectionState,
+    },
+    TurnActiveSelection {
+        snapshot: OwnershipClosureSnapshot,
+        target: LibraryStructuralTurnIntoTarget,
     },
 }
 
@@ -399,6 +432,18 @@ pub(super) fn apply(
             replacement,
             assets_root,
         ),
+        LibraryStructuralEditCommand::TurnSelectionInto { selection, target } => {
+            turn_selection_into(
+                connection,
+                context,
+                library_id,
+                operation_id,
+                store_epoch,
+                request_hash,
+                selection,
+                target,
+            )
+        }
         LibraryStructuralEditCommand::ReleaseHistory { tokens } => release_history(
             connection,
             context,
@@ -1401,6 +1446,842 @@ fn replace_selection(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn turn_selection_into(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    request_hash: &str,
+    selection: &LibraryStructuralSelection,
+    target: &LibraryStructuralTurnIntoTarget,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    let project_id = bound_project_id(context)?;
+    let parent = load_and_authorize_source(connection, context, library_id, selection, true)?;
+    let snapshot = capture_snapshot(connection, library_id, &parent, selection)?;
+    validate_turn_selection(connection, &snapshot)?;
+    let now = sqlite_now(connection)?;
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let applied = turn_active_selection(
+                StructuralWriteContext {
+                    connection,
+                    context,
+                    operation_id,
+                    store_epoch,
+                    commit: scope.evidence(),
+                },
+                snapshot.clone(),
+                target.clone(),
+            )?;
+            let inverse_recipe = StructuralHistoryRecipe {
+                version: RECIPE_VERSION,
+                action: applied.inverse.clone(),
+            };
+            let (history, recipe_json) = history_token(operation_id, store_epoch, &inverse_recipe)?;
+            let snapshots = transition_snapshot_refs(&applied);
+            let mut result = structural_result(
+                "turn_structural_selection_into",
+                applied.source_root_ids.clone(),
+                applied.result_root_ids.clone(),
+                BTreeMap::new(),
+                BTreeMap::new(),
+                &snapshots,
+                applied.document_commits.clone(),
+                None,
+                Some(history.clone()),
+                Vec::new(),
+                applied.resume.clone(),
+            );
+            if !result
+                .affected_page_ids
+                .contains(&snapshot.source.host_page_id)
+            {
+                result
+                    .affected_page_ids
+                    .push(snapshot.source.host_page_id.clone());
+                result.affected_page_ids.sort();
+            }
+            let effects = structural_effects(
+                project_id,
+                "turn_structural_selection_into",
+                &snapshots,
+                &result,
+                &now,
+            );
+            seal_mutation_with(
+                scope,
+                context,
+                operation_id,
+                effects,
+                |_, event_sequence| {
+                    persist_structural_mutation_ledger(
+                        connection,
+                        operation_id,
+                        project_id,
+                        store_epoch,
+                        request_hash,
+                        &serde_json::json!({
+                            "kind": "turn_selection_into",
+                            "selection": selection,
+                            "target": target,
+                        }),
+                        &result,
+                        &snapshots,
+                        event_sequence,
+                        &now,
+                    )?;
+                    insert_history_recipe(
+                        connection,
+                        operation_id,
+                        library_id,
+                        project_id,
+                        store_epoch,
+                        &history.recipe_hash,
+                        &recipe_json,
+                        &snapshots,
+                        &now,
+                    )
+                },
+            )
+        },
+    )?;
+    library_commit_result(connection, commit_result)
+}
+
+fn validate_turn_selection(
+    connection: &Connection,
+    snapshot: &OwnershipClosureSnapshot,
+) -> Result<(), StoreError> {
+    let host_blocks = snapshot
+        .blocks
+        .iter()
+        .filter(|block| block.in_host_document)
+        .collect::<Vec<_>>();
+    for block in &host_blocks {
+        if !is_typed_owner(&block.block_type) || block.block_type == "page" {
+            continue;
+        }
+        return Err(unsupported(format!(
+            "{} Blocks cannot be turned into text content",
+            block.block_type
+        )));
+    }
+    for page in snapshot.pages.iter().filter(|page| {
+        host_blocks
+            .iter()
+            .any(|block| block.block_id == page.block_id && block.block_type == "page")
+    }) {
+        if page.parent_kind != "page" || page.parent_id != snapshot.source.host_page_id {
+            return Err(unsupported(
+                "Only nested Pages in the current Page can be turned into text content",
+            ));
+        }
+        let attached_elsewhere = connection
+            .query_row(
+                "SELECT 1 WHERE EXISTS (SELECT 1 FROM library_block_placements WHERE block_id = ?1) \
+                   OR EXISTS (SELECT 1 FROM data_source_page_memberships \
+                              WHERE page_block_id = ?1 AND removed_at IS NULL)",
+                [&page.block_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if attached_elsewhere {
+            return Err(unsupported(
+                "A Page attached to a Library or Data Source cannot be turned into text content",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn turn_active_selection(
+    write: StructuralWriteContext<'_>,
+    original: OwnershipClosureSnapshot,
+    target: LibraryStructuralTurnIntoTarget,
+) -> Result<AppliedTransition, StoreError> {
+    let StructuralWriteContext {
+        connection,
+        context,
+        operation_id,
+        store_epoch,
+        commit,
+    } = write;
+    let library_id = connection.query_row(
+        "SELECT library_id FROM documents WHERE id = ?1",
+        [&original.source.document_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    validate_turn_selection(connection, &original)?;
+    let host_parent = load_parent_document(connection, &original.source.document_id)?;
+    authorize_parent_write(connection, context, &host_parent)?;
+    validate_snapshot_is_at_location(&host_parent, &original, &original.source)?;
+    validate_snapshot_authorities(connection, &original, "active")?;
+
+    let host_pages = original
+        .blocks
+        .iter()
+        .filter(|block| block.in_host_document && block.block_type == "page")
+        .map(|block| block.block_id.clone())
+        .collect::<BTreeSet<_>>();
+    let mut page_plans = BTreeMap::new();
+    let mut dormant_pages = Vec::new();
+    let mut document_commits = Vec::new();
+    let mut relocated_block_ids = Vec::new();
+
+    for page_id in &host_pages {
+        let document = original
+            .documents
+            .iter()
+            .find(|document| document.owner_block_id == *page_id && document.owner_type == "page")
+            .ok_or_else(|| corrupt("Selected Page has no Page Document snapshot"))?;
+        let OwnedDocumentBody::Yjs { rich_title, blocks } = &document.body else {
+            return Err(corrupt("Selected Page does not own a Yjs Page Document"));
+        };
+        let plan = plan_page_to_block_transformation(page_id, rich_title, blocks, &target)
+            .map_err(|error| invalid(error.to_string()))?;
+        let moved_roots = if plan.retained_empty_placeholder_id.is_none() {
+            blocks.clone()
+        } else {
+            Vec::new()
+        };
+        let moved_ids = flatten_blocks(&moved_roots)
+            .into_iter()
+            .map(|block| block.id.clone())
+            .collect::<Vec<_>>();
+        let placeholder_block_id = plan
+            .retained_empty_placeholder_id
+            .clone()
+            .unwrap_or_else(|| stable_uuid_v7(operation_id, "turn_page_placeholder", page_id));
+
+        let mut source_head_seq = document.head_seq;
+        if !moved_roots.is_empty() {
+            let source_parent = load_parent_document(connection, &document.document_id)?;
+            authorize_parent_write(connection, context, &source_parent)?;
+            if source_parent.authority.head.generation != document.generation
+                || source_parent.authority.head.head_seq != document.head_seq
+            {
+                return Err(conflict(
+                    "A selected Page Document changed before Turn into",
+                ));
+            }
+            let mut operations = moved_roots
+                .iter()
+                .map(|root| DocumentBlockOperation::DeleteBlock {
+                    block_id: root.id.clone(),
+                })
+                .collect::<Vec<_>>();
+            operations.push(DocumentBlockOperation::InsertBlock {
+                block: empty_paragraph(&placeholder_block_id),
+                parent_block_id: None,
+                before_block_id: None,
+            });
+            let commit_result = persist_parent_relocation_source_with_placeholder(
+                connection,
+                ParentDocumentWriteContext {
+                    actor_project_id: bound_project_id(context)?,
+                    store_epoch,
+                    operation_id,
+                    commit,
+                },
+                "structural-turn-page-source",
+                &source_parent,
+                &operations,
+                &moved_ids,
+            )?;
+            source_head_seq = commit_result.head_seq;
+            document_commits.push(commit_result);
+            relocated_block_ids.extend(moved_ids.iter().cloned());
+        }
+        let revoked_grant_ids = revoke_page_grants(connection, page_id)?;
+        dormant_pages.push(DormantPageState {
+            page_id: page_id.clone(),
+            document_id: document.document_id.clone(),
+            generation: document.generation,
+            head_seq: source_head_seq,
+            placeholder_block_id,
+            moved_root_ids: moved_roots.iter().map(|root| root.id.clone()).collect(),
+            moved_block_ids: moved_ids,
+            revoked_grant_ids,
+        });
+        page_plans.insert(page_id.clone(), plan);
+    }
+
+    let now = sqlite_now(connection)?;
+    let (target_type, target_props) = canonical_ordinary_block_shape(&target);
+    for page_id in &host_pages {
+        let before = original
+            .blocks
+            .iter()
+            .find(|block| block.block_id == *page_id)
+            .ok_or_else(|| corrupt("Selected Page has no Block authority snapshot"))?;
+        retire_page_capability(connection, page_id)?;
+        let changed = connection.execute(
+            "UPDATE blocks SET type = ?1, metadata_revision = metadata_revision + 1, updated_at = ?2 \
+             WHERE id = ?3 AND library_id = ?4 AND lifecycle = 'active' AND type = 'page' \
+               AND metadata_revision = ?5 AND placement_revision = ?6",
+            params![
+                target_type,
+                now,
+                page_id,
+                library_id,
+                before.metadata_revision,
+                before.placement_revision,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(conflict("Selected Page changed during Turn into"));
+        }
+    }
+
+    update_relocated_page_parents(
+        connection,
+        &original,
+        &dormant_pages,
+        &original.source.host_page_id,
+        &now,
+    )?;
+
+    let mut host_operations = Vec::new();
+    for block in flatten_blocks(&original.roots) {
+        if let Some(plan) = page_plans.get(&block.id) {
+            host_operations.push(DocumentBlockOperation::UpdateBlock {
+                block_id: block.id.clone(),
+                patch: DocumentBlockUpdatePatch {
+                    block_type: Some(plan.block.block_type.clone()),
+                    props: Some(plan.block.props.clone()),
+                    content: plan.block.content.clone(),
+                    unset_content: plan.block.content.is_none(),
+                },
+            });
+            for child in &plan.block.children {
+                host_operations.push(DocumentBlockOperation::InsertBlock {
+                    block: child.clone(),
+                    parent_block_id: Some(block.id.clone()),
+                    before_block_id: None,
+                });
+            }
+            continue;
+        }
+        host_operations.push(DocumentBlockOperation::UpdateBlock {
+            block_id: block.id.clone(),
+            patch: DocumentBlockUpdatePatch {
+                block_type: Some(target_type.to_owned()),
+                props: Some(target_props.clone()),
+                content: None,
+                unset_content: false,
+            },
+        });
+    }
+    let host_commit = persist_parent_operations_detailed_with_local_commit(
+        connection,
+        ParentDocumentWriteContext {
+            actor_project_id: bound_project_id(context)?,
+            store_epoch,
+            operation_id,
+            commit,
+        },
+        "structural-turn-host",
+        &host_parent,
+        &host_operations,
+        ParentDocumentPlacement::Derived {
+            attachment_advances: &relocated_block_ids,
+        },
+    )?;
+    document_commits.push(host_commit);
+    update_relocated_page_parent_projections(
+        connection,
+        &original,
+        &dormant_pages,
+        &original.source.host_page_id,
+        &now,
+    )?;
+    for page in &dormant_pages {
+        clear_dormant_document_projections(connection, &page.document_id)?;
+    }
+
+    let current_parent = load_parent_document(connection, &original.source.document_id)?;
+    let selection = LibraryStructuralSelection {
+        source_document_id: original.source.document_id.clone(),
+        root_block_ids: root_ids(&original.roots),
+        source_head: nodex_core_contracts::library::LibraryDocumentHead {
+            document_id: current_parent.authority.head.id.clone(),
+            generation: current_parent.authority.head.generation,
+            head_seq: current_parent.authority.head.head_seq,
+        },
+    };
+    let active = capture_snapshot(connection, &library_id, &current_parent, &selection)?;
+    // The active snapshot no longer owns the demoted Page Documents. Retain
+    // the original closure alongside the inverse recipe so Document retention
+    // and mutation effects continue to cover those dormant authorities until
+    // the history token is consumed or released.
+    let retained_original = original.clone();
+    let state = TurnedSelectionState {
+        original,
+        active: active.clone(),
+        target: target.clone(),
+        dormant_pages,
+    };
+    let result_root_ids = root_ids(&active.roots);
+    let resume = result_root_ids
+        .last()
+        .map(|block_id| LibraryEditorResumeTarget {
+            block_id: block_id.clone(),
+            edge: LibraryEditorResumeEdge::End,
+            fallback_before_block_id: None,
+            fallback_after_block_id: None,
+        });
+    Ok(AppliedTransition {
+        source_root_ids: result_root_ids.clone(),
+        result_root_ids,
+        document_commits,
+        inverse: StructuralRecipeAction::RestoreTurnedSelection { state },
+        snapshot: active,
+        additional_snapshots: vec![retained_original],
+        resume,
+    })
+}
+
+fn restore_turned_selection(
+    write: StructuralWriteContext<'_>,
+    state: TurnedSelectionState,
+) -> Result<AppliedTransition, StoreError> {
+    let StructuralWriteContext {
+        connection,
+        context,
+        operation_id,
+        store_epoch,
+        commit,
+    } = write;
+    let parent = load_parent_document(connection, &state.active.source.document_id)?;
+    authorize_parent_write(connection, context, &parent)?;
+    validate_snapshot_is_at_location(&parent, &state.active, &state.active.source)?;
+    validate_snapshot_authorities(connection, &state.active, "active")?;
+    for dormant in &state.dormant_pages {
+        let current = connection
+            .query_row(
+                "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                [&dormant.document_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| conflict("Dormant Page Document no longer exists"))?;
+        if current != (dormant.generation, dormant.head_seq) {
+            return Err(conflict("Dormant Page Document changed before Undo"));
+        }
+        if connection
+            .query_row(
+                "SELECT 1 FROM block_documents WHERE document_id = ?1 OR block_id = ?2",
+                params![dormant.document_id, dormant.page_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some()
+        {
+            return Err(conflict("Dormant Page identity was claimed before Undo"));
+        }
+    }
+
+    let now = sqlite_now(connection)?;
+    let library_id = parent.authority.head.library_id.clone();
+    for dormant in &state.dormant_pages {
+        let original_page = state
+            .original
+            .pages
+            .iter()
+            .find(|page| page.block_id == dormant.page_id)
+            .ok_or_else(|| corrupt("Turn history lost Page authority"))?;
+        let active_block = state
+            .active
+            .blocks
+            .iter()
+            .find(|block| block.block_id == dormant.page_id)
+            .ok_or_else(|| corrupt("Turn history lost active Block authority"))?;
+        let changed = connection.execute(
+            "UPDATE blocks SET type = 'page', metadata_revision = metadata_revision + 1, updated_at = ?1 \
+             WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'active' AND type <> 'page' \
+               AND metadata_revision = ?4 AND placement_revision = ?5",
+            params![
+                now,
+                dormant.page_id,
+                library_id,
+                active_block.metadata_revision,
+                active_block.placement_revision,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(conflict("Turned Block changed before Undo"));
+        }
+        connection.execute(
+            "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![dormant.page_id, dormant.document_id, library_id, now],
+        )?;
+        connection.execute(
+            "INSERT INTO pages(block_id, library_id, document_id, parent_kind, parent_id, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+            params![
+                dormant.page_id,
+                library_id,
+                dormant.document_id,
+                original_page.parent_kind,
+                original_page.parent_id,
+                now,
+            ],
+        )?;
+        for property in &original_page.properties {
+            connection.execute(
+                "INSERT INTO block_properties( \
+                   block_id, library_id, property_key, value_type, value_json, revision, updated_at \
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
+                params![
+                    dormant.page_id,
+                    library_id,
+                    property.property_key,
+                    property.value_type,
+                    property.value_json,
+                    now,
+                ],
+            )?;
+        }
+        restore_page_grants(connection, dormant, &now)?;
+        let dormant_parent = load_parent_document(connection, &dormant.document_id)?;
+        insert_page_read_model(
+            connection,
+            &dormant.page_id,
+            &dormant_parent.base_materialization,
+            dormant_parent.authority.head.head_seq,
+            &now,
+        )?;
+        refresh_page_intrinsic_projection(connection, &dormant.page_id, &now)?;
+    }
+
+    let moved_ids = state
+        .dormant_pages
+        .iter()
+        .flat_map(|page| page.moved_block_ids.iter().cloned())
+        .collect::<Vec<_>>();
+    let mut host_operations = Vec::new();
+    for original_block in flatten_blocks(&state.original.roots) {
+        // A Page shell is childless by schema. Detach the body roots before
+        // reclassifying the ordinary container back into a Page so every
+        // intermediate operation remains canonical.
+        if let Some(dormant) = state
+            .dormant_pages
+            .iter()
+            .find(|page| page.page_id == original_block.id)
+        {
+            host_operations.extend(dormant.moved_root_ids.iter().map(|block_id| {
+                DocumentBlockOperation::DeleteBlock {
+                    block_id: block_id.clone(),
+                }
+            }));
+        }
+        host_operations.push(DocumentBlockOperation::UpdateBlock {
+            block_id: original_block.id.clone(),
+            patch: DocumentBlockUpdatePatch {
+                block_type: Some(original_block.block_type.clone()),
+                props: Some(original_block.props.clone()),
+                content: original_block.content.clone(),
+                unset_content: original_block.content.is_none(),
+            },
+        });
+    }
+    let host_commit = persist_parent_relocation_source_with_local_commit(
+        connection,
+        ParentDocumentWriteContext {
+            actor_project_id: bound_project_id(context)?,
+            store_epoch,
+            operation_id,
+            commit,
+        },
+        "structural-turn-undo-host",
+        &parent,
+        &host_operations,
+        &moved_ids,
+    )?;
+    let mut document_commits = vec![host_commit];
+    update_relocated_page_parents_to_original(connection, &state, &now)?;
+
+    for dormant in &state.dormant_pages {
+        if dormant.moved_root_ids.is_empty() {
+            continue;
+        }
+        let dormant_parent = load_parent_document(connection, &dormant.document_id)?;
+        validate_empty_placeholder(&dormant_parent, &dormant.placeholder_block_id)?;
+        let original_document = state
+            .original
+            .documents
+            .iter()
+            .find(|document| document.document_id == dormant.document_id)
+            .ok_or_else(|| corrupt("Turn history lost Page Document body"))?;
+        let OwnedDocumentBody::Yjs { blocks, .. } = &original_document.body else {
+            return Err(corrupt("Turn history Page Document is not Yjs"));
+        };
+        let mut operations = vec![DocumentBlockOperation::DeleteBlock {
+            block_id: dormant.placeholder_block_id.clone(),
+        }];
+        operations.extend(
+            blocks
+                .iter()
+                .map(|block| DocumentBlockOperation::InsertBlock {
+                    block: block.clone(),
+                    parent_block_id: None,
+                    before_block_id: None,
+                }),
+        );
+        let commit_result = persist_parent_operations_detailed_with_local_commit(
+            connection,
+            ParentDocumentWriteContext {
+                actor_project_id: bound_project_id(context)?,
+                store_epoch,
+                operation_id,
+                commit,
+            },
+            "structural-turn-undo-page",
+            &dormant_parent,
+            &operations,
+            ParentDocumentPlacement::Derived {
+                attachment_advances: &dormant.moved_block_ids,
+            },
+        )?;
+        document_commits.push(commit_result);
+    }
+    update_relocated_page_parent_projections_to_original(connection, &state, &now)?;
+
+    let current_parent = load_parent_document(connection, &state.original.source.document_id)?;
+    let selection = LibraryStructuralSelection {
+        source_document_id: state.original.source.document_id.clone(),
+        root_block_ids: root_ids(&state.original.roots),
+        source_head: nodex_core_contracts::library::LibraryDocumentHead {
+            document_id: current_parent.authority.head.id.clone(),
+            generation: current_parent.authority.head.generation,
+            head_seq: current_parent.authority.head.head_seq,
+        },
+    };
+    let restored = capture_snapshot(connection, &library_id, &current_parent, &selection)?;
+    let result_root_ids = root_ids(&restored.roots);
+    let resume = result_root_ids
+        .last()
+        .map(|block_id| LibraryEditorResumeTarget {
+            block_id: block_id.clone(),
+            edge: LibraryEditorResumeEdge::End,
+            fallback_before_block_id: None,
+            fallback_after_block_id: None,
+        });
+    Ok(AppliedTransition {
+        source_root_ids: result_root_ids.clone(),
+        result_root_ids,
+        document_commits,
+        inverse: StructuralRecipeAction::TurnActiveSelection {
+            snapshot: restored.clone(),
+            target: state.target,
+        },
+        snapshot: restored,
+        additional_snapshots: Vec::new(),
+        resume,
+    })
+}
+
+fn revoke_page_grants(connection: &Connection, page_id: &str) -> Result<Vec<String>, StoreError> {
+    let grant_ids = connection
+        .prepare(
+            "SELECT id FROM project_resource_grants \
+             WHERE root_kind = 'page' AND root_id = ?1 AND lifecycle = 'active' ORDER BY id",
+        )?
+        .query_map([page_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let now = sqlite_now(connection)?;
+    for grant_id in &grant_ids {
+        let changed = connection.execute(
+            "UPDATE project_resource_grants SET lifecycle = 'revoked', revision = revision + 1, \
+               updated_at = ?1 WHERE id = ?2 AND lifecycle = 'active'",
+            params![now, grant_id],
+        )?;
+        if changed != 1 {
+            return Err(conflict("Page access changed during Turn into"));
+        }
+    }
+    Ok(grant_ids)
+}
+
+fn restore_page_grants(
+    connection: &Connection,
+    dormant: &DormantPageState,
+    now: &str,
+) -> Result<(), StoreError> {
+    for grant_id in &dormant.revoked_grant_ids {
+        let changed = connection.execute(
+            "UPDATE project_resource_grants SET lifecycle = 'active', revision = revision + 1, \
+               updated_at = ?1 WHERE id = ?2 AND root_kind = 'page' AND root_id = ?3 \
+                 AND lifecycle = 'revoked'",
+            params![now, grant_id, dormant.page_id],
+        )?;
+        if changed != 1 {
+            return Err(conflict("Page access changed before Turn into Undo"));
+        }
+    }
+    Ok(())
+}
+
+fn retire_page_capability(connection: &Connection, page_id: &str) -> Result<(), StoreError> {
+    connection.execute(
+        "DELETE FROM scheduled_page_index WHERE page_block_id = ?1",
+        [page_id],
+    )?;
+    connection.execute(
+        "DELETE FROM page_read_model WHERE page_block_id = ?1",
+        [page_id],
+    )?;
+    connection.execute(
+        "DELETE FROM block_properties WHERE block_id = ?1",
+        [page_id],
+    )?;
+    let ownership =
+        connection.execute("DELETE FROM block_documents WHERE block_id = ?1", [page_id])?;
+    let page = connection.execute("DELETE FROM pages WHERE block_id = ?1", [page_id])?;
+    if ownership != 1 || page != 1 {
+        return Err(conflict("Page capability changed during Turn into"));
+    }
+    Ok(())
+}
+
+fn clear_dormant_document_projections(
+    connection: &Connection,
+    document_id: &str,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "DELETE FROM document_page_references WHERE document_id = ?1",
+        [document_id],
+    )?;
+    connection.execute(
+        "DELETE FROM block_asset_refs WHERE document_id = ?1",
+        [document_id],
+    )?;
+    connection.execute(
+        "DELETE FROM block_search_units WHERE document_id = ?1 AND source_revision IS NULL",
+        [document_id],
+    )?;
+    Ok(())
+}
+
+fn moved_page_ids<'a>(
+    snapshot: &'a OwnershipClosureSnapshot,
+    dormant_pages: &'a [DormantPageState],
+) -> impl Iterator<Item = &'a str> {
+    snapshot.blocks.iter().filter_map(move |block| {
+        (block.block_type == "page"
+            && dormant_pages
+                .iter()
+                .any(|page| page.document_id == block.containing_document_id))
+        .then_some(block.block_id.as_str())
+    })
+}
+
+fn update_relocated_page_parents(
+    connection: &Connection,
+    snapshot: &OwnershipClosureSnapshot,
+    dormant_pages: &[DormantPageState],
+    target_host_page_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    for page_id in moved_page_ids(snapshot, dormant_pages) {
+        let changed = connection.execute(
+            "UPDATE pages SET parent_kind = 'page', parent_id = ?1, updated_at = ?2 \
+             WHERE block_id = ?3",
+            params![target_host_page_id, now, page_id],
+        )?;
+        if changed != 1 {
+            return Err(conflict("Nested Page parent changed during Turn into"));
+        }
+    }
+    Ok(())
+}
+
+fn update_relocated_page_parent_projections(
+    connection: &Connection,
+    snapshot: &OwnershipClosureSnapshot,
+    dormant_pages: &[DormantPageState],
+    target_host_page_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    for page_id in moved_page_ids(snapshot, dormant_pages) {
+        let changed = connection.execute(
+            "UPDATE page_read_model SET parent_kind = 'page', parent_id = ?1, \
+               placement_revision = (SELECT placement_revision FROM blocks WHERE id = ?2), \
+               metadata_revision = (SELECT metadata_revision FROM blocks WHERE id = ?2), \
+               updated_at = ?3 WHERE page_block_id = ?2",
+            params![target_host_page_id, page_id, now],
+        )?;
+        if changed != 1 {
+            return Err(conflict("Nested Page projection changed during Turn into"));
+        }
+    }
+    Ok(())
+}
+
+fn update_relocated_page_parents_to_original(
+    connection: &Connection,
+    state: &TurnedSelectionState,
+    now: &str,
+) -> Result<(), StoreError> {
+    for page_id in moved_page_ids(&state.original, &state.dormant_pages) {
+        let page = state
+            .original
+            .pages
+            .iter()
+            .find(|page| page.block_id == page_id)
+            .ok_or_else(|| corrupt("Turn history lost nested Page authority"))?;
+        let changed = connection.execute(
+            "UPDATE pages SET parent_kind = ?1, parent_id = ?2, updated_at = ?3 \
+             WHERE block_id = ?4",
+            params![page.parent_kind, page.parent_id, now, page_id],
+        )?;
+        if changed != 1 {
+            return Err(conflict("Nested Page parent changed before Undo"));
+        }
+    }
+    Ok(())
+}
+
+fn update_relocated_page_parent_projections_to_original(
+    connection: &Connection,
+    state: &TurnedSelectionState,
+    now: &str,
+) -> Result<(), StoreError> {
+    for page_id in moved_page_ids(&state.original, &state.dormant_pages) {
+        let page = state
+            .original
+            .pages
+            .iter()
+            .find(|page| page.block_id == page_id)
+            .ok_or_else(|| corrupt("Turn history lost nested Page projection"))?;
+        let changed = connection.execute(
+            "UPDATE page_read_model SET parent_kind = ?1, parent_id = ?2, \
+               placement_revision = (SELECT placement_revision FROM blocks WHERE id = ?3), \
+               metadata_revision = (SELECT metadata_revision FROM blocks WHERE id = ?3), \
+               updated_at = ?4 WHERE page_block_id = ?3",
+            params![page.parent_kind, page.parent_id, page_id, now],
+        )?;
+        if changed != 1 {
+            return Err(conflict("Nested Page projection changed before Undo"));
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn release_history(
     connection: &Connection,
     context: &BoundModuleContext,
@@ -1550,6 +2431,12 @@ fn apply_recipe_action(
             deleted,
             direction,
         } => swap_active_with_deleted(write, active, deleted, direction),
+        StructuralRecipeAction::RestoreTurnedSelection { state } => {
+            restore_turned_selection(write, state)
+        }
+        StructuralRecipeAction::TurnActiveSelection { snapshot, target } => {
+            turn_active_selection(write, snapshot, target)
+        }
     }
 }
 
@@ -4198,7 +5085,6 @@ fn move_active_snapshot(
         .filter(|block| block.in_host_document)
         .map(|block| block.block_id.clone())
         .collect::<Vec<_>>();
-    let placeholder_ids = source_placeholder.iter().cloned().collect::<Vec<_>>();
     let source_commit = persist_parent_relocation_source_with_placeholder(
         connection,
         ParentDocumentWriteContext {
@@ -4211,7 +5097,6 @@ fn move_active_snapshot(
         &source_parent,
         &source_operations,
         &relocated_block_ids,
-        &placeholder_ids,
     )?;
     let moved_at = sqlite_now(connection)?;
     update_host_page_parent_authorities(connection, &snapshot, &target.host_page_id, &moved_at)?;
@@ -5396,7 +6281,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use nodex_core_contracts::library::{
-        LibraryCanvasDestination, LibraryIntent, LibraryPageInsertion, LibraryWriteParent,
+        LibraryCanvasDestination, LibraryIntent, LibraryPageInsertion, LibraryPageWriteDestination,
+        LibraryWriteParent,
     };
     use nodex_core_contracts::{
         AdapterKind, CoreErrorCode, LIBRARY_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
@@ -5734,6 +6620,51 @@ mod tests {
         assert!(root_ids.iter().any(|block_id| block_id == SUBPAGE));
         assert!(root_ids.iter().any(|block_id| block_id == CANVAS));
         assert!(root_ids.iter().any(|block_id| block_id == DATABASE));
+
+        let rejected_turn = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "structural:reject-turn-with-owners".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyStructuralEdit {
+                        command: Box::new(LibraryStructuralEditCommand::TurnSelectionInto {
+                            selection: LibraryStructuralSelection {
+                                source_document_id: SOURCE_DOCUMENT.to_owned(),
+                                root_block_ids: root_ids.clone(),
+                                source_head: nodex_core_contracts::library::LibraryDocumentHead {
+                                    document_id: SOURCE_DOCUMENT.to_owned(),
+                                    generation: source_head.0,
+                                    head_seq: source_head.1,
+                                },
+                            },
+                            target: LibraryStructuralTurnIntoTarget::Paragraph,
+                        }),
+                    },
+                },
+            )
+            .expect_err("Canvas and Database make the whole turn unsupported");
+        assert_eq!(rejected_turn.code, CoreErrorCode::SchemaUnsupported);
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let unchanged_head = connection.query_row(
+                    "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                    [SOURCE_DOCUMENT],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                assert_eq!(unchanged_head, source_head);
+                let owner_types = connection
+                    .prepare("SELECT type FROM blocks WHERE id IN (?1, ?2, ?3) ORDER BY type")?
+                    .query_map(params![SUBPAGE, CANVAS, DATABASE], |row| {
+                        row.get::<_, String>(0)
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(owner_types, vec!["canvas", "database", "page"]);
+                Ok(())
+            })
+            .expect("rejected turn is atomic");
 
         let deleted = module
             .apply(
@@ -6629,5 +7560,618 @@ mod tests {
                 Ok(())
             })
             .expect("clipboard replacement undo authority");
+    }
+
+    #[test]
+    fn turn_subpage_into_toggle_and_history_preserve_page_and_document_identity() {
+        const NOW: &str = "2026-08-23T18:00:00.000Z";
+        const HOST_PAGE: &str = "018f0000-0000-7000-8000-000000000751";
+        const HOST_DOCUMENT: &str = "document:turn-host";
+        const SUBPAGE: &str = "018f0000-0000-7000-8000-000000000752";
+        const SUBPAGE_DOCUMENT: &str = "document:turn-subpage";
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Turn into', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Library");
+        let context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:turn-into".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn:create-host".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: HOST_PAGE.to_owned(),
+                        document_id: HOST_DOCUMENT.to_owned(),
+                        title: "Host".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create host");
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn:create-subpage".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: SUBPAGE.to_owned(),
+                        document_id: SUBPAGE_DOCUMENT.to_owned(),
+                        title: "Rich subpage".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: HOST_PAGE.to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                            insertion: None,
+                        },
+                    },
+                },
+            )
+            .expect("create subpage");
+        let head = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                        [HOST_DOCUMENT],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("host head");
+        let turned = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn:apply".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyStructuralEdit {
+                        command: Box::new(LibraryStructuralEditCommand::TurnSelectionInto {
+                            selection: LibraryStructuralSelection {
+                                source_document_id: HOST_DOCUMENT.to_owned(),
+                                root_block_ids: vec![SUBPAGE.to_owned()],
+                                source_head: nodex_core_contracts::library::LibraryDocumentHead {
+                                    document_id: HOST_DOCUMENT.to_owned(),
+                                    generation: head.0,
+                                    head_seq: head.1,
+                                },
+                            },
+                            target: LibraryStructuralTurnIntoTarget::ToggleList,
+                        }),
+                    },
+                },
+            )
+            .expect("turn subpage");
+        let turned_result = turned.committed.value.structural_edit.expect("turn result");
+        assert_eq!(turned_result.result_root_block_ids, vec![SUBPAGE]);
+        let undo = turned_result.history.expect("turn history");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let block_type = connection.query_row(
+                    "SELECT type FROM blocks WHERE id = ?1",
+                    [SUBPAGE],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(block_type, "toggleListItem");
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM pages WHERE block_id = ?1",
+                        [SUBPAGE],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM documents WHERE id = ?1",
+                        [SUBPAGE_DOCUMENT],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM structural_retention_members \
+                         WHERE authority_kind = 'history_recipe' \
+                           AND authority_id = 'turn:apply' \
+                           AND member_kind = 'document' AND member_id = ?1",
+                        [SUBPAGE_DOCUMENT],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
+                crate::infrastructure::store_validation::validate_store_semantics(connection)?;
+                Ok(())
+            })
+            .expect("turned authority");
+
+        let restored = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn:undo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: undo },
+                },
+            )
+            .expect("undo turn");
+        let redo = restored
+            .committed
+            .value
+            .structural_edit
+            .expect("undo result")
+            .history
+            .expect("redo history");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let restored = connection.query_row(
+                    "SELECT block.type, page.document_id, model.title \
+                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                     JOIN page_read_model model ON model.page_block_id = block.id \
+                     WHERE block.id = ?1",
+                    [SUBPAGE],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    restored,
+                    (
+                        "page".to_owned(),
+                        SUBPAGE_DOCUMENT.to_owned(),
+                        "Rich subpage".to_owned(),
+                    )
+                );
+                crate::infrastructure::store_validation::validate_store_semantics(connection)?;
+                Ok(())
+            })
+            .expect("restored authority");
+
+        let redone = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn:redo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: redo },
+                },
+            )
+            .expect("redo turn");
+        let released_history = redone
+            .committed
+            .value
+            .structural_edit
+            .expect("redo result")
+            .history
+            .expect("second undo history");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let current = connection.query_row(
+                    "SELECT type FROM blocks WHERE id = ?1",
+                    [SUBPAGE],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(current, "toggleListItem");
+                crate::infrastructure::store_validation::validate_store_semantics(connection)?;
+                Ok(())
+            })
+            .expect("redone authority");
+
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn:release-history".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyStructuralEdit {
+                        command: Box::new(LibraryStructuralEditCommand::ReleaseHistory {
+                            tokens: vec![released_history],
+                        }),
+                    },
+                },
+            )
+            .expect("release turned Page history");
+        kernel
+            .writer()
+            .call(|connection| {
+                let summary = crate::document::run_block_retention_pass(connection, 0)?;
+                assert_eq!(summary.collected_candidates, 1);
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM documents WHERE id = ?1",
+                        [SUBPAGE_DOCUMENT],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT type FROM blocks WHERE id = ?1",
+                        [SUBPAGE],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "toggleListItem"
+                );
+                crate::infrastructure::store_validation::validate_store_semantics(connection)?;
+                Ok(())
+            })
+            .expect("collect released dormant Page Document");
+    }
+
+    #[test]
+    fn turn_nonempty_subpage_reparents_body_owners_and_restores_them_across_history() {
+        const NOW: &str = "2026-08-23T19:00:00.000Z";
+        const HOST_PAGE: &str = "018f0000-0000-7000-8000-000000000761";
+        const HOST_DOCUMENT: &str = "document:turn-nonempty-host";
+        const NESTED_PAGE: &str = "018f0000-0000-7000-8000-000000000762";
+        const NESTED_DOCUMENT: &str = "document:turn-nested-page";
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Turn nonempty', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Library");
+        let context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:turn-nonempty".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn-nonempty:create-host".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: HOST_PAGE.to_owned(),
+                        document_id: HOST_DOCUMENT.to_owned(),
+                        title: "Host".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create host");
+        let created = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn-nonempty:create-subpage".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePageFromNfm {
+                        title_markdown: "Rich **subpage** [link](https://nodex.local)".to_owned(),
+                        nfm: "Body paragraph\n\n- first\n  - nested".to_owned(),
+                        destination: LibraryPageWriteDestination::Page {
+                            page_id: HOST_PAGE.to_owned(),
+                            at: None,
+                        },
+                    },
+                },
+            )
+            .expect("create nonempty subpage")
+            .committed
+            .value
+            .page_create
+            .expect("page create result");
+        let subpage_id = created.page_id;
+        let subpage_document_id = created.document_id;
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn-nonempty:create-nested-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: NESTED_PAGE.to_owned(),
+                        document_id: NESTED_DOCUMENT.to_owned(),
+                        title: "Nested".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: subpage_id.clone(),
+                            expected_document_generation: created.document_generation,
+                            expected_document_head_seq: created.document_head_seq,
+                            before: None,
+                            insertion: None,
+                        },
+                    },
+                },
+            )
+            .expect("create nested Page");
+
+        let (host_head, host_root_ids, original_title, original_root_ids, original_properties) =
+            kernel
+                .readers()
+                .read_default(|connection| {
+                    let host = load_parent_document(connection, HOST_DOCUMENT)?;
+                    let subpage = load_parent_document(connection, &subpage_document_id)?;
+                    let properties = connection
+                        .prepare(
+                            "SELECT property_key, value_type, value_json FROM block_properties \
+                         WHERE block_id = ?1 ORDER BY property_key",
+                        )?
+                        .query_map([&subpage_id], |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                            ))
+                        })?
+                        .collect::<rusqlite::Result<Vec<_>>>()?;
+                    Ok((
+                        (host.authority.head.generation, host.authority.head.head_seq),
+                        root_ids(&host.base_materialization.block_tree),
+                        subpage.base_materialization.rich_title,
+                        root_ids(&subpage.base_materialization.block_tree),
+                        properties,
+                    ))
+                })
+                .expect("original Page materialization");
+        assert!(original_root_ids.len() >= 3);
+        assert!(
+            original_root_ids
+                .iter()
+                .any(|block_id| block_id == NESTED_PAGE)
+        );
+        assert!(host_root_ids.iter().any(|block_id| block_id == &subpage_id));
+        assert!(host_root_ids.iter().any(|block_id| block_id != &subpage_id));
+
+        let turned = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn-nonempty:apply".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyStructuralEdit {
+                        command: Box::new(LibraryStructuralEditCommand::TurnSelectionInto {
+                            selection: LibraryStructuralSelection {
+                                source_document_id: HOST_DOCUMENT.to_owned(),
+                                root_block_ids: host_root_ids.clone(),
+                                source_head: nodex_core_contracts::library::LibraryDocumentHead {
+                                    document_id: HOST_DOCUMENT.to_owned(),
+                                    generation: host_head.0,
+                                    head_seq: host_head.1,
+                                },
+                            },
+                            target: LibraryStructuralTurnIntoTarget::ToggleList,
+                        }),
+                    },
+                },
+            )
+            .expect("turn nonempty Page");
+        let undo = turned
+            .committed
+            .value
+            .structural_edit
+            .expect("turn result")
+            .history
+            .expect("undo history");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let host = load_parent_document(connection, HOST_DOCUMENT)?;
+                assert!(
+                    host.base_materialization
+                        .block_tree
+                        .iter()
+                        .all(|block| block.block_type == "toggleListItem")
+                );
+                let turned_block = flatten_blocks(&host.base_materialization.block_tree)
+                    .into_iter()
+                    .find(|block| block.id == subpage_id)
+                    .expect("turned Block");
+                assert_eq!(turned_block.block_type, "toggleListItem");
+                assert_eq!(root_ids(&turned_block.children), original_root_ids);
+                let turned_title =
+                    crate::domain::materialized_inline::rich_text_from_materialized_inline(
+                        turned_block.content.as_ref().expect("turned title"),
+                    )
+                    .expect("portable title")
+                    .rich_text;
+                assert_eq!(turned_title, original_title);
+                let nested_parent = connection.query_row(
+                    "SELECT parent_kind, parent_id FROM pages WHERE block_id = ?1",
+                    [NESTED_PAGE],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                assert_eq!(nested_parent, ("page".to_owned(), HOST_PAGE.to_owned()));
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM structural_retention_members \
+                         WHERE authority_kind = 'history_recipe' \
+                           AND authority_id = 'turn-nonempty:apply' \
+                           AND member_kind = 'document' AND member_id = ?1",
+                        [&subpage_document_id],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
+                crate::infrastructure::store_validation::validate_store_semantics(connection)?;
+                Ok(())
+            })
+            .expect("turned hierarchy");
+
+        let restored = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn-nonempty:undo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: undo },
+                },
+            )
+            .expect("undo nonempty turn");
+        let redo = restored
+            .committed
+            .value
+            .structural_edit
+            .expect("undo result")
+            .history
+            .expect("redo history");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let restored_page = load_parent_document(connection, &subpage_document_id)?;
+                assert_eq!(
+                    restored_page.base_materialization.rich_title,
+                    original_title
+                );
+                assert_eq!(
+                    root_ids(&restored_page.base_materialization.block_tree),
+                    original_root_ids
+                );
+                let restored_properties = connection
+                    .prepare(
+                        "SELECT property_key, value_type, value_json FROM block_properties \
+                         WHERE block_id = ?1 ORDER BY property_key",
+                    )?
+                    .query_map([&subpage_id], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                assert_eq!(restored_properties, original_properties);
+                let host = load_parent_document(connection, HOST_DOCUMENT)?;
+                let page_shell = flatten_blocks(&host.base_materialization.block_tree)
+                    .into_iter()
+                    .find(|block| block.id == subpage_id)
+                    .expect("restored Page shell");
+                assert_eq!(page_shell.block_type, "page");
+                assert!(page_shell.children.is_empty());
+                let nested_parent = connection.query_row(
+                    "SELECT parent_kind, parent_id FROM pages WHERE block_id = ?1",
+                    [NESTED_PAGE],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                assert_eq!(nested_parent, ("page".to_owned(), subpage_id.clone()));
+                crate::infrastructure::store_validation::validate_store_semantics(connection)?;
+                Ok(())
+            })
+            .expect("restored hierarchy");
+
+        let redone = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn-nonempty:redo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: redo },
+                },
+            )
+            .expect("redo nonempty turn");
+        let undo_again = redone
+            .committed
+            .value
+            .structural_edit
+            .expect("redo result")
+            .history
+            .expect("second undo history");
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "turn-nonempty:undo-again".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: undo_again },
+                },
+            )
+            .expect("second undo nonempty turn");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let restored = connection.query_row(
+                    "SELECT page.document_id, block.type FROM pages page \
+                     JOIN blocks block ON block.id = page.block_id WHERE page.block_id = ?1",
+                    [&subpage_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                assert_eq!(restored, (subpage_document_id, "page".to_owned()));
+                crate::infrastructure::store_validation::validate_store_semantics(connection)?;
+                Ok(())
+            })
+            .expect("second restore keeps identity");
     }
 }

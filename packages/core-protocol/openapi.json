@@ -14690,6 +14690,14 @@
           "library_changed"
         ]
       },
+      "LibraryHeadingLevel": {
+        "type": "string",
+        "enum": [
+          "one",
+          "two",
+          "three"
+        ]
+      },
       "LibraryInheritedProjectAccessSource": {
         "oneOf": [
           {
@@ -19184,6 +19192,28 @@
           {
             "type": "object",
             "required": [
+              "selection",
+              "target",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "turn_selection_into"
+                ]
+              },
+              "selection": {
+                "$ref": "#/components/schemas/LibraryStructuralSelection"
+              },
+              "target": {
+                "$ref": "#/components/schemas/LibraryStructuralTurnIntoTarget"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "tokens",
               "kind"
             ],
@@ -19444,6 +19474,145 @@
             "$ref": "#/components/schemas/DocumentHeadRevision"
           }
         }
+      },
+      "LibraryStructuralTurnIntoTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "paragraph"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "level",
+              "toggleable",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "heading"
+                ]
+              },
+              "level": {
+                "$ref": "#/components/schemas/LibraryHeadingLevel"
+              },
+              "toggleable": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "bulleted_list"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "numbered_list"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "todo_list"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "toggle_list"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "quote"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "callout"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "code"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The lossless ordinary Block shapes supported by the structural Turn into\noperation. This is intentionally closed: typed owners and atom Blocks need\ndedicated domain transitions rather than arbitrary type/props patches."
       },
       "LibraryTaskShorthandPreservedReason": {
         "type": "string",

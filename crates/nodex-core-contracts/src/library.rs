@@ -16,7 +16,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 32;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 33;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -586,6 +586,34 @@ pub enum LibraryStructuralDeleteDirection {
     Forward,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryHeadingLevel {
+    One,
+    Two,
+    Three,
+}
+
+/// The lossless ordinary Block shapes supported by the structural Turn into
+/// operation. This is intentionally closed: typed owners and atom Blocks need
+/// dedicated domain transitions rather than arbitrary type/props patches.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryStructuralTurnIntoTarget {
+    Paragraph,
+    Heading {
+        level: LibraryHeadingLevel,
+        toggleable: bool,
+    },
+    BulletedList,
+    NumberedList,
+    TodoList,
+    ToggleList,
+    Quote,
+    Callout,
+    Code,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryStructuralReplacementBlock {
     pub block_type: String,
@@ -632,6 +660,10 @@ pub enum LibraryStructuralEditCommand {
     ReplaceSelection {
         selection: LibraryStructuralSelection,
         replacement: LibraryStructuralReplacement,
+    },
+    TurnSelectionInto {
+        selection: LibraryStructuralSelection,
+        target: LibraryStructuralTurnIntoTarget,
     },
     ReleaseHistory {
         tokens: Vec<LibraryStructuralHistoryToken>,

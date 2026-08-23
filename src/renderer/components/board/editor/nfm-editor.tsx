@@ -205,6 +205,7 @@ import {
 } from "@/lib/typed-owner-blocks";
 import { NfmStructuralEditingController } from "./nfm-structural-editing-extension";
 import { nfmStructuralClipboardCoordinator } from "./nfm-structural-clipboard-coordinator";
+import { applyLocalNfmTurnInto, type NfmTurnBlocksIntoInput } from "@/lib/nfm-turn-into-targets";
 
 interface NfmEditorCommonProps {
   contentAccessContext: ContentAccessContext;
@@ -2106,6 +2107,33 @@ function NfmEditorInstance({
     () => endLocalBlockDragSession({ sourceSurfaceId: source.clientSessionId }),
     [source.clientSessionId],
   );
+  const handleTurnBlocksInto = useCallback(
+    (input: NfmTurnBlocksIntoInput) => {
+      const expandedBlocks = input.expandedBlockIds.flatMap((blockId) => {
+        const block = editor.getBlock(blockId);
+        return block ? [block] : [];
+      });
+      const unsupportedOwner = expandedBlocks.find(
+        (block) => hasTypedOwnerType([block.type]) && block.type !== "page",
+      );
+      if (unsupportedOwner) {
+        toast.info("Canvas and Database blocks cannot be turned into text content.");
+        return true;
+      }
+      if (expandedBlocks.some((block) => block.type === "page")) {
+        return (
+          structuralEditingController.current?.turnBlocksInto(
+            input.rootBlockIds,
+            input.expandedBlockIds,
+            input.target,
+          ) ?? false
+        );
+      }
+      applyLocalNfmTurnInto(editor, expandedBlocks, input.localPatch);
+      return true;
+    },
+    [editor, structuralEditingController],
+  );
   const sideMenuHandlersRef = useRef({
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
     hasConvertDividerToThreadSection: true,
@@ -2119,6 +2147,7 @@ function NfmEditorInstance({
       structuralEditingController.current?.duplicateBlocks(blockIds) ?? false,
     onDeleteBlocks: (blockIds: readonly string[]) =>
       structuralEditingController.current?.deleteBlocks(blockIds, "backward") ?? false,
+    onTurnBlocksInto: handleTurnBlocksInto,
   });
   sideMenuHandlersRef.current = {
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
@@ -2133,6 +2162,7 @@ function NfmEditorInstance({
       structuralEditingController.current?.duplicateBlocks(blockIds) ?? false,
     onDeleteBlocks: (blockIds: readonly string[]) =>
       structuralEditingController.current?.deleteBlocks(blockIds, "backward") ?? false,
+    onTurnBlocksInto: handleTurnBlocksInto,
   };
 
   const sideMenuRuntimeValue = useMemo(

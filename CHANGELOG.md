@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Added atomic mixed selection editing for Page, Canvas, and Database owners, including complete copy/cut/paste across consecutive commands and nested editors, race-safe native clipboard handoff, identity-preserving first cut paste, structural Duplicate/Move/drag, atomic-block cursor navigation, and chronological Undo/Redo with ordinary text edits.
+- Subpages can now be turned into text, headings, toggles, lists, quotes, callouts, or code without losing their title or body; Undo restores the original Page and its identity.
 
 ### Changed
 

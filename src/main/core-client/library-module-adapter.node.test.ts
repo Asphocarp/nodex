@@ -2245,6 +2245,86 @@ describe("Core Library Module Adapter", () => {
     ]);
   });
 
+  test("maps typed Turn into targets without a generic block patch", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: ["page:one"],
+        structural_edit: {
+          operation_kind: "turn_structural_selection_into",
+          source_root_block_ids: ["page:one"],
+          result_root_block_ids: ["page:one"],
+          copied_block_ids: {},
+          copied_document_ids: {},
+          document_commits: [],
+          affected_page_ids: ["page:host", "page:one"],
+          affected_database_ids: [],
+          clipboard: null,
+          history: null,
+          superseded_history_recipe_operation_ids: [],
+          resume: null,
+        },
+      },
+      receipt: {
+        operation_id: "operation:structural-turn",
+        duplicate: false,
+        operation_kind: "apply_structural_edit",
+        did_mutate: true,
+        created_target: null,
+        affected_parent_keys: ["page:page:host"],
+        affected_page_ids: ["page:host", "page:one"],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: {},
+        commit_seq: 10,
+        committed_at: "2026-08-23T00:00:00.000Z",
+      },
+      event_sequence: 10,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(
+      adapter.apply({
+        operationId: "operation:structural-turn",
+        storeEpoch: identity.storeEpoch,
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "turn_selection_into",
+            selection: {
+              sourceDocumentId: "document:source",
+              rootBlockIds: ["page:one"],
+              sourceHead: {
+                documentId: "document:source",
+                generation: 2,
+                expectedHeadSeq: 9,
+              },
+            },
+            target: { kind: "heading", level: "three", toggleable: true },
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(client.applies).toEqual([
+      {
+        operationId: "operation:structural-turn",
+        intent: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "turn_selection_into",
+            selection: {
+              source_document_id: "document:source",
+              root_block_ids: ["page:one"],
+              source_head: { document_id: "document:source", generation: 2, head_seq: 9 },
+            },
+            target: { kind: "heading", level: "three", toggleable: true },
+          },
+        },
+      },
+    ]);
+  });
+
   test("routes trusted Library writes through the root Core client", async () => {
     const rootClient = new FakeCoreClient();
     rootClient.enqueueApply({

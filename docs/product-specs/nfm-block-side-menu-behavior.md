@@ -113,6 +113,19 @@ Footer metadata is optional. Production hides the footer when there is no real m
 - Code
 - Callout
 
+The same target matrix applies to ordinary Blocks and owning Subpages. A mixed
+selection is one action: every ordinary Block in the selected host forest is
+reclassified, while each Subpage keeps its Block identity, contributes its
+rich title as inline content, and contributes its body roots as direct
+children. Those contributed body Blocks keep their types, IDs, hierarchy, and
+nested owners. The sole canonical empty Page paragraph remains in the dormant
+Page Document rather than appearing as an empty child.
+
+Ordinary-only selections commit in one local editor transaction. If any Page
+is present, Core commits the complete selected forest and all Page capability
+changes atomically. A Canvas or Database anywhere in the expanded selection
+rejects the complete action; ordinary neighbors are not partially converted.
+
 Divider is intentionally not part of the generic `Turn into` list because converting content blocks to dividers would discard content. Divider-related conversion stays under `Make thread section`.
 
 `Color` exposes text and background color groups only when the current expanded selection supports the target prop.

@@ -555,6 +555,21 @@ export type LibraryStructuralReplacement =
       readonly blocks: readonly LibraryStructuralReplacementBlock[];
     };
 
+export type LibraryStructuralTurnIntoTarget =
+  | { readonly kind: "paragraph" }
+  | {
+      readonly kind: "heading";
+      readonly level: "one" | "two" | "three";
+      readonly toggleable: boolean;
+    }
+  | { readonly kind: "bulleted_list" }
+  | { readonly kind: "numbered_list" }
+  | { readonly kind: "todo_list" }
+  | { readonly kind: "toggle_list" }
+  | { readonly kind: "quote" }
+  | { readonly kind: "callout" }
+  | { readonly kind: "code" };
+
 export type LibraryStructuralEditCommand =
   | {
       readonly kind: "capture_clipboard";
@@ -587,6 +602,11 @@ export type LibraryStructuralEditCommand =
       readonly kind: "replace_selection";
       readonly selection: LibraryStructuralSelection;
       readonly replacement: LibraryStructuralReplacement;
+    }
+  | {
+      readonly kind: "turn_selection_into";
+      readonly selection: LibraryStructuralSelection;
+      readonly target: LibraryStructuralTurnIntoTarget;
     }
   | {
       readonly kind: "release_history";

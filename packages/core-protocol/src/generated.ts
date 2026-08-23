@@ -3624,6 +3624,8 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryEventKind: "library_changed";
+        /** @enum {string} */
+        readonly LibraryHeadingLevel: "one" | "two" | "three";
         readonly LibraryInheritedProjectAccessSource: {
             readonly access: components["schemas"]["LibraryAccess"];
             readonly database_id: string;
@@ -4681,6 +4683,11 @@ export interface components {
             readonly selection: components["schemas"]["LibraryStructuralSelection"];
         } | {
             /** @enum {string} */
+            readonly kind: "turn_selection_into";
+            readonly selection: components["schemas"]["LibraryStructuralSelection"];
+            readonly target: components["schemas"]["LibraryStructuralTurnIntoTarget"];
+        } | {
+            /** @enum {string} */
             readonly kind: "release_history";
             readonly tokens: readonly components["schemas"]["LibraryStructuralHistoryToken"][];
         };
@@ -4734,6 +4741,41 @@ export interface components {
             readonly parent_block_id?: string | null;
             readonly target_document_id: string;
             readonly target_head: components["schemas"]["DocumentHeadRevision"];
+        };
+        /**
+         * @description The lossless ordinary Block shapes supported by the structural Turn into
+         *     operation. This is intentionally closed: typed owners and atom Blocks need
+         *     dedicated domain transitions rather than arbitrary type/props patches.
+         */
+        readonly LibraryStructuralTurnIntoTarget: {
+            /** @enum {string} */
+            readonly kind: "paragraph";
+        } | {
+            /** @enum {string} */
+            readonly kind: "heading";
+            readonly level: components["schemas"]["LibraryHeadingLevel"];
+            readonly toggleable: boolean;
+        } | {
+            /** @enum {string} */
+            readonly kind: "bulleted_list";
+        } | {
+            /** @enum {string} */
+            readonly kind: "numbered_list";
+        } | {
+            /** @enum {string} */
+            readonly kind: "todo_list";
+        } | {
+            /** @enum {string} */
+            readonly kind: "toggle_list";
+        } | {
+            /** @enum {string} */
+            readonly kind: "quote";
+        } | {
+            /** @enum {string} */
+            readonly kind: "callout";
+        } | {
+            /** @enum {string} */
+            readonly kind: "code";
         };
         /** @enum {string} */
         readonly LibraryTaskShorthandPreservedReason: "malformed_shorthand" | "nonempty_title_required" | "rich_text_boundary" | "target_property_conflict" | "target_schema_incompatible" | "tag_schema_permission_required" | "tag_option_limit";
