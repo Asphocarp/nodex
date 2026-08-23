@@ -191,9 +191,6 @@ interface TestableCodexService {
   routeAppServerNotification: (notification: CodexServerNotification) => Promise<void>;
   observeConnection: (connection: import("../../shared/types").CodexConnectionState) => void;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
-  resolveThreadSummary: (
-    threadId: string,
-  ) => Promise<import("../../shared/types").CodexThreadSummary | null>;
   sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
   threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
   threadReadState: import("../codex-application/CodexThreadReadStatePromiseAdapter").CodexThreadReadStatePromiseAdapter;
@@ -1757,6 +1754,17 @@ function createService(options?: {
       projectionRevision: 0,
     }),
     listPalette: async (): Promise<readonly CommandPaletteThreadSummary[]> => [],
+    resolve: async (threadId: string) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      const client = Reflect.get(service as object, "client") as {
+        request: (method: string, params: unknown) => Promise<{ thread: unknown }>;
+      };
+      const result = await client.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      return await service.materializeThreadForCatalog(result.thread);
+    },
     setPinned: async (threadId: string, pinned: boolean, beforeThreadId?: string | null) => {
       await projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId);
       return {

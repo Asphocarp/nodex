@@ -144,3 +144,30 @@ export const buildWorkspaceThreadSummary = (
     linkedAt: thread.linkedAt,
   };
 };
+
+export const hasSidebarThreadSummaryChanged = (
+  previous: CodexThreadSummary | null,
+  next: CodexThreadSummary,
+): boolean => {
+  if (!previous) return true;
+  return (
+    previous.projectId !== next.projectId ||
+    previous.threadSource !== next.threadSource ||
+    previous.agentNickname !== next.agentNickname ||
+    previous.agentRole !== next.agentRole ||
+    previous.agentPath !== next.agentPath ||
+    previous.threadName !== next.threadName ||
+    previous.threadPreview !== next.threadPreview ||
+    previous.modelProvider !== next.modelProvider ||
+    previous.cwd !== next.cwd ||
+    previous.managedWorktreePath !== next.managedWorktreePath ||
+    previous.projectlessOutputDirectory !== next.projectlessOutputDirectory ||
+    previous.projectlessWorkspaceBrowserRoot !== next.projectlessWorkspaceBrowserRoot ||
+    previous.statusType !== next.statusType ||
+    previous.statusActiveFlags.join("\u0000") !== next.statusActiveFlags.join("\u0000") ||
+    previous.hasUnreadTurn !== next.hasUnreadTurn ||
+    previous.archived !== next.archived ||
+    previous.createdAt !== next.createdAt ||
+    previous.recencyAt !== next.recencyAt
+  );
+};

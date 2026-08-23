@@ -1430,6 +1430,16 @@ export const live: Layer.Layer<
           }),
           readThreadProjection: (threadId) =>
             requireCodexService().readThreadCatalogProjection(threadId),
+          readThread: (threadId) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().readThreadForCatalog(threadId),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "resolve", cause }),
+            }),
+          materializeThread: (thread) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().materializeThreadForCatalog(thread),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "resolve", cause }),
+            }),
           setThreadPinned: (threadId, pinned, beforeThreadId) =>
             Effect.tryPromise({
               try: () => projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId),

@@ -13,11 +13,15 @@ import type {
   ProjectSessionSummaryWindow,
 } from "../../shared/types";
 import type { DesktopProjectWorkspaceSidebar } from "../core-client/project-workspace-adapter";
+import type { DesktopProjectWorkspaceThread } from "../core-client/project-workspace-adapter";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { codexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
 import { CodexThreadCatalogError, make } from "./CodexThreadCatalog";
-import { resolveSidebarProjectIdForCwd } from "./CodexThreadCatalogProjection";
+import {
+  buildWorkspaceThreadSummary,
+  resolveSidebarProjectIdForCwd,
+} from "./CodexThreadCatalogProjection";
 
 const snapshot = (pinnedThreadIds: readonly string[] = []): CodexSidebarSnapshot => ({
   items: [],
@@ -69,6 +73,41 @@ const emptyWindow = (): ProjectSessionSummaryWindow =>
     projectionRevision: 1,
   }) as ProjectSessionSummaryWindow;
 
+const workspaceThread = (
+  overrides: Partial<DesktopProjectWorkspaceThread> = {},
+): DesktopProjectWorkspaceThread =>
+  ({
+    threadId: "thread-cached",
+    projectId: "project-a",
+    sessionId: null,
+    forkedFromId: null,
+    parentThreadId: null,
+    threadSource: null,
+    serviceName: null,
+    agentNickname: null,
+    agentRole: null,
+    agentPath: null,
+    threadName: "Cached Thread",
+    threadPreview: "Cached preview",
+    modelProvider: "openai",
+    executionProfile: null,
+    executionHostId: "local",
+    cwd: "/workspace/a",
+    managedWorktreePath: null,
+    projectlessOutputDirectory: null,
+    projectlessWorkspaceBrowserRoot: null,
+    statusType: "idle",
+    statusActiveFlags: [],
+    archived: false,
+    pinnedOrder: null,
+    hasUnreadTurn: false,
+    createdAt: 1,
+    updatedAt: 2,
+    recencyAt: 3,
+    linkedAt: "2026-08-23T00:00:00.000Z",
+    ...overrides,
+  }) as unknown as DesktopProjectWorkspaceThread;
+
 const searchSidebar = CodexSidebarSyncRuntime.of({
   sync: () => Effect.die("unused"),
   publish: () => Effect.die("unused"),
@@ -87,6 +126,8 @@ const makeSearchCatalog = (
     listProjectWindow: () => Effect.succeed(emptyWindow()),
     listProjects: Effect.succeed(projects),
     readThreadProjection: () => null,
+    readThread: () => Effect.succeed(null),
+    materializeThread: () => Effect.die("unused"),
     setThreadPinned: () => Effect.die("unused"),
     reorderPinnedThreads: () => Effect.die("unused"),
     move: () => Effect.die("unused"),
@@ -113,6 +154,125 @@ it.effect("uses the injected path case policy for project inference", () =>
       resolveSidebarProjectIdForCwd("/workspace/repository/src", projects, false),
       null,
     );
+  }),
+);
+
+it.effect("resolves cached Threads without touching the app-server", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const catalog = yield* make({
+      foldPathCase: false,
+      readSidebarOverview: () => Effect.die("unused"),
+      listProjectWindow: () => Effect.die("unused"),
+      listProjects: Effect.die("unused"),
+      readThreadProjection: () => null,
+      readThread: () => Effect.succeed(workspaceThread()),
+      materializeThread: () => Effect.die("unused"),
+      setThreadPinned: () => Effect.die("unused"),
+      reorderPinnedThreads: () => Effect.die("unused"),
+      move: () => Effect.die("unused"),
+    }).pipe(
+      Effect.provideService(CodexGateway, unusedGateway),
+      Effect.provideService(CodexSidebarSyncRuntime, searchSidebar),
+      Effect.provideService(Scope.Scope, scope),
+    );
+
+    assert.deepEqual(
+      yield* catalog.resolve(" thread-cached "),
+      buildWorkspaceThreadSummary(workspaceThread()),
+    );
+    assert.isNull(yield* catalog.resolve("   "));
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("materializes remote Threads and publishes their exact sidebar scope", () =>
+  Effect.gen(function* () {
+    const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
+    const requestLocal = ((method: string, params: unknown) => {
+      requests.push({ method, params });
+      return Effect.succeed({
+        thread: {
+          id: "thread-remote",
+          name: "Remote Thread",
+          preview: "Remote preview",
+          status: { type: "idle" },
+        },
+      });
+    }) as RequestLocal;
+    const publications: Array<{ readonly projectIds: readonly string[]; readonly reason: string }> =
+      [];
+    const sidebar = CodexSidebarSyncRuntime.of({
+      sync: () => Effect.die("unused"),
+      publish: (input) =>
+        Effect.sync(() => {
+          publications.push({
+            projectIds: input.metadata.changedProjectIds,
+            reason: input.reason,
+          });
+          return syncResult(snapshot());
+        }),
+      invalidate: () => undefined,
+      scheduleNotification: () => undefined,
+    });
+    const scope = yield* Scope.make();
+    const materialized = workspaceThread({
+      threadId: "thread-remote",
+      projectId: "project-remote",
+      threadName: "Remote Thread",
+      threadPreview: "Remote preview",
+    });
+    let readCount = 0;
+    const catalog = yield* make({
+      foldPathCase: false,
+      readSidebarOverview: () => Effect.die("unused"),
+      listProjectWindow: () => Effect.die("unused"),
+      listProjects: Effect.die("unused"),
+      readThreadProjection: () => null,
+      readThread: () =>
+        Effect.sync(() => {
+          readCount += 1;
+          return null;
+        }),
+      materializeThread: () => Effect.succeed(buildWorkspaceThreadSummary(materialized)),
+      setThreadPinned: () => Effect.die("unused"),
+      reorderPinnedThreads: () => Effect.die("unused"),
+      move: () => Effect.die("unused"),
+    }).pipe(
+      Effect.provideService(CodexGateway, makeGateway(requestLocal)),
+      Effect.provideService(CodexSidebarSyncRuntime, sidebar),
+      Effect.provideService(Scope.Scope, scope),
+    );
+
+    assert.deepEqual(
+      yield* catalog.resolve(" thread-remote "),
+      buildWorkspaceThreadSummary(materialized),
+    );
+    assert.strictEqual(readCount, 2);
+    assert.deepEqual(requests, [
+      {
+        method: "thread/read",
+        params: { threadId: "thread-remote", includeTurns: false },
+      },
+    ]);
+    assert.deepEqual(publications, [{ projectIds: ["project-remote"], reason: "host-message" }]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("rejects a remote Thread resolved under a different identity", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const requestLocal = (() =>
+      Effect.succeed({
+        thread: { id: "thread-other" },
+      })) as RequestLocal;
+    const catalog = yield* makeSearchCatalog(scope, requestLocal);
+
+    const error = yield* Effect.flip(catalog.resolve("thread-requested"));
+    assert.strictEqual(error.operation, "resolve");
+    assert.match(String(error.cause), /expected 'thread-requested'.*'thread-other'/);
+    yield* Scope.close(scope, Exit.void);
   }),
 );
 
@@ -149,6 +309,8 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.succeed([]),
       readThreadProjection: () => null,
+      readThread: () => Effect.succeed(null),
+      materializeThread: () => Effect.die("unused"),
       setThreadPinned: (threadId, pinned) =>
         Effect.sync(() => {
           calls.push(`set:${threadId}:${pinned}`);
@@ -225,6 +387,8 @@ it.effect("interrupts active and queued pin mutations with its owning Scope", ()
       listProjectWindow: () => Effect.die("unused"),
       listProjects: Effect.die("unused"),
       readThreadProjection: () => null,
+      readThread: () => Effect.succeed(null),
+      materializeThread: () => Effect.die("unused"),
       setThreadPinned: () =>
         Deferred.succeed(started, undefined).pipe(
           Effect.andThen(Effect.never),
@@ -322,6 +486,8 @@ it.effect("owns Project and command-palette Thread projections", () =>
           projectlessOutputDirectory: null,
           projectlessWorkspaceBrowserRoot: null,
         }) as unknown as import("../core-client/project-workspace-adapter").DesktopProjectWorkspaceThread,
+      readThread: () => Effect.succeed(null),
+      materializeThread: () => Effect.die("unused"),
       setThreadPinned: () => Effect.die("unused"),
       reorderPinnedThreads: () => Effect.die("unused"),
       move: () => Effect.die("unused"),

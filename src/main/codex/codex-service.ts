@@ -646,6 +646,7 @@ import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-applica
 import type { CodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
 import {
   buildWorkspaceThreadSummary,
+  hasSidebarThreadSummaryChanged,
   isInternalThreadSourceValue,
   isNonSidebarThreadWithoutParent,
   parseThreadSourceValue,
@@ -908,33 +909,6 @@ function normalizeSidebarSessionFallbackTitle(thread: {
       resolveSidebarThreadTitle(thread),
       MAX_PROJECT_SESSION_TITLE_LENGTH,
     ) ?? "New thread"
-  );
-}
-
-function hasSidebarThreadSummaryChanged(
-  previous: CodexThreadSummary | null,
-  next: CodexThreadSummary,
-): boolean {
-  if (!previous) return true;
-  return (
-    previous.projectId !== next.projectId ||
-    previous.threadSource !== next.threadSource ||
-    previous.agentNickname !== next.agentNickname ||
-    previous.agentRole !== next.agentRole ||
-    previous.agentPath !== next.agentPath ||
-    previous.threadName !== next.threadName ||
-    previous.threadPreview !== next.threadPreview ||
-    previous.modelProvider !== next.modelProvider ||
-    previous.cwd !== next.cwd ||
-    previous.managedWorktreePath !== next.managedWorktreePath ||
-    previous.projectlessOutputDirectory !== next.projectlessOutputDirectory ||
-    previous.projectlessWorkspaceBrowserRoot !== next.projectlessWorkspaceBrowserRoot ||
-    previous.statusType !== next.statusType ||
-    previous.statusActiveFlags.join("\u0000") !== next.statusActiveFlags.join("\u0000") ||
-    previous.hasUnreadTurn !== next.hasUnreadTurn ||
-    previous.archived !== next.archived ||
-    previous.createdAt !== next.createdAt ||
-    previous.recencyAt !== next.recencyAt
   );
 }
 
@@ -5980,6 +5954,16 @@ export class CodexService {
     return this.workspaceThreadProjectionById.get(threadId) ?? null;
   }
 
+  /** Effect Module projection operation; callers use CodexThreadCatalog.resolve. */
+  async readThreadForCatalog(threadId: string): Promise<DesktopProjectWorkspaceThread | null> {
+    return await this.readWorkspaceThread(threadId);
+  }
+
+  /** Effect Module projection operation; callers use CodexThreadCatalog.resolve. */
+  async materializeThreadForCatalog(thread: unknown): Promise<CodexThreadSummary | null> {
+    return await this.upsertLinkFromThread(thread);
+  }
+
   /** Temporary synchronous projection seam for application Modules committing Core Threads. */
   projectWorkspaceThreadFromModule(thread: DesktopProjectWorkspaceThread): void {
     this.rememberWorkspaceThread(thread);
@@ -6331,7 +6315,7 @@ export class CodexService {
     const threadId = input.threadId.trim();
     let workspaceThread = await this.readWorkspaceThread(threadId);
     if (!workspaceThread) {
-      await this.resolveThreadSummary(threadId);
+      await this.threadCatalog.resolve(threadId);
       workspaceThread = await this.readWorkspaceThread(threadId);
     }
     if (!workspaceThread) throw new Error(`Task not found: ${threadId}`);
@@ -6519,7 +6503,7 @@ export class CodexService {
 
     let thread = await this.readWorkspaceThread(normalizedThreadId);
     if (!thread) {
-      await this.resolveThreadSummary(normalizedThreadId);
+      await this.threadCatalog.resolve(normalizedThreadId);
       thread = await this.readWorkspaceThread(normalizedThreadId);
     }
     if (!thread) return null;
@@ -7230,34 +7214,6 @@ export class CodexService {
       reason,
       forceEmit: options.force,
     });
-  }
-
-  async resolveThreadSummary(threadId: string): Promise<CodexThreadSummary | null> {
-    const normalizedThreadId = threadId.trim();
-    if (!normalizedThreadId) return null;
-
-    const cached = await this.readWorkspaceThread(normalizedThreadId);
-    if (cached) return this.buildWorkspaceThreadSummary(cached);
-
-    await this.ensureClientReady();
-    const result = await this.client.request<"thread/read", ThreadReadResponse>("thread/read", {
-      threadId: normalizedThreadId,
-      includeTurns: false,
-    });
-    if (result.thread.id !== normalizedThreadId) {
-      throw new Error(
-        `Codex thread/read expected '${normalizedThreadId}' but received '${result.thread.id}'`,
-      );
-    }
-    const previousThread = await this.readWorkspaceThread(normalizedThreadId);
-    const previous = previousThread ? this.buildWorkspaceThreadSummary(previousThread) : null;
-    const summary = (await this.upsertLinkFromThread(result.thread)) ?? previous;
-    if (summary && hasSidebarThreadSummaryChanged(previous, summary)) {
-      const metadata = createSidebarThreadSyncMetadata();
-      markSidebarSyncScopeChanged(metadata, summary.projectId);
-      await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "host-message");
-    }
-    return summary;
   }
 
   async listModels(): Promise<CodexModelOption[]> {

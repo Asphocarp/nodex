@@ -31,6 +31,8 @@ import type {
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexSidebarSyncRuntime, type CodexSidebarSyncMetadata } from "./CodexSidebarSyncRuntime";
 import {
+  buildWorkspaceThreadSummary,
+  hasSidebarThreadSummaryChanged,
   isNonSidebarThreadWithoutParent,
   parseThreadStatus,
   resolveSidebarProjectIdForCwd,
@@ -46,6 +48,7 @@ export class CodexThreadCatalogError extends Data.TaggedError("CodexThreadCatalo
     | "set-pinned"
     | "reorder-pinned"
     | "move"
+    | "resolve"
     | "publish";
   readonly cause: unknown;
 }> {}
@@ -61,6 +64,12 @@ export interface CodexThreadCatalogOptions {
   ) => Effect.Effect<ProjectSessionSummaryWindow, CodexThreadCatalogError>;
   readonly listProjects: Effect.Effect<readonly Project[], CodexThreadCatalogError>;
   readonly readThreadProjection: (threadId: string) => DesktopProjectWorkspaceThread | null;
+  readonly readThread: (
+    threadId: string,
+  ) => Effect.Effect<DesktopProjectWorkspaceThread | null, CodexThreadCatalogError>;
+  readonly materializeThread: (
+    thread: ClientRequestResponsesByMethod["thread/read"]["thread"],
+  ) => Effect.Effect<CodexThreadSummary | null, CodexThreadCatalogError>;
   readonly setThreadPinned: (
     threadId: string,
     pinned: boolean,
@@ -88,6 +97,9 @@ export class CodexThreadCatalog extends Context.Service<
     readonly searchPalette: (
       input: CommandPaletteThreadSearchInput,
     ) => Effect.Effect<readonly CommandPaletteThreadSearchResult[], CodexThreadCatalogError>;
+    readonly resolve: (
+      threadId: string,
+    ) => Effect.Effect<CodexThreadSummary | null, CodexThreadCatalogError>;
     readonly setPinned: (
       threadId: string,
       pinned: boolean,
@@ -193,6 +205,7 @@ export const make = (
     const publish = (
       metadata: CodexSidebarSyncMetadata,
       forceEmit = false,
+      reason: "host-message" | "session-change" = "session-change",
     ): Effect.Effect<CodexSidebarSnapshot, CodexThreadCatalogError> => {
       return Effect.sync(() => sidebar.invalidate()).pipe(
         Effect.andThen(
@@ -201,7 +214,7 @@ export const make = (
             source: "core",
             refreshed: false,
             metadata,
-            reason: "session-change",
+            reason,
             forceEmit,
           }),
         ),
@@ -415,6 +428,45 @@ export const make = (
             }
 
             return results;
+          }),
+        );
+      },
+      resolve: (threadId) => {
+        const normalizedThreadId = threadId.trim();
+        if (!normalizedThreadId) return Effect.succeed(null);
+        return runOwned(
+          Effect.gen(function* () {
+            const cached = yield* options.readThread(normalizedThreadId);
+            if (cached) return buildWorkspaceThreadSummary(cached);
+
+            const result = yield* gateway
+              .requestLocal("thread/read", {
+                threadId: normalizedThreadId,
+                includeTurns: false,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) => new CodexThreadCatalogError({ operation: "resolve", cause }),
+                ),
+              );
+            if (result.thread.id !== normalizedThreadId) {
+              return yield* Effect.fail(
+                new CodexThreadCatalogError({
+                  operation: "resolve",
+                  cause: new Error(
+                    `Codex thread/read expected '${normalizedThreadId}' but received '${result.thread.id}'`,
+                  ),
+                }),
+              );
+            }
+
+            const previousThread = yield* options.readThread(normalizedThreadId);
+            const previous = previousThread ? buildWorkspaceThreadSummary(previousThread) : null;
+            const summary = (yield* options.materializeThread(result.thread)) ?? previous;
+            if (summary && hasSidebarThreadSummaryChanged(previous, summary)) {
+              yield* publish(metadataForProject(summary.projectId), false, "host-message");
+            }
+            return summary;
           }),
         );
       },

@@ -372,8 +372,14 @@ export const codexIpcLive = (
         ),
       );
 
-      registerHandle("codex:thread:summary:get", (_, threadId: string) =>
-        codexService.resolveThreadSummary(threadId),
+      registerEffectHandle("codex:thread:summary:get", (_, threadId: string) =>
+        options.threadCatalog
+          .resolve(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:summary:get", cause }),
+            ),
+          ),
       );
 
       const parseAgentImportSourceKind = (value: unknown): AgentImportSourceKind => {

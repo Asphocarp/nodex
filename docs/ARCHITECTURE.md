@@ -690,16 +690,18 @@ latter merges the sidebar overview, projectless sessions, and Project windows, d
 Thread, and applies the same recency ordering in one owner-scoped Effect. Full-text palette search
 uses the typed local Codex Gateway directly, pages past filtered child/internal Threads with a
 repeated-cursor fence, and merges server results with the same local Project, pin, and runtime-status
-projection. Paginated pin reads, pin/unpin placement, full pinned-order replacement, and
-cross-Project/sidebar-lane moves share that source of truth. All
+projection. Point resolution reads Project Workspace first; a miss performs one typed `thread/read`,
+rejects identity drift, materializes through the Workspace projection port, and publishes only the
+changed Project/projectless sidebar scope. Paginated pin reads, pin/unpin placement, full pinned-order
+replacement, and cross-Project/sidebar-lane moves share that source of truth. All
 mutations pass through one Main-scoped semaphore; reads remain concurrent but close with Main Scope.
 Moves include validation, Project access confirmation, Workspace/settings/canonical consequences,
 and exact sidebar publication before releasing admission. Pin mutations publish the exact
 Project/projectless invalidation through `CodexSidebarSyncRuntime` only after Core commits. Renderer
 ingress calls the typed Module directly, while internal launch flows use a stateless tracked
-projection. `CodexService` owns no public Project/palette read/search or placement command, Promise
-chain, semaphore, or recovery tail; it temporarily supplies only cached runtime fields and the move
-domain projection.
+projection. `CodexService` owns no public Project/palette read/search, point-resolution, or placement
+command, Promise chain, semaphore, or recovery tail; it temporarily supplies only Workspace
+materialization, cached runtime fields, and the move domain projection.
 
 Thread read state is owned by `CodexThreadReadState`. Manual read/unread transitions inspect the
 canonical and Project Workspace projections, reject archived or unknown Threads, persist to Project
