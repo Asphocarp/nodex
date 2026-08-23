@@ -1,9 +1,16 @@
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import { describe, expect, vi } from "vite-plus/test";
-import type { FileWatchClosed, FileWatchHost, FileWatchSession } from "../file-watch-host";
+import type {
+  FileWatchError,
+  FileWatchEvent,
+  FileWatchHost,
+  FileWatchInput,
+} from "../file-watch-host";
 import type { GitCommandResult, GitCommandRunner } from "./git-command-runner";
 import { makeWorktreeRepository, type WorktreeRepository } from "./worktree-repository";
 
@@ -22,27 +29,23 @@ class CountingWatchHost implements FileWatchHost {
   starts = 0;
   disposals = 0;
 
-  async startFileWatch(
-    input: Parameters<FileWatchHost["startFileWatch"]>[0],
-  ): Promise<FileWatchSession> {
-    this.starts += 1;
-    let resolveClosed!: (closed: FileWatchClosed) => void;
-    let closed = false;
-    const closedPromise = new Promise<FileWatchClosed>((resolve) => {
-      resolveClosed = resolve;
-    });
-    return {
-      path: input.path,
-      coverage: { recursive: input.recursive, typedPathChanges: false },
-      closed: closedPromise,
-      dispose: async () => {
-        if (closed) return;
-        closed = true;
-        this.disposals += 1;
-        resolveClosed({ reason: "disposed" });
-      },
-    };
-  }
+  readonly watch = (input: FileWatchInput): Stream.Stream<FileWatchEvent, FileWatchError> =>
+    Stream.callback<FileWatchEvent, FileWatchError>((events) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          this.starts += 1;
+          Queue.offerUnsafe(events, {
+            _tag: "Ready",
+            coverage: { recursive: input.recursive, typedPathChanges: false },
+            path: input.path,
+          });
+        }),
+        () =>
+          Effect.sync(() => {
+            this.disposals += 1;
+          }),
+      ),
+    );
 }
 
 function isAborted(signal: AbortSignal | null): boolean {

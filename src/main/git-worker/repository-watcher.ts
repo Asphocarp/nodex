@@ -7,6 +7,7 @@ import * as FiberMap from "effect/FiberMap";
 import * as FiberSet from "effect/FiberSet";
 import * as Queue from "effect/Queue";
 import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import type { FileWatchHost } from "../file-watch-host";
 import { getLogger } from "../logging/logger";
 
@@ -89,7 +90,7 @@ interface ChangeState {
 }
 
 class GitRepositoryWatcherError extends Data.TaggedError("GitRepositoryWatcherError")<{
-  readonly operation: "emit-change" | "start-session" | "dispose-session";
+  readonly operation: "emit-change";
   readonly cause: unknown;
 }> {}
 
@@ -357,86 +358,57 @@ export const makeGitReviewRepositoryWatcher = (
       if (!state) continue;
       yield* Effect.forever(
         Effect.gen(function* () {
-          let admitted = true;
-          const closedSession = yield* Effect.acquireUseRelease(
-            Effect.tryPromise({
-              try: () =>
-                options.host.startFileWatch({
-                  path: target.watchPath,
-                  recursive: target.recursive,
-                  renameEventHandling:
-                    target.changeType === "working-tree"
-                      ? "changed-path-with-parent-directory"
-                      : "changed-path",
-                  onChange: ({ changedPaths }) => {
-                    if (!admitted || closed) return;
-                    const acceptedPaths = changedPaths.flatMap((changedPath) => {
-                      if (!target.shouldHandleChangedPath(changedPath)) return [];
-                      if (target.changeType !== "working-tree") return [changedPath];
-                      const affectedPath = affectedWorkingTreePath(options.roots, changedPath);
-                      return affectedPath === null ? [] : [affectedPath];
-                    });
-                    if (changedPaths.length > 0 && acceptedPaths.length === 0) return;
-                    const includesRoot =
-                      target.changeType === "working-tree" &&
-                      acceptedPaths.includes(options.roots.root);
-                    signalChange(
-                      target,
-                      changedPaths.length === 0 || includesRoot ? undefined : acceptedPaths,
-                    );
-                  },
-                }),
-              catch: (cause) =>
-                new GitRepositoryWatcherError({ operation: "start-session", cause }),
-            }),
-            (session) =>
-              Effect.gen(function* () {
-                const recovering = state.attempted;
-                state.available = true;
-                state.recursiveCoverage = session.coverage.recursive;
-                if (!state.attempted) {
-                  state.attempted = true;
-                  yield* Deferred.succeed(state.firstAttempt, undefined);
+          yield* options.host
+            .watch({
+              path: target.watchPath,
+              recursive: target.recursive,
+              renameEventHandling:
+                target.changeType === "working-tree"
+                  ? "changed-path-with-parent-directory"
+                  : "changed-path",
+            })
+            .pipe(
+              Stream.runForEach((event) => {
+                if (event._tag === "Ready") {
+                  return Effect.gen(function* () {
+                    const recovering = state.attempted;
+                    state.available = true;
+                    state.recursiveCoverage = event.coverage.recursive;
+                    if (!state.attempted) {
+                      state.attempted = true;
+                      yield* Deferred.succeed(state.firstAttempt, undefined);
+                    }
+                    yield* settleRecovery(state);
+                    updateRequiresRecovery();
+                    if (recovering) signalChange(target);
+                  });
                 }
-                yield* settleRecovery(state);
-                updateRequiresRecovery();
-                if (recovering) signalChange(target);
-                return yield* Effect.promise(() => session.closed);
-              }),
-            (session) =>
-              Effect.sync(() => {
-                admitted = false;
-              }).pipe(
-                Effect.andThen(
-                  Effect.tryPromise({
-                    try: () => session.dispose(),
-                    catch: (cause) =>
-                      new GitRepositoryWatcherError({ operation: "dispose-session", cause }),
-                  }).pipe(
-                    Effect.catch((error) =>
-                      Effect.sync(() =>
-                        logWatchFailure("Could not dispose Git repository watcher session", {
-                          error,
-                        }),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          );
 
-          state.available = false;
-          state.recursiveCoverage = false;
-          updateRequiresRecovery();
-          if (closedSession.reason === "watch-error") {
-            logWatchFailure("Git repository watcher session failed", {
-              path: target.path,
-              error: closedSession.error,
-            });
-          }
+                if (closed) return Effect.void;
+                const acceptedPaths = event.changedPaths.flatMap((changedPath) => {
+                  if (!target.shouldHandleChangedPath(changedPath)) return [];
+                  if (target.changeType !== "working-tree") return [changedPath];
+                  const affectedPath = affectedWorkingTreePath(options.roots, changedPath);
+                  return affectedPath === null ? [] : [affectedPath];
+                });
+                if (event.changedPaths.length > 0 && acceptedPaths.length === 0) {
+                  return Effect.void;
+                }
+                const includesRoot =
+                  target.changeType === "working-tree" &&
+                  acceptedPaths.includes(options.roots.root);
+                return Effect.sync(() =>
+                  signalChange(
+                    target,
+                    event.changedPaths.length === 0 || includesRoot ? undefined : acceptedPaths,
+                  ),
+                );
+              }),
+            );
         }).pipe(
           Effect.catch((error) =>
             Effect.gen(function* () {
+              const wasAvailable = state.available;
               state.available = false;
               state.recursiveCoverage = false;
               if (!state.attempted) {
@@ -449,6 +421,7 @@ export const makeGitReviewRepositoryWatcher = (
                 path: target.path,
                 error,
               });
+              if (wasAvailable) return;
               yield* Effect.raceFirst(
                 Effect.sleep(Duration.millis(GIT_REVIEW_WATCH_RETRY_MS)),
                 Queue.take(state.retryWake),

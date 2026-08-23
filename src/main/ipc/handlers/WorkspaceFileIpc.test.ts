@@ -1,11 +1,12 @@
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
-import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import type { FileWatchHost } from "../../file-watch-host";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
@@ -26,17 +27,31 @@ it.effect("releases active file watches and renderer listeners with the Main Sco
         ),
       on: () => Effect.die("unused"),
     } as unknown as ElectronIpc["Service"]);
+    let acquireCount = 0;
     let disposeCount = 0;
     const fileWatchHost: FileWatchHost = {
-      startFileWatch: async (input) => ({
-        coverage: { recursive: input.recursive, typedPathChanges: false },
-        path: input.path,
-        closed: new Promise(() => undefined),
-        dispose: async () => {
-          disposeCount += 1;
-        },
-      }),
+      watch: (input) =>
+        Stream.callback((events) =>
+          Effect.acquireRelease(
+            Effect.sync(() => {
+              acquireCount += 1;
+              Queue.offerUnsafe(events, {
+                _tag: "Ready" as const,
+                coverage: { recursive: input.recursive, typedPathChanges: false as const },
+                path: input.path,
+              });
+            }),
+            () =>
+              Effect.sync(() => {
+                disposeCount += 1;
+              }),
+          ),
+        ),
     };
+    const subscriptionIds = [
+      "128cc777-30ab-4c91-8857-a2083e8349f1",
+      "128cc777-30ab-4c91-8857-a2083e8349f2",
+    ];
     const listeners = new Map<string, () => void>();
     const sender = {
       id: 77,
@@ -53,19 +68,12 @@ it.effect("releases active file watches and renderer listeners with the Main Sco
       live({
         authorizeSender: () => true,
         fileWatchHost,
-        makeSubscriptionId: () => "128cc777-30ab-4c91-8857-a2083e8349f1",
+        makeSubscriptionId: () => subscriptionIds.shift() ?? "unexpected-subscription-id",
       }).pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
-            Layer.succeed(
-              ScopedCallbackRuntime,
-              ScopedCallbackRuntime.of({
-                fork: () => null,
-                runPromise: () => Promise.reject(new Error("unused")),
-              }),
-            ),
             Layer.succeed(WindowRuntime, {
               has: () => true,
             } as unknown as WindowRuntime["Service"]),
@@ -82,6 +90,11 @@ it.effect("releases active file watches and renderer listeners with the Main Sco
       yield* start({ sender } as unknown as IpcMainInvokeEvent, { path: "/tmp/nodex-file" }),
       { subscriptionId: "128cc777-30ab-4c91-8857-a2083e8349f1" },
     );
+    assert.deepStrictEqual(
+      yield* start({ sender } as unknown as IpcMainInvokeEvent, { path: "/tmp/nodex-file" }),
+      { subscriptionId: "128cc777-30ab-4c91-8857-a2083e8349f2" },
+    );
+    assert.strictEqual(acquireCount, 1);
     assert.isTrue(listeners.has("destroyed"));
 
     yield* Scope.close(scope, Exit.void);

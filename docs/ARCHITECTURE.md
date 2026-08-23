@@ -143,6 +143,14 @@ Main is an Adapter, coordinator, and runtime host. It may bind Profile/Library/P
 
 Electron Main is one Effect 4 application kernel. [`MainEntry`](../src/main/app/MainEntry.ts) is the Main-process Node runtime root; [`MainApp`](../src/main/app/MainApp.ts) owns ready, bootstrap handoff, shutdown admission, and the process Scope; [`MainDesktopRuntimeLive`](../src/main/app/MainDesktopRuntimeLive.ts) composes the Core, Codex, Window, IPC, and host Layers. Startup rollback and every normal or authority-driven quit close that same Scope. Physical Core generations, Codex app-server sessions, windows, workers, PTYs, file watchers, and callback fibers are subordinate scoped resources rather than parallel lifecycle owners. Worker and standalone script processes have their own explicitly allowlisted `NodeRuntime.runMain` entries and never share Main's runtime.
 
+Native filesystem watching is one scoped Stream Adapter around synchronous `fs.watch`; readiness,
+changes, and typed failure flow through the Stream, and stream finalization closes the native handle.
+Workspace-file subscriptions are owner-and-subscription-keyed fibers, while a zero-idle `LayerMap`
+shares one physical watch per renderer and exact path until its final subscriber releases. Each
+subscription fiber owns its renderer-destruction listener and physical-watch lease, so explicit stop,
+renderer destruction, acquisition failure, and Main Scope release interrupt the same resource
+without IPC-owned lifecycle registries.
+
 First-run Project creation belongs to one Main-scoped `InitialProjectBootstrapRuntime`. One
 Semaphore owns the complete recovery-journal, collision-safe source claim, idempotent Core commit,
 Window Session presentation, and marker cleanup transaction; there is no nested Promise tail in the
@@ -1010,8 +1018,8 @@ subscription admission, releases every repository watch lease, resolves generati
 waiters, and interrupts all remaining keyed work before the repository graph is released.
 The repository registry and each canonical worktree repository are acquired in that same
 worker Scope. A zero-idle `LayerMap` acquires one repository watcher when the first live
-lease arrives and releases it with the last lease. Each native file-watch session is an
-`acquireUseRelease` resource inside a target fiber; reconnect waits and semantic-change
+lease arrives and releases it with the last lease. Each target fiber consumes one scoped native
+file-watch Stream; typed stream failure drives recovery, reconnect waits and semantic-change
 debounce use the Effect clock, and callback-time keyed fibers preserve fixed debounce
 windows without owning raw timers. Repository reads coalesce in one `QueryClient`; its
 query signal is the physical read cancellation authority. Last-consumer release,

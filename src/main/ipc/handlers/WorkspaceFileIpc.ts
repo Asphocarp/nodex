@@ -1,7 +1,15 @@
+import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
+import * as FiberMap from "effect/FiberMap";
+import * as Hash from "effect/Hash";
 import * as Layer from "effect/Layer";
+import * as LayerMap from "effect/LayerMap";
+import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
 import type { IpcMainInvokeEvent, WebContents } from "electron";
 import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
@@ -16,12 +24,7 @@ import {
   WorkspaceFileWriteInputSchema,
 } from "../../../shared/schemas/workspace-files";
 import { MainConfig } from "../../app/MainConfig";
-import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
-import {
-  type FileWatchHost,
-  type FileWatchSession,
-  localFileWatchHost,
-} from "../../file-watch-host";
+import { type FileWatchError, type FileWatchHost, localFileWatchHost } from "../../file-watch-host";
 import { safeSendToWebContents } from "../../ipc-safe-send";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
@@ -48,40 +51,81 @@ export class WorkspaceFileIpcError extends Schema.TaggedError<WorkspaceFileIpcEr
   { operation: Schema.String, cause: Schema.Defect() },
 ) {}
 
-interface SharedWatch {
-  readonly owner: WebContents;
-  readonly path: string;
-  readonly session: FileWatchSession;
-  readonly subscriptionIds: Set<string>;
-}
-
-interface OwnerListener {
-  readonly owner: WebContents;
-  readonly onDestroyed: () => void;
-}
-
-const sendChanged = (owner: WebContents, payload: IpcEvents["workspace-file:changed"]): void => {
+const sendChanged = (
+  owner: IpcMainInvokeEvent["sender"],
+  payload: IpcEvents["workspace-file:changed"],
+): void => {
   safeSendToWebContents(owner, "workspace-file:changed", [payload]);
 };
 
+const watchKey = (ownerId: number, subscriptionId: string): string =>
+  `${ownerId}\0${subscriptionId}`;
+
+class WorkspaceWatchKey implements Equal.Equal {
+  constructor(
+    readonly owner: WebContents,
+    readonly path: string,
+  ) {}
+
+  [Equal.symbol](that: Equal.Equal): boolean {
+    return (
+      that instanceof WorkspaceWatchKey && that.owner === this.owner && that.path === this.path
+    );
+  }
+
+  [Hash.symbol](): number {
+    return Hash.combine(Hash.string(this.path))(Hash.hash(this.owner.id));
+  }
+}
+
+class WorkspaceFileWatch extends Context.Service<
+  WorkspaceFileWatch,
+  { readonly changes: Stream.Stream<{ readonly changedPaths: readonly string[] }> }
+>()("nodex/main/ipc/WorkspaceFileWatch") {}
+
 export const live = (
   options: WorkspaceFileIpcOptions = {},
-): Layer.Layer<never, never, ElectronIpc | MainConfig | ScopedCallbackRuntime | WindowRuntime> =>
+): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
-      const callbacks = yield* ScopedCallbackRuntime;
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
       const windows = yield* WindowRuntime;
-      const lock = yield* Semaphore.make(1);
       const watchHost = options.fileWatchHost ?? localFileWatchHost;
       const makeSubscriptionId = options.makeSubscriptionId ?? randomUUID;
-      const watches = new Map<string, SharedWatch>();
-      const subscriptions = new Map<
-        string,
-        { readonly ownerId: number; readonly watchKey: string }
-      >();
-      const owners = new Map<number, OwnerListener>();
+      const subscriptions = yield* FiberMap.make<string>();
+      const watches = yield* LayerMap.make(
+        (key: WorkspaceWatchKey) =>
+          Layer.effect(
+            WorkspaceFileWatch,
+            Effect.gen(function* () {
+              const changes = yield* PubSub.unbounded<{
+                readonly changedPaths: readonly string[];
+              }>();
+              const ready = yield* Deferred.make<void, FileWatchError>();
+              yield* watchHost
+                .watch({
+                  path: dirname(key.path),
+                  recursive: false,
+                  renameEventHandling: "changed-path-with-parent-directory",
+                })
+                .pipe(
+                  Stream.runForEach((event) =>
+                    event._tag === "Ready"
+                      ? Deferred.succeed(ready, undefined).pipe(Effect.asVoid)
+                      : PubSub.publish(changes, event).pipe(Effect.asVoid),
+                  ),
+                  Effect.tapError((error) => Deferred.fail(ready, error)),
+                  Effect.ensuring(PubSub.shutdown(changes)),
+                  Effect.catch(() => Effect.void),
+                  Effect.forkScoped({ startImmediately: true }),
+                );
+              yield* Deferred.await(ready);
+              return WorkspaceFileWatch.of({ changes: Stream.fromPubSub(changes) });
+            }),
+          ),
+        { idleTimeToLive: Duration.zero },
+      );
 
       const authorize = (event: IpcMainInvokeEvent) =>
         Effect.try({
@@ -135,52 +179,6 @@ export const live = (
           Effect.andThen(task),
           Effect.mapError((cause) => mapError(operation, cause)),
         );
-      const releaseOwnerListenerIfIdle = (ownerId: number): void => {
-        for (const watch of watches.values()) {
-          if (watch.owner.id === ownerId) return;
-        }
-        const listener = owners.get(ownerId);
-        if (!listener) return;
-        owners.delete(ownerId);
-        listener.owner.removeListener("destroyed", listener.onDestroyed);
-      };
-      const disposeWatchUnlocked = (watchKey: string) =>
-        Effect.gen(function* () {
-          const watch = watches.get(watchKey);
-          if (!watch) return;
-          watches.delete(watchKey);
-          for (const subscriptionId of watch.subscriptionIds) subscriptions.delete(subscriptionId);
-          watch.subscriptionIds.clear();
-          yield* Effect.tryPromise({
-            try: () => watch.session.dispose(),
-            catch: (cause) => new WorkspaceFileIpcError({ operation: "dispose-watch", cause }),
-          }).pipe(Effect.ignore);
-          releaseOwnerListenerIfIdle(watch.owner.id);
-        });
-      const disposeOwner = (ownerId: number) =>
-        Effect.gen(function* () {
-          for (const [watchKey, watch] of [...watches]) {
-            if (watch.owner.id === ownerId) yield* disposeWatchUnlocked(watchKey);
-          }
-          releaseOwnerListenerIfIdle(ownerId);
-        }).pipe(lock.withPermits(1));
-      const ensureOwnerListener = (owner: WebContents): void => {
-        if (owners.has(owner.id)) return;
-        const onDestroyed = () => callbacks.fork(disposeOwner(owner.id));
-        owners.set(owner.id, { owner, onDestroyed });
-        owner.once("destroyed", onDestroyed);
-      };
-
-      yield* Effect.addFinalizer(() =>
-        Effect.gen(function* () {
-          for (const watchKey of [...watches.keys()]) yield* disposeWatchUnlocked(watchKey);
-          for (const listener of owners.values()) {
-            listener.owner.removeListener("destroyed", listener.onDestroyed);
-          }
-          owners.clear();
-          subscriptions.clear();
-        }).pipe(lock.withPermits(1)),
-      );
 
       yield* ipc.handle("workspace-directory-entries", (event, input: unknown) =>
         run("list-directory", event, () =>
@@ -223,39 +221,7 @@ export const live = (
             });
             const owner = event.sender;
             const watchedPath = resolve(request.path);
-            const watchKey = `${owner.id}\0${watchedPath}`;
-            let shared = watches.get(watchKey);
-            if (!shared) {
-              const subscriptionIds = new Set<string>();
-              const session = yield* Effect.tryPromise({
-                try: () =>
-                  watchHost.startFileWatch({
-                    path: dirname(watchedPath),
-                    recursive: false,
-                    renameEventHandling: "changed-path-with-parent-directory",
-                    onChange: ({ changedPaths }) => {
-                      const exactPathChanged =
-                        changedPaths.length === 0 ||
-                        changedPaths.some((changedPath) => resolve(changedPath) === watchedPath);
-                      if (!exactPathChanged || owner.isDestroyed()) return;
-                      for (const subscriptionId of subscriptionIds) {
-                        sendChanged(owner, { subscriptionId, path: watchedPath });
-                      }
-                    },
-                  }),
-                catch: (cause) => mapError("acquire-file-watch", cause),
-              });
-              shared = { owner, path: watchedPath, session, subscriptionIds };
-              watches.set(watchKey, shared);
-              ensureOwnerListener(owner);
-              callbacks.fork(
-                Effect.promise(() => session.closed).pipe(
-                  Effect.andThen(disposeWatchUnlocked(watchKey).pipe(lock.withPermits(1))),
-                ),
-              );
-            }
             if (owner.isDestroyed()) {
-              yield* disposeWatchUnlocked(watchKey);
               return yield* Effect.fail(
                 new WorkspaceFileUserError(
                   "unauthorized_sender",
@@ -264,10 +230,66 @@ export const live = (
               );
             }
             const subscriptionId = makeSubscriptionId();
-            shared.subscriptionIds.add(subscriptionId);
-            subscriptions.set(subscriptionId, { ownerId: owner.id, watchKey });
+            const ready = yield* Deferred.make<
+              void,
+              WorkspaceFileUserError | WorkspaceFileIpcError
+            >();
+            const ownerDestroyed = yield* Deferred.make<void>();
+            const onDestroyed = () => {
+              Deferred.doneUnsafe(ownerDestroyed, Effect.void);
+            };
+            const lifecycle = Effect.acquireUseRelease(
+              Effect.sync(() => {
+                owner.once("destroyed", onDestroyed);
+                if (owner.isDestroyed()) Deferred.doneUnsafe(ownerDestroyed, Effect.void);
+              }),
+              () =>
+                Effect.raceFirst(
+                  Effect.scoped(
+                    Effect.gen(function* () {
+                      const context = yield* watches.contextEffect(
+                        new WorkspaceWatchKey(owner, watchedPath),
+                      );
+                      const watch = Context.get(context, WorkspaceFileWatch);
+                      yield* Deferred.succeed(ready, undefined);
+                      yield* watch.changes.pipe(
+                        Stream.runForEach((watchEvent) => {
+                          const exactPathChanged =
+                            watchEvent.changedPaths.length === 0 ||
+                            watchEvent.changedPaths.some(
+                              (changedPath) => resolve(changedPath) === watchedPath,
+                            );
+                          if (!exactPathChanged || owner.isDestroyed()) return Effect.void;
+                          return Effect.sync(() =>
+                            sendChanged(owner, { subscriptionId, path: watchedPath }),
+                          );
+                        }),
+                      );
+                    }),
+                  ),
+                  Deferred.await(ownerDestroyed).pipe(
+                    Effect.andThen(
+                      Effect.fail(
+                        new WorkspaceFileUserError(
+                          "unauthorized_sender",
+                          "Workspace file watcher owner is no longer available",
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              () => Effect.sync(() => owner.removeListener("destroyed", onDestroyed)),
+            ).pipe(
+              Effect.catch((cause) =>
+                Deferred.fail(ready, mapError("acquire-file-watch", cause)).pipe(Effect.asVoid),
+              ),
+            );
+            yield* FiberMap.run(subscriptions, watchKey(owner.id, subscriptionId), lifecycle, {
+              startImmediately: true,
+            });
+            yield* Deferred.await(ready);
             return { subscriptionId };
-          }).pipe(lock.withPermits(1)),
+          }),
         ),
       );
       yield* ipc.handle("workspace-file-watch:stop", (event, input: unknown) =>
@@ -279,16 +301,11 @@ export const live = (
               try: () => WorkspaceFileWatchStopInputSchema.parse(input),
               catch: (cause) => mapError("parse-file-watch-stop", cause),
             });
-            const subscription = subscriptions.get(request.subscriptionId);
-            if (!subscription || subscription.ownerId !== event.sender.id) return;
-            subscriptions.delete(request.subscriptionId);
-            const shared = watches.get(subscription.watchKey);
-            if (!shared) return;
-            shared.subscriptionIds.delete(request.subscriptionId);
-            if (shared.subscriptionIds.size === 0) {
-              yield* disposeWatchUnlocked(subscription.watchKey);
-            }
-          }).pipe(lock.withPermits(1)),
+            yield* FiberMap.remove(
+              subscriptions,
+              watchKey(event.sender.id, request.subscriptionId),
+            );
+          }),
         ),
       );
     }),

@@ -1,16 +1,15 @@
 import path from "node:path";
 import { it } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
-import { describe, expect, vi } from "vite-plus/test";
-import type {
-  FileWatchChange,
-  FileWatchClosed,
-  FileWatchHost,
-  FileWatchSession,
-} from "../file-watch-host";
+import { describe, expect } from "vite-plus/test";
+import type { FileWatchEvent, FileWatchHost, FileWatchInput } from "../file-watch-host";
+import { FileWatchError } from "../file-watch-host";
 import {
   GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS,
   GIT_REVIEW_WATCH_RETRY_MS,
@@ -31,49 +30,34 @@ const ROOTS: GitReviewWatchRoots = {
   syncedBranchPath: path.join(GIT_DIR, "codex-synced-branch.json"),
 };
 
-interface WatchInput {
-  readonly path: string;
-  readonly recursive: boolean;
-  readonly renameEventHandling: "changed-path" | "changed-path-with-parent-directory";
-  readonly onChange: (change: FileWatchChange) => void;
-}
-
-class FakeSession implements FileWatchSession {
-  readonly coverage;
-  readonly path;
-  readonly closed: Promise<FileWatchClosed>;
-  readonly dispose = vi.fn(async () => {
-    this.close({ reason: "disposed" });
-  });
-  private resolveClosed!: (closed: FileWatchClosed) => void;
-  private settled = false;
+class FakeSession {
+  closeCount = 0;
+  private closed = false;
 
   get isClosed(): boolean {
-    return this.settled;
+    return this.closed;
   }
 
   constructor(
-    readonly input: WatchInput,
-    recursiveCoverage = input.recursive,
-  ) {
-    this.path = input.path;
-    this.coverage = {
-      recursive: recursiveCoverage,
-      typedPathChanges: false as const,
-    };
-    this.closed = new Promise((resolve) => {
-      this.resolveClosed = resolve;
-    });
-  }
+    readonly input: FileWatchInput,
+    private readonly events: Queue.Queue<FileWatchEvent, FileWatchError | Cause.Done>,
+  ) {}
 
   emit(changedPaths: readonly string[]): void {
-    this.input.onChange({ changedPaths });
+    Queue.offerUnsafe(this.events, { _tag: "Changed", changedPaths });
   }
 
-  close(closed: FileWatchClosed): void {
-    if (this.settled) return;
-    this.settled = true;
-    this.resolveClosed(closed);
+  fail(cause: Error): void {
+    Queue.failCauseUnsafe(
+      this.events,
+      Cause.fail(new FileWatchError({ path: this.input.path, cause })),
+    );
+  }
+
+  release(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.closeCount += 1;
   }
 }
 
@@ -82,17 +66,31 @@ class FakeFileWatchHost implements FileWatchHost {
   readonly starts: string[] = [];
   readonly failuresRemaining = new Map<string, number>();
 
-  async startFileWatch(input: WatchInput): Promise<FileWatchSession> {
-    this.starts.push(`${input.path}:${input.recursive}`);
-    const remaining = this.failuresRemaining.get(input.path) ?? 0;
-    if (remaining > 0) {
-      this.failuresRemaining.set(input.path, remaining - 1);
-      throw new Error(`Could not watch ${input.path}`);
-    }
-    const session = new FakeSession(input);
-    this.sessions.push(session);
-    return session;
-  }
+  readonly watch = (input: FileWatchInput): Stream.Stream<FileWatchEvent, FileWatchError> =>
+    Stream.callback<FileWatchEvent, FileWatchError>((events) =>
+      Effect.acquireRelease(
+        Effect.try({
+          try: () => {
+            this.starts.push(`${input.path}:${input.recursive}`);
+            const remaining = this.failuresRemaining.get(input.path) ?? 0;
+            if (remaining > 0) {
+              this.failuresRemaining.set(input.path, remaining - 1);
+              throw new Error(`Could not watch ${input.path}`);
+            }
+            const session = new FakeSession(input, events);
+            this.sessions.push(session);
+            Queue.offerUnsafe(events, {
+              _tag: "Ready",
+              coverage: { recursive: input.recursive, typedPathChanges: false },
+              path: input.path,
+            });
+            return session;
+          },
+          catch: (cause) => new FileWatchError({ path: input.path, cause }),
+        }),
+        (session) => Effect.sync(() => session.release()),
+      ).pipe(Effect.catch((error) => Queue.fail(events, error).pipe(Effect.asVoid))),
+    );
 
   activeSessions(
     input: {
@@ -279,10 +277,10 @@ describe("makeGitReviewRepositoryWatcher", () => {
       if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
 
       host.failuresRemaining.set(ROOT, 1);
-      workingTreeSession.close({
-        reason: "watch-error",
-        error: new Error("watch overflow"),
-      });
+      workingTreeSession.fail(new Error("watch overflow"));
+      while (host.starts.filter((start) => start === `${ROOT}:true`).length < 2) {
+        yield* Effect.yieldNow;
+      }
       yield* Effect.yieldNow;
       yield* Effect.yieldNow;
       expect(recoveryStates.at(-1)).toBe(true);
@@ -291,6 +289,8 @@ describe("makeGitReviewRepositoryWatcher", () => {
       yield* TestClock.adjust(GIT_REVIEW_WATCH_RETRY_MS - 1);
       expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(0);
       yield* TestClock.adjust(1);
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
       expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(1);
       expect(recoveryStates.at(-1)).toBe(false);
 
@@ -313,7 +313,10 @@ describe("makeGitReviewRepositoryWatcher", () => {
       if (!workingTreeSession) throw new Error("Missing working-tree watcher.");
 
       host.failuresRemaining.set(ROOT, 1);
-      workingTreeSession.close({ reason: "watch-error", error: new Error("watch overflow") });
+      workingTreeSession.fail(new Error("watch overflow"));
+      while (host.starts.filter((start) => start === `${ROOT}:true`).length < 2) {
+        yield* Effect.yieldNow;
+      }
       yield* Effect.yieldNow;
       yield* Effect.yieldNow;
       expect(watcher.requiresRecovery).toBe(true);
@@ -341,7 +344,7 @@ describe("makeGitReviewRepositoryWatcher", () => {
       yield* Scope.close(watcherScope, Exit.void);
 
       expect(host.activeSessions()).toHaveLength(0);
-      expect(sessions.every((session) => session.dispose.mock.calls.length === 1)).toBe(true);
+      expect(sessions.every((session) => session.closeCount === 1)).toBe(true);
       yield* Effect.promise(() => watcher.recover());
       expect(host.activeSessions()).toHaveLength(0);
     }),
