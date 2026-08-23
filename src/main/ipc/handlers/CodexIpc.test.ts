@@ -12,6 +12,8 @@ import { CodexThreadCatalog } from "../../codex-application/CodexThreadCatalog";
 import { CodexThreadReadState } from "../../codex-application/CodexThreadReadState";
 import { AgentImportRuntime } from "../../codex-application/AgentImportRuntime";
 import { CodexConversationHistoryRuntime } from "../../codex-application/CodexConversationHistoryRuntime";
+import { CodexStructuredThreadTitle } from "../../codex-application/CodexStructuredThreadTitle";
+import type { CodexFreshThreadLaunchRuntimeService } from "../../codex-application/CodexFreshThreadLaunchRuntime";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { CodexSidebarSyncRuntime } from "../../codex-application/CodexSidebarSyncRuntime";
@@ -88,6 +90,12 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           loadComplete: () => Effect.die("unused"),
           requestRemaining: () => undefined,
           clear: () => undefined,
+        }),
+        freshThreadLaunch: {
+          adopt: () => Effect.die("unused"),
+        } as unknown as CodexFreshThreadLaunchRuntimeService,
+        structuredThreadTitle: CodexStructuredThreadTitle.of({
+          generate: () => Effect.die("unused"),
         }),
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),

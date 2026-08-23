@@ -2702,6 +2702,8 @@ export const live: Layer.Layer<
             threadReadState,
             agentImport,
             conversationHistory,
+            freshThreadLaunch,
+            structuredThreadTitle,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

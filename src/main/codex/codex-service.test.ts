@@ -223,13 +223,7 @@ interface TestableCodexService {
     threadId: string,
     ownerClientId: string,
   ) => Promise<import("../../shared/types").CodexRendererConversationResumeResult | null>;
-  requestRendererFreshConversationAdoption: (
-    threadId: string,
-    launchId: string,
-    ownerClientId: string,
-  ) => Promise<
-    Extract<import("../../shared/types").CodexRendererConversationResumeResult, { role: "owner" }>
-  >;
+  freshThreadLaunch: import("../codex-application/CodexFreshThreadLaunchRuntimePromiseAdapter").CodexFreshThreadLaunchRuntimePromiseAdapter;
   releaseConversationResumeBuffer: (threadId: string) => Promise<boolean>;
   replayRendererOwnerPendingRequests: (threadId: string, ownerClientId: string) => number;
   ackRendererThreadOwnerNotification: (
@@ -6091,11 +6085,11 @@ describe("codex-service renderer owner stream publishing", () => {
         ownerClientId,
       });
 
-      const adopted = await service.requestRendererFreshConversationAdoption(
+      const adopted = await service.freshThreadLaunch.adopt({
         threadId,
         launchId,
         ownerClientId,
-      );
+      });
       expect(adopted.role).toBe("owner");
       expect(adopted.conversation.threadId).toBe(threadId);
       expect(service.getRendererConversationOwner(threadId)).toBe(ownerClientId);
@@ -6254,7 +6248,7 @@ describe("codex-service renderer owner stream publishing", () => {
     });
 
     try {
-      await service.requestRendererFreshConversationAdoption(threadId, launchId, ownerClientId);
+      await service.freshThreadLaunch.adopt({ threadId, launchId, ownerClientId });
       const response = await serviceInternals.startRendererOwnedSessionFirstTurn(
         ownerClientId,
         threadId,
@@ -9716,33 +9710,6 @@ describe("codex-service startThreadForSession", () => {
 
       expect(appliedTitles[0]).toBe("Build a refined migration plan with careful details careful…");
       expect((requests[0]?.params as { name?: string } | undefined)?.name).toBe(appliedTitles[0]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("returns null when title generation fails", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      generateThreadTitle: (input: {
-        prompt: string;
-        cwd: string | null;
-      }) => Promise<{ title: string | null }>;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-    };
-    client.start = async () => {
-      throw new Error("boom");
-    };
-
-    try {
-      const result = await serviceInternals.generateThreadTitle({
-        prompt: "Fix the title flow",
-        cwd: null,
-      });
-
-      expect(JSON.stringify(result)).toBe(JSON.stringify({ title: null }));
     } finally {
       await service.shutdown();
     }

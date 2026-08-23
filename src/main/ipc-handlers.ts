@@ -22,6 +22,8 @@ import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSy
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
 import type { CodexConversationHistoryRuntime } from "./codex-application/CodexConversationHistoryRuntime";
+import type { CodexFreshThreadLaunchRuntimeService } from "./codex-application/CodexFreshThreadLaunchRuntime";
+import type { CodexStructuredThreadTitle } from "./codex-application/CodexStructuredThreadTitle";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -114,6 +116,8 @@ interface CodexIpcOptions {
   threadReadState: CodexThreadReadState["Service"];
   agentImport: AgentImportRuntime["Service"];
   conversationHistory: CodexConversationHistoryRuntime["Service"];
+  freshThreadLaunch: CodexFreshThreadLaunchRuntimeService;
+  structuredThreadTitle: CodexStructuredThreadTitle["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -502,19 +506,23 @@ export const codexIpcLive = (
         return codexService.requestRendererConversationResume(threadId, ownerClientId);
       });
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:fresh-owner:adopt",
-        (event, threadId: string, launchId: string) => {
-          const ownerClientId = resolveRendererClientId(event);
-          if (!ownerClientId) {
-            throw new Error("Renderer client is not registered");
-          }
-          return codexService.requestRendererFreshConversationAdoption(
-            threadId,
-            launchId,
-            ownerClientId,
-          );
-        },
+        (event, threadId: string, launchId: string) =>
+          Effect.try({
+            try: () => resolveRendererClientId(event),
+            catch: (cause) =>
+              new CodexIpcError({ operation: "codex:thread:fresh-owner:adopt", cause }),
+          }).pipe(
+            Effect.flatMap((ownerClientId) =>
+              options.freshThreadLaunch.adopt({ threadId, launchId, ownerClientId }),
+            ),
+            Effect.mapError((cause) =>
+              cause instanceof CodexIpcError
+                ? cause
+                : new CodexIpcError({ operation: "codex:thread:fresh-owner:adopt", cause }),
+            ),
+          ),
       );
 
       registerHandle(
@@ -626,14 +634,19 @@ export const codexIpcLive = (
           ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:title:generate",
         (_, input: { hostId: string; prompt: string; cwd: string | null }) => {
           void input.hostId;
-          return codexService.generateThreadTitle({
-            prompt: input.prompt,
-            cwd: input.cwd,
-          });
+          return options.structuredThreadTitle.generate(input).pipe(
+            Effect.map((title) => ({ title })),
+            Effect.catch((error) =>
+              Effect.logWarning("Could not generate Thread title").pipe(
+                Effect.annotateLogs({ error: String(error.cause) }),
+                Effect.as({ title: null }),
+              ),
+            ),
+          );
         },
       );
 

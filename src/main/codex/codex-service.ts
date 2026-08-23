@@ -13477,22 +13477,6 @@ export class CodexService {
     });
   }
 
-  async generateThreadTitle(input: {
-    prompt: string;
-    cwd: string | null;
-  }): Promise<{ title: string | null }> {
-    try {
-      await this.ensureClientReady();
-      const title = await this.generateThreadTitleForPrompt(input.prompt, input.cwd);
-      return { title };
-    } catch (error) {
-      this.logger.warn("Failed to generate thread title", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return { title: null };
-    }
-  }
-
   async generateCommitMessage(input: {
     hostId?: string | null;
     prompt: string;
@@ -15476,14 +15460,6 @@ export class CodexService {
       revision: this.conversationStreamRevisionById.get(threadId) ?? 0,
       checkpoint: ownerReplica.checkpoint,
     };
-  }
-
-  async requestRendererFreshConversationAdoption(
-    threadId: string,
-    launchId: string,
-    ownerClientId: string,
-  ): Promise<Extract<CodexRendererConversationResumeResult, { role: "owner" }>> {
-    return await this.freshThreadLaunch.adopt({ launchId, ownerClientId, threadId });
   }
 
   private registerFreshThreadLaunch(launch: CodexFreshThreadLaunch): void {

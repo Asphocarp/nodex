@@ -612,8 +612,10 @@ the first-turn command until adoption commits, and admits exactly one physical f
 Disconnect removes prepared/adopting/adopted launches and releases their event fence, while a launch
 whose first Turn has started is allowed to finish. Thread removal and Main Scope close interrupt the
 same adoption/start fibers; successful or failed first-turn completion consumes the launch. The
-canonical conversation owner supplies adoption projection and first-turn domain operations, but owns
-no launch Map, mutable state enum, duplicate-start race, renderer-disconnect scan, or shutdown entry.
+renderer adoption ingress invokes this typed owner directly. The canonical conversation owner
+supplies adoption projection and first-turn domain operations, but exposes no public adoption
+command and owns no launch Map, mutable state enum, duplicate-start race, renderer-disconnect scan,
+or shutdown entry.
 
 Fork side-panel transfer is a Main-scoped application protocol, not state hidden inside the
 conversation projection. One immutable state keeps pending-worktree captures and target-conversation
@@ -753,8 +755,10 @@ generation-fenced local Gateway stream before starting its Turn, and aggregates 
 Thread/Turn agent-message stream. A completed agent message replaces partial deltas; terminal
 failure and the single Effect-clock deadline interrupt the active Turn, while every exit path
 unsubscribes and releases the helper Thread. Scope closure performs the same structured release.
-`CodexService` owns only title-generation admission, fallback normalization, and persistence; it
-does not own the helper protocol client, notification parser, timer, interrupt, or cleanup state.
+Manual generation ingress invokes the typed Module directly and converts its typed failure to the
+product's best-effort null result at that boundary. `CodexService` retains only automatic-title
+fallback normalization and persistence; it exposes no public generation command and does not own the
+helper protocol client, notification parser, timer, interrupt, or cleanup state.
 
 Thread-title persistence is a separate Main-scoped Module because it outlives any one title source.
 Manual, generated, imported, scheduled, launch-time, dynamic-tool, fork, and Project Session rename
