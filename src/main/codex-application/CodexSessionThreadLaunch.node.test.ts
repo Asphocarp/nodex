@@ -82,6 +82,8 @@ const harness = (
   const directory = CodexThreadDirectory.of({
     acceptForkResult: () => Effect.die("unused"),
     observeMetadata: () => Effect.die("unused"),
+    acceptStandaloneStart: () => Effect.die("unused"),
+    acceptResumeResult: () => Effect.die("unused"),
     acceptSessionStart: (
       request: Parameters<CodexThreadDirectory["Service"]["acceptSessionStart"]>[0],
     ) =>

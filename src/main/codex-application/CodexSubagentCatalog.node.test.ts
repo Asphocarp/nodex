@@ -65,6 +65,8 @@ it.effect("deduplicates background hydration and requests the final fidelity", (
         acceptImportResult: () => Effect.die("unused"),
         acceptForkResult: () => Effect.die("unused"),
         observeMetadata: () => Effect.die("unused"),
+        acceptStandaloneStart: () => Effect.die("unused"),
+        acceptResumeResult: () => Effect.die("unused"),
         acceptSessionStart: () => Effect.die("unused"),
       });
       const runtime = yield* make.pipe(Effect.provideService(CodexThreadDirectory, directory));
@@ -105,6 +107,8 @@ it.effect("delegates panel lineage and fidelity to the authoritative Directory",
         acceptImportResult: () => Effect.die("unused"),
         acceptForkResult: () => Effect.die("unused"),
         observeMetadata: () => Effect.die("unused"),
+        acceptStandaloneStart: () => Effect.die("unused"),
+        acceptResumeResult: () => Effect.die("unused"),
         acceptSessionStart: () => Effect.die("unused"),
       });
       const runtime = yield* make.pipe(Effect.provideService(CodexThreadDirectory, directory));
@@ -136,6 +140,8 @@ it.effect("opens full-fidelity delivery and clears both subagent indexes", () =>
         acceptImportResult: () => Effect.die("unused"),
         acceptForkResult: () => Effect.die("unused"),
         observeMetadata: () => Effect.die("unused"),
+        acceptStandaloneStart: () => Effect.die("unused"),
+        acceptResumeResult: () => Effect.die("unused"),
         acceptSessionStart: () => Effect.die("unused"),
       });
       const runtime = yield* make.pipe(Effect.provideService(CodexThreadDirectory, directory));
@@ -162,6 +168,8 @@ it.effect("owner Scope close interrupts active Directory hydration", () =>
       acceptImportResult: () => Effect.die("unused"),
       acceptForkResult: () => Effect.die("unused"),
       observeMetadata: () => Effect.die("unused"),
+      acceptStandaloneStart: () => Effect.die("unused"),
+      acceptResumeResult: () => Effect.die("unused"),
       acceptSessionStart: () => Effect.die("unused"),
     });
     const runtime = yield* make.pipe(

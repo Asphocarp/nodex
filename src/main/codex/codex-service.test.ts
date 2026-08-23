@@ -1,6 +1,5 @@
 import { afterAll, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
-import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -17,7 +16,6 @@ import type {
   CodexPermissionState,
   CodexPlanImplementationServerRequest,
   CodexPromptInput,
-  CodexScheduledAutomation,
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
@@ -195,34 +193,6 @@ interface TestableCodexService {
     },
   ) => Promise<CodexTurnSummary | null>;
   steerTurn: (input: CodexSteerTurnInput) => Promise<{ turnId: string } | null>;
-  runScheduledAutomationNow: (
-    input: import("../../shared/types").CodexScheduledAutomationRunNowInput,
-    rendererClientId?: string | null,
-  ) => Promise<void>;
-  resolveAutomationArchiveMessages: (threadId: string) => Promise<{
-    archivedUserMessage: string | null;
-    archivedAssistantMessage: string | null;
-  }>;
-  runScheduledAutomation: (
-    automation: CodexScheduledAutomation,
-    context: {
-      now?: number;
-      reason?: "scheduled" | "run-now";
-      heartbeat?: {
-        automationsEnabled: boolean;
-        rendererState: {
-          rendererClientId: string;
-          isEligible: boolean;
-          reason: string | null;
-          updatedAtMs?: number;
-        } | null;
-        collaborationMode:
-          | import("../../shared/types").CodexHeartbeatAutomationCollaborationMode
-          | null;
-        permissions: import("../../shared/types").CodexHeartbeatAutomationPermissions | null;
-      };
-    },
-  ) => Promise<void>;
   reconcileArchivedThreadManagedWorktree: (
     thread: DesktopProjectWorkspaceThread,
     reason: "archive" | "automation-archive",
@@ -584,121 +554,6 @@ const createTestAutomationModule = (): DesktopAutomationModulePort => ({
   claimDueReminders: async () => [],
   completeReminderLease: async () => undefined,
   failReminderLease: async () => undefined,
-});
-
-describe("codex-service provider-backed scheduled automations", () => {
-  test("resumes heartbeat targets with their persisted provider profile", async () => {
-    const configCwds: Array<string | null> = [];
-    const service = createService({
-      threadCodexConfigBuilder: async (cwd) => {
-        configCwds.push(cwd);
-        return { "mcp.test_enabled": true };
-      },
-    });
-    const client = Reflect.get(service as object, "client") as {
-      request: (method: string, params?: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    client.request = async (method, params) => {
-      requests.push({ method, params });
-      if (method !== "thread/resume") throw new Error(`Unexpected request: ${method}`);
-      return {
-        thread: {
-          id: "thread-heartbeat-kimi",
-          status: { type: "idle" },
-          createdAt: 1,
-          updatedAt: 2,
-          cwd: "/tmp/kimi",
-          modelProvider: "kimi-for-coding",
-          preview: "",
-          name: "Kimi heartbeat",
-          turns: [],
-        },
-        cwd: "/tmp/kimi",
-      };
-    };
-    const internals = service as unknown as {
-      resumeHeartbeatTargetThread: (
-        thread: unknown,
-        rolloutPath: string | null,
-      ) => Promise<{ threadId: string; cwd: string }>;
-    };
-
-    try {
-      await internals.resumeHeartbeatTargetThread(
-        {
-          threadId: "thread-heartbeat-kimi",
-          cwd: "/tmp/kimi",
-          executionProfile: {
-            providerId: "kimi-for-coding",
-            modelId: "kimi-k3",
-            harnessId: "kimi-code",
-            reasoningEffort: "Thinking",
-            serviceTier: null,
-          },
-        },
-        "/tmp/kimi/rollout.jsonl",
-      );
-
-      const params = requests[0]?.params as {
-        model?: string | null;
-        modelProvider?: string | null;
-        serviceTier?: string | null;
-        config?: Record<string, unknown>;
-      };
-      expect(params.model).toBe("kimi-k3");
-      expect(params.modelProvider).toBe("kimi-for-coding");
-      expect(params.serviceTier).toBeNull();
-      expect(params.config?.harness).toBe("kimi-code");
-      expect(params.config?.model_reasoning_effort).toBe("Thinking");
-      expect(params.config?.["mcp.test_enabled"]).toBe(true);
-      expect(configCwds).toEqual(["/tmp/kimi"]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("keeps the source checkout out of automation worktree permissions", async () => {
-    const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-automation-roots-"));
-    const sourceRoot = path.join(fixtureRoot, "source");
-    const worktreeRoot = path.join(fixtureRoot, "worktree");
-    initializeGitRepository(sourceRoot);
-    execFileSync("git", ["worktree", "add", "--detach", worktreeRoot, "HEAD"], {
-      cwd: sourceRoot,
-    });
-    const service = createService();
-    const internals = service as unknown as {
-      resolveCronScheduledAutomationWorkspaceRoots: (input: {
-        automationId: string;
-        sourceCwd: string;
-        runLocation: {
-          cwd: string;
-          workspaceRoots: string[];
-          projectlessOutputDirectory: null;
-        };
-      }) => Promise<string[]>;
-    };
-
-    try {
-      const roots = await internals.resolveCronScheduledAutomationWorkspaceRoots({
-        automationId: "automation-roots",
-        sourceCwd: sourceRoot,
-        runLocation: {
-          cwd: worktreeRoot,
-          workspaceRoots: [worktreeRoot],
-          projectlessOutputDirectory: null,
-        },
-      });
-
-      expect(roots).toContain(path.resolve(worktreeRoot));
-      expect(roots).toContain(fs.realpathSync(path.join(sourceRoot, ".git")));
-      expect(roots).not.toContain(path.resolve(sourceRoot));
-      expect(roots.some((root) => root.endsWith("/automations/automation-roots"))).toBe(true);
-    } finally {
-      await service.shutdown();
-      fs.rmSync(fixtureRoot, { recursive: true, force: true });
-    }
-  });
 });
 
 const TEST_NODEX_AGENT_AUTHORITY: NodexAgentAuthorityPort = {
@@ -1416,6 +1271,8 @@ function createService(options?: {
   });
   const turnCommands: CodexTurnCommandsService = {
     start: () => Effect.die("Turn commands are exercised by final semantic service tests"),
+    startAutomation: () =>
+      Effect.die("Automation Turn commands are exercised by final semantic service tests"),
     startRendererOwned: () =>
       Effect.die("Renderer-owned Turn commands are unavailable in the CodexService fixture"),
     acceptPreparedRendererTurn: (plan) =>
@@ -1617,15 +1474,6 @@ function createService(options?: {
         } catch (error) {
           return String(error).toLowerCase().includes("not a git repository");
         }
-      },
-    },
-    heartbeatTurnCompletion: {
-      startAndWait: async (params) => {
-        if (!service) throw new Error("Codex test service is not constructed");
-        const client = Reflect.get(service, "client") as {
-          request: <TResult>(method: string, params: unknown) => Promise<TResult>;
-        };
-        return await client.request("turn/start", params);
       },
     },
     structuredThreadTitle: {
@@ -2483,16 +2331,6 @@ function installRendererOwnerConversation(
   aggregate.setStreaming(true);
   setTestConversationStreamRole(service, threadId, "owner");
   rendererConversationsForTest(service).setOwner(threadId, input.ownerClientId ?? "renderer-owner");
-}
-
-function initializeGitRepository(repoPath: string): void {
-  fs.mkdirSync(repoPath, { recursive: true });
-  execFileSync("git", ["init", "-b", "main"], { cwd: repoPath });
-  execFileSync("git", ["config", "user.name", "Nodex Test"], { cwd: repoPath });
-  execFileSync("git", ["config", "user.email", "nodex@example.com"], { cwd: repoPath });
-  fs.writeFileSync(path.join(repoPath, "README.md"), "# test\n");
-  execFileSync("git", ["add", "README.md"], { cwd: repoPath });
-  execFileSync("git", ["commit", "-m", "initial"], { cwd: repoPath });
 }
 
 describe("codex-service session-backed transcript recovery", () => {

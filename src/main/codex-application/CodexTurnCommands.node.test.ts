@@ -205,3 +205,18 @@ it.effect("returns the accepted protocol outcome when a secondary projection fai
     yield* Scope.close(harness.scope, Exit.void);
   }),
 );
+
+it.effect("starts a system Automation turn without accepting its inbox run", () =>
+  Effect.gen(function* () {
+    const harness = yield* makeHarness({
+      request: () => Effect.succeed(response()),
+    });
+
+    const result = yield* harness.commands.startAutomation("thread-a", "ship");
+
+    assert.strictEqual(result?.turnId, "turn-accepted");
+    assert.isFalse(harness.events.includes("automation:accept"));
+    assert.isTrue(harness.events.includes("accept"));
+    yield* Scope.close(harness.scope, Exit.void);
+  }),
+);

@@ -76,6 +76,12 @@ export interface CodexTurnCommandsService {
     prompt: string,
     overrides?: CodexTurnStartOverrides,
   ) => Effect.Effect<TurnStartResponse, CodexTurnCommandsError>;
+  /** Starts the first autonomous Automation Turn without marking the Run as user-accepted. */
+  readonly startAutomation: (
+    threadId: string,
+    prompt: string,
+    overrides?: CodexTurnStartOverrides,
+  ) => Effect.Effect<CodexTurnSummary | null, CodexTurnCommandsError>;
   /** Executes an already materialized renderer-owned first Turn without re-planning it. */
   readonly acceptPreparedRendererTurn: (
     plan: CodexPreparedRendererTurn,
@@ -220,7 +226,10 @@ export const make: Effect.Effect<
 
   const startTransaction = (
     plan: CodexTurnStartPlan,
-    options: { readonly projectOptimisticTurn: boolean } = { projectOptimisticTurn: true },
+    options: {
+      readonly acceptAutomationRun: boolean;
+      readonly projectOptimisticTurn: boolean;
+    } = { acceptAutomationRun: true, projectOptimisticTurn: true },
   ) =>
     projectLifecycle.runExclusive(
       plan.projectId,
@@ -318,17 +327,19 @@ export const make: Effect.Effect<
                   : Effect.void,
               ),
               Effect.andThen(
-                automationRuns.accept(plan.threadId).pipe(
-                  Effect.catch((cause) =>
-                    Effect.logWarning("Accepted Turn could not accept its automation run").pipe(
-                      Effect.annotateLogs({
-                        threadId: plan.threadId,
-                        turnId: response.turn.id,
-                        cause: String(cause),
-                      }),
-                    ),
-                  ),
-                ),
+                options.acceptAutomationRun
+                  ? automationRuns.accept(plan.threadId).pipe(
+                      Effect.catch((cause) =>
+                        Effect.logWarning("Accepted Turn could not accept its automation run").pipe(
+                          Effect.annotateLogs({
+                            threadId: plan.threadId,
+                            turnId: response.turn.id,
+                            cause: String(cause),
+                          }),
+                        ),
+                      ),
+                    )
+                  : Effect.void,
               ),
             ),
           );
@@ -378,10 +389,13 @@ export const make: Effect.Effect<
     prompt: string,
     overrides: CodexTurnStartOverrides | undefined,
     rendererOwnsState: boolean,
+    acceptAutomationRun = true,
   ) => {
     const execute = () =>
       prepareStart(threadId, prompt, overrides, rendererOwnsState).pipe(
-        Effect.flatMap(startTransaction),
+        Effect.flatMap((plan) =>
+          startTransaction(plan, { acceptAutomationRun, projectOptimisticTurn: true }),
+        ),
       );
     if (rendererOwnsState) return execute();
     return materialization.ensure(threadId).pipe(
@@ -403,10 +417,11 @@ export const make: Effect.Effect<
     prompt: string,
     overrides: CodexTurnStartOverrides | undefined,
     rendererOwnsState: boolean,
+    acceptAutomationRun = true,
   ) =>
     conversations.runExclusive(
       threadId,
-      startInLane(threadId, prompt, overrides, rendererOwnsState),
+      startInLane(threadId, prompt, overrides, rendererOwnsState, acceptAutomationRun),
     );
 
   const steerInLane = (input: CodexSteerTurnInput) =>
@@ -506,6 +521,16 @@ export const make: Effect.Effect<
         ),
         Effect.withSpan("CodexTurnCommands.startRendererOwned", { attributes: { threadId } }),
       ),
+    startAutomation: (threadId, prompt, overrides) =>
+      start(threadId, prompt, overrides, false, false).pipe(
+        Effect.map((result) => result as CodexTurnSummary | null),
+        Effect.mapError((cause) =>
+          cause instanceof Object && "_tag" in cause && cause._tag === "CodexRuntimeError"
+            ? (cause as CodexRuntimeError)
+            : commandError("start", threadId, cause),
+        ),
+        Effect.withSpan("CodexTurnCommands.startAutomation", { attributes: { threadId } }),
+      ),
     acceptPreparedRendererTurn: (plan) =>
       conversations
         .runExclusive(
@@ -557,7 +582,12 @@ export const make: Effect.Effect<
           materialization.ensure(threadId).pipe(
             Effect.mapError((cause) => commandError("start", threadId, cause)),
             Effect.andThen(prepareStart(threadId, "", undefined, false)),
-            Effect.flatMap((plan) => startTransaction(plan, { projectOptimisticTurn: false })),
+            Effect.flatMap((plan) =>
+              startTransaction(plan, {
+                acceptAutomationRun: true,
+                projectOptimisticTurn: false,
+              }),
+            ),
             Effect.asVoid,
           ),
         )

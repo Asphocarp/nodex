@@ -10,11 +10,11 @@ import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import type { CodexScheduledAutomation } from "../../shared/types";
 import {
   AutomationApplication,
   type AutomationDefinitionClaim,
 } from "../automation-application/AutomationApplication";
+import { AutomationExecution } from "../automation-application/AutomationExecution";
 import { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
 import { CoreAuthority } from "../core-runtime/CoreAuthority";
 import { getLogger } from "../logging/logger";
@@ -28,17 +28,10 @@ import {
   updateHeartbeatEnabled,
   updateHeartbeatThreadState,
   type CodexScheduledAutomationHeartbeatThreadStateInput,
-  type CodexScheduledAutomationRunContext,
   type ScheduledAutomationHeartbeatState,
 } from "./ScheduledAutomationPolicy";
-import { fromSchedulerPromise } from "./SchedulerOperation";
 
 export interface ScheduledAutomationRuntimeOptions {
-  readonly run: (
-    automation: CodexScheduledAutomation,
-    context: CodexScheduledAutomationRunContext,
-    signal: AbortSignal,
-  ) => Promise<void>;
   readonly intervalMs?: number;
   readonly maxPerTick?: number;
 }
@@ -58,16 +51,17 @@ const positiveInteger = (value: number, fallback: number): number =>
   Number.isSafeInteger(value) && value > 0 ? value : fallback;
 
 export const live = (
-  options: ScheduledAutomationRuntimeOptions,
+  options: ScheduledAutomationRuntimeOptions = {},
 ): Layer.Layer<
   ScheduledAutomationRuntime,
   never,
-  AutomationApplication | CodexApplicationEventHub | CoreAuthority
+  AutomationApplication | AutomationExecution | CodexApplicationEventHub | CoreAuthority
 > =>
   Layer.effect(
     ScheduledAutomationRuntime,
     Effect.gen(function* () {
       const automation = yield* AutomationApplication;
+      const execution = yield* AutomationExecution;
       const authority = yield* CoreAuthority;
       const events = yield* CodexApplicationEventHub;
       const activation = yield* Deferred.make<void>();
@@ -144,27 +138,23 @@ export const live = (
           if (!(yield* authorityReady)) {
             return yield* failClaim(claim.leaseId, intervalMs, "core_authority_unavailable");
           }
-          const execution = fromSchedulerPromise("run-scheduled-automation", (signal) =>
-            options.run(
-              claim.definition,
-              {
-                now: tickNow,
-                reason: "scheduled",
-                leaseId: claim.leaseId,
-                ...(claim.definition.kind === "heartbeat"
-                  ? {
-                      heartbeat: heartbeatRunContext({
-                        automation: claim.definition,
-                        state,
-                        now: tickNow,
-                      }),
-                    }
-                  : {}),
-              },
-              signal,
-            ),
-          ).pipe(Effect.andThen(automation.definitions.completeLease(claim.leaseId)));
-          const result = yield* Effect.exit(execution);
+          const claimedRun = execution
+            .executeClaimed(claim.definition, {
+              now: tickNow,
+              reason: "scheduled",
+              leaseId: claim.leaseId,
+              ...(claim.definition.kind === "heartbeat"
+                ? {
+                    heartbeat: heartbeatRunContext({
+                      automation: claim.definition,
+                      state,
+                      now: tickNow,
+                    }),
+                  }
+                : {}),
+            })
+            .pipe(Effect.andThen(automation.definitions.completeLease(claim.leaseId)));
+          const result = yield* Effect.exit(claimedRun);
           if (Exit.isSuccess(result)) return;
           const cause = Option.getOrNull(Cause.findErrorOption(result.cause))?.cause;
           const retry = cause instanceof CodexScheduledAutomationRetryError ? cause : null;

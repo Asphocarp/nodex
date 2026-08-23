@@ -80,6 +80,8 @@ it.effect("runs owner drain, validation, Gateway, and projection commit in the T
         }),
       acceptForkResult: () => Effect.die("unused"),
       observeMetadata: () => Effect.die("unused"),
+      acceptStandaloneStart: () => Effect.die("unused"),
+      acceptResumeResult: () => Effect.die("unused"),
       acceptSessionStart: () => Effect.die("unused"),
     } as unknown as CodexThreadDirectory["Service"]);
     const commands = yield* make.pipe(
@@ -126,6 +128,8 @@ it.effect("rejects a mismatched response before committing canonical state", () 
         }),
       acceptForkResult: () => Effect.die("unused"),
       observeMetadata: () => Effect.die("unused"),
+      acceptStandaloneStart: () => Effect.die("unused"),
+      acceptResumeResult: () => Effect.die("unused"),
       acceptSessionStart: () => Effect.die("unused"),
     } as unknown as CodexThreadDirectory["Service"]);
     const commands = yield* make.pipe(

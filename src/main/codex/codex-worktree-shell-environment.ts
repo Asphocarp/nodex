@@ -592,7 +592,22 @@ export async function persistCodexWorktreeShellEnvironment(input: {
   if (!gitPath) {
     throw new Error("No git repository found for worktree shell environment");
   }
-  const configPath = path.isAbsolute(gitPath) ? gitPath : path.resolve(input.cwd, gitPath);
+  await persistCodexWorktreeShellEnvironmentAtGitPath({
+    cwd: input.cwd,
+    gitPath,
+    shellEnvironment: input.shellEnvironment,
+  });
+}
+
+/** Filesystem adapter after application code has resolved the repository-relative Git path. */
+export async function persistCodexWorktreeShellEnvironmentAtGitPath(input: {
+  readonly cwd: string;
+  readonly gitPath: string;
+  readonly shellEnvironment: CodexStoredShellEnvironment | null;
+}): Promise<void> {
+  const configPath = path.isAbsolute(input.gitPath)
+    ? input.gitPath
+    : path.resolve(input.cwd, input.gitPath);
   if (input.shellEnvironment === null) {
     await rm(configPath, { force: true });
     return;

@@ -116,6 +116,7 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
           yield* options.initialTurn ?? Effect.void;
           return null;
         }),
+      startAutomation: () => Effect.die("unused"),
       startRendererOwned: () => Effect.die("unused"),
       acceptPreparedRendererTurn: () => Effect.die("unused"),
       steer: () => Effect.die("unused"),
@@ -144,6 +145,8 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       acceptImportResult: () => Effect.die("unused"),
       acceptForkResult: () => Effect.die("unused"),
       observeMetadata: () => Effect.die("unused"),
+      acceptStandaloneStart: () => Effect.die("unused"),
+      acceptResumeResult: () => Effect.die("unused"),
       acceptSessionStart: () => Effect.die("unused"),
     });
     const projection = CodexConversationProjection.of({

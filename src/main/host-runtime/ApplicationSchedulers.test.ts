@@ -15,6 +15,10 @@ import {
   type AutomationReminders,
   type AutomationRuns,
 } from "../automation-application/AutomationApplication";
+import {
+  AutomationExecution,
+  AutomationExecutionError,
+} from "../automation-application/AutomationExecution";
 import { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
 import { CoreAuthority, type CoreAuthorityState } from "../core-runtime/CoreAuthority";
 import {
@@ -166,11 +170,10 @@ const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void>
 const buildHarness = (input: {
   readonly automation?: AutomationApplication["Service"];
   readonly administration?: StoreAdministration["Service"];
-  readonly runScheduledAutomation?: (
+  readonly executeScheduled?: (
     automation: CodexScheduledAutomation,
     context: CodexScheduledAutomationRunContext,
-    signal: AbortSignal,
-  ) => Promise<void>;
+  ) => Effect.Effect<void, AutomationExecutionError>;
   readonly settled?: () => void;
   readonly readBlockRetentionCount?: () => number;
   readonly reminder?: {
@@ -221,6 +224,15 @@ const buildHarness = (input: {
     const scope = yield* Scope.make();
     const automation = input.automation ?? defaultAutomation();
     const automationLayer = Layer.succeed(AutomationApplication, automation);
+    const executionLayer = Layer.succeed(
+      AutomationExecution,
+      AutomationExecution.of({
+        prepareDefinition: () => Effect.die("unused"),
+        runNow: () => Effect.die("unused"),
+        executeClaimed: input.executeScheduled ?? (() => Effect.void),
+        resolveArchiveMessages: () => Effect.die("unused"),
+      }),
+    );
     const automationEventsLayer = Layer.succeed(
       CodexApplicationEventHub,
       CodexApplicationEventHub.of({
@@ -246,13 +258,11 @@ const buildHarness = (input: {
       scope,
     );
     const scheduledContext = yield* Layer.buildWithScope(
-      scheduledAutomationLive({
-        run: input.runScheduledAutomation ?? (async () => undefined),
-        ...input.scheduled,
-      }).pipe(
+      scheduledAutomationLive(input.scheduled ?? {}).pipe(
         Layer.provide(
           Layer.mergeAll(
             automationLayer,
+            executionLayer,
             automationEventsLayer,
             Layer.succeed(CoreAuthority, authority),
           ),
@@ -403,21 +413,32 @@ it.effect("settles scheduled claims once and preserves explicit retry intent", (
       settled: () => {
         settlementRuns += 1;
       },
-      runScheduledAutomation: async (item) => {
+      executeScheduled: (item) => {
         if (item.id === "retry") {
-          throw new CodexScheduledAutomationRetryError(
-            "Renderer owner is unavailable",
-            60_000,
-            "renderer_owner_unavailable",
+          return Effect.fail(
+            new AutomationExecutionError({
+              operation: "execute",
+              cause: new CodexScheduledAutomationRetryError(
+                "Renderer owner is unavailable",
+                60_000,
+                "renderer_owner_unavailable",
+              ),
+            }),
           );
         }
         if (item.id === "deferred") {
-          throw new CodexScheduledAutomationRetryError(
-            "Heartbeat automations are disabled",
-            null,
-            "heartbeat_disabled",
+          return Effect.fail(
+            new AutomationExecutionError({
+              operation: "execute",
+              cause: new CodexScheduledAutomationRetryError(
+                "Heartbeat automations are disabled",
+                null,
+                "heartbeat_disabled",
+              ),
+            }),
           );
         }
+        return Effect.void;
       },
     });
     yield* harness.scheduled.activate;
@@ -463,12 +484,12 @@ it.effect("skips overlapping scheduled ticks while a claimed run is active", () 
     });
     const harness = yield* buildHarness({
       automation,
-      runScheduledAutomation: () => {
-        if (!shouldBlock) return Promise.resolve();
-        return new Promise<void>((resolve) => {
+      executeScheduled: () => {
+        if (!shouldBlock) return Effect.void;
+        return Effect.callback<void>((resume) => {
           releaseRun = () => {
             shouldBlock = false;
-            resolve();
+            resume(Effect.void);
           };
         });
       },
@@ -491,7 +512,7 @@ it.effect("returns an admitted automation lease when its Main Scope closes", () 
   Effect.gen(function* () {
     const failures: Array<{ leaseId: string; reason: string }> = [];
     let runStarted = false;
-    const runSignals: AbortSignal[] = [];
+    let runInterrupted = false;
     const automation = defaultAutomation({
       definitions: {
         claimDue: () =>
@@ -502,17 +523,23 @@ it.effect("returns an admitted automation lease when its Main Scope closes", () 
     });
     const harness = yield* buildHarness({
       automation,
-      runScheduledAutomation: (_automation, _context, signal) => {
-        runStarted = true;
-        runSignals.push(signal);
-        return new Promise<void>(() => undefined);
-      },
+      executeScheduled: () =>
+        Effect.sync(() => {
+          runStarted = true;
+        }).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() =>
+            Effect.sync(() => {
+              runInterrupted = true;
+            }),
+          ),
+        ),
     });
     yield* harness.scheduled.activate;
     yield* waitUntil("scheduled shutdown run", () => runStarted);
 
     yield* Scope.close(harness.scope, Exit.void);
-    assert.isTrue(runSignals[0]?.aborted ?? false);
+    assert.isTrue(runInterrupted);
     assert.deepEqual(failures, [{ leaseId: "lease:shutdown", reason: "scheduler_stopped" }]);
   }),
 );
@@ -534,9 +561,10 @@ it.effect("projects heartbeat state with a TestClock-owned freshness deadline", 
     });
     const harness = yield* buildHarness({
       automation,
-      runScheduledAutomation: async (_item, context) => {
-        contexts.push(context);
-      },
+      executeScheduled: (_item, context) =>
+        Effect.sync(() => {
+          contexts.push(context);
+        }),
     });
     yield* harness.scheduled.activate;
     yield* waitUntil("initial heartbeat context", () => contexts.length === 1);

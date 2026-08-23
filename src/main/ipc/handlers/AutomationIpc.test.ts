@@ -5,8 +5,8 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { AutomationApplication } from "../../automation-application/AutomationApplication";
+import { AutomationExecution } from "../../automation-application/AutomationExecution";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
-import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import { ScheduledAutomationRuntime } from "../../host-runtime/ScheduledAutomationRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -29,7 +29,6 @@ it.effect("owns calendar and scheduled automation ingress with the Main Scope", 
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live({
-        codex: {} as CodexService,
         rendererClients: {} as RendererClientRuntimeService,
       }).pipe(
         Layer.provide(
@@ -43,6 +42,7 @@ it.effect("owns calendar and scheduled automation ingress with the Main Scope", 
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
             Layer.succeed(AutomationApplication, {} as AutomationApplication["Service"]),
+            Layer.succeed(AutomationExecution, {} as AutomationExecution["Service"]),
             Layer.succeed(ScheduledAutomationRuntime, {} as ScheduledAutomationRuntime["Service"]),
             Layer.succeed(WindowRuntime, {
               has: () => true,

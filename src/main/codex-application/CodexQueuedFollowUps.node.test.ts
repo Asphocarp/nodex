@@ -71,6 +71,7 @@ const makeHarness = (input: {
             itemIds: [],
           }),
         ),
+      startAutomation: () => Effect.die("unused"),
       startRendererOwned: () => Effect.die("unused"),
       acceptPreparedRendererTurn: () => Effect.die("unused"),
       steer: ({ threadId, prompt }) =>

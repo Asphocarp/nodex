@@ -166,6 +166,8 @@ const makeHarness = (responseTurnId = "turn-a") => {
         } as never;
       }),
     observeMetadata: () => Effect.die("unused"),
+    acceptStandaloneStart: () => Effect.die("unused"),
+    acceptResumeResult: () => Effect.die("unused"),
     acceptSessionStart: () => Effect.die("unused"),
   });
   const projection = CodexConversationProjection.of({

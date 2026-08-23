@@ -913,8 +913,8 @@ host, buffers completion that races the response, and accepts only the exact hos
 Turn identity. The ten-minute deadline covers host resolution, request, and completion waiting but
 preserves the product's non-failing timeout policy. A failed terminal status remains typed failure,
 and Main Scope closure interrupts the request, subscription, deadline, and wait together.
-`CodexService` only selects whether a scheduled automation needs this capability; it owns no
-heartbeat notification handler, resolver Promise, timer, or cleanup path.
+`AutomationExecution` composes this capability for scheduled heartbeats; `CodexService` owns no
+heartbeat selection, notification handler, resolver Promise, timer, or cleanup path.
 
 Structured Thread-title generation is one Main-scoped ephemeral operation Module. It acquires a
 system Thread and leases its identity from `CodexInternalThreadRegistry`, subscribes to the
@@ -1242,9 +1242,14 @@ command adapter and Codex conversation code may borrow only that commit or pure
 lookup capability; neither owns a parallel Map or synchronization policy. Core
 recovery triggers an immediate projection rebuild and
 automation pass, while Main Scope closure interrupts every schedule and returns
-admitted leases. Scheduled Codex execution receives the owning schedule fiber's
-`AbortSignal` through the temporary Promise adapter, and passes it unchanged to
-Gateway and worktree requests. Shutdown therefore cancels active external work
+admitted leases. `AutomationExecution` owns provider-profile normalization,
+run-now admission, Cron and Heartbeat execution, worktree and projectless launch,
+run lifecycle projection, and archive-message capture. The scheduler and Automation
+IPC compose that Effect capability directly; Main only provides its formal
+application, Gateway, conversation, project, permission, provider, execution-host,
+and managed-worktree requirements. Scope interruption therefore reaches active
+Gateway and worktree effects without an application-level Promise or `AbortSignal`
+adapter. `CodexService` owns no scheduled execution policy or launch path. Shutdown cancels active external work
 in addition to stopping future ticks. `DesktopNotificationRuntime` is the sole registry for active operating-system notification
 occurrences and their Electron callbacks. It derives platform, home, packaged resources, and
 development resources from immutable `MainConfig`, fences action admission before Scope release,

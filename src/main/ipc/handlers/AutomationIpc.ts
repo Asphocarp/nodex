@@ -11,8 +11,8 @@ import type {
 } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
 import { AutomationApplication } from "../../automation-application/AutomationApplication";
+import { AutomationExecution } from "../../automation-application/AutomationExecution";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
-import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import { ScheduledAutomationRuntime } from "../../host-runtime/ScheduledAutomationRuntime";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
@@ -21,7 +21,6 @@ import { requireTrustedAppRendererSender } from "../../platform/electron/Trusted
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface AutomationIpcOptions {
-  readonly codex: CodexService;
   readonly rendererClients: RendererClientRuntimeService;
 }
 
@@ -101,6 +100,7 @@ export const live = (
   never,
   never,
   | AutomationApplication
+  | AutomationExecution
   | ConversationCommands
   | ElectronIpc
   | MainConfig
@@ -110,6 +110,7 @@ export const live = (
   Layer.effectDiscard(
     Effect.gen(function* () {
       const automation = yield* AutomationApplication;
+      const execution = yield* AutomationExecution;
       const conversationCommands = yield* ConversationCommands;
       const config = yield* MainConfig;
       const ipc = yield* ElectronIpc;
@@ -130,11 +131,6 @@ export const live = (
         });
       const run = <A, E>(operation: string, task: Effect.Effect<A, E>) =>
         task.pipe(Effect.mapError((cause) => new AutomationIpcError({ operation, cause })));
-      const fromCodex = <A>(operation: string, task: (signal: AbortSignal) => Promise<A>) =>
-        Effect.tryPromise({
-          try: task,
-          catch: (cause) => new AutomationIpcError({ operation, cause }),
-        });
       const invoke = <Channel extends keyof IpcApi, E>(
         channel: Channel,
         task: (
@@ -199,9 +195,7 @@ export const live = (
         automation.definitions.list().pipe(Effect.map((items) => ({ items: [...items] }))),
       );
       yield* invoke("codex:scheduled-automations:create", (_, input) =>
-        fromCodex("prepare-scheduled-automation-create", () =>
-          options.codex.prepareScheduledAutomationInput(input),
-        ).pipe(
+        execution.prepareDefinition(input).pipe(
           Effect.flatMap(automation.definitions.create),
           Effect.tap((item) => broadcastDefinitionChanged(item.id, item.targetThreadId, "upsert")),
           Effect.map((item) => ({ item })),
@@ -209,11 +203,7 @@ export const live = (
       );
       yield* invoke("codex:scheduled-automations:update", (_, input) =>
         automation.definitions.get(input.id).pipe(
-          Effect.flatMap((current) =>
-            fromCodex("prepare-scheduled-automation-update", () =>
-              options.codex.prepareScheduledAutomationInput(input, current),
-            ),
-          ),
+          Effect.flatMap((current) => execution.prepareDefinition(input, current)),
           Effect.flatMap(automation.definitions.update),
           Effect.flatMap((item) =>
             item
@@ -260,13 +250,9 @@ export const live = (
         ),
       );
       yield* invoke("codex:scheduled-automations:run-now", (event, input) =>
-        fromCodex("codex:scheduled-automations:run-now", (signal) =>
-          options.codex.runScheduledAutomationNow(
-            input,
-            options.rendererClients.ensureClient(event.sender).clientId,
-            signal,
-          ),
-        ).pipe(Effect.as({ success: true })),
+        execution
+          .runNow(input, options.rendererClients.ensureClient(event.sender).clientId)
+          .pipe(Effect.as({ success: true })),
       );
       yield* invoke("codex:scheduled-automations:heartbeat-enabled-changed", (_, input) =>
         scheduledAutomations
@@ -290,9 +276,7 @@ export const live = (
                   archivedAssistantMessage: input.archivedAssistantMessage ?? null,
                   archivedUserMessage: input.archivedUserMessage ?? null,
                 })
-              : fromCodex("resolve-automation-archive-messages", () =>
-                  options.codex.resolveAutomationArchiveMessages(input.threadId),
-                ),
+              : execution.resolveArchiveMessages(input.threadId),
         }).pipe(
           Effect.flatMap(({ run: item, messages }) =>
             automation.runs.archive({ ...input, ...messages }).pipe(

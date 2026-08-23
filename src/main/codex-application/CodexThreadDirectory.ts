@@ -107,6 +107,23 @@ export class CodexThreadDirectory extends Context.Service<
       readonly projectlessOutputDirectory?: string | null;
       readonly projectlessWorkspaceBrowserRoot?: string | null;
     }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
+    /** Accepts a sessionless Main-owned Thread such as a scheduled Automation run. */
+    readonly acceptStandaloneStart: (input: {
+      readonly response: ThreadStartResponse;
+      readonly projectId: string | null;
+      readonly executionProfile: AgentExecutionProfile | null;
+      readonly runtimeWorkspaceRoots: readonly string[];
+      readonly fallbackCwd: string;
+      readonly managedWorktreePath?: string | null;
+      readonly projectlessOutputDirectory?: string | null;
+      readonly projectlessWorkspaceBrowserRoot?: string | null;
+    }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
+    /** Accepts an explicit Main-owned resume after the caller selected its runtime parameters. */
+    readonly acceptResumeResult: (input: {
+      readonly response: ThreadResumeResponse;
+      readonly executionHostId: string;
+      readonly fallbackCwd: string;
+    }) => Effect.Effect<CodexThreadDirectoryEntry, CodexThreadDirectoryError>;
     /** Commits one app-server catalog observation with an explicit initial ownership decision. */
     readonly observeMetadata: (input: {
       readonly thread: Thread;
@@ -854,6 +871,106 @@ export const make: Effect.Effect<
     },
   );
 
+  const acceptStandaloneStart = Effect.fn("CodexThreadDirectory.acceptStandaloneStart")(
+    function* (input: {
+      readonly response: ThreadStartResponse;
+      readonly projectId: string | null;
+      readonly executionProfile: AgentExecutionProfile | null;
+      readonly runtimeWorkspaceRoots: readonly string[];
+      readonly fallbackCwd: string;
+      readonly managedWorktreePath?: string | null;
+      readonly projectlessOutputDirectory?: string | null;
+      readonly projectlessWorkspaceBrowserRoot?: string | null;
+    }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
+      const cwd = input.response.cwd || input.response.thread.cwd || input.fallbackCwd;
+      const thread = normalizeThread({
+        ...(input.response.thread as unknown as Thread),
+        cwd,
+        projectlessOutputDirectory: input.projectlessOutputDirectory ?? null,
+        projectlessWorkspaceBrowserRoot: input.projectlessWorkspaceBrowserRoot ?? null,
+      } as unknown as Thread);
+      const threadId = thread.id.trim();
+      if (!threadId || threadId !== thread.id) {
+        return yield* error(
+          "materialize",
+          threadId,
+          new Error("Standalone Thread start did not return a valid Thread id"),
+        );
+      }
+      const durable = yield* persistObservation({
+        thread,
+        executionProfile: input.executionProfile,
+        managedWorktreePath: input.managedWorktreePath ?? null,
+        inferredInitialProjectId: input.projectId,
+        executionHostId: gateway.localHostId,
+        fallbackCwd: cwd,
+      });
+      yield* core.workspace
+        .apply({
+          operationId: `electron:standalone-thread-roots:${threadId}:${randomUUID()}`,
+          intent: {
+            kind: "replace_thread_writable_roots",
+            thread_id: threadId,
+            roots: [...input.runtimeWorkspaceRoots],
+          },
+        })
+        .pipe(Effect.mapError((cause) => error("materialize", threadId, cause)));
+      return yield* hydrate({
+        durable,
+        thread,
+        context: input.response as unknown as ThreadResumeResponse,
+        pagination: fullPagination(thread),
+      });
+    },
+  );
+
+  const acceptResumeResult = Effect.fn("CodexThreadDirectory.acceptResumeResult")(
+    function* (input: {
+      readonly response: ThreadResumeResponse;
+      readonly executionHostId: string;
+      readonly fallbackCwd: string;
+    }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
+      const thread = normalizeThread(input.response.thread);
+      const threadId = thread.id.trim();
+      if (!threadId || threadId !== thread.id) {
+        return yield* error(
+          "materialize",
+          threadId,
+          new Error("Thread resume did not return a valid Thread id"),
+        );
+      }
+      const cwd = input.response.cwd || thread.cwd || input.fallbackCwd;
+      const durable = yield* persistObservation({
+        thread: { ...thread, cwd },
+        executionHostId: input.executionHostId,
+        fallbackCwd: cwd,
+      });
+      const page = input.response.initialTurnsPage;
+      const resumedThread = normalizeThread({
+        ...thread,
+        cwd,
+        turns: page ? [...page.data].reverse() : [...thread.turns],
+      });
+      const pagination: CodexConversationTurnPagination = page
+        ? {
+            olderCursor: page.nextCursor ?? null,
+            backwardsCursor: input.response.turnsBackwardsCursor ?? null,
+            oldestLoadedTurnId: resumedThread.turns[0]?.id ?? null,
+            isLoadingOlder: false,
+            hasLoadedOldest: page.nextCursor == null,
+            loadedTurnCount: resumedThread.turns.length,
+            itemsView: "full",
+          }
+        : fullPagination(resumedThread);
+      return yield* hydrate({
+        durable,
+        thread: resumedThread,
+        context: input.response,
+        pagination,
+      });
+    },
+  );
+
   return CodexThreadDirectory.of({
     resolve: (input) => runOwned(resolvePhysical(input)),
     descendants,
@@ -861,6 +978,8 @@ export const make: Effect.Effect<
     acceptForkResult: (input) => runOwned(acceptForkResult(input)),
     acceptImportResult: (input) => runOwned(acceptImportResult(input)),
     acceptSessionStart: (input) => runOwned(acceptSessionStart(input)),
+    acceptStandaloneStart: (input) => runOwned(acceptStandaloneStart(input)),
+    acceptResumeResult: (input) => runOwned(acceptResumeResult(input)),
     observeMetadata: (input) =>
       runOwned(
         persistObservation({

@@ -56,6 +56,10 @@ import {
   AutomationApplication,
   live as automationApplicationLive,
 } from "../automation-application/AutomationApplication";
+import {
+  AutomationExecution,
+  live as automationExecutionLive,
+} from "../automation-application/AutomationExecution";
 import { DatabaseModule, live as databaseModuleLive } from "../database-application/DatabaseModule";
 import { LibraryModule, live as libraryModuleLive } from "../library-application/LibraryModule";
 import { createDesktopNodexAgentAuthorityPort } from "../core-client/desktop-nodex-agent-authority";
@@ -182,17 +186,17 @@ import {
   CodexThreadReadState,
   make as makeCodexThreadReadState,
 } from "../codex-application/CodexThreadReadState";
-import { make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
+import { CodexGitProbe, make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
 import { makeCodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import {
   CodexExternalAgentImportRuntime,
   make as makeCodexExternalAgentImportRuntime,
 } from "../codex-application/CodexExternalAgentImportRuntime";
 import {
+  CodexHeartbeatTurnCompletion,
   CodexHeartbeatTurnCompletionError,
   make as makeCodexHeartbeatTurnCompletion,
 } from "../codex-application/CodexHeartbeatTurnCompletion";
-import { makeCodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
 import {
   CodexStructuredThreadTitleError,
   make as makeCodexStructuredThreadTitle,
@@ -2458,6 +2462,40 @@ export const live: Layer.Layer<
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const automationExecutionContext = yield* Layer.buildWithScope(
+          automationExecutionLive({
+            runtimeStateHome,
+            runtimeVersion: codexRuntime.codexCompatibilityVersion ?? codexRuntime.version,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(AgentProviderRuntime, agentProviders),
+                Layer.succeed(AutomationApplication, automationApplication),
+                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(CodexGitProbe, gitProbe),
+                Layer.succeed(CodexHeartbeatTurnCompletion, heartbeatTurnCompletion),
+                Layer.succeed(CodexPermissions, codexPermissions),
+                Layer.succeed(CodexRendererConversationRegistry, rendererConversations),
+                Layer.succeed(CodexThreadDirectory, threadDirectory),
+                Layer.succeed(CodexThreadSettingsRuntime, threadSettingsRuntime),
+                Layer.succeed(CodexThreadTitlePersistence, threadTitlePersistence),
+                Layer.succeed(CodexTurnAuthority, turnAuthority),
+                Layer.succeed(CodexTurnCommands, turnCommands),
+                Layer.succeed(ComposerCatalog, composerCatalogService),
+                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
+                Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
+                Layer.succeed(ExecutionHostRuntime, executionHosts),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(ManagedWorktreeRetentionRuntime, managedWorktreeRetention),
+                Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
+                Layer.succeed(ProjectWorkspace, projectWorkspace),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const automationExecution = Context.get(automationExecutionContext, AutomationExecution);
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
@@ -2487,10 +2525,6 @@ export const live: Layer.Layer<
               rendererConversations,
               rendererConversationCoordinator,
               gitProbe: makeCodexGitProbePromiseAdapter(gitProbe, callbacks),
-              heartbeatTurnCompletion: makeCodexHeartbeatTurnCompletionPromiseAdapter(
-                heartbeatTurnCompletion,
-                callbacks,
-              ),
               structuredThreadTitle: makeCodexStructuredThreadTitlePromiseAdapter(
                 structuredThreadTitle,
                 callbacks,
@@ -2748,13 +2782,11 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const scheduledAutomationContext = yield* Layer.buildWithScope(
-          scheduledAutomationRuntimeLive({
-            run: (automation, context, signal) =>
-              codexService.runScheduledAutomation(automation, context, signal),
-          }).pipe(
+          scheduledAutomationRuntimeLive().pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(AutomationApplication, automationApplication),
+                Layer.succeed(AutomationExecution, automationExecution),
                 Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
                 Layer.succeed(CoreAuthority, authority),
               ),
@@ -2768,12 +2800,12 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           AutomationIpc.live({
-            codex: codexService,
             rendererClients,
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(AutomationApplication, automationApplication),
+                Layer.succeed(AutomationExecution, automationExecution),
                 Layer.succeed(ConversationCommands, conversationCommands),
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
