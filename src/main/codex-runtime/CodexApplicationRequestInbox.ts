@@ -106,6 +106,11 @@ export interface CodexApplicationRequestInboxService {
     occurrence: CodexApplicationRequestOccurrence,
     operation: Effect.Effect<A, E, R>,
   ) => Effect.Effect<CodexApplicationRequestInterpretation<A>, E, R>;
+  /** Observes a notification only while its exact Endpoint generation remains alive. */
+  readonly interpretNotification: <A, E, R>(
+    occurrence: CodexApplicationNotificationOccurrence,
+    operation: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<CodexApplicationRequestInterpretation<A>, E, R>;
 }
 
 export class CodexApplicationRequestInbox extends Context.Service<
@@ -325,6 +330,26 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
         return yield* Effect.failCause(exit.cause);
       });
 
+    const interpretNotification: CodexApplicationRequestInboxService["interpretNotification"] = (
+      occurrence,
+      operation,
+    ) =>
+      Effect.gen(function* () {
+        const current = yield* SynchronizedRef.get(state);
+        const active = current.generations.get(
+          generationKey(occurrence.hostId, occurrence.generation),
+        );
+        if (!active) return { kind: "withdrawn" } as const;
+        const exit = yield* Effect.acquireUseRelease(
+          operation.pipe(Effect.forkIn(active.processingScope, { startImmediately: true })),
+          Fiber.await,
+          Fiber.interrupt,
+        );
+        if (Exit.isSuccess(exit)) return { kind: "completed", value: exit.value } as const;
+        if (isInterruptedOnly(exit.cause)) return { kind: "withdrawn" } as const;
+        return yield* Effect.failCause(exit.cause);
+      });
+
     const publishNotification: CodexApplicationRequestInboxService["publishNotification"] = (
       input,
     ) =>
@@ -370,5 +395,6 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
       settle,
       settleOccurrenceToken,
       interpret,
+      interpretNotification,
     });
   });

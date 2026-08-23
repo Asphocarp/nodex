@@ -36,7 +36,7 @@ import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
-import { make as makeProtocol } from "./CodexApplicationProtocol";
+import { CodexApplicationProtocol, make as makeProtocol } from "./CodexApplicationProtocol";
 
 const coordinator = CodexRendererConversationCoordinator.of({
   forwardNotificationForConversation: () => false,
@@ -78,6 +78,7 @@ const withProtocol = <A, E>(
   run: (services: {
     readonly inbox: CodexApplicationRequestInbox["Service"];
     readonly conversations: ConversationRuntimeMap["Service"];
+    readonly protocol: CodexApplicationProtocol["Service"];
   }) => Effect.Effect<A, E>,
 ) =>
   Effect.gen(function* () {
@@ -109,7 +110,7 @@ const withProtocol = <A, E>(
         }),
     }).pipe(Effect.provideService(Scope.Scope, rootScope));
 
-    yield* makeProtocol.pipe(
+    const protocol = yield* makeProtocol.pipe(
       Effect.provideService(CodexApplicationEventHub, applicationEvents),
       Effect.provideService(CodexApplicationRequestInbox, inbox),
       Effect.provideService(CodexPendingServerRequestRuntime, pending),
@@ -120,7 +121,7 @@ const withProtocol = <A, E>(
       Effect.provideService(Scope.Scope, rootScope),
     );
 
-    const result = yield* run({ inbox, conversations }).pipe(
+    const result = yield* run({ inbox, conversations, protocol }).pipe(
       Effect.provideService(Scope.Scope, rootScope),
     );
     yield* Scope.close(rootScope, Exit.void);
@@ -130,23 +131,13 @@ const withProtocol = <A, E>(
 it.effect(
   "withdraws a generation before a blocked Thread command can mutate application state",
   () =>
-    withProtocol(({ inbox, conversations }) =>
+    withProtocol(({ inbox, conversations, protocol }) =>
       Effect.gen(function* () {
         const generationScope = yield* Scope.make();
         const generation = yield* inbox
           .openGeneration("local", 1)
           .pipe(Effect.provideService(Scope.Scope, generationScope));
-        const laneEntered = yield* Deferred.make<void>();
-        const releaseLane = yield* Deferred.make<void>();
-        const blocker = yield* conversations
-          .runExclusive(
-            "thread-a",
-            Deferred.succeed(laneEntered, undefined).pipe(
-              Effect.andThen(Deferred.await(releaseLane)),
-            ),
-          )
-          .pipe(Effect.forkChild);
-        yield* Deferred.await(laneEntered);
+        assert.isTrue(protocol.beginResume("thread-a"));
 
         yield* generation.admit({
           requestId: "blocked",
@@ -155,9 +146,7 @@ it.effect(
         });
         yield* Effect.yieldNow;
         yield* Scope.close(generationScope, Exit.void);
-        yield* Deferred.succeed(releaseLane, undefined);
-        yield* Fiber.join(blocker);
-        yield* Effect.yieldNow;
+        yield* protocol.releaseResume("thread-a");
 
         assert.deepEqual(conversations.conversation("thread-a").readServerRequests(), []);
       }),

@@ -43,6 +43,7 @@ import {
   type CodexApplicationRequestOccurrence,
 } from "../codex-runtime/CodexApplicationRequestInbox";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
+import { compactCodexApplicationProtocolOccurrences } from "./CodexConversationEventProjection";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
@@ -50,12 +51,21 @@ import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
 const ProtocolRequestPending = Symbol("CodexApplicationProtocol.ProtocolRequestPending");
+const ProtocolRequestBuffered = Symbol("CodexApplicationProtocol.ProtocolRequestBuffered");
 
 export class CodexApplicationProtocol extends Context.Service<
   CodexApplicationProtocol,
   {
     readonly interpret: (occurrence: CodexApplicationRequestOccurrence) => Effect.Effect<void>;
     readonly observe: (occurrence: CodexApplicationNotificationOccurrence) => Effect.Effect<void>;
+    readonly beginResume: (threadId: string) => boolean;
+    readonly hasResume: (threadId: string) => boolean;
+    readonly releaseResume: (threadId: string) => Effect.Effect<void>;
+    readonly discardResume: (threadId: string, reason: unknown) => Effect.Effect<void>;
+    readonly beginThreadStartDeferral: () => void;
+    readonly completeThreadStartDeferral: (threadId: string | null) => Effect.Effect<void>;
+    readonly endThreadStartDeferral: Effect.Effect<void>;
+    readonly clearConversationBuffer: (threadId: string, reason: unknown) => Effect.Effect<void>;
   }
 >()("nodex/main/codex-application/CodexApplicationProtocol") {}
 
@@ -281,6 +291,8 @@ export const make: Effect.Effect<
   const rendererRegistry = yield* CodexRendererConversationRegistry;
   const autoResolution = yield* CodexUserInputAutoResolution;
   const conversations = yield* ConversationRuntimeMap;
+  let threadStartDeferralDepth = 0;
+  const deferredThreadStarts = new Set<string>();
 
   const reduceRequest = (
     threadId: string,
@@ -561,15 +573,11 @@ export const make: Effect.Effect<
     });
   });
 
-  const interpret: CodexApplicationProtocol["Service"]["interpret"] = (occurrence) =>
-    parseRequest(occurrence).pipe(
-      Effect.flatMap((request) => {
-        const threadId = threadIdForRequest(request);
-        const operation = threadId
-          ? conversations.runExclusive(threadId, handleRequest(request))
-          : handleRequest(request);
-        return inbox.interpret(occurrence, operation);
-      }),
+  const interpretOperation = (
+    occurrence: CodexApplicationRequestOccurrence,
+    operation: Effect.Effect<unknown, unknown>,
+  ): Effect.Effect<void> =>
+    inbox.interpret(occurrence, operation).pipe(
       Effect.matchEffect({
         onFailure: (error) =>
           inbox.settle(occurrence, {
@@ -586,7 +594,8 @@ export const make: Effect.Effect<
         onSuccess: (interpretation) => {
           if (
             interpretation.kind === "withdrawn" ||
-            interpretation.value === ProtocolRequestPending
+            interpretation.value === ProtocolRequestPending ||
+            interpretation.value === ProtocolRequestBuffered
           ) {
             return Effect.void;
           }
@@ -601,15 +610,216 @@ export const make: Effect.Effect<
       Effect.asVoid,
     );
 
+  const interpret: CodexApplicationProtocol["Service"]["interpret"] = (occurrence) =>
+    parseRequest(occurrence).pipe(
+      Effect.flatMap((request) => {
+        const threadId = threadIdForRequest(request);
+        if (!threadId) return interpretOperation(occurrence, handleRequest(request));
+        return interpretOperation(
+          occurrence,
+          conversations.runExclusive(
+            threadId,
+            Effect.sync(() =>
+              conversations.conversation(threadId).offerProtocolOccurrence({
+                occurrence,
+                bypassResume: false,
+                startsThread: false,
+                deferThreadStart: false,
+              }),
+            ).pipe(
+              Effect.flatMap((buffered) =>
+                buffered ? Effect.succeed(ProtocolRequestBuffered) : handleRequest(request),
+              ),
+            ),
+          ),
+        );
+      }),
+      Effect.catch((error) =>
+        inbox
+          .settle(occurrence, {
+            kind: "error",
+            error:
+              error instanceof CodexAppServerRequestError
+                ? error
+                : CodexAppServerRequestError.internalError(
+                    `Nodex could not decode Codex request '${occurrence.method}'`,
+                    undefined,
+                    { method: occurrence.method, operation: "handle-request", cause: error },
+                  ),
+          })
+          .pipe(Effect.asVoid),
+      ),
+    );
+
   const observe: CodexApplicationProtocol["Service"]["observe"] = (occurrence) => {
     const notification = parseNotification(occurrence);
     if (!notification) return Effect.void;
     if (!isCodexThreadOwnerNotification(notification)) return Effect.void;
     const threadId = getCodexThreadOwnerNotificationThreadId(notification);
-    return conversations.runExclusive(threadId, observeNotification(notification));
+    return inbox
+      .interpretNotification(
+        occurrence,
+        conversations.runExclusive(
+          threadId,
+          Effect.sync(() => {
+            const buffered = conversations.conversation(threadId).offerProtocolOccurrence({
+              occurrence,
+              bypassResume: false,
+              startsThread: notification.method === "thread/started",
+              deferThreadStart: threadStartDeferralDepth > 0,
+            });
+            if (buffered && notification.method === "thread/started") {
+              deferredThreadStarts.add(threadId);
+            }
+            return buffered;
+          }).pipe(
+            Effect.flatMap((buffered) =>
+              buffered ? Effect.void : observeNotification(notification),
+            ),
+          ),
+        ),
+      )
+      .pipe(Effect.asVoid);
   };
 
-  const service = CodexApplicationProtocol.of({ interpret, observe });
+  const replayOccurrence = (
+    occurrence: CodexApplicationRequestOccurrence | CodexApplicationNotificationOccurrence,
+  ): Effect.Effect<void> => {
+    if (occurrence.kind === "request") {
+      return parseRequest(occurrence).pipe(
+        Effect.flatMap((request) => interpretOperation(occurrence, handleRequest(request))),
+        Effect.catch((error) =>
+          inbox
+            .settle(occurrence, {
+              kind: "error",
+              error:
+                error instanceof CodexAppServerRequestError
+                  ? error
+                  : CodexAppServerRequestError.internalError(
+                      `Nodex could not replay Codex request '${occurrence.method}'`,
+                      undefined,
+                      { method: occurrence.method, operation: "handle-request", cause: error },
+                    ),
+            })
+            .pipe(Effect.asVoid),
+        ),
+      );
+    }
+    const notification = parseNotification(occurrence);
+    if (!notification) return Effect.void;
+    return inbox
+      .interpretNotification(occurrence, observeNotification(notification))
+      .pipe(Effect.asVoid);
+  };
+
+  const replayBuffered = (
+    buffered: readonly (
+      | CodexApplicationRequestOccurrence
+      | CodexApplicationNotificationOccurrence
+    )[],
+  ): Effect.Effect<void> => Effect.forEach(buffered, replayOccurrence, { discard: true });
+
+  const rejectBuffered = (
+    buffered: readonly (
+      | CodexApplicationRequestOccurrence
+      | CodexApplicationNotificationOccurrence
+    )[],
+    reason: unknown,
+  ): Effect.Effect<void> =>
+    Effect.forEach(
+      buffered,
+      (occurrence) =>
+        occurrence.kind === "request"
+          ? inbox.settleOccurrenceToken(occurrence.occurrenceToken, {
+              kind: "error",
+              error: CodexAppServerRequestError.internalError(
+                "Buffered Codex application request was discarded",
+                undefined,
+                {
+                  method: occurrence.method,
+                  operation: "handle-request",
+                  requestId: String(occurrence.requestId),
+                  cause: reason,
+                },
+              ),
+            })
+          : Effect.void,
+      { concurrency: "unbounded", discard: true },
+    );
+
+  const releaseResume = (threadId: string): Effect.Effect<void> => {
+    const aggregate = conversations.currentConversation(threadId);
+    if (!aggregate) return Effect.void;
+    return conversations.runExclusive(
+      threadId,
+      Effect.sync(() => {
+        const buffered = aggregate.takeResumeEventBuffer();
+        return buffered
+          ? compactCodexApplicationProtocolOccurrences({
+              threadId,
+              canonicalState: aggregate.readCanonicalState(),
+              events: buffered,
+            })
+          : null;
+      }).pipe(Effect.flatMap((buffered) => (buffered ? replayBuffered(buffered) : Effect.void))),
+    );
+  };
+
+  const completeThreadStartDeferral = (threadId: string | null): Effect.Effect<void> => {
+    if (!threadId) return Effect.void;
+    deferredThreadStarts.delete(threadId);
+    const aggregate = conversations.currentConversation(threadId);
+    if (!aggregate) return Effect.void;
+    return conversations.runExclusive(
+      threadId,
+      Effect.sync(() => {
+        aggregate.markThreadStartReady();
+        const buffered = aggregate.takeThreadStartEventBuffer();
+        return buffered
+          ? compactCodexApplicationProtocolOccurrences({
+              threadId,
+              canonicalState: aggregate.readCanonicalState(),
+              events: buffered,
+            })
+          : null;
+      }).pipe(Effect.flatMap((buffered) => (buffered ? replayBuffered(buffered) : Effect.void))),
+    );
+  };
+
+  const endThreadStartDeferral = Effect.gen(function* () {
+    if (threadStartDeferralDepth <= 0) return;
+    threadStartDeferralDepth -= 1;
+    if (threadStartDeferralDepth > 0) return;
+    const pendingThreadIds = [...deferredThreadStarts];
+    yield* Effect.forEach(pendingThreadIds, completeThreadStartDeferral, { discard: true });
+    deferredThreadStarts.clear();
+    for (const threadId of pendingThreadIds) {
+      conversations.currentConversation(threadId)?.resetThreadStartReady();
+    }
+  });
+
+  const service = CodexApplicationProtocol.of({
+    interpret,
+    observe,
+    beginResume: (threadId) => conversations.conversation(threadId).beginResumeEventBuffer(),
+    hasResume: (threadId) =>
+      conversations.currentConversation(threadId)?.hasResumeEventBuffer() ?? false,
+    releaseResume,
+    discardResume: (threadId, reason) => {
+      const aggregate = conversations.currentConversation(threadId);
+      return aggregate ? rejectBuffered(aggregate.discardResumeEventBuffer(), reason) : Effect.void;
+    },
+    beginThreadStartDeferral: () => {
+      threadStartDeferralDepth += 1;
+    },
+    completeThreadStartDeferral,
+    endThreadStartDeferral,
+    clearConversationBuffer: (threadId, reason) => {
+      deferredThreadStarts.delete(threadId);
+      const aggregate = conversations.currentConversation(threadId);
+      return aggregate ? rejectBuffered(aggregate.clearBufferedEvents(), reason) : Effect.void;
+    },
+  });
   yield* inbox.occurrences.pipe(
     Stream.mapEffect(
       (occurrence) => (occurrence.kind === "request" ? interpret(occurrence) : observe(occurrence)),

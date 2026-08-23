@@ -63,14 +63,8 @@ import {
   projectCodexConversationServerRequestLifecycle,
 } from "./CodexConversationServerRequestProjection";
 import { projectCodexConversationSnapshot } from "./CodexConversationSnapshotProjection";
-import type {
-  CodexBufferedConversationEvent,
-  CodexBufferedConversationRequestCompletion,
-} from "./CodexConversationBufferedEvent";
-import type {
-  CodexServerNotification,
-  CodexServerRequest,
-} from "../codex-runtime/CodexApplicationProtocol";
+import type { CodexServerNotification } from "../codex-runtime/CodexApplicationProtocol";
+import type { CodexApplicationProtocolOccurrence } from "../codex-runtime/CodexApplicationRequestInbox";
 
 export type CodexConversationStreamRole = "follower" | "owner" | null;
 
@@ -141,8 +135,8 @@ interface MutableCodexConversationAggregate {
   historyGeneration: number;
   bufferedFrameText: Map<string, CodexFrameTextDeltaUpdate>;
   bufferedCommandOutput: Map<string, CodexCommandOutputUpdate>;
-  resumeEventBuffer: CodexBufferedConversationEvent[] | null;
-  threadStartEventBuffer: CodexBufferedConversationEvent[] | null;
+  resumeEventBuffer: CodexApplicationProtocolOccurrence[] | null;
+  threadStartEventBuffer: CodexApplicationProtocolOccurrence[] | null;
   threadStartDeferred: boolean;
   threadStartReady: boolean;
   queuedFollowUps: readonly CodexQueuedFollowUp[];
@@ -205,23 +199,19 @@ export interface CodexConversationAggregate {
   readonly clearBufferedDeltas: () => void;
   readonly beginResumeEventBuffer: () => boolean;
   readonly hasResumeEventBuffer: () => boolean;
-  readonly offerBufferedNotification: (input: {
-    readonly notification: CodexServerNotification;
+  readonly offerProtocolOccurrence: (input: {
+    readonly occurrence: CodexApplicationProtocolOccurrence;
     readonly bypassResume: boolean;
     readonly startsThread: boolean;
     readonly deferThreadStart: boolean;
   }) => boolean;
-  readonly offerBufferedRequest: (input: {
-    readonly request: CodexServerRequest;
-    readonly completion: CodexBufferedConversationRequestCompletion;
-  }) => boolean;
-  readonly takeResumeEventBuffer: () => readonly CodexBufferedConversationEvent[] | null;
-  readonly takeThreadStartEventBuffer: () => readonly CodexBufferedConversationEvent[] | null;
+  readonly takeResumeEventBuffer: () => readonly CodexApplicationProtocolOccurrence[] | null;
+  readonly takeThreadStartEventBuffer: () => readonly CodexApplicationProtocolOccurrence[] | null;
   readonly markThreadStartReady: () => void;
   readonly resetThreadStartReady: () => void;
   readonly hasDeferredThreadStart: () => boolean;
-  readonly discardResumeEventBuffer: () => readonly CodexBufferedConversationEvent[];
-  readonly clearBufferedEvents: () => readonly CodexBufferedConversationEvent[];
+  readonly discardResumeEventBuffer: () => readonly CodexApplicationProtocolOccurrence[];
+  readonly clearBufferedEvents: () => readonly CodexApplicationProtocolOccurrence[];
   readonly commitFrameTextDeltas: (input: {
     readonly updates: readonly CodexFrameTextDeltaUpdate[];
     readonly observedAtMs: number;
@@ -811,29 +801,18 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
         return true;
       },
       hasResumeEventBuffer: () => aggregate.resumeEventBuffer !== null,
-      offerBufferedNotification: ({
-        notification,
-        bypassResume,
-        startsThread,
-        deferThreadStart,
-      }) => {
+      offerProtocolOccurrence: ({ occurrence, bypassResume, startsThread, deferThreadStart }) => {
         if (!bypassResume && aggregate.resumeEventBuffer !== null) {
-          aggregate.resumeEventBuffer.push({ type: "notification", notification });
+          aggregate.resumeEventBuffer.push(occurrence);
           return true;
         }
         if (aggregate.threadStartEventBuffer !== null) {
-          aggregate.threadStartEventBuffer.push({ type: "notification", notification });
+          aggregate.threadStartEventBuffer.push(occurrence);
           return true;
         }
         if (!startsThread || !deferThreadStart || aggregate.threadStartReady) return false;
         aggregate.threadStartDeferred = true;
-        aggregate.threadStartEventBuffer = [{ type: "notification", notification }];
-        return true;
-      },
-      offerBufferedRequest: ({ request, completion }) => {
-        const buffer = aggregate.resumeEventBuffer ?? aggregate.threadStartEventBuffer;
-        if (!buffer) return false;
-        buffer.push({ type: "request", request, ...completion });
+        aggregate.threadStartEventBuffer = [occurrence];
         return true;
       },
       takeResumeEventBuffer: () => {

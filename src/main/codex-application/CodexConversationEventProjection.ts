@@ -1,4 +1,5 @@
 import type { CodexCanonicalConversationState } from "../../shared/types";
+import type { CodexApplicationProtocolOccurrence } from "../codex-runtime/CodexApplicationRequestInbox";
 import type { CodexBufferedConversationEvent } from "./CodexConversationBufferedEvent";
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -13,12 +14,18 @@ const eventTurnId = (params: Record<string, unknown> | null): string | null =>
 const deltaKey = (method: string, turnId: string | null, itemId: string): string =>
   `${method}:${turnId ?? ""}:${itemId}`;
 
-/** Drops raw delta prefixes already represented by the canonical aggregate before replay. */
-export const compactCodexBufferedConversationEvents = (input: {
+interface CompactableNotification {
+  readonly method: string;
+  readonly params: unknown;
+}
+
+const compactEvents = <Event>(input: {
   readonly threadId: string;
   readonly canonicalState: CodexCanonicalConversationState | null;
-  readonly events: readonly CodexBufferedConversationEvent[];
-}): CodexBufferedConversationEvent[] => {
+  readonly events: readonly Event[];
+  readonly notification: (event: Event) => CompactableNotification | null;
+  readonly replaceDelta: (event: Event, delta: string) => Event;
+}): Event[] => {
   const completedAgentDeltaKeys = new Set<string>();
   const bufferedDeltasByKey = new Map<
     string,
@@ -31,10 +38,11 @@ export const compactCodexBufferedConversationEvents = (input: {
   >();
 
   for (const event of input.events) {
-    if (event.type !== "notification") continue;
-    const payload = asRecord(event.notification.params);
+    const notification = input.notification(event);
+    if (!notification) continue;
+    const payload = asRecord(notification.params);
     if (eventThreadId(payload) !== input.threadId) continue;
-    if (event.notification.method === "item/completed") {
+    if (notification.method === "item/completed") {
       const item = asRecord(payload?.item);
       if (item?.type !== "agentMessage" || typeof item.id !== "string") continue;
       completedAgentDeltaKeys.add(
@@ -43,8 +51,8 @@ export const compactCodexBufferedConversationEvents = (input: {
       continue;
     }
     if (
-      event.notification.method !== "item/agentMessage/delta" &&
-      event.notification.method !== "item/commandExecution/outputDelta"
+      notification.method !== "item/agentMessage/delta" &&
+      notification.method !== "item/commandExecution/outputDelta"
     ) {
       continue;
     }
@@ -52,14 +60,14 @@ export const compactCodexBufferedConversationEvents = (input: {
     const delta = typeof payload?.delta === "string" ? payload.delta : null;
     if (!itemId || delta === null) continue;
     const turnId = eventTurnId(payload);
-    const key = deltaKey(event.notification.method, turnId, itemId);
+    const key = deltaKey(notification.method, turnId, itemId);
     const existing = bufferedDeltasByKey.get(key);
     if (existing) {
       existing.text.push(delta);
       continue;
     }
     bufferedDeltasByKey.set(key, {
-      method: event.notification.method,
+      method: notification.method,
       turnId,
       itemId,
       text: [delta],
@@ -91,23 +99,21 @@ export const compactCodexBufferedConversationEvents = (input: {
     );
   }
 
-  return input.events.flatMap((event): CodexBufferedConversationEvent[] => {
-    if (event.type === "request") return [event];
+  return input.events.flatMap((event): Event[] => {
+    const notification = input.notification(event);
+    if (!notification) return [event];
     if (
-      event.notification.method !== "item/agentMessage/delta" &&
-      event.notification.method !== "item/commandExecution/outputDelta"
+      notification.method !== "item/agentMessage/delta" &&
+      notification.method !== "item/commandExecution/outputDelta"
     ) {
       return [event];
     }
-    const payload = asRecord(event.notification.params);
+    const payload = asRecord(notification.params);
     const itemId = typeof payload?.itemId === "string" ? payload.itemId : null;
     const delta = typeof payload?.delta === "string" ? payload.delta : null;
     if (!itemId || delta === null) return [];
-    const key = deltaKey(event.notification.method, eventTurnId(payload), itemId);
-    if (
-      event.notification.method === "item/agentMessage/delta" &&
-      completedAgentDeltaKeys.has(key)
-    ) {
+    const key = deltaKey(notification.method, eventTurnId(payload), itemId);
+    if (notification.method === "item/agentMessage/delta" && completedAgentDeltaKeys.has(key)) {
       return [];
     }
     const duplicateCharacters = duplicateCharactersByKey.get(key) ?? 0;
@@ -115,15 +121,43 @@ export const compactCodexBufferedConversationEvents = (input: {
     duplicateCharactersByKey.set(key, duplicateCharacters - consumedCharacters);
     const remainingDelta = delta.slice(consumedCharacters);
     if (!remainingDelta) return [];
-    if (remainingDelta === delta) return [event];
-    return [
-      {
-        type: "notification",
-        notification: {
-          ...event.notification,
-          params: { ...event.notification.params, delta: remainingDelta },
-        },
-      },
-    ];
+    return remainingDelta === delta ? [event] : [input.replaceDelta(event, remainingDelta)];
   });
 };
+
+/** Drops raw delta prefixes already represented by the canonical aggregate before replay. */
+export const compactCodexBufferedConversationEvents = (input: {
+  readonly threadId: string;
+  readonly canonicalState: CodexCanonicalConversationState | null;
+  readonly events: readonly CodexBufferedConversationEvent[];
+}): CodexBufferedConversationEvent[] =>
+  compactEvents({
+    ...input,
+    notification: (event) => (event.type === "notification" ? event.notification : null),
+    replaceDelta: (event, delta) =>
+      event.type === "notification"
+        ? ({
+            type: "notification",
+            notification: {
+              ...event.notification,
+              params: { ...event.notification.params, delta },
+            },
+          } as CodexBufferedConversationEvent)
+        : event,
+  });
+
+/** Compacts final Inbox occurrences without adding request-completion callbacks. */
+export const compactCodexApplicationProtocolOccurrences = (input: {
+  readonly threadId: string;
+  readonly canonicalState: CodexCanonicalConversationState | null;
+  readonly events: readonly CodexApplicationProtocolOccurrence[];
+}): CodexApplicationProtocolOccurrence[] =>
+  compactEvents({
+    ...input,
+    notification: (event) =>
+      event.kind === "notification" ? { method: event.method, params: event.params } : null,
+    replaceDelta: (event, delta) =>
+      event.kind === "notification"
+        ? { ...event, params: { ...(asRecord(event.params) ?? {}), delta } }
+        : event,
+  });
