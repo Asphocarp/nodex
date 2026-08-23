@@ -47,7 +47,7 @@ const omitProjectScope = (value: unknown): unknown => {
   return request;
 };
 
-/** Exercises the real Electron renderer boundary against the final Main Effect services. */
+/** Reusable integration harness for the real renderer boundary and final Main Effect services. */
 export const makeDesktopDocumentSessionHarness = Effect.fn("DesktopDocumentSessionHarness.make")(
   function* (client: CoreGenerationClient, scope: ContentAccessContext) {
     const access = CoreSessionAccess.of({

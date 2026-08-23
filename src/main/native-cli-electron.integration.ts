@@ -14,7 +14,7 @@ import { removePrivateTemporaryDirectory } from "../../scripts/verify-native-run
 import { initializeStandaloneDataAuthority } from "./core-client/standalone-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
-import { makeDesktopDocumentSessionHarness } from "./core-client/testing/desktop-document-session-harness.integration";
+import { makeDesktopDocumentSessionHarness } from "./core-client/testing/desktop-document-session-harness";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 

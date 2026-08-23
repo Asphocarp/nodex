@@ -25,7 +25,7 @@ import {
   createCoreLibraryDatabaseModuleAdapter,
 } from "./core-client/database-module-adapter";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
-import { makeDesktopDocumentSessionHarness } from "./core-client/testing/desktop-document-session-harness.integration";
+import { makeDesktopDocumentSessionHarness } from "./core-client/testing/desktop-document-session-harness";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";

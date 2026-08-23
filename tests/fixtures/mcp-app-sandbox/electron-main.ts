@@ -1,6 +1,13 @@
 import path from "node:path";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { app, BrowserWindow, protocol, session } from "electron";
-import { McpAppSandboxCoordinator } from "../../../src/main/mcp-app/mcp-app-sandbox-host";
+import {
+  McpAppSandboxRuntime,
+  live as mcpAppSandboxRuntimeLive,
+} from "../../../src/main/host-runtime/McpAppSandboxRuntime";
 import {
   MCP_APP_REQUIRED_GUEST_PORT_NAMES,
   MCP_APP_SANDBOX_SCHEME,
@@ -121,7 +128,9 @@ const OWNER_HTML = `<!doctype html>
   </body>
 </html>`;
 
-void app.whenReady().then(async () => {
+const program = Effect.scoped(
+  Effect.gen(function* () {
+  yield* Effect.promise(() => app.whenReady());
   const ownerWindow = new BrowserWindow({
     width: 720,
     height: 520,
@@ -134,34 +143,36 @@ void app.whenReady().then(async () => {
       webviewTag: true,
     },
   });
-  const coordinator = new McpAppSandboxCoordinator({
-    allowLocalDevelopment: false,
-    fetch: async () => new Response(SKYBRIDGE_HTML, {
-      headers: {
-        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'",
-        "Content-Type": "text/html; charset=utf-8",
-      },
+  const sandboxContext = yield* Layer.build(
+    mcpAppSandboxRuntimeLive({
+      allowLocalDevelopment: false,
+      fetch: async () =>
+        new Response(SKYBRIDGE_HTML, {
+          headers: {
+            "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'",
+            "Content-Type": "text/html; charset=utf-8",
+          },
+        }),
+      guestPreloadPath: path.join(__dirname, "mcp-app-sandbox-guest.js"),
+      logger: {
+        error: (message: string) => {
+          void ownerWindow.webContents.executeJavaScript(
+            `window.fixtureState.error = ${JSON.stringify(message)}`,
+            false,
+          );
+        },
+        warn: (message: string) => {
+          void ownerWindow.webContents.executeJavaScript(
+            `window.fixtureState.error = ${JSON.stringify(message)}`,
+            false,
+          );
+        },
+      } as never,
+      platform: process.platform,
     }),
-    guestPreloadPath: path.join(__dirname, "mcp-app-sandbox-guest.js"),
-    logger: {
-      error: (message: string) => {
-        void ownerWindow.webContents.executeJavaScript(
-          `window.fixtureState.error = ${JSON.stringify(message)}`,
-          false,
-        );
-      },
-      warn: (message: string) => {
-        void ownerWindow.webContents.executeJavaScript(
-          `window.fixtureState.error = ${JSON.stringify(message)}`,
-          false,
-        );
-      },
-    } as never,
-  });
-  coordinator.install();
-  app.once("before-quit", () => coordinator.dispose());
-  const host = coordinator.createHost(ownerWindow.webContents);
-  host.installForOwner();
+  );
+  const sandbox = Context.get(sandboxContext, McpAppSandboxRuntime);
+  const host = sandbox.createHost(ownerWindow.webContents);
 
   ownerWindow.webContents.on("will-attach-webview", (event, preferences, params) => {
     try {
@@ -199,7 +210,15 @@ void app.whenReady().then(async () => {
       false,
     );
   });
-  await ownerWindow.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(OWNER_HTML)}`,
+  yield* Effect.promise(() =>
+    ownerWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(OWNER_HTML)}`),
   );
-});
+  yield* Effect.callback<void>((resume) => {
+    const onBeforeQuit = () => resume(Effect.void);
+    app.once("before-quit", onBeforeQuit);
+    return Effect.sync(() => app.removeListener("before-quit", onBeforeQuit));
+  });
+  }),
+);
+
+NodeRuntime.runMain(program, { disableErrorReporting: true });
