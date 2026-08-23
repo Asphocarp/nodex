@@ -16,6 +16,10 @@ import type {
   StoreAdministrationReadSnapshot,
 } from "../core-client/types";
 import { CoreModules } from "./CoreModules";
+import {
+  projectCoreStoreAdministrationEvent,
+  type CoreStoreAdministrationInvalidation,
+} from "./CoreApplicationEventProjection";
 
 type CoreBackupRecord = Extract<
   StoreAdministrationReadSnapshot["value"],
@@ -32,10 +36,7 @@ export interface StoreMaintenanceInput {
   readonly blockRetentionCount?: number;
 }
 
-export interface CoreStoreAdministrationInvalidation {
-  readonly backupIds: readonly string[];
-  readonly readinessChanged: boolean;
-}
+export type { CoreStoreAdministrationInvalidation } from "./CoreApplicationEventProjection";
 
 export class StoreAdministrationError extends Schema.TaggedError<StoreAdministrationError>()(
   "StoreAdministrationError",
@@ -84,14 +85,7 @@ const operationId = (kind: string): string => `electron:administration:${kind}:$
 
 export const mapCoreStoreAdministrationEvent = (
   effect: CoreAuthorizedDeliveryAtom,
-): CoreStoreAdministrationInvalidation | null => {
-  const payload = effect.payload;
-  if (payload.module !== "store_administration") return null;
-  return {
-    backupIds: payload.event.backup_ids,
-    readinessChanged: payload.event.readiness_changed,
-  };
-};
+): CoreStoreAdministrationInvalidation | null => projectCoreStoreAdministrationEvent(effect);
 
 export const live: Layer.Layer<StoreAdministration, never, CoreModules> = Layer.effect(
   StoreAdministration,

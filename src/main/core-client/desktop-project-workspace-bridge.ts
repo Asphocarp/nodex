@@ -4,6 +4,10 @@ import {
   createCoreProjectWorkspaceAdapter,
   type DesktopProjectWorkspacePort,
 } from "./project-workspace-adapter";
+import {
+  projectCoreProjectWorkspaceEvent,
+  type CoreProjectWorkspaceInvalidation,
+} from "../core-runtime/CoreApplicationEventProjection";
 
 export interface DesktopProjectWorkspaceBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -116,29 +120,10 @@ export function createDesktopProjectWorkspaceBridge(
   };
 }
 
-export interface CoreProjectWorkspaceInvalidation {
-  readonly projectCatalogChange?: import("../../shared/core-modules/project-workspace-module").ProjectCatalogChangeKind;
-  readonly projectIds: readonly string[];
-  readonly sessionIds: readonly string[];
-  readonly threadIds: readonly string[];
-  readonly sessionSummaryScopes: readonly import("../../shared/core-modules/project-workspace-module").ProjectSessionInvalidationScope[];
-  readonly sessionDetailIds: readonly string[];
-}
+export type { CoreProjectWorkspaceInvalidation } from "../core-runtime/CoreApplicationEventProjection";
 
 export function mapCoreProjectWorkspaceEvent(
   effect: CoreAuthorizedDeliveryAtom,
 ): CoreProjectWorkspaceInvalidation | null {
-  const payload = effect.payload;
-  if (payload.module !== "project_workspace") return null;
-  return {
-    projectCatalogChange: payload.event.project_catalog_change ?? undefined,
-    projectIds: payload.event.project_ids,
-    sessionIds: payload.event.session_ids,
-    threadIds: payload.event.thread_ids,
-    sessionSummaryScopes: payload.event.session_summary_scopes.map((scope) => {
-      if (scope.kind !== "project") return scope;
-      return { kind: scope.kind, projectId: scope.project_id };
-    }),
-    sessionDetailIds: payload.event.session_detail_ids,
-  };
+  return projectCoreProjectWorkspaceEvent(effect);
 }

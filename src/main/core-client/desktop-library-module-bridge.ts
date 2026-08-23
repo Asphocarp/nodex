@@ -1,9 +1,5 @@
-import { parseDatabaseId } from "../../shared/database-identities";
 import type { ContentAccessContext } from "../../shared/content-access-context";
-import {
-  LIBRARY_NAVIGATION_EVENT_VERSION,
-  type LibraryNavigationChangedEvent,
-} from "../../shared/library-events";
+import type { LibraryNavigationChangedEvent } from "../../shared/library-events";
 import type {
   LibraryModuleApplyRequest,
   LibraryModuleApplyResult,
@@ -41,6 +37,7 @@ import {
   createCoreLibraryModuleAdapter,
   type CoreLibraryModuleAdapter,
 } from "./library-module-adapter";
+import { projectCoreLibraryEvent } from "../core-runtime/CoreApplicationEventProjection";
 
 export interface DesktopLibraryModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -226,17 +223,5 @@ export function mapCoreLibraryEvent(
   effect: CoreAuthorizedDeliveryAtom,
   libraryId: string,
 ): LibraryNavigationChangedEvent | null {
-  const payload = effect.payload;
-  if (payload.module !== "library") return null;
-  return {
-    version: LIBRARY_NAVIGATION_EVENT_VERSION,
-    libraryId,
-    storeEpoch: envelope.packet.manifest.identity.store_epoch,
-    commitSeq: envelope.packet.manifest.identity.commit_seq,
-    changeKind: "content",
-    affectedParentKeys: payload.event.parent_keys,
-    affectedPageIds: payload.event.page_ids,
-    affectedDatabaseIds: payload.event.database_ids.map(parseDatabaseId),
-    affectedViewIds: [],
-  };
+  return projectCoreLibraryEvent(envelope, effect, libraryId);
 }

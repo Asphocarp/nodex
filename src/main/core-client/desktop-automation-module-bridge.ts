@@ -31,6 +31,10 @@ import {
   type CoreClientPort,
   type CoreRequestOptions,
 } from "./types";
+import {
+  projectCoreAutomationEvent,
+  type CoreAutomationInvalidation,
+} from "../core-runtime/CoreApplicationEventProjection";
 
 const BACKGROUND_CORE_REQUEST = { class: "background" } as const satisfies CoreRequestOptions;
 
@@ -206,20 +210,12 @@ export interface DesktopAutomationModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
 }
 
-export interface CoreAutomationInvalidation {
-  readonly automationIds: readonly string[];
-  readonly runIds: readonly string[];
-}
+export type { CoreAutomationInvalidation } from "../core-runtime/CoreApplicationEventProjection";
 
 export function mapCoreAutomationEvent(
   effect: CoreAuthorizedDeliveryAtom,
 ): CoreAutomationInvalidation | null {
-  const payload = effect.payload;
-  if (payload.module !== "automation") return null;
-  return {
-    automationIds: payload.event.automation_ids,
-    runIds: payload.event.run_ids,
-  };
+  return projectCoreAutomationEvent(effect);
 }
 
 const mapDefinition = (definition: CoreAutomationDefinition): CodexScheduledAutomation => ({

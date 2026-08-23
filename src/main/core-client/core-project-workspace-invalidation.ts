@@ -1,6 +1,6 @@
 import type { ProjectCatalogChangeKind } from "../../shared/core-modules/project-workspace-module";
 import type { ProjectSessionsChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
-import type { CoreProjectWorkspaceInvalidation } from "./desktop-project-workspace-bridge";
+import type { CoreProjectWorkspaceInvalidation } from "../core-runtime/CoreApplicationEventProjection";
 
 const projectChangeType = (kind: ProjectCatalogChangeKind): ProjectsChangeEvent["changeType"] => {
   switch (kind) {

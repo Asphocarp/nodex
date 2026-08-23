@@ -5,15 +5,7 @@ import type {
   CodexAutomationRunsUpdatedEvent,
   CodexScheduledAutomationChangedEvent,
 } from "../../shared/types";
-import {
-  mapCoreAutomationEvent,
-  mapCoreDatabaseEvent,
-  mapCoreLibraryDatabaseEvent,
-  mapCoreLibraryEvent,
-  mapCoreProjectWorkspaceEvent,
-  type CoreAuthorizedDeliveryAtom,
-  type CoreEventEnvelope,
-} from "../core-client";
+import type { CoreAuthorizedDeliveryAtom, CoreEventEnvelope } from "../core-client";
 import {
   allProjectSessionInvalidation,
   planCoreWorkspaceNotifications,
@@ -21,7 +13,7 @@ import {
 import type { DatabaseNotificationPublisher } from "../host-runtime/DatabaseNotifierRuntime";
 import { getLogger } from "../logging/logger";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
-import { mapCoreStoreAdministrationEvent } from "./StoreAdministration";
+import { projectCoreApplicationEvent } from "./CoreApplicationEventProjection";
 
 export interface CoreAutomationProjectionPort {
   readonly notifyAutomationRunsUpdated: (event: CodexAutomationRunsUpdatedEvent) => void;
@@ -64,10 +56,11 @@ export const live = (
         atom: CoreAuthorizedDeliveryAtom,
         libraryId: string,
       ): void => {
-        if (mapCoreStoreAdministrationEvent(atom)) return;
+        const projected = projectCoreApplicationEvent(envelope, atom, libraryId);
+        if (!projected || projected.kind === "store-administration") return;
 
-        const automationEvent = mapCoreAutomationEvent(atom);
-        if (automationEvent) {
+        if (projected.kind === "automation") {
+          const automationEvent = projected.value;
           callbacks.fork(
             options.automation.synchronize.pipe(
               Effect.catchCause((cause) =>
@@ -98,8 +91,8 @@ export const live = (
           return;
         }
 
-        const databaseEvent = mapCoreDatabaseEvent(envelope, atom, libraryId);
-        if (databaseEvent) {
+        if (projected.kind === "database") {
+          const databaseEvent = projected.value;
           options.notifications.notifyDatabaseChanged(databaseEvent);
           if ((databaseEvent.affectedViewIds ?? []).length > 0) {
             // The Project catalog projects a Database's primary default View.
@@ -108,20 +101,12 @@ export const live = (
           return;
         }
 
-        const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(envelope, atom, libraryId);
-        if (libraryDatabaseEvent) {
-          options.notifications.notifyLibraryNavigationChanged(libraryDatabaseEvent);
+        if (projected.kind === "library-navigation") {
+          options.notifications.notifyLibraryNavigationChanged(projected.value);
           return;
         }
 
-        const libraryEvent = mapCoreLibraryEvent(envelope, atom, libraryId);
-        if (libraryEvent) {
-          options.notifications.notifyLibraryNavigationChanged(libraryEvent);
-          return;
-        }
-
-        const workspaceEvent = mapCoreProjectWorkspaceEvent(atom);
-        if (!workspaceEvent) return;
+        const workspaceEvent = projected.value;
         const notifications = planCoreWorkspaceNotifications(workspaceEvent);
         if (notifications.project) {
           options.notifications.notifyProjectsChanged(

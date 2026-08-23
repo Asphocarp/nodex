@@ -26,20 +26,14 @@ import {
   type LibraryDatabaseModuleReadResultV2,
   type LibraryDatabaseReadV2,
 } from "../../shared/database-module-v2";
-import {
-  DATABASE_CHANGE_EVENT_VERSION,
-  type DatabaseChangeEvent,
-} from "../../shared/database-events";
+import type { DatabaseChangeEvent } from "../../shared/database-events";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
   parseDataSourceId,
 } from "../../shared/database-identities";
 import { stableStringifyDatabaseJson, type DatabaseJsonValue } from "../../shared/database-kernel";
-import {
-  LIBRARY_NAVIGATION_EVENT_VERSION,
-  type LibraryNavigationChangedEvent,
-} from "../../shared/library-events";
+import type { LibraryNavigationChangedEvent } from "../../shared/library-events";
 import type {
   DesktopDataAuthorityRuntime,
   RustDataAuthorityRuntime,
@@ -58,10 +52,11 @@ import {
   projectCoreDatabaseViewQuery,
 } from "../../shared/database-page-projection";
 import { projectCoreDatabaseQueryRow } from "../../shared/core-database-row-projection";
+import { toCoreDatabaseViewPresentationOverride } from "./database-presentation-adapter";
 import {
-  fromCoreDatabaseViewPresentationOverride,
-  toCoreDatabaseViewPresentationOverride,
-} from "./database-presentation-adapter";
+  projectCoreDatabaseEvent,
+  projectCoreLibraryDatabaseEvent,
+} from "../core-runtime/CoreApplicationEventProjection";
 
 export interface DesktopDatabaseModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
@@ -677,74 +672,11 @@ export const mapCoreDatabaseEvent = (
   envelope: CoreEventEnvelope,
   effect: CoreAuthorizedDeliveryAtom,
   libraryId: string,
-): DatabaseChangeEvent | null => {
-  const payload = effect.payload;
-  if (payload.module !== "database") return null;
-  const operationId = envelope.packet.manifest.operation_id;
-  const projectId = payload.event.project_id;
-  if (!operationId || !projectId) return null;
-  return {
-    version: DATABASE_CHANGE_EVENT_VERSION,
-    projectId,
-    libraryId,
-    storeEpoch: envelope.packet.manifest.identity.store_epoch,
-    operationId,
-    sourceKind: "database_module",
-    affectedDatabaseIds: payload.event.database_ids,
-    affectedDataSourceIds: payload.event.data_source_ids,
-    affectedPageIds: payload.event.page_ids,
-    affectedViewIds: payload.event.view_ids,
-    personalViewChanges: (payload.event.personal_view_changes ?? []).map((change) =>
-      change.kind === "presentation"
-        ? {
-            kind: change.kind,
-            viewId: parseDatabaseViewId(change.view_id),
-            presentationOverride: fromCoreDatabaseViewPresentationOverride(
-              change.value.presentation_override,
-            ),
-            revision: change.value.revision,
-          }
-        : {
-            kind: change.kind,
-            viewId: parseDatabaseViewId(change.view_id),
-            target: {
-              kind: change.target.kind,
-              occurrenceKey: change.target.occurrence_key,
-            },
-            collapsed: change.collapsed,
-          },
-    ),
-    commitSeq: envelope.packet.manifest.identity.commit_seq,
-  };
-};
+): DatabaseChangeEvent | null => projectCoreDatabaseEvent(envelope, effect, libraryId);
 
 export const mapCoreLibraryDatabaseEvent = (
   envelope: CoreEventEnvelope,
   effect: CoreAuthorizedDeliveryAtom,
   libraryId: string,
-): LibraryNavigationChangedEvent | null => {
-  const payload = effect.payload;
-  if (payload.module !== "database" || payload.event.project_id) return null;
-  if (
-    payload.event.database_ids.length === 0 &&
-    payload.event.data_source_ids.length === 0 &&
-    payload.event.page_ids.length === 0 &&
-    payload.event.view_ids.length === 0
-  )
-    return null;
-  return {
-    version: LIBRARY_NAVIGATION_EVENT_VERSION,
-    libraryId,
-    storeEpoch: envelope.packet.manifest.identity.store_epoch,
-    commitSeq: envelope.packet.manifest.identity.commit_seq,
-    changeKind: "database",
-    affectedParentKeys: [
-      "library",
-      "catalog",
-      ...payload.event.database_ids.map((id) => `database:${id}`),
-    ],
-    affectedPageIds: payload.event.page_ids,
-    affectedDatabaseIds: payload.event.database_ids.map(parseDatabaseId),
-    affectedViewIds: payload.event.view_ids.map(parseDatabaseViewId),
-  };
-};
+): LibraryNavigationChangedEvent | null =>
+  projectCoreLibraryDatabaseEvent(envelope, effect, libraryId);
