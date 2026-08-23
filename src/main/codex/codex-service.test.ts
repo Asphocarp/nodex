@@ -176,6 +176,7 @@ import type { ConversationCommandsPromiseAdapter } from "../codex-application/Co
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
 import { CodexPendingWorktreeRuntime } from "./codex-pending-worktree-runtime.test-support";
+import { makeCodexTurnCommandsTestAdapter } from "./codex-turn-commands.test-support";
 
 interface TestableCodexService {
   manualCompactionProjection: CodexService["manualCompactionProjection"];
@@ -2175,6 +2176,43 @@ function createService(options?: {
       }
     },
   };
+  const testClient = new TestCodexGatewayPromiseClient();
+  const turnCommandsAdapter = makeCodexTurnCommandsTestAdapter({
+    client: testClient,
+    projectLifecycle: projectRuntimeLifecycleHarness.adapter,
+    projection: {
+      prepareStart: (input) => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        return service.prepareTurnStartForModule(input);
+      },
+      beginStart: (prepared) => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        return service.beginTurnStartForModule(prepared);
+      },
+      recoverStart: (prepared, signal) => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        return service.recoverTurnStartForModule(prepared, signal);
+      },
+      commitStart: (prepared, response) => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        return service.commitTurnStartForModule(prepared, response);
+      },
+      rollbackStart: (prepared) => service?.rollbackTurnStartForModule(prepared),
+      prepareSteer: (input) => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        return service.prepareTurnSteerForModule(input);
+      },
+      beginSteer: (prepared) => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        service.beginTurnSteerForModule(prepared);
+      },
+      commitSteer: (prepared, response) => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        return service.commitTurnSteerForModule(prepared, response);
+      },
+      rollbackSteer: (prepared) => service?.rollbackTurnSteerForModule(prepared),
+    },
+  });
   const testService = new CodexService({
     applicationEvents,
     foldSidebarPathCase: false,
@@ -2245,6 +2283,7 @@ function createService(options?: {
     attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },
     pendingServerRequests,
     serverRequestResponses: serverRequestResponseAdapter,
+    turnCommands: turnCommandsAdapter,
     userInputAutoResolution: {
       observeRequest: (conversationId, requestId, resolve) => {
         autoResolutionResolvers.set(conversationId, { requestId, resolve });
@@ -2371,7 +2410,7 @@ function createService(options?: {
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
     sessionStore: new CodexSessionStore(),
-    client: new TestCodexGatewayPromiseClient(),
+    client: testClient,
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome,
     nodexAgentDynamicService: null,

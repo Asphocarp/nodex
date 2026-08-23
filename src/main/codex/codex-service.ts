@@ -1061,7 +1061,7 @@ type CodexServiceOptions = {
   attachments: CodexAttachments["Service"]["legacy"];
   pendingServerRequests: CodexPendingServerRequestRuntimeService;
   serverRequestResponses: CodexServerRequestResponsesPromiseAdapter;
-  turnCommands?: CodexTurnCommandsPromiseAdapter;
+  turnCommands: CodexTurnCommandsPromiseAdapter;
   persistedAtoms: PersistedAtomStore;
   sessionStore: CodexSessionStore;
   runtime: ResolvedCodexRuntime;
@@ -1613,28 +1613,6 @@ function isUnsupportedStateDbOnlyThreadListError(error: unknown): boolean {
   );
 }
 
-function isSteerTurnInactiveError(error: unknown): boolean {
-  if (!(error instanceof CodexRpcError)) return false;
-  const data = error.data;
-  const codexErrorInfo =
-    typeof data === "object" && data !== null
-      ? (data as Record<string, unknown>).codexErrorInfo
-      : null;
-  if (
-    typeof codexErrorInfo === "object" &&
-    codexErrorInfo !== null &&
-    "activeTurnNotSteerable" in codexErrorInfo
-  ) {
-    return true;
-  }
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("steerturninactiveerror") ||
-    message.includes("active turn not steerable") ||
-    (message.includes("active turn") && message.includes("not") && message.includes("steer"))
-  );
-}
-
 function previewText(value: string, maxLength = 160): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
@@ -2146,7 +2124,7 @@ export class CodexService {
   private readonly attachments: CodexAttachments["Service"]["legacy"];
   private readonly pendingServerRequests: CodexPendingServerRequestRuntimeService;
   private readonly serverRequestResponses: CodexServerRequestResponsesPromiseAdapter;
-  private readonly turnCommands: CodexTurnCommandsPromiseAdapter | null;
+  private readonly turnCommands: CodexTurnCommandsPromiseAdapter;
   private readonly persistedAtoms: PersistedAtomStore;
   private readonly sessionStore: CodexSessionStore;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
@@ -2266,7 +2244,7 @@ export class CodexService {
     this.attachments = options.attachments;
     this.pendingServerRequests = options.pendingServerRequests;
     this.serverRequestResponses = options.serverRequestResponses;
-    this.turnCommands = options.turnCommands ?? null;
+    this.turnCommands = options.turnCommands;
     this.persistedAtoms = options.persistedAtoms;
     this.sessionStore = options.sessionStore;
     this.activeGoalContinuation = options.activeGoalContinuation;
@@ -16292,51 +16270,11 @@ export class CodexService {
     overrides?: StartTurnOverrides,
     options: MainOwnedStartTurnOptions | RendererOwnedStartTurnOptions = {},
   ): Promise<CodexTurnSummary | TurnStartResponse | null> {
-    if (this.turnCommands) {
-      return options.stateOwner === "renderer"
-        ? await this.turnCommands.startRendererOwned(threadId, prompt, overrides)
-        : await this.turnCommands.start(threadId, prompt, overrides, {
-            syncDormantConversationUpdates: options.syncDormantConversationUpdates,
-          });
-    }
-
-    // Plain-Promise interpreter for the legacy Main test fixture. All domain stages are shared
-    // with CodexTurnCommands; production never sends turn/start through this path.
-    const rendererOwnsState = options.stateOwner === "renderer";
-    const controller = new AbortController();
-    const prepared = await this.prepareTurnStartForModule({
-      threadId,
-      prompt,
-      ...(overrides ? { overrides } : {}),
-      rendererOwnsState,
-      syncDormantConversationUpdates: rendererOwnsState
-        ? false
-        : (options.syncDormantConversationUpdates ?? true),
-      signal: controller.signal,
-    });
-    return await this.projectRuntimeLifecycle.runExclusive(prepared.projectId, async () => {
-      try {
-        await this.beginTurnStartForModule(prepared);
-        let response: TurnStartResponse;
-        try {
-          response = await this.client.request<"turn/start", TurnStartResponse>(
-            "turn/start",
-            prepared.request,
-          );
-        } catch (error) {
-          if (rendererOwnsState || !isThreadNotFoundError(error)) throw error;
-          const retryRequest = await this.recoverTurnStartForModule(prepared, controller.signal);
-          response = await this.client.request<"turn/start", TurnStartResponse>(
-            "turn/start",
-            retryRequest,
-          );
-        }
-        return await this.commitTurnStartForModule(prepared, response);
-      } catch (error) {
-        this.rollbackTurnStartForModule(prepared);
-        throw error;
-      }
-    });
+    return options.stateOwner === "renderer"
+      ? await this.turnCommands.startRendererOwned(threadId, prompt, overrides)
+      : await this.turnCommands.start(threadId, prompt, overrides, {
+          syncDormantConversationUpdates: options.syncDormantConversationUpdates,
+        });
   }
 
   async prepareTurnSteerForModule(input: {
@@ -16544,38 +16482,7 @@ export class CodexService {
     input: CodexSteerTurnInput,
     options: DormantConversationSyncOptions = {},
   ): Promise<{ turnId: string } | null> {
-    if (this.turnCommands) return await this.turnCommands.steer(input, options);
-
-    // Plain-Promise interpreter for the legacy Main test fixture. Production uses the scoped
-    // command lane and Gateway interpreter in CodexTurnCommands.
-    const controller = new AbortController();
-    const prepared = await this.prepareTurnSteerForModule({
-      command: input,
-      steerId: `steer:${input.threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
-      syncDormantConversationUpdates: options.syncDormantConversationUpdates ?? true,
-      signal: controller.signal,
-    });
-    try {
-      this.beginTurnSteerForModule(prepared);
-      const response = await this.client.request<"turn/steer", TurnSteerResponse>(
-        "turn/steer",
-        prepared.request,
-      );
-      return await this.commitTurnSteerForModule(prepared, response);
-    } catch (error) {
-      this.rollbackTurnSteerForModule(prepared);
-      if (!isSteerTurnInactiveError(error)) throw error;
-      const restarted = await this.startTurn(
-        prepared.threadId,
-        prepared.fallbackStart.prompt,
-        prepared.fallbackStart.overrides,
-        {
-          syncDormantConversationUpdates: prepared.fallbackStart.syncDormantConversationUpdates,
-        },
-      );
-      if (!restarted || restarted.turnId === null) return null;
-      return { turnId: restarted.turnId };
-    }
+    return await this.turnCommands.steer(input, options);
   }
 
   async prepareTurnInterruptForModule(threadId: string, turnId?: string): Promise<string> {
