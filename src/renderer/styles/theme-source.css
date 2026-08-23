@@ -243,6 +243,7 @@
   --accent-blue: var(--blue-300);
   --accent-blue-hover: color-mix(in srgb, var(--accent-blue) 88%, var(--black));
   --accent-blue-pressed: color-mix(in srgb, var(--accent-blue) 78%, var(--black));
+  --color-background-editor-text-selection: rgba(35, 131, 226, 0.28);
   --color-text-foreground: var(--gray-1000);
   --color-text-foreground-secondary: #0d0d0db3;
   --color-text-foreground-tertiary: #0d0d0d80;
