@@ -1,50 +1,26 @@
-import { randomUUID } from "node:crypto";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
 import type { ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetParams";
-import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
-import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
 import type { TurnSteerParams } from "@nodex/codex-app-server-protocol/v2/TurnSteerParams";
-import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
-import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { appendCodexCanonicalForkedFromConversationItem } from "../../shared/codex-conversation-state/codex-conversation-state";
 import { createEmptyCodexPreparedPrompt } from "../../shared/codex-prompt-preparation";
 import { CodexThreadGoalStatusSchema } from "../../shared/schemas/codex";
-import {
-  resolveCodexForkChildThreadTitleFromCatalog,
-  resolveCodexForkSourceConversationTitle,
-  type CodexForkTitleThread,
-} from "../../shared/codex-thread-title";
 import type {
   CodexLiveFileAttachment,
   CodexOwnerAppServerRequestInput,
   CodexPreparedPrompt,
   CodexThreadActionResult,
 } from "../../shared/types";
-import { buildCodexThreadConfigOverrides } from "../codex/codex-thread-capabilities";
-import { CodexGateway } from "../codex-runtime/CodexGateway";
-import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
-import { CoreModules } from "../core-runtime/CoreModules";
 import { ConversationCommands } from "./ConversationCommands";
-import { CodexConversationProjection } from "./CodexConversationProjection";
-import { CodexForkSidePanelTransfer } from "./CodexForkSidePanelTransferRuntime";
+import { CodexConversationFork } from "./CodexConversationFork";
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
-import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
-import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
-import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
-import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
-import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 import { CodexThreadRollbackCommands } from "./CodexThreadRollbackCommands";
 import { CodexTurnCommands } from "./CodexTurnCommands";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
-
-type GatewayThreadForkParams = ClientRequestParamsByMethod["thread/fork"];
 
 export class CodexRendererOwnerCommandError extends Schema.TaggedError<CodexRendererOwnerCommandError>()(
   "CodexRendererOwnerCommandError",
@@ -207,80 +183,27 @@ const validateIdentity = (
 export const make: Effect.Effect<
   CodexRendererOwnerCommands["Service"],
   never,
-  | CodexConversationProjection
-  | CodexForkSidePanelTransfer
-  | CodexGateway
-  | CodexOwnerNotificationDrainRuntime
-  | CodexPendingWorktreeRuntime
+  | CodexConversationFork
   | CodexRendererConversationRegistry
-  | CodexRendererConversationCoordinator
   | CodexFreshThreadLaunchRuntime
   | CodexManualCompactionRuntime
-  | CodexThreadDirectory
   | CodexThreadGoalRuntime
   | CodexThreadSettingsRuntime
-  | CodexThreadTitlePersistence
   | CodexThreadRollbackCommands
   | CodexTurnCommands
   | ConversationCommands
-  | ConversationRuntimeMap
-  | CoreModules
 > = Effect.gen(function* () {
-  const core = yield* CoreModules;
-  const gateway = yield* CodexGateway;
-  const projection = yield* CodexConversationProjection;
-  const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
-  const pendingWorktrees = yield* CodexPendingWorktreeRuntime;
+  const conversationFork = yield* CodexConversationFork;
   const rendererConversations = yield* CodexRendererConversationRegistry;
-  const rendererConversationCoordinator = yield* CodexRendererConversationCoordinator;
   const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
-  const forkSidePanelTransfers = yield* CodexForkSidePanelTransfer;
   const manualCompaction = yield* CodexManualCompactionRuntime;
-  const directory = yield* CodexThreadDirectory;
   const threadGoals = yield* CodexThreadGoalRuntime;
   const threadSettings = yield* CodexThreadSettingsRuntime;
-  const threadTitles = yield* CodexThreadTitlePersistence;
   const threadRollback = yield* CodexThreadRollbackCommands;
   const turnCommands = yield* CodexTurnCommands;
   const conversations = yield* ConversationCommands;
-  const conversationRuntimes = yield* ConversationRuntimeMap;
   const forkError = (threadId: string, cause: unknown) =>
     new CodexRendererOwnerCommandError({ method: "thread/fork", threadId, cause });
-
-  const listForkTitleCatalog = Effect.fn("CodexRendererOwnerCommands.listForkTitleCatalog")(
-    function* (threadId: string, projectId: string | null) {
-      const titles: CodexForkTitleThread[] = [];
-      const seenCursors = new Set<string>();
-      let after: string | null = null;
-      do {
-        const response: ProjectWorkspaceReadSnapshot = yield* core.workspace.read({
-          kind: "task_window",
-          project_id: projectId,
-          include_archived: false,
-          window: { after, first: 200 },
-        });
-        if (response.value.kind !== "task_window") {
-          return yield* forkError(
-            threadId,
-            new Error("Core returned a non-task-window read variant for fork title derivation"),
-          );
-        }
-        for (const task of response.value.tasks.items) {
-          if (!task.thread) continue;
-          titles.push({
-            conversationId: task.thread.thread_id,
-            forkedFromId: task.thread.forked_from_id ?? null,
-            title: task.thread.thread_name ?? null,
-          });
-        }
-        const next: string | null = response.value.tasks.next_cursor ?? null;
-        if (!next || seenCursors.has(next)) break;
-        seenCursors.add(next);
-        after = next;
-      } while (after);
-      return titles;
-    },
-  );
 
   const forkFromTurn = Effect.fn("CodexRendererOwnerCommands.forkFromTurn")(function* (input: {
     readonly ownerClientId: string;
@@ -291,171 +214,15 @@ export const make: Effect.Effect<
     if (!turnId) {
       return yield* forkError(input.threadId, new Error("Owner thread/fork requires a turnId"));
     }
-    const source = yield* directory.resolve({ threadId: input.threadId, fidelity: "durable" });
-    if (!source) {
-      return yield* forkError(
-        input.threadId,
-        new Error(`Thread '${input.threadId}' was not found`),
-      );
-    }
-    return yield* conversationRuntimes.runExclusive(
-      input.threadId,
-      Effect.gen(function* () {
-        yield* ownerNotificationDrain.awaitCurrent(input.threadId);
-        const current = yield* projection.read(input.threadId);
-        const sourceTurn = current.canonical.turns.find((turn) => turn.protocol.id === turnId);
-        if (!sourceTurn) {
-          return yield* forkError(
-            input.threadId,
-            new Error(`Turn '${turnId}' was not found in thread '${input.threadId}'`),
-          );
-        }
-        if (sourceTurn.protocol.status === "inProgress") {
-          return yield* forkError(
-            input.threadId,
-            new Error(`Turn '${turnId}' is still in progress`),
-          );
-        }
-        const knownTitles = yield* listForkTitleCatalog(input.threadId, source.durable.projectId);
-        const sourceTitle = resolveCodexForkSourceConversationTitle({
-          explicitTitle: source.summary.threadName,
-          firstTurnInput: current.canonical.turns[0]?.sidecar.params?.input,
-          firstTurnCommentAttachments:
-            current.canonical.turns[0]?.sidecar.params?.commentAttachments,
-        });
-        const childTitle = resolveCodexForkChildThreadTitleFromCatalog({
-          source: {
-            conversationId: input.threadId,
-            forkedFromId: source.summary.forkedFromId ?? null,
-            title: source.summary.threadName,
-          },
-          storedThreads: knownTitles,
-          activeThreads: [],
-          pendingForks: pendingWorktrees
-            .list()
-            .filter(
-              (entry) => entry.launchMode === "fork-conversation" && entry.sourceConversationId,
-            )
-            .map((entry) => ({
-              conversationId: entry.id,
-              forkedFromId: entry.sourceConversationId,
-              title: entry.initialThreadTitle ?? entry.label,
-            })),
-        });
-        const execution = yield* core.workspace.read({
-          kind: "execution_context",
-          thread_id: input.threadId,
-        });
-        if (execution.value.kind !== "execution_context") {
-          return yield* forkError(
-            input.threadId,
-            new Error("Core returned a non-execution-context read variant for Thread fork"),
-          );
-        }
-        const profile = source.durable.executionProfile;
-        const request = {
-          threadId: input.threadId,
-          lastTurnId: turnId,
-          path: null,
-          model: profile?.modelId ?? null,
-          modelProvider: profile?.providerId ?? null,
-          serviceTier: profile?.serviceTier ?? null,
-          cwd: source.durable.cwd,
-          runtimeWorkspaceRoots: [...execution.value.context.thread.writable_roots],
-          threadSource: "user",
-          config: {
-            ...(profile?.harnessId ? { harness: profile.harnessId } : {}),
-            ...(profile?.reasoningEffort
-              ? { model_reasoning_effort: profile.reasoningEffort }
-              : {}),
-            ...buildCodexThreadConfigOverrides(),
-          },
-        } satisfies ThreadForkParams;
-        const response = (yield* gateway.requestOnHost(
-          source.durable.executionHostId,
-          "thread/fork",
-          request as GatewayThreadForkParams,
-        )) as unknown as ThreadForkResponse;
-        if (response.thread.turns.at(-1)?.id !== turnId) {
-          return yield* forkError(
-            input.threadId,
-            new Error(`Thread fork did not return the requested exact cut through '${turnId}'`),
-          );
-        }
-        const child = yield* directory.acceptForkResult({
-          sourceThreadId: input.threadId,
-          response,
-        });
-        if (!child.canonical || !child.snapshot?.turnPagination) {
-          return yield* forkError(
-            child.summary.threadId,
-            new Error(`Forked Thread '${child.summary.threadId}' was not fully hydrated`),
-          );
-        }
-        const markerState = appendCodexCanonicalForkedFromConversationItem(child.canonical, {
-          id: randomUUID(),
-          type: "forkedFromConversation",
-          sourceConversationId: input.threadId,
-          sourceConversationTitle: sourceTitle,
-        });
-        const observedAtMs = yield* Clock.currentTimeMillis;
-        yield* projection.hydrate({
-          threadId: child.summary.threadId,
-          summary: child.summary,
-          canonical: markerState,
-          pagination: child.snapshot.turnPagination,
-          observedAtMs,
-        });
-        if (childTitle) {
-          yield* threadTitles.set({
-            threadId: child.summary.threadId,
-            name: childTitle,
-            normalization: "manual",
-            syncDormantConversationUpdates: false,
-          });
-        }
-        const accepted = yield* projection.read(child.summary.threadId);
-        if (!accepted.snapshot) {
-          return yield* forkError(
-            child.summary.threadId,
-            new Error(`Forked Thread '${child.summary.threadId}' has no canonical projection`),
-          );
-        }
-        const adoption = yield* rendererConversationCoordinator.adoptRendererOwner({
-          conversationId: child.summary.threadId,
-          ownerClientId: input.ownerClientId,
-          conversation: accepted.snapshot,
-        });
-        if (adoption.ownerClientId !== input.ownerClientId) {
-          return yield* forkError(
-            child.summary.threadId,
-            new Error(
-              `Renderer client '${input.ownerClientId}' could not own fork '${child.summary.threadId}'`,
-            ),
-          );
-        }
-        yield* forkSidePanelTransfers
-          .stageDirect({
-            sourceConversationId: input.threadId,
-            targetConversationId: child.summary.threadId,
-          })
-          .pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Forked Thread could not inherit side-panel state").pipe(
-                Effect.annotateLogs({
-                  sourceThreadId: input.threadId,
-                  childThreadId: child.summary.threadId,
-                  cause: String(cause),
-                }),
-              ),
-            ),
-          );
-        return {
-          threadId: child.summary.threadId,
-          composerIntent: { prompt: "", focusNonce: observedAtMs },
-        };
-      }),
-    );
+    const result = yield* conversationFork
+      .fork({
+        sourceThreadId: input.threadId,
+        lastTurnId: turnId,
+        threadSource: "user",
+        ownerClientId: input.ownerClientId,
+      })
+      .pipe(Effect.mapError((cause) => forkError(input.threadId, cause)));
+    return { threadId: result.threadId, composerIntent: result.composerIntent };
   });
 
   const execute = (
