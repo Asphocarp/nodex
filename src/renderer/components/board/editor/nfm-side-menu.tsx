@@ -65,6 +65,8 @@ import { NodexTooltip } from "@/components/ui/tooltip";
 import { claimEditorSelectionSurface } from "@/lib/editor-selection-presentation";
 import { cn } from "@/lib/utils";
 import { hasTypedOwnerBlock } from "@/lib/typed-owner-blocks";
+import { NFM_TURN_INTO_DEFINITIONS } from "@/lib/nfm-turn-into-targets";
+import type { LibraryStructuralTurnIntoTarget } from "../../../../shared/library-module";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 import { NfmFloatingPopover, type NfmPopoverReference } from "./nfm-floating-popover";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
@@ -202,6 +204,7 @@ interface NfmSideMenuTurnIntoItem {
   label: string;
   type: string;
   props?: Record<string, boolean | number | string>;
+  target?: LibraryStructuralTurnIntoTarget;
   enabled: boolean;
 }
 
@@ -327,53 +330,6 @@ const SIDE_MENU_BACKGROUND_COLOR_STYLES = {
   pink: "color-mix(in srgb, var(--color-token-charts-purple) 18%, var(--color-token-charts-red) 14%)",
   red: "color-mix(in srgb, var(--color-token-charts-red) 24%, transparent)",
 } as const satisfies Record<NfmSideMenuColorValue, string>;
-
-const SIDE_MENU_TURN_INTO_DEFINITIONS = [
-  { key: "paragraph", label: "Text", type: "paragraph" },
-  {
-    key: "heading-1",
-    label: "Heading 1",
-    type: "heading",
-    props: { level: 1, isToggleable: false },
-  },
-  {
-    key: "heading-2",
-    label: "Heading 2",
-    type: "heading",
-    props: { level: 2, isToggleable: false },
-  },
-  {
-    key: "heading-3",
-    label: "Heading 3",
-    type: "heading",
-    props: { level: 3, isToggleable: false },
-  },
-  {
-    key: "toggle-heading-1",
-    label: "Toggle heading 1",
-    type: "heading",
-    props: { level: 1, isToggleable: true },
-  },
-  {
-    key: "toggle-heading-2",
-    label: "Toggle heading 2",
-    type: "heading",
-    props: { level: 2, isToggleable: true },
-  },
-  {
-    key: "toggle-heading-3",
-    label: "Toggle heading 3",
-    type: "heading",
-    props: { level: 3, isToggleable: true },
-  },
-  { key: "bullet-list", label: "Bulleted list", type: "bulletListItem" },
-  { key: "numbered-list", label: "Numbered list", type: "numberedListItem" },
-  { key: "todo-list", label: "To-do list", type: "checkListItem" },
-  { key: "toggle-list", label: "Toggle list", type: "toggleListItem" },
-  { key: "quote", label: "Quote", type: "quote" },
-  { key: "callout", label: "Callout", type: "callout" },
-  { key: "code", label: "Code", type: "codeBlock" },
-] as const;
 
 function toStringProp(props: Record<string, unknown> | undefined, key: string): string {
   const value = props?.[key];
@@ -563,16 +519,17 @@ function supportsBlockColor(editor: SideMenuEditorRuntime, block: SideMenuBlock)
 }
 
 function getTurnIntoItems(editor: SideMenuEditorRuntime): NfmSideMenuTurnIntoItem[] {
-  return SIDE_MENU_TURN_INTO_DEFINITIONS.map((item) => {
-    const props = "props" in item ? item.props : undefined;
+  return NFM_TURN_INTO_DEFINITIONS.map((item) => {
+    const props = "props" in item.localPatch ? item.localPatch.props : undefined;
     return {
       key: item.key,
       label: item.label,
-      type: item.type,
+      type: item.localPatch.type,
       props,
+      target: item.target,
       enabled: editorHasBlockWithType(
         editor as Parameters<typeof editorHasBlockWithType>[0],
-        item.type,
+        item.localPatch.type,
         propsToSchemaShape(props),
       ),
     };
@@ -1824,19 +1781,32 @@ function NfmSideMenuPopup({
         onAction={activateRow}
         onSubmenuChange={setActiveSubmenu}
         onTurnInto={(item) => {
-          if (!item.enabled) return;
+          if (!item.enabled || !item.target) return;
           const selectedBlocks = getSideMenuActionBlocks(openState, block);
-          if (hasTypedOwnerBlock(selectedBlocks)) {
-            toast.info("Page, Canvas, and Database blocks cannot be reclassified.");
+          if (
+            selectedBlocks.some(
+              (selectedBlock) =>
+                selectedBlock.type === "canvas" || selectedBlock.type === "database",
+            )
+          ) {
+            toast.info("Canvas and Database blocks cannot be turned into text content.");
             close("action");
             return;
           }
-          for (const selectedBlock of selectedBlocks) {
-            editor.updateBlock?.(selectedBlock, {
+          const rootBlocks = getTopLevelSideMenuActionBlocks(selectedBlocks);
+          runtimeSnapshot.onTurnBlocksInto({
+            rootBlockIds: rootBlocks.flatMap(
+              (selectedBlock) => getCurrentBlockId(selectedBlock) ?? [],
+            ),
+            expandedBlockIds: selectedBlocks.flatMap(
+              (selectedBlock) => getCurrentBlockId(selectedBlock) ?? [],
+            ),
+            target: item.target,
+            localPatch: {
               type: item.type,
               ...(item.props ? { props: item.props } : {}),
-            });
-          }
+            },
+          });
           close("action");
         }}
         onColor={(kind, color) => {

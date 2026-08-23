@@ -374,6 +374,25 @@ fn document_authorization_proof(
     if !belongs {
         return Ok(None);
     }
+    // Structural history may retain a Page Document after its owner Block has
+    // been reclassified. The retained Document is intentionally dormant: it
+    // has no direct read surface until Undo restores the Page capability.
+    // Treat that state as absent from the authorization graph. Canonical
+    // Document reads remain fail-closed in the Document module itself.
+    let has_owner = connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM block_documents ownership
+           JOIN blocks owner ON owner.id = ownership.block_id
+           WHERE ownership.document_id = ?1
+             AND owner.library_id = ?2
+             AND owner.lifecycle = 'active'
+         )",
+        params![document_id, context.library_id.0],
+        |row| row.get::<_, i64>(0),
+    )? == 1;
+    if !has_owner {
+        return Ok(None);
+    }
     if matches!(scope, DeliveryAuthorizationScope::Library { .. }) {
         return Ok(Some(vec![subject.clone()]));
     }

@@ -1,13 +1,12 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use thiserror::Error;
 
 use super::block_materialization::MaterializedBlockNode;
-use super::rich_text::{
-    RichTextItem, RichTextMaterialization, RichTextStyles, canonicalize_rich_text,
-};
+use super::materialized_inline::rich_text_from_materialized_inline;
+use super::rich_text::{RichTextItem, RichTextMaterialization, RichTextStyles};
 
 const PROMOTABLE_TYPES: &[&str] = &[
     "paragraph",
@@ -176,168 +175,13 @@ fn wrap(
 fn primary_rich_text(
     root: &MaterializedBlockNode,
 ) -> Result<RichTextMaterialization, BlockToPageError> {
-    let content = root
-        .content
+    root.content
         .as_ref()
-        .and_then(Value::as_array)
-        .ok_or(BlockToPageError::UnsupportedPrimaryContent)?;
-    let items = content
-        .iter()
-        .map(read_inline_item)
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    canonicalize_rich_text(&items).map_err(|_| BlockToPageError::UnsupportedPrimaryContent)
-}
-
-fn read_inline_item(value: &Value) -> Result<Vec<RichTextItem>, BlockToPageError> {
-    let object = value
-        .as_object()
-        .ok_or(BlockToPageError::UnsupportedPrimaryContent)?;
-    match object.get("type").and_then(Value::as_str) {
-        Some("text") => read_text_item(object, None),
-        Some("link") => read_link_item(object),
-        Some("threadMention") => {
-            let uuid = read_nonempty_prop(object, "uuid")?;
-            Ok(vec![RichTextItem::ThreadMention { uuid }])
-        }
-        Some("dateMention") => read_date_mention(object),
-        _ => Err(BlockToPageError::UnsupportedPrimaryContent),
-    }
-}
-
-fn read_link_item(object: &Map<String, Value>) -> Result<Vec<RichTextItem>, BlockToPageError> {
-    let href = object
-        .get("href")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or(BlockToPageError::UnsupportedPrimaryContent)?;
-    let content = object
-        .get("content")
-        .and_then(Value::as_array)
-        .ok_or(BlockToPageError::UnsupportedPrimaryContent)?;
-    let text = content
-        .iter()
-        .filter_map(|item| item.get("text").and_then(Value::as_str))
-        .collect::<String>();
-    let styles = content
-        .first()
-        .and_then(|item| item.get("styles"))
-        .map(read_styles)
-        .transpose()?
-        .unwrap_or_default();
-    split_lines(text, |text| RichTextItem::Link {
-        text,
-        href: href.to_owned(),
-        styles: styles.clone(),
-    })
-}
-
-fn read_text_item(
-    object: &Map<String, Value>,
-    href: Option<&str>,
-) -> Result<Vec<RichTextItem>, BlockToPageError> {
-    let text = object
-        .get("text")
-        .and_then(Value::as_str)
-        .ok_or(BlockToPageError::UnsupportedPrimaryContent)?
-        .to_owned();
-    let styles = object
-        .get("styles")
-        .map(read_styles)
-        .transpose()?
-        .unwrap_or_default();
-    split_lines(text, |text| match href {
-        Some(href) => RichTextItem::Link {
-            text,
-            href: href.to_owned(),
-            styles: styles.clone(),
-        },
-        None => RichTextItem::Text {
-            text,
-            styles: styles.clone(),
-        },
-    })
-}
-
-fn split_lines(
-    text: String,
-    make: impl Fn(String) -> RichTextItem,
-) -> Result<Vec<RichTextItem>, BlockToPageError> {
-    let mut output = Vec::new();
-    let pieces = text.split('\n').collect::<Vec<_>>();
-    for (index, piece) in pieces.iter().enumerate() {
-        if !piece.is_empty() {
-            output.push(make((*piece).to_owned()));
-        }
-        if index + 1 < pieces.len() {
-            output.push(RichTextItem::LineBreak);
-        }
-    }
-    Ok(output)
-}
-
-fn read_styles(value: &Value) -> Result<RichTextStyles, BlockToPageError> {
-    let object = value
-        .as_object()
-        .ok_or(BlockToPageError::UnsupportedPrimaryContent)?;
-    let flag = |name: &str| object.get(name).and_then(Value::as_bool).unwrap_or(false);
-    let foreground = object
-        .get("textColor")
-        .and_then(Value::as_str)
-        .filter(|value| *value != "default");
-    let background = object
-        .get("backgroundColor")
-        .and_then(Value::as_str)
-        .filter(|value| *value != "default")
-        .map(|value| format!("{value}_bg"));
-    Ok(RichTextStyles {
-        bold: flag("bold"),
-        italic: flag("italic"),
-        underline: flag("underline"),
-        strikethrough: flag("strike"),
-        code: flag("code"),
-        color: background.or_else(|| foreground.map(str::to_owned)),
-    })
-}
-
-fn read_nonempty_prop(object: &Map<String, Value>, key: &str) -> Result<String, BlockToPageError> {
-    object
-        .get("props")
-        .and_then(Value::as_object)
-        .and_then(|props| props.get(key))
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_owned)
         .ok_or(BlockToPageError::UnsupportedPrimaryContent)
-}
-
-fn read_date_mention(object: &Map<String, Value>) -> Result<Vec<RichTextItem>, BlockToPageError> {
-    let props = object
-        .get("props")
-        .and_then(Value::as_object)
-        .ok_or(BlockToPageError::UnsupportedPrimaryContent)?;
-    let start = props
-        .get("start")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or(BlockToPageError::UnsupportedPrimaryContent)?;
-    let optional = |key: &str| {
-        props
-            .get(key)
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-    };
-    Ok(vec![RichTextItem::DateMention {
-        start: start.to_owned(),
-        end: optional("end"),
-        tz: optional("tz"),
-        format: optional("format"),
-        time_format: optional("timeFormat"),
-        reminder: optional("reminder"),
-    }])
+        .and_then(|content| {
+            rich_text_from_materialized_inline(content)
+                .map_err(|_| BlockToPageError::UnsupportedPrimaryContent)
+        })
 }
 
 fn empty_paragraph(block_id: &str) -> MaterializedBlockNode {
@@ -362,6 +206,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::domain::rich_text::RichTextStyles;
 
     fn paragraph(
         id: &str,
@@ -395,7 +240,8 @@ mod tests {
                 { "type": "link", "href": "https://nodex.local", "content": [
                     { "type": "text", "text": "title", "styles": { "italic": true } }
                 ] },
-                { "type": "threadMention", "props": { "uuid": "thread-a" } }
+                { "type": "threadMention", "props": { "uuid": "thread-a" } },
+                { "type": "pageMention", "props": { "targetPageId": "page-a" } }
             ]),
             vec![child.clone()],
         );
@@ -435,6 +281,9 @@ mod tests {
                 },
                 RichTextItem::ThreadMention {
                     uuid: "thread-a".to_owned(),
+                },
+                RichTextItem::PageMention {
+                    target_page_id: "page-a".to_owned(),
                 },
             ]
         );

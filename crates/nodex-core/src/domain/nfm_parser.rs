@@ -9,6 +9,7 @@ use super::nfm::{
     NFM_COLORS, NfmBlock, NfmInlineContent, NfmStyleSet, NfmTableCell, NfmTableColumn, NfmTableRow,
     parse_inline_content, parse_xml_attrs,
 };
+use super::ordinary_block::{default_props, quote_props};
 
 const TOGGLE_LIST_PROPERTIES: &[&str] = &["priority", "estimate", "status", "tags"];
 
@@ -1245,27 +1246,6 @@ fn table_json(
         result.insert("headerCols".to_owned(), number(1));
     }
     Value::Object(result)
-}
-
-fn default_props() -> BTreeMap<String, Value> {
-    BTreeMap::from([
-        (
-            "backgroundColor".to_owned(),
-            Value::String("default".to_owned()),
-        ),
-        ("textColor".to_owned(), Value::String("default".to_owned())),
-        ("textAlignment".to_owned(), Value::String("left".to_owned())),
-    ])
-}
-
-fn quote_props() -> BTreeMap<String, Value> {
-    BTreeMap::from([
-        (
-            "backgroundColor".to_owned(),
-            Value::String("default".to_owned()),
-        ),
-        ("textColor".to_owned(), Value::String("default".to_owned())),
-    ])
 }
 
 fn apply_color(props: &mut BTreeMap<String, Value>, color: &Option<String>) {

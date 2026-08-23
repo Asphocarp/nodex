@@ -390,6 +390,21 @@ describe("NFM structural editing session", () => {
       });
 
       events.length = 0;
+      expect(session.turnBlocksInto(["text"], ["text", "page"], { kind: "toggle_list" })).toBe(
+        true,
+      );
+      await session.whenIdle();
+      expect(events).toEqual(["fence", "turn_selection_into"]);
+      expect(commands.at(-1)).toMatchObject({
+        command: {
+          kind: "turn_selection_into",
+          selection: { rootBlockIds: ["text"] },
+          target: { kind: "toggle_list" },
+        },
+      });
+      expect(cursorPlacements).toContainEqual({ blockId: "after", edge: "end" });
+
+      events.length = 0;
       expect(
         session.moveBlocksToDocument(["text", "page"], {
           documentId: "document:target",

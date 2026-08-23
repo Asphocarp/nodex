@@ -78,6 +78,7 @@ pub(crate) struct BlockRetentionSummary {
 pub(crate) struct BlockRetentionCandidate {
     pub(crate) library_id: String,
     pub(crate) root_block_id: String,
+    dormant_document_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -811,13 +812,24 @@ fn run_block_retention_slice_with_target(
             check_request_interruption()?;
         }
         summary.selected_candidates += 1;
-        match maintain_candidate(
-            connection,
-            &slice.evidence,
-            &candidate.library_id,
-            &candidate.root_block_id,
-            retain_newest_deleted_blocks,
-        ) {
+        let outcome = if let Some(document_id) = candidate.dormant_document_id.as_deref() {
+            maintain_dormant_document_candidate(
+                connection,
+                &slice.evidence,
+                &candidate.library_id,
+                &candidate.root_block_id,
+                document_id,
+            )
+        } else {
+            maintain_candidate(
+                connection,
+                &slice.evidence,
+                &candidate.library_id,
+                &candidate.root_block_id,
+                retain_newest_deleted_blocks,
+            )
+        };
+        match outcome {
             Ok(CandidateOutcome::Collected(block_ids)) => {
                 summary.collected_candidates += 1;
                 summary.collected_blocks = summary
@@ -864,7 +876,7 @@ fn read_candidate_roots(
         .map_err(|_| invalid("Block retention count exceeds SQLite bounds"))?;
     let candidate_count = i64::try_from(MAX_CANDIDATES_PER_PASS)
         .map_err(|_| internal("Block retention candidate bound overflowed"))?;
-    connection
+    let mut candidates = connection
         .prepare(
             "WITH ranked_deleted AS ( \
                SELECT id, library_id, updated_at, \
@@ -881,10 +893,251 @@ fn read_candidate_roots(
             Ok(BlockRetentionCandidate {
                 library_id: row.get(0)?,
                 root_block_id: row.get(1)?,
+                dormant_document_id: None,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StoreError::from)?;
+    candidates.extend(read_dormant_document_candidates(
+        connection,
+        candidate_count,
+    )?);
+    candidates.sort_by(|left, right| {
+        left.library_id
+            .cmp(&right.library_id)
+            .then_with(|| left.root_block_id.cmp(&right.root_block_id))
+            .then_with(|| left.dormant_document_id.cmp(&right.dormant_document_id))
+    });
+    candidates.truncate(
+        usize::try_from(candidate_count)
+            .map_err(|_| internal("Block retention candidate bound is invalid"))?,
+    );
+    Ok(candidates)
+}
+
+/// A consumed Page-to-ordinary inverse recipe is the durable provenance for
+/// an intentionally unowned Page Document. Once no active retention authority
+/// names that Document, maintenance may collect its sole placeholder without
+/// touching the still-active ordinary Block that inherited the Page identity.
+fn read_dormant_document_candidates(
+    connection: &Connection,
+    candidate_count: i64,
+) -> Result<Vec<BlockRetentionCandidate>, StoreError> {
+    connection
+        .prepare(
+            "SELECT DISTINCT recipe.library_id, \
+                    json_extract(dormant.value, '$.placeholderBlockId'), \
+                    json_extract(dormant.value, '$.documentId') \
+             FROM structural_history_recipes recipe \
+             JOIN json_each(recipe.recipe_json, '$.action.state.dormantPages') dormant \
+             JOIN documents document \
+               ON document.id = json_extract(dormant.value, '$.documentId') \
+              AND document.library_id = recipe.library_id \
+             JOIN blocks inherited \
+               ON inherited.id = json_extract(dormant.value, '$.pageId') \
+              AND inherited.library_id = recipe.library_id \
+              AND inherited.lifecycle = 'active' AND inherited.type <> 'page' \
+             JOIN blocks placeholder \
+               ON placeholder.id = json_extract(dormant.value, '$.placeholderBlockId') \
+              AND placeholder.library_id = recipe.library_id \
+             WHERE recipe.state <> 'available' \
+               AND json_extract(recipe.recipe_json, '$.action.kind') = 'restore_turned_selection' \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM block_documents ownership \
+                 WHERE ownership.document_id = document.id \
+               ) \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM structural_retention_members member \
+                 WHERE member.library_id = recipe.library_id \
+                   AND member.member_kind = 'document' AND member.member_id = document.id \
+               ) \
+             ORDER BY recipe.library_id, document.id LIMIT ?1",
+        )?
+        .query_map([candidate_count], |row| {
+            Ok(BlockRetentionCandidate {
+                library_id: row.get(0)?,
+                root_block_id: row.get(1)?,
+                dormant_document_id: Some(row.get(2)?),
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(StoreError::from)
+}
+
+fn maintain_dormant_document_candidate(
+    connection: &mut Connection,
+    evidence: &RetentionEvidenceIndex,
+    library_id: &str,
+    placeholder_block_id: &str,
+    document_id: &str,
+) -> Result<CandidateOutcome, StoreError> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let Some(closure) = build_dormant_document_closure(
+        &transaction,
+        library_id,
+        placeholder_block_id,
+        document_id,
+    )?
+    else {
+        return Ok(CandidateOutcome::Covered);
+    };
+    let now = sqlite_now(&transaction)?;
+    prune_document_history(&transaction, document_id, &now)?;
+    let analysis = analyze_candidate(&transaction, evidence, &closure, &BTreeSet::new())?;
+    if !analysis.collectible {
+        return Ok(CandidateOutcome::Retained);
+    }
+    delete_exact_recovery_artifacts(&transaction, &analysis.prunable_recovery_artifact_ids)?;
+    let Some(replanned) = build_dormant_document_closure(
+        &transaction,
+        library_id,
+        placeholder_block_id,
+        document_id,
+    )?
+    else {
+        return Ok(CandidateOutcome::Covered);
+    };
+    let deleted_recovery_artifact_ids = analysis
+        .prunable_recovery_artifact_ids
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let post_prune = analyze_candidate(
+        &transaction,
+        evidence,
+        &replanned,
+        &deleted_recovery_artifact_ids,
+    )?;
+    if !post_prune.collectible || !post_prune.prunable_recovery_artifact_ids.is_empty() {
+        return Ok(CandidateOutcome::Retained);
+    }
+    collect_dormant_document_closure(&transaction, &replanned, &now)?;
+    transaction.commit()?;
+    Ok(CandidateOutcome::Collected(replanned.block_ids))
+}
+
+fn build_dormant_document_closure(
+    connection: &Connection,
+    library_id: &str,
+    placeholder_block_id: &str,
+    document_id: &str,
+) -> Result<Option<CandidateClosure>, StoreError> {
+    let document = connection
+        .query_row(
+            "SELECT schema_key, schema_version, readiness, authority, sync_engine \
+             FROM documents WHERE id = ?1 AND library_id = ?2 \
+               AND NOT EXISTS (SELECT 1 FROM block_documents WHERE document_id = ?1)",
+            params![document_id, library_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((schema_key, schema_version, readiness, authority, sync_engine)) = document else {
+        return Ok(None);
+    };
+    if schema_key != "nodex.page"
+        || schema_version != 2
+        || readiness != "ready"
+        || authority != "ydoc_primary"
+        || sync_engine != "yjs"
+    {
+        return Ok(None);
+    }
+    let indexed = connection
+        .prepare(
+            "SELECT entry.block_id, entry.parent_block_id, block.type, block.lifecycle \
+             FROM document_block_index entry JOIN blocks block ON block.id = entry.block_id \
+             WHERE entry.document_id = ?1 AND block.library_id = ?2 ORDER BY entry.block_id",
+        )?
+        .query_map(params![document_id, library_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let [(block_id, parent_block_id, block_type, lifecycle)] = indexed.as_slice() else {
+        return Ok(None);
+    };
+    if block_id != placeholder_block_id
+        || parent_block_id.is_some()
+        || block_type != "paragraph"
+        || lifecycle != "active"
+    {
+        return Ok(None);
+    }
+    Ok(Some(CandidateClosure {
+        root_block_id: placeholder_block_id.to_owned(),
+        library_id: library_id.to_owned(),
+        block_ids: BTreeSet::from([placeholder_block_id.to_owned()]),
+        document_ids: BTreeSet::from([document_id.to_owned()]),
+        owner_block_ids: BTreeSet::new(),
+    }))
+}
+
+fn collect_dormant_document_closure(
+    connection: &Connection,
+    closure: &CandidateClosure,
+    retired_at: &str,
+) -> Result<(), StoreError> {
+    let mut document_ids = closure.document_ids.iter();
+    let Some(document_id) = document_ids.next() else {
+        return Err(corrupt("Dormant Document closure is not exact"));
+    };
+    if document_ids.next().is_some() {
+        return Err(corrupt("Dormant Document closure is not exact"));
+    }
+    let mut block_ids = closure.block_ids.iter();
+    let Some(block_id) = block_ids.next() else {
+        return Err(corrupt("Dormant Document placeholder closure is not exact"));
+    };
+    if block_ids.next().is_some() {
+        return Err(corrupt("Dormant Document placeholder closure is not exact"));
+    }
+    let changed = connection.execute(
+        "UPDATE blocks SET lifecycle = 'deleted', metadata_revision = metadata_revision + 1, \
+           updated_at = ?1 WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'active'",
+        params![retired_at, block_id, closure.library_id],
+    )?;
+    if changed != 1 {
+        return Err(conflict(
+            "Dormant Document placeholder changed before collection",
+        ));
+    }
+    connection.execute(
+        "INSERT INTO retired_block_identities( \
+           block_id, library_id, block_type, retention_root_block_id, retired_at \
+         ) SELECT id, library_id, type, id, ?1 FROM blocks \
+           WHERE id = ?2 AND library_id = ?3 AND lifecycle = 'deleted'",
+        params![retired_at, block_id, closure.library_id],
+    )?;
+    let deleted_document = connection.execute(
+        "DELETE FROM documents WHERE id = ?1 AND library_id = ?2 \
+           AND NOT EXISTS (SELECT 1 FROM block_documents WHERE document_id = ?1)",
+        params![document_id, closure.library_id],
+    )?;
+    if deleted_document != 1 {
+        return Err(conflict("Dormant Document changed before collection"));
+    }
+    let deleted_block = connection.execute(
+        "DELETE FROM blocks WHERE id = ?1 AND library_id = ?2 AND lifecycle = 'deleted'",
+        params![block_id, closure.library_id],
+    )?;
+    if deleted_block != 1 {
+        return Err(conflict(
+            "Dormant Document placeholder changed before collection",
+        ));
+    }
+    Ok(())
 }
 
 fn maintain_candidate(

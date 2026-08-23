@@ -8,6 +8,7 @@ import type {
   LibraryStructuralEditResult,
   LibraryStructuralHistoryToken,
   LibraryStructuralReplacementBlock,
+  LibraryStructuralTurnIntoTarget,
 } from "../../../../shared/library-module";
 import { createUuidV7 } from "../../../../shared/uuid-v7";
 import { hasTypedOwnerBlock, type TypedOwnerBlockLike } from "../../../lib/typed-owner-blocks";
@@ -276,6 +277,44 @@ export class NfmStructuralEditingSession {
           operation: {
             kind: "apply_structural_edit",
             command: { kind: "duplicate_selection", selection, target },
+          },
+        }),
+      );
+      this.history.recordStructural(result);
+      await this.restoreSelection(result, result.resultRootBlockIds.at(-1));
+    });
+    return true;
+  }
+
+  turnBlocksInto(
+    rootBlockIds: readonly string[],
+    expandedBlockIds: readonly string[],
+    target: LibraryStructuralTurnIntoTarget,
+  ): boolean {
+    const roots = rootBlockIds
+      .map((blockId) => this.editor.getBlock(blockId) as StructuralEditorBlock | undefined)
+      .filter((block): block is StructuralEditorBlock => Boolean(block));
+    const expandedBlocks = expandedBlockIds
+      .map((blockId) => this.editor.getBlock(blockId) as StructuralEditorBlock | undefined)
+      .filter((block): block is StructuralEditorBlock => Boolean(block));
+    if (
+      !hasTypedOwnerBlock(expandedBlocks) ||
+      this.disposed ||
+      roots.length === 0 ||
+      roots.length !== rootBlockIds.length ||
+      expandedBlocks.length !== expandedBlockIds.length
+    ) {
+      return false;
+    }
+    this.start(async () => {
+      const selection = await this.prepareSelection(roots);
+      const result = applyResult(
+        await this.apply(this.boundRuntime.accessContext, {
+          operationId: createUuidV7(),
+          storeEpoch: this.boundRuntime.source.storeEpoch,
+          operation: {
+            kind: "apply_structural_edit",
+            command: { kind: "turn_selection_into", selection, target },
           },
         }),
       );

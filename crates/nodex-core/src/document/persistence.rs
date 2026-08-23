@@ -1546,16 +1546,6 @@ pub(crate) fn replace_page_reference_projection(
         else {
             continue;
         };
-        let target_type = connection
-            .query_row(
-                "SELECT type FROM blocks WHERE id = ?1",
-                [target_page_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        if target_type.is_some_and(|target_type| target_type != "page") {
-            continue;
-        }
         let presentation = match presentation {
             crate::domain::derived_records::PageReferencePresentation::Mention => "mention",
             crate::domain::derived_records::PageReferencePresentation::ReferenceBlock => {

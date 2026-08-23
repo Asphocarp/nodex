@@ -157,10 +157,12 @@ and scene authority stores a `nodex://assets/*` URI.
 
 Page Documents derive Page Mention, Page Reference Block, and Page Link
 occurrences into one normalized Page-reference projection in the same durable
-transaction as materialization. The projection stores canonical target Page
-identity, source Page and Block identity, presentation, and occurrence count;
-candidate and backlink reads apply the caller's existing content-access
-authority before exposing rows or counts. Owning `page` shells are excluded.
+transaction as materialization. The projection stores canonical target Block
+identity, source Page and Block identity, presentation, and occurrence count,
+even while the target Block does not have an active Page capability. Candidate,
+resolution, and backlink reads require the active Page capability and apply the
+caller's existing content-access authority before exposing rows or counts.
+Owning `page` shells are excluded.
 
 A Canvas Block has one exclusive Library or Page placement and one row in
 `canvas_owners`. Its stable Canvas ID is its Block ID; clients resolve the
@@ -393,10 +395,14 @@ structural targets remain ineligible for consent.
 
 A structural edit is one Core-owned mutation over an ordered root forest whose
 ownership closure contains at least one typed owner. It is the authority for
-mixed delete, clipboard capture/paste, duplicate, and move. The operation owns
-all host Document, owner lifecycle, parentage, owned Document, Canvas, Database,
-projection, retention, and inverse-recipe effects; a generic Document update
-cannot perform any subset of that work.
+mixed delete, clipboard capture/paste, duplicate, move, and lossless Page-to-
+ordinary reclassification. Page reclassification preserves the Block identity,
+makes the rich title its inline content, and moves Page body roots beneath the
+resulting Block while the same Page Document remains dormant for structural
+history. Reversal restores that same Page and Document identity. The operation
+owns all host Document, owner lifecycle, parentage, owned Document, Canvas,
+Database, projection, retention, and inverse-recipe effects; a generic Document
+update cannot perform any subset of that work.
 
 A Structural Clipboard Bundle is an immutable same-Library snapshot addressed
 by a bounded capability. A cut claim is its separate single-use right to move

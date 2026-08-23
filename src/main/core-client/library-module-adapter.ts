@@ -413,6 +413,12 @@ const toCoreStructuralCommand = (command: StructuralEditCommand) => {
                 blocks: command.replacement.blocks.map(toCoreStructuralReplacementBlock),
               },
       } as const;
+    case "turn_selection_into":
+      return {
+        kind: command.kind,
+        selection: toCoreStructuralSelection(command.selection),
+        target: command.target,
+      } as const;
     case "release_history":
       return {
         kind: command.kind,
@@ -1951,8 +1957,7 @@ export const createCoreLibraryModuleAdapter = (
                       }
                     : null,
                   supersededHistoryRecipeOperationIds:
-                    committed.outcome.structural_edit
-                      .superseded_history_recipe_operation_ids,
+                    committed.outcome.structural_edit.superseded_history_recipe_operation_ids,
                   resume: committed.outcome.structural_edit.resume
                     ? {
                         blockId: committed.outcome.structural_edit.resume.block_id,

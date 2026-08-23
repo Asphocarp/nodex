@@ -1,0 +1,199 @@
+use nodex_core_contracts::library::LibraryStructuralTurnIntoTarget;
+use serde_json::Value;
+use thiserror::Error;
+
+use super::block_materialization::{MaterializedBlockNode, dematerialize_block_tree};
+use super::materialized_inline::{MaterializedInlineError, materialized_inline_from_rich_text};
+use super::ordinary_block::{canonical_ordinary_block_shape, default_props};
+use super::rich_text::RichTextItem;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PageToBlockTransformation {
+    pub block: MaterializedBlockNode,
+    pub retained_empty_placeholder_id: Option<String>,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum PageToBlockError {
+    #[error(transparent)]
+    InvalidTitle(#[from] MaterializedInlineError),
+    #[error("Page body contains an invalid Block tree: {0}")]
+    InvalidBody(String),
+    #[error("Turn into produced an invalid Block tree: {0}")]
+    InvalidResult(String),
+}
+
+pub fn plan_page_to_block_transformation(
+    page_id: &str,
+    rich_title: &[RichTextItem],
+    body_roots: &[MaterializedBlockNode],
+    target: &LibraryStructuralTurnIntoTarget,
+) -> Result<PageToBlockTransformation, PageToBlockError> {
+    dematerialize_block_tree(body_roots)
+        .map_err(|error| PageToBlockError::InvalidBody(error.to_string()))?;
+    let retained_empty_placeholder_id = semantic_empty_body_id(body_roots).map(str::to_owned);
+    let children = if retained_empty_placeholder_id.is_none() {
+        body_roots.to_vec()
+    } else {
+        Vec::new()
+    };
+    let (block_type, props) = canonical_ordinary_block_shape(target);
+    let block = MaterializedBlockNode {
+        id: page_id.to_owned(),
+        block_type: block_type.to_owned(),
+        props,
+        content: Some(materialized_inline_from_rich_text(rich_title)?),
+        children,
+    };
+    dematerialize_block_tree(std::slice::from_ref(&block))
+        .map_err(|error| PageToBlockError::InvalidResult(error.to_string()))?;
+    Ok(PageToBlockTransformation {
+        block,
+        retained_empty_placeholder_id,
+    })
+}
+
+fn semantic_empty_body_id(body_roots: &[MaterializedBlockNode]) -> Option<&str> {
+    let [root] = body_roots else {
+        return None;
+    };
+    if root.block_type != "paragraph"
+        || root.props != default_props()
+        || root.content.as_ref() != Some(&Value::Array(Vec::new()))
+        || !root.children.is_empty()
+    {
+        return None;
+    }
+    Some(&root.id)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use nodex_core_contracts::library::{LibraryHeadingLevel, LibraryStructuralTurnIntoTarget};
+    use serde_json::json;
+
+    use super::*;
+    use crate::domain::rich_text::RichTextStyles;
+
+    fn paragraph(id: &str, text: &str) -> MaterializedBlockNode {
+        MaterializedBlockNode {
+            id: id.to_owned(),
+            block_type: "paragraph".to_owned(),
+            props: default_props(),
+            content: Some(json!([{ "type": "text", "text": text, "styles": {} }])),
+            children: Vec::new(),
+        }
+    }
+
+    fn all_targets() -> Vec<(LibraryStructuralTurnIntoTarget, &'static str)> {
+        let headings = [
+            LibraryHeadingLevel::One,
+            LibraryHeadingLevel::Two,
+            LibraryHeadingLevel::Three,
+        ]
+        .into_iter()
+        .flat_map(|level| {
+            [false, true].map(move |toggleable| {
+                (
+                    LibraryStructuralTurnIntoTarget::Heading { level, toggleable },
+                    "heading",
+                )
+            })
+        });
+        std::iter::once((LibraryStructuralTurnIntoTarget::Paragraph, "paragraph"))
+            .chain(headings)
+            .chain([
+                (
+                    LibraryStructuralTurnIntoTarget::BulletedList,
+                    "bulletListItem",
+                ),
+                (
+                    LibraryStructuralTurnIntoTarget::NumberedList,
+                    "numberedListItem",
+                ),
+                (LibraryStructuralTurnIntoTarget::TodoList, "checkListItem"),
+                (
+                    LibraryStructuralTurnIntoTarget::ToggleList,
+                    "toggleListItem",
+                ),
+                (LibraryStructuralTurnIntoTarget::Quote, "quote"),
+                (LibraryStructuralTurnIntoTarget::Callout, "callout"),
+                (LibraryStructuralTurnIntoTarget::Code, "codeBlock"),
+            ])
+            .collect()
+    }
+
+    #[test]
+    fn every_target_keeps_identity_title_and_body_hierarchy() {
+        let body = vec![MaterializedBlockNode {
+            children: vec![paragraph("grandchild", "nested")],
+            ..paragraph("child", "body")
+        }];
+        let title = vec![
+            RichTextItem::Text {
+                text: "Title ".to_owned(),
+                styles: RichTextStyles {
+                    bold: true,
+                    ..RichTextStyles::default()
+                },
+            },
+            RichTextItem::PageMention {
+                target_page_id: "mentioned-page".to_owned(),
+            },
+        ];
+        let targets = all_targets();
+        assert_eq!(targets.len(), 14);
+        for (target, expected_type) in targets {
+            let plan = plan_page_to_block_transformation("page-a", &title, &body, &target)
+                .expect("valid transformation");
+            assert_eq!(plan.block.id, "page-a");
+            assert_eq!(plan.block.block_type, expected_type);
+            assert_eq!(plan.block.children, body);
+            assert_eq!(plan.retained_empty_placeholder_id, None);
+            assert_eq!(
+                crate::domain::materialized_inline::rich_text_from_materialized_inline(
+                    plan.block.content.as_ref().expect("content")
+                )
+                .expect("decoded")
+                .rich_text,
+                title
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_canonical_empty_body_stays_in_the_dormant_document() {
+        let empty = MaterializedBlockNode {
+            id: "empty".to_owned(),
+            block_type: "paragraph".to_owned(),
+            props: default_props(),
+            content: Some(Value::Array(Vec::new())),
+            children: Vec::new(),
+        };
+        let plan = plan_page_to_block_transformation(
+            "page-a",
+            &[],
+            std::slice::from_ref(&empty),
+            &LibraryStructuralTurnIntoTarget::Paragraph,
+        )
+        .expect("valid transformation");
+        assert!(plan.block.children.is_empty());
+        assert_eq!(plan.retained_empty_placeholder_id.as_deref(), Some("empty"));
+
+        let noncanonical = MaterializedBlockNode {
+            props: BTreeMap::new(),
+            ..empty
+        };
+        let plan = plan_page_to_block_transformation(
+            "page-a",
+            &[],
+            std::slice::from_ref(&noncanonical),
+            &LibraryStructuralTurnIntoTarget::Paragraph,
+        )
+        .expect("valid transformation");
+        assert_eq!(plan.block.children, vec![noncanonical]);
+        assert_eq!(plan.retained_empty_placeholder_id, None);
+    }
+}

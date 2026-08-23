@@ -47,6 +47,36 @@ A cloned root title advances one canonical trailing positive-number suffix, or a
 
 Duplicate and structural drag/copy use the same closure planner without changing the system clipboard. Structural Move to and drag/move preserve identities and are rejected when the destination is inside the moved ownership closure. Mixed structural selections may move between Page Documents; destinations that would require converting ordinary Blocks into Database rows remain separate typed product actions.
 
+## Turn into
+
+`Turn into` supports Text, Heading 1/2/3, Toggle heading 1/2/3, Bulleted list,
+Numbered list, To-do list, Toggle list, Quote, Callout, and Code. An
+ordinary-only selection is reclassified in one local collaborative
+transaction. When the selected host forest contains a Page, Core performs one
+typed structural transaction for the complete forest. Canvas and Database do
+not have a lossless ordinary representation and therefore reject the complete
+action.
+
+A turned Subpage keeps its Block ID. Its rich Page title becomes the ordinary
+Block's inline content, and its Page body roots become direct children without
+changing their IDs, types, hierarchy, or deeper owner identities. Nested Pages
+that moved with that body inherit the enclosing host Page as their owning Page
+parent. The original Page Document becomes dormant and inaccessible while the
+ordinary Block is active; structural history retains that Document until the
+action can no longer be undone.
+
+One Undo restores the same Page ID, Page Document ID, rich title, body,
+Properties, grants, projections, and nested-owner parentage. Redo performs the
+same typed transition again and preserves identity while Document heads remain
+monotonic. A changed active subtree, claimed dormant Document, or conflicting
+nested-owner placement fails closed instead of overwriting concurrent work.
+An open tab for the turned Page remains a stable Page reference and presents
+the normal unavailable state until Undo restores the Page capability.
+
+After a successful conversion, the editor resumes at the end of the last
+result root. A user-selected focus target, tab, or Stage chosen while the
+operation is pending always wins over that default resume target.
+
 ## Undo and redo
 
 Each mounted editor surface owns one chronological history lane. Local Yjs StackItems and opaque Core structural history tokens appear in the lane in the order the user acted. Remote collaborative changes do not create local entries.

@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
+import type { NfmTurnBlocksIntoInput } from "../../../lib/nfm-turn-into-targets";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 
 export interface NfmSideMenuRuntimeSnapshot {
@@ -18,6 +19,7 @@ export interface NfmSideMenuRuntimeSnapshot {
   onBlockDragEnd: () => void;
   onDuplicateBlocks: (blockIds: readonly string[]) => boolean;
   onDeleteBlocks: (blockIds: readonly string[]) => boolean;
+  onTurnBlocksInto: (input: NfmTurnBlocksIntoInput) => boolean;
 }
 
 export interface NfmSideMenuRuntimeValue {
@@ -36,6 +38,7 @@ const DEFAULT_SIDE_MENU_RUNTIME: NfmSideMenuRuntimeValue = {
     onBlockDragEnd: () => undefined,
     onDuplicateBlocks: () => false,
     onDeleteBlocks: () => false,
+    onTurnBlocksInto: () => false,
   }),
 };
 
