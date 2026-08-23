@@ -52,7 +52,7 @@ const envelope = <Result>(
   },
 });
 
-const operationIdFor = (
+export const nativeNodexAgentPageCopyOperationId = (
   request: Pick<PrepareNodexAgentDuplicatePageRequest, "threadId" | "callId">,
 ): string =>
   `nodex-agent-duplicate:${createHash("sha256")
@@ -151,7 +151,7 @@ export const prepareNativeNodexAgentPageCopy = async (
     PendingNativePageCopy
   >
 > => {
-  const operationId = operationIdFor(request);
+  const operationId = nativeNodexAgentPageCopyOperationId(request);
   try {
     if (!request.authority) {
       throw new Error("Native Agent Page copy requires frozen Turn authority");

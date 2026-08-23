@@ -139,7 +139,7 @@ export const mapNativeNodexAgentCoreError = (error: unknown): ToolError => {
   };
 };
 
-const operationIdFor = (
+export const nativeNodexAgentPageUpdateOperationId = (
   request: Pick<PrepareNodexAgentPageUpdateRequest, "threadId" | "callId" | "tool">,
 ): string =>
   `nodex-agent-edit:${createHash("sha256")
@@ -432,7 +432,7 @@ export const prepareNativeNodexAgentPageUpdate = async (
     PendingNativePageUpdate
   >
 > => {
-  const operationId = operationIdFor(request);
+  const operationId = nativeNodexAgentPageUpdateOperationId(request);
   try {
     if (!request.authority) {
       return {
@@ -683,7 +683,7 @@ export const completeNativeNodexAgentPageUpdate = async (
     PendingNativePageUpdate
   >
 > => {
-  const operationId = operationIdFor(request);
+  const operationId = nativeNodexAgentPageUpdateOperationId(request);
   const committed = pending?.committed;
   const matchesCommit =
     pending &&
@@ -758,7 +758,7 @@ export class NativeNodexAgentPageUpdateRuntime {
   async complete(
     request: CompleteNodexAgentPageUpdateRequest,
   ): Promise<NodexAgentMutationEnvelope<CompleteNodexAgentPageUpdateResult>> {
-    const operationId = operationIdFor(request);
+    const operationId = nativeNodexAgentPageUpdateOperationId(request);
     const step = await completeNativeNodexAgentPageUpdate(
       this.runtime,
       this.pending.get(operationId),

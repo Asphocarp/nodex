@@ -2,7 +2,9 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
+import * as RcMap from "effect/RcMap";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -38,22 +40,26 @@ import { readNativeFetch } from "../core-client/native-nodex-agent-fetch";
 import type { NativeNodexAgentMutationTransition } from "../core-client/native-nodex-agent-mutation-step";
 import {
   executeNativeNodexAgentPageCopy,
+  nativeNodexAgentPageCopyOperationId,
   prepareNativeNodexAgentPageCopy,
   type PendingNativePageCopy,
 } from "../core-client/native-nodex-agent-page-copy";
 import {
   executeNativeNodexAgentPageCreate,
+  nativeNodexAgentPageCreateOperationId,
   prepareNativeNodexAgentPageCreate,
   type PendingNativePageCreate,
 } from "../core-client/native-nodex-agent-page-create";
 import {
   executeNativeNodexAgentPageMove,
+  nativeNodexAgentPageMoveOperationId,
   prepareNativeNodexAgentPageMove,
   type PendingNativePageMove,
 } from "../core-client/native-nodex-agent-page-move";
 import {
   applyNativeNodexAgentPageUpdate,
   completeNativeNodexAgentPageUpdate,
+  nativeNodexAgentPageUpdateOperationId,
   prepareNativeNodexAgentPageUpdate,
   type PendingNativePageUpdate,
 } from "../core-client/native-nodex-agent-page-update";
@@ -74,14 +80,14 @@ export class NodexAgentApplicationError extends Schema.TaggedError<NodexAgentApp
   { operation: Schema.String, cause: Schema.Defect() },
 ) {}
 
-type NodexAgentEffect<A> = Effect.Effect<
-  A,
+export type NodexAgentApplicationFailure =
   | CoreMinimumCommitTimeout
   | CoreRuntimeError
   | CoreStoreEpochMismatch
   | DatabaseModuleError
-  | NodexAgentApplicationError
->;
+  | NodexAgentApplicationError;
+
+type NodexAgentEffect<A> = Effect.Effect<A, NodexAgentApplicationFailure>;
 
 export type NodexAgentPreparation =
   | { readonly kind: "page_update"; readonly request: PrepareNodexAgentPageUpdateRequest }
@@ -216,6 +222,9 @@ export const live: Layer.Layer<
     const pageCopies = yield* Ref.make<ReadonlyMap<string, PendingNativePageCopy>>(new Map());
     const pageCreates = yield* Ref.make<ReadonlyMap<string, PendingNativePageCreate>>(new Map());
     const pageMoves = yield* Ref.make<ReadonlyMap<string, PendingNativePageMove>>(new Map());
+    const mutationLanes = yield* RcMap.make({
+      lookup: (_mutationId: string) => Semaphore.make(1),
+    });
     const closed = yield* Ref.make(false);
     yield* Effect.addFinalizer(() =>
       Ref.set(closed, true).pipe(
@@ -259,6 +268,16 @@ export const live: Layer.Layer<
         try: run,
         catch: (cause) => new NodexAgentApplicationError({ operation, cause }),
       });
+    const inMutationLane = <A, E, R>(
+      mutationId: string,
+      operation: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, E, R> =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const lane = yield* RcMap.get(mutationLanes, mutationId);
+          return yield* lane.withPermit(operation);
+        }),
+      );
 
     const readContext = (
       request: Extract<NodexAgentV3ReadRequest, { readonly tool: "get_context" }>,
@@ -417,112 +436,137 @@ export const live: Layer.Layer<
           ),
           Effect.map((result) => envelope(result, request.callId ?? `nodex-agent:${request.tool}`)),
         ),
-      prepare: (preparation) =>
-        Effect.gen(function* () {
-          switch (preparation.kind) {
-            case "page_update": {
-              const step = yield* useNative("nodexAgent.prepare.pageUpdate", (runtime, signal) =>
-                prepareNativeNodexAgentPageUpdate(runtime, preparation.request, signal),
-              );
-              yield* commitTransition(pageUpdates, step.transition, "evict_oldest");
-              return { kind: preparation.kind, value: step.result } as const;
+      prepare: (preparation) => {
+        const mutationId =
+          preparation.kind === "page_update"
+            ? nativeNodexAgentPageUpdateOperationId(preparation.request)
+            : preparation.kind === "create_pages"
+              ? nativeNodexAgentPageCreateOperationId(preparation.request)
+              : preparation.kind === "duplicate_page"
+                ? nativeNodexAgentPageCopyOperationId(preparation.request)
+                : nativeNodexAgentPageMoveOperationId(preparation.request);
+        return inMutationLane(
+          mutationId,
+          Effect.gen(function* () {
+            switch (preparation.kind) {
+              case "page_update": {
+                const step = yield* useNative("nodexAgent.prepare.pageUpdate", (runtime, signal) =>
+                  prepareNativeNodexAgentPageUpdate(runtime, preparation.request, signal),
+                );
+                yield* commitTransition(pageUpdates, step.transition, "evict_oldest");
+                return { kind: preparation.kind, value: step.result } as const;
+              }
+              case "create_pages": {
+                const step = yield* useNative("nodexAgent.prepare.createPages", (runtime, signal) =>
+                  prepareNativeNodexAgentPageCreate(runtime, preparation.request, signal),
+                );
+                const retained = yield* commitTransition(pageCreates, step.transition, "reject");
+                return {
+                  kind: preparation.kind,
+                  value: retained
+                    ? step.result
+                    : capacityFailure<PrepareNodexAgentCreatePagesResult>(
+                        step.result.metrics.mutationId,
+                      ),
+                } as const;
+              }
+              case "duplicate_page": {
+                const step = yield* useNative(
+                  "nodexAgent.prepare.duplicatePage",
+                  (runtime, signal) =>
+                    prepareNativeNodexAgentPageCopy(runtime, preparation.request, signal),
+                );
+                const retained = yield* commitTransition(pageCopies, step.transition, "reject");
+                return {
+                  kind: preparation.kind,
+                  value: retained
+                    ? step.result
+                    : capacityFailure<PrepareNodexAgentDuplicatePageResult>(
+                        step.result.metrics.mutationId,
+                      ),
+                } as const;
+              }
+              case "move_pages": {
+                const step = yield* useNative("nodexAgent.prepare.movePages", (runtime, signal) =>
+                  prepareNativeNodexAgentPageMove(runtime, preparation.request, signal),
+                );
+                const retained = yield* commitTransition(pageMoves, step.transition, "reject");
+                return {
+                  kind: preparation.kind,
+                  value: retained
+                    ? step.result
+                    : capacityFailure<PrepareNodexAgentMovePagesResult>(
+                        step.result.metrics.mutationId,
+                      ),
+                } as const;
+              }
             }
-            case "create_pages": {
-              const step = yield* useNative("nodexAgent.prepare.createPages", (runtime, signal) =>
-                prepareNativeNodexAgentPageCreate(runtime, preparation.request, signal),
-              );
-              const retained = yield* commitTransition(pageCreates, step.transition, "reject");
-              return {
-                kind: preparation.kind,
-                value: retained
-                  ? step.result
-                  : capacityFailure<PrepareNodexAgentCreatePagesResult>(
-                      step.result.metrics.mutationId,
-                    ),
-              } as const;
-            }
-            case "duplicate_page": {
-              const step = yield* useNative("nodexAgent.prepare.duplicatePage", (runtime, signal) =>
-                prepareNativeNodexAgentPageCopy(runtime, preparation.request, signal),
-              );
-              const retained = yield* commitTransition(pageCopies, step.transition, "reject");
-              return {
-                kind: preparation.kind,
-                value: retained
-                  ? step.result
-                  : capacityFailure<PrepareNodexAgentDuplicatePageResult>(
-                      step.result.metrics.mutationId,
-                    ),
-              } as const;
-            }
-            case "move_pages": {
-              const step = yield* useNative("nodexAgent.prepare.movePages", (runtime, signal) =>
-                prepareNativeNodexAgentPageMove(runtime, preparation.request, signal),
-              );
-              const retained = yield* commitTransition(pageMoves, step.transition, "reject");
-              return {
-                kind: preparation.kind,
-                value: retained
-                  ? step.result
-                  : capacityFailure<PrepareNodexAgentMovePagesResult>(
-                      step.result.metrics.mutationId,
-                    ),
-              } as const;
-            }
-          }
-        }),
+          }),
+        );
+      },
       completePageUpdate: (request) =>
-        Effect.gen(function* () {
-          const pending = (yield* Ref.get(pageUpdates)).get(request.result.mutationId);
-          const step = yield* useNative("nodexAgent.completePageUpdate", (runtime, signal) =>
-            completeNativeNodexAgentPageUpdate(runtime, pending, request, signal),
-          );
-          yield* commitTransition(pageUpdates, step.transition, "evict_oldest");
-          return step.result;
-        }),
-      apply: (command) =>
-        Effect.gen(function* () {
-          switch (command.kind) {
-            case "document_mutation": {
-              const pending = (yield* Ref.get(pageUpdates)).get(command.request.mutationId);
-              const step = yield* useNative("nodexAgent.apply.pageUpdate", (runtime, signal) =>
-                applyNativeNodexAgentPageUpdate(runtime, pending, command.request, signal),
-              );
-              yield* commitTransition(pageUpdates, step.transition, "evict_oldest");
-              return { kind: command.kind, value: step.result } as const;
+        inMutationLane(
+          request.result.mutationId,
+          Effect.gen(function* () {
+            const pending = (yield* Ref.get(pageUpdates)).get(request.result.mutationId);
+            const step = yield* useNative("nodexAgent.completePageUpdate", (runtime, signal) =>
+              completeNativeNodexAgentPageUpdate(runtime, pending, request, signal),
+            );
+            yield* commitTransition(pageUpdates, step.transition, "evict_oldest");
+            return step.result;
+          }),
+        ),
+      apply: (command) => {
+        const mutationId =
+          command.kind === "document_mutation"
+            ? command.request.mutationId
+            : command.command.mutationId;
+        return inMutationLane(
+          mutationId,
+          Effect.gen(function* () {
+            switch (command.kind) {
+              case "document_mutation": {
+                const pending = (yield* Ref.get(pageUpdates)).get(command.request.mutationId);
+                const step = yield* useNative("nodexAgent.apply.pageUpdate", (runtime, signal) =>
+                  applyNativeNodexAgentPageUpdate(runtime, pending, command.request, signal),
+                );
+                yield* commitTransition(pageUpdates, step.transition, "evict_oldest");
+                return { kind: command.kind, value: step.result } as const;
+              }
+              case "create_pages": {
+                const pending = (yield* Ref.get(pageCreates)).get(command.command.mutationId);
+                const step = yield* useNative("nodexAgent.apply.createPages", (runtime, signal) =>
+                  executeNativeNodexAgentPageCreate(
+                    runtime,
+                    pending,
+                    command.command,
+                    command.documentHeads,
+                    signal,
+                  ),
+                );
+                yield* commitTransition(pageCreates, step.transition, "reject");
+                return { kind: command.kind, value: step.result } as const;
+              }
+              case "duplicate_page": {
+                const pending = (yield* Ref.get(pageCopies)).get(command.command.mutationId);
+                const step = yield* useNative("nodexAgent.apply.duplicatePage", (runtime, signal) =>
+                  executeNativeNodexAgentPageCopy(runtime, pending, command.command, signal),
+                );
+                yield* commitTransition(pageCopies, step.transition, "reject");
+                return { kind: command.kind, value: step.result } as const;
+              }
+              case "move_pages": {
+                const pending = (yield* Ref.get(pageMoves)).get(command.command.mutationId);
+                const step = yield* useNative("nodexAgent.apply.movePages", (runtime, signal) =>
+                  executeNativeNodexAgentPageMove(runtime, pending, command.command, signal),
+                );
+                yield* commitTransition(pageMoves, step.transition, "reject");
+                return { kind: command.kind, value: step.result } as const;
+              }
             }
-            case "create_pages": {
-              const pending = (yield* Ref.get(pageCreates)).get(command.command.mutationId);
-              const step = yield* useNative("nodexAgent.apply.createPages", (runtime, signal) =>
-                executeNativeNodexAgentPageCreate(
-                  runtime,
-                  pending,
-                  command.command,
-                  command.documentHeads,
-                  signal,
-                ),
-              );
-              yield* commitTransition(pageCreates, step.transition, "reject");
-              return { kind: command.kind, value: step.result } as const;
-            }
-            case "duplicate_page": {
-              const pending = (yield* Ref.get(pageCopies)).get(command.command.mutationId);
-              const step = yield* useNative("nodexAgent.apply.duplicatePage", (runtime, signal) =>
-                executeNativeNodexAgentPageCopy(runtime, pending, command.command, signal),
-              );
-              yield* commitTransition(pageCopies, step.transition, "reject");
-              return { kind: command.kind, value: step.result } as const;
-            }
-            case "move_pages": {
-              const pending = (yield* Ref.get(pageMoves)).get(command.command.mutationId);
-              const step = yield* useNative("nodexAgent.apply.movePages", (runtime, signal) =>
-                executeNativeNodexAgentPageMove(runtime, pending, command.command, signal),
-              );
-              yield* commitTransition(pageMoves, step.transition, "reject");
-              return { kind: command.kind, value: step.result } as const;
-            }
-          }
-        }),
+          }),
+        );
+      },
     });
   }),
 );

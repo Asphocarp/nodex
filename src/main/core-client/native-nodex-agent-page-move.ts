@@ -54,7 +54,7 @@ const envelope = <Result>(
   },
 });
 
-const operationIdFor = (
+export const nativeNodexAgentPageMoveOperationId = (
   request: Pick<PrepareNodexAgentMovePagesRequest, "threadId" | "callId">,
 ): string =>
   `nodex-agent-move-pages:${createHash("sha256")
@@ -176,7 +176,7 @@ export const prepareNativeNodexAgentPageMove = async (
     PendingNativePageMove
   >
 > => {
-  const operationId = operationIdFor(request);
+  const operationId = nativeNodexAgentPageMoveOperationId(request);
   try {
     if (!request.authority) {
       throw new Error("Native Agent Page movement requires frozen Turn authority");

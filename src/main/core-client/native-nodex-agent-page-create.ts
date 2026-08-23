@@ -54,7 +54,7 @@ const envelope = <Result>(
   },
 });
 
-const operationIdFor = (
+export const nativeNodexAgentPageCreateOperationId = (
   request: Pick<PrepareNodexAgentCreatePagesRequest, "threadId" | "callId">,
 ): string =>
   `nodex-agent-create-pages:${createHash("sha256")
@@ -187,7 +187,7 @@ export const prepareNativeNodexAgentPageCreate = async (
     PendingNativePageCreate
   >
 > => {
-  const operationId = operationIdFor(request);
+  const operationId = nativeNodexAgentPageCreateOperationId(request);
   try {
     if (!request.authority) {
       throw new Error("Native Agent Page creation requires frozen Turn authority");

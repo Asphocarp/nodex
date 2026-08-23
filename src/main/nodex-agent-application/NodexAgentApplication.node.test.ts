@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -102,15 +103,18 @@ const applicationLayerFor = (
   client: CoreGenerationClient,
   handshake: CoreGenerationClient["handshake"],
   projectScopes: Array<string | undefined> = [],
+  sessionAccess?: CoreSessionAccess["Service"],
 ) => {
-  const access = CoreSessionAccess.of({
-    use: (_operation, run, options) =>
-      Effect.promise((signal) => {
-        projectScopes.push(options?.projectId);
-        return run(client, signal);
-      }),
-    handshake: Effect.succeed(handshake),
-  });
+  const access =
+    sessionAccess ??
+    CoreSessionAccess.of({
+      use: (_operation, run, options) =>
+        Effect.promise((signal) => {
+          projectScopes.push(options?.projectId);
+          return run(client, signal);
+        }),
+      handshake: Effect.succeed(handshake),
+    });
   const authority = CoreAuthority.of({ identity } as CoreAuthority["Service"]);
   const authorityLayer = Layer.succeed(CoreAuthority, authority);
   const accessLayer = Layer.succeed(CoreSessionAccess, access);
@@ -283,6 +287,88 @@ it.effect("carries interruption to the in-flight Core request", () => {
     }),
   );
 });
+
+it.effect("serializes one mutation identity without blocking independent mutations", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const client = new FakeCoreClient();
+      const handshake = createFakeCoreHandshake(identity);
+      const generationClient = Object.assign(client, {
+        handshake,
+        forProject: () => generationClient,
+        health: () =>
+          Promise.resolve({
+            pid: 1,
+            start_nonce: handshake.generation.start_nonce,
+            status: "ready" as const,
+          }),
+        shutdown: () => Promise.resolve({ status: "draining" as const }),
+      }) as unknown as CoreGenerationClient;
+      let entered = 0;
+      let active = 0;
+      let maximumActive = 0;
+      let expectedEntries = 1;
+      let allEntered = yield* Deferred.make<void>();
+      let release = yield* Deferred.make<void>();
+      const sessionAccess = CoreSessionAccess.of({
+        handshake: Effect.succeed(handshake),
+        use: (_operation, run) =>
+          Effect.gen(function* () {
+            entered += 1;
+            active += 1;
+            maximumActive = Math.max(maximumActive, active);
+            if (entered === expectedEntries) yield* Deferred.succeed(allEntered, undefined);
+            yield* Deferred.await(release);
+            return yield* Effect.promise((signal) => run(generationClient, signal));
+          }).pipe(Effect.ensuring(Effect.sync(() => (active -= 1)))),
+      });
+      const context = yield* Layer.build(
+        applicationLayerFor(generationClient, handshake, [], sessionAccess),
+      );
+      const application = Context.get(context, NodexAgentApplication);
+      const command = (mutationId: string) =>
+        application.apply({
+          kind: "document_mutation",
+          request: {
+            mutationId,
+            projectId,
+            storeEpoch: identity.storeEpoch,
+            clientSessionId: "nodex-agent:thread:lane",
+            actor: { kind: "nodex_agent", threadId: "thread:lane", callId: "call:lane" },
+            documentId: "document:lane",
+            generation: 1,
+            expectedHeadSeq: 1,
+            operations: [],
+          },
+        });
+
+      const sameFirst = yield* command("mutation:same").pipe(Effect.forkChild);
+      yield* Deferred.await(allEntered);
+      const sameSecond = yield* command("mutation:same").pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      assert.strictEqual(entered, 1);
+      assert.strictEqual(maximumActive, 1);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(sameFirst);
+      yield* Fiber.join(sameSecond);
+      assert.strictEqual(maximumActive, 1);
+
+      entered = 0;
+      active = 0;
+      maximumActive = 0;
+      expectedEntries = 2;
+      allEntered = yield* Deferred.make<void>();
+      release = yield* Deferred.make<void>();
+      const independentFirst = yield* command("mutation:first").pipe(Effect.forkChild);
+      const independentSecond = yield* command("mutation:second").pipe(Effect.forkChild);
+      yield* Deferred.await(allEntered);
+      assert.strictEqual(maximumActive, 2);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(independentFirst);
+      yield* Fiber.join(independentSecond);
+    }),
+  ),
+);
 
 it.effect("rejects operations after its application scope closes", () => {
   const client = new FakeCoreClient();
