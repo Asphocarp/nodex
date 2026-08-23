@@ -158,8 +158,6 @@ const conversationAggregateForTest = (
 };
 
 interface TestableCodexService {
-  manualCompactionProjection: CodexService["manualCompactionProjection"];
-  threadGoalProjection: CodexService["threadGoalProjection"];
   on: {
     (event: "event", listener: (event: CodexEvent) => void): unknown;
     (
@@ -1604,12 +1602,12 @@ function createService(options?: {
       };
       const goal = (await client.request("thread/goal/set", params)).goal ?? null;
       if (goal) {
-        service.threadGoalProjection.applySet({
-          threadId: action.threadId,
+        conversationAggregateForTest(service, action.threadId).acceptThreadGoal({
           goal,
-          appendTranscriptItem: action.appendTranscriptItem !== false,
+          appendTranscriptItem:
+            action.appendTranscriptItem !== false && typeof action.objective === "string",
           dismissResumeConfirmation: action.dismissResumeConfirmation === true,
-          objective: typeof action.objective === "string" ? action.objective : null,
+          projectReplica: true,
         });
       }
       return goal;

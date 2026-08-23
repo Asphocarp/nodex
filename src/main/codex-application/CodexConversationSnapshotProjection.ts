@@ -2,16 +2,68 @@ import type {
   CodexCanonicalConversationState,
   CodexCanonicalTurnState,
   CodexConversationSnapshot,
+  CodexConversationThreadSettings,
   CodexConversationTurn,
   CodexItemView,
 } from "../../shared/types";
 import { applyCodexLifecycleProjectionDiff } from "../../shared/codex-conversation-state/codex-lifecycle-projection-diff";
 import { buildCodexTurnOccurrenceKey } from "../../shared/codex-turn-identity";
+import { parseThreadStatus } from "./CodexThreadCatalogProjection";
 
 const asCurrentView = (item: CodexConversationTurn["items"][number]): CodexItemView => ({
   ...item,
   normalizedKind: item.kind,
 });
+
+const projectThreadSettings = (
+  state: CodexCanonicalConversationState,
+): CodexConversationThreadSettings | null => {
+  const hydration = state.sidecar.hydrationContext;
+  const settings = state.sidecar.latestThreadSettings ?? hydration?.latestThreadSettings;
+  if (!settings) return null;
+  return {
+    model: settings.model ?? hydration?.latestModel ?? hydration?.model ?? "",
+    modelProvider:
+      "modelProvider" in settings ? settings.modelProvider : state.protocol.modelProvider,
+    serviceTier: settings.serviceTier ?? null,
+    reasoningEffort: settings.effort ?? null,
+    summary: settings.summary ?? null,
+    collaborationMode: settings.collaborationMode ?? null,
+    personality: settings.personality ?? null,
+  };
+};
+
+/** Projects canonical Thread-level metadata without introducing a second mutable record. */
+export const projectCodexConversationMetadataSnapshot = (input: {
+  readonly conversation: CodexConversationSnapshot;
+  readonly state: CodexCanonicalConversationState;
+}): CodexConversationSnapshot => {
+  const settings = input.state.sidecar.latestThreadSettings;
+  const hydration = input.state.sidecar.hydrationContext;
+  const permissions = settings ?? hydration?.currentPermissions ?? null;
+  const status = parseThreadStatus(input.state.protocol.status);
+  const projectedSettings = projectThreadSettings(input.state);
+  return {
+    ...input.conversation,
+    threadName: input.state.protocol.name?.trim() || input.conversation.threadName,
+    threadPreview: input.state.protocol.preview,
+    cwd: input.state.protocol.cwd,
+    modelProvider: input.state.protocol.modelProvider,
+    approvalPolicy: permissions?.approvalPolicy ?? input.conversation.approvalPolicy ?? null,
+    approvalsReviewer:
+      permissions?.approvalsReviewer ?? input.conversation.approvalsReviewer ?? null,
+    sandbox: permissions?.sandboxPolicy ?? input.conversation.sandbox ?? null,
+    latestCollaborationMode: projectedSettings?.collaborationMode ?? undefined,
+    latestThreadSettings: projectedSettings,
+    latestTokenUsageInfo: input.state.sidecar.latestTokenUsageInfo ?? null,
+    threadGoal: input.state.sidecar.threadGoal ?? null,
+    completedThreadGoal: input.state.sidecar.completedThreadGoal ?? null,
+    threadGoalResumeConfirmation: input.state.sidecar.threadGoalResumeConfirmation ?? null,
+    statusType: status.statusType,
+    statusActiveFlags: status.statusActiveFlags,
+    threadRuntimeStatus: status.threadRuntimeStatus,
+  };
+};
 
 const projectTurn = (input: {
   readonly threadId: string;
@@ -86,31 +138,37 @@ export const projectCodexConversationSnapshot = (input: {
   readonly before: CodexCanonicalConversationState | null;
   readonly after: CodexCanonicalConversationState;
   readonly observedAtMs: number;
-}): CodexConversationSnapshot => ({
-  ...input.conversation,
-  canonicalState: input.after,
-  canonicalRequests: [...input.after.requests],
-  hasUnreadTurn: input.after.sidecar.hasUnreadTurn,
-  turns: input.after.turns.map((afterTurn, turnIndex) => {
-    const turnId = afterTurn.protocol.id;
-    const beforeAtIndex = input.before?.turns[turnIndex] ?? null;
-    const beforeTurn =
-      beforeAtIndex?.protocol.id === turnId
-        ? beforeAtIndex
-        : (input.before?.turns.find((turn) => turn.protocol.id === turnId) ?? null);
-    const currentAtIndex = input.conversation.turns[turnIndex] ?? null;
-    const current =
-      currentAtIndex?.turnId === turnId
-        ? currentAtIndex
-        : (input.conversation.turns.find((turn) => turn.turnId === turnId) ?? null);
-    if (beforeTurn === afterTurn && current) return current;
-    return projectTurn({
-      threadId: input.conversation.threadId,
-      turnIndex,
-      beforeTurn,
-      afterTurn,
-      current,
-      observedAtMs: input.observedAtMs,
-    });
-  }),
-});
+}): CodexConversationSnapshot => {
+  const conversation = projectCodexConversationMetadataSnapshot({
+    conversation: input.conversation,
+    state: input.after,
+  });
+  return {
+    ...conversation,
+    canonicalState: input.after,
+    canonicalRequests: [...input.after.requests],
+    hasUnreadTurn: input.after.sidecar.hasUnreadTurn,
+    turns: input.after.turns.map((afterTurn, turnIndex) => {
+      const turnId = afterTurn.protocol.id;
+      const beforeAtIndex = input.before?.turns[turnIndex] ?? null;
+      const beforeTurn =
+        beforeAtIndex?.protocol.id === turnId
+          ? beforeAtIndex
+          : (input.before?.turns.find((turn) => turn.protocol.id === turnId) ?? null);
+      const currentAtIndex = conversation.turns[turnIndex] ?? null;
+      const current =
+        currentAtIndex?.turnId === turnId
+          ? currentAtIndex
+          : (conversation.turns.find((turn) => turn.turnId === turnId) ?? null);
+      if (beforeTurn === afterTurn && current) return current;
+      return projectTurn({
+        threadId: conversation.threadId,
+        turnIndex,
+        beforeTurn,
+        afterTurn,
+        current,
+        observedAtMs: input.observedAtMs,
+      });
+    }),
+  };
+};

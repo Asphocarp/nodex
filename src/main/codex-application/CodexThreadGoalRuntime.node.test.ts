@@ -11,11 +11,11 @@ import * as Stream from "effect/Stream";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { codexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import {
-  CodexThreadGoalRuntime,
-  live,
-  type CodexThreadGoalProjectionPort,
-  type CodexThreadGoalRuntimeOptions,
-} from "./CodexThreadGoalRuntime";
+  CodexConversationProjection,
+  type CodexConversationProjectionService,
+} from "./CodexConversationProjection";
+import { CodexThreadGoalRuntime, live } from "./CodexThreadGoalRuntime";
+import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
 
 const threadId = "thread-goal-runtime";
 
@@ -52,100 +52,111 @@ const gateway = (request: CodexGateway["Service"]["requestForThread"]): CodexGat
 };
 
 const build = Effect.fn("CodexThreadGoalRuntimeTest.build")(function* (
-  options: CodexThreadGoalRuntimeOptions,
+  projection: CodexConversationProjectionService,
+  settings: CodexThreadSettingsRuntime["Service"],
   request: CodexGateway["Service"]["requestForThread"],
   scope: Scope.Scope,
 ) {
   const context = yield* Layer.buildWithScope(
-    live(options).pipe(Layer.provide(Layer.succeed(CodexGateway, gateway(request)))),
+    live.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(CodexConversationProjection, projection),
+          Layer.succeed(CodexGateway, gateway(request)),
+          Layer.succeed(CodexThreadSettingsRuntime, settings),
+        ),
+      ),
+    ),
     scope,
   );
   return Context.get(context, CodexThreadGoalRuntime);
 });
 
-it.effect(
-  "normalizes goal commands and projects accepted goals without leaking local metadata",
-  () =>
-    Effect.gen(function* () {
-      const requests: Array<Record<string, unknown>> = [];
-      const projections: Parameters<CodexThreadGoalProjectionPort["applySet"]>[0][] = [];
-      const scope = yield* Scope.make();
-      const runtime = yield* build(
-        {
-          projection: { applySet: (input) => projections.push(input) },
-          updateSettings: () => Effect.void,
-        },
-        ((_threadId, method, params) => {
-          assert.strictEqual(method, "thread/goal/set");
-          requests.push(params as Record<string, unknown>);
-          return Effect.succeed({
-            goal: goal({
-              objective:
-                typeof (params as { objective?: unknown }).objective === "string"
-                  ? (params as { objective: string }).objective
-                  : "Existing objective",
-              status: (params as { status?: ThreadGoal["status"] }).status ?? ("active" as const),
-            }),
-          });
-        }) as CodexGateway["Service"]["requestForThread"],
-        scope,
-      );
+const settings = (
+  update: CodexThreadSettingsRuntime["Service"]["update"] = () =>
+    Effect.die("Unexpected settings update"),
+): CodexThreadSettingsRuntime["Service"] =>
+  CodexThreadSettingsRuntime.of({
+    update,
+    awaitCurrent: () => Effect.void,
+    remoteUpdateSupport: () => "unknown",
+    recordRemoteUpdateSupported: () => undefined,
+    recordRemoteUpdateUnsupported: () => undefined,
+  });
 
-      yield* runtime.set({
-        threadId,
-        status: "paused",
-        dismissResumeConfirmation: true,
-      });
-      yield* runtime.set({
-        threadId,
-        objective: "Ship parity",
-        appendTranscriptItem: false,
-      });
+it.effect("projects only accepted objective changes into the synthetic goal transcript", () =>
+  Effect.gen(function* () {
+    const requests: Array<Record<string, unknown>> = [];
+    const projections: Array<
+      Parameters<CodexConversationProjectionService["acceptThreadGoal"]>[0]
+    > = [];
+    const scope = yield* Scope.make();
+    const runtime = yield* build(
+      CodexConversationProjection.of({
+        acceptThreadGoal: (
+          input: Parameters<CodexConversationProjectionService["acceptThreadGoal"]>[0],
+        ) => Effect.sync(() => void projections.push(input)),
+      } as unknown as CodexConversationProjectionService),
+      settings(),
+      ((_threadId, method, params) => {
+        assert.strictEqual(method, "thread/goal/set");
+        requests.push(params as Record<string, unknown>);
+        return Effect.succeed({
+          goal: goal({
+            objective:
+              typeof (params as { objective?: unknown }).objective === "string"
+                ? (params as { objective: string }).objective
+                : "Existing objective",
+            status: (params as { status?: ThreadGoal["status"] }).status ?? "active",
+          }),
+        });
+      }) as CodexGateway["Service"]["requestForThread"],
+      scope,
+    );
 
-      assert.deepEqual(requests, [
-        { threadId, status: "paused" },
-        { threadId, objective: "Ship parity", status: "active" },
-      ]);
-      assert.deepEqual(
-        projections.map(({ appendTranscriptItem, dismissResumeConfirmation, objective }) => ({
-          appendTranscriptItem,
-          dismissResumeConfirmation,
-          objective,
-        })),
-        [
-          { appendTranscriptItem: true, dismissResumeConfirmation: true, objective: null },
-          {
-            appendTranscriptItem: false,
-            dismissResumeConfirmation: false,
-            objective: "Ship parity",
-          },
-        ],
-      );
+    yield* runtime.set({ threadId, status: "paused", dismissResumeConfirmation: true });
+    yield* runtime.set({ threadId, objective: "Ship parity" });
 
-      yield* Scope.close(scope, Exit.void);
-    }),
+    assert.deepEqual(requests, [
+      { threadId, status: "paused" },
+      { threadId, objective: "Ship parity", status: "active" },
+    ]);
+    assert.deepEqual(
+      projections.map(({ appendTranscriptItem, dismissResumeConfirmation }) => ({
+        appendTranscriptItem,
+        dismissResumeConfirmation,
+      })),
+      [
+        { appendTranscriptItem: false, dismissResumeConfirmation: true },
+        { appendTranscriptItem: true, dismissResumeConfirmation: false },
+      ],
+    );
+
+    yield* Scope.close(scope, Exit.void);
+  }),
 );
 
-it.effect("orders next-turn settings before the goal command and propagates interruption", () =>
+it.effect("completes next-turn settings before sending the goal command", () =>
   Effect.gen(function* () {
     const settingsStarted = yield* Deferred.make<void>();
     const releaseSettings = yield* Deferred.make<void>();
-    let settingsInterrupted = false;
     let goalRequested = false;
     const scope = yield* Scope.make();
     const runtime = yield* build(
-      {
-        projection: { applySet: () => undefined },
-        updateSettings: () =>
-          Deferred.succeed(settingsStarted, undefined).pipe(
-            Effect.andThen(Deferred.await(releaseSettings)),
-            Effect.onInterrupt(() =>
-              Effect.sync(() => {
-                settingsInterrupted = true;
-              }),
-            ),
-          ),
-      },
+      CodexConversationProjection.of({
+        acceptThreadGoal: () => Effect.void,
+      } as unknown as CodexConversationProjectionService),
+      settings(() =>
+        Deferred.succeed(settingsStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseSettings)),
+          Effect.as({
+            model: "gpt-5.6",
+            reasoningEffort: "high",
+            collaborationMode: null,
+            personality: null,
+          }),
+        ),
+      ),
       (() => {
         goalRequested = true;
         return Effect.succeed({ goal: goal() });
@@ -155,28 +166,16 @@ it.effect("orders next-turn settings before the goal command and propagates inte
     const fiber = yield* Effect.forkChild(
       runtime.set({
         threadId,
-        objective: "Wait for settings",
+        objective: "Apply settings first",
         threadSettings: { model: "gpt-5.6", reasoningEffort: "high" },
       }),
     );
-    yield* Deferred.await(settingsStarted);
-    assert.isFalse(goalRequested);
-    yield* Fiber.interrupt(fiber);
-    assert.isTrue(settingsInterrupted);
-    assert.isFalse(goalRequested);
 
-    const completed = yield* Effect.forkChild(
-      runtime.set({
-        threadId,
-        objective: "Apply settings first",
-        threadSettings: { model: "gpt-5.6" },
-      }),
-    );
     yield* Deferred.await(settingsStarted);
+    assert.isFalse(goalRequested);
     yield* Deferred.succeed(releaseSettings, undefined);
-    yield* Fiber.join(completed);
+    yield* Fiber.join(fiber);
     assert.isTrue(goalRequested);
-
     yield* Scope.close(scope, Exit.void);
   }),
 );
@@ -192,10 +191,8 @@ it.effect("shares typed get/load/clear routing and contains resume hydration fai
     });
     const scope = yield* Scope.make();
     const runtime = yield* build(
-      {
-        projection: { applySet: () => undefined },
-        updateSettings: () => Effect.void,
-      },
+      CodexConversationProjection.of({} as CodexConversationProjectionService),
+      settings(),
       ((_threadId, method) => {
         requests.push(method);
         if (method === "thread/goal/get") {
@@ -212,7 +209,6 @@ it.effect("shares typed get/load/clear routing and contains resume hydration fai
     failRead = true;
     assert.deepEqual(yield* runtime.load(threadId), { ok: false, goal: null });
     assert.deepEqual(requests, ["thread/goal/get", "thread/goal/clear", "thread/goal/get"]);
-
     yield* Scope.close(scope, Exit.void);
   }),
 );

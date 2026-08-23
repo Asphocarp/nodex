@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Turn } from "@nodex/codex-app-server-protocol/v2";
+import type { ThreadGoal, Turn } from "@nodex/codex-app-server-protocol/v2";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -61,6 +61,25 @@ export interface CodexConversationProjectionService {
     readonly settings: CodexConversationThreadSettings;
     readonly permissions: CodexCanonicalHydratedPermissionContext;
   }) => Effect.Effect<void, CodexConversationProjectionError>;
+  readonly renameThread: (input: {
+    readonly threadId: string;
+    readonly name: string;
+    readonly observedAtMs: number;
+  }) => Effect.Effect<void, CodexConversationProjectionError>;
+  readonly acceptThreadGoal: (input: {
+    readonly threadId: string;
+    readonly goal: ThreadGoal;
+    readonly appendTranscriptItem: boolean;
+    readonly dismissResumeConfirmation: boolean;
+  }) => Effect.Effect<void, CodexConversationProjectionError>;
+  readonly admitManualCompaction: (input: {
+    readonly threadId: string;
+    readonly observedAtMs: number;
+  }) => Effect.Effect<{ readonly turnId: string | null }, CodexConversationProjectionError>;
+  readonly rollbackManualCompaction: (input: {
+    readonly threadId: string;
+    readonly observedAtMs: number;
+  }) => Effect.Effect<void>;
   readonly relocateExecution: (input: {
     readonly threadId: string;
     readonly cwd: string;
@@ -319,6 +338,91 @@ export const make: Effect.Effect<
           projectReplica: projectReplica(input.threadId),
         }),
       ),
+    renameThread: (input) =>
+      required("rename-thread", input.threadId).pipe(
+        Effect.flatMap((conversation) =>
+          Effect.try({
+            try: () => {
+              conversation.renameThread({
+                name: input.name,
+                observedAtMs: input.observedAtMs,
+                projectReplica: projectReplica(input.threadId),
+              });
+            },
+            catch: (cause) =>
+              new CodexConversationProjectionError({
+                operation: "rename-thread",
+                threadId: input.threadId,
+                cause,
+              }),
+          }),
+        ),
+      ),
+    acceptThreadGoal: (input) =>
+      required("accept-thread-goal", input.threadId).pipe(
+        Effect.flatMap((conversation) =>
+          Effect.try({
+            try: () => {
+              conversation.acceptThreadGoal({
+                goal: input.goal,
+                appendTranscriptItem: input.appendTranscriptItem,
+                dismissResumeConfirmation: input.dismissResumeConfirmation,
+                projectReplica: projectReplica(input.threadId),
+              });
+            },
+            catch: (cause) =>
+              new CodexConversationProjectionError({
+                operation: "accept-thread-goal",
+                threadId: input.threadId,
+                cause,
+              }),
+          }),
+        ),
+      ),
+    admitManualCompaction: (input) =>
+      required("admit-manual-compaction", input.threadId).pipe(
+        Effect.flatMap((conversation) =>
+          Effect.try({
+            try: () => {
+              const turnId = conversation.admitManualCompaction({
+                observedAtMs: input.observedAtMs,
+                projectReplica: projectReplica(input.threadId),
+              });
+              if (turnId !== null) {
+                const turn = conversation
+                  .readCanonicalState()
+                  ?.turns.find((candidate) => candidate.protocol.id === turnId);
+                if (turn) {
+                  publish({
+                    type: "turn",
+                    turn: buildCodexCanonicalTurnSummary(
+                      input.threadId,
+                      turn,
+                      turn.items.map((item) => item.id),
+                    ),
+                  });
+                }
+              }
+              return { turnId };
+            },
+            catch: (cause) =>
+              new CodexConversationProjectionError({
+                operation: "admit-manual-compaction",
+                threadId: input.threadId,
+                cause,
+              }),
+          }),
+        ),
+      ),
+    rollbackManualCompaction: (input) =>
+      Effect.sync(() => {
+        const conversation = aggregate(input.threadId);
+        if (!conversation) return;
+        conversation.rollbackManualCompaction({
+          observedAtMs: input.observedAtMs,
+          projectReplica: projectReplica(input.threadId),
+        });
+      }),
     relocateExecution: (input) =>
       requireChanged("relocate-execution", input.threadId, (conversation) =>
         conversation.relocateExecution({

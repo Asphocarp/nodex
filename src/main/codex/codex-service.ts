@@ -120,9 +120,7 @@ import type {
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
-import type { CodexManualCompactionProjectionPort } from "../codex-application/CodexManualCompactionRuntime";
 import type { CodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
-import type { CodexThreadGoalProjectionPort } from "../codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
 import type {
   CodexPreparedThreadSettingsUpdate,
@@ -273,10 +271,6 @@ import {
   failCodexCanonicalOptimisticTurn,
 } from "../../shared/codex-conversation-state/codex-optimistic-turn";
 import { reduceCodexConversationTurnLifecycle } from "../../shared/codex-conversation-state/codex-turn-lifecycle";
-import {
-  reduceCodexConversationThreadGoalResumeConfirmationDismissed,
-  reduceCodexConversationThreadGoalUpdated,
-} from "../../shared/codex-conversation-state/codex-thread-metadata";
 import { appendCodexCanonicalThreadGoalTranscriptTurn } from "../../shared/codex-conversation-state/codex-thread-goal-transcript";
 import { projectCodexHistoryRequestViews } from "../../shared/codex-conversation-state/codex-history-request-projection";
 import { buildCodexSteeringCompareKey } from "../../shared/codex-conversation-state/codex-steering-compare";
@@ -1553,47 +1547,6 @@ export class CodexService {
   private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   private readonly terminalInputBuffers = new Map<string, string>();
   private sidebarUseStateDbOnlyThreadList = true;
-
-  /** Temporary canonical projection port while conversation state is still owned by this class. */
-  readonly manualCompactionProjection: CodexManualCompactionProjectionPort = {
-    read: (threadId) => this.readCanonicalConversationState(threadId) ?? null,
-    commit: (input) => this.commitCanonicalLocalTurnMutation(input),
-    publish: (threadId, turnId) => {
-      if (turnId === null) {
-        this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-        return;
-      }
-      this.syncAcceptedConversationTurnState(threadId, turnId, {
-        syncBackgroundTerminalRows: true,
-        syncCapabilityFlags: true,
-      });
-    },
-  };
-
-  /** Temporary canonical projection port while conversation state is still owned by this class. */
-  readonly threadGoalProjection: CodexThreadGoalProjectionPort = {
-    applySet: ({ threadId, goal, appendTranscriptItem, dismissResumeConfirmation, objective }) => {
-      const record = this.getMaybeConversationRecord(threadId);
-      const before = record ? this.readCanonicalConversationState(record.threadId) : null;
-      if (record && before) {
-        const updated = reduceCodexConversationThreadGoalUpdated(before, threadId, goal).state;
-        this.acceptCanonicalConversationState(
-          threadId,
-          dismissResumeConfirmation
-            ? reduceCodexConversationThreadGoalResumeConfirmationDismissed(updated, threadId)
-            : updated,
-        );
-        this.projectCanonicalMainThreadMetadata(threadId);
-      } else {
-        this.applyThreadGoalUpdated(threadId, goal);
-        if (dismissResumeConfirmation && record) record.threadGoalResumeConfirmation = null;
-      }
-      if (appendTranscriptItem && objective !== null) {
-        this.appendThreadGoalTranscriptTurn(threadId, goal);
-      }
-      this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-    },
-  };
 
   constructor(options: CodexServiceOptions) {
     this.conversationRuntimes = options.conversationRuntimes;

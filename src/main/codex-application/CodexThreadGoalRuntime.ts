@@ -7,47 +7,27 @@ import type {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
-import type {
-  CodexConversationThreadSettingsPatch,
-  CodexThreadGoalSetActionInput,
-} from "../../shared/types";
+import type { CodexThreadGoalSetActionInput } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
+import {
+  CodexConversationProjection,
+  type CodexConversationProjectionError,
+} from "./CodexConversationProjection";
+import {
+  CodexThreadSettingsRuntime,
+  type CodexThreadSettingsError,
+} from "./CodexThreadSettingsRuntime";
 
 /** Application-only metadata stays out of the renderer and app-server contracts. */
 export type CodexThreadGoalSetCommand = CodexThreadGoalSetActionInput & {
   readonly dismissResumeConfirmation?: boolean;
 };
 
-export interface CodexThreadGoalProjectionPort {
-  readonly applySet: (input: {
-    readonly threadId: string;
-    readonly goal: ThreadGoal;
-    readonly appendTranscriptItem: boolean;
-    readonly dismissResumeConfirmation: boolean;
-    readonly objective: string | null;
-  }) => void;
-}
-
-export interface CodexThreadGoalRuntimeOptions {
-  readonly projection: CodexThreadGoalProjectionPort;
-  readonly updateSettings: (
-    threadId: string,
-    patch: CodexConversationThreadSettingsPatch,
-  ) => Effect.Effect<void, CodexThreadGoalOperationError>;
-}
-
-export class CodexThreadGoalOperationError extends Schema.TaggedError<CodexThreadGoalOperationError>()(
-  "CodexThreadGoalOperationError",
-  {
-    operation: Schema.Literals(["update-settings", "project-set"]),
-    threadId: Schema.String,
-    cause: Schema.Defect(),
-  },
-) {}
-
-export type CodexThreadGoalError = CodexRuntimeError | CodexThreadGoalOperationError;
+export type CodexThreadGoalError =
+  | CodexRuntimeError
+  | CodexThreadSettingsError
+  | CodexConversationProjectionError;
 
 export type CodexThreadGoalLoadResult =
   | { readonly ok: true; readonly goal: ThreadGoal | null }
@@ -102,67 +82,61 @@ const projectGoal = (
   goal: NonNullable<ClientRequestResponsesByMethod["thread/goal/get"]["goal"]>,
 ): ThreadGoal => ({ ...goal, tokenBudget: goal.tokenBudget ?? null });
 
-export const live = (
-  options: CodexThreadGoalRuntimeOptions,
-): Layer.Layer<CodexThreadGoalRuntime, never, CodexGateway> =>
-  Layer.effect(
-    CodexThreadGoalRuntime,
-    Effect.gen(function* () {
-      const gateway = yield* CodexGateway;
+export const live: Layer.Layer<
+  CodexThreadGoalRuntime,
+  never,
+  CodexConversationProjection | CodexGateway | CodexThreadSettingsRuntime
+> = Layer.effect(
+  CodexThreadGoalRuntime,
+  Effect.gen(function* () {
+    const gateway = yield* CodexGateway;
+    const projection = yield* CodexConversationProjection;
+    const settings = yield* CodexThreadSettingsRuntime;
 
-      const get = Effect.fn("CodexThreadGoalRuntime.get")(function* (threadId: string) {
-        const response = yield* gateway.requestForThread(threadId, "thread/goal/get", { threadId });
-        return response.goal ? projectGoal(response.goal) : null;
+    const get = Effect.fn("CodexThreadGoalRuntime.get")(function* (threadId: string) {
+      const response = yield* gateway.requestForThread(threadId, "thread/goal/get", { threadId });
+      return response.goal ? projectGoal(response.goal) : null;
+    });
+
+    const set = Effect.fn("CodexThreadGoalRuntime.set")(function* (
+      input: CodexThreadGoalSetCommand,
+    ) {
+      const action = normalizeCodexThreadGoalSetAction(input);
+      if (action.threadSettings) {
+        yield* settings.update({ threadId: action.threadId, patch: action.threadSettings });
+      }
+      const response = yield* gateway.requestForThread(
+        action.threadId,
+        "thread/goal/set",
+        requestParams(action),
+      );
+      const goal = response.goal ? projectGoal(response.goal) : null;
+      if (!goal) return null;
+      yield* projection.acceptThreadGoal({
+        threadId: action.threadId,
+        goal,
+        appendTranscriptItem:
+          action.appendTranscriptItem !== false && typeof action.objective === "string",
+        dismissResumeConfirmation: action.dismissResumeConfirmation === true,
       });
+      return goal;
+    });
 
-      const set = Effect.fn("CodexThreadGoalRuntime.set")(function* (
-        input: CodexThreadGoalSetCommand,
-      ) {
-        const action = normalizeCodexThreadGoalSetAction(input);
-        if (action.threadSettings) {
-          yield* options.updateSettings(action.threadId, action.threadSettings);
-        }
-        const response = yield* gateway.requestForThread(
-          action.threadId,
-          "thread/goal/set",
-          requestParams(action),
-        );
-        const goal = response.goal ? projectGoal(response.goal) : null;
-        if (!goal) return null;
-        yield* Effect.try({
-          try: () =>
-            options.projection.applySet({
-              threadId: action.threadId,
-              goal,
-              appendTranscriptItem: action.appendTranscriptItem !== false,
-              dismissResumeConfirmation: action.dismissResumeConfirmation === true,
-              objective: typeof action.objective === "string" ? action.objective : null,
-            }),
-          catch: (cause) =>
-            new CodexThreadGoalOperationError({
-              operation: "project-set",
-              threadId: action.threadId,
-              cause,
-            }),
-        });
-        return goal;
-      });
+    const clear = Effect.fn("CodexThreadGoalRuntime.clear")(function* (threadId: string) {
+      yield* gateway.requestForThread(threadId, "thread/goal/clear", { threadId });
+    });
 
-      const clear = Effect.fn("CodexThreadGoalRuntime.clear")(function* (threadId: string) {
-        yield* gateway.requestForThread(threadId, "thread/goal/clear", { threadId });
-      });
-
-      const load = (threadId: string): Effect.Effect<CodexThreadGoalLoadResult> =>
-        get(threadId).pipe(
-          Effect.map((goal) => ({ ok: true, goal }) satisfies CodexThreadGoalLoadResult),
-          Effect.catch((error) =>
-            Effect.logWarning("Could not hydrate Thread goal after resume").pipe(
-              Effect.annotateLogs({ threadId, error: error.message }),
-              Effect.as({ ok: false, goal: null } satisfies CodexThreadGoalLoadResult),
-            ),
+    const load = (threadId: string): Effect.Effect<CodexThreadGoalLoadResult> =>
+      get(threadId).pipe(
+        Effect.map((goal) => ({ ok: true, goal }) satisfies CodexThreadGoalLoadResult),
+        Effect.catch((error) =>
+          Effect.logWarning("Could not hydrate Thread goal after resume").pipe(
+            Effect.annotateLogs({ threadId, error: error.message }),
+            Effect.as({ ok: false, goal: null } satisfies CodexThreadGoalLoadResult),
           ),
-        );
+        ),
+      );
 
-      return CodexThreadGoalRuntime.of({ get, set, clear, load });
-    }),
-  );
+    return CodexThreadGoalRuntime.of({ get, set, clear, load });
+  }),
+);

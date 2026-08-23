@@ -11,9 +11,15 @@ import type {
   CodexQueuedFollowUp,
   CodexThreadStreamCheckpoint,
 } from "../../shared/types";
-import type { CodexCanonicalSteeringUserMessageItem } from "../../shared/codex-conversation-state/codex-conversation-state";
+import {
+  appendCodexCanonicalInProgressSyntheticItem,
+  removeCodexCanonicalLocalSyntheticItem,
+  type CodexCanonicalContextCompactionItem,
+  type CodexCanonicalSteeringUserMessageItem,
+} from "../../shared/codex-conversation-state/codex-conversation-state";
 import type { ThreadGoal, Turn } from "@nodex/codex-app-server-protocol/v2";
 import {
+  CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID,
   reduceCodexConversationEventWithEffects,
   type CodexConversationReducerContext,
   type CodexConversationReducerEffect,
@@ -60,6 +66,12 @@ import {
   buildCodexThreadStreamCheckpoint,
   type CodexThreadStreamReplica,
 } from "../../shared/codex-owner-follower-replication";
+import {
+  reduceCodexConversationThreadGoalResumeConfirmationDismissed,
+  reduceCodexConversationThreadGoalUpdated,
+  reduceCodexConversationThreadName,
+} from "../../shared/codex-conversation-state/codex-thread-metadata";
+import { appendCodexCanonicalThreadGoalTranscriptTurn } from "../../shared/codex-conversation-state/codex-thread-goal-transcript";
 import {
   projectCodexConversationRawServerRequestLifecycle,
   projectCodexConversationPlanImplementationCompleted,
@@ -313,6 +325,25 @@ export interface CodexConversationAggregate {
     readonly permissions: CodexCanonicalHydratedPermissionContext;
     readonly projectReplica: boolean;
   }) => boolean;
+  readonly renameThread: (input: {
+    readonly name: string;
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  readonly acceptThreadGoal: (input: {
+    readonly goal: ThreadGoal;
+    readonly appendTranscriptItem: boolean;
+    readonly dismissResumeConfirmation: boolean;
+    readonly projectReplica: boolean;
+  }) => boolean;
+  readonly admitManualCompaction: (input: {
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => string | null;
+  readonly rollbackManualCompaction: (input: {
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
   readonly relocateExecution: (input: {
     readonly cwd: string;
     readonly managedWorktreePath: string | null;
@@ -378,6 +409,13 @@ export interface CodexConversationAggregateRegistry {
   /** Marks every loaded generation non-live after the app-server connection is lost. */
   readonly markAllNeedsResume: () => void;
 }
+
+const pendingManualCompaction: CodexCanonicalContextCompactionItem = {
+  type: "contextCompaction",
+  id: CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID,
+  completed: false,
+  source: "manual",
+};
 
 const initialAggregate = (generation: number): MutableCodexConversationAggregate => ({
   generation,
@@ -1276,6 +1314,55 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           });
         }
         return true;
+      },
+      renameThread: ({ name, observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        return projectCanonicalState(
+          reduceCodexConversationThreadName(before, threadId, name),
+          observedAtMs,
+          projectReplica,
+        );
+      },
+      acceptThreadGoal: ({
+        goal,
+        appendTranscriptItem,
+        dismissResumeConfirmation,
+        projectReplica,
+      }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        const updated = reduceCodexConversationThreadGoalUpdated(before, threadId, goal).state;
+        const dismissed = dismissResumeConfirmation
+          ? reduceCodexConversationThreadGoalResumeConfirmationDismissed(updated, threadId)
+          : updated;
+        const after = appendTranscriptItem
+          ? appendCodexCanonicalThreadGoalTranscriptTurn(dismissed, goal)
+          : dismissed;
+        return projectCanonicalState(after, goal.updatedAt * 1_000, projectReplica);
+      },
+      admitManualCompaction: ({ observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return null;
+        const after = appendCodexCanonicalInProgressSyntheticItem(
+          before,
+          pendingManualCompaction,
+          observedAtMs,
+        );
+        projectCanonicalState(after, observedAtMs, projectReplica);
+        const turnIndex = after.turns.findLastIndex((turn) =>
+          turn.items.some((item) => item.id === pendingManualCompaction.id),
+        );
+        return after.turns[turnIndex]?.protocol.id ?? null;
+      },
+      rollbackManualCompaction: ({ observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        return projectCanonicalState(
+          removeCodexCanonicalLocalSyntheticItem(before, pendingManualCompaction.id),
+          observedAtMs,
+          projectReplica,
+        );
       },
       relocateExecution: ({ cwd, managedWorktreePath, permissions, projectReplica }) => {
         const before = aggregate.canonicalState;

@@ -316,7 +316,6 @@ import {
 } from "../codex-application/CodexPostResumeGoalRuntime";
 import { makeCodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import {
-  CodexThreadGoalOperationError,
   CodexThreadGoalRuntime,
   live as codexThreadGoalRuntimeLive,
 } from "../codex-application/CodexThreadGoalRuntime";
@@ -1902,23 +1901,15 @@ export const live: Layer.Layer<
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const threadGoalContext = yield* Layer.buildWithScope(
-          codexThreadGoalRuntimeLive({
-            projection: {
-              applySet: (input) => requireCodexService().threadGoalProjection.applySet(input),
-            },
-            updateSettings: (threadId, patch) =>
-              threadSettingsRuntime.update({ threadId, patch }).pipe(
-                Effect.asVoid,
-                Effect.mapError(
-                  (cause) =>
-                    new CodexThreadGoalOperationError({
-                      operation: "update-settings",
-                      threadId,
-                      cause,
-                    }),
-                ),
+          codexThreadGoalRuntimeLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexConversationProjection, conversationProjection),
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(CodexThreadSettingsRuntime, threadSettingsRuntime),
               ),
-          }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
+            ),
+          ),
           runtimeScope,
         );
         const threadGoals = Context.get(threadGoalContext, CodexThreadGoalRuntime);
@@ -2378,12 +2369,14 @@ export const live: Layer.Layer<
           NodexAgentAuthorizationRuntime,
         );
         const manualCompactionContext = yield* Layer.buildWithScope(
-          codexManualCompactionRuntimeLive({
-            read: (threadId) => requireCodexService().manualCompactionProjection.read(threadId),
-            commit: (input) => requireCodexService().manualCompactionProjection.commit(input),
-            publish: (threadId, turnId) =>
-              requireCodexService().manualCompactionProjection.publish(threadId, turnId),
-          }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
+          codexManualCompactionRuntimeLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CodexConversationProjection, conversationProjection),
+                Layer.succeed(CodexGateway, codexGateway),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const manualCompaction = Context.get(manualCompactionContext, CodexManualCompactionRuntime);
