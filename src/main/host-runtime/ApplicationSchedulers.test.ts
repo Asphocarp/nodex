@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -7,8 +8,12 @@ import * as Scope from "effect/Scope";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
 import type { CodexScheduledAutomation } from "../../shared/types";
-import type { DesktopAutomationModulePort, DesktopStoreAdministrationPort } from "../core-client";
+import type { DesktopAutomationModulePort } from "../core-client";
 import { CoreAuthority, type CoreAuthorityState } from "../core-runtime/CoreAuthority";
+import {
+  StoreAdministration,
+  type StoreMaintenanceInput,
+} from "../core-runtime/StoreAdministration";
 import {
   ElectronDesktop,
   type ElectronNotificationInput,
@@ -81,22 +86,26 @@ const defaultAutomation = (): DesktopAutomationModulePort =>
     failLease: async () => undefined,
   }) as unknown as DesktopAutomationModulePort;
 
-const defaultAdministration = (): DesktopStoreAdministrationPort =>
-  ({
-    createBackup: async () => ({
-      version: 2,
-      id: "backup:auto",
-      createdAt: "2026-07-19T20:00:00.000Z",
-      trigger: "auto",
-      label: null,
-      includesAssets: true,
-      dbBytes: 100,
-      assetsBytes: 20,
-      totalBytes: 120,
-    }),
-    pruneBackups: async () => undefined,
-    runMaintenance: async () => undefined,
-  }) as unknown as DesktopStoreAdministrationPort;
+const defaultAdministration = (): StoreAdministration["Service"] =>
+  StoreAdministration.of({
+    listBackups: Effect.succeed([]),
+    createBackup: () =>
+      Effect.succeed({
+        version: 2,
+        id: "backup:auto",
+        createdAt: "2026-07-19T20:00:00.000Z",
+        trigger: "auto",
+        label: null,
+        includesAssets: true,
+        dbBytes: 100,
+        assetsBytes: 20,
+        totalBytes: 120,
+      }),
+    deleteBackup: () => Effect.die("unused"),
+    restoreBackup: () => Effect.die("unused"),
+    pruneBackups: () => Effect.void,
+    runMaintenance: () => Effect.void,
+  });
 
 const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void> =>
   Effect.gen(function* () {
@@ -109,7 +118,7 @@ const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void>
 
 const buildHarness = (input: {
   readonly automation?: DesktopAutomationModulePort;
-  readonly administration?: DesktopStoreAdministrationPort;
+  readonly administration?: StoreAdministration["Service"];
   readonly runScheduledAutomation?: (
     automation: CodexScheduledAutomation,
     context: CodexScheduledAutomationRunContext,
@@ -183,7 +192,6 @@ const buildHarness = (input: {
     );
     const storeContext = yield* Layer.buildWithScope(
       storeAdministrationSchedulerLive({
-        administration: input.administration ?? defaultAdministration(),
         readBackupSettings: () =>
           input.initialBackup ?? {
             autoEnabled: false,
@@ -192,7 +200,14 @@ const buildHarness = (input: {
           },
         readBlockRetentionCount: input.readBlockRetentionCount ?? (() => 100),
         timing: input.storeTiming,
-      }).pipe(Layer.provide(Layer.succeed(CoreAuthority, authority))),
+      }).pipe(
+        Layer.provide(
+          Layer.merge(
+            Layer.succeed(CoreAuthority, authority),
+            Layer.succeed(StoreAdministration, input.administration ?? defaultAdministration()),
+          ),
+        ),
+      ),
       scope,
     );
     return {
@@ -503,17 +518,13 @@ it.effect("replaces backup schedules and runs semantic maintenance lanes", () =>
     let retentionCount = 17;
     const administration = {
       ...defaultAdministration(),
-      createBackup: async () => {
-        backups.push("auto");
-        return await defaultAdministration().createBackup({ trigger: "auto" });
-      },
-      pruneBackups: async (count: number) => {
-        prunes.push(count);
-      },
-      runMaintenance: async (input: unknown) => {
-        maintenance.push(input);
-      },
-    } as DesktopStoreAdministrationPort;
+      createBackup: (input?: Parameters<StoreAdministration["Service"]["createBackup"]>[0]) =>
+        Effect.sync(() => backups.push("auto")).pipe(
+          Effect.andThen(defaultAdministration().createBackup(input)),
+        ),
+      pruneBackups: (count: number) => Effect.sync(() => prunes.push(count)),
+      runMaintenance: (input: StoreMaintenanceInput) => Effect.sync(() => maintenance.push(input)),
+    } satisfies StoreAdministration["Service"];
     const harness = yield* buildHarness({
       administration,
       readBlockRetentionCount: () => retentionCount,
@@ -564,16 +575,14 @@ it.effect("replaces backup schedules and runs semantic maintenance lanes", () =>
 it.effect("serializes maintenance lanes and interrupts every schedule on Scope close", () =>
   Effect.gen(function* () {
     let runs = 0;
-    let release: (() => void) | null = null;
+    const release = yield* Deferred.make<void>();
     const administration = {
       ...defaultAdministration(),
-      runMaintenance: () => {
-        runs += 1;
-        return new Promise<void>((resolve) => {
-          release = resolve;
-        });
-      },
-    } as DesktopStoreAdministrationPort;
+      runMaintenance: () =>
+        Effect.sync(() => {
+          runs += 1;
+        }).pipe(Effect.andThen(Deferred.await(release))),
+    } satisfies StoreAdministration["Service"];
     const harness = yield* buildHarness({
       administration,
       storeTiming: {
@@ -591,8 +600,6 @@ it.effect("serializes maintenance lanes and interrupts every schedule on Scope c
     assert.strictEqual(runs, 1);
 
     yield* Scope.close(harness.scope, Exit.void);
-    const completeMaintenance = release as (() => void) | null;
-    completeMaintenance?.();
     yield* TestClock.adjust("1 day");
     assert.strictEqual(runs, 1);
   }),

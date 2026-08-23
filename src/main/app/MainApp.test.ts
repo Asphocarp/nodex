@@ -145,6 +145,33 @@ it.effect("relaunches only after an authority-drift shutdown has released the ru
   }),
 );
 
+it.effect("relaunches after a Store restore only once the Main Scope is released", () =>
+  Effect.gen(function* () {
+    const events: string[] = [];
+    const started = yield* Deferred.make<void>();
+    const foundation = Layer.mergeAll(shutdownLayer, fakeElectronLayer(events), configLayer());
+    const foundationScope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(foundation, foundationScope);
+    const shutdown = Context.get(context, MainShutdown);
+    const runtimeLayer = fromHooks({
+      start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
+      handleBootstrapEvent: () => Effect.void,
+      release: Effect.sync(() => events.push("release")),
+    });
+    const fiber = yield* program({
+      initialEvents: [],
+      runtimeLayer,
+      runStartupGate: Effect.succeed("continue" as const),
+    }).pipe(Effect.provide(context), Effect.forkScoped);
+    yield* Deferred.await(started);
+    yield* shutdown.request({ _tag: "StoreRestoreRelaunch" });
+    yield* Fiber.join(fiber);
+
+    assert.deepEqual(events, ["ready", "release", "relaunch", "quit"]);
+    yield* Scope.close(foundationScope, Exit.void);
+  }),
+);
+
 it.effect("routes Electron activation through the scoped Main runtime", () =>
   Effect.gen(function* () {
     const events: string[] = [];

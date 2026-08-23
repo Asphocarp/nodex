@@ -11,6 +11,7 @@ export const MainShutdownReason = Schema.Union([
   Schema.TaggedStruct("Signal", { signal: Schema.String }),
   Schema.TaggedStruct("UpdateInstall", {}),
   Schema.TaggedStruct("AuthorityDriftRelaunch", {}),
+  Schema.TaggedStruct("StoreRestoreRelaunch", {}),
   Schema.TaggedStruct("StartupFailure", {}),
   Schema.TaggedStruct("RuntimeFatal", {}),
 ]);

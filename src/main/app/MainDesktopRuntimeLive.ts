@@ -23,6 +23,10 @@ import {
 } from "../core-runtime/CoreEventHub";
 import { CoreModules, live as coreModulesLive } from "../core-runtime/CoreModules";
 import { coreRuntimeError } from "../core-runtime/CoreRuntimeError";
+import {
+  StoreAdministration,
+  live as storeAdministrationLive,
+} from "../core-runtime/StoreAdministration";
 import { live as coreTransportLive } from "../core-runtime/CoreTransport";
 import {
   DocumentLiveRuntime,
@@ -44,7 +48,6 @@ import {
   desktopDocumentSessionRuntimeLive,
   createDesktopLibraryModuleBridge,
   createDesktopProjectWorkspaceBridge,
-  createDesktopStoreAdministrationBridge,
 } from "../core-client";
 import { createDesktopNodexAgentAuthorityPort } from "../core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentV3DynamicService } from "../core-client/desktop-nodex-agent-dynamic-service";
@@ -1464,6 +1467,11 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const coreModules = Context.get(coreModulesContext, CoreModules);
+        const storeAdministrationContext = yield* Layer.buildWithScope(
+          storeAdministrationLive.pipe(Layer.provide(Layer.succeed(CoreModules, coreModules))),
+          runtimeScope,
+        );
+        const storeAdministration = Context.get(storeAdministrationContext, StoreAdministration);
         const worktreeEnvironmentContext = yield* Layer.buildWithScope(
           worktreeEnvironmentRuntimeLive.pipe(
             Layer.provide(Layer.succeed(CoreModules, coreModules)),
@@ -1486,9 +1494,6 @@ export const live: Layer.Layer<
           WorktreeShellEnvironmentRuntime,
         );
         const automationModule = createDesktopAutomationModuleBridge({
-          authority: legacyDataAuthority,
-        });
-        const storeAdministration = createDesktopStoreAdministrationBridge({
           authority: legacyDataAuthority,
         });
         const canvasPresenceContext = yield* Layer.buildWithScope(
@@ -3031,17 +3036,13 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
-          StoreAdministrationIpc.live({
-            administration: storeAdministration,
-            onStoreRestored: Effect.sleep("250 millis").pipe(
-              Effect.andThen(electron.relaunch),
-              Effect.andThen(electron.exit(0)),
-            ),
-          }).pipe(
+          StoreAdministrationIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(MainShutdown, shutdown),
+                Layer.succeed(StoreAdministration, storeAdministration),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
@@ -3258,10 +3259,16 @@ export const live: Layer.Layer<
         const reminderScheduler = Context.get(reminderSchedulerContext, ReminderSchedulerRuntime);
         const storeSchedulerContext = yield* Layer.buildWithScope(
           storeAdministrationSchedulerRuntimeLive({
-            administration: storeAdministration,
             readBackupSettings: getBackupSettings,
             readBlockRetentionCount: () => getHistorySettings().retentionCount,
-          }).pipe(Layer.provide(Layer.succeed(CoreAuthority, authority))),
+          }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(StoreAdministration, storeAdministration),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const storeSchedulers = Context.get(

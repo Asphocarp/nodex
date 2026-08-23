@@ -89,6 +89,11 @@ export const program = <R>(options: MainAppOptions<R>) =>
     yield* shutdown.markRuntimeClosed(Exit.asVoid(runtimeExit));
     if (Exit.isFailure(runtimeExit)) return yield* Effect.failCause(runtimeExit.cause);
     quitAllowed = true;
-    if (runtimeExit.value._tag === "AuthorityDriftRelaunch") yield* electron.relaunch;
+    if (
+      runtimeExit.value._tag === "AuthorityDriftRelaunch" ||
+      runtimeExit.value._tag === "StoreRestoreRelaunch"
+    ) {
+      yield* electron.relaunch;
+    }
     yield* electron.quit;
   }).pipe(Effect.scoped);

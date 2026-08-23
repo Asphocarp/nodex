@@ -11,7 +11,6 @@ import {
   mapCoreLibraryDatabaseEvent,
   mapCoreLibraryEvent,
   mapCoreProjectWorkspaceEvent,
-  mapCoreStoreAdministrationEvent,
   type CoreAuthorizedDeliveryAtom,
   type CoreEventEnvelope,
 } from "../core-client";
@@ -22,6 +21,7 @@ import {
 import type { DatabaseNotificationPublisher } from "../host-runtime/DatabaseNotifierRuntime";
 import { getLogger } from "../logging/logger";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
+import { mapCoreStoreAdministrationEvent } from "./StoreAdministration";
 
 export interface CoreAutomationProjectionPort {
   readonly notifyAutomationRunsUpdated: (event: CodexAutomationRunsUpdatedEvent) => void;

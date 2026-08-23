@@ -24,7 +24,6 @@ import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapt
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
 import { createDesktopAutomationModuleBridge } from "./core-client/desktop-automation-module-bridge";
-import { createDesktopStoreAdministrationBridge } from "./core-client/desktop-store-administration-bridge";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { parseDataSourcePropertyId } from "../shared/database-identities";
@@ -2144,37 +2143,53 @@ describe("Electron native data authority", () => {
         status: "deleted",
         deletedRunCount: 0,
       });
-      const administration = createDesktopStoreAdministrationBridge({
-        authority: Promise.resolve(runtime),
+      const createdBackup = await runtime.rootClient.administrationApply({
+        operationId: randomUUID(),
+        intent: {
+          kind: "create_backup",
+          trigger: "manual",
+          label: "Electron native authority",
+          include_assets: true,
+        },
       });
-      const nativeBackup = await administration.createBackup({
-        trigger: "manual",
-        label: "Electron native authority",
+      const nativeBackupId = createdBackup.outcome.backup_id;
+      if (!nativeBackupId) throw new Error("Core Backup commit omitted its Backup identity");
+      const nativeBackups = await runtime.rootClient.administrationRead({
+        kind: "backups",
+        window: { after: null, first: 200 },
       });
-      expect(nativeBackup).toMatchObject({
-        trigger: "manual",
-        label: "Electron native authority",
-        includesAssets: true,
-        dbBytes: expect.any(Number),
-      });
-      await expect(administration.listBackups()).resolves.toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: nativeBackup.id })]),
+      if (nativeBackups.value.kind !== "backups") {
+        throw new Error("Core returned a non-Backup Store Administration read");
+      }
+      expect(nativeBackups.value.backups.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            backup_id: nativeBackupId,
+            trigger: "manual",
+            label: "Electron native authority",
+            includes_assets: true,
+            db_bytes: expect.any(Number),
+          }),
+        ]),
       );
-      await expect(
-        administration.runMaintenance({
+      await runtime.rootClient.administrationApply({
+        operationId: randomUUID(),
+        intent: {
+          kind: "run_maintenance",
           tasks: [
             "document_revision_finalize",
             "document_compaction",
             "history_retention",
             "block_retention",
           ],
-          blockRetentionCount: 0,
-        }),
-      ).resolves.toBeUndefined();
-      await expect(administration.deleteBackup(nativeBackup.id)).resolves.toEqual({
-        success: true,
-        deletedBackupId: nativeBackup.id,
+          block_retention_count: 0,
+        },
       });
+      const deletedBackup = await runtime.rootClient.administrationApply({
+        operationId: randomUUID(),
+        intent: { kind: "delete_backup", backup_id: nativeBackupId },
+      });
+      expect(deletedBackup.status).toBe("committed");
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(
         runtime.clientForProject(projectId).databaseRead({

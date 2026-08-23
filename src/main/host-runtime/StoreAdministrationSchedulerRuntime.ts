@@ -5,10 +5,13 @@ import * as FiberHandle from "effect/FiberHandle";
 import * as Layer from "effect/Layer";
 import * as Semaphore from "effect/Semaphore";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import type { DesktopStoreAdministrationPort } from "../core-client";
 import { CoreAuthority } from "../core-runtime/CoreAuthority";
+import {
+  StoreAdministration,
+  type StoreAdministrationError,
+} from "../core-runtime/StoreAdministration";
 import { getLogger } from "../logging/logger";
-import { SchedulerOperationError, fromSchedulerPromise } from "./SchedulerOperation";
+import { SchedulerOperationError } from "./SchedulerOperation";
 import {
   STORE_MAINTENANCE_SCHEDULES,
   maintenanceInput,
@@ -28,7 +31,6 @@ export interface StoreAdministrationSchedulerTiming {
 }
 
 export interface StoreAdministrationSchedulerRuntimeOptions {
-  readonly administration: DesktopStoreAdministrationPort;
   readonly readBackupSettings: () => BackupSchedulerSettings;
   readonly readBlockRetentionCount: () => number;
   readonly timing?: StoreAdministrationSchedulerTiming;
@@ -44,10 +46,11 @@ export class StoreAdministrationSchedulerRuntime extends Context.Service<
 
 export const live = (
   options: StoreAdministrationSchedulerRuntimeOptions,
-): Layer.Layer<StoreAdministrationSchedulerRuntime, never, CoreAuthority> =>
+): Layer.Layer<StoreAdministrationSchedulerRuntime, never, CoreAuthority | StoreAdministration> =>
   Layer.effect(
     StoreAdministrationSchedulerRuntime,
     Effect.gen(function* () {
+      const administration = yield* StoreAdministration;
       const authority = yield* CoreAuthority;
       const activation = yield* Deferred.make<void>();
       const backupLock = yield* Semaphore.make(1);
@@ -57,22 +60,17 @@ export const live = (
       const authorityReady = SubscriptionRef.get(authority.state).pipe(
         Effect.map((state) => state.kind === "ready"),
       );
-      const operationCause = (error: SchedulerOperationError): unknown => error.cause;
+      const operationCause = (error: SchedulerOperationError | StoreAdministrationError): unknown =>
+        error.cause;
 
       const runBackup = (settings: BackupSchedulerSettings): Effect.Effect<void> =>
         backupLock
           .withPermitsIfAvailable(1)(
             Effect.gen(function* () {
               if (!(yield* authorityReady)) return;
-              yield* fromSchedulerPromise("create-automatic-backup", () =>
-                options.administration.createBackup({ trigger: "auto" }),
-              );
+              yield* administration.createBackup({ trigger: "auto" });
               if (!(yield* authorityReady)) return;
-              yield* fromSchedulerPromise("prune-automatic-backups", () =>
-                options.administration.pruneBackups(
-                  Math.max(0, Math.trunc(settings.retentionCount)),
-                ),
-              );
+              yield* administration.pruneBackups(Math.max(0, Math.trunc(settings.retentionCount)));
             }).pipe(
               Effect.catch((error) =>
                 Effect.sync(() => {
@@ -113,9 +111,7 @@ export const live = (
                     cause,
                   }),
               });
-              yield* fromSchedulerPromise(`run-${lane}-maintenance`, () =>
-                options.administration.runMaintenance(input),
-              );
+              yield* administration.runMaintenance(input);
             }).pipe(
               Effect.catch((error) =>
                 Effect.sync(() => {

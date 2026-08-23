@@ -38,14 +38,6 @@ export {
   type DesktopAutomationModulePort,
 } from "./desktop-automation-module-bridge";
 export {
-  createDesktopStoreAdministrationBridge,
-  mapCoreStoreAdministrationEvent,
-  type CoreStoreAdministrationInvalidation,
-  type DesktopStoreAdministrationBridgeInput,
-  type DesktopStoreAdministrationPort,
-  type DesktopStoreMaintenanceTask,
-} from "./desktop-store-administration-bridge";
-export {
   createDesktopDatabaseModuleBridge,
   mapCoreDatabaseEvent,
   mapCoreLibraryDatabaseEvent,

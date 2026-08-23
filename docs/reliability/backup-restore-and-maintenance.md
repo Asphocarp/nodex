@@ -52,7 +52,9 @@ database and asset generations.
 After installation, Core rotates the Store epoch transactionally, invalidates
 subscriptions and process-local leases, and returns a committed receipt. A
 missing Host response cannot turn that durable success into failure. Electron
-then relaunches so every Adapter binds the new authority.
+submits its first-wins shutdown request in the same uninterruptible post-commit
+step. Relaunch begins only after the complete Main application scope has
+released, so no old Adapter can continue using the replaced authority.
 
 Pre-restore renderer checkpoints, outboxes, Awareness, stream cursors, and
 Document sessions fail closed on the new epoch. Surfaces remount from current

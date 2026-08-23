@@ -1,4 +1,4 @@
-import type { DesktopStoreMaintenanceInput } from "../core-client/desktop-store-administration-bridge";
+import type { StoreMaintenanceInput } from "../core-runtime/StoreAdministration";
 
 export const STORE_MAINTENANCE_SCHEDULES = {
   revision: { initial: 15_000, interval: 30_000 },
@@ -16,7 +16,7 @@ const requireNonNegativeInteger = (value: number, field: string): number => {
 export const maintenanceInput = (
   lane: StoreMaintenanceLane,
   blockRetentionCount: number,
-): DesktopStoreMaintenanceInput => {
+): StoreMaintenanceInput => {
   if (lane === "revision") return { tasks: ["document_revision_finalize"] };
   if (lane === "document") return { tasks: ["document_compaction", "history_retention"] };
   return {
