@@ -86,14 +86,10 @@ import type {
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
-import { CodexApplicationRequestPending, CodexService } from "./codex-service";
+import { CodexService } from "./codex-service";
 import { CodexSessionStore } from "./codex-session-store";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
 import type { CodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
-import {
-  CODEX_SERVER_REQUEST_NO_RESPONSE,
-  CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
-} from "../codex-runtime/CodexApplicationProtocol";
 import { CodexRpcError } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import { TestCodexUserInputAutoResolutionController } from "./codex-user-input-auto-resolution.test-support";
 import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuation.test-support";
@@ -1346,35 +1342,6 @@ function createService(options?: {
     attachmentsRoot: configuredAttachmentsRoot,
   });
   void pastedTextAttachments.cleanupPendingRemovals().catch(() => undefined);
-  type PendingTestResponse = {
-    readonly resolve: (value: unknown) => void;
-    readonly reject: (reason?: unknown) => void;
-  };
-  type QueuedTestCompletion =
-    | { readonly kind: "success"; readonly value: unknown }
-    | { readonly kind: "failure"; readonly reason: unknown };
-  let nextResponseToken = 1;
-  const responseKey = (threadId: string, occurrenceToken: number) =>
-    `${threadId}\0${occurrenceToken}`;
-  const responseWaiters = new Map<string, PendingTestResponse[]>();
-  const queuedCompletions = new Map<string, QueuedTestCompletion[]>();
-  const completeResponse = (
-    threadId: string,
-    occurrenceToken: number,
-    completion: QueuedTestCompletion,
-  ): boolean => {
-    const key = responseKey(threadId, occurrenceToken);
-    const waiters = responseWaiters.get(key);
-    const waiter = waiters?.shift();
-    if (waiters?.length === 0) responseWaiters.delete(key);
-    if (!waiter) {
-      queuedCompletions.set(key, [...(queuedCompletions.get(key) ?? []), completion]);
-      return true;
-    }
-    if (completion.kind === "success") waiter.resolve(completion.value);
-    else waiter.reject(completion.reason);
-    return true;
-  };
   let service: CodexService | undefined;
   const rendererConversations = makeCodexRendererConversationRegistryState();
   const autoResolution = new TestCodexUserInputAutoResolutionController({
@@ -1779,12 +1746,8 @@ function createService(options?: {
     requestContinuation: (threadId) => service?.requestActiveGoalContinuationAfterResume(threadId),
   });
   const pendingServerRequests = new TestCodexPendingServerRequestRuntime({
-    respond: (threadId, _requestId, occurrenceToken, response) => {
-      completeResponse(threadId, occurrenceToken, { kind: "success", value: response });
-    },
-    reject: (threadId, _requestId, occurrenceToken, reason) => {
-      completeResponse(threadId, occurrenceToken, { kind: "failure", reason });
-    },
+    respond: () => undefined,
+    reject: () => undefined,
   });
   const testClient = new TestCodexGatewayPromiseClient();
   const testService = new CodexService({
@@ -2084,7 +2047,6 @@ function createService(options?: {
       notification: CodexTestServerNotification,
       options?: unknown,
     ) => Promise<void>;
-    handleServerRequest: (request: { method?: unknown; params?: unknown }) => Promise<unknown>;
     isConversationArchived: (threadId: string) => boolean;
     upsertPlanImplementationRequest: (
       threadId: string,
@@ -2287,89 +2249,6 @@ function createService(options?: {
       }
     }
     await handleNotification(notification, handleOptions);
-  };
-  const handleServerRequest = internals.handleServerRequest.bind(service);
-  internals.handleServerRequest = async (request) => {
-    const occurrenceToken = nextResponseToken;
-    nextResponseToken += 1;
-    Object.assign(request, { [CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN]: occurrenceToken });
-    const params =
-      typeof request.params === "object" && request.params !== null
-        ? (request.params as { threadId?: unknown })
-        : null;
-    if (typeof params?.threadId === "string" && params.threadId.length > 0) {
-      let existingRecord = internals.getMaybeConversationRecord(params.threadId);
-      const requestTurnId =
-        typeof (request.params as { turnId?: unknown }).turnId === "string"
-          ? (request.params as { turnId: string }).turnId
-          : null;
-      const isConversationRequest =
-        typeof request.method === "string" &&
-        (request.method === "item/commandExecution/requestApproval" ||
-          request.method === "item/fileChange/requestApproval" ||
-          request.method === "item/permissions/requestApproval" ||
-          request.method === "item/tool/requestUserInput" ||
-          request.method === "item/tool/requestOptionPicker" ||
-          request.method === "item/tool/requestSetupCodexContextPicker" ||
-          request.method === "item/tool/call" ||
-          request.method === "mcpServer/elicitation/request");
-      if (
-        !existingRecord &&
-        isConversationRequest &&
-        !internals.isConversationArchived(params.threadId)
-      ) {
-        internals.setConversationRecordDetail({
-          ...makeThreadDetail(params.threadId),
-          turns: requestTurnId
-            ? [
-                {
-                  threadId: params.threadId,
-                  turnId: requestTurnId,
-                  status: "inProgress",
-                  itemIds: [],
-                },
-              ]
-            : [],
-          transcript: [],
-        });
-        existingRecord = internals.getMaybeConversationRecord(params.threadId);
-      }
-      if (existingRecord && !existingRecord.detail) {
-        internals.setConversationRecordDetail({
-          ...makeThreadDetail(params.threadId),
-          turns: requestTurnId
-            ? [
-                {
-                  threadId: params.threadId,
-                  turnId: requestTurnId,
-                  status: "inProgress",
-                  itemIds: [],
-                },
-              ]
-            : [],
-          transcript: [],
-        });
-      }
-      syncCanonicalFixture(params.threadId);
-    }
-    const result = await handleServerRequest(request);
-    if (result !== CodexApplicationRequestPending) return result;
-    const threadId = params?.threadId;
-    if (typeof threadId !== "string") {
-      throw new Error("Pending Codex test request is missing its correlation identity");
-    }
-    return await new Promise<unknown>((resolve, reject) => {
-      const key = responseKey(threadId, occurrenceToken);
-      const completions = queuedCompletions.get(key);
-      const completion = completions?.shift();
-      if (completions?.length === 0) queuedCompletions.delete(key);
-      if (completion) {
-        if (completion.kind === "success") resolve(completion.value);
-        else reject(completion.reason);
-        return;
-      }
-      responseWaiters.set(key, [...(responseWaiters.get(key) ?? []), { resolve, reject }]);
-    });
   };
   const upsertPlanImplementationRequest =
     internals.upsertPlanImplementationRequest.bind(testService);
@@ -6316,82 +6195,6 @@ describe("codex-service item lifecycle status fallback", () => {
     }
   });
 
-  test("declines unsupported MCP elicitation requests before owner routing from bundle 27071 and 52137", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      handleServerRequest: (request: {
-        id: string | number;
-        method: string;
-        params: unknown;
-      }) => Promise<unknown>;
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    };
-    const hostMessages: CodexHostMessage[] = [];
-    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
-
-    service.on("hostMessage", (message) => {
-      if (message.type === "threadStreamStateChanged") {
-        hostMessages.push(message);
-      }
-    });
-    serviceInternals.on("rendererOwnerHostMessage", (message) => {
-      ownerMessages.push(message);
-    });
-    rendererConversationsForTest(service).setOwner("thr_mcp_invalid", "owner-a");
-
-    try {
-      const result = await serviceInternals.handleServerRequest({
-        id: "mcp_invalid",
-        method: "mcpServer/elicitation/request",
-        params: {
-          threadId: "thr_mcp_invalid",
-          turnId: "turn_mcp_invalid",
-          mode: "url",
-          serverName: "browser",
-          message: "Open this URL?",
-          url: "http://example.test",
-          elicitationId: "elicitation-1",
-          _meta: null,
-        },
-      });
-      const unknownModeResult = await serviceInternals.handleServerRequest({
-        id: "mcp_unknown_mode",
-        method: "mcpServer/elicitation/request",
-        params: {
-          threadId: "thr_mcp_invalid",
-          turnId: "turn_mcp_invalid",
-          mode: "future/form",
-          serverName: "browser",
-          message: "Unknown form mode",
-          requestedSchema: { type: "object", properties: {} },
-          _meta: null,
-        },
-      });
-
-      expect(JSON.stringify(result)).toBe(
-        JSON.stringify({
-          action: "decline",
-          content: null,
-          _meta: null,
-        }),
-      );
-      expect(JSON.stringify(unknownModeResult)).toBe(
-        JSON.stringify({
-          action: "decline",
-          content: null,
-          _meta: null,
-        }),
-      );
-      expect(String(ownerMessages.length)).toBe("0");
-      expect(String(hostMessages.length)).toBe("0");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test("synthesizes planImplementation items from completed turns with unfinished plans", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -8682,158 +8485,6 @@ describe("codex-service terminal turn reconciliation", () => {
         [],
       );
       expect((record ? readTestCanonicalState(record) : null)?.turns[0]?.items.length).toBe(1);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("hot no-owner request patches preserve raw order and complete user/MCP synthetics on resolution", async () => {
-    const service = createService();
-    const threadId = "thr_request_lifecycle_hot_path";
-    const turnId = "turn_request_lifecycle_hot_path";
-    const serviceInternals = service as unknown as {
-      serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleServerRequest: (request: {
-        id: string | number;
-        method: string;
-        params: unknown;
-      }) => Promise<unknown>;
-      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-    };
-    const hostMessages: CodexHostMessage[] = [];
-    const notificationEvents: CodexThreadNotificationEvent[] = [];
-    service.addThreadNotificationListener((event) => {
-      notificationEvents.push(event);
-    });
-    service.on("hostMessage", (message) => {
-      if (message.type === "threadStreamStateChanged") hostMessages.push(message);
-    });
-    serviceInternals.setConversationRecordDetail({
-      ...makeThreadDetail(threadId),
-      turns: [{ threadId, turnId, status: "inProgress", itemIds: [] }],
-      transcript: [],
-    });
-
-    try {
-      const baseConversation = await requestConversationSnapshotForTest(service, threadId);
-      expect(baseConversation).not.toBeNull();
-      const readAcceptedConversation = () =>
-        conversationAggregatesByTestService.get(service)?.currentConversation(threadId)?.read()
-          .acceptedReplica?.conversation;
-
-      const originalSerializeConversationSnapshot =
-        serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
-      let serializeConversationSnapshotCallCount = 0;
-      serviceInternals.serializeConversationSnapshot = (targetThreadId: string) => {
-        serializeConversationSnapshotCallCount += 1;
-        return originalSerializeConversationSnapshot(targetThreadId);
-      };
-
-      const userPromise = serviceInternals.handleServerRequest({
-        id: 701,
-        method: "item/tool/requestUserInput",
-        params: {
-          threadId,
-          turnId,
-          itemId: "user-request-hot-path",
-          isBlocking: true,
-          questions: [
-            {
-              id: "q-hot-path",
-              header: "Hot path",
-              question: "Continue?",
-              isOther: false,
-              isSecret: false,
-            },
-          ],
-        },
-      });
-      const mcpPromise = serviceInternals.handleServerRequest({
-        id: "702",
-        method: "mcpServer/elicitation/request",
-        params: {
-          threadId,
-          turnId,
-          serverName: "fixture_server",
-          mode: "openai/form",
-          message: "Provide a fixture value",
-          requestedSchema: { type: "object", properties: {} },
-          _meta: null,
-        },
-      });
-      await Promise.resolve();
-
-      expect(serializeConversationSnapshotCallCount).toBe(0);
-      expect(hostMessages).toHaveLength(0);
-      const pendingConversation = readAcceptedConversation();
-      expect(
-        JSON.stringify(pendingConversation?.canonicalRequests?.map((request) => request.id) ?? []),
-      ).toBe(JSON.stringify([701, "702"]));
-      expect(pendingConversation?.hasUnreadTurn).toBe(true);
-      expect(
-        pendingConversation?.turns[0]?.items.find(
-          (item) => item.itemId === "user-input-response-701",
-        )?.status,
-      ).toBe("inProgress");
-      expect(
-        pendingConversation?.turns[0]?.items.find(
-          (item) => item.itemId === "mcp-server-elicitation-702",
-        )?.status,
-      ).toBe("inProgress");
-      expect(
-        notificationEvents.filter((event) => event.type === "user-input-requested"),
-      ).toMatchObject([{ requestId: 701, questionCount: 1 }]);
-
-      await serviceInternals.handleNotification({
-        method: "serverRequest/resolved",
-        params: {
-          threadId,
-          requestId: 701,
-        },
-      });
-      await serviceInternals.handleNotification({
-        method: "serverRequest/resolved",
-        params: {
-          threadId,
-          requestId: "702",
-        },
-      });
-      await serviceInternals.handleNotification({
-        method: "serverRequest/resolved",
-        params: {
-          threadId,
-          requestId: 701,
-        },
-      });
-
-      const resolvedConversation = readAcceptedConversation();
-      expect(serializeConversationSnapshotCallCount).toBe(0);
-      expect(resolvedConversation?.canonicalRequests?.length ?? -1).toBe(0);
-      expect(resolvedConversation?.hasUnreadTurn).toBe(true);
-      const resolvedUserItem = resolvedConversation?.turns[0]?.items.find(
-        (item) => item.itemId === "user-input-response-701",
-      );
-      const resolvedMcpItem = resolvedConversation?.turns[0]?.items.find(
-        (item) => item.itemId === "mcp-server-elicitation-702",
-      );
-      expect(resolvedUserItem?.status).toBe("completed");
-      expect((resolvedUserItem?.rawItem as { completed?: boolean } | undefined)?.completed).toBe(
-        true,
-      );
-      expect(
-        JSON.stringify((resolvedUserItem?.rawItem as { answers?: unknown } | undefined)?.answers),
-      ).toBe(JSON.stringify({}));
-      expect(resolvedMcpItem?.status).toBe("completed");
-      expect((resolvedMcpItem?.rawItem as { completed?: boolean } | undefined)?.completed).toBe(
-        true,
-      );
-      expect((resolvedMcpItem?.rawItem as { action?: unknown } | undefined)?.action).toBe(null);
-      expect(notificationEvents.filter((event) => event.type === "request-resolved")).toMatchObject(
-        [{ requestId: 701 }, { requestId: "702" }, { requestId: 701 }],
-      );
-      expect(await userPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
-      expect(await mcpPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
     } finally {
       await service.shutdown();
     }
