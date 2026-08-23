@@ -3110,11 +3110,11 @@ export const live: Layer.Layer<
         const initializationStartedAt = performance.now();
         const initialize = Effect.gen(function* () {
           applicationLogger.info("Native Core authority ready", {
-            ...dataAuthority.launch.timings,
-            artifactValidationMs: Math.round(dataAuthority.launch.timings.artifactValidationMs),
-            connectMs: Math.round(dataAuthority.launch.timings.connectMs),
-            selectionMs: Math.round(dataAuthority.launch.timings.selectionMs),
-            totalMs: Math.round(dataAuthority.launch.timings.totalMs),
+            ...authority.initialLaunch.timings,
+            artifactValidationMs: Math.round(authority.initialLaunch.timings.artifactValidationMs),
+            connectMs: Math.round(authority.initialLaunch.timings.connectMs),
+            selectionMs: Math.round(authority.initialLaunch.timings.selectionMs),
+            totalMs: Math.round(authority.initialLaunch.timings.totalMs),
           });
           let coreStreamInterruptionPublished = false;
           const coreHandshake = yield* access.handshake.pipe(
