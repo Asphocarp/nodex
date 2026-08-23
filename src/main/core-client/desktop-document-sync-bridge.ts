@@ -84,7 +84,6 @@ import {
   type CanvasPresencePublishRequest,
 } from "../../shared/block-documents/document-presence";
 import { decodeCanvasSceneSseEvent } from "../../shared/block-documents/canvas-scene-http-contract";
-import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
   contentAccessContextKey,
   type ContentAccessContext,
@@ -94,12 +93,8 @@ import {
   mapCanvasLiveEnvelope,
   mapCoreCanvasSceneFailure,
 } from "./core-canvas-scene-adapter";
-import {
-  createCoreBlockTransferAdapter,
-  type CoreBlockTransferAdapter,
-} from "./block-transfer-adapter";
+import { createCoreBlockTransferAdapter } from "./block-transfer-adapter";
 import { createCoreDocumentSyncAdapter, mapDocumentLiveEnvelope } from "./document-sync-adapter";
-import type { CoreDocumentSyncAdapter } from "./document-sync-adapter";
 import { isRetryableCoreEventStreamError } from "./core-event-stream-retry";
 import {
   resolveAuthorizedDocumentEffect,
@@ -111,7 +106,7 @@ import type {
   CoreEventEnvelope,
   DocumentLiveRepair,
 } from "./types";
-import { CoreSessionAccess } from "../core-runtime/CoreAuthority";
+import { CoreAuthority, CoreSessionAccess } from "../core-runtime/CoreAuthority";
 import { CoreModules } from "../core-runtime/CoreModules";
 import {
   DocumentLiveRuntime,
@@ -233,11 +228,11 @@ export class DesktopDocumentSessionRuntime extends Context.Service<
 >()("nodex/main/core-client/DesktopDocumentSessionRuntime") {}
 
 export interface DesktopDocumentSessionRuntimeOptions {
-  readonly authority: DesktopDataAuthorityRuntime;
   readonly canvasPresenceHub?: CanvasPresenceHub;
 }
 
 interface DesktopDocumentSessionRuntimeDependencies extends DesktopDocumentSessionRuntimeOptions {
+  readonly coreAuthority: CoreAuthority["Service"];
   readonly coreSession: CoreSessionAccess["Service"];
   readonly coreModules: CoreModules["Service"];
   readonly documentLive: DocumentLiveRuntime["Service"];
@@ -445,8 +440,6 @@ const makeDesktopDocumentSessionState = (
   input: DesktopDocumentSessionRuntimeDependencies,
   background: (effect: Effect.Effect<void>) => unknown,
 ) => {
-  const adapters = new Map<string, CoreDocumentSyncAdapter>();
-  const blockTransferAdapters = new Map<string, CoreBlockTransferAdapter>();
   const subscriptions = new Map<string, NativeSubscription>();
   const deliveredCommitKeys = new Map<string, Set<string>>();
   const bindings = new Map<string, string>();
@@ -460,32 +453,6 @@ const makeDesktopDocumentSessionState = (
   >();
   const canvasPresenceHub = input.canvasPresenceHub ?? createCanvasPresenceHub();
   let accepting = true;
-
-  const adapterFor = (scope: DesktopDocumentSyncScope): CoreDocumentSyncAdapter => {
-    const key = scopeKey(scope);
-    let adapter = adapters.get(key);
-    if (adapter) return adapter;
-    adapter = createCoreDocumentSyncAdapter(
-      scope.kind === "project"
-        ? input.authority.clientForProject(scope.projectId)
-        : input.authority.rootClient,
-    );
-    adapters.set(key, adapter);
-    return adapter;
-  };
-
-  const blockTransferAdapterFor = (projectId: string): CoreBlockTransferAdapter => {
-    let adapter = blockTransferAdapters.get(projectId);
-    if (adapter) return adapter;
-    adapter = createCoreBlockTransferAdapter({
-      client: input.authority.clientForProject(projectId),
-      libraryId: input.authority.identity.libraryId,
-      projectId,
-      storeEpoch: input.authority.identity.storeEpoch,
-    });
-    blockTransferAdapters.set(projectId, adapter);
-    return adapter;
-  };
 
   const closeSubscription = (key: string): void => {
     const subscription = subscriptions.get(key);
@@ -995,23 +962,6 @@ const makeDesktopDocumentSessionState = (
   const sessionError = (operation: string, cause: unknown): DesktopDocumentSessionError =>
     new DesktopDocumentSessionError({ operation, cause });
 
-  const corePromise = <Value>(
-    operation: string,
-    run: (signal: AbortSignal) => Promise<Value>,
-  ): SessionEffect<Value> =>
-    Effect.tryPromise({
-      try: run,
-      catch: (cause) => sessionError(operation, cause),
-    });
-
-  const withDocumentResult = <Value>(
-    operation: string,
-    run: (signal: AbortSignal) => Promise<DocumentSyncCommandResult<Value>>,
-  ): Effect.Effect<DocumentSyncCommandResult<Value>> =>
-    corePromise(operation, run).pipe(
-      Effect.catch((error) => Effect.succeed(transportUnavailable<Value>(error.cause))),
-    );
-
   const runCanvasCommand = <Success extends { readonly ok: true }>(
     operation: string,
     accessContext: ContentAccessContext,
@@ -1026,7 +976,7 @@ const makeDesktopDocumentSessionState = (
         async (client) =>
           await run(
             createCoreCanvasSceneCommands(client, {
-              libraryId: input.authority.identity.libraryId,
+              libraryId: input.coreAuthority.identity.libraryId,
               accessContext,
             }),
           ),
@@ -1102,20 +1052,24 @@ const makeDesktopDocumentSessionState = (
   const applyDocumentMutation = (
     request: DocumentMutationRequest,
   ): Effect.Effect<DocumentOperationCommandResult> =>
-    corePromise("document.mutate", () =>
-      adapterFor({ kind: "project", projectId: request.projectId }).applyDocumentMutation(request),
-    ).pipe(
-      Effect.catch((error) =>
-        Effect.succeed({
-          ok: false as const,
-          error: documentMutationFailure(
-            "unknown",
-            error.cause instanceof Error ? error.cause.message : String(error.cause),
-            { mutationId: request.mutationId, retryable: true },
-          ),
-        }),
-      ),
-    );
+    input.coreSession
+      .use(
+        "document.mutate",
+        (client) => createCoreDocumentSyncAdapter(client).applyDocumentMutation(request),
+        { projectId: request.projectId },
+      )
+      .pipe(
+        Effect.catch((error) =>
+          Effect.succeed({
+            ok: false as const,
+            error: documentMutationFailure(
+              "unknown",
+              error.cause instanceof Error ? error.cause.message : error.message,
+              { mutationId: request.mutationId, retryable: true },
+            ),
+          }),
+        ),
+      );
 
   const compactCanvasScene = (
     target: DocumentSyncClientTarget,
@@ -1230,26 +1184,33 @@ const makeDesktopDocumentSessionState = (
           continue;
         }
         resourceDeliveries.push(
-          corePromise("document.resolve-effect", () =>
-            resolveAuthorizedDocumentEffect(effect, identity, (request) =>
-              adapterFor(scope).fetchUpdateResource(request),
+          input.coreSession
+            .use(
+              "document.resolve-effect",
+              (client) =>
+                resolveAuthorizedDocumentEffect(
+                  effect,
+                  identity,
+                  createCoreDocumentSyncAdapter(client).fetchUpdateResource,
+                ),
+              { projectId: projectIdFor(scope) },
+            )
+            .pipe(
+              Effect.catch(() =>
+                Effect.succeed({
+                  kind: "resync-required" as const,
+                  documentId: reference.document_id,
+                  storeEpoch: identity.store_epoch,
+                  generation: reference.generation,
+                  headSeq: reference.base_head_seq,
+                  commitSeq: identity.commit_seq,
+                  effectSequence: reference.effect_order,
+                  reason: "resource-integrity-failure" as const,
+                }),
+              ),
+              Effect.tap((event) => Effect.sync(() => deliverResolvedEvent(event))),
+              Effect.asVoid,
             ),
-          ).pipe(
-            Effect.catch(() =>
-              Effect.succeed({
-                kind: "resync-required" as const,
-                documentId: reference.document_id,
-                storeEpoch: identity.store_epoch,
-                generation: reference.generation,
-                headSeq: reference.base_head_seq,
-                commitSeq: identity.commit_seq,
-                effectSequence: reference.effect_order,
-                reason: "resource-integrity-failure" as const,
-              }),
-            ),
-            Effect.tap((event) => Effect.sync(() => deliverResolvedEvent(event))),
-            Effect.asVoid,
-          ),
         );
       }
     });
@@ -1388,91 +1349,142 @@ const makeDesktopDocumentSessionState = (
     });
 
   const transferBlocks = (intent: BlockTransferIntent): Effect.Effect<BlockTransferCommandResult> =>
-    corePromise("block-transfer.commit", () =>
-      blockTransferAdapterFor(intent.projectId).commit(intent),
-    ).pipe(
-      Effect.catch((error) =>
-        Effect.succeed({
-          ok: false as const,
-          error: {
-            code: "unknown" as const,
-            message: error.cause instanceof Error ? error.cause.message : String(error.cause),
-            retryable: true,
-            reloadRequired: false,
-            operationId: intent.operationId,
-          },
-        }),
-      ),
-    );
+    input.coreSession
+      .use(
+        "block-transfer.commit",
+        (client) =>
+          createCoreBlockTransferAdapter({
+            client,
+            libraryId: input.coreAuthority.identity.libraryId,
+            projectId: intent.projectId,
+            storeEpoch: input.coreAuthority.identity.storeEpoch,
+          }).commit(intent),
+        { projectId: intent.projectId },
+      )
+      .pipe(
+        Effect.catch((error) =>
+          Effect.succeed({
+            ok: false as const,
+            error: {
+              code: "unknown" as const,
+              message: error.cause instanceof Error ? error.cause.message : error.message,
+              retryable: true,
+              reloadRequired: false,
+              operationId: intent.operationId,
+            },
+          }),
+        ),
+      );
 
   const undoBlockTransfer = (
     intent: BlockTransferUndoIntent,
   ): Effect.Effect<BlockTransferUndoCommandResult> =>
-    corePromise("block-transfer.undo", () =>
-      blockTransferAdapterFor(intent.projectId).undo(intent),
-    ).pipe(
-      Effect.catch((error) =>
-        Effect.succeed({
-          ok: false as const,
-          error: {
-            code: "unknown" as const,
-            message: error.cause instanceof Error ? error.cause.message : String(error.cause),
-            retryable: true,
-            reloadRequired: false,
-            operationId: intent.operationId,
-          },
-        }),
-      ),
-    );
+    input.coreSession
+      .use(
+        "block-transfer.undo",
+        (client) =>
+          createCoreBlockTransferAdapter({
+            client,
+            libraryId: input.coreAuthority.identity.libraryId,
+            projectId: intent.projectId,
+            storeEpoch: input.coreAuthority.identity.storeEpoch,
+          }).undo(intent),
+        { projectId: intent.projectId },
+      )
+      .pipe(
+        Effect.catch((error) =>
+          Effect.succeed({
+            ok: false as const,
+            error: {
+              code: "unknown" as const,
+              message: error.cause instanceof Error ? error.cause.message : error.message,
+              retryable: true,
+              reloadRequired: false,
+              operationId: intent.operationId,
+            },
+          }),
+        ),
+      );
 
   const service = {
     publishDocumentEffects,
     publishResourceRevocation,
     getOwnedDocumentDescriptor: (projectId, ownerBlockId) =>
-      corePromise("document.read-descriptor", () =>
-        adapterFor({ kind: "project", projectId }).readDescriptor({
-          ownerBlockId,
-          clientSessionId: "electron:owned-document:descriptor",
-        }),
-      ).pipe(
-        Effect.map((descriptor) => requireProjectAccessedDocumentDescriptor(descriptor, projectId)),
-      ),
-    prepareOwnedBlockDocument: (projectId, ownerBlockId) =>
-      withDocumentResult("document.prepare-owner", async () => {
-        const scope = { kind: "project", projectId } as const;
-        const prepared = await adapterFor(scope).prepareOwner({
-          ownerBlockId,
-          ...ownerCommandIdentity(
-            scope,
-            ownerBlockId,
-            input.authority.identity.storeEpoch,
-            input.authority.rootClient.handshake.connection_binding,
+      input.coreSession
+        .use(
+          "document.read-descriptor",
+          (client) =>
+            createCoreDocumentSyncAdapter(client).readDescriptor({
+              ownerBlockId,
+              clientSessionId: "electron:owned-document:descriptor",
+            }),
+          { projectId },
+        )
+        .pipe(
+          Effect.map((descriptor) =>
+            requireProjectAccessedDocumentDescriptor(descriptor, projectId),
           ),
-        });
+          Effect.mapError((error) =>
+            sessionError("document.read-descriptor", error.cause ?? error),
+          ),
+        ),
+    prepareOwnedBlockDocument: (projectId, ownerBlockId) =>
+      Effect.gen(function* () {
+        const scope = { kind: "project", projectId } as const;
+        const prepared = yield* input.coreSession.use(
+          "document.prepare-owner",
+          (client) => {
+            const identity = ownerCommandIdentity(
+              scope,
+              ownerBlockId,
+              input.coreAuthority.identity.storeEpoch,
+              client.handshake.connection_binding,
+            );
+            return createCoreDocumentSyncAdapter(client).prepareOwner({
+              ownerBlockId,
+              ...identity,
+            });
+          },
+          { projectId },
+        );
         if (!prepared.ok) return prepared;
         return {
-          ok: true,
+          ok: true as const,
           value: requireProjectAccessedDocumentDescriptor(prepared.value, projectId),
         };
-      }),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.succeed(transportUnavailable<ProjectAccessedDocumentDescriptor>(error)),
+        ),
+      ),
     prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
-      withDocumentResult("document.prepare-library-owner", async () => {
+      Effect.gen(function* () {
         const scope = { kind: "library" } as const;
-        const prepared = await adapterFor(scope).prepareOwner({
-          ownerBlockId,
-          ...ownerCommandIdentity(
-            scope,
-            ownerBlockId,
-            input.authority.identity.storeEpoch,
-            input.authority.rootClient.handshake.connection_binding,
-          ),
-        });
+        const prepared = yield* input.coreSession.use(
+          "document.prepare-library-owner",
+          (client) => {
+            const identity = ownerCommandIdentity(
+              scope,
+              ownerBlockId,
+              input.coreAuthority.identity.storeEpoch,
+              client.handshake.connection_binding,
+            );
+            return createCoreDocumentSyncAdapter(client).prepareOwner({
+              ownerBlockId,
+              ...identity,
+            });
+          },
+        );
         if (!prepared.ok) return prepared;
         return {
-          ok: true,
+          ok: true as const,
           value: requireLibraryAccessedDocumentDescriptor(prepared.value),
         };
-      }),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.succeed(transportUnavailable<LibraryAccessedDocumentDescriptor>(error)),
+        ),
+      ),
     subscribe: (
       scope,
       target,
@@ -1608,7 +1620,7 @@ const makeDesktopDocumentSessionState = (
               openingOverflowed ||
               barrier.engine !== "yjs" ||
               barrier.document_id !== request.documentId ||
-              barrier.store_epoch !== input.authority.identity.storeEpoch
+              barrier.store_epoch !== input.coreAuthority.identity.storeEpoch
             ) {
               return yield* sessionError(
                 "document.subscribe.barrier",
@@ -1753,7 +1765,7 @@ const makeDesktopDocumentSessionState = (
               deliver(event);
             };
             const binding = {
-              libraryId: input.authority.identity.libraryId,
+              libraryId: input.coreAuthority.identity.libraryId,
               accessContext: request.accessContext,
             };
             const lease = yield* input.documentLive.subscribe({
@@ -1811,7 +1823,7 @@ const makeDesktopDocumentSessionState = (
               openingOverflowed ||
               barrier.engine !== "canvas_scene" ||
               barrier.document_id !== request.documentId ||
-              barrier.store_epoch !== input.authority.identity.storeEpoch
+              barrier.store_epoch !== input.coreAuthority.identity.storeEpoch
             ) {
               return yield* sessionError(
                 "canvas.subscribe.barrier",
@@ -1827,7 +1839,7 @@ const makeDesktopDocumentSessionState = (
               engine: "canvas_scene",
               bindingKey: ownerKey,
               scope: request.accessContext,
-              libraryId: input.authority.identity.libraryId,
+              libraryId: input.coreAuthority.identity.libraryId,
               documentId: request.documentId,
               clientSessionId: request.clientSessionId,
               target,
@@ -1839,7 +1851,7 @@ const makeDesktopDocumentSessionState = (
             openingEvents.forEach(deliver);
             canvasPresenceHub.register({
               key,
-              libraryId: input.authority.identity.libraryId,
+              libraryId: input.coreAuthority.identity.libraryId,
               accessContext: request.accessContext,
               documentId: request.documentId,
               clientSessionId: request.clientSessionId,
@@ -1969,24 +1981,49 @@ const makeDesktopDocumentSessionState = (
       }),
     compactCanvasScene,
     applyAdditionalDocumentCommand: (request) =>
-      corePromise("document.apply-additional-command", () =>
-        adapterFor({
-          kind: "project",
-          projectId: request.projectId,
-        }).applyAdditionalDocumentCommand(request),
-      ),
+      input.coreSession
+        .use(
+          "document.apply-additional-command",
+          (client) => createCoreDocumentSyncAdapter(client).applyAdditionalDocumentCommand(request),
+          { projectId: request.projectId },
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            sessionError("document.apply-additional-command", error.cause ?? error),
+          ),
+        ),
     createCheckpoint: (request) =>
-      corePromise("document.create-checkpoint", () =>
-        adapterFor({ kind: "project", projectId: request.projectId }).createCheckpoint(request),
-      ),
+      input.coreSession
+        .use(
+          "document.create-checkpoint",
+          (client) => createCoreDocumentSyncAdapter(client).createCheckpoint(request),
+          { projectId: request.projectId },
+        )
+        .pipe(
+          Effect.mapError((error) =>
+            sessionError("document.create-checkpoint", error.cause ?? error),
+          ),
+        ),
     listVersions: (request) =>
-      corePromise("document.list-versions", () =>
-        adapterFor({ kind: "project", projectId: request.projectId }).listVersions(request),
-      ),
+      input.coreSession
+        .use(
+          "document.list-versions",
+          (client) => createCoreDocumentSyncAdapter(client).listVersions(request),
+          { projectId: request.projectId },
+        )
+        .pipe(
+          Effect.mapError((error) => sessionError("document.list-versions", error.cause ?? error)),
+        ),
     getVersion: (request) =>
-      corePromise("document.get-version", () =>
-        adapterFor({ kind: "project", projectId: request.projectId }).getVersion(request),
-      ),
+      input.coreSession
+        .use(
+          "document.get-version",
+          (client) => createCoreDocumentSyncAdapter(client).getVersion(request),
+          { projectId: request.projectId },
+        )
+        .pipe(
+          Effect.mapError((error) => sessionError("document.get-version", error.cause ?? error)),
+        ),
     applyDocumentMutation,
     transferBlocks,
     undoBlockTransfer,
@@ -2004,8 +2041,6 @@ const makeDesktopDocumentSessionState = (
     bindings.clear();
     pendingSubscriptions.clear();
     deliveredCommitKeys.clear();
-    adapters.clear();
-    blockTransferAdapters.clear();
     yield* Effect.forEach(pending, ([, reservation]) =>
       Deferred.succeed(reservation.settled, undefined),
     );
@@ -2018,19 +2053,20 @@ const makeDesktopDocumentSessionState = (
 };
 
 export const makeDesktopDocumentSessionRuntime = (
-  input: DesktopDocumentSessionRuntimeOptions,
+  input: DesktopDocumentSessionRuntimeOptions = {},
 ): Effect.Effect<
   DesktopDocumentSessionService,
   never,
-  Scope.Scope | CoreSessionAccess | CoreModules | DocumentLiveRuntime
+  Scope.Scope | CoreAuthority | CoreSessionAccess | CoreModules | DocumentLiveRuntime
 > =>
   Effect.gen(function* () {
+    const coreAuthority = yield* CoreAuthority;
     const coreSession = yield* CoreSessionAccess;
     const coreModules = yield* CoreModules;
     const documentLive = yield* DocumentLiveRuntime;
     const background = yield* FiberSet.makeRuntime<never, void, never>();
     const state = makeDesktopDocumentSessionState(
-      { ...input, coreSession, coreModules, documentLive },
+      { ...input, coreAuthority, coreSession, coreModules, documentLive },
       background,
     );
     yield* Effect.addFinalizer(() => state.close);
@@ -2038,9 +2074,9 @@ export const makeDesktopDocumentSessionRuntime = (
   });
 
 export const desktopDocumentSessionRuntimeLive = (
-  options: DesktopDocumentSessionRuntimeOptions,
+  options: DesktopDocumentSessionRuntimeOptions = {},
 ): Layer.Layer<
   DesktopDocumentSessionRuntime,
   never,
-  CoreSessionAccess | CoreModules | DocumentLiveRuntime
+  CoreAuthority | CoreSessionAccess | CoreModules | DocumentLiveRuntime
 > => Layer.effect(DesktopDocumentSessionRuntime, makeDesktopDocumentSessionRuntime(options));

@@ -9,11 +9,10 @@ import {
   createElectronLibraryDocumentSyncAdapter,
 } from "../../../renderer/lib/electron-document-sync-adapter";
 import type { ElectronRendererBridge } from "../../../renderer/lib/electron-renderer-transport";
-import { CoreSessionAccess } from "../../core-runtime/CoreAuthority";
+import { CoreAuthority, CoreSessionAccess } from "../../core-runtime/CoreAuthority";
 import { CoreModules, live as coreModulesLive } from "../../core-runtime/CoreModules";
 import { classifyCoreOperationFailure } from "../../core-runtime/CoreRuntimeError";
 import { live as documentLiveRuntimeLive } from "../../core-runtime/DocumentLiveRuntime";
-import type { RustDataAuthorityRuntime } from "../desktop-data-authority";
 import {
   DesktopDocumentSessionRuntime,
   desktopDocumentSessionRuntimeLive,
@@ -65,24 +64,21 @@ export const makeDesktopDocumentSessionHarness = Effect.fn("DesktopDocumentSessi
     const coreModulesLayer = coreModulesLive.pipe(Layer.provide(accessLayer));
     const coreModulesContext = yield* Layer.build(coreModulesLayer);
     const coreModules = Context.get(coreModulesContext, CoreModules);
-    const authority = {
-      backend: "rust",
+    const authority = CoreAuthority.of({
       identity: {
         libraryId: client.handshake.library_id,
         profileId: client.handshake.generation.profile_id,
         storeEpoch: client.handshake.store_epoch,
       },
-      launch: {} as RustDataAuthorityRuntime["launch"],
-      rootClient: client,
-      clientForProject: (selectedProjectId: string) => client.forProject(selectedProjectId),
-    } as RustDataAuthorityRuntime;
+    } as CoreAuthority["Service"]);
     const dependencies = Layer.mergeAll(
+      Layer.succeed(CoreAuthority, authority),
       accessLayer,
       Layer.succeed(CoreModules, coreModules),
       documentLiveRuntimeLive,
     );
     const sessionContext = yield* Layer.build(
-      desktopDocumentSessionRuntimeLive({ authority }).pipe(Layer.provide(dependencies)),
+      desktopDocumentSessionRuntimeLive().pipe(Layer.provide(dependencies)),
     );
     const session = Context.get(sessionContext, DesktopDocumentSessionRuntime);
     const target = new HarnessTarget();

@@ -10,10 +10,10 @@ import {
   DesktopDocumentSessionRuntime,
   desktopDocumentSessionRuntimeLive,
 } from "./desktop-document-sync-bridge";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
+import type { CoreGenerationClient } from "./core-generation-client";
 import type { CoreClientPort, CoreDocumentEventSubscription } from "./types";
-import { CoreSessionAccess } from "../core-runtime/CoreAuthority";
+import { CoreAuthority, CoreSessionAccess } from "../core-runtime/CoreAuthority";
 import { live as coreModulesLive } from "../core-runtime/CoreModules";
 import { live as documentLiveRuntimeLive } from "../core-runtime/DocumentLiveRuntime";
 
@@ -102,7 +102,7 @@ class TrackingDocumentStreamClient extends FakeCoreClient {
   }
 }
 
-const runtimeFor = (client: FakeCoreClient): RustDataAuthorityRuntime => {
+const configureClient = (client: FakeCoreClient): CoreGenerationClient => {
   Object.assign(client, {
     handshake: createFakeCoreHandshake({
       connectionBinding: "binding:test",
@@ -110,38 +110,45 @@ const runtimeFor = (client: FakeCoreClient): RustDataAuthorityRuntime => {
       profileId: "profile:test",
       storeEpoch: "epoch:test",
     }),
+    forProject: () => client,
   });
-  const desktopClient = client as unknown as RustDataAuthorityRuntime["rootClient"];
-  return {
-    backend: "rust",
-    identity: {
-      libraryId: "library:test",
-      profileId: "profile:test",
-      storeEpoch: "epoch:test",
-    },
-    launch: {} as RustDataAuthorityRuntime["launch"],
-    rootClient: desktopClient,
-    clientForProject: () => desktopClient,
-  };
+  return client as unknown as CoreGenerationClient;
 };
+
+const authorityFor = (client: CoreGenerationClient): CoreAuthority["Service"] =>
+  CoreAuthority.of({
+    identity: {
+      libraryId: client.handshake.library_id,
+      profileId: client.handshake.generation.profile_id,
+      storeEpoch: client.handshake.store_epoch,
+    },
+  } as CoreAuthority["Service"]);
 
 const acquireSession = Effect.fn("DesktopDocumentSessionRuntime.test.acquire")(function* (
   client: FakeCoreClient,
 ) {
   const scope = yield* Scope.make();
-  const authority = runtimeFor(client);
+  const generationClient = configureClient(client);
+  const authority = authorityFor(generationClient);
   const coreSession = CoreSessionAccess.of({
-    use: (_operation, run) => Effect.promise((signal) => run(authority.rootClient, signal)),
-    handshake: Effect.succeed(authority.rootClient.handshake),
+    use: (_operation, run, options) =>
+      Effect.promise((signal) =>
+        run(
+          options?.projectId ? generationClient.forProject(options.projectId) : generationClient,
+          signal,
+        ),
+      ),
+    handshake: Effect.succeed(generationClient.handshake),
   });
   const coreSessionLayer = Layer.succeed(CoreSessionAccess, coreSession);
   const dependencies = Layer.mergeAll(
+    Layer.succeed(CoreAuthority, authority),
     coreSessionLayer,
     coreModulesLive.pipe(Layer.provide(coreSessionLayer)),
     documentLiveRuntimeLive,
   );
   const context = yield* Layer.buildWithScope(
-    desktopDocumentSessionRuntimeLive({ authority }).pipe(Layer.provide(dependencies)),
+    desktopDocumentSessionRuntimeLive().pipe(Layer.provide(dependencies)),
     scope,
   );
   return {
