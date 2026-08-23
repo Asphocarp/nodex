@@ -8,7 +8,11 @@ import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import type { BootstrapRuntimeEvent } from "../bootstrap-events";
-import { ElectronApp, type ElectronBeforeQuitDecision } from "../platform/electron/ElectronApp";
+import {
+  ElectronApp,
+  type ElectronBeforeQuitDecision,
+  type ElectronTerminationSignal,
+} from "../platform/electron/ElectronApp";
 import { program } from "./MainApp";
 import { testLayer as configLayer } from "./MainConfig";
 import { fromHooks, MainRuntimeError } from "./MainRuntimeLive";
@@ -31,6 +35,7 @@ const fakeElectronLayer = (events: string[]) =>
       onBeforeQuit: () => Effect.void,
       onOpenUrl: () => Effect.void,
       onSecondInstance: () => Effect.void,
+      onTerminationSignal: () => Effect.void,
       onWindowAllClosed: () => Effect.void,
     }),
   );
@@ -161,6 +166,7 @@ it.effect("routes Electron activation through the scoped Main runtime", () =>
         onBeforeQuit: () => Effect.void,
         onOpenUrl: () => Effect.void,
         onSecondInstance: () => Effect.void,
+        onTerminationSignal: () => Effect.void,
         onWindowAllClosed: () => Effect.void,
       }),
     );
@@ -192,6 +198,59 @@ it.effect("routes Electron activation through the scoped Main runtime", () =>
   }),
 );
 
+it.effect("routes process termination signals through Main shutdown before quitting Electron", () =>
+  Effect.gen(function* () {
+    const events: string[] = [];
+    const started = yield* Deferred.make<void>();
+    const termination = yield* Ref.make<
+      ((signal: ElectronTerminationSignal) => Effect.Effect<void>) | null
+    >(null);
+    const electron = Layer.succeed(
+      ElectronApp,
+      ElectronApp.of({
+        appPath: Effect.succeed("/tmp/nodex-test-app"),
+        downloadsPath: Effect.succeed("/tmp/nodex-test-downloads"),
+        isInApplicationsFolder: Effect.succeed(true),
+        locale: Effect.succeed("en-US"),
+        userDataPath: Effect.succeed("/tmp/nodex-test-user-data"),
+        whenReady: Effect.void,
+        quit: Effect.sync(() => events.push("quit")),
+        relaunch: Effect.void,
+        exit: () => Effect.void,
+        onActivate: () => Effect.void,
+        onBeforeQuit: () => Effect.void,
+        onOpenUrl: () => Effect.void,
+        onSecondInstance: () => Effect.void,
+        onTerminationSignal: (handler) => Ref.set(termination, handler),
+        onWindowAllClosed: () => Effect.void,
+      }),
+    );
+    const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+    const foundationScope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(foundation, foundationScope);
+    const shutdown = Context.get(context, MainShutdown);
+    const runtimeLayer = fromHooks({
+      start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
+      handleBootstrapEvent: () => Effect.void,
+      release: Effect.sync(() => events.push("release")),
+    });
+    const fiber = yield* program({
+      initialEvents: [],
+      runtimeLayer,
+      runStartupGate: Effect.succeed("continue" as const),
+    }).pipe(Effect.provide(context), Effect.forkScoped);
+    yield* Deferred.await(started);
+
+    const handler = yield* Ref.get(termination);
+    if (handler) yield* handler("SIGINT");
+    yield* Fiber.join(fiber);
+
+    assert.deepEqual(yield* shutdown.awaitRequest, { _tag: "Signal", signal: "SIGINT" });
+    assert.deepEqual(events, ["release", "quit"]);
+    yield* Scope.close(foundationScope, Exit.void);
+  }),
+);
+
 it.effect("defers a system-owned quit without closing the Main runtime", () =>
   Effect.gen(function* () {
     const events: string[] = [];
@@ -213,6 +272,7 @@ it.effect("defers a system-owned quit without closing the Main runtime", () =>
         onBeforeQuit: (handler) => Ref.set(beforeQuit, handler),
         onOpenUrl: () => Effect.void,
         onSecondInstance: () => Effect.void,
+        onTerminationSignal: () => Effect.void,
         onWindowAllClosed: () => Effect.void,
       }),
     );

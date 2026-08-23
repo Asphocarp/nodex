@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
@@ -18,6 +17,7 @@ import {
   NODEX_BROWSER_PROFILE_HELPER_EXECUTABLE_ENV,
   NODEX_CORE_EXECUTABLE_ENV,
 } from "../src/shared/native-runtime-environment";
+import { runProcessMain } from "../src/main/app/EffectProcessEntry";
 import {
   cleanupDevelopmentEnvironmentHome,
   ensureDevelopmentProfileDirectories,
@@ -703,7 +703,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
-  NodeRuntime.runMain(
+  runProcessMain(
     runDevLauncher({
       args: process.argv.slice(2),
       repositoryRoot,

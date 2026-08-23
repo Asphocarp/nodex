@@ -70,6 +70,9 @@ export const program = <R>(options: MainAppOptions<R>) =>
         ? Effect.void
         : shutdown.request({ _tag: "UserQuit" }).pipe(Effect.asVoid),
     );
+    yield* electron.onTerminationSignal((signal) =>
+      shutdown.request({ _tag: "Signal", signal }).pipe(Effect.asVoid),
+    );
     yield* electron.whenReady;
     const gate = yield* options.runStartupGate;
     if (gate === "moved") return;

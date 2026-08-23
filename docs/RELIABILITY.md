@@ -166,6 +166,15 @@ Electron performs platform-required synchronous bootstrap before readiness, but 
 
 Every normal quit, authority-driven relaunch, external controller shutdown, and startup rollback closes that same scope. Close is idempotent under concurrent requests. Runtime finalizers preserve their subsystem ordering; a failed finalizer is reported while later finalizers still run, so one stuck runtime cannot silently skip composition release. The existing bounded per-subsystem shutdown deadlines remain the operational backstop.
 
+Process termination signals are lifecycle ingress, not an independent shutdown
+owner. Electron Main translates `SIGINT` and `SIGTERM` into the first-wins Main
+shutdown request, then releases the application scope before asking Electron to
+quit. The development isolated-run supervisor owns those signals in its own
+process, waits for the foreground application group to stop, and only then
+drains the exact claimed Core generation and releases its Profile lease. Effect
+process entries on either side must not install a competing signal handler that
+can interrupt either transaction halfway through.
+
 The first-run Project bootstrap is one scoped, serialized recovery transaction. A durable journal is
 published before the source claim and idempotent Core command; presentation failure leaves that exact
 intent recoverable on restart, and only a completed Window Session presentation removes its marker

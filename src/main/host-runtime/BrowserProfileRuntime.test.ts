@@ -89,6 +89,7 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
                       onBeforeQuit: () => Effect.void,
                       onOpenUrl: () => Effect.void,
                       onSecondInstance: () => Effect.void,
+                      onTerminationSignal: () => Effect.void,
                       onWindowAllClosed: () => Effect.void,
                     }),
                   ),

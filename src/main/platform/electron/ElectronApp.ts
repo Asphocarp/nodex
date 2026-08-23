@@ -16,6 +16,8 @@ export interface ElectronBeforeQuitDecision {
   readonly task: Effect.Effect<void>;
 }
 
+export type ElectronTerminationSignal = "SIGINT" | "SIGTERM";
+
 export class ElectronApp extends Context.Service<
   ElectronApp,
   {
@@ -37,6 +39,9 @@ export class ElectronApp extends Context.Service<
     ) => Effect.Effect<void, never, Scope.Scope>;
     readonly onSecondInstance: (
       handler: (argv: readonly string[]) => Effect.Effect<void>,
+    ) => Effect.Effect<void, never, Scope.Scope>;
+    readonly onTerminationSignal: (
+      handler: (signal: ElectronTerminationSignal) => Effect.Effect<void>,
     ) => Effect.Effect<void, never, Scope.Scope>;
     readonly onWindowAllClosed: (
       handler: Effect.Effect<void>,
@@ -114,6 +119,26 @@ export const live: Layer.Layer<ElectronApp, never, ScopedCallbackRuntime> = Laye
           (registered) => app.on("second-instance", registered),
           (registered) => app.removeListener("second-instance", registered),
           listener,
+        );
+      },
+      onTerminationSignal: (handler) => {
+        const onSigint = () => fork(handler("SIGINT"));
+        const onSigterm = () => fork(handler("SIGTERM"));
+        return Effect.acquireRelease(
+          Effect.sync(() => {
+            process.on("SIGINT", onSigint);
+            try {
+              process.on("SIGTERM", onSigterm);
+            } catch (error) {
+              process.removeListener("SIGINT", onSigint);
+              throw error;
+            }
+          }),
+          () =>
+            Effect.sync(() => {
+              process.removeListener("SIGINT", onSigint);
+              process.removeListener("SIGTERM", onSigterm);
+            }),
         );
       },
       onWindowAllClosed: (handler) => {
