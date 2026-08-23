@@ -1797,13 +1797,6 @@ function createService(options?: {
     queuedFollowUpDispatcher,
     conversationDeltaBuffer,
     conversationResume,
-    manualCompaction: {
-      start: async () => {
-        throw new Error("Manual compaction is unavailable in the legacy CodexService fixture");
-      },
-      consumeSource: () => "automatic",
-      clear: () => undefined,
-    },
     threadGoals,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),

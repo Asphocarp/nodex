@@ -116,7 +116,6 @@ import type {
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
-import type { CodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
 import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
 import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
@@ -237,7 +236,6 @@ import {
 import {
   reduceCodexConversationEventWithEffects,
   type CodexConversationReducerEffect,
-  type CodexItemLifecycleNotification,
 } from "../../shared/codex-conversation-state/codex-conversation-reducer";
 import {
   appendCodexCanonicalForkedFromConversationItem,
@@ -809,7 +807,6 @@ type CodexServiceOptions = {
   queuedFollowUpDispatcher: CodexQueuedFollowUpDispatcher["Service"];
   conversationDeltaBuffer: CodexConversationDeltaBufferRuntime["Service"];
   conversationResume: CodexConversationResumeRuntimePromiseAdapter;
-  manualCompaction: CodexManualCompactionRuntimePromiseAdapter;
   threadGoals: CodexThreadGoalRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
@@ -1481,7 +1478,6 @@ export class CodexService {
   private readonly queuedFollowUpDispatcher: CodexQueuedFollowUpDispatcher["Service"];
   private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntime["Service"];
   private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
-  private readonly manualCompaction: CodexManualCompactionRuntimePromiseAdapter;
   private readonly threadGoals: CodexThreadGoalRuntimePromiseAdapter;
   private readonly deletedThreadIds = new Set<string>();
   private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
@@ -1543,7 +1539,6 @@ export class CodexService {
     this.queuedFollowUpDispatcher = options.queuedFollowUpDispatcher;
     this.conversationDeltaBuffer = options.conversationDeltaBuffer;
     this.conversationResume = options.conversationResume;
-    this.manualCompaction = options.manualCompaction;
     this.threadGoals = options.threadGoals;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
@@ -3243,7 +3238,6 @@ export class CodexService {
     this.rendererConversationCoordinator.reconcileOwnership(threadId);
     this.clearOwnerNotificationDrain(threadId);
     this.conversationDeltaBuffer.clear(threadId);
-    this.manualCompaction.clear(threadId);
     this.activeGoalContinuation.clear(threadId);
     this.postResumeGoals.clear(threadId);
     this.conversationResume.clear(threadId);
@@ -6900,68 +6894,6 @@ export class CodexService {
         }) ?? targetTurnId;
     }
     return targetTurnId;
-  }
-
-  private reduceCanonicalMainItemLifecycle(
-    notification: CodexItemLifecycleNotification,
-  ): string | null {
-    const threadId = notification.params.threadId;
-    const record = this.getMaybeConversationRecord(threadId);
-    const before = record ? this.readCanonicalConversationState(record.threadId) : null;
-    if (!record || !before) {
-      this.logger.warn("Dropping item lifecycle without canonical conversation state", {
-        threadId,
-        method: notification.method,
-        itemId: notification.params.item.id,
-      });
-      return null;
-    }
-
-    const observedAtMs = Date.now();
-    const result = reduceCodexConversationEventWithEffects(
-      before,
-      { type: "notification", notification },
-      {
-        now: () => observedAtMs,
-        consumeContextCompactionSource: () => this.manualCompaction.consumeSource(threadId),
-        resolveCollabReceiverThread: (receiverThreadId) =>
-          this.resolveLoadedCanonicalThread(receiverThreadId),
-      },
-    );
-    this.acceptCanonicalConversationState(threadId, result.state);
-
-    for (const effect of result.effects) {
-      if (effect.type === "markConversationStreaming") {
-        this.conversationAggregate(threadId).setStreaming(true);
-        continue;
-      }
-      if (effect.type !== "hydrateCollabThreads") continue;
-      for (const receiverThreadId of effect.receiverThreadIds) {
-        void this.readThread(receiverThreadId, true).catch((error) => {
-          this.logger.warn("Failed to hydrate collaboration receiver thread", {
-            threadId,
-            receiverThreadId,
-            error,
-          });
-        });
-      }
-    }
-
-    let changedTurnId: string | null = null;
-    for (const [turnIndex, afterTurn] of result.state.turns.entries()) {
-      const beforeTurn = before.turns[turnIndex] ?? null;
-      if (afterTurn === beforeTurn) continue;
-      changedTurnId =
-        this.applyCanonicalLifecycleTurnProjection({
-          threadId,
-          turnIndex,
-          beforeTurn,
-          afterTurn,
-          observedAtMs,
-          lifecycleStatus: notification.method === "item/started" ? "inProgress" : "completed",
-        }) ?? changedTurnId;
-    }
-    return changedTurnId;
   }
 
   private rebindRecordedTurn(input: {

@@ -324,7 +324,6 @@ import {
   CodexManualCompactionRuntime,
   live as codexManualCompactionRuntimeLive,
 } from "../codex-application/CodexManualCompactionRuntime";
-import { makeCodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
 import {
   CodexThreadSettingsRuntime,
   make as makeCodexThreadSettingsRuntime,
@@ -2693,10 +2692,6 @@ export const live: Layer.Layer<
               conversationDeltaBuffer,
               conversationResume: makeCodexConversationResumeRuntimePromiseAdapter(
                 conversationResume,
-                callbacks,
-              ),
-              manualCompaction: makeCodexManualCompactionRuntimePromiseAdapter(
-                manualCompaction,
                 callbacks,
               ),
               threadGoals: makeCodexThreadGoalRuntimePromiseAdapter(threadGoals, callbacks),
