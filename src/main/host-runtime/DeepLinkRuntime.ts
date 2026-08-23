@@ -8,8 +8,9 @@ import {
   parseSessionDeepLink,
   parseViewDeepLink,
 } from "../../shared/nodex-deeplink";
-import type { DesktopLibraryModuleBridge, DesktopProjectWorkspacePort } from "../core-client";
+import type { DesktopProjectWorkspacePort } from "../core-client";
 import { safeSendToWindow } from "../ipc-safe-send";
+import { LibraryModule } from "../library-application/LibraryModule";
 import type { WindowRuntimeService } from "../window-runtime/WindowRuntime";
 
 interface DeepLinkState {
@@ -42,7 +43,6 @@ export class DeepLinkRuntimeError extends Schema.TaggedError<DeepLinkRuntimeErro
 
 export interface DeepLinkRuntimeOptions {
   readonly focusWindow: () => void;
-  readonly library: Pick<DesktopLibraryModuleBridge, "findPageLocation" | "findViewLocation">;
   readonly projectWorkspace: Pick<DesktopProjectWorkspacePort, "getProjectSession">;
   readonly windows: WindowRuntimeService;
 }
@@ -59,10 +59,13 @@ export class DeepLinkRuntime extends Context.Service<
   }
 >()("nodex/main/host-runtime/DeepLinkRuntime") {}
 
-export const live = (options: DeepLinkRuntimeOptions): Layer.Layer<DeepLinkRuntime> =>
+export const live = (
+  options: DeepLinkRuntimeOptions,
+): Layer.Layer<DeepLinkRuntime, never, LibraryModule> =>
   Layer.effect(
     DeepLinkRuntime,
     Effect.gen(function* () {
+      const library = yield* LibraryModule;
       const state = yield* Ref.make(initialState);
 
       const flush = Effect.gen(function* () {
@@ -107,10 +110,13 @@ export const live = (options: DeepLinkRuntimeOptions): Layer.Layer<DeepLinkRunti
         const snapshot = yield* Ref.get(state);
         if (!snapshot.ready || !snapshot.pageId) return yield* flush;
         const pageId = snapshot.pageId;
-        const location = yield* Effect.tryPromise({
-          try: () => options.library.findPageLocation(pageId),
-          catch: (cause) => new DeepLinkRuntimeError({ operation: "resolve-page", cause }),
-        });
+        const location = yield* library
+          .findPageLocation(pageId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new DeepLinkRuntimeError({ operation: "resolve-page", cause }),
+            ),
+          );
         yield* Ref.update(state, (current) =>
           current.pageId !== pageId
             ? current
@@ -145,10 +151,13 @@ export const live = (options: DeepLinkRuntimeOptions): Layer.Layer<DeepLinkRunti
         const snapshot = yield* Ref.get(state);
         if (!snapshot.ready || !snapshot.viewId) return yield* flush;
         const viewId = snapshot.viewId;
-        const location = yield* Effect.tryPromise({
-          try: () => options.library.findViewLocation(viewId),
-          catch: (cause) => new DeepLinkRuntimeError({ operation: "resolve-view", cause }),
-        });
+        const location = yield* library
+          .findViewLocation(viewId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new DeepLinkRuntimeError({ operation: "resolve-view", cause }),
+            ),
+          );
         yield* Ref.update(state, (current) =>
           current.viewId !== viewId
             ? current

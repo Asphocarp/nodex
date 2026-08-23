@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { assert, it } from "@effect/vitest";
 import type { BrowserWindow } from "electron";
+import { LibraryModule } from "../library-application/LibraryModule";
 import type { WindowRuntimeService } from "../window-runtime/WindowRuntime";
 import { DeepLinkRuntime, live } from "./DeepLinkRuntime";
 
@@ -20,18 +21,19 @@ it.effect("keeps the newest queued targets behind readiness and flushes resolved
     const windows = {
       getLastFocused: () => window,
     } as unknown as WindowRuntimeService;
+    const library = {
+      findPageLocation: (pageId: string) => Effect.succeed({ pageId, projectId: "project-1" }),
+      findViewLocation: (viewId: string) =>
+        Effect.succeed({
+          dataSourceId: "source-1",
+          databaseId: "database-1",
+          projectId: "project-1",
+          viewId,
+        }),
+    } as unknown as LibraryModule["Service"];
     const context = yield* Layer.build(
       live({
         focusWindow: () => undefined,
-        library: {
-          findPageLocation: async (pageId) => ({ pageId, projectId: "project-1" }),
-          findViewLocation: async (viewId) => ({
-            dataSourceId: "source-1",
-            databaseId: "database-1",
-            projectId: "project-1",
-            viewId,
-          }),
-        },
         projectWorkspace: {
           getProjectSession: async (sessionId: string) => ({
             id: sessionId,
@@ -39,7 +41,7 @@ it.effect("keeps the newest queued targets behind readiness and flushes resolved
           }),
         } as never,
         windows,
-      }),
+      }).pipe(Layer.provide(Layer.succeed(LibraryModule, library))),
     );
     const runtime = Context.get(context, DeepLinkRuntime);
     assert.isTrue(yield* runtime.handle("nodex://pages/old"));
