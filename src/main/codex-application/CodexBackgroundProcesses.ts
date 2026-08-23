@@ -114,21 +114,21 @@ type CoreBackgroundProcess = Extract<
 >["processes"]["items"][number];
 
 const projectCoreBackgroundProcess = (
-  process: CoreBackgroundProcess,
+  record: CoreBackgroundProcess,
 ): CodexBackgroundProcessRecord => ({
-  id: process.id,
-  threadId: process.thread_id,
-  threadTitle: process.thread_title ?? null,
-  itemId: process.item_id,
-  turnId: process.turn_id ?? null,
-  command: process.command,
-  cwd: process.cwd ?? null,
-  processId: process.process_id ?? null,
-  osPid: process.os_pid ?? null,
-  terminalSessionId: process.terminal_session_id ?? null,
-  source: process.source,
-  startedAtMs: process.started_at_ms,
-  updatedAtMs: process.updated_at_ms,
+  id: record.id,
+  threadId: record.thread_id,
+  threadTitle: record.thread_title ?? null,
+  itemId: record.item_id,
+  turnId: record.turn_id ?? null,
+  command: record.command,
+  cwd: record.cwd ?? null,
+  processId: record.process_id ?? null,
+  osPid: record.os_pid ?? null,
+  terminalSessionId: record.terminal_session_id ?? null,
+  source: record.source,
+  startedAtMs: record.started_at_ms,
+  updatedAtMs: record.updated_at_ms,
 });
 
 const projectConversation = (
