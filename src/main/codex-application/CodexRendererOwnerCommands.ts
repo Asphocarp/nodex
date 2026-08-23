@@ -34,6 +34,7 @@ import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
+import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
@@ -210,6 +211,7 @@ export const make: Effect.Effect<
   | CodexForkSidePanelTransfer
   | CodexGateway
   | CodexOwnerNotificationDrainRuntime
+  | CodexPendingWorktreeRuntime
   | CodexRendererConversationRegistry
   | CodexRendererConversationCoordinator
   | CodexFreshThreadLaunchRuntime
@@ -228,6 +230,7 @@ export const make: Effect.Effect<
   const gateway = yield* CodexGateway;
   const projection = yield* CodexConversationProjection;
   const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
+  const pendingWorktrees = yield* CodexPendingWorktreeRuntime;
   const rendererConversations = yield* CodexRendererConversationRegistry;
   const rendererConversationCoordinator = yield* CodexRendererConversationCoordinator;
   const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
@@ -328,7 +331,16 @@ export const make: Effect.Effect<
           },
           storedThreads: knownTitles,
           activeThreads: [],
-          pendingForks: [],
+          pendingForks: pendingWorktrees
+            .list()
+            .filter(
+              (entry) => entry.launchMode === "fork-conversation" && entry.sourceConversationId,
+            )
+            .map((entry) => ({
+              conversationId: entry.id,
+              forkedFromId: entry.sourceConversationId,
+              title: entry.initialThreadTitle ?? entry.label,
+            })),
         });
         const execution = yield* core.workspace.read({
           kind: "execution_context",

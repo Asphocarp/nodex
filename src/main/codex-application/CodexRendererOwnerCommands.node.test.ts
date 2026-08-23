@@ -14,6 +14,7 @@ import { CodexForkSidePanelTransfer } from "./CodexForkSidePanelTransferRuntime"
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
+import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import {
   CodexRendererConversationRegistry,
@@ -210,6 +211,20 @@ const makeHarness = () => {
       } as unknown as CodexOwnerNotificationDrainRuntime["Service"]),
     ),
     Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+    Effect.provideService(
+      CodexPendingWorktreeRuntime,
+      CodexPendingWorktreeRuntime.of({
+        list: () => [
+          {
+            id: "pending-fork",
+            launchMode: "fork-conversation",
+            sourceConversationId: threadId,
+            initialThreadTitle: "Source title (2)",
+            label: "pending",
+          } as never,
+        ],
+      } as never),
+    ),
     Effect.provideService(CodexRendererConversationCoordinator, coordinator),
     Effect.provideService(
       CodexForkSidePanelTransfer,
@@ -322,7 +337,7 @@ it.effect("owns the exact fork cut, canonical projection, and renderer adoption 
         "features.thread_tools": true,
       },
     });
-    assert.deepEqual(titles, ["Source title (2)"]);
+    assert.deepEqual(titles, ["Source title (3)"]);
     assert.strictEqual(forkCanonical()?.turns.at(-1)?.items.at(-1)?.type, "forkedFromConversation");
     assert.deepEqual(order, [
       "lane:open",
