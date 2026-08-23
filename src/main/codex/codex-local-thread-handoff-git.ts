@@ -9,7 +9,7 @@ import type {
   CodexWorktreeWorkerPreparedHandoff,
   CodexWorktreeWorkerRollbackHandoffInput,
   CodexWorktreeWorkerRollbackHandoffResult,
-} from "./codex-worktree-worker-port";
+} from "./codex-worktree-worker-protocol";
 
 interface HandoffGitOptions {
   readonly signal: AbortSignal;

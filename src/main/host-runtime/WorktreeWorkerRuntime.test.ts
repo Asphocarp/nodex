@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -10,7 +11,7 @@ import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { afterAll, beforeAll } from "vite-plus/test";
-import type { CodexWorktreeWorkerCreateInput } from "../codex/codex-worktree-worker-port";
+import type { CodexWorktreeWorkerCreateInput } from "../codex/codex-worktree-worker-protocol";
 import { localLive, WorktreeWorkerRuntime } from "./WorktreeWorkerRuntime";
 
 let fixtureRoot = "";
@@ -44,6 +45,14 @@ port.on("message", (message) => {
     operation: "create",
     event: { operation: "create", type: "path-allocated", ...roots },
   });
+  if (request.input.threadTitle === "ordered") {
+    port.postMessage({
+      type: "event",
+      id: message.id,
+      operation: "create",
+      event: { operation: "create", type: "setup-started" },
+    });
+  }
   if (request.input.threadTitle === "hang") return;
   port.postMessage({
     type: "result",
@@ -62,7 +71,7 @@ port.postMessage({
   type: "ready",
   epoch: workerData.epoch,
   hostId: workerData.hostId,
-  protocolVersion: 4,
+  protocolVersion: 5,
 });
 `,
     "utf8",
@@ -114,7 +123,7 @@ it.effect("streams events and replaces a crashed worker generation", () =>
     const events: string[] = [];
     const result = yield* runtime.request(
       { operation: "create", input: createInput("success") },
-      { onEvent: (event) => events.push(event.type) },
+      { onEvent: (event) => Effect.sync(() => events.push(event.type)) },
     );
     assert.deepEqual(events, ["path-allocated"]);
     assert.strictEqual(result.worktreeWorkspaceRoot, "/worktrees/abcd/repo/packages/app");
@@ -125,21 +134,19 @@ it.effect("streams events and replaces a crashed worker generation", () =>
 it.effect("maps Effect interruption to one worker cancellation without poisoning the session", () =>
   Effect.gen(function* () {
     const { runtime, scope } = yield* acquire();
-    let markAllocated!: () => void;
-    const allocated = new Promise<void>((resolve) => {
-      markAllocated = resolve;
-    });
+    const allocated = yield* Deferred.make<void>();
     const pending = yield* Effect.forkChild(
       runtime.request(
         { operation: "create", input: createInput("hang") },
         {
-          onEvent: (event) => {
-            if (event.type === "path-allocated") markAllocated();
-          },
+          onEvent: (event) =>
+            event.type === "path-allocated"
+              ? Deferred.succeed(allocated, undefined).pipe(Effect.asVoid)
+              : Effect.void,
         },
       ),
     );
-    yield* Effect.promise(() => allocated);
+    yield* Deferred.await(allocated);
     yield* Fiber.interrupt(pending);
 
     const result = yield* runtime.request({
@@ -151,28 +158,60 @@ it.effect("maps Effect interruption to one worker cancellation without poisoning
   }),
 );
 
-it.effect("cancels only the request whose event consumer fails", () =>
+it.effect("isolates event-consumer failure and preserves each request's wire order", () =>
   Effect.gen(function* () {
     const { runtime, scope } = yield* acquire();
-    const failed = yield* Effect.result(
+    const survivorAllocated = yield* Deferred.make<void>();
+    const survivor = yield* Effect.forkChild(
       runtime.request(
         { operation: "create", input: createInput("hang") },
         {
-          onEvent: () => {
-            throw new Error("event consumer failed");
-          },
+          onEvent: (event) =>
+            event.type === "path-allocated"
+              ? Deferred.succeed(survivorAllocated, undefined).pipe(Effect.asVoid)
+              : Effect.void,
         },
       ),
     );
+    yield* Deferred.await(survivorAllocated);
+    const failed = yield* Effect.result(
+      runtime.request(
+        { operation: "create", input: createInput("event-failure") },
+        { onEvent: () => Effect.die(new Error("consumer failed")) },
+      ),
+    );
     assert.isTrue(Result.isFailure(failed));
-    if (Result.isFailure(failed))
-      assert.strictEqual(failed.failure.message, "event consumer failed");
+    if (Result.isFailure(failed)) {
+      assert.strictEqual(failed.failure.operation, "event-consumer");
+    }
+    assert.isUndefined(survivor.pollUnsafe());
+    yield* Fiber.interrupt(survivor);
 
-    const result = yield* runtime.request({
-      operation: "create",
-      input: createInput("success"),
-    });
-    assert.isNull(result.setupError);
+    const firstEvent = yield* Deferred.make<void>();
+    const releaseFirst = yield* Deferred.make<void>();
+    const order: string[] = [];
+    const ordered = yield* Effect.forkChild(
+      runtime.request(
+        { operation: "create", input: createInput("ordered") },
+        {
+          onEvent: (event) =>
+            event.type === "path-allocated"
+              ? Effect.sync(() => order.push("path-start")).pipe(
+                  Effect.andThen(Deferred.succeed(firstEvent, undefined)),
+                  Effect.andThen(Deferred.await(releaseFirst)),
+                  Effect.andThen(Effect.sync(() => order.push("path-end"))),
+                )
+              : Effect.sync(() => order.push(event.type)),
+        },
+      ),
+    );
+    yield* Deferred.await(firstEvent);
+    yield* Effect.yieldNow;
+    assert.deepEqual(order, ["path-start"]);
+    yield* Deferred.succeed(releaseFirst, undefined);
+    yield* Fiber.join(ordered);
+    assert.deepEqual(order, ["path-start", "path-end", "setup-started"]);
+
     yield* Scope.close(scope, Exit.void);
   }),
 );
@@ -208,38 +247,29 @@ it.effect("rejects protocol drift before spawning a worker", () =>
   }),
 );
 
-it.effect("closes Promise projection admission and active work with its Scope", () =>
+it.effect("closes active work and future admission with its Scope", () =>
   Effect.gen(function* () {
     const { runtime, scope } = yield* acquire();
-    let markAllocated!: () => void;
-    const allocated = new Promise<void>((resolve) => {
-      markAllocated = resolve;
-    });
-    const pending = runtime.port.create(createInput("hang"), {
-      signal: new AbortController().signal,
-      onEvent: (event) => {
-        if (event.type === "path-allocated") markAllocated();
-      },
-    });
-    const settled = pending.then(
-      () => ({ kind: "success" as const }),
-      (error: unknown) => ({ kind: "failure" as const, error }),
+    const allocated = yield* Deferred.make<void>();
+    const pending = yield* Effect.forkChild(
+      runtime.request(
+        { operation: "create", input: createInput("hang") },
+        {
+          onEvent: (event) =>
+            event.type === "path-allocated"
+              ? Deferred.succeed(allocated, undefined).pipe(Effect.asVoid)
+              : Effect.void,
+        },
+      ),
     );
-    yield* Effect.promise(() => allocated);
+    yield* Deferred.await(allocated);
     yield* Scope.close(scope, Exit.void);
-    const closed = yield* Effect.promise(() => settled);
-    assert.strictEqual(closed.kind, "failure");
-    if (closed.kind === "failure") assert.match(String(closed.error), /shutting down/u);
-    yield* Effect.promise(() =>
-      runtime.port
-        .create(createInput("late"), {
-          signal: new AbortController().signal,
-          onEvent: () => undefined,
-        })
-        .then(
-          () => assert.fail("Expected closed worker projection to reject"),
-          (error: unknown) => assert.match(String(error), /closed|interrupt|shutting down/iu),
-        ),
+    const closed = yield* Fiber.await(pending);
+    assert.isTrue(Exit.isFailure(closed));
+    const late = yield* Effect.result(
+      runtime.request({ operation: "create", input: createInput("late") }),
     );
+    assert.isTrue(Result.isFailure(late));
+    if (Result.isFailure(late)) assert.match(late.failure.message, /shutting down/u);
   }),
 );

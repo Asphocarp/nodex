@@ -1,7 +1,7 @@
 import path from "node:path";
 import { z } from "zod";
 import type { CodexExecutionHostFileDescriptor } from "./codex-execution-host-file-transfer";
-import type { CodexWorktreeWorkerPreparedHandoff } from "./codex-worktree-worker-port";
+import type { CodexWorktreeWorkerPreparedHandoff } from "./codex-worktree-worker-protocol";
 
 export const CODEX_THREAD_HANDOFF_JOURNAL_SCHEMA_VERSION = 1 as const;
 export const CODEX_THREAD_HANDOFF_JOURNAL_MAX_BYTES = 512 * 1024;

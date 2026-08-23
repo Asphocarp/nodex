@@ -1,5 +1,6 @@
 import type { CodexStoredShellEnvironment } from "./codex-thread-launch-context";
 import type { CodexPendingWorktreeStartingState } from "../../shared/codex-pending-worktree";
+import type { WorktreeStartMode } from "../../shared/types";
 import type { CodexExecutionHostFileDescriptor } from "./codex-execution-host-file-transfer";
 
 export const CODEX_WORKTREE_WORKER_OPERATIONS = [
@@ -61,6 +62,8 @@ export interface CodexWorktreeWorkerCreateInput extends CodexWorktreeWorkerReque
   readonly projectId: string;
   readonly targetId: string;
   readonly threadTitle: string;
+  readonly branchPrefix?: string | null;
+  readonly mode?: WorktreeStartMode;
   readonly startingState: CodexPendingWorktreeStartingState | null;
   /** Portable path relative to `repositoryPath`, under `.codex/environments`. */
   readonly localEnvironmentConfigPath: string | null;
@@ -377,67 +380,7 @@ export type CodexWorktreeWorkerSuccess =
       readonly value: CodexWorktreeWorkerCleanupTransferHandoffResult;
     };
 
-export interface CodexWorktreeWorkerRequestOptions {
+export interface CodexWorktreeWorkerOperationOptions {
   readonly signal?: AbortSignal;
   readonly onEvent: (event: CodexWorktreeWorkerEvent) => void;
-}
-
-/**
- * Main-owned seam for all prompt-created worktree filesystem mutation.
- * Renderer IPC never exposes this interface.
- */
-export interface CodexWorktreeWorkerPort {
-  readonly hostId: string;
-  create(
-    input: CodexWorktreeWorkerCreateInput,
-    options: CodexWorktreeWorkerRequestOptions,
-  ): Promise<CodexWorktreeWorkerCreateResult>;
-  list(
-    input: CodexWorktreeWorkerListInput,
-    options?: Partial<CodexWorktreeWorkerRequestOptions>,
-  ): Promise<CodexWorktreeWorkerListResult>;
-  inspect(
-    input: CodexWorktreeWorkerInspectInput,
-    options?: Partial<CodexWorktreeWorkerRequestOptions>,
-  ): Promise<CodexWorktreeWorkerInspectResult>;
-  snapshot(
-    input: CodexWorktreeWorkerSnapshotInput,
-    options: CodexWorktreeWorkerRequestOptions,
-  ): Promise<CodexWorktreeWorkerSnapshotResult>;
-  remove(
-    input: CodexWorktreeWorkerRemoveInput,
-    options?: Partial<CodexWorktreeWorkerRequestOptions>,
-  ): Promise<CodexWorktreeWorkerRemoveResult>;
-  restore(
-    input: CodexWorktreeWorkerRestoreInput,
-    options: CodexWorktreeWorkerRequestOptions,
-  ): Promise<CodexWorktreeWorkerRestoreResult>;
-  setOwner(
-    input: CodexWorktreeWorkerSetOwnerInput,
-    options?: Partial<CodexWorktreeWorkerRequestOptions>,
-  ): Promise<CodexWorktreeWorkerSetOwnerResult>;
-  prepareHandoff(
-    input: CodexWorktreeWorkerPrepareHandoffInput,
-    options: CodexWorktreeWorkerRequestOptions,
-  ): Promise<CodexWorktreeWorkerPreparedHandoff>;
-  rollbackHandoff(
-    input: CodexWorktreeWorkerRollbackHandoffInput,
-    options: CodexWorktreeWorkerRequestOptions,
-  ): Promise<CodexWorktreeWorkerRollbackHandoffResult>;
-  cleanupHandoff(
-    input: CodexWorktreeWorkerCleanupHandoffInput,
-    options?: Partial<CodexWorktreeWorkerRequestOptions>,
-  ): Promise<CodexWorktreeWorkerCleanupHandoffResult>;
-  exportHandoff(
-    input: CodexWorktreeWorkerExportHandoffInput,
-    options: CodexWorktreeWorkerRequestOptions,
-  ): Promise<CodexWorktreeWorkerExportHandoffResult>;
-  importHandoff(
-    input: CodexWorktreeWorkerImportHandoffInput,
-    options: CodexWorktreeWorkerRequestOptions,
-  ): Promise<CodexWorktreeWorkerImportHandoffResult>;
-  cleanupTransferHandoff(
-    input: CodexWorktreeWorkerCleanupTransferHandoffInput,
-    options?: Partial<CodexWorktreeWorkerRequestOptions>,
-  ): Promise<CodexWorktreeWorkerCleanupTransferHandoffResult>;
 }

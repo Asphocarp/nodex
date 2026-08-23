@@ -15,7 +15,7 @@ import type {
   CodexWorktreeWorkerListResult,
   CodexWorktreeWorkerRemoveResult,
   CodexWorktreeWorkerRestoreResult,
-} from "../codex/codex-worktree-worker-port";
+} from "../codex/codex-worktree-worker-protocol";
 import { normalizeWorktreePathForIdentity } from "../codex/codex-managed-worktree-effects";
 import { snapshotPolicyForManagedWorktreeRemoval } from "../codex/codex-managed-worktree-lifecycle";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
@@ -24,8 +24,7 @@ export interface ManagedWorktreeRemoveInput {
   readonly hostId: string;
   readonly worktreeGitRoot: string;
   readonly reason: CodexManagedWorktreeRemovalReason;
-  readonly signal?: AbortSignal;
-  readonly onEvent?: (event: CodexWorktreeWorkerEvent) => void;
+  readonly onEvent?: (event: CodexWorktreeWorkerEvent) => Effect.Effect<void>;
 }
 
 export interface ManagedWorktreeInspectInput {
@@ -33,19 +32,17 @@ export interface ManagedWorktreeInspectInput {
   readonly worktreeGitRoot: string;
   readonly cwd: string;
   readonly candidateRepositoryPaths: readonly string[];
-  readonly signal?: AbortSignal;
 }
 
 export interface ManagedWorktreeRestoreInput extends ManagedWorktreeInspectInput {
   readonly ownerThreadId: string | null;
-  readonly onEvent?: (event: CodexWorktreeWorkerEvent) => void;
+  readonly onEvent?: (event: CodexWorktreeWorkerEvent) => Effect.Effect<void>;
 }
 
 export interface ManagedWorktreeSetOwnerInput {
   readonly hostId: string;
   readonly worktreeGitRoot: string;
   readonly ownerThreadId: string;
-  readonly signal?: AbortSignal;
 }
 
 export interface ManagedWorktreeNewborn {
@@ -62,13 +59,6 @@ export class ManagedWorktreeRuntimeError extends Schema.TaggedError<ManagedWorkt
     cause: Schema.Defect(),
   },
 ) {}
-
-interface ManagedWorktreeLegacyNewbornAdapter {
-  readonly register: (hostId: string, worktreeGitRoot: string) => void;
-  readonly release: (hostId: string, worktreeGitRoot: string) => void;
-  readonly has: (hostId: string, worktreeGitRoot: string) => boolean;
-  readonly list: () => readonly ManagedWorktreeNewborn[];
-}
 
 export class ManagedWorktreeRuntime extends Context.Service<
   ManagedWorktreeRuntime,
@@ -88,13 +78,12 @@ export class ManagedWorktreeRuntime extends Context.Service<
     readonly setOwner: (
       input: ManagedWorktreeSetOwnerInput,
     ) => Effect.Effect<void, ManagedWorktreeRuntimeError>;
-    /** Removed with CodexService; callback-driven newborn events need synchronous projection. */
-    readonly legacyNewborns: ManagedWorktreeLegacyNewbornAdapter;
+    readonly registerNewborn: (input: ManagedWorktreeNewborn) => Effect.Effect<void>;
+    readonly releaseNewborn: (input: ManagedWorktreeNewborn) => Effect.Effect<void>;
+    readonly isNewborn: (input: ManagedWorktreeNewborn) => Effect.Effect<boolean>;
+    readonly newborns: Effect.Effect<readonly ManagedWorktreeNewborn[]>;
   }
 >()("nodex/main/codex-application/ManagedWorktreeRuntime") {}
-
-const operationSignal = (effectSignal: AbortSignal, external?: AbortSignal): AbortSignal =>
-  external === undefined ? effectSignal : AbortSignal.any([effectSignal, external]);
 
 export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRuntime> = Layer.effect(
   ManagedWorktreeRuntime,
@@ -115,7 +104,7 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
         Deferred.Deferred<CodexWorktreeWorkerInspectResult, ManagedWorktreeRuntimeError>
       >
     >(new Map());
-    const newborns = new Set<string>();
+    const newborns = yield* Ref.make<ReadonlyMap<string, ManagedWorktreeNewborn>>(new Map());
 
     const key = (hostId: string, worktreeGitRoot: string): string =>
       `${hostId.trim()}\0${normalizeWorktreePathForIdentity(path.resolve(worktreeGitRoot))}`;
@@ -126,19 +115,13 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
         cause,
         ...(worktreeGitRoot ? { worktreeGitRoot } : {}),
       });
-    const worker = (
+    const host = (
       hostId: string,
-      operation: Parameters<typeof executionHosts.registry.requireWorktreeWorker>[1],
+      operation: import("../codex/codex-worktree-worker-protocol").CodexWorktreeWorkerOperation,
     ) =>
-      Effect.try({
-        try: () => executionHosts.registry.requireWorktreeWorker(hostId, operation),
-        catch: (cause) => error(`resolve-${operation}-worker`, hostId, cause),
-      });
-    const managedRoot = (hostId: string, worktreeGitRoot: string) =>
-      Effect.try({
-        try: () => executionHosts.registry.resolveManagedRoot(hostId, worktreeGitRoot),
-        catch: (cause) => error("resolve-managed-root", hostId, cause, worktreeGitRoot),
-      });
+      executionHosts
+        .resolve(hostId, operation)
+        .pipe(Effect.mapError((cause) => error(`resolve-${operation}-host`, hostId, cause)));
     const inspectionKey = (input: ManagedWorktreeInspectInput): string =>
       [
         key(input.hostId, input.worktreeGitRoot),
@@ -148,24 +131,25 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
           .sort(),
       ].join("\0");
 
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        newborns.clear();
-      }),
-    );
-
     const runRemoval = Effect.fn("ManagedWorktreeRuntime.runRemoval")(function* (
       input: ManagedWorktreeRemoveInput,
       removalKey: string,
       deferred: Deferred.Deferred<CodexWorktreeWorkerRemoveResult, ManagedWorktreeRuntimeError>,
     ) {
       const operation = Effect.gen(function* () {
-        const target = yield* worker(input.hostId, "remove");
-        const root = yield* managedRoot(input.hostId, input.worktreeGitRoot);
-        return yield* Effect.tryPromise({
-          try: (signal) =>
-            target.remove(
-              {
+        const target = yield* host(input.hostId, "remove");
+        const root = yield* target
+          .resolveManagedRoot(input.worktreeGitRoot)
+          .pipe(
+            Effect.mapError((cause) =>
+              error("resolve-managed-root", input.hostId, cause, input.worktreeGitRoot),
+            ),
+          );
+        return yield* target
+          .request(
+            {
+              operation: "remove",
+              input: {
                 requestId: `lifecycle:remove:${randomUUID()}`,
                 hostId: input.hostId,
                 managedRoot: root,
@@ -173,13 +157,12 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
                 reason: input.reason,
                 snapshotPolicy: snapshotPolicyForManagedWorktreeRemoval(input.reason),
               },
-              {
-                signal: operationSignal(signal, input.signal),
-                onEvent: input.onEvent,
-              },
-            ),
-          catch: (cause) => error("remove", input.hostId, cause, input.worktreeGitRoot),
-        });
+            },
+            { onEvent: input.onEvent },
+          )
+          .pipe(
+            Effect.mapError((cause) => error("remove", input.hostId, cause, input.worktreeGitRoot)),
+          );
       }).pipe(
         Effect.ensuring(
           Ref.update(removals, (current) => {
@@ -189,8 +172,10 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
             return next;
           }).pipe(
             Effect.andThen(
-              Effect.sync(() => {
-                newborns.delete(removalKey);
+              Ref.update(newborns, (current) => {
+                const next = new Map(current);
+                next.delete(removalKey);
+                return next;
               }),
             ),
           ),
@@ -228,23 +213,31 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
       deferred: Deferred.Deferred<CodexWorktreeWorkerInspectResult, ManagedWorktreeRuntimeError>,
     ) {
       const operation = Effect.gen(function* () {
-        const target = yield* worker(input.hostId, "inspect");
-        const root = yield* managedRoot(input.hostId, input.worktreeGitRoot);
-        return yield* Effect.tryPromise({
-          try: (signal) =>
-            target.inspect(
-              {
-                requestId: `lifecycle:inspect:${randomUUID()}`,
-                hostId: input.hostId,
-                managedRoot: root,
-                worktreeGitRoot: input.worktreeGitRoot,
-                cwd: input.cwd,
-                candidateRepositoryPaths: input.candidateRepositoryPaths,
-              },
-              { signal: operationSignal(signal, input.signal) },
+        const target = yield* host(input.hostId, "inspect");
+        const root = yield* target
+          .resolveManagedRoot(input.worktreeGitRoot)
+          .pipe(
+            Effect.mapError((cause) =>
+              error("resolve-managed-root", input.hostId, cause, input.worktreeGitRoot),
             ),
-          catch: (cause) => error("inspect", input.hostId, cause, input.worktreeGitRoot),
-        });
+          );
+        return yield* target
+          .request({
+            operation: "inspect",
+            input: {
+              requestId: `lifecycle:inspect:${randomUUID()}`,
+              hostId: input.hostId,
+              managedRoot: root,
+              worktreeGitRoot: input.worktreeGitRoot,
+              cwd: input.cwd,
+              candidateRepositoryPaths: input.candidateRepositoryPaths,
+            },
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              error("inspect", input.hostId, cause, input.worktreeGitRoot),
+            ),
+          );
       }).pipe(
         Effect.ensuring(
           Ref.update(inspections, (current) => {
@@ -285,26 +278,20 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
       hostId: string,
     ): Effect.Effect<CodexWorktreeWorkerListResult, ManagedWorktreeRuntimeError> =>
       Effect.gen(function* () {
-        const target = yield* worker(hostId, "list");
-        const roots = yield* Effect.try({
-          try: () => executionHosts.registry.listManagedRoots(hostId),
-          catch: (cause) => error("list-managed-roots", hostId, cause),
-        });
+        const target = yield* host(hostId, "list");
         const inventories = yield* Effect.forEach(
-          roots,
+          target.knownManagedRoots,
           (root) =>
-            Effect.tryPromise({
-              try: (signal) =>
-                target.list(
-                  {
-                    requestId: `lifecycle:list:${randomUUID()}`,
-                    hostId,
-                    managedRoot: root,
-                  },
-                  { signal },
-                ),
-              catch: (cause) => error("list", hostId, cause),
-            }),
+            target
+              .request({
+                operation: "list",
+                input: {
+                  requestId: `lifecycle:list:${randomUUID()}`,
+                  hostId,
+                  managedRoot: root,
+                },
+              })
+              .pipe(Effect.mapError((cause) => error("list", hostId, cause))),
           { concurrency: "unbounded" },
         );
         const entries = new Map<string, CodexWorktreeWorkerListResult["entries"][number]>();
@@ -320,12 +307,19 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
       input: ManagedWorktreeRestoreInput,
     ): Effect.Effect<CodexWorktreeWorkerRestoreResult, ManagedWorktreeRuntimeError> =>
       Effect.gen(function* () {
-        const target = yield* worker(input.hostId, "restore");
-        const root = yield* managedRoot(input.hostId, input.worktreeGitRoot);
-        return yield* Effect.tryPromise({
-          try: (signal) =>
-            target.restore(
-              {
+        const target = yield* host(input.hostId, "restore");
+        const root = yield* target
+          .resolveManagedRoot(input.worktreeGitRoot)
+          .pipe(
+            Effect.mapError((cause) =>
+              error("resolve-managed-root", input.hostId, cause, input.worktreeGitRoot),
+            ),
+          );
+        return yield* target
+          .request(
+            {
+              operation: "restore",
+              input: {
                 requestId: `lifecycle:restore:${randomUUID()}`,
                 hostId: input.hostId,
                 managedRoot: root,
@@ -334,35 +328,44 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
                 candidateRepositoryPaths: input.candidateRepositoryPaths,
                 ownerThreadId: input.ownerThreadId,
               },
-              {
-                signal: operationSignal(signal, input.signal),
-                onEvent: input.onEvent ?? (() => undefined),
-              },
+            },
+            { onEvent: input.onEvent },
+          )
+          .pipe(
+            Effect.mapError((cause) =>
+              error("restore", input.hostId, cause, input.worktreeGitRoot),
             ),
-          catch: (cause) => error("restore", input.hostId, cause, input.worktreeGitRoot),
-        });
+          );
       });
 
     const setOwner = (
       input: ManagedWorktreeSetOwnerInput,
     ): Effect.Effect<void, ManagedWorktreeRuntimeError> =>
       Effect.gen(function* () {
-        const target = yield* worker(input.hostId, "set-owner");
-        const root = yield* managedRoot(input.hostId, input.worktreeGitRoot);
-        yield* Effect.tryPromise({
-          try: (signal) =>
-            target.setOwner(
-              {
-                requestId: `lifecycle:set-owner:${randomUUID()}`,
-                hostId: input.hostId,
-                managedRoot: root,
-                worktreeGitRoot: input.worktreeGitRoot,
-                ownerThreadId: input.ownerThreadId,
-              },
-              { signal: operationSignal(signal, input.signal) },
+        const target = yield* host(input.hostId, "set-owner");
+        const root = yield* target
+          .resolveManagedRoot(input.worktreeGitRoot)
+          .pipe(
+            Effect.mapError((cause) =>
+              error("resolve-managed-root", input.hostId, cause, input.worktreeGitRoot),
             ),
-          catch: (cause) => error("set-owner", input.hostId, cause, input.worktreeGitRoot),
-        });
+          );
+        yield* target
+          .request({
+            operation: "set-owner",
+            input: {
+              requestId: `lifecycle:set-owner:${randomUUID()}`,
+              hostId: input.hostId,
+              managedRoot: root,
+              worktreeGitRoot: input.worktreeGitRoot,
+              ownerThreadId: input.ownerThreadId,
+            },
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              error("set-owner", input.hostId, cause, input.worktreeGitRoot),
+            ),
+          );
       });
 
     return ManagedWorktreeRuntime.of({
@@ -371,23 +374,21 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
       list,
       restore,
       setOwner,
-      legacyNewborns: {
-        register: (hostId, worktreeGitRoot) => {
-          newborns.add(key(hostId, worktreeGitRoot));
-        },
-        release: (hostId, worktreeGitRoot) => {
-          newborns.delete(key(hostId, worktreeGitRoot));
-        },
-        has: (hostId, worktreeGitRoot) => newborns.has(key(hostId, worktreeGitRoot)),
-        list: () =>
-          [...newborns].map((entry) => {
-            const separator = entry.indexOf("\0");
-            return {
-              hostId: entry.slice(0, separator),
-              worktreeGitRoot: entry.slice(separator + 1),
-            };
-          }),
-      },
+      registerNewborn: (input) =>
+        Ref.update(newborns, (current) =>
+          new Map(current).set(key(input.hostId, input.worktreeGitRoot), input),
+        ),
+      releaseNewborn: (input) =>
+        Ref.update(newborns, (current) => {
+          const next = new Map(current);
+          next.delete(key(input.hostId, input.worktreeGitRoot));
+          return next;
+        }),
+      isNewborn: (input) =>
+        Ref.get(newborns).pipe(
+          Effect.map((current) => current.has(key(input.hostId, input.worktreeGitRoot))),
+        ),
+      newborns: Ref.get(newborns).pipe(Effect.map((current) => [...current.values()])),
     });
   }),
 );

@@ -9,6 +9,7 @@ import type {
   DesktopProjectWorkspaceThread,
 } from "../core-client/project-workspace-adapter";
 import { CodexApplicationEventHub, type CodexApplicationEvent } from "./CodexApplicationEventHub";
+import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 import { ManagedWorktreeCatalogError, make } from "./ManagedWorktreeCatalog";
 import {
@@ -71,10 +72,9 @@ const makeExecutionHosts = (
   updateManagedRoot: (hostId: string, managedRoot: string) => void = () => undefined,
 ): ExecutionHostRuntime["Service"] =>
   ({
-    registry: {
-      listHostIds: () => ["local"],
-      updateManagedRoot,
-    },
+    hosts: () => Effect.succeed([{ hostId: "local" }]),
+    updateLocalManagedRoot: (managedRoot: string) =>
+      Effect.sync(() => updateManagedRoot("local", managedRoot)),
   }) as unknown as ExecutionHostRuntime["Service"];
 
 const makeManaged = (
@@ -86,12 +86,10 @@ const makeManaged = (
     restore: () => Effect.die("Unexpected managed-worktree restoration"),
     remove: () => Effect.die("Unexpected managed-worktree removal"),
     setOwner: () => Effect.die("Unexpected managed-worktree owner mutation"),
-    legacyNewborns: {
-      register: () => undefined,
-      release: () => undefined,
-      has: () => false,
-      list: () => [],
-    },
+    registerNewborn: () => Effect.void,
+    releaseNewborn: () => Effect.void,
+    isNewborn: () => Effect.succeed(false),
+    newborns: Effect.succeed([]),
     ...overrides,
   });
 
@@ -115,12 +113,12 @@ const makeCatalog = (
     autoDeleteEnabled: true,
     autoDeleteLimit: 15,
   };
+  const settings = options.settings ?? {
+    read: () => defaultSettings,
+    update: () => defaultSettings,
+  };
   return make({
     projectWorkspace,
-    settings: options.settings ?? {
-      read: () => defaultSettings,
-      update: () => defaultSettings,
-    },
     defaultManagedRoot: "/managed",
     projectThread: options.projectThread ?? (() => undefined),
   }).pipe(
@@ -132,6 +130,14 @@ const makeCatalog = (
       }),
     ),
     Effect.provideService(ExecutionHostRuntime, options.executionHosts ?? makeExecutionHosts()),
+    Effect.provideService(
+      ManagedWorktreeConfiguration,
+      ManagedWorktreeConfiguration.of({
+        settings: Effect.sync(settings.read),
+        knownRoots: Effect.succeed([]),
+        update: (input) => Effect.sync(() => settings.update(input)),
+      }),
+    ),
     Effect.provideService(
       ManagedWorktreeRetentionRuntime,
       options.retention ??

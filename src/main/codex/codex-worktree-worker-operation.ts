@@ -28,9 +28,9 @@ import type {
   CodexWorktreeWorkerCreateResult,
   CodexWorktreeWorkerEvent,
   CodexWorktreeWorkerRequest,
-  CodexWorktreeWorkerRequestOptions,
+  CodexWorktreeWorkerOperationOptions,
   CodexWorktreeWorkerSuccess,
-} from "./codex-worktree-worker-port";
+} from "./codex-worktree-worker-protocol";
 
 function canceled(signal: AbortSignal): never {
   void signal;
@@ -64,9 +64,9 @@ export async function executeCodexWorktreeWorkerCreate(
     projectId: input.projectId,
     targetId: input.targetId,
     threadTitle: input.threadTitle,
-    branchPrefix: null,
+    branchPrefix: input.branchPrefix ?? null,
     preferredBaseBranch: null,
-    mode: "detachedHead",
+    mode: input.mode ?? "detachedHead",
     startingState,
     localEnvironmentConfigPath: input.localEnvironmentConfigPath,
     setUpSyncedBranch: input.setUpSyncedBranch,
@@ -158,7 +158,7 @@ export async function executeCodexWorktreeWorkerCreate(
 
 export async function executeCodexWorktreeWorkerOperation(
   request: CodexWorktreeWorkerRequest,
-  options: Omit<CodexWorktreeWorkerRequestOptions, "signal"> & {
+  options: Omit<CodexWorktreeWorkerOperationOptions, "signal"> & {
     readonly signal: AbortSignal;
     readonly loadBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   },

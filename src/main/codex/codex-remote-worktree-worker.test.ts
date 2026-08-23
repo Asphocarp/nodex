@@ -6,8 +6,8 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import { assert, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
-import type { CodexWorktreeWorkerCreateInput } from "./codex-worktree-worker-port";
-import { makeCodexRemoteWorktreeWorker } from "./codex-remote-worktree-worker-port";
+import type { CodexWorktreeWorkerCreateInput } from "./codex-worktree-worker-protocol";
+import { makeCodexRemoteWorktreeWorker } from "./codex-remote-worktree-worker";
 import type { CodexWorktreeWorkerHostMessage } from "../worktree-worker/worktree-worker-protocol";
 
 const createInput = (): CodexWorktreeWorkerCreateInput => ({
@@ -74,7 +74,7 @@ const makeSshChild = () => {
           type: "ready",
           epoch: 1,
           hostId: "ssh:devbox",
-          protocolVersion: 4,
+          protocolVersion: 5,
         })}\n`,
       );
       child.stdout.write(
@@ -124,17 +124,12 @@ it.effect("rejects protocol drift before opening an SSH worker", () =>
       const openWorker = vi.fn(async (): Promise<ChildProcessWithoutNullStreams> => {
         throw new Error("SSH should not open");
       });
-      const port = yield* makeCodexRemoteWorktreeWorker({
+      const worker = yield* makeCodexRemoteWorktreeWorker({
         hostId: "ssh:devbox",
         openWorker: () => openWorker(),
       });
       const result = yield* Effect.exit(
-        Effect.promise(() =>
-          port.create(createInput(), {
-            signal: new AbortController().signal,
-            onEvent: () => undefined,
-          }),
-        ),
+        worker.request({ operation: "create", input: createInput() }),
       );
       assert.isTrue(Exit.isFailure(result));
       if (Exit.isFailure(result)) {
@@ -151,18 +146,18 @@ it.effect("frames remote requests and releases the SSH child through its Scope",
     const events: string[] = [];
     const result = yield* Effect.scoped(
       Effect.gen(function* () {
-        const port = yield* makeCodexRemoteWorktreeWorker({
+        const worker = yield* makeCodexRemoteWorktreeWorker({
           hostId: "ssh:devbox",
           openWorker: () => Promise.resolve(fixture.child),
         });
-        return yield* Effect.promise(() =>
-          port.create(
-            { ...createInput(), localEnvironmentConfigPath: null },
-            {
-              signal: new AbortController().signal,
-              onEvent: (event) => events.push(event.type),
-            },
-          ),
+        return yield* worker.request(
+          {
+            operation: "create",
+            input: { ...createInput(), localEnvironmentConfigPath: null },
+          },
+          {
+            onEvent: (event) => Effect.sync(() => events.push(event.type)),
+          },
         );
       }),
     );

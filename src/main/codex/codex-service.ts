@@ -21,7 +21,6 @@ import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-s
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
-import type { FsGetMetadataResponse } from "@nodex/codex-app-server-protocol/v2/FsGetMetadataResponse";
 import type { FileChangeRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalParams";
 import type { FileChangeRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalResponse";
 import type { McpServerElicitationRequestResponse } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestResponse";
@@ -158,18 +157,19 @@ import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
-import type { ManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
+import type { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
+import type { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
+import type {
+  ExecutionHost,
+  ExecutionHostRuntime,
+} from "../codex-application/ExecutionHostRuntime";
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import type { CodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import type { CodexExternalAgentImportRuntimePromiseAdapter } from "../codex-application/CodexExternalAgentImportRuntimePromiseAdapter";
 import type { CodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
 import type { CodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import type { CodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
-import type {
-  CodexThreadHandoffPromiseEffects,
-  CodexThreadHandoffRuntimePromiseAdapter,
-} from "../codex-application/CodexThreadHandoffRuntimePromiseAdapter";
-import type { CodexThreadHandoffPreparation } from "../codex-application/CodexThreadHandoffRuntime";
+import type { CodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
 import type {
   CodexForkBrowserSidePanelSnapshot,
   CodexForkBrowserTransferConsumeInput,
@@ -378,7 +378,6 @@ import { resolveAssetPath } from "../local-store/assets";
 import {
   getCodexDeveloperInstructionSettings,
   getCodexGitSettings,
-  getKnownManagedWorktreeRoots,
   getNodexHome,
 } from "../local-store/config";
 import {
@@ -389,10 +388,7 @@ import {
 } from "../codex-runtime/CodexApplicationProtocol";
 import { CodexRpcError } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import { CodexSessionStore } from "./codex-session-store";
-import {
-  createManagedWorktree,
-  resolveManagedWorktreeDefaultStartingState,
-} from "./git-worktree-service";
+import { resolveManagedWorktreeDefaultStartingState } from "./git-worktree-service";
 import { buildCodexDesktopDeveloperInstructions } from "./codex-developer-instructions";
 import {
   resolveCodexForkWorkspaceInheritance,
@@ -440,7 +436,6 @@ import {
   resolveCodexForkSourceConversationTitle,
   type CodexForkTitleThread,
 } from "../../shared/codex-thread-title";
-import { readWorktreeEnvironmentDefinition } from "./worktree-environment-service";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { isCodexAppDynamicTool } from "../../shared/codex-dynamic-tool-identity";
@@ -502,26 +497,15 @@ import {
   CODEX_DEFAULT_FEATURE_OVERRIDES,
   buildCodexThreadConfigOverrides,
 } from "./codex-thread-capabilities";
-import {
-  persistCodexWorktreeShellEnvironment,
-  runCodexWorktreeSetupScript,
-} from "./codex-worktree-shell-environment";
+import { persistCodexWorktreeShellEnvironment } from "./codex-worktree-shell-environment";
 import type {
   CodexWorktreeWorkerEvent,
   CodexWorktreeWorkerOperation,
-  CodexWorktreeWorkerPort,
-  CodexWorktreeWorkerPreparedHandoff,
-} from "./codex-worktree-worker-port";
-import { CodexExecutionHostRegistry } from "./codex-execution-host-registry";
-import { CodexCrossHostThreadHandoffService } from "./codex-cross-host-thread-handoff";
+} from "./codex-worktree-worker-protocol";
 import {
   evaluateCodexThreadHandoffCapability,
   type CodexThreadHandoffCapability,
 } from "./codex-thread-handoff-capability";
-import {
-  type CodexThreadExecutionLocation,
-  type CodexThreadHandoffJournalEntry,
-} from "./codex-thread-handoff-journal";
 import {
   normalizeWorktreePathForIdentity,
   resolveWorktreePathComparisonKey,
@@ -615,10 +599,7 @@ import type {
   CodexPreparedFreshThreadFirstTurn,
 } from "../codex-application/CodexFreshThreadLaunchRuntime";
 import type { CodexFreshThreadLaunchRuntimePromiseAdapter } from "../codex-application/CodexFreshThreadLaunchRuntimePromiseAdapter";
-import {
-  isExecutionWorkspacePathWithinRoot,
-  rewriteExecutionWorkspaceRoots,
-} from "./codex-execution-workspace-roots";
+import { rewriteExecutionWorkspaceRoots } from "./codex-execution-workspace-roots";
 import {
   allocateCodexPendingWorktreeRequest,
   appendCodexPendingPastedTextAttachments,
@@ -988,10 +969,6 @@ type CodexBrowserTransferStateReader = Pick<
   "getBrowserUseStateSnapshot" | "getStateSnapshot"
 >;
 
-type CodexManagedWorktreeSettingsPort = {
-  readonly listKnownRoots: () => string[];
-};
-
 type CodexServiceOptions = {
   conversationRuntimes: Pick<
     ConversationRuntimeMap["Service"],
@@ -1030,7 +1007,7 @@ type CodexServiceOptions = {
   heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
   dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
-  threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
+  threadHandoffRuntime: CodexThreadHandoffRuntime["Service"];
   pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
@@ -1050,7 +1027,6 @@ type CodexServiceOptions = {
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
-  managedWorktreeSettingsPort?: CodexManagedWorktreeSettingsPort;
   projectAwareDeveloperInstructionsResolver?: (input: {
     baseInstructions?: string | null;
     cwd: string;
@@ -1062,10 +1038,9 @@ type CodexServiceOptions = {
     cwd: string | null,
   ) => Promise<NonNullable<ThreadStartParams["config"]> | null>;
   projectlessHomeDirectory?: () => string;
-  loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
-  executionHosts: CodexExecutionHostRegistry;
-  managedWorktrees: ManagedWorktreeRuntimePromiseAdapter;
-  requestManagedWorktreeRetention: () => void;
+  executionHosts: ExecutionHostRuntime["Service"];
+  managedWorktrees: ManagedWorktreeRuntime["Service"];
+  managedWorktreeRetention: ManagedWorktreeRetentionRuntime["Service"];
   browserTransferStateReader?: CodexBrowserTransferStateReader;
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferRuntimePromiseAdapter;
   userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
@@ -1796,53 +1771,6 @@ function isChildThreadSourceItem(item: CodexConversationItem): boolean {
   return normalizedTool === "spawnagent" || normalizedTool === "spawn_agent";
 }
 
-async function runWorktreeSetupScript(input: {
-  script: string;
-  cwd: string;
-  environment?: NodeJS.ProcessEnv;
-  loadBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
-  signal?: AbortSignal;
-  onOutput?: (output: { stream: "stdout" | "stderr"; data: string }) => void;
-}): Promise<CodexStoredShellEnvironment | null> {
-  const startedAt = Date.now();
-  codexLogger.info("Starting worktree setup script", {
-    cwd: input.cwd,
-    scriptPreview: previewText(input.script, 200),
-  });
-  try {
-    const shellEnvironment = await runCodexWorktreeSetupScript({
-      ...input,
-      onCaptureError: (error) => {
-        codexLogger.warn("Failed to capture worktree shell environment", {
-          cwd: input.cwd,
-          error,
-        });
-      },
-      onShellEnvironmentError: (error) => {
-        codexLogger.warn("Failed to load interactive login-shell environment", {
-          cwd: input.cwd,
-          error,
-        });
-      },
-    });
-    if (input.signal?.aborted) {
-      throw new Error("Request canceled");
-    }
-    codexLogger.info("Worktree setup script completed", {
-      cwd: input.cwd,
-      durationMs: Date.now() - startedAt,
-    });
-    return shellEnvironment;
-  } catch (error) {
-    codexLogger.error("Worktree setup script failed", {
-      cwd: input.cwd,
-      durationMs: Date.now() - startedAt,
-      error,
-    });
-    throw error;
-  }
-}
-
 function makeTurnStatus(value: unknown): CodexTurnStatus {
   if (
     value === "completed" ||
@@ -1933,7 +1861,6 @@ export class CodexService {
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
   private readonly gitSettingsResolver: () => CodexGitSettings;
-  private readonly managedWorktreeSettingsPort: CodexManagedWorktreeSettingsPort;
   private readonly projectAwareDeveloperInstructionsResolver:
     | ((input: {
         baseInstructions?: string | null;
@@ -1953,12 +1880,10 @@ export class CodexService {
   private readonly turnCommands: CodexTurnCommandsService;
   private readonly persistedAtoms: PersistedAtomStore;
   private readonly sessionStore: CodexSessionStore;
-  private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
-  private readonly executionHosts: CodexExecutionHostRegistry;
-  private readonly managedWorktreeLifecycle: ManagedWorktreeRuntimePromiseAdapter;
-  private readonly requestManagedWorktreeRetention: () => void;
-  private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
-  private readonly threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
+  private readonly executionHosts: ExecutionHostRuntime["Service"];
+  private readonly managedWorktreeLifecycle: ManagedWorktreeRuntime["Service"];
+  private readonly managedWorktreeRetention: ManagedWorktreeRetentionRuntime["Service"];
+  private readonly threadHandoffRuntime: CodexThreadHandoffRuntime["Service"];
   private readonly browserTransferStateReader: CodexServiceOptions["browserTransferStateReader"];
   private readonly forkSidePanelTransferLifecycle: CodexServiceOptions["forkSidePanelTransferLifecycle"];
   private readonly terminalRuntime: NonNullable<CodexServiceOptions["terminalRuntime"]>;
@@ -2101,21 +2026,13 @@ export class CodexService {
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
     this.gitSettingsResolver = options?.gitSettingsResolver ?? getCodexGitSettings;
-    this.managedWorktreeSettingsPort = options?.managedWorktreeSettingsPort ?? {
-      listKnownRoots: getKnownManagedWorktreeRoots,
-    };
     this.projectAwareDeveloperInstructionsResolver =
       options?.projectAwareDeveloperInstructionsResolver ?? null;
     this.threadCodexConfigBuilder =
       options?.threadCodexConfigBuilder ?? (() => this.desktopTools.threadConfig());
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
-    this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
     this.managedWorktreeLifecycle = options.managedWorktrees;
-    this.requestManagedWorktreeRetention = options.requestManagedWorktreeRetention;
-    this.crossHostThreadHandoff = new CodexCrossHostThreadHandoffService({
-      executionHosts: this.executionHosts,
-      relayBaseRoot: path.join(this.runtimeStateHome, "handoffs"),
-    });
+    this.managedWorktreeRetention = options.managedWorktreeRetention;
     this.browserTransferStateReader = options?.browserTransferStateReader;
     this.forkSidePanelTransferLifecycle = options?.forkSidePanelTransferLifecycle;
     this.userInputAutoResolution = options.userInputAutoResolution;
@@ -2751,53 +2668,23 @@ export class CodexService {
     });
   }
 
-  /** Temporary projection port until handoff recovery owns the canonical Thread location model. */
-  async recoverThreadHandoffs(): Promise<void> {
-    await this.threadHandoffRuntime.recover(this.buildThreadExecutionLocationEffects());
-  }
-
-  /** Test-only replacement seam for the execution host's worktree worker adapter. */
-  setWorktreeWorkerPort(hostId: string, port: CodexWorktreeWorkerPort, managedRoot?: string): void {
-    const current = this.executionHosts.getDescriptor(hostId);
-    const effectiveManagedRoot = managedRoot ?? current?.managedRoot;
-    if (!effectiveManagedRoot) throw new Error(`Execution host is unavailable: ${hostId}`);
-    const fileTransfer = this.executionHosts.hasFileTransfer(hostId)
-      ? this.executionHosts.requireFileTransfer(hostId)
-      : undefined;
-    this.executionHosts.register({
-      hostId,
-      displayName: current?.displayName ?? hostId,
-      kind: hostId === CODEX_APP_LOCAL_HOST_ID ? "local" : "ssh",
-      nodexHome: current?.nodexHome,
-      codexHome: current?.codexHome,
-      managedRoot: effectiveManagedRoot,
-      handoffStagingRoot: current?.handoffStagingRoot,
-      ...(hostId === CODEX_APP_LOCAL_HOST_ID
-        ? { knownManagedRoots: this.managedWorktreeSettingsPort.listKnownRoots() }
-        : {}),
-      repositoryRoots: current?.repositoryRoots,
-      worktreeWorker: port,
-      ...(fileTransfer ? { fileTransfer } : {}),
-      capabilities: [
-        "create",
-        "list",
-        "inspect",
-        "snapshot",
-        "remove",
-        "restore",
-        "set-owner",
-        "prepare-handoff",
-        "rollback-handoff",
-        "cleanup-handoff",
-        "export-handoff",
-        "import-handoff",
-        "cleanup-transfer-handoff",
-      ],
-    });
-  }
-
   handleExecutionHostTopologyChanged(): void {
     this.invalidateSidebarSnapshotCache();
+  }
+
+  private scheduleManagedWorktreeRetention(): void {
+    this.controlPlane.fork(this.managedWorktreeRetention.request);
+  }
+
+  private async resolveExecutionHost(
+    hostId: string,
+    operation: CodexWorktreeWorkerOperation,
+    signal?: AbortSignal,
+  ): Promise<ExecutionHost> {
+    return await this.controlPlane.runPromise(
+      this.executionHosts.resolve(hostId, operation),
+      signal ? { signal } : undefined,
+    );
   }
 
   private rejectPendingDynamicToolCallsForThread(threadId: string, reason: unknown): void {
@@ -4585,18 +4472,16 @@ export class CodexService {
   }
 
   createPendingWorktree(input: CodexPendingWorktreeCreateInput): CodexPendingWorktreeCreateResult {
-    this.worktreeWorkerForHost(input.hostId, "create");
     const allocated = allocateCodexPendingWorktreeRequest(input);
     this.pendingWorktreeRuntime.create(allocated.request);
     return allocated.result;
   }
 
   async createPendingWorktreeSetupRepair(
-    hostId: string,
+    _hostId: string,
     pendingWorktreeId: string,
     agentMode: CodexAgentMode,
   ): Promise<CodexPendingWorktreeCreateResult> {
-    this.worktreeWorkerForHost(hostId, "create");
     const entry = this.pendingWorktreeRuntime
       .list()
       .find((candidate) => candidate.id === pendingWorktreeId);
@@ -4685,55 +4570,46 @@ export class CodexService {
     };
   }
 
-  retryPendingWorktree(hostId: string, pendingWorktreeId: string): void {
-    this.worktreeWorkerForHost(hostId, "create");
+  retryPendingWorktree(_hostId: string, pendingWorktreeId: string): void {
     this.pendingWorktreeRuntime.retry(pendingWorktreeId);
   }
 
   async workLocallyFromPendingWorktree(
-    hostId: string,
+    _hostId: string,
     pendingWorktreeId: string,
   ): Promise<{ readonly threadId: string }> {
-    this.worktreeWorkerForHost(hostId, "create");
     return await this.pendingWorktreeRuntime.workLocally(pendingWorktreeId);
   }
 
-  continuePendingWorktree(hostId: string, pendingWorktreeId: string): void {
-    this.worktreeWorkerForHost(hostId, "create");
+  continuePendingWorktree(_hostId: string, pendingWorktreeId: string): void {
     this.pendingWorktreeRuntime.continueWithoutSetup(pendingWorktreeId);
   }
 
-  cancelPendingWorktree(hostId: string, pendingWorktreeId: string): void {
-    this.worktreeWorkerForHost(hostId, "create");
+  cancelPendingWorktree(_hostId: string, pendingWorktreeId: string): void {
     this.pendingWorktreeRuntime.cancel(pendingWorktreeId);
   }
 
-  dismissPendingWorktree(hostId: string, pendingWorktreeId: string): void {
-    this.worktreeWorkerForHost(hostId, "create");
+  dismissPendingWorktree(_hostId: string, pendingWorktreeId: string): void {
     this.pendingWorktreeRuntime.dismiss(pendingWorktreeId);
   }
 
-  renamePendingWorktree(hostId: string, pendingWorktreeId: string, label: string): void {
-    this.worktreeWorkerForHost(hostId, "create");
+  renamePendingWorktree(_hostId: string, pendingWorktreeId: string, label: string): void {
     this.pendingWorktreeRuntime.rename(pendingWorktreeId, label);
   }
 
-  setPendingWorktreePinned(hostId: string, pendingWorktreeId: string, isPinned: boolean): void {
-    this.worktreeWorkerForHost(hostId, "create");
+  setPendingWorktreePinned(_hostId: string, pendingWorktreeId: string, isPinned: boolean): void {
     this.pendingWorktreeRuntime.setPinned(pendingWorktreeId, isPinned);
   }
 
   setPendingWorktreePinnedBeforeThreadId(
-    hostId: string,
+    _hostId: string,
     pendingWorktreeId: string,
     beforeThreadId: string | null,
   ): void {
-    this.worktreeWorkerForHost(hostId, "create");
     this.pendingWorktreeRuntime.setPinnedBeforeThreadId(pendingWorktreeId, beforeThreadId);
   }
 
-  clearPendingWorktreeAttention(hostId: string, pendingWorktreeId: string): void {
-    this.worktreeWorkerForHost(hostId, "create");
+  clearPendingWorktreeAttention(_hostId: string, pendingWorktreeId: string): void {
     this.pendingWorktreeRuntime.clearAttention(pendingWorktreeId);
   }
 
@@ -4774,13 +4650,6 @@ export class CodexService {
       throw new Error("Target project session does not own the conversation");
     }
     return (await this.forkSidePanelTransferLifecycle?.consumeTarget(input)) ?? null;
-  }
-
-  private worktreeWorkerForHost(
-    hostId: string,
-    operation: CodexWorktreeWorkerOperation,
-  ): CodexWorktreeWorkerPort {
-    return this.executionHosts.requireWorktreeWorker(hostId, operation);
   }
 
   private assertLocalPendingWorktreeHost(hostId: string): void {
@@ -4963,13 +4832,19 @@ export class CodexService {
         tasks.map((task) => task.thread.threadId),
       ).map(({ threadId, clientThreadId }) => [threadId, clientThreadId] as const),
     );
+    const hostDisplayNameById = new Map(
+      (await this.controlPlane.runPromise(this.executionHosts.hosts())).map((host) => [
+        host.hostId,
+        host.displayName,
+      ]),
+    );
     const projectAssignments: Record<string, string> = {};
     const projectlessThreadIds: string[] = [];
     const items = tasks.map((task): CodexSidebarThreadItem => {
       const thread = task.thread;
       const hostId = thread.executionHostId || DEFAULT_CODEX_HOST_ID;
       const isLocalHost = hostId === CODEX_APP_LOCAL_HOST_ID;
-      const hostDisplayName = this.executionHosts.getDescriptor(hostId)?.displayName ?? hostId;
+      const hostDisplayName = hostDisplayNameById.get(hostId) ?? hostId;
       const managedWorktreePath = thread.managedWorktreePath ?? null;
       const projectId = task.projectId ?? thread.projectId;
       if (projectId) projectAssignments[thread.threadId] = projectId;
@@ -6723,7 +6598,7 @@ export class CodexService {
         personality: null,
         ephemeral: null,
         threadSource: "automation",
-        dynamicTools: this.buildCodexDynamicToolSpecs(),
+        dynamicTools: await this.buildCodexDynamicToolSpecs(),
         experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
         mockExperimentalField: null,
         serviceTier: executionProfile?.serviceTier ?? null,
@@ -6764,11 +6639,13 @@ export class CodexService {
         await this.projectWorkspace.replaceThreadWritableRoots(link.threadId, turnWorkspaceRoots);
         if (managedWorktreePath) {
           try {
-            await this.managedWorktreeLifecycle.setOwner({
-              hostId: CODEX_APP_LOCAL_HOST_ID,
-              worktreeGitRoot: managedWorktreePath,
-              ownerThreadId: link.threadId,
-            });
+            await this.controlPlane.runPromise(
+              this.managedWorktreeLifecycle.setOwner({
+                hostId: CODEX_APP_LOCAL_HOST_ID,
+                worktreeGitRoot: managedWorktreePath,
+                ownerThreadId: link.threadId,
+              }),
+            );
           } catch (error) {
             this.logger.warn("Scheduled automation worktree has no owner metadata", {
               automationId: input.automation.id,
@@ -6776,11 +6653,13 @@ export class CodexService {
               error,
             });
           } finally {
-            this.managedWorktreeLifecycle.releaseNewborn(
-              CODEX_APP_LOCAL_HOST_ID,
-              managedWorktreePath,
+            await this.controlPlane.runPromise(
+              this.managedWorktreeLifecycle.releaseNewborn({
+                hostId: CODEX_APP_LOCAL_HOST_ID,
+                worktreeGitRoot: managedWorktreePath,
+              }),
             );
-            this.requestManagedWorktreeRetention();
+            this.scheduleManagedWorktreeRetention();
           }
         }
         if (executionProfile) {
@@ -6879,12 +6758,14 @@ export class CodexService {
           });
         }
         if (managedWorktreePath) {
-          await this.managedWorktreeLifecycle
-            .remove({
-              hostId: CODEX_APP_LOCAL_HOST_ID,
-              worktreeGitRoot: managedWorktreePath,
-              reason: "failed-create",
-            })
+          await this.controlPlane
+            .runPromise(
+              this.managedWorktreeLifecycle.remove({
+                hostId: CODEX_APP_LOCAL_HOST_ID,
+                worktreeGitRoot: managedWorktreePath,
+                reason: "failed-create",
+              }),
+            )
             .catch(() => undefined);
         }
       }
@@ -6924,39 +6805,52 @@ export class CodexService {
     const selectedEnvironmentPath = input.automation.localEnvironmentConfigPath?.trim() || null;
     const branchName = await this.resolveAutomationWorktreeStartingBranch(input.sourceCwd);
     let allocatedWorktreeGitRoot: string | null = null;
-    const workerResult = await this.worktreeWorkerForHost(CODEX_APP_LOCAL_HOST_ID, "create")
-      .create(
-        {
-          requestId: `automation:${input.automation.id}:${randomUUID()}`,
-          hostId: CODEX_APP_LOCAL_HOST_ID,
-          repositoryPath: input.sourceCwd,
-          nodexHome: getNodexHome(),
-          managedRoot: this.executionHosts.requireManagedRoot(CODEX_APP_LOCAL_HOST_ID),
-          projectId: input.automation.id,
-          targetId: input.automation.id,
-          threadTitle: input.automation.name,
-          startingState: branchName ? { type: "branch", branchName } : null,
-          localEnvironmentConfigPath: selectedEnvironmentPath,
-          setUpSyncedBranch: true,
-          propagateLocalWorkspaceFiles: true,
-        },
-        {
-          ...(input.signal ? { signal: input.signal } : {}),
-          onEvent: (event) => {
-            if (event.type !== "path-allocated") return;
-            allocatedWorktreeGitRoot = event.worktreeGitRoot;
-            this.managedWorktreeLifecycle.registerNewborn(
-              CODEX_APP_LOCAL_HOST_ID,
-              event.worktreeGitRoot,
-            );
+    const host = await this.resolveExecutionHost(CODEX_APP_LOCAL_HOST_ID, "create", input.signal);
+    const workerResult = await this.controlPlane
+      .runPromise(
+        host.request(
+          {
+            operation: "create",
+            input: {
+              requestId: `automation:${input.automation.id}:${randomUUID()}`,
+              hostId: CODEX_APP_LOCAL_HOST_ID,
+              repositoryPath: input.sourceCwd,
+              nodexHome: getNodexHome(),
+              managedRoot: host.descriptor.managedRoot,
+              projectId: input.automation.id,
+              targetId: input.automation.id,
+              threadTitle: input.automation.name,
+              startingState: branchName ? { type: "branch", branchName } : null,
+              localEnvironmentConfigPath: selectedEnvironmentPath,
+              setUpSyncedBranch: true,
+              propagateLocalWorkspaceFiles: true,
+            },
           },
-        },
+          {
+            onEvent: (event) =>
+              event.type === "path-allocated"
+                ? Effect.sync(() => {
+                    allocatedWorktreeGitRoot = event.worktreeGitRoot;
+                  }).pipe(
+                    Effect.andThen(
+                      this.managedWorktreeLifecycle.registerNewborn({
+                        hostId: CODEX_APP_LOCAL_HOST_ID,
+                        worktreeGitRoot: event.worktreeGitRoot,
+                      }),
+                    ),
+                  )
+                : Effect.void,
+          },
+        ),
+        input.signal ? { signal: input.signal } : undefined,
       )
-      .catch((error) => {
+      .catch(async (error) => {
         if (allocatedWorktreeGitRoot) {
-          this.managedWorktreeLifecycle.releaseNewborn(
-            CODEX_APP_LOCAL_HOST_ID,
-            allocatedWorktreeGitRoot,
+          await this.controlPlane.runPromise(
+            this.managedWorktreeLifecycle.releaseNewborn({
+              hostId: CODEX_APP_LOCAL_HOST_ID,
+              worktreeGitRoot: allocatedWorktreeGitRoot,
+            }),
           );
         }
         throw error;
@@ -6964,12 +6858,14 @@ export class CodexService {
     const worktreeGitRoot = path.resolve(workerResult.worktreeGitRoot);
     const worktreeWorkspaceRoot = path.resolve(workerResult.worktreeWorkspaceRoot);
     if (workerResult.setupError) {
-      await this.managedWorktreeLifecycle
-        .remove({
-          hostId: CODEX_APP_LOCAL_HOST_ID,
-          worktreeGitRoot,
-          reason: "failed-create",
-        })
+      await this.controlPlane
+        .runPromise(
+          this.managedWorktreeLifecycle.remove({
+            hostId: CODEX_APP_LOCAL_HOST_ID,
+            worktreeGitRoot,
+            reason: "failed-create",
+          }),
+        )
         .catch(() => undefined);
       throw new Error(
         `Failed to set up scheduled automation worktree using environment '${selectedEnvironmentPath}': ${workerResult.setupError}`,
@@ -7084,620 +6980,27 @@ export class CodexService {
     });
   }
 
-  private async resolveThreadExecutionLocation(
-    threadId: string,
-  ): Promise<CodexThreadExecutionLocation> {
-    const thread = await this.readWorkspaceThread(threadId);
-    if (!thread) throw new Error(`Task not found: ${threadId}`);
-    if (!this.executionHosts.getDescriptor(thread.executionHostId)) {
-      throw new Error(`Execution host ${thread.executionHostId} is unavailable for task handoff.`);
-    }
-    const cwd = thread.cwd?.trim();
-    if (!cwd || !path.isAbsolute(cwd)) {
-      throw new Error("Task handoff requires an absolute working directory.");
-    }
-    const persistedRoots = await this.readThreadWritableRoots(threadId);
-    const primary = persistedRoots[0]?.trim();
-    if (!primary || !path.isAbsolute(primary)) {
-      throw new Error("Task handoff requires a canonical primary workspace root.");
-    }
-    return {
-      hostId: thread.executionHostId,
-      cwd,
-      workspaceRoots: rewriteExecutionWorkspaceRoots({
-        sourcePrimary: primary,
-        targetPrimary: primary,
-        workspaceRoots: [primary, ...persistedRoots],
-      }),
-      managedWorktreePath: thread.managedWorktreePath,
-      projectId: thread.projectId,
-      projectlessOutputDirectory: thread.projectlessOutputDirectory,
-      projectlessWorkspaceBrowserRoot: thread.projectlessWorkspaceBrowserRoot,
-    };
-  }
-
-  private resolveHandoffDestinationCwd(input: {
-    readonly source: CodexThreadExecutionLocation;
-    readonly sourcePrimary: string;
-    readonly targetPrimary: string;
-  }): string {
-    const relative = path.relative(input.sourcePrimary, input.source.cwd);
-    if (relative === "") return input.targetPrimary;
-    if (relative.startsWith("..") || path.isAbsolute(relative)) return input.source.cwd;
-    return path.join(input.targetPrimary, relative);
-  }
-
-  private async prepareThreadExecutionDestination(
-    entry: CodexThreadHandoffJournalEntry,
-    onPhase: Parameters<CodexThreadHandoffPromiseEffects["prepareDestination"]>[1],
-    signal: AbortSignal,
-  ): Promise<CodexThreadHandoffPreparation> {
-    signal.throwIfAborted();
-    if (!entry.source.projectId) {
-      throw new Error("Move this task into a Project before handing it to a managed worktree.");
-    }
-    const project = await this.projectWorkspace.getProject(entry.source.projectId);
-    if (!project) throw new Error("Task Project is unavailable during handoff.");
-    const destinationHostId = entry.requestedDestinationHostId ?? entry.source.hostId;
-    if (destinationHostId !== entry.source.hostId) {
-      const sourcePrimary =
-        entry.source.workspaceRoots[0] ?? entry.source.managedWorktreePath ?? entry.source.cwd;
-      const thread = await this.readWorkspaceThread(entry.threadId);
-      const metadata = await this.client.requestOnHost<ThreadReadResponse>(
-        entry.source.hostId,
-        "thread/read",
-        { threadId: entry.threadId, includeTurns: false },
-        { signal },
-      );
-      const sourceRolloutPath = metadata.thread.path?.trim() ?? "";
-      if (!sourceRolloutPath || !path.isAbsolute(sourceRolloutPath)) {
-        throw new Error("Cross-host handoff requires a persisted source rollout.");
-      }
-      const destinationRepositoryPaths =
-        destinationHostId === CODEX_APP_LOCAL_HOST_ID
-          ? project.sources
-              .map((source) => source.root.trim())
-              .filter((root) => path.isAbsolute(root))
-          : this.executionHosts.requireRepositoryRoots(destinationHostId);
-      const additionalRoots = entry.source.workspaceRoots.filter(
-        (root) => !isExecutionWorkspacePathWithinRoot(root, sourcePrimary),
-      );
-      for (const additionalRoot of additionalRoots) {
-        let additionalMetadata: FsGetMetadataResponse;
-        try {
-          additionalMetadata = await this.client.requestOnHost<FsGetMetadataResponse>(
-            destinationHostId,
-            "fs/getMetadata",
-            { path: additionalRoot },
-            { signal },
-          );
-        } catch {
-          throw new Error(
-            `Destination host cannot preserve additional workspace root ${additionalRoot}.`,
-          );
-        }
-        if (!additionalMetadata.isDirectory || additionalMetadata.isSymlink) {
-          throw new Error(
-            `Destination host additional workspace root is not a safe directory: ${additionalRoot}.`,
-          );
-        }
-      }
-      const prepared = await this.crossHostThreadHandoff.prepare({
-        operationId: entry.operationId,
-        threadId: entry.threadId,
-        threadTitle: thread?.threadName?.trim() || thread?.threadPreview?.trim() || entry.threadId,
-        projectId: entry.source.projectId,
-        sourceHostId: entry.source.hostId,
-        destinationHostId,
-        sourceCwd: entry.source.cwd,
-        sourceWorkspaceRoot: sourcePrimary,
-        sourceManagedWorktreePath: entry.source.managedWorktreePath,
-        sourceRolloutPath,
-        destinationRepositoryPaths,
-        onPathAllocated: (allocated) => {
-          this.managedWorktreeLifecycle.registerNewborn(
-            allocated.hostId,
-            allocated.worktreeGitRoot,
-          );
-        },
-        onPhase,
-        signal,
-      });
-      const targetPrimary = prepared.destinationWorkspaceRoot;
-      return {
-        prepared,
-        destination: {
-          ...entry.source,
-          hostId: destinationHostId,
-          cwd: this.resolveHandoffDestinationCwd({
-            source: entry.source,
-            sourcePrimary,
-            targetPrimary,
-          }),
-          workspaceRoots: rewriteExecutionWorkspaceRoots({
-            sourcePrimary,
-            targetPrimary,
-            workspaceRoots: entry.source.workspaceRoots,
-          }),
-          managedWorktreePath: prepared.managedWorktreePath,
-        },
-      };
-    }
-    if (entry.source.hostId !== CODEX_APP_LOCAL_HOST_ID) {
-      throw new Error(
-        "Current-host checkout/worktree toggling is only configured on the local host.",
-      );
-    }
-    const checkoutRoot = project?.sources[0]?.root.trim() ?? "";
-    if (!checkoutRoot || !path.isAbsolute(checkoutRoot)) {
-      throw new Error("The task Project has no local checkout destination.");
-    }
-    const sourcePrimary =
-      entry.source.workspaceRoots[0] ?? entry.source.managedWorktreePath ?? checkoutRoot;
-    const worker = this.executionHosts.requireWorktreeWorker(
-      CODEX_APP_LOCAL_HOST_ID,
-      "prepare-handoff",
-    );
-    const thread = await this.readWorkspaceThread(entry.threadId);
-    let allocatedWorktreePath: string | null = null;
-    let prepared: CodexWorktreeWorkerPreparedHandoff;
-    try {
-      prepared = await worker.prepareHandoff(
-        {
-          requestId: entry.operationId,
-          hostId: CODEX_APP_LOCAL_HOST_ID,
-          managedRoot: this.executionHosts.requireManagedRoot(CODEX_APP_LOCAL_HOST_ID),
-          nodexHome: getNodexHome(),
-          projectId: entry.source.projectId,
-          threadId: entry.threadId,
-          threadTitle:
-            thread?.threadName?.trim() || thread?.threadPreview?.trim() || entry.threadId,
-          sourceCwd: entry.source.cwd,
-          sourceWorkspaceRoot: sourcePrimary,
-          sourceManagedWorktreePath: entry.source.managedWorktreePath,
-          destinationCheckoutRoot: entry.source.managedWorktreePath ? checkoutRoot : null,
-        },
-        {
-          signal,
-          onEvent: (event) => {
-            if (event.type === "path-allocated") {
-              allocatedWorktreePath = event.worktreeGitRoot;
-              this.managedWorktreeLifecycle.registerNewborn(
-                CODEX_APP_LOCAL_HOST_ID,
-                event.worktreeGitRoot,
-              );
-              return;
-            }
-            if (event.type !== "handoff-progress") return;
-            onPhase(
-              event.step,
-              event.status === "failed"
-                ? "error"
-                : event.status === "completed" || event.status === "skipped"
-                  ? "success"
-                  : "running",
-            );
-          },
-        },
-      );
-    } catch (error) {
-      if (allocatedWorktreePath) {
-        this.managedWorktreeLifecycle.releaseNewborn(
-          CODEX_APP_LOCAL_HOST_ID,
-          allocatedWorktreePath,
-        );
-      }
-      throw error;
-    }
-    const targetPrimary = prepared.destinationWorkspaceRoot;
-    const destinationCwd = this.resolveHandoffDestinationCwd({
-      source: entry.source,
-      sourcePrimary,
-      targetPrimary,
-    });
-    return {
-      prepared,
-      destination: {
-        ...entry.source,
-        cwd: destinationCwd,
-        workspaceRoots: rewriteExecutionWorkspaceRoots({
-          sourcePrimary,
-          targetPrimary,
-          workspaceRoots: entry.source.workspaceRoots,
-        }),
-        managedWorktreePath:
-          prepared.direction === "to-worktree" ? prepared.managedWorktreePath : null,
-      },
-    };
-  }
-
-  private async stopThreadForExecutionHandoff(
-    threadId: string,
-    signal: AbortSignal,
-  ): Promise<void> {
-    signal.throwIfAborted();
-    let activeTurn = [...this.listKnownTurns(threadId)]
-      .reverse()
-      .find((turn) => turn.status === "inProgress" && turn.turnId);
-    if (!activeTurn) {
-      const thread = await this.readWorkspaceThread(threadId);
-      if (thread?.statusType === "active") {
-        await this.readThread(threadId, true);
-        activeTurn = [...this.listKnownTurns(threadId)]
-          .reverse()
-          .find((turn) => turn.status === "inProgress" && turn.turnId);
-      }
-    }
-    if (!activeTurn?.turnId) return;
-    await this.controlPlane.runPromise(
-      this.conversationCommands.interrupt(threadId, activeTurn.turnId),
-    );
-    signal.throwIfAborted();
-    const terminal = this.getKnownTurn(threadId, activeTurn.turnId);
-    if (terminal?.status === "inProgress") {
-      throw new Error("The active turn did not stop before task handoff.");
-    }
-  }
-
-  private resolveHandoffPermissionContext(
-    threadId: string,
-    workspaceRoots: readonly string[],
-  ): CodexCanonicalHydratedPermissionContext {
-    const existing =
-      this.readCanonicalConversationState(threadId)?.sidecar.hydrationContext?.currentPermissions;
-    if (!existing) return createCodexCanonicalWorkspacePermissionContext(workspaceRoots);
-    return {
-      ...existing,
-      runtimeWorkspaceRoots: [...workspaceRoots],
-      sandboxPolicy:
-        existing.sandboxPolicy.type === "workspaceWrite"
-          ? { ...existing.sandboxPolicy, writableRoots: [...workspaceRoots] }
-          : existing.sandboxPolicy,
-    };
-  }
-
-  private async switchThreadExecutionRuntime(
-    threadId: string,
-    location: CodexThreadExecutionLocation,
-    preparation: CodexThreadHandoffPreparation | null,
-    signal: AbortSignal,
-  ): Promise<void> {
-    signal.throwIfAborted();
-    if (preparation?.prepared.direction === "cross-host") {
-      const prepared = preparation.prepared;
-      const rolloutPath =
-        location.hostId === prepared.destinationHostId
-          ? prepared.destinationRollout.path
-          : location.hostId === prepared.sourceHostId
-            ? prepared.sourceRollout.path
-            : null;
-      if (!rolloutPath) {
-        throw new Error(`Cross-host handoff has no rollout for execution host ${location.hostId}.`);
-      }
-      const permissions = this.resolveHandoffPermissionContext(threadId, location.workspaceRoots);
-      const response = await this.client.requestOnHost<ThreadResumeResponse>(
-        location.hostId,
-        "thread/resume",
-        {
-          threadId,
-          history: null,
-          path: rolloutPath,
-          cwd: location.cwd,
-          runtimeWorkspaceRoots: [...location.workspaceRoots],
-          config: buildCodexThreadConfigOverrides(),
-          excludeTurns: true,
-          ...this.buildThreadResumePermissionOverrides({
-            context: permissions,
-            shouldSendPermissions: true,
-            shouldSendApprovalsReviewer: true,
-          }),
-        } satisfies ThreadResumeParams,
-        { signal },
-      );
-      this.assertThreadExecutionRuntimeLocation(threadId, location, response);
-      return;
-    }
-    await this.ensureClientReady(signal);
-    const metadata = await this.client.request<"thread/read", ThreadReadResponse>(
-      "thread/read",
-      {
-        threadId,
-        includeTurns: false,
-      },
-      { signal },
-    );
-    const permissions = this.resolveHandoffPermissionContext(threadId, location.workspaceRoots);
-    if (metadata.thread.status.type !== "notLoaded") {
-      const settings: ThreadSettingsUpdateParams = {
-        threadId,
-        cwd: location.cwd,
-        approvalPolicy: permissions.approvalPolicy,
-        approvalsReviewer: permissions.approvalsReviewer,
-        ...(permissions.activePermissionProfile
-          ? { permissions: permissions.activePermissionProfile.id }
-          : { sandboxPolicy: permissions.sandboxPolicy }),
-      };
-      await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
-        "thread/settings/update",
-        settings,
-        { signal },
-      );
-      this.threadSettingsRuntime.recordRemoteUpdateSupported();
-    }
-    const response = await this.client.request<"thread/resume", ThreadResumeResponse>(
-      "thread/resume",
-      {
-        threadId,
-        history: null,
-        path: metadata.thread.path,
-        cwd: location.cwd,
-        runtimeWorkspaceRoots: [...location.workspaceRoots],
-        config: {
-          ...((await this.buildMcpCodexConfig(location.cwd)) ?? {}),
-          ...buildCodexThreadConfigOverrides(),
-        },
-        excludeTurns: true,
-        ...this.buildThreadResumePermissionOverrides({
-          context: permissions,
-          shouldSendPermissions: true,
-          shouldSendApprovalsReviewer: true,
-        }),
-      },
-      { signal },
-    );
-    this.assertThreadExecutionRuntimeLocation(threadId, location, response);
-  }
-
-  private assertThreadExecutionRuntimeLocation(
-    threadId: string,
-    location: CodexThreadExecutionLocation,
-    response: ThreadResumeResponse,
-  ): void {
-    if (response.thread.id !== threadId) {
-      throw new Error(`Task handoff resumed unexpected thread '${response.thread.id}'.`);
-    }
-    if (path.resolve(response.cwd) !== path.resolve(location.cwd)) {
-      throw new Error("Task handoff runtime did not accept the destination working directory.");
-    }
-    const expectedRoots = location.workspaceRoots.map((root) => path.resolve(root));
-    const actualRoots = response.runtimeWorkspaceRoots.map((root) => path.resolve(root));
-    if (
-      expectedRoots.length !== actualRoots.length ||
-      expectedRoots.some((root, index) => root !== actualRoots[index])
-    ) {
-      throw new Error("Task handoff runtime did not accept the destination workspace roots.");
-    }
-  }
-
-  private async commitThreadExecutionLocation(
-    threadId: string,
-    location: CodexThreadExecutionLocation,
-    signal: AbortSignal,
-  ): Promise<void> {
-    signal.throwIfAborted();
-    const updated = await this.projectWorkspace.setThreadExecutionLocation(threadId, {
-      executionHostId: location.hostId,
-      cwd: location.cwd,
-      managedWorktreePath: location.managedWorktreePath,
-      runtimeWorkspaceRoots: [...location.workspaceRoots],
-      projectlessOutputDirectory: location.projectlessOutputDirectory,
-      projectlessWorkspaceBrowserRoot: location.projectlessWorkspaceBrowserRoot,
-    });
-    if (!updated) throw new Error(`Task not found during handoff commit: ${threadId}`);
-    signal.throwIfAborted();
-    this.rememberWorkspaceThread(updated);
-  }
-
-  private async projectThreadExecutionLocation(
-    threadId: string,
-    location: CodexThreadExecutionLocation,
-    signal: AbortSignal,
-  ): Promise<void> {
-    signal.throwIfAborted();
-    const thread = await this.readWorkspaceThread(threadId);
-    if (!thread) throw new Error(`Task not found during handoff projection: ${threadId}`);
-    this.applySidebarThreadWorkspaceMoveToRecord({
-      threadId,
-      targetProjectId: thread.projectId,
-      move: {
-        next: {
-          cwd: location.cwd,
-          managedWorktreePath: location.managedWorktreePath,
-          projectlessOutputDirectory: location.projectlessOutputDirectory,
-          projectlessWorkspaceBrowserRoot: location.projectlessWorkspaceBrowserRoot,
-        },
-        runtimeWorkspaceRoots: [...location.workspaceRoots],
-      },
-    });
-    const metadata = createSidebarThreadSyncMetadata();
-    markSidebarSyncScopeChanged(metadata, thread.projectId);
-    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "session-change");
-    signal.throwIfAborted();
-  }
-
-  private async transferThreadExecutionOwner(
-    threadId: string,
-    preparation: CodexThreadHandoffPreparation,
-    signal: AbortSignal,
-  ): Promise<void> {
-    signal.throwIfAborted();
-    const worktreeGitRoot = preparation.prepared.managedWorktreePath;
-    try {
-      await this.managedWorktreeLifecycle.setOwner({
-        hostId: preparation.destination.hostId,
-        worktreeGitRoot,
-        ownerThreadId: threadId,
-      });
-    } finally {
-      if (
-        preparation.prepared.direction === "to-worktree" ||
-        preparation.prepared.direction === "cross-host"
-      ) {
-        this.managedWorktreeLifecycle.releaseNewborn(
-          preparation.destination.hostId,
-          worktreeGitRoot,
-        );
-      }
-      this.requestManagedWorktreeRetention();
-    }
-  }
-
-  private async rollbackThreadExecutionPreparation(
-    preparation: CodexThreadHandoffPreparation,
-    signal: AbortSignal,
-  ): Promise<readonly string[]> {
-    signal.throwIfAborted();
-    if (preparation.prepared.direction === "cross-host") return [];
-    const hostId = preparation.destination.hostId;
-    const worker = this.executionHosts.requireWorktreeWorker(hostId, "rollback-handoff");
-    try {
-      const result = await worker.rollbackHandoff(
-        {
-          requestId: `handoff:rollback:${randomUUID()}`,
-          hostId,
-          managedRoot: this.executionHosts.resolveManagedRoot(
-            hostId,
-            preparation.prepared.managedWorktreePath,
-          ),
-          prepared: preparation.prepared,
-        },
-        {
-          signal,
-          onEvent: () => undefined,
-        },
-      );
-      return result.warnings;
-    } finally {
-      if (preparation.prepared.direction === "to-worktree") {
-        this.managedWorktreeLifecycle.releaseNewborn(
-          hostId,
-          preparation.prepared.managedWorktreePath,
-        );
-      }
-    }
-  }
-
-  private async cleanupThreadExecutionPreparation(
-    preparation: CodexThreadHandoffPreparation,
-    outcome: "committed" | "rolled-back",
-    signal: AbortSignal,
-  ): Promise<readonly string[]> {
-    signal.throwIfAborted();
-    if (preparation.prepared.direction === "cross-host") {
-      const prepared = preparation.prepared;
-      const warnings: string[] = [];
-      try {
-        if (outcome === "committed" && prepared.sourceManagedWorktreePath) {
-          try {
-            const removed = await this.managedWorktreeLifecycle.remove({
-              hostId: prepared.sourceHostId,
-              worktreeGitRoot: prepared.sourceManagedWorktreePath,
-              reason: "handoff",
-            });
-            warnings.push(...removed.warnings);
-          } catch (error) {
-            warnings.push(
-              `source worktree cleanup: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
-        warnings.push(...(await this.crossHostThreadHandoff.cleanup(prepared, outcome, signal)));
-        return warnings;
-      } finally {
-        this.managedWorktreeLifecycle.releaseNewborn(
-          prepared.destinationHostId,
-          prepared.managedWorktreePath,
-        );
-      }
-    }
-    const hostId = preparation.destination.hostId;
-    const worker = this.executionHosts.requireWorktreeWorker(hostId, "cleanup-handoff");
-    const result = await worker.cleanupHandoff(
-      {
-        requestId: `handoff:cleanup:${randomUUID()}`,
-        hostId,
-        managedRoot: this.executionHosts.resolveManagedRoot(
-          hostId,
-          preparation.prepared.managedWorktreePath,
-        ),
-        prepared: preparation.prepared,
-        outcome,
-      },
-      { signal },
-    );
-    return result.warnings;
-  }
-
-  private buildThreadExecutionLocationEffects(): CodexThreadHandoffPromiseEffects {
-    return {
-      resolveSource: async (threadId, signal) => {
-        signal.throwIfAborted();
-        return await this.resolveThreadExecutionLocation(threadId);
-      },
-      readCanonicalLocation: async (threadId, signal) => {
-        signal.throwIfAborted();
-        try {
-          const location = await this.resolveThreadExecutionLocation(threadId);
-          signal.throwIfAborted();
-          return location;
-        } catch (error) {
-          signal.throwIfAborted();
-          this.logger.warn("Failed to read canonical task location during handoff recovery", {
-            threadId,
-            error,
-          });
-          return null;
-        }
-      },
-      stopActiveTurn: async (threadId, signal) =>
-        await this.stopThreadForExecutionHandoff(threadId, signal),
-      prepareDestination: async (entry, onPhase, signal) =>
-        await this.prepareThreadExecutionDestination(entry, onPhase, signal),
-      switchRuntime: async (threadId, location, preparation, signal) =>
-        await this.switchThreadExecutionRuntime(threadId, location, preparation, signal),
-      commitLocation: async (threadId, location, signal) =>
-        await this.commitThreadExecutionLocation(threadId, location, signal),
-      projectLocation: async (threadId, location, signal) =>
-        await this.projectThreadExecutionLocation(threadId, location, signal),
-      transferOwner: async (threadId, preparation, signal) =>
-        await this.transferThreadExecutionOwner(threadId, preparation, signal),
-      cleanup: async (preparation, outcome, signal) =>
-        await this.cleanupThreadExecutionPreparation(preparation, outcome, signal),
-      rollbackPreparation: async (preparation, signal) =>
-        await this.rollbackThreadExecutionPreparation(preparation, signal),
-      sendFollowUp: async (threadId, prompt, signal) => {
-        signal.throwIfAborted();
-        const result = await this.startTurn(threadId, prompt);
-        signal.throwIfAborted();
-        if (!result) throw new Error("The follow-up turn was not accepted after task handoff.");
-      },
-    };
-  }
-
-  private evaluateThreadHandoffCapability(
+  private async evaluateThreadHandoffCapability(
     sourceHostId: string,
     destinationHostId: string,
-  ): CodexThreadHandoffCapability {
+  ): Promise<CodexThreadHandoffCapability> {
     const crossHost = sourceHostId !== destinationHostId;
-    const availableHostIds = new Set(this.executionHosts.listHostIds());
+    const hosts = await this.controlPlane.runPromise(this.executionHosts.hosts());
+    const byId = new Map(hosts.map((host) => [host.hostId, host]));
     const localTransactionEffects = (hostId: string): boolean =>
       ["prepare-handoff", "rollback-handoff", "cleanup-handoff"].every((operation) =>
-        this.executionHosts.hasCapability(hostId, operation as CodexWorktreeWorkerOperation),
+        byId.get(hostId)?.capabilities.includes(operation as CodexWorktreeWorkerOperation),
       );
     const sourceTransactionEffects = crossHost
       ? ["export-handoff", "cleanup-transfer-handoff"].every((operation) =>
-          this.executionHosts.hasCapability(
-            sourceHostId,
-            operation as CodexWorktreeWorkerOperation,
-          ),
+          byId.get(sourceHostId)?.capabilities.includes(operation as CodexWorktreeWorkerOperation),
         )
       : sourceHostId === CODEX_APP_LOCAL_HOST_ID && localTransactionEffects(sourceHostId);
     const destinationTransactionEffects = crossHost
       ? ["import-handoff", "cleanup-transfer-handoff"].every((operation) =>
-          this.executionHosts.hasCapability(
-            destinationHostId,
-            operation as CodexWorktreeWorkerOperation,
-          ),
+          byId
+            .get(destinationHostId)
+            ?.capabilities.includes(operation as CodexWorktreeWorkerOperation),
         )
       : destinationHostId === CODEX_APP_LOCAL_HOST_ID && localTransactionEffects(destinationHostId);
     return evaluateCodexThreadHandoffCapability({
@@ -7709,55 +7012,55 @@ export class CodexService {
       },
       coreAtomicExecutionLocation: true,
       sourceHost: {
-        available:
-          this.executionHosts.hasCapability(sourceHostId, "create") &&
-          availableHostIds.has(sourceHostId),
+        available: byId.get(sourceHostId)?.capabilities.includes("create") ?? false,
         transactionEffects: sourceTransactionEffects,
       },
       destinationHost: {
-        available:
-          this.executionHosts.hasCapability(destinationHostId, "create") &&
-          availableHostIds.has(destinationHostId),
+        available: byId.get(destinationHostId)?.capabilities.includes("create") ?? false,
         transactionEffects: destinationTransactionEffects,
       },
       crossHost,
       crossHostTransfer:
         crossHost &&
-        this.executionHosts.hasFileTransfer(sourceHostId) &&
-        this.executionHosts.hasFileTransfer(destinationHostId),
+        (byId.get(sourceHostId)?.supportsFileTransfer ?? false) &&
+        (byId.get(destinationHostId)?.supportsFileTransfer ?? false),
     });
   }
 
-  private evaluateLocalThreadHandoffCapability(): CodexThreadHandoffCapability {
+  private evaluateLocalThreadHandoffCapability(): Promise<CodexThreadHandoffCapability> {
     return this.evaluateThreadHandoffCapability(CODEX_APP_LOCAL_HOST_ID, CODEX_APP_LOCAL_HOST_ID);
   }
 
-  private buildThreadHandoffToolOptions(): {
+  private async buildThreadHandoffToolOptions(): Promise<{
     readonly availableHandoffHosts: Array<{ id: string; displayName: string }>;
     readonly crossHostHandoffEnabled: boolean;
     readonly handoffEnabled: boolean;
-  } {
-    const availableHandoffHosts = this.executionHosts
-      .listDescriptors()
-      .filter((host) => this.executionHosts.hasFileTransfer(host.hostId))
-      .filter((host) => this.executionHosts.hasCapability(host.hostId, "cleanup-transfer-handoff"))
+  }> {
+    const hosts = await this.controlPlane.runPromise(this.executionHosts.hosts());
+    const availableHandoffHosts = hosts
+      .filter((host) => host.supportsFileTransfer)
+      .filter((host) => host.capabilities.includes("cleanup-transfer-handoff"))
       .filter(
         (host) =>
-          this.executionHosts.hasCapability(host.hostId, "export-handoff") ||
-          this.executionHosts.hasCapability(host.hostId, "import-handoff"),
+          host.capabilities.includes("export-handoff") ||
+          host.capabilities.includes("import-handoff"),
       )
       .map((host) => ({ id: host.hostId, displayName: host.displayName }));
     return {
       availableHandoffHosts,
       crossHostHandoffEnabled: availableHandoffHosts.length >= 2,
       handoffEnabled:
-        this.evaluateThreadHandoffCapability(CODEX_APP_LOCAL_HOST_ID, CODEX_APP_LOCAL_HOST_ID)
-          .status === "available" || availableHandoffHosts.length >= 2,
+        (
+          await this.evaluateThreadHandoffCapability(
+            CODEX_APP_LOCAL_HOST_ID,
+            CODEX_APP_LOCAL_HOST_ID,
+          )
+        ).status === "available" || availableHandoffHosts.length >= 2,
     };
   }
 
-  private buildCodexDynamicToolSpecs(): DynamicToolSpec[] {
-    const handoff = this.buildThreadHandoffToolOptions();
+  private async buildCodexDynamicToolSpecs(): Promise<DynamicToolSpec[]> {
+    const handoff = await this.buildThreadHandoffToolOptions();
     return [...buildCodexAppMetaThreadToolSpecs(handoff), ...NODEX_AGENT_DYNAMIC_TOOL_SPECS];
   }
 
@@ -7785,13 +7088,13 @@ export class CodexService {
           return [
             ...buildCodexAppMetaThreadToolSpecs({
               availableModels: await this.listModels(),
-              ...this.buildThreadHandoffToolOptions(),
+              ...(await this.buildThreadHandoffToolOptions()),
             }),
             ...NODEX_AGENT_DYNAMIC_TOOL_SPECS,
           ];
         } catch (error) {
           this.logger.warn("Failed to load model-aware dynamic tools", { error });
-          return this.buildCodexDynamicToolSpecs();
+          return await this.buildCodexDynamicToolSpecs();
         }
       },
       loadDynamicToolsWithDeadline: (operation) => this.dynamicToolsLaunch.load(operation),
@@ -8260,131 +7563,113 @@ export class CodexService {
       outputDelta: "[info] Starting worktree creation\n",
     });
 
-    const createdWorktree = await createManagedWorktree({
-      repositoryPath: workspacePath,
-      nodexHome: getNodexHome(),
-      managedRoot: this.executionHosts.requireManagedRoot(CODEX_APP_LOCAL_HOST_ID),
-      projectId: projectContext.canonicalProjectId,
-      targetId: input.sessionId,
-      threadTitle: input.threadTitle?.trim() || input.sessionTitle?.trim() || input.sessionId,
-      branchPrefix: this.gitSettingsResolver().branchPrefix,
-      preferredBaseBranch: null,
-      mode: input.worktreeStartMode ?? "detachedHead",
-      signal: input.signal,
-      onLog: (output) => {
-        if (!output.data) return;
-        input.onProgress?.({
-          phase: "creatingWorktree",
-          message: WORKTREE_LOG_STATUS_MESSAGE,
-          stream: output.stream,
-          outputDelta: output.data,
-        });
-      },
-    });
+    const selectedEnvironmentPath = input.runInEnvironmentPath?.trim() || null;
+    const host = await this.resolveExecutionHost(CODEX_APP_LOCAL_HOST_ID, "create", input.signal);
+    let allocatedWorktreeGitRoot: string | null = null;
+    const createdWorktree = await this.controlPlane
+      .runPromise(
+        host.request(
+          {
+            operation: "create",
+            input: {
+              requestId: `thread:${input.sessionId}:${randomUUID()}`,
+              hostId: CODEX_APP_LOCAL_HOST_ID,
+              repositoryPath: workspacePath,
+              nodexHome: getNodexHome(),
+              managedRoot: host.descriptor.managedRoot,
+              projectId: projectContext.canonicalProjectId,
+              targetId: input.sessionId,
+              threadTitle:
+                input.threadTitle?.trim() || input.sessionTitle?.trim() || input.sessionId,
+              branchPrefix: this.gitSettingsResolver().branchPrefix,
+              mode: input.worktreeStartMode ?? "detachedHead",
+              startingState: null,
+              localEnvironmentConfigPath: selectedEnvironmentPath,
+              setUpSyncedBranch: true,
+              propagateLocalWorkspaceFiles: true,
+            },
+          },
+          {
+            onEvent: (event) => {
+              if (event.type === "path-allocated") {
+                return Effect.sync(() => {
+                  allocatedWorktreeGitRoot = event.worktreeGitRoot;
+                }).pipe(
+                  Effect.andThen(
+                    this.managedWorktreeLifecycle.registerNewborn({
+                      hostId: CODEX_APP_LOCAL_HOST_ID,
+                      worktreeGitRoot: event.worktreeGitRoot,
+                    }),
+                  ),
+                );
+              }
+              if (event.type === "setup-started") {
+                return Effect.sync(() =>
+                  input.onProgress?.({
+                    phase: "runningSetup",
+                    message: WORKTREE_LOG_STATUS_MESSAGE,
+                    stream: "info",
+                    outputDelta: "Running worktree setup\n",
+                  }),
+                );
+              }
+              if (event.type !== "output" || !event.data) return Effect.void;
+              return Effect.sync(() =>
+                input.onProgress?.({
+                  phase: event.phase === "setup" ? "runningSetup" : "creatingWorktree",
+                  message: WORKTREE_LOG_STATUS_MESSAGE,
+                  stream: event.stream,
+                  outputDelta: event.data,
+                }),
+              );
+            },
+          },
+        ),
+        input.signal ? { signal: input.signal } : undefined,
+      )
+      .catch(async (error) => {
+        if (allocatedWorktreeGitRoot) {
+          await this.controlPlane.runPromise(
+            this.managedWorktreeLifecycle.releaseNewborn({
+              hostId: CODEX_APP_LOCAL_HOST_ID,
+              worktreeGitRoot: allocatedWorktreeGitRoot,
+            }),
+          );
+        }
+        throw error;
+      });
     const worktreeGitRoot = path.resolve(createdWorktree.worktreeGitRoot);
     const worktreeWorkspaceRoot = path.resolve(createdWorktree.worktreeWorkspaceRoot);
-    if (input.signal?.aborted) {
-      await this.managedWorktreeLifecycle
-        .remove({
+    const removeFailedWorktree = async (reason: "cancel" | "failed-create") =>
+      await this.controlPlane.runPromise(
+        this.managedWorktreeLifecycle.remove({
           hostId: CODEX_APP_LOCAL_HOST_ID,
           worktreeGitRoot,
-          reason: "cancel",
-        })
-        .catch(() => undefined);
+          reason,
+        }),
+      );
+    if (input.signal?.aborted) {
+      await removeFailedWorktree("cancel").catch(() => undefined);
       throw new Error("Request canceled");
     }
+    if (createdWorktree.setupError) {
+      await removeFailedWorktree("failed-create").catch(() => undefined);
+      throw new Error(
+        `Failed to set up new worktree using environment '${selectedEnvironmentPath}': ${createdWorktree.setupError}`,
+      );
+    }
+    if (createdWorktree.shellEnvironment) {
+      await this.persistWorktreeShellEnvironment(
+        worktreeWorkspaceRoot,
+        createdWorktree.shellEnvironment,
+      );
+    }
     input.onProgress?.({
-      phase: "creatingWorktree",
+      phase: selectedEnvironmentPath ? "runningSetup" : "creatingWorktree",
       message: WORKTREE_LOG_STATUS_MESSAGE,
       stream: "info",
       outputDelta: `Worktree created at ${worktreeWorkspaceRoot}\n`,
     });
-
-    const selectedEnvironmentPath = input.runInEnvironmentPath?.trim() || null;
-    if (selectedEnvironmentPath) {
-      try {
-        const environmentDefinition = await readWorktreeEnvironmentDefinition({
-          workspacePath,
-          environmentPath: selectedEnvironmentPath,
-        });
-        let shellEnvironment: CodexStoredShellEnvironment | null = null;
-        if (environmentDefinition.setupScript) {
-          input.onProgress?.({
-            phase: "runningSetup",
-            message: WORKTREE_LOG_STATUS_MESSAGE,
-            stream: "info",
-            outputDelta: `Running setup script ${environmentDefinition.path}\n`,
-          });
-          shellEnvironment = await runWorktreeSetupScript({
-            script: environmentDefinition.setupScript,
-            cwd: worktreeWorkspaceRoot,
-            loadBaseEnvironment: this.loadWorktreeSetupBaseEnvironment,
-            signal: input.signal,
-            environment: {
-              CODEX_SOURCE_TREE_PATH: workspacePath,
-              CODEX_WORKTREE_PATH: worktreeWorkspaceRoot,
-            },
-            onOutput: (output) => {
-              if (!output.data) return;
-              input.onProgress?.({
-                phase: "runningSetup",
-                message: WORKTREE_LOG_STATUS_MESSAGE,
-                stream: output.stream,
-                outputDelta: output.data,
-              });
-            },
-          });
-          if (input.signal?.aborted) {
-            throw new Error("Request canceled");
-          }
-          input.onProgress?.({
-            phase: "runningSetup",
-            message: WORKTREE_LOG_STATUS_MESSAGE,
-            stream: "info",
-            outputDelta: "Setup script completed\n",
-          });
-        }
-        try {
-          await this.persistWorktreeShellEnvironment(worktreeWorkspaceRoot, shellEnvironment);
-        } catch (error) {
-          const message = `Failed to store worktree shell environment: ${String(error)}`;
-          this.logger.warn(message, {
-            cwd: worktreeWorkspaceRoot,
-            error,
-          });
-          input.onProgress?.({
-            phase: "runningSetup",
-            message: WORKTREE_LOG_STATUS_MESSAGE,
-            stream: "stderr",
-            outputDelta: `${message}\n`,
-          });
-        }
-      } catch (error) {
-        await this.managedWorktreeLifecycle
-          .remove({
-            hostId: CODEX_APP_LOCAL_HOST_ID,
-            worktreeGitRoot,
-            reason: "failed-create",
-          })
-          .catch(() => undefined);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        throw new Error(
-          `Failed to set up new worktree using environment '${selectedEnvironmentPath}': ${errorMessage}`,
-          { cause: error },
-        );
-      }
-    }
-
-    if (input.signal?.aborted) {
-      await this.managedWorktreeLifecycle
-        .remove({
-          hostId: CODEX_APP_LOCAL_HOST_ID,
-          worktreeGitRoot,
-          reason: "cancel",
-        })
-        .catch(() => undefined);
-      throw new Error("Request canceled");
-    }
 
     return {
       cwd: worktreeWorkspaceRoot,
@@ -11713,7 +10998,7 @@ export class CodexService {
       effectivePermissionState.sandbox,
     );
     await this.persistDynamicToolCatalogsForLaunch(link.threadId, prepared.request.dynamicTools);
-    this.requestManagedWorktreeRetention();
+    this.scheduleManagedWorktreeRetention();
     this.setThreadPermissionFields(link.threadId, {
       approvalPolicy: threadStart.approvalPolicy,
       approvalsReviewer: threadStart.approvalsReviewer,
@@ -12255,7 +11540,7 @@ export class CodexService {
         throw new Error("Thread fork completed but could not be attached to a project session");
       }
       worktreeOwnershipTransferred = true;
-      this.requestManagedWorktreeRetention();
+      this.scheduleManagedWorktreeRetention();
       const projectedDetail =
         this.buildThreadDetailFromRead(projectedThread, {
           preserveExistingTimeline: true,
@@ -12320,12 +11605,14 @@ export class CodexService {
         nextSessionBox.value = null;
       }
       if (runLocation.managedWorktreePath && !worktreeOwnershipTransferred) {
-        await this.managedWorktreeLifecycle
-          .remove({
-            hostId: CODEX_APP_LOCAL_HOST_ID,
-            worktreeGitRoot: runLocation.managedWorktreePath,
-            reason: "failed-create",
-          })
+        await this.controlPlane
+          .runPromise(
+            this.managedWorktreeLifecycle.remove({
+              hostId: CODEX_APP_LOCAL_HOST_ID,
+              worktreeGitRoot: runLocation.managedWorktreePath,
+              reason: "failed-create",
+            }),
+          )
           .catch(() => undefined);
       }
       throw error;
@@ -14067,11 +13354,13 @@ export class CodexService {
       });
     const replacement = replacements[0];
     if (replacement) {
-      await this.managedWorktreeLifecycle.setOwner({
-        hostId,
-        worktreeGitRoot,
-        ownerThreadId: replacement.threadId,
-      });
+      await this.controlPlane.runPromise(
+        this.managedWorktreeLifecycle.setOwner({
+          hostId,
+          worktreeGitRoot,
+          ownerThreadId: replacement.threadId,
+        }),
+      );
       return;
     }
 
@@ -14082,13 +13371,17 @@ export class CodexService {
         .map(resolveWorktreePathComparisonKey),
     );
     if (hostId === CODEX_APP_LOCAL_HOST_ID && permanentRoots.includes(comparisonKey)) return;
-    if (this.managedWorktreeLifecycle.isNewborn(hostId, worktreeGitRoot)) return;
+    if (
+      await this.controlPlane.runPromise(
+        this.managedWorktreeLifecycle.isNewborn({ hostId, worktreeGitRoot }),
+      )
+    ) {
+      return;
+    }
 
-    await this.managedWorktreeLifecycle.remove({
-      hostId,
-      worktreeGitRoot,
-      reason,
-    });
+    await this.controlPlane.runPromise(
+      this.managedWorktreeLifecycle.remove({ hostId, worktreeGitRoot, reason }),
+    );
   }
 
   /** Effect Module projection operation; callers use ConversationCommands.archive. */
@@ -14126,7 +13419,7 @@ export class CodexService {
         });
       });
     }
-    this.requestManagedWorktreeRetention();
+    this.scheduleManagedWorktreeRetention();
     await this.readWorkspaceThread(threadId);
     this.applyCommittedConversationUnreadState(threadId, false, {
       broadcast: hadUnreadState,
@@ -15581,39 +14874,59 @@ export class CodexService {
   }> {
     const selectedEnvironmentPath = entry.localEnvironmentConfigPath?.trim() || null;
     let allocatedWorktreeGitRoot: string | null = null;
-    const workerResult = await this.worktreeWorkerForHost(entry.hostId, "create")
-      .create(
-        {
-          requestId: `${entry.id}:${String(entry.attempt)}`,
-          hostId: entry.hostId,
-          repositoryPath: entry.sourceWorkspaceRoot,
-          nodexHome: getNodexHome(),
-          managedRoot: this.executionHosts.requireManagedRoot(entry.hostId),
-          projectId:
-            entry.launchMode === "start-conversation"
-              ? (entry.startConversationParamsInput.projectAssignment?.projectId ?? entry.id)
-              : entry.id,
-          targetId: entry.id,
-          threadTitle: entry.label,
-          startingState: entry.startingState ?? null,
-          localEnvironmentConfigPath: selectedEnvironmentPath,
-          setUpSyncedBranch: entry.launchMode !== "create-stable-worktree",
-          propagateLocalWorkspaceFiles: entry.hostId === CODEX_APP_LOCAL_HOST_ID,
-        },
-        {
-          signal: context.signal,
-          onEvent: (event) => {
-            if (event.type === "path-allocated") {
-              allocatedWorktreeGitRoot = event.worktreeGitRoot;
-              this.managedWorktreeLifecycle.registerNewborn(entry.hostId, event.worktreeGitRoot);
-            }
-            context.onEvent(event);
+    const host = await this.resolveExecutionHost(entry.hostId, "create", context.signal);
+    const workerResult = await this.controlPlane
+      .runPromise(
+        host.request(
+          {
+            operation: "create",
+            input: {
+              requestId: `${entry.id}:${String(entry.attempt)}`,
+              hostId: entry.hostId,
+              repositoryPath: entry.sourceWorkspaceRoot,
+              nodexHome: getNodexHome(),
+              managedRoot: host.descriptor.managedRoot,
+              projectId:
+                entry.launchMode === "start-conversation"
+                  ? (entry.startConversationParamsInput.projectAssignment?.projectId ?? entry.id)
+                  : entry.id,
+              targetId: entry.id,
+              threadTitle: entry.label,
+              startingState: entry.startingState ?? null,
+              localEnvironmentConfigPath: selectedEnvironmentPath,
+              setUpSyncedBranch: entry.launchMode !== "create-stable-worktree",
+              propagateLocalWorkspaceFiles: entry.hostId === CODEX_APP_LOCAL_HOST_ID,
+            },
           },
-        },
+          {
+            onEvent: (event) =>
+              Effect.sync(() => {
+                if (event.type === "path-allocated") {
+                  allocatedWorktreeGitRoot = event.worktreeGitRoot;
+                }
+                context.onEvent(event);
+              }).pipe(
+                Effect.andThen(
+                  event.type === "path-allocated"
+                    ? this.managedWorktreeLifecycle.registerNewborn({
+                        hostId: entry.hostId,
+                        worktreeGitRoot: event.worktreeGitRoot,
+                      })
+                    : Effect.void,
+                ),
+              ),
+          },
+        ),
+        { signal: context.signal },
       )
-      .catch((error) => {
+      .catch(async (error) => {
         if (allocatedWorktreeGitRoot) {
-          this.managedWorktreeLifecycle.releaseNewborn(entry.hostId, allocatedWorktreeGitRoot);
+          await this.controlPlane.runPromise(
+            this.managedWorktreeLifecycle.releaseNewborn({
+              hostId: entry.hostId,
+              worktreeGitRoot: allocatedWorktreeGitRoot,
+            }),
+          );
         }
         throw error;
       });
@@ -15622,12 +14935,14 @@ export class CodexService {
       worktreeWorkspaceRoot: workerResult.worktreeWorkspaceRoot,
     };
     const throwCanceledAfterCreate = async (cause?: unknown): Promise<never> => {
-      await this.managedWorktreeLifecycle
-        .remove({
-          hostId: entry.hostId,
-          worktreeGitRoot: workerResult.worktreeGitRoot,
-          reason: "cancel",
-        })
+      await this.controlPlane
+        .runPromise(
+          this.managedWorktreeLifecycle.remove({
+            hostId: entry.hostId,
+            worktreeGitRoot: workerResult.worktreeGitRoot,
+            reason: "cancel",
+          }),
+        )
         .catch((cleanupError) => {
           this.logger.warn("Failed to clean a canceled pending worktree", {
             pendingWorktreeId: entry.id,
@@ -16060,11 +15375,13 @@ export class CodexService {
     }
     if (includeWorktreeInit && entry.worktreeGitRoot) {
       try {
-        await this.managedWorktreeLifecycle.setOwner({
-          hostId: entry.hostId,
-          worktreeGitRoot: entry.worktreeGitRoot,
-          ownerThreadId: threadId,
-        });
+        await this.controlPlane.runPromise(
+          this.managedWorktreeLifecycle.setOwner({
+            hostId: entry.hostId,
+            worktreeGitRoot: entry.worktreeGitRoot,
+            ownerThreadId: threadId,
+          }),
+        );
       } catch (error) {
         this.logger.warn("Worktree conversation started without owner metadata", {
           pendingWorktreeId: entry.id,
@@ -16072,8 +15389,13 @@ export class CodexService {
           error,
         });
       } finally {
-        this.managedWorktreeLifecycle.releaseNewborn(entry.hostId, entry.worktreeGitRoot);
-        this.requestManagedWorktreeRetention();
+        await this.controlPlane.runPromise(
+          this.managedWorktreeLifecycle.releaseNewborn({
+            hostId: entry.hostId,
+            worktreeGitRoot: entry.worktreeGitRoot,
+          }),
+        );
+        this.scheduleManagedWorktreeRetention();
       }
     }
     if (materializedGoal) {
@@ -17242,7 +16564,7 @@ export class CodexService {
         }
         const requestedDestinationHostId = this.parseDynamicString(args.destinationHostId);
         if (!requestedDestinationHostId) {
-          const localCapability = this.evaluateLocalThreadHandoffCapability();
+          const localCapability = await this.evaluateLocalThreadHandoffCapability();
           if (localCapability.status !== "available") {
             throw new Error(
               `Task handoff is unavailable because its transactional runtime is not ready (${localCapability.reasons.join(", ")}).`,
@@ -17253,11 +16575,13 @@ export class CodexService {
         const targetThread = await this.readWorkspaceThread(threadId);
         if (!targetThread) throw new Error(`No task found for handoff: ${threadId}`);
         const destinationHostId = requestedDestinationHostId ?? targetThread.executionHostId;
-        const destinationHost = this.executionHosts.getDescriptor(destinationHostId);
+        const destinationHost = await this.controlPlane.runPromise(
+          this.executionHosts.get(destinationHostId),
+        );
         if (!destinationHost) {
           throw new Error(`Host ${destinationHostId} is not available for task handoff.`);
         }
-        const capability = this.evaluateThreadHandoffCapability(
+        const capability = await this.evaluateThreadHandoffCapability(
           targetThread.executionHostId,
           destinationHostId,
         );
@@ -17267,17 +16591,17 @@ export class CodexService {
           );
         }
         const operationId = params.callId || randomUUID();
-        const existing = await this.threadHandoffRuntime.get(operationId);
+        const existing = await this.controlPlane.runPromise(
+          this.threadHandoffRuntime.get(operationId),
+        );
         if (existing) return this.buildDynamicToolSuccess(existing);
-        const operation = await this.threadHandoffRuntime.launch(
-          {
+        const operation = await this.controlPlane.runPromise(
+          this.threadHandoffRuntime.launch({
             operationId,
             threadId,
             destinationHostId: requestedDestinationHostId,
-            destinationHostDisplayName: destinationHost.displayName,
             followUpPrompt: this.parseDynamicString(args.followUpPrompt),
-          },
-          this.buildThreadExecutionLocationEffects(),
+          }),
         );
         return this.buildDynamicToolSuccess(operation);
       }
@@ -17292,10 +16616,8 @@ export class CodexService {
             ? args.afterRevision
             : null;
         const waitMs = this.clampDynamicInt(args.waitMs, 0, 0, CODEX_APP_HANDOFF_MAX_WAIT_MS);
-        const operation = await this.threadHandoffRuntime.waitForRevision(
-          operationId,
-          afterRevision,
-          waitMs,
+        const operation = await this.controlPlane.runPromise(
+          this.threadHandoffRuntime.waitForRevision(operationId, afterRevision, waitMs),
         );
         if (!operation) {
           throw new Error(`No thread handoff operation found for operationId ${operationId}.`);

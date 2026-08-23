@@ -52,6 +52,12 @@ export interface CodexConversationProjectionService {
     readonly settings: CodexConversationThreadSettings;
     readonly permissions: CodexCanonicalHydratedPermissionContext;
   }) => Effect.Effect<void, CodexConversationProjectionError>;
+  readonly relocateExecution: (input: {
+    readonly threadId: string;
+    readonly cwd: string;
+    readonly managedWorktreePath: string | null;
+    readonly permissions: CodexCanonicalHydratedPermissionContext;
+  }) => Effect.Effect<void, CodexConversationProjectionError>;
   readonly acceptTurn: (input: {
     readonly threadId: string;
     readonly clientUserMessageId: string;
@@ -267,6 +273,15 @@ export const make: Effect.Effect<
       requireChanged("configure-turn", input.threadId, (conversation) =>
         conversation.applyTurnConfiguration({
           settings: input.settings,
+          permissions: input.permissions,
+          projectReplica: projectReplica(input.threadId),
+        }),
+      ),
+    relocateExecution: (input) =>
+      requireChanged("relocate-execution", input.threadId, (conversation) =>
+        conversation.relocateExecution({
+          cwd: input.cwd,
+          managedWorktreePath: input.managedWorktreePath,
           permissions: input.permissions,
           projectReplica: projectReplica(input.threadId),
         }),

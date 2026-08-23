@@ -186,7 +186,18 @@ import { makeCodexStructuredThreadTitlePromiseAdapter } from "../codex-applicati
 import { make as makeCodexDynamicToolsLaunch } from "../codex-application/CodexDynamicToolsLaunch";
 import { makeCodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
 import { make as makeCodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
-import { makeCodexThreadHandoffRuntimePromiseAdapter } from "../codex-application/CodexThreadHandoffRuntimePromiseAdapter";
+import {
+  CodexThreadExecution,
+  live as codexThreadExecutionLive,
+} from "../codex-application/CodexThreadExecution";
+import {
+  CrossHostThreadHandoff,
+  live as crossHostThreadHandoffLive,
+} from "../codex-application/CrossHostThreadHandoff";
+import {
+  ManagedWorktreeHandoff,
+  live as managedWorktreeHandoffLive,
+} from "../codex-application/ManagedWorktreeHandoff";
 import {
   CodexPendingWorktreeRuntime,
   CodexPendingWorktreeEffectError,
@@ -318,10 +329,14 @@ import {
   live as executionHostRuntimeLive,
 } from "../codex-application/ExecutionHostRuntime";
 import {
+  ExecutionHostConfiguration,
+  ManagedWorktreeConfiguration,
+  live as executionHostConfigurationLive,
+} from "../codex-application/ExecutionHostConfiguration";
+import {
   ManagedWorktreeRuntime,
   live as managedWorktreeRuntimeLive,
 } from "../codex-application/ManagedWorktreeRuntime";
-import { makeManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
 import {
   ManagedWorktreeRetentionRuntime,
   ManagedWorktreeRetentionRuntimeError,
@@ -411,10 +426,6 @@ import {
   WorktreeEnvironmentRuntime,
   live as worktreeEnvironmentRuntimeLive,
 } from "../host-runtime/WorktreeEnvironmentRuntime";
-import {
-  WorktreeShellEnvironmentRuntime,
-  live as worktreeShellEnvironmentRuntimeLive,
-} from "../host-runtime/WorktreeShellEnvironmentRuntime";
 import {
   live as projectRuntimeLifecycleLive,
   ProjectRuntimeLifecycleRuntime,
@@ -508,15 +519,10 @@ import { resolveInitialProjectProjectsDirectory } from "../initial-project/initi
 import { resolveInitialProjectJournalPath } from "../initial-project/initial-project-journal-store";
 import {
   getBackupSettings,
-  getCodexExecutionHostSettings,
   getCommandKeymapState,
   getHistorySettings,
-  getKnownManagedWorktreeRoots,
-  getManagedWorktreeSettings,
   getThreadNotificationSettings,
   getWindowRestoreSettings,
-  updateCodexExecutionHostSettings,
-  updateManagedWorktreeSettings,
 } from "../local-store/config";
 import { makePersistedAtomStore } from "../local-store/persisted-atoms";
 import { requestsExplicitNewWindow } from "../main-runtime-startup-events";
@@ -1405,17 +1411,6 @@ export const live: Layer.Layer<
           worktreeEnvironmentContext,
           WorktreeEnvironmentRuntime,
         );
-        const worktreeShellEnvironmentContext = yield* Layer.buildWithScope(
-          worktreeShellEnvironmentRuntimeLive({
-            baseEnvironment: config.environment,
-            platform: config.platform as NodeJS.Platform,
-          }),
-          runtimeScope,
-        );
-        const worktreeShellEnvironment = Context.get(
-          worktreeShellEnvironmentContext,
-          WorktreeShellEnvironmentRuntime,
-        );
         const automationModule = createDesktopAutomationModuleBridge({
           authority: legacyDataAuthority,
         });
@@ -1447,21 +1442,33 @@ export const live: Layer.Layer<
           projectWorkspace,
           databaseModule,
         });
+        const executionHostConfigurationContext = yield* Layer.buildWithScope(
+          executionHostConfigurationLive,
+          runtimeScope,
+        );
+        const executionHostConfiguration = Context.get(
+          executionHostConfigurationContext,
+          ExecutionHostConfiguration,
+        );
+        const managedWorktreeConfiguration = Context.get(
+          executionHostConfigurationContext,
+          ManagedWorktreeConfiguration,
+        );
         const executionHostContext = yield* Layer.buildWithScope(
           executionHostRuntimeLive({
             runtimeStateHome,
             nodexHome: config.nodexHome,
             remoteWorktreeWorkerBundlePath: `${__dirname}/remote-worktree-worker.cjs`,
-            localWorktreeWorker: localWorktreeWorker.port,
-            settings: {
-              read: getCodexExecutionHostSettings,
-              update: updateCodexExecutionHostSettings,
-            },
-            managedWorktrees: {
-              read: getManagedWorktreeSettings,
-              listKnownRoots: getKnownManagedWorktreeRoots,
-            },
-          }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(ExecutionHostConfiguration, executionHostConfiguration),
+                Layer.succeed(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
+                Layer.succeed(WorktreeWorkerRuntime, localWorktreeWorker),
+              ),
+            ),
+          ),
           runtimeScope,
         ).pipe(Effect.mapError((cause) => runtimeError("construct-execution-hosts", cause)));
         const executionHosts = Context.get(executionHostContext, ExecutionHostRuntime);
@@ -2143,14 +2150,6 @@ export const live: Layer.Layer<
           Effect.provideService(CodexConversationHistoryRuntime, conversationHistory),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
-          scope: runtimeScope,
-          storage: makeCodexThreadHandoffJournalStorage(
-            resolveCodexThreadHandoffJournalPath(runtimeStateHome),
-          ),
-          resolveHostDisplayName: (hostId) =>
-            executionHosts.registry.getDescriptor(hostId)?.displayName ?? hostId,
-        });
         const pendingWorktrees = yield* makeCodexPendingWorktreeRuntime({
           createWorktree: (entry, onEvent) =>
             Effect.tryPromise({
@@ -2219,7 +2218,6 @@ export const live: Layer.Layer<
         );
         const managedWorktreeRetentionContext = yield* Layer.buildWithScope(
           managedWorktreeRetentionRuntimeLive({
-            settings: { read: getManagedWorktreeSettings },
             projectWorkspace,
             isAutomationProtected: (threadId) =>
               Effect.tryPromise({
@@ -2235,6 +2233,7 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(CodexPendingWorktreeRuntime, pendingWorktrees),
                 Layer.succeed(ExecutionHostRuntime, executionHosts),
+                Layer.succeed(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
                 Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
               ),
             ),
@@ -2244,6 +2243,70 @@ export const live: Layer.Layer<
         const managedWorktreeRetention = Context.get(
           managedWorktreeRetentionContext,
           ManagedWorktreeRetentionRuntime,
+        );
+        const crossHostThreadHandoffContext = yield* Layer.buildWithScope(
+          crossHostThreadHandoffLive({
+            relayBaseRoot: `${runtimeStateHome}/handoffs`,
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ExecutionHostRuntime, executionHosts),
+                Layer.succeed(FileSystem.FileSystem, fileSystem),
+                Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const crossHostThreadHandoff = Context.get(
+          crossHostThreadHandoffContext,
+          CrossHostThreadHandoff,
+        );
+        const managedWorktreeHandoffContext = yield* Layer.buildWithScope(
+          managedWorktreeHandoffLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(CoreModules, coreModules),
+                Layer.succeed(CrossHostThreadHandoff, crossHostThreadHandoff),
+                Layer.succeed(ExecutionHostRuntime, executionHosts),
+                Layer.succeed(ManagedWorktreeRetentionRuntime, managedWorktreeRetention),
+                Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const managedWorktreeHandoff = Context.get(
+          managedWorktreeHandoffContext,
+          ManagedWorktreeHandoff,
+        );
+        const threadExecutionContext = yield* Layer.buildWithScope(
+          codexThreadExecutionLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexConversationProjection, conversationProjection),
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(CodexTurnCommands, turnCommands),
+                Layer.succeed(ConversationCommands, conversationCommands),
+                Layer.succeed(CoreModules, coreModules),
+                Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
+                Layer.succeed(ExecutionHostRuntime, executionHosts),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const threadExecution = Context.get(threadExecutionContext, CodexThreadExecution);
+        const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
+          storage: makeCodexThreadHandoffJournalStorage(
+            resolveCodexThreadHandoffJournalPath(runtimeStateHome),
+          ),
+        }).pipe(
+          Effect.provideService(CodexThreadExecution, threadExecution),
+          Effect.provideService(ExecutionHostRuntime, executionHosts),
+          Effect.provideService(ManagedWorktreeHandoff, managedWorktreeHandoff),
+          Effect.provideService(Scope.Scope, runtimeScope),
         );
         const forkBrowserSnapshotAdapter = createCodexForkBrowserSnapshotAdapter({
           getProjectSession: (projectSessionId) =>
@@ -2618,10 +2681,7 @@ export const live: Layer.Layer<
                 dynamicToolsLaunch,
                 callbacks,
               ),
-              threadHandoffRuntime: makeCodexThreadHandoffRuntimePromiseAdapter(
-                threadHandoffRuntime,
-                callbacks,
-              ),
+              threadHandoffRuntime,
               pendingWorktrees: makeCodexPendingWorktreeRuntimePromiseAdapter(
                 pendingWorktrees,
                 callbacks,
@@ -2681,15 +2741,9 @@ export const live: Layer.Layer<
               ),
               automationModule,
               projectWorkspace,
-              loadWorktreeSetupBaseEnvironment: () =>
-                callbacks.runPromise(worktreeShellEnvironment.load),
-              executionHosts: executionHosts.registry,
-              managedWorktrees: makeManagedWorktreeRuntimePromiseAdapter(
-                managedWorktrees,
-                callbacks,
-              ),
-              requestManagedWorktreeRetention: () =>
-                callbacks.fork(managedWorktreeRetention.request),
+              executionHosts,
+              managedWorktrees,
+              managedWorktreeRetention,
               terminalRuntime: {
                 getThreadSnapshot: (threadId) =>
                   callbacks.runPromise(terminals.getThreadSnapshot(threadId)),
@@ -2698,10 +2752,7 @@ export const live: Layer.Layer<
           },
           catch: (cause) => runtimeError("construct-codex-application", cause),
         });
-        yield* Effect.tryPromise({
-          try: () => codexService.recoverThreadHandoffs(),
-          catch: (cause) => runtimeError("recover-thread-handoffs", cause),
-        }).pipe(
+        yield* threadHandoffRuntime.recover().pipe(
           Effect.catch((cause) =>
             Effect.sync(() => applicationLogger.error("Task handoff recovery failed", { cause })),
           ),
@@ -2753,15 +2804,12 @@ export const live: Layer.Layer<
         );
         const managedWorktreeCatalog = yield* makeManagedWorktreeCatalog({
           projectWorkspace,
-          settings: {
-            read: getManagedWorktreeSettings,
-            update: updateManagedWorktreeSettings,
-          },
           defaultManagedRoot: `${config.nodexHome}/worktrees`,
           projectThread: (thread) => codexService.projectWorkspaceThreadFromModule(thread),
         }).pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
           Effect.provideService(ExecutionHostRuntime, executionHosts),
+          Effect.provideService(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
           Effect.provideService(ManagedWorktreeRetentionRuntime, managedWorktreeRetention),
           Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
           Effect.provideService(Scope.Scope, runtimeScope),

@@ -8,7 +8,6 @@ import os from "node:os";
 import path from "node:path";
 import type {
   CodexBackgroundProcessRecord,
-  CodexAgentMode,
   CodexConversationSnapshot,
   CodexCanonicalConversationState,
   CodexEvent,
@@ -29,7 +28,6 @@ import type {
   CodexThreadSummary,
   CodexTurnSummary,
   CommandPaletteThreadSummary,
-  ManagedWorktreeSettings,
   Project,
   ProjectSession,
   ProjectSessionForkResult,
@@ -79,7 +77,6 @@ import { getCodexFileChangePaths } from "../../shared/codex-file-change";
 import type {
   CodexPendingWorktreeCreateInput,
   CodexPendingWorktreeEntry,
-  CodexPendingWorktreeRequest,
 } from "../../shared/codex-pending-worktree";
 import { applyCodexConversationStateUpdates } from "../../shared/codex-conversation-patches";
 import type { CodexCommandOutputUpdate } from "../../shared/codex-conversation-state/codex-command-output-queue";
@@ -122,16 +119,8 @@ import {
   TestDatabaseInvalidationSource,
 } from "./codex-sidebar-sync-runtime.test-support";
 import type { CodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
-import { removeManagedWorktree } from "./git-worktree-service";
 import { runCodexGitCommand } from "./codex-git-command";
-import type {
-  CodexWorktreeWorkerCreateInput,
-  CodexWorktreeWorkerEvent,
-  CodexWorktreeWorkerPort,
-  CodexWorktreeWorkerRemoveInput,
-} from "./codex-worktree-worker-port";
-import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-port.test-support";
-import type { CodexThreadHandoffJournalEntry } from "./codex-thread-handoff-journal";
+import type { CodexWorktreeWorkerEvent } from "./codex-worktree-worker-protocol";
 import {
   PastedTextAttachmentManager,
   ThreadGoalAttachmentDirectoryManager,
@@ -147,8 +136,10 @@ import type {
 } from "../core-client/project-workspace-adapter";
 import { PersistedAtomStore } from "../local-store/persisted-atoms";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
-import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHostRuntime";
-import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
+import type { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
+import type { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
+import type { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
+import type { CodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
 import { normalizeCodexThreadGoalSetAction } from "../codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
 import type { ConversationCommands } from "../codex-application/ConversationCommands";
@@ -717,7 +708,6 @@ const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
     cursors: [],
   }),
 };
-const MANAGED_WORKTREE_TEST_HARNESS_RELEASES: Array<() => Promise<void>> = [];
 const PROJECT_RUNTIME_TEST_HARNESS_RELEASES: Array<() => Promise<void>> = [];
 
 const makeCodexSidebarSweepTestAdapter = (): CodexSidebarSweepRuntimePromiseAdapter => {
@@ -1265,10 +1255,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
 };
 
 afterAll(async () => {
-  await Promise.all([
-    ...MANAGED_WORKTREE_TEST_HARNESS_RELEASES.map((close) => close()),
-    ...PROJECT_RUNTIME_TEST_HARNESS_RELEASES.map((close) => close()),
-  ]);
+  await Promise.all([...PROJECT_RUNTIME_TEST_HARNESS_RELEASES.map((close) => close())]);
   if (PREVIOUS_TEST_NODEX_HOME === undefined) delete process.env.NODEX_HOME;
   else process.env.NODEX_HOME = PREVIOUS_TEST_NODEX_HOME;
   fs.rmSync(DEFAULT_TEST_LOCAL_STORE_ROOT, { recursive: true, force: true });
@@ -1316,7 +1303,6 @@ function createService(options?: {
   inactiveRendererOwnerRetryMs?: number;
   supportsChatGptApps?: boolean;
   gitSettingsResolver?: () => CodexGitSettings;
-  managedWorktreeSettings?: ManagedWorktreeSettings;
   projectAwareDeveloperInstructionsResolver?: (input: {
     baseInstructions?: string | null;
     cwd: string;
@@ -1329,7 +1315,6 @@ function createService(options?: {
   ) => Promise<Record<string, boolean | string | number | null> | null>;
   projectlessHomeDirectory?: () => string;
   resolveThreadGoalAttachmentsRoot?: () => Promise<string> | string;
-  loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   browserTransferStateReader?: {
     getStateSnapshot(): BrowserSidebarStateSnapshot;
     getBrowserUseStateSnapshot(): BrowserSidebarBrowserUseStateSnapshot;
@@ -1383,112 +1368,57 @@ function createService(options?: {
     configTarget: { source: "none", filePath: null },
     customDescription: null,
   });
-  let managedWorktreeSettings: ManagedWorktreeSettings = options?.managedWorktreeSettings ?? {
-    worktreeRoot: null,
-    autoDeleteEnabled: true,
-    autoDeleteLimit: 15,
-  };
-  const managedWorktreeSettingsPort = {
-    read: () => managedWorktreeSettings,
-    update: (input: {
-      readonly worktreeRoot?: string | null;
-      readonly autoDeleteEnabled?: boolean;
-      readonly autoDeleteLimit?: number;
-    }) => {
-      managedWorktreeSettings = {
-        worktreeRoot:
-          input.worktreeRoot === undefined
-            ? managedWorktreeSettings.worktreeRoot
-            : input.worktreeRoot,
-        autoDeleteEnabled: input.autoDeleteEnabled ?? managedWorktreeSettings.autoDeleteEnabled,
-        autoDeleteLimit: input.autoDeleteLimit ?? managedWorktreeSettings.autoDeleteLimit,
-      };
-      return managedWorktreeSettings;
-    },
-    listKnownRoots: () => [],
-  };
   const runtimeStateHome =
     options?.runtimeStateHome ?? path.join(DEFAULT_TEST_LOCAL_STORE_ROOT, "agent");
-  const executionHosts = makeLocalExecutionHostRegistry({
-    runtimeStateHome,
-    nodexHome: DEFAULT_TEST_LOCAL_STORE_ROOT,
-    localWorktreeWorker: createInProcessCodexWorktreeWorkerPort({
+  const localHost = {
+    descriptor: {
       hostId: "local",
-      loadBaseEnvironment: options?.loadWorktreeSetupBaseEnvironment,
-    }),
-    managedWorktrees: managedWorktreeSettingsPort,
-  });
-  const managedWorktreeHarness = makeManagedWorktreeRuntimeTestHarness(executionHosts);
-  MANAGED_WORKTREE_TEST_HARNESS_RELEASES.push(managedWorktreeHarness.close);
+      displayName: "This Mac",
+      kind: "local" as const,
+      nodexHome: DEFAULT_TEST_LOCAL_STORE_ROOT,
+      codexHome: runtimeStateHome,
+      managedRoot: path.join(DEFAULT_TEST_LOCAL_STORE_ROOT, "worktrees"),
+      handoffStagingRoot: path.join(runtimeStateHome, "handoffs"),
+      repositoryRoots: [] as readonly string[],
+      capabilities: [] as const,
+      supportsFileTransfer: false,
+    },
+    knownManagedRoots: [] as readonly string[],
+    transfer: null,
+    resolveManagedRoot: () => Effect.die("Managed worktrees are not available in this fixture"),
+    request: () => Effect.die("Worktree workers are not available in this fixture"),
+  };
+  const executionHosts = {
+    activeSshHosts: null as never,
+    hosts: () => Effect.succeed([localHost.descriptor]),
+    get: (hostId: string) => Effect.succeed(hostId === "local" ? localHost : null),
+    resolve: () => Effect.succeed(localHost),
+    updateLocalManagedRoot: () => Effect.void,
+    settings: Effect.die("Execution host settings are not available in this fixture"),
+    updateSettings: () => Effect.die("Execution host settings are not available in this fixture"),
+    reconcile: () => Effect.void,
+  } satisfies ExecutionHostRuntime["Service"];
+  const managedWorktrees = {
+    remove: () =>
+      Effect.succeed({ removed: true, alreadyMissing: false, snapshot: null, warnings: [] }),
+    inspect: () => Effect.die("Managed worktree inspection is not available in this fixture"),
+    list: () => Effect.succeed({ entries: [] }),
+    restore: () => Effect.die("Managed worktree restore is not available in this fixture"),
+    setOwner: () => Effect.void,
+    registerNewborn: () => Effect.void,
+    releaseNewborn: () => Effect.void,
+    isNewborn: () => Effect.succeed(false),
+    newborns: Effect.succeed([]),
+  } satisfies ManagedWorktreeRuntime["Service"];
   const projectRuntimeLifecycleHarness = makeProjectRuntimeLifecycleTestHarness();
   PROJECT_RUNTIME_TEST_HARNESS_RELEASES.push(projectRuntimeLifecycleHarness.close);
-  const threadHandoffRuntimeAdapter = {
-    start: async (input, effects) => {
-      const signal = new AbortController().signal;
-      const source = await effects.resolveSource(input.threadId, signal);
-      const createdAt = Date.now();
-      await effects.stopActiveTurn(input.threadId, signal);
-      const preparation = await effects.prepareDestination(
-        {
-          schemaVersion: 1,
-          operationId: input.operationId,
-          threadId: input.threadId,
-          phase: "preparing-destination",
-          source,
-          requestedDestinationHostId: input.destinationHostId,
-          destination: null,
-          prepared: null,
-          runtimeSwitched: false,
-          coreCommitted: false,
-          followUpPrompt: input.followUpPrompt,
-          followUpDispatchStarted: false,
-          warnings: [],
-          lastError: null,
-          failedPhase: null,
-          createdAt,
-          updatedAt: createdAt,
-          completedAt: null,
-        },
-        () => undefined,
-        signal,
-      );
-      await effects.switchRuntime(input.threadId, preparation.destination, preparation, signal);
-      await effects.commitLocation(input.threadId, preparation.destination, signal);
-      await effects.projectLocation(input.threadId, preparation.destination, signal);
-      await effects.transferOwner(input.threadId, preparation, signal);
-      const warnings = await effects.cleanup(preparation, "committed", signal);
-      if (input.followUpPrompt) {
-        await effects.sendFollowUp(input.threadId, input.followUpPrompt, signal);
-      }
-      const completedAt = Date.now();
-      return {
-        schemaVersion: 1,
-        operationId: input.operationId,
-        threadId: input.threadId,
-        phase: warnings.length === 0 ? "completed" : "completed-with-warning",
-        source,
-        requestedDestinationHostId: input.destinationHostId,
-        destination: preparation.destination,
-        prepared: preparation.prepared,
-        runtimeSwitched: true,
-        coreCommitted: true,
-        followUpPrompt: input.followUpPrompt,
-        followUpDispatchStarted: input.followUpPrompt !== null,
-        warnings,
-        lastError: null,
-        failedPhase: null,
-        createdAt,
-        updatedAt: completedAt,
-        completedAt,
-      } satisfies CodexThreadHandoffJournalEntry;
-    },
-    recover: async () => [],
-    launch: async () => {
-      throw new Error("The Codex service test fixture does not launch background handoffs");
-    },
-    get: async () => null,
-    waitForRevision: async () => null,
-  } satisfies import("../codex-application/CodexThreadHandoffRuntimePromiseAdapter").CodexThreadHandoffRuntimePromiseAdapter;
+  const threadHandoffRuntime = {
+    start: () => Effect.die("Task handoff is not available in this fixture"),
+    recover: () => Effect.succeed([]),
+    launch: () => Effect.die("Task handoff is not available in this fixture"),
+    get: () => Effect.succeed(null),
+    waitForRevision: () => Effect.succeed(null),
+  } satisfies CodexThreadHandoffRuntime["Service"];
   const configuredAttachmentsRoot =
     options?.resolveThreadGoalAttachmentsRoot?.() ?? DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT;
   if (typeof configuredAttachmentsRoot !== "string") {
@@ -1665,13 +1595,7 @@ function createService(options?: {
       if (!service) throw new Error("Codex test service is not constructed");
       return await service.launchPendingWorktreeConversation(entry, workspaceRoot, context);
     },
-    removeWorktree: async (hostId, worktreeGitRoot) => {
-      await managedWorktreeHarness.adapter.remove({
-        hostId,
-        worktreeGitRoot,
-        reason: "cancel",
-      });
-    },
+    removeWorktree: async () => undefined,
     cleanupGoalSources: async (entry) => {
       if (!service) throw new Error("Codex test service is not constructed");
       await service.cleanupPendingGoalSources(entry);
@@ -2144,7 +2068,7 @@ function createService(options?: {
     dynamicToolsLaunch: {
       load: (operation) => operation(),
     },
-    threadHandoffRuntime: threadHandoffRuntimeAdapter,
+    threadHandoffRuntime,
     pendingWorktrees,
     threadSettingsRuntime,
     threadTitlePersistence,
@@ -2186,16 +2110,17 @@ function createService(options?: {
     automationModule: options?.automationModule ?? createTestAutomationModule(),
     projectWorkspace,
     executionHosts,
-    managedWorktrees: managedWorktreeHarness.adapter,
-    requestManagedWorktreeRetention: () => undefined,
+    managedWorktrees,
+    managedWorktreeRetention: {
+      request: Effect.void,
+      run: Effect.die("Managed worktree retention is not available in this fixture"),
+    } satisfies ManagedWorktreeRetentionRuntime["Service"],
     supportsChatGptApps: options?.supportsChatGptApps,
     projectAwareDeveloperInstructionsResolver: options?.projectAwareDeveloperInstructionsResolver,
     gitSettingsResolver: options?.gitSettingsResolver,
-    managedWorktreeSettingsPort,
     threadCodexConfigBuilder: options?.threadCodexConfigBuilder,
     projectlessHomeDirectory:
       options?.projectlessHomeDirectory ?? (() => DEFAULT_TEST_LOCAL_STORE_ROOT),
-    loadWorktreeSetupBaseEnvironment: options?.loadWorktreeSetupBaseEnvironment,
     browserTransferStateReader:
       options?.browserTransferStateReader ?? EMPTY_TEST_BROWSER_TRANSFER_STATE_READER,
     forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
@@ -2272,7 +2197,8 @@ function createService(options?: {
       await sidebarSweep.cancel();
       await pendingServerRequests.shutdown(new Error("Codex test service is shutting down"));
     } finally {
-      await managedWorktreeHarness.close();
+      // The final Effect capabilities are process-scoped in production; this legacy test fixture
+      // owns no additional worktree runtime to release.
     }
   };
   permissionStateByTestService.set(testService, permissionStateByScope);
@@ -5866,10 +5792,6 @@ describe("codex-service interrupt target resolution", () => {
   });
 });
 
-describe("codex-service steerTurn", () => {});
-
-describe("codex-service startTurn", () => {});
-
 describe("codex-service collaboration modes", () => {
   test("validates active-task identity and persists compatible intelligence updates", async () => {
     const service = createService();
@@ -6178,851 +6100,6 @@ describe("codex-service Session Thread launch projections", () => {
 
       expect(appliedTitles[0]).toBe("Build a refined migration plan with careful details careful…");
       expect((requests[0]?.params as { name?: string } | undefined)?.name).toBe(appliedTitles[0]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
-
-describe("codex-service pending managed worktree setup", () => {
-  type PendingWorktreeCreator = {
-    createPendingManagedWorktree: (
-      entry: CodexPendingWorktreeEntry,
-      context: {
-        signal: AbortSignal;
-        onEvent: (event: CodexWorktreeWorkerEvent) => void;
-      },
-    ) => Promise<{
-      worktreeGitRoot: string;
-      worktreeWorkspaceRoot: string;
-      setupError: string | null;
-    }>;
-  };
-
-  function makePendingManagedWorktreeEntry(input: {
-    id: string;
-    sourceWorkspaceRoot: string;
-    localEnvironmentConfigPath: string | null;
-    hostId?: string;
-    startingState?: CodexPendingWorktreeEntry["startingState"];
-  }): CodexPendingWorktreeEntry {
-    return {
-      id: input.id,
-      hostId: input.hostId ?? "local",
-      label: "Pending setup task",
-      sourceWorkspaceRoot: input.sourceWorkspaceRoot,
-      startingState:
-        input.startingState === undefined
-          ? { type: "branch", branchName: "main" }
-          : input.startingState,
-      localEnvironmentConfigPath: input.localEnvironmentConfigPath,
-      prompt: "Run pending setup",
-      launchMode: "start-conversation",
-      clientThreadId: `client-new-thread:${input.id}`,
-      startConversationParamsInput: {
-        input: [],
-        commentAttachments: [],
-        workspaceRoots: [input.sourceWorkspaceRoot],
-        cwd: input.sourceWorkspaceRoot,
-        fileAttachments: [],
-        addedFiles: [],
-        agentMode: "auto",
-        permissionProfileId: undefined,
-        shouldSendPermissionOverrides: true,
-        model: null,
-        serviceTier: null,
-        reasoningEffort: null,
-        collaborationMode: null,
-        config: {},
-        threadSource: "subagent",
-        workspaceKind: "project",
-        projectAssignment: {
-          projectKind: "local",
-          projectId: `project-${input.id}`,
-          pendingCoreUpdate: false,
-        },
-        serviceName: undefined,
-      },
-      sourceConversationId: null,
-      sourceCollaborationMode: null,
-      createdAt: 1,
-      attempt: 1,
-      phase: "creating",
-      labelEdited: false,
-      worktreeOutputText: "",
-      setupOutputText: "",
-      errorMessage: null,
-      worktreeWorkspaceRoot: null,
-      worktreeGitRoot: null,
-      needsAttention: false,
-      isPinned: false,
-      pinnedBeforeThreadId: null,
-    };
-  }
-
-  function pendingWorktreeCreator(service: TestableCodexService): PendingWorktreeCreator {
-    return service as unknown as PendingWorktreeCreator;
-  }
-
-  async function withPendingWorktreeStore(run: () => Promise<void>): Promise<void> {
-    const previousNodexHome = process.env.NODEX_HOME;
-    const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-worktree-store-"));
-    process.env.NODEX_HOME = storeDir;
-    try {
-      await run();
-    } finally {
-      if (previousNodexHome === undefined) delete process.env.NODEX_HOME;
-      else process.env.NODEX_HOME = previousNodexHome;
-      fs.rmSync(storeDir, { recursive: true, force: true });
-    }
-  }
-
-  test("keeps tagged allocated paths private before creation completes", async () => {
-    const service = createService();
-    const workerState: {
-      finishCreation: () => void;
-      resultSettled: boolean;
-      signal: AbortSignal | null;
-    } = {
-      finishCreation: () => undefined,
-      resultSettled: false,
-      signal: null,
-    };
-    let pendingWorktreeId: string | null = null;
-    const localWorker: CodexWorktreeWorkerPort = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
-      create: async (_input, options) => {
-        const signal = options.signal;
-        if (!signal) throw new Error("Expected request cancellation signal");
-        workerState.signal = signal;
-        const creationGate = new Promise<void>((resolve, reject) => {
-          workerState.finishCreation = resolve;
-          signal.addEventListener("abort", () => reject(new Error("Request canceled")), {
-            once: true,
-          });
-        });
-        options.onEvent({
-          operation: "create",
-          type: "path-allocated",
-          worktreeGitRoot: "/local/worktrees/abcd/repo",
-          worktreeWorkspaceRoot: "/local/worktrees/abcd/repo/packages/app",
-        });
-        options.onEvent({
-          operation: "create",
-          type: "output",
-          phase: "worktree",
-          stream: "info",
-          data: "[info] Worktree path allocated\n",
-        });
-        await creationGate;
-        workerState.resultSettled = true;
-        return {
-          worktreeGitRoot: "/local/worktrees/abcd/repo",
-          worktreeWorkspaceRoot: "/local/worktrees/abcd/repo/packages/app",
-          setupError: null,
-          shellEnvironment: null,
-        };
-      },
-      remove: async () => ({
-        removed: true,
-        alreadyMissing: false,
-        snapshot: null,
-        warnings: [],
-      }),
-    };
-    (service as unknown as CodexService).setWorktreeWorkerPort("local", localWorker);
-
-    try {
-      const created = service.createPendingWorktree({
-        hostId: "local",
-        label: "Tagged path event",
-        sourceWorkspaceRoot: "/local/repo",
-        startingState: { type: "branch", branchName: "main" },
-        localEnvironmentConfigPath: null,
-        launchMode: "start-conversation",
-        prompt: "Create an isolated worktree",
-        startConversationParamsInput: {
-          input: [],
-          commentAttachments: [],
-          workspaceRoots: ["/local/repo"],
-          cwd: "/local/repo",
-          fileAttachments: [],
-          addedFiles: [],
-          agentMode: "auto",
-          shouldSendPermissionOverrides: true,
-          model: null,
-          serviceTier: null,
-          reasoningEffort: null,
-          collaborationMode: null,
-          config: {},
-          threadSource: "user",
-          workspaceKind: "project",
-          projectAssignment: {
-            projectKind: "local",
-            projectId: "project-tagged-path-event",
-            pendingCoreUpdate: false,
-          },
-        },
-        sourceConversationId: null,
-        sourceCollaborationMode: null,
-      });
-      pendingWorktreeId = created.pendingWorktreeId;
-      await flushAsyncWork();
-
-      const entry = service
-        .listPendingWorktrees()
-        .find((candidate) => candidate.id === created.pendingWorktreeId);
-      expect(entry).toMatchObject({
-        phase: "creating",
-        errorMessage: null,
-        worktreeGitRoot: null,
-        worktreeWorkspaceRoot: null,
-        worktreeOutputText: [
-          "[info] Starting worktree creation",
-          "[info] Worktree path allocated",
-          "",
-        ].join("\n"),
-      });
-      expect(workerState.resultSettled).toBe(false);
-      expect(workerState.signal?.aborted).toBe(false);
-    } finally {
-      if (pendingWorktreeId !== null) {
-        service.cancelPendingWorktree("local", pendingWorktreeId);
-      }
-      workerState.finishCreation();
-      await flushAsyncWork();
-      await service.shutdown();
-    }
-  });
-
-  test("releases newborn protection when creation fails after path allocation", async () => {
-    const service = createService();
-    const allocatedRoot = "/local/worktrees/abcd/repo";
-    const localWorker: CodexWorktreeWorkerPort = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
-      create: async (_input, options) => {
-        options.onEvent({
-          operation: "create",
-          type: "path-allocated",
-          worktreeGitRoot: allocatedRoot,
-          worktreeWorkspaceRoot: `${allocatedRoot}/packages/app`,
-        });
-        throw new Error("git worktree add failed");
-      },
-      remove: async () => ({
-        removed: true,
-        alreadyMissing: false,
-        snapshot: null,
-        warnings: [],
-      }),
-    };
-    (service as unknown as CodexService).setWorktreeWorkerPort(
-      "local",
-      localWorker,
-      "/local/worktrees",
-    );
-
-    try {
-      await expect(
-        pendingWorktreeCreator(service).createPendingManagedWorktree(
-          makePendingManagedWorktreeEntry({
-            id: "failed-after-allocation",
-            sourceWorkspaceRoot: "/local/repo",
-            localEnvironmentConfigPath: null,
-          }),
-          {
-            signal: new AbortController().signal,
-            onEvent: () => undefined,
-          },
-        ),
-      ).rejects.toThrow("git worktree add failed");
-
-      const lifecycle = (
-        service as unknown as {
-          managedWorktreeLifecycle: {
-            listNewborns: () => readonly { readonly worktreeGitRoot: string }[];
-          };
-        }
-      ).managedWorktreeLifecycle;
-      expect(lifecycle.listNewborns().some((item) => item.worktreeGitRoot === allocatedRoot)).toBe(
-        false,
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("removes a created worktree when cancellation wins after the worker result", async () => {
-    const service = createService();
-    const abortController = new AbortController();
-    const removed: CodexWorktreeWorkerRemoveInput[] = [];
-    const allocatedRoot = "/local/worktrees/abcd/repo";
-    const localWorker: CodexWorktreeWorkerPort = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
-      create: async (_input, options) => {
-        options.onEvent({
-          operation: "create",
-          type: "path-allocated",
-          worktreeGitRoot: allocatedRoot,
-          worktreeWorkspaceRoot: `${allocatedRoot}/packages/app`,
-        });
-        abortController.abort();
-        return {
-          worktreeGitRoot: allocatedRoot,
-          worktreeWorkspaceRoot: `${allocatedRoot}/packages/app`,
-          setupError: null,
-          shellEnvironment: null,
-        };
-      },
-      remove: async (input) => {
-        removed.push(input);
-        return {
-          removed: true,
-          alreadyMissing: false,
-          snapshot: null,
-          warnings: [],
-        };
-      },
-    };
-    (service as unknown as CodexService).setWorktreeWorkerPort(
-      "local",
-      localWorker,
-      "/local/worktrees",
-    );
-
-    try {
-      await expect(
-        pendingWorktreeCreator(service).createPendingManagedWorktree(
-          makePendingManagedWorktreeEntry({
-            id: "canceled-after-worker-result",
-            sourceWorkspaceRoot: "/local/repo",
-            localEnvironmentConfigPath: null,
-          }),
-          { signal: abortController.signal, onEvent: () => undefined },
-        ),
-      ).rejects.toThrow("Request canceled");
-      expect(removed).toHaveLength(1);
-      expect(removed[0]).toMatchObject({
-        hostId: "local",
-        worktreeGitRoot: allocatedRoot,
-        reason: "cancel",
-      });
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("routes remote creation to its registered host without reading local source state", async () => {
-    const service = createService();
-    const inputs: CodexWorktreeWorkerCreateInput[] = [];
-    const remoteWorker: CodexWorktreeWorkerPort = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "remote-1" }),
-      create: async (input, options) => {
-        inputs.push(input);
-        options.onEvent({
-          operation: "create",
-          type: "path-allocated",
-          worktreeGitRoot: "/remote/worktrees/abcd/repo",
-          worktreeWorkspaceRoot: "/remote/worktrees/abcd/repo/packages/app",
-        });
-        return {
-          worktreeGitRoot: "/remote/worktrees/abcd/repo",
-          worktreeWorkspaceRoot: "/remote/worktrees/abcd/repo/packages/app",
-          setupError: null,
-          shellEnvironment: null,
-        };
-      },
-      remove: async () => ({
-        removed: true,
-        alreadyMissing: false,
-        snapshot: null,
-        warnings: [],
-      }),
-    };
-    (service as unknown as CodexService).setWorktreeWorkerPort(
-      "remote-1",
-      remoteWorker,
-      "/remote/worktrees",
-    );
-
-    try {
-      const result = await pendingWorktreeCreator(service).createPendingManagedWorktree(
-        makePendingManagedWorktreeEntry({
-          id: "remote-default-state",
-          hostId: "remote-1",
-          sourceWorkspaceRoot: "/remote/repo",
-          startingState: null,
-          localEnvironmentConfigPath: null,
-        }),
-        {
-          signal: new AbortController().signal,
-          onEvent: () => undefined,
-        },
-      );
-
-      expect(result.worktreeGitRoot).toBe("/remote/worktrees/abcd/repo");
-      expect(inputs).toHaveLength(1);
-      expect(inputs[0]).toMatchObject({
-        hostId: "remote-1",
-        repositoryPath: "/remote/repo",
-        startingState: null,
-        propagateLocalWorkspaceFiles: false,
-      });
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("streams selected setup output after setup start and persists its shell environment", async () => {
-    await withPendingWorktreeStore(async () => {
-      const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-setup-success-"));
-      initializeGitRepository(repositoryPath);
-      const environmentsDir = path.join(repositoryPath, ".codex", "environments");
-      fs.mkdirSync(environmentsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(environmentsDir, "environment.toml"),
-        [
-          'name = "pending-setup-success"',
-          "",
-          "[setup]",
-          "script = '''",
-          "echo pending-setup-output",
-          "export NODEX_PENDING_SETUP_CAPTURED=ready",
-          "'''",
-          "",
-        ].join("\n"),
-        "utf8",
-      );
-      const service = createService({
-        loadWorktreeSetupBaseEnvironment: async () => ({ ...process.env }),
-      });
-      const serviceInternals = pendingWorktreeCreator(service);
-      const events: string[] = [];
-      let worktreeGitRoot = "";
-
-      try {
-        const result = await serviceInternals.createPendingManagedWorktree(
-          makePendingManagedWorktreeEntry({
-            id: "pending-setup-success",
-            sourceWorkspaceRoot: repositoryPath,
-            localEnvironmentConfigPath: ".codex/environments/environment.toml",
-          }),
-          {
-            signal: new AbortController().signal,
-            onEvent: (event) => {
-              if (event.type === "output") {
-                events.push(`${event.phase}-output:${event.data}`);
-                return;
-              }
-              if (event.type === "path-allocated") {
-                events.push(`allocated:${event.worktreeGitRoot}`);
-                return;
-              }
-              events.push("setup-started");
-            },
-          },
-        );
-        worktreeGitRoot = result.worktreeGitRoot;
-
-        expect(result.setupError).toBe(null);
-        const setupStartedIndex = events.indexOf("setup-started");
-        const setupOutputIndex = events.findIndex((event) =>
-          event.includes("pending-setup-output"),
-        );
-        expect(setupStartedIndex >= 0).toBe(true);
-        expect(setupOutputIndex > setupStartedIndex).toBe(true);
-
-        const rawGitPath = execFileSync(
-          "git",
-          ["rev-parse", "--git-path", "codex-shell-environment.json"],
-          { cwd: result.worktreeWorkspaceRoot, encoding: "utf8" },
-        ).trim();
-        const persistedPath = path.isAbsolute(rawGitPath)
-          ? rawGitPath
-          : path.resolve(result.worktreeWorkspaceRoot, rawGitPath);
-        const persisted = JSON.parse(fs.readFileSync(persistedPath, "utf8")) as {
-          set?: Record<string, string>;
-        };
-        expect(persisted.set?.NODEX_PENDING_SETUP_CAPTURED).toBe("ready");
-      } finally {
-        if (worktreeGitRoot) await removeManagedWorktree(worktreeGitRoot);
-        await service.shutdown();
-        fs.rmSync(repositoryPath, { recursive: true, force: true });
-      }
-    });
-  });
-
-  test("retains allocated worktrees when selected environment parsing or setup fails", async () => {
-    await withPendingWorktreeStore(async () => {
-      const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-setup-fail-"));
-      initializeGitRepository(repositoryPath);
-      const environmentsDir = path.join(repositoryPath, ".codex", "environments");
-      fs.mkdirSync(environmentsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(environmentsDir, "invalid.toml"),
-        "[setup\nscript = 'invalid'\n",
-        "utf8",
-      );
-      fs.writeFileSync(
-        path.join(environmentsDir, "failing.toml"),
-        [
-          'name = "pending-setup-fail"',
-          "",
-          "[setup]",
-          "script = '''",
-          "echo pending-setup-failed",
-          "exit 9",
-          "'''",
-          "",
-        ].join("\n"),
-        "utf8",
-      );
-      const service = createService({
-        loadWorktreeSetupBaseEnvironment: async () => ({ ...process.env }),
-      });
-      const serviceInternals = pendingWorktreeCreator(service);
-      const allocatedRoots: string[] = [];
-
-      try {
-        for (const scenario of [
-          {
-            id: "pending-parse-failure",
-            configPath: ".codex/environments/invalid.toml",
-            expectedError: "Could not parse environment file",
-          },
-          {
-            id: "pending-script-failure",
-            configPath: ".codex/environments/failing.toml",
-            expectedError: "Worktree environment setup script failed",
-          },
-        ]) {
-          let setupStarted = 0;
-          let output = "";
-          const result = await serviceInternals.createPendingManagedWorktree(
-            makePendingManagedWorktreeEntry({
-              id: scenario.id,
-              sourceWorkspaceRoot: repositoryPath,
-              localEnvironmentConfigPath: scenario.configPath,
-            }),
-            {
-              signal: new AbortController().signal,
-              onEvent: (event) => {
-                if (event.type === "output") {
-                  output += event.data;
-                  return;
-                }
-                if (event.type === "setup-started") setupStarted += 1;
-              },
-            },
-          );
-          allocatedRoots.push(result.worktreeGitRoot);
-
-          expect(setupStarted).toBe(1);
-          expect(result.setupError?.includes(scenario.expectedError) ?? false).toBe(true);
-          expect(fs.existsSync(result.worktreeGitRoot)).toBe(true);
-          const worktreeList = execFileSync("git", ["worktree", "list", "--porcelain"], {
-            cwd: repositoryPath,
-            encoding: "utf8",
-          });
-          expect(worktreeList.includes(path.resolve(result.worktreeGitRoot))).toBe(true);
-          if (scenario.id === "pending-script-failure") {
-            expect(output.includes("pending-setup-failed")).toBe(true);
-          }
-        }
-      } finally {
-        for (const root of allocatedRoots) {
-          await removeManagedWorktree(root);
-        }
-        await service.shutdown();
-        fs.rmSync(repositoryPath, { recursive: true, force: true });
-      }
-    });
-  });
-
-  test("rolls back canceled setup and treats shell-environment persistence as nonfatal", async () => {
-    await withPendingWorktreeStore(async () => {
-      const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-setup-cancel-"));
-      initializeGitRepository(repositoryPath);
-      const environmentsDir = path.join(repositoryPath, ".codex", "environments");
-      fs.mkdirSync(environmentsDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(environmentsDir, "environment.toml"),
-        [
-          'name = "pending-setup-cancel"',
-          "",
-          "[setup]",
-          "script = 'export NODEX_PENDING_PERSIST_CAPTURED=ready'",
-          "",
-        ].join("\n"),
-        "utf8",
-      );
-      const service = createService();
-      const serviceInternals = pendingWorktreeCreator(service);
-      const abortController = new AbortController();
-
-      try {
-        let message = "";
-        try {
-          await serviceInternals.createPendingManagedWorktree(
-            makePendingManagedWorktreeEntry({
-              id: "pending-setup-cancel",
-              sourceWorkspaceRoot: repositoryPath,
-              localEnvironmentConfigPath: ".codex/environments/environment.toml",
-            }),
-            {
-              signal: abortController.signal,
-              onEvent: (event) => {
-                if (event.type === "setup-started") abortController.abort();
-              },
-            },
-          );
-        } catch (error) {
-          message = error instanceof Error ? error.message : String(error);
-        }
-
-        expect(message).toBe("Request canceled");
-
-        const persistOwner = service as unknown as {
-          persistWorktreeShellEnvironment: () => Promise<void>;
-        };
-        persistOwner.persistWorktreeShellEnvironment = async () => {
-          const error = new Error("persist aborted");
-          error.name = "AbortError";
-          throw error;
-        };
-        let persistenceOutput = "";
-        const persistenceResult = await serviceInternals.createPendingManagedWorktree(
-          makePendingManagedWorktreeEntry({
-            id: "pending-setup-persist-error",
-            sourceWorkspaceRoot: repositoryPath,
-            localEnvironmentConfigPath: ".codex/environments/environment.toml",
-          }),
-          {
-            signal: new AbortController().signal,
-            onEvent: (event) => {
-              if (event.type === "output") persistenceOutput += event.data;
-            },
-          },
-        );
-        expect(persistenceResult.setupError).toBe(null);
-        expect(fs.existsSync(persistenceResult.worktreeGitRoot)).toBe(true);
-        expect(persistenceOutput).toContain(
-          "Failed to store worktree shell environment: persist aborted",
-        );
-
-        const worktreeList = execFileSync("git", ["worktree", "list", "--porcelain"], {
-          cwd: repositoryPath,
-          encoding: "utf8",
-        });
-        expect(worktreeList.includes(persistenceResult.worktreeGitRoot)).toBe(true);
-        await removeManagedWorktree(persistenceResult.worktreeGitRoot);
-      } finally {
-        await service.shutdown();
-        fs.rmSync(repositoryPath, { recursive: true, force: true });
-      }
-    });
-  });
-
-  test("creates setup Auto-fix as a separate system task and preserves the original failure", async () => {
-    const service = createService();
-    const base = makePendingManagedWorktreeEntry({
-      id: "pending-repair-source",
-      sourceWorkspaceRoot: "/repo/source",
-      localEnvironmentConfigPath: ".codex/environments/dev.toml",
-    }) as Extract<CodexPendingWorktreeEntry, { launchMode: "start-conversation" }>;
-    const original = {
-      ...base,
-      phase: "failed" as const,
-      worktreeOutputText: "created\n",
-      setupOutputText: "install failed\n",
-      errorMessage: "setup exited 1",
-      worktreeWorkspaceRoot: "/repo/worktrees/failed",
-      worktreeGitRoot: "/repo/worktrees/failed",
-      needsAttention: true,
-      startConversationParamsInput: {
-        ...base.startConversationParamsInput,
-        input: [{ type: "text" as const, text: "Original request", text_elements: [] }],
-        commentAttachments: [
-          {
-            id: "comment",
-            type: "comment" as const,
-            content: [{ content_type: "text" as const, text: "Review this line" }],
-            position: { side: "right" as const, path: "src/index.ts", line: 1 },
-            createdAt: 1,
-          },
-        ],
-        fileAttachments: [
-          {
-            label: "before.txt",
-            path: "before.txt",
-            fsPath: "before.txt",
-          },
-        ],
-        addedFiles: [
-          {
-            label: "added.txt",
-            path: "added.txt",
-            fsPath: "added.txt",
-          },
-        ],
-        serviceTier: "standard",
-      },
-    } satisfies CodexPendingWorktreeEntry;
-    const captured: CodexPendingWorktreeRequest[] = [];
-    const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
-      list: () => readonly CodexPendingWorktreeEntry[];
-      create: (request: CodexPendingWorktreeRequest) => void;
-    };
-    pendingRuntime.list = () => [original];
-    pendingRuntime.create = (request) => {
-      captured.push(request);
-    };
-    const serviceInternals = service as unknown as {
-      resolveDynamicCreateServiceTier: () => Promise<string | null>;
-    };
-    serviceInternals.resolveDynamicCreateServiceTier = async () => "fast";
-    const repairService = service as unknown as {
-      createPendingWorktreeSetupRepair: (
-        hostId: string,
-        pendingWorktreeId: string,
-        agentMode: CodexAgentMode,
-      ) => Promise<{ pendingWorktreeId: string; clientThreadId: string | null }>;
-    };
-
-    try {
-      const result = await repairService.createPendingWorktreeSetupRepair(
-        "local",
-        original.id,
-        "read-only",
-      );
-      const repair = captured[0];
-
-      expect(result.pendingWorktreeId.startsWith("local:")).toBe(true);
-      expect(result.clientThreadId?.startsWith("client-new-thread:") ?? false).toBe(true);
-      expect(captured.length).toBe(1);
-      expect(pendingRuntime.list()[0] === original).toBe(true);
-      expect(repair?.launchMode).toBe("start-conversation");
-      if (repair?.launchMode !== "start-conversation") {
-        throw new Error("Expected a repair start request");
-      }
-      expect(repair.label).toBe("Fix worktree setup");
-      expect(repair.initialThreadTitle).toBe("Fix worktree setup");
-      expect(repair.localEnvironmentConfigPath).toBe(null);
-      expect(repair.startConversationParamsInput.threadSource).toBe("system");
-      expect(repair.startConversationParamsInput.agentMode).toBe(
-        original.startConversationParamsInput.agentMode,
-      );
-      expect(repair.startConversationParamsInput.agentMode === "read-only").toBe(false);
-      expect(repair.startConversationParamsInput.serviceTier).toBe("fast");
-      expect(repair.startConversationParamsInput.commentAttachments.length).toBe(0);
-      expect(repair.startConversationParamsInput.fileAttachments.length).toBe(0);
-      expect(repair.startConversationParamsInput.addedFiles.length).toBe(0);
-      const repairInput = repair.startConversationParamsInput.input[0];
-      expect(repairInput?.type).toBe("text");
-      expect(
-        repairInput?.type === "text" &&
-          repairInput.text.includes("Do not continue the original user request") &&
-          repairInput.text.includes(".codex/environments/dev.toml") &&
-          repairInput.text.includes("install failed"),
-      ).toBe(true);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("builds non-start Auto-fix from explicit host permissions without invented fields", async () => {
-    const service = createService();
-    const original = {
-      id: "local:pending-fork-repair-source",
-      hostId: "local",
-      label: "Fork with failed setup",
-      sourceWorkspaceRoot: "/repo/source",
-      sourceWorkspaceRoots: ["/repo/source"],
-      localEnvironmentConfigPath: ".codex/environments/dev.toml",
-      prompt: "Continue in a worktree",
-      launchMode: "fork-conversation" as const,
-      clientThreadId: "client-new-thread:fork-repair-source",
-      startConversationParamsInput: null,
-      projectAssignment: {
-        projectKind: "local" as const,
-        projectId: "project-fork-repair-source",
-        path: "/repo/source",
-        pendingCoreUpdate: false as const,
-      },
-      sourceConversationId: "thread-fork-repair-source",
-      sourceCollaborationMode: {
-        mode: "plan" as const,
-        settings: {
-          model: "gpt-frozen-plan",
-          reasoning_effort: "high" as const,
-          developer_instructions: null,
-        },
-      },
-      targetTurnId: "turn-fork-repair-source",
-      threadSource: "user" as const,
-      createdAt: 1,
-      attempt: 1,
-      phase: "failed" as const,
-      labelEdited: false,
-      worktreeOutputText: "created\n",
-      setupOutputText: "install failed\n",
-      errorMessage: "setup exited 1",
-      worktreeWorkspaceRoot: "/repo/worktrees/failed",
-      worktreeGitRoot: "/repo/worktrees/failed",
-      needsAttention: true,
-      isPinned: false,
-      pinnedBeforeThreadId: null,
-    } satisfies CodexPendingWorktreeEntry;
-    const captured: CodexPendingWorktreeRequest[] = [];
-    const pendingRuntime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
-      list: () => readonly CodexPendingWorktreeEntry[];
-      create: (request: CodexPendingWorktreeRequest) => void;
-    };
-    pendingRuntime.list = () => [original];
-    pendingRuntime.create = (request) => {
-      captured.push(request);
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string) => Promise<unknown>;
-    };
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      if (method === "config/read") return { config: { model: "gpt-config" } };
-      throw new Error(`Unexpected request: ${method}`);
-    };
-    const serviceInternals = service as unknown as {
-      resolveDynamicCreateServiceTier: () => Promise<string | null>;
-    };
-    serviceInternals.resolveDynamicCreateServiceTier = async () => "fast";
-
-    try {
-      await (
-        service as unknown as {
-          createPendingWorktreeSetupRepair: (
-            hostId: string,
-            pendingWorktreeId: string,
-            agentMode: CodexAgentMode,
-          ) => Promise<unknown>;
-        }
-      ).createPendingWorktreeSetupRepair("local", original.id, "full-access");
-      const repair = captured[0];
-      if (repair?.launchMode !== "start-conversation") {
-        throw new Error("Expected a repair start request");
-      }
-
-      expect(repair.startingState).toBe(undefined);
-      expect(repair.startConversationParamsInput.agentMode).toBe("full-access");
-      expect(repair.startConversationParamsInput.collaborationMode?.mode).toBe("plan");
-      expect(repair.startConversationParamsInput.collaborationMode?.settings.model).toBe(
-        "gpt-frozen-plan",
-      );
-      for (const key of ["permissionProfileId", "projectAssignment", "serviceName"]) {
-        expect(Object.prototype.hasOwnProperty.call(repair.startConversationParamsInput, key)).toBe(
-          false,
-        );
-      }
-      expect(pendingRuntime.list()[0] === original).toBe(true);
     } finally {
       await service.shutdown();
     }
@@ -11413,113 +10490,6 @@ describe("codex-service terminal turn reconciliation", () => {
       );
       expect(await userPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(await mcpPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
-
-describe("codex-service managed worktree inventory", () => {
-  test("transfers archive ownership before considering physical removal", async () => {
-    const worktreePath = "/managed/a1b2/repository";
-    const archived = makeDesktopWorkspaceThread({
-      threadId: "thread-archived",
-      executionHostId: "local",
-      cwd: worktreePath,
-      managedWorktreePath: worktreePath,
-      archived: true,
-    });
-    const basePort = createTestProjectWorkspace();
-    const projectWorkspace = {
-      ...basePort,
-      readManagedWorktreeLifecycleSnapshot: async () => ({
-        projectionRevision: 2,
-        consumers: [
-          {
-            threadId: "thread-replacement",
-            projectId: "project-one",
-            sessionId: "session-replacement",
-            executionHostId: "local",
-            cwd: `${worktreePath}/packages/app`,
-            managedWorktreePath: worktreePath,
-            runtimeWorkspaceRoots: [worktreePath],
-            archived: false,
-            pinnedOrder: null,
-            statusType: "active" as const,
-            statusActiveFlags: [],
-            createdAt: 1,
-            updatedAt: 20,
-            linkedAt: "2026-08-14T00:00:00.000Z",
-          },
-        ],
-        projects: [],
-      }),
-    } satisfies DesktopProjectWorkspacePort;
-    const setOwner = vi.fn(async () => ({ ownerThreadId: "thread-replacement" }));
-    const remove = vi.fn();
-    const worker = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
-      setOwner,
-      remove,
-    } satisfies CodexWorktreeWorkerPort;
-    const service = createService({ projectWorkspace });
-    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
-
-    try {
-      await service.reconcileArchivedThreadManagedWorktree(archived, "archive");
-      expect(setOwner).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ownerThreadId: "thread-replacement",
-          worktreeGitRoot: worktreePath,
-        }),
-        expect.any(Object),
-      );
-      expect(remove).not.toHaveBeenCalled();
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("uses snapshot-required removal for the last archived consumer", async () => {
-    const worktreePath = "/managed/a1b2/repository";
-    const archived = makeDesktopWorkspaceThread({
-      threadId: "thread-last",
-      executionHostId: "local",
-      cwd: worktreePath,
-      managedWorktreePath: worktreePath,
-      archived: true,
-    });
-    const basePort = createTestProjectWorkspace();
-    const projectWorkspace = {
-      ...basePort,
-      readManagedWorktreeLifecycleSnapshot: async () => ({
-        projectionRevision: 3,
-        consumers: [],
-        projects: [],
-      }),
-    } satisfies DesktopProjectWorkspacePort;
-    const remove = vi.fn(async () => ({
-      removed: true,
-      alreadyMissing: false,
-      snapshot: null,
-      warnings: [],
-    }));
-    const worker = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
-      remove,
-    } satisfies CodexWorktreeWorkerPort;
-    const service = createService({ projectWorkspace });
-    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
-
-    try {
-      await service.reconcileArchivedThreadManagedWorktree(archived, "archive");
-      expect(remove).toHaveBeenCalledWith(
-        expect.objectContaining({
-          reason: "archive",
-          snapshotPolicy: "required",
-        }),
-        expect.any(Object),
-      );
     } finally {
       await service.shutdown();
     }

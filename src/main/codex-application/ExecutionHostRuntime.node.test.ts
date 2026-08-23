@@ -16,7 +16,11 @@ import {
   type ExecutionHostRuntimeFactories,
   type RemoteExecutionHostTransport,
 } from "./ExecutionHostRuntime";
-import type { CodexWorktreeWorkerPort } from "../codex/codex-worktree-worker-port";
+import {
+  ExecutionHostConfiguration,
+  ManagedWorktreeConfiguration,
+} from "./ExecutionHostConfiguration";
+import { WorktreeWorkerRuntime } from "../host-runtime/WorktreeWorkerRuntime";
 
 const sshHost = (
   id: string,
@@ -90,30 +94,51 @@ const makeHarness = (failedHostId?: string) => {
         cleanup: () => Promise.reject(new Error("not exercised")),
       }) satisfies RemoteExecutionHostTransport,
     makeWorker: ({ hostId }) =>
-      Effect.acquireRelease(Effect.succeed({ hostId } as CodexWorktreeWorkerPort), () =>
-        Effect.sync(() => {
-          shutdowns.push(hostId);
-        }),
+      Effect.acquireRelease(
+        Effect.succeed(
+          WorktreeWorkerRuntime.of({
+            hostId,
+            request: () => Effect.die("unused"),
+          }),
+        ),
+        () =>
+          Effect.sync(() => {
+            shutdowns.push(hostId);
+          }),
       ),
   };
+  const localWorktreeWorker = WorktreeWorkerRuntime.of({
+    hostId: "local",
+    request: () => Effect.die("unused"),
+  });
+  const configuration = ExecutionHostConfiguration.of({
+    settings: Effect.sync(() => settings),
+    update: (input) =>
+      Effect.sync(() => {
+        settings = { sshHosts: [...input.sshHosts] };
+        return settings;
+      }),
+  });
+  const managedWorktrees = ManagedWorktreeConfiguration.of({
+    settings: Effect.succeed({ worktreeRoot: null, autoDeleteEnabled: true, autoDeleteLimit: 15 }),
+    knownRoots: Effect.succeed([]),
+    update: () => Effect.die("unused"),
+  });
   const layer = executionHostRuntimeLive({
     runtimeStateHome: "/profile/agent",
     nodexHome: "/profile",
     remoteWorktreeWorkerBundlePath: "/app/remote-worktree-worker.cjs",
-    localWorktreeWorker: { hostId: "local" } as CodexWorktreeWorkerPort,
-    settings: {
-      read: () => settings,
-      update: (input) => {
-        settings = { sshHosts: [...input.sshHosts] };
-        return settings;
-      },
-    },
-    managedWorktrees: {
-      read: () => ({ worktreeRoot: null, autoDeleteEnabled: true, autoDeleteLimit: 15 }),
-      listKnownRoots: () => [],
-    },
     factories,
-  }).pipe(Layer.provide(Layer.succeed(CodexGateway, gateway)));
+  }).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.succeed(CodexGateway, gateway),
+        Layer.succeed(WorktreeWorkerRuntime, localWorktreeWorker),
+        Layer.succeed(ExecutionHostConfiguration, configuration),
+        Layer.succeed(ManagedWorktreeConfiguration, managedWorktrees),
+      ),
+    ),
+  );
   return { failedHosts, layer, registered, removed, shutdowns };
 };
 
@@ -124,19 +149,25 @@ it.effect("owns local and dynamic SSH host resources until its Scope closes", ()
     const context = yield* Layer.buildWithScope(harness.layer, scope);
     const hosts = Context.get(context, ExecutionHostRuntime);
 
-    assert.deepEqual(hosts.registry.listHostIds(), ["local"]);
+    assert.deepEqual(
+      (yield* hosts.hosts()).map((host) => host.hostId),
+      ["local"],
+    );
     yield* hosts.updateSettings({ sshHosts: [sshHost("alpha")] });
-    assert.deepEqual(hosts.registry.listHostIds(), ["alpha", "local"]);
+    assert.deepEqual(
+      (yield* hosts.hosts()).map((host) => host.hostId),
+      ["alpha", "local"],
+    );
     assert.deepEqual([...harness.registered.keys()], ["alpha"]);
 
     yield* hosts.updateSettings({ sshHosts: [sshHost("alpha", "/remote/alpha/new")] });
     assert.deepEqual(harness.removed, ["alpha"]);
     assert.deepEqual(harness.shutdowns, ["alpha"]);
-    assert.strictEqual(hosts.registry.requireManagedRoot("alpha"), "/remote/alpha/new");
+    assert.strictEqual((yield* hosts.resolve("alpha")).descriptor.managedRoot, "/remote/alpha/new");
     assert.deepEqual([...(yield* SubscriptionRef.get(hosts.activeSshHosts)).keys()], ["alpha"]);
 
     yield* Scope.close(scope, Exit.void);
-    assert.deepEqual(hosts.registry.listHostIds(), []);
+    assert.deepEqual(yield* hosts.hosts(), []);
     assert.deepEqual(harness.removed, ["alpha", "alpha"]);
     assert.deepEqual(harness.shutdowns, ["alpha", "alpha"]);
   }),
@@ -153,12 +184,18 @@ it.effect("keeps healthy hosts active while reporting unavailable peers", () =>
       hosts.updateSettings({ sshHosts: [sshHost("healthy"), sshHost("broken")] }),
     );
     assert.isTrue(Result.isFailure(result));
-    assert.deepEqual(hosts.registry.listHostIds(), ["healthy", "local"]);
+    assert.deepEqual(
+      (yield* hosts.hosts()).map((host) => host.hostId),
+      ["healthy", "local"],
+    );
     assert.deepEqual([...harness.registered.keys()], ["healthy"]);
 
     harness.failedHosts.delete("broken");
     yield* hosts.reconcile();
-    assert.deepEqual(hosts.registry.listHostIds(), ["broken", "healthy", "local"]);
+    assert.deepEqual(
+      (yield* hosts.hosts()).map((host) => host.hostId),
+      ["broken", "healthy", "local"],
+    );
     assert.deepEqual([...harness.registered.keys()].sort(), ["broken", "healthy"]);
 
     yield* Scope.close(scope, Exit.void);

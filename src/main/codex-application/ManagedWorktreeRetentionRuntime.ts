@@ -23,6 +23,7 @@ import {
 } from "../codex/codex-managed-worktree-retention";
 import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
+import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 import { ManagedWorktreeRuntime } from "./ManagedWorktreeRuntime";
 
@@ -34,13 +35,8 @@ export class ManagedWorktreeRetentionRuntimeError extends Schema.TaggedError<Man
   },
 ) {}
 
-export interface ManagedWorktreeRetentionSettingsPort {
-  readonly read: () => ManagedWorktreeSettings;
-}
-
 export interface ManagedWorktreeRetentionRuntimeOptions {
   readonly debounce?: Duration.Input;
-  readonly settings: ManagedWorktreeRetentionSettingsPort;
   readonly projectWorkspace: DesktopProjectWorkspacePort;
   readonly isAutomationProtected: (
     threadId: string,
@@ -74,12 +70,16 @@ export const live = (
 ): Layer.Layer<
   ManagedWorktreeRetentionRuntime,
   never,
-  CodexPendingWorktreeRuntime | ExecutionHostRuntime | ManagedWorktreeRuntime
+  | CodexPendingWorktreeRuntime
+  | ExecutionHostRuntime
+  | ManagedWorktreeConfiguration
+  | ManagedWorktreeRuntime
 > =>
   Layer.effect(
     ManagedWorktreeRetentionRuntime,
     Effect.gen(function* () {
       const executionHosts = yield* ExecutionHostRuntime;
+      const configuration = yield* ManagedWorktreeConfiguration;
       const managed = yield* ManagedWorktreeRuntime;
       const pending = yield* CodexPendingWorktreeRuntime;
       const commands = yield* Queue.unbounded<RetentionCommand>();
@@ -92,12 +92,6 @@ export const live = (
         run: () => Promise<A>,
       ): Effect.Effect<A, ManagedWorktreeRetentionRuntimeError> =>
         Effect.tryPromise({ try: run, catch: (cause) => error(operation, cause) });
-      const fromSync = <A>(
-        operation: string,
-        run: () => A,
-      ): Effect.Effect<A, ManagedWorktreeRetentionRuntimeError> =>
-        Effect.try({ try: run, catch: (cause) => error(operation, cause) });
-
       const skippedPlan = (
         settings: ManagedWorktreeSettings,
         metadataComplete: boolean,
@@ -118,7 +112,9 @@ export const live = (
         CodexManagedWorktreeRetentionPlan,
         ManagedWorktreeRetentionRuntimeError
       > = Effect.gen(function* () {
-        const settings = yield* fromSync("read-settings", options.settings.read);
+        const settings = yield* configuration.settings.pipe(
+          Effect.mapError((cause) => error("read-settings", cause)),
+        );
         const nowMs = yield* Clock.currentTimeMillis;
         if (!settings.autoDeleteEnabled) return skippedPlan(settings, true, nowMs);
 
@@ -127,14 +123,18 @@ export const live = (
             fromPromise("read-lifecycle", () =>
               options.projectWorkspace.readManagedWorktreeLifecycleSnapshot(),
             ),
-            Effect.forEach(
-              executionHosts.registry.listHostIds("list"),
-              (hostId) =>
-                managed.list(hostId).pipe(
-                  Effect.map((inventory) => ({ hostId, inventory })),
-                  Effect.mapError((cause) => error("list-worktrees", cause)),
+            executionHosts.hosts("list").pipe(
+              Effect.flatMap((hosts) =>
+                Effect.forEach(
+                  hosts,
+                  (host) =>
+                    managed.list(host.hostId).pipe(
+                      Effect.map((inventory) => ({ hostId: host.hostId, inventory })),
+                      Effect.mapError((cause) => error("list-worktrees", cause)),
+                    ),
+                  { concurrency: "unbounded" },
                 ),
-              { concurrency: "unbounded" },
+              ),
             ),
           ] as const,
           { concurrency: "unbounded" },
@@ -180,7 +180,7 @@ export const live = (
             reason: "pending",
           });
         }
-        for (const newborn of managed.legacyNewborns.list()) {
+        for (const newborn of yield* managed.newborns) {
           pathProtections.push({ ...newborn, reason: "newborn" });
         }
 

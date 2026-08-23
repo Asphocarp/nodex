@@ -21,6 +21,7 @@ import type {
 } from "../core-client/project-workspace-adapter";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { buildWorkspaceThreadSummary } from "./CodexThreadCatalogProjection";
+import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 import { ManagedWorktreeRuntime } from "./ManagedWorktreeRuntime";
 import { ManagedWorktreeRetentionRuntime } from "./ManagedWorktreeRetentionRuntime";
@@ -38,10 +39,6 @@ export class ManagedWorktreeCatalogError extends Data.TaggedError("ManagedWorktr
 
 export interface ManagedWorktreeCatalogOptions {
   readonly projectWorkspace: DesktopProjectWorkspacePort;
-  readonly settings: {
-    readonly read: () => ManagedWorktreeSettings;
-    readonly update: (input: UpdateManagedWorktreeSettingsInput) => ManagedWorktreeSettings;
-  };
   readonly defaultManagedRoot: string;
   readonly projectThread: (thread: DesktopProjectWorkspaceThread) => void;
 }
@@ -89,6 +86,7 @@ export const make = (
   never,
   | CodexApplicationEventHub
   | ExecutionHostRuntime
+  | ManagedWorktreeConfiguration
   | ManagedWorktreeRetentionRuntime
   | ManagedWorktreeRuntime
   | Scope.Scope
@@ -96,6 +94,7 @@ export const make = (
   Effect.gen(function* () {
     const events = yield* CodexApplicationEventHub;
     const executionHosts = yield* ExecutionHostRuntime;
+    const configuration = yield* ManagedWorktreeConfiguration;
     const managed = yield* ManagedWorktreeRuntime;
     const retention = yield* ManagedWorktreeRetentionRuntime;
     const ownerScope = yield* Scope.Scope;
@@ -115,12 +114,6 @@ export const make = (
       run: () => Promise<A>,
     ): Effect.Effect<A, ManagedWorktreeCatalogError> =>
       Effect.tryPromise({ try: run, catch: (cause) => fail(operation, cause) });
-    const fromSync = <A>(
-      operation: ManagedWorktreeCatalogError["operation"],
-      run: () => A,
-    ): Effect.Effect<A, ManagedWorktreeCatalogError> =>
-      Effect.try({ try: run, catch: (cause) => fail(operation, cause) });
-
     const resolveThreadContext = (
       threadId: string,
       operation: "inspect-thread" | "restore-thread",
@@ -169,7 +162,7 @@ export const make = (
 
     const list = runOwned(
       Effect.gen(function* () {
-        const hostIds = executionHosts.registry.listHostIds("list");
+        const hostIds = (yield* executionHosts.hosts("list")).map((host) => host.hostId);
         const [physicalByHost, lifecycle, projects] = yield* Effect.all(
           [
             Effect.forEach(
@@ -269,20 +262,19 @@ export const make = (
 
     return ManagedWorktreeCatalog.of({
       list,
-      settings: fromSync("read-settings", options.settings.read),
+      settings: configuration.settings.pipe(
+        Effect.mapError((cause) => fail("read-settings", cause)),
+      ),
       updateSettings: (input) =>
         runOwned(
           Effect.uninterruptible(
             Effect.gen(function* () {
-              const settings = yield* fromSync("update-settings", () =>
-                options.settings.update(input),
-              );
-              yield* fromSync("update-settings", () =>
-                executionHosts.registry.updateManagedRoot(
-                  CODEX_APP_LOCAL_HOST_ID,
-                  settings.worktreeRoot ?? options.defaultManagedRoot,
-                ),
-              );
+              const settings = yield* configuration
+                .update(input)
+                .pipe(Effect.mapError((cause) => fail("update-settings", cause)));
+              yield* executionHosts
+                .updateLocalManagedRoot(settings.worktreeRoot ?? options.defaultManagedRoot)
+                .pipe(Effect.mapError((cause) => fail("update-settings", cause)));
               yield* retention.request;
               return settings;
             }),

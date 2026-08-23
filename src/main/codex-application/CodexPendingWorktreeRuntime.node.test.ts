@@ -8,7 +8,7 @@ import type {
   CodexPendingStableWorktreeRequest,
   CodexPendingStartConversationRequest,
 } from "../../shared/codex-pending-worktree";
-import type { CodexWorktreeWorkerEvent } from "../codex/codex-worktree-worker-port";
+import type { CodexWorktreeWorkerEvent } from "../codex/codex-worktree-worker-protocol";
 import {
   CodexPendingWorktreeEffectError,
   make,

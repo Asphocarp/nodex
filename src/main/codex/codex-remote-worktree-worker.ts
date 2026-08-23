@@ -1,10 +1,10 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import * as Effect from "effect/Effect";
 import * as Scope from "effect/Scope";
-import type { CodexWorktreeWorkerPort } from "./codex-worktree-worker-port";
 import {
   type WorktreeWorkerProcess,
   makeWorktreeWorkerClient,
+  type WorktreeWorkerRuntime,
   WorktreeWorkerProcessStartError,
 } from "../host-runtime/WorktreeWorkerRuntime";
 import {
@@ -97,12 +97,12 @@ const makeProcess = (
 });
 
 /**
- * Acquires the remote Promise port inside the caller's Scope. Reconnect, pending requests,
+ * Acquires the remote worker capability inside the caller's Scope. Reconnect, pending requests,
  * cancellation and child termination remain private to the shared Effect worker client.
  */
 export const makeCodexRemoteWorktreeWorker = (
   options: CodexRemoteWorktreeWorkerOptions,
-): Effect.Effect<CodexWorktreeWorkerPort, never, Scope.Scope> =>
+): Effect.Effect<WorktreeWorkerRuntime["Service"], never, Scope.Scope> =>
   makeWorktreeWorkerClient({
     hostId: options.hostId,
     createProcess: () =>
@@ -115,4 +115,4 @@ export const makeCodexRemoteWorktreeWorker = (
     expectedReadyEpoch: () => 1,
     onInfrastructureError: options.onInfrastructureError,
     shutdownTimeoutMs: options.shutdownTimeoutMs,
-  }).pipe(Effect.map((runtime) => runtime.port));
+  });

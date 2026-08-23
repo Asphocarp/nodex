@@ -1,7 +1,7 @@
 import type {
   CodexManagedWorktreeRemovalReason,
   CodexManagedWorktreeSnapshotPolicy,
-} from "./codex-worktree-worker-port";
+} from "./codex-worktree-worker-protocol";
 
 export function snapshotPolicyForManagedWorktreeRemoval(
   reason: CodexManagedWorktreeRemovalReason,

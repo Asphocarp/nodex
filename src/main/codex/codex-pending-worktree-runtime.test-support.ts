@@ -9,7 +9,7 @@ import {
   type CodexPendingWorktreeMetadataUpdate,
 } from "./codex-pending-worktree-state";
 import { CodexPendingWorktreeStateStore } from "./codex-pending-worktree-state.test-support";
-import type { CodexWorktreeWorkerEvent } from "./codex-worktree-worker-port";
+import type { CodexWorktreeWorkerEvent } from "./codex-worktree-worker-protocol";
 
 export interface CodexPendingWorktreeCreationResult {
   readonly worktreeGitRoot: string;

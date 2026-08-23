@@ -7,7 +7,6 @@ import { assert, it } from "@effect/vitest";
 import type { CodexSshExecutionHostConfig } from "../../../shared/types";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { ExecutionHostRuntime } from "../../codex-application/ExecutionHostRuntime";
-import { CodexExecutionHostRegistry } from "../../codex/codex-execution-host-registry";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./ExecutionHostIpc";
@@ -29,8 +28,11 @@ it.effect("registers execution host settings ingress against its owning module",
       ReadonlyMap<string, CodexSshExecutionHostConfig>
     >(new Map());
     const executionHosts = ExecutionHostRuntime.of({
-      registry: new CodexExecutionHostRegistry(),
       activeSshHosts,
+      hosts: () => Effect.succeed([]),
+      get: () => Effect.succeed(null),
+      resolve: () => Effect.die("unused"),
+      updateLocalManagedRoot: () => Effect.void,
       settings: Effect.succeed({ sshHosts: [] }),
       reconcile: () => Effect.void,
       updateSettings: () => Effect.succeed({ sshHosts: [] }),

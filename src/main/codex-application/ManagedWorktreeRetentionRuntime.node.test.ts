@@ -11,6 +11,7 @@ import * as TestClock from "effect/testing/TestClock";
 import type { ManagedWorktreeSettings } from "../../shared/types";
 import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
+import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 import { ManagedWorktreeRuntime, ManagedWorktreeRuntimeError } from "./ManagedWorktreeRuntime";
 import {
@@ -39,9 +40,7 @@ const projectWorkspace = (
 
 const executionHosts = (hostIds: readonly string[] = []): ExecutionHostRuntime["Service"] =>
   ({
-    registry: {
-      listHostIds: () => [...hostIds],
-    },
+    hosts: () => Effect.succeed(hostIds.map((hostId) => ({ hostId }))),
   }) as unknown as ExecutionHostRuntime["Service"];
 
 const managedWorktrees = (
@@ -53,12 +52,10 @@ const managedWorktrees = (
     inspect: () => Effect.die("Unexpected managed-worktree inspection"),
     restore: () => Effect.die("Unexpected managed-worktree restoration"),
     setOwner: () => Effect.die("Unexpected managed-worktree owner mutation"),
-    legacyNewborns: {
-      register: () => undefined,
-      release: () => undefined,
-      has: () => false,
-      list: () => [],
-    },
+    registerNewborn: () => Effect.void,
+    releaseNewborn: () => Effect.void,
+    isNewborn: () => Effect.succeed(false),
+    newborns: Effect.succeed([]),
     ...overrides,
   });
 
@@ -95,13 +92,20 @@ const buildRuntime = (
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
       managedWorktreeRetentionRuntimeLive({
-        settings: { read: options.settings ?? (() => disabledSettings) },
         projectWorkspace: options.projectWorkspace ?? projectWorkspace(),
         isAutomationProtected: options.isAutomationProtected ?? (() => Effect.succeed(false)),
       }).pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ExecutionHostRuntime, options.executionHosts ?? executionHosts()),
+            Layer.succeed(
+              ManagedWorktreeConfiguration,
+              ManagedWorktreeConfiguration.of({
+                settings: Effect.sync(options.settings ?? (() => disabledSettings)),
+                knownRoots: Effect.succeed([]),
+                update: () => Effect.die("unused"),
+              }),
+            ),
             Layer.succeed(ManagedWorktreeRuntime, options.managedWorktrees ?? managedWorktrees()),
             Layer.succeed(
               CodexPendingWorktreeRuntime,

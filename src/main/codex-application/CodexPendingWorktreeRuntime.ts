@@ -24,7 +24,7 @@ import {
   type CodexPendingWorktreeMetadataUpdate,
   type CodexPendingWorktreeState,
 } from "../codex/codex-pending-worktree-state";
-import type { CodexWorktreeWorkerEvent } from "../codex/codex-worktree-worker-port";
+import type { CodexWorktreeWorkerEvent } from "../codex/codex-worktree-worker-protocol";
 
 export interface CodexPendingWorktreeCreationResult {
   readonly worktreeGitRoot: string;

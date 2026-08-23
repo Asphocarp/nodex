@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -7,38 +8,92 @@ import * as Scope from "effect/Scope";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { assert, it } from "@effect/vitest";
 import type { CodexSshExecutionHostConfig } from "../../shared/types";
-import { CodexExecutionHostRegistry } from "../codex/codex-execution-host-registry";
 import { snapshotPolicyForManagedWorktreeRemoval } from "../codex/codex-managed-worktree-lifecycle";
-import { createInProcessCodexWorktreeWorkerPort } from "../codex/codex-worktree-worker-port.test-support";
 import type {
   CodexWorktreeWorkerInspectResult,
-  CodexWorktreeWorkerPort,
-} from "../codex/codex-worktree-worker-port";
-import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
+  CodexWorktreeWorkerRequest,
+} from "../codex/codex-worktree-worker-protocol";
+import {
+  type ExecutionHost,
+  ExecutionHostRuntime,
+  ExecutionHostRuntimeError,
+} from "./ExecutionHostRuntime";
 import {
   ManagedWorktreeRuntime,
   live as managedWorktreeRuntimeLive,
 } from "./ManagedWorktreeRuntime";
 
-const makeExecutionHosts = (worker: CodexWorktreeWorkerPort) =>
+const makeExecutionHosts = (
+  request: ExecutionHost["request"],
+): Effect.Effect<ExecutionHostRuntime["Service"]> =>
   Effect.gen(function* () {
-    const registry = new CodexExecutionHostRegistry();
-    registry.register({
-      hostId: "local",
-      managedRoot: "/managed",
-      worktreeWorker: worker,
-      capabilities: ["remove", "inspect"],
-    });
     const activeSshHosts = yield* SubscriptionRef.make<
       ReadonlyMap<string, CodexSshExecutionHostConfig>
     >(new Map());
+    const descriptor = {
+      hostId: "local",
+      displayName: "Local",
+      kind: "local",
+      nodexHome: "/nodex",
+      codexHome: "/codex",
+      managedRoot: "/managed",
+      handoffStagingRoot: "/codex/handoffs",
+      repositoryRoots: [],
+      capabilities: ["remove", "inspect", "list", "restore", "set-owner"],
+      supportsFileTransfer: true,
+    } as const;
+    const host: ExecutionHost = {
+      descriptor,
+      knownManagedRoots: ["/managed"],
+      transfer: null,
+      resolveManagedRoot: (worktreePath) =>
+        worktreePath.startsWith("/managed/")
+          ? Effect.succeed("/managed")
+          : Effect.fail(
+              new ExecutionHostRuntimeError({
+                operation: "resolve-managed-root",
+                hostId: "local",
+                cause: new Error("outside managed root"),
+              }),
+            ),
+      request,
+    };
     return ExecutionHostRuntime.of({
-      registry,
       activeSshHosts,
+      hosts: () => Effect.succeed([descriptor]),
+      get: (hostId) => Effect.succeed(hostId === "local" ? host : null),
+      resolve: (hostId) =>
+        hostId === "local"
+          ? Effect.succeed(host)
+          : Effect.fail(
+              new ExecutionHostRuntimeError({
+                operation: "resolve-host",
+                hostId,
+                cause: new Error("unknown host"),
+              }),
+            ),
+      updateLocalManagedRoot: () => Effect.void,
       settings: Effect.succeed({ sshHosts: [] }),
       reconcile: () => Effect.void,
       updateSettings: () => Effect.succeed({ sshHosts: [] }),
     });
+  });
+
+const worktreeRequest = (
+  run: (request: CodexWorktreeWorkerRequest) => Effect.Effect<unknown>,
+): ExecutionHost["request"] => run as ExecutionHost["request"];
+
+const acquire = (request: ExecutionHost["request"]) =>
+  Effect.gen(function* () {
+    const executionHosts = yield* makeExecutionHosts(request);
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(
+      managedWorktreeRuntimeLive.pipe(
+        Layer.provide(Layer.succeed(ExecutionHostRuntime, executionHosts)),
+      ),
+      scope,
+    );
+    return { managed: Context.get(context, ManagedWorktreeRuntime), scope };
   });
 
 const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void> =>
@@ -65,34 +120,20 @@ it.effect("maps every removal reason to a closed snapshot policy", () =>
 it.effect("owns one physical removal per host/path and clears newborn protection", () =>
   Effect.gen(function* () {
     let removeCalls = 0;
-    let resolveRemoval!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      resolveRemoval = resolve;
-    });
-    const base = createInProcessCodexWorktreeWorkerPort({ hostId: "local" });
-    const worker = {
-      ...base,
-      remove: (input: Parameters<CodexWorktreeWorkerPort["remove"]>[0]) => {
+    const releaseRemoval = yield* Deferred.make<void>();
+    const { managed, scope } = yield* acquire(
+      worktreeRequest((request) => {
+        if (request.operation !== "remove") return Effect.die("unexpected operation");
         removeCalls += 1;
-        return gate.then(() => ({
-          removed: true,
-          alreadyMissing: false,
-          snapshot: null,
-          warnings: [],
-          input,
-        }));
-      },
-    } as CodexWorktreeWorkerPort;
-    const executionHosts = yield* makeExecutionHosts(worker);
-    const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(
-      managedWorktreeRuntimeLive.pipe(
-        Layer.provide(Layer.succeed(ExecutionHostRuntime, executionHosts)),
-      ),
-      scope,
+        return Deferred.await(releaseRemoval).pipe(
+          Effect.as({ removed: true, alreadyMissing: false, snapshot: null, warnings: [] }),
+        );
+      }),
     );
-    const managed = Context.get(context, ManagedWorktreeRuntime);
-    managed.legacyNewborns.register("local", "/managed/abcd/repo");
+    yield* managed.registerNewborn({
+      hostId: "local",
+      worktreeGitRoot: "/managed/abcd/repo",
+    });
 
     const first = yield* Effect.forkChild(
       managed.remove({
@@ -111,12 +152,16 @@ it.effect("owns one physical removal per host/path and clears newborn protection
       { startImmediately: true },
     );
     yield* waitUntil("physical removal start", () => removeCalls === 1);
-    assert.strictEqual(removeCalls, 1);
-    resolveRemoval();
+    yield* Deferred.succeed(releaseRemoval, undefined);
     const [firstResult, secondResult] = yield* Effect.all([Fiber.join(first), Fiber.join(second)]);
     assert.isTrue(firstResult.removed);
     assert.deepEqual(secondResult, firstResult);
-    assert.isFalse(managed.legacyNewborns.has("local", "/managed/abcd/repo"));
+    assert.isFalse(
+      yield* managed.isNewborn({
+        hostId: "local",
+        worktreeGitRoot: "/managed/abcd/repo",
+      }),
+    );
 
     yield* Scope.close(scope, Exit.void);
   }),
@@ -125,10 +170,7 @@ it.effect("owns one physical removal per host/path and clears newborn protection
 it.effect("keeps coalesced inspection alive after caller cancellation and evicts completion", () =>
   Effect.gen(function* () {
     let inspectCalls = 0;
-    let resolveInspection!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      resolveInspection = resolve;
-    });
+    const releaseInspection = yield* Deferred.make<void>();
     const result = {
       availability: {
         state: "restorable",
@@ -136,24 +178,14 @@ it.effect("keeps coalesced inspection alive after caller cancellation and evicts
         snapshotRef: "refs/nodex/snapshots/one",
       },
     } satisfies CodexWorktreeWorkerInspectResult;
-    const base = createInProcessCodexWorktreeWorkerPort({ hostId: "local" });
-    const worker = {
-      ...base,
-      inspect: async () => {
+    const { managed, scope } = yield* acquire(
+      worktreeRequest((request) => {
+        if (request.operation !== "inspect") return Effect.die("unexpected operation");
         inspectCalls += 1;
-        if (inspectCalls === 1) await gate;
-        return result;
-      },
-    } as CodexWorktreeWorkerPort;
-    const executionHosts = yield* makeExecutionHosts(worker);
-    const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(
-      managedWorktreeRuntimeLive.pipe(
-        Layer.provide(Layer.succeed(ExecutionHostRuntime, executionHosts)),
-      ),
-      scope,
+        if (inspectCalls > 1) return Effect.succeed(result);
+        return Deferred.await(releaseInspection).pipe(Effect.as(result));
+      }),
     );
-    const managed = Context.get(context, ManagedWorktreeRuntime);
     const first = yield* Effect.forkChild(
       managed.inspect({
         hostId: "local",
@@ -173,10 +205,9 @@ it.effect("keeps coalesced inspection alive after caller cancellation and evicts
       { startImmediately: true },
     );
     yield* waitUntil("physical inspection start", () => inspectCalls === 1);
-    assert.strictEqual(inspectCalls, 1);
     yield* Fiber.interrupt(first);
     assert.strictEqual(inspectCalls, 1);
-    resolveInspection();
+    yield* Deferred.succeed(releaseInspection, undefined);
     assert.deepEqual(yield* Fiber.join(second), result);
 
     assert.deepEqual(
@@ -196,34 +227,20 @@ it.effect("keeps coalesced inspection alive after caller cancellation and evicts
 
 it.effect("interrupts an in-flight worker removal when its owning Scope closes", () =>
   Effect.gen(function* () {
-    let aborted = false;
-    const base = createInProcessCodexWorktreeWorkerPort({ hostId: "local" });
-    const worker = {
-      ...base,
-      remove: (
-        _input: Parameters<CodexWorktreeWorkerPort["remove"]>[0],
-        options?: Partial<Parameters<CodexWorktreeWorkerPort["remove"]>[1]>,
-      ) =>
-        new Promise<never>((_resolve, reject) => {
-          options?.signal?.addEventListener(
-            "abort",
-            () => {
-              aborted = true;
-              reject(new Error("aborted"));
-            },
-            { once: true },
-          );
-        }),
-    } as CodexWorktreeWorkerPort;
-    const executionHosts = yield* makeExecutionHosts(worker);
-    const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(
-      managedWorktreeRuntimeLive.pipe(
-        Layer.provide(Layer.succeed(ExecutionHostRuntime, executionHosts)),
+    let interrupted = false;
+    const { managed, scope } = yield* acquire(
+      worktreeRequest((request) =>
+        request.operation === "remove"
+          ? Effect.never.pipe(
+              Effect.onInterrupt(() =>
+                Effect.sync(() => {
+                  interrupted = true;
+                }),
+              ),
+            )
+          : Effect.die("unexpected operation"),
       ),
-      scope,
     );
-    const managed = Context.get(context, ManagedWorktreeRuntime);
     const removal = yield* Effect.forkChild(
       managed.remove({
         hostId: "local",
@@ -237,6 +254,6 @@ it.effect("interrupts an in-flight worker removal when its owning Scope closes",
     yield* Scope.close(scope, Exit.void);
     const result = yield* Fiber.await(removal);
     assert.strictEqual(result._tag, "Failure");
-    assert.isTrue(aborted);
+    assert.isTrue(interrupted);
   }),
 );

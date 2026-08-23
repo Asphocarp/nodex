@@ -1,25 +1,27 @@
 import { randomUUID } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import * as Context from "effect/Context";
+import * as Exit from "effect/Exit";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type {
   CodexWorktreeWorkerOperation,
-  CodexWorktreeWorkerPort,
+  CodexWorktreeWorkerEvent,
   CodexWorktreeWorkerRequest,
-  CodexWorktreeWorkerRequestOptions,
   CodexWorktreeWorkerSuccess,
-} from "../codex/codex-worktree-worker-port";
+} from "../codex/codex-worktree-worker-protocol";
 import {
   CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
   createCodexWorktreeWorkerRequestMessage,
   isCodexWorktreeWorkerThreadMessage,
   type CodexWorktreeWorkerHostMessage,
+  type CodexWorktreeWorkerThreadMessage,
 } from "../worktree-worker/worktree-worker-protocol";
 
 export interface WorktreeWorkerProcess {
@@ -41,16 +43,20 @@ interface WorkerSession {
   readonly exit: Deferred.Deferred<number>;
   readonly process: WorktreeWorkerProcess;
   readonly releaseListeners: () => void;
+  readonly enqueue: (message: unknown) => void;
 }
+
+type PendingMessage = Exclude<CodexWorktreeWorkerThreadMessage, { readonly type: "ready" }>;
 
 interface PendingRequest {
   readonly operation: CodexWorktreeWorkerOperation;
-  readonly onEvent: (event: Parameters<CodexWorktreeWorkerRequestOptions["onEvent"]>[0]) => void;
+  readonly onEvent: (event: CodexWorktreeWorkerEvent) => Effect.Effect<void>;
+  readonly messages: Queue.Queue<PendingMessage>;
   readonly reply: Deferred.Deferred<CodexWorktreeWorkerSuccess, WorktreeWorkerError>;
   readonly session: WorkerSession;
 }
 
-type SuccessValue<Operation extends CodexWorktreeWorkerOperation> = Extract<
+export type WorktreeWorkerSuccessValue<Operation extends CodexWorktreeWorkerOperation> = Extract<
   CodexWorktreeWorkerSuccess,
   { readonly operation: Operation }
 >["value"];
@@ -75,12 +81,14 @@ export class WorktreeWorkerRuntime extends Context.Service<
     readonly hostId: string;
     readonly request: <Operation extends CodexWorktreeWorkerOperation>(
       request: Extract<CodexWorktreeWorkerRequest, { readonly operation: Operation }>,
-      options?: Partial<CodexWorktreeWorkerRequestOptions>,
-    ) => Effect.Effect<SuccessValue<Operation>, WorktreeWorkerError>;
-    /** Promise transport projection for the execution-host registry; it owns no state. */
-    readonly port: CodexWorktreeWorkerPort;
+      options?: WorktreeWorkerRequestOptions,
+    ) => Effect.Effect<WorktreeWorkerSuccessValue<Operation>, WorktreeWorkerError>;
   }
 >()("nodex/main/host-runtime/WorktreeWorkerRuntime") {}
+
+export interface WorktreeWorkerRequestOptions {
+  readonly onEvent?: (event: CodexWorktreeWorkerEvent) => Effect.Effect<void>;
+}
 
 export interface LocalWorktreeWorkerOptions {
   readonly hostId: string;
@@ -154,7 +162,6 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
     const requests = yield* Ref.make<ReadonlyMap<string, PendingRequest>>(new Map());
     const callbackFibers = yield* FiberSet.make();
     const runCallback = yield* FiberSet.runtime(callbackFibers)();
-    const runPromise = yield* FiberSet.runtimePromise(callbackFibers)();
 
     const failure = (operation: string, message: string, cause: unknown = new Error(message)) =>
       new WorktreeWorkerError({ operation, message, cause });
@@ -162,9 +169,12 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
       pending: ReadonlyMap<string, PendingRequest>,
       error: WorktreeWorkerError,
     ) =>
-      Effect.forEach(pending.values(), (entry) => Deferred.fail(entry.reply, error), {
-        discard: true,
-      });
+      Effect.forEach(
+        pending.values(),
+        (entry) =>
+          Queue.shutdown(entry.messages).pipe(Effect.andThen(Deferred.fail(entry.reply, error))),
+        { discard: true },
+      );
     const takePending = (id: string) =>
       Ref.modify(requests, (state) => {
         const pending = state.get(id);
@@ -172,6 +182,13 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
         const next = new Map(state);
         next.delete(id);
         return [pending, next] as const;
+      });
+    const takePendingIf = (id: string, expected: PendingRequest) =>
+      Ref.modify(requests, (state) => {
+        if (state.get(id) !== expected) return [false, state] as const;
+        const next = new Map(state);
+        next.delete(id);
+        return [true, next] as const;
       });
     const sendBestEffort = (
       process: WorktreeWorkerProcess,
@@ -201,6 +218,43 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
         }),
       );
 
+    const consumePending = (id: string, pending: PendingRequest): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        while (true) {
+          const message = yield* Queue.take(pending.messages);
+          if (message.type === "event") {
+            const delivered = yield* Effect.exit(pending.onEvent(message.event));
+            if (Exit.isSuccess(delivered)) continue;
+            const removed = yield* takePendingIf(id, pending);
+            if (!removed) return;
+            yield* Queue.shutdown(pending.messages);
+            yield* sendBestEffort(pending.session.process, {
+              type: "cancel",
+              protocolVersion: CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
+              id,
+              operation: pending.operation,
+            });
+            yield* Deferred.fail(
+              pending.reply,
+              failure("event-consumer", "Worktree worker event consumer failed", delivered.cause),
+            );
+            return;
+          }
+          const removed = yield* takePendingIf(id, pending);
+          if (!removed) return;
+          yield* Queue.shutdown(pending.messages);
+          if (message.result.type === "error") {
+            yield* Deferred.fail(
+              pending.reply,
+              failure("worker-result", message.result.message, new Error(message.result.message)),
+            );
+            return;
+          }
+          yield* Deferred.succeed(pending.reply, message.result.success);
+          return;
+        }
+      });
+
     const handleMessage = (raw: unknown, session: WorkerSession): Effect.Effect<void> =>
       Effect.gen(function* () {
         if ((yield* Ref.get(current)) !== session) return;
@@ -219,38 +273,7 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
         if (raw.operation !== pending.operation) {
           return yield* handleFailure(new Error("Worktree worker operation mismatch"), session);
         }
-        if (raw.type === "event") {
-          const delivered = yield* Effect.result(
-            Effect.try({
-              try: () => pending.onEvent(raw.event),
-              catch: (cause) =>
-                failure(
-                  "deliver-event",
-                  cause instanceof Error ? cause.message : String(cause),
-                  cause,
-                ),
-            }),
-          );
-          if (delivered._tag === "Success") return;
-          yield* takePending(raw.id);
-          yield* sendBestEffort(session.process, {
-            type: "cancel",
-            protocolVersion: CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
-            id: raw.id,
-            operation: raw.operation,
-          });
-          yield* Deferred.fail(pending.reply, delivered.failure);
-          return;
-        }
-        yield* takePending(raw.id);
-        if (raw.result.type === "error") {
-          yield* Deferred.fail(
-            pending.reply,
-            failure("worker-result", raw.result.message, new Error(raw.result.message)),
-          );
-          return;
-        }
-        yield* Deferred.succeed(pending.reply, raw.result.success);
+        yield* Queue.offer(pending.messages, raw);
       });
 
     const ensureWorker = (): Effect.Effect<WorkerSession, WorktreeWorkerError> =>
@@ -267,14 +290,31 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
           );
         const exit = yield* Deferred.make<number>();
         let releaseListeners = () => undefined;
-        const session: WorkerSession = {
+        const inbox: unknown[] = [];
+        let draining = false;
+        let session!: WorkerSession;
+        const drain: Effect.Effect<void> = Effect.suspend(() => {
+          const message = inbox.shift();
+          if (message === undefined) {
+            draining = false;
+            return Effect.void;
+          }
+          return handleMessage(message, session).pipe(Effect.andThen(drain));
+        });
+        session = {
           epoch,
           exit,
           process,
           releaseListeners: () => releaseListeners(),
+          enqueue: (message) => {
+            inbox.push(message);
+            if (draining) return;
+            draining = true;
+            runCallback(drain);
+          },
         };
         const removeMessage = process.onMessage((message) => {
-          void runCallback(handleMessage(message, session));
+          session.enqueue(message);
         });
         const removeError = process.onError((error) => {
           void runCallback(handleFailure(error, session));
@@ -309,6 +349,7 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
           return [true, next] as const;
         });
         if (!removed) return;
+        yield* Queue.shutdown(pending.messages);
         yield* sendBestEffort(pending.session.process, {
           type: "cancel",
           protocolVersion: CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
@@ -317,39 +358,15 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
         });
       });
 
-    const externalCancellation = (signal: AbortSignal): Effect.Effect<never, WorktreeWorkerError> =>
-      Effect.callback((resume) => {
-        const error = () =>
-          failure(
-            "cancel-request",
-            "Request canceled",
-            signal.reason ?? new Error("Request canceled"),
-          );
-        if (signal.aborted) {
-          resume(Effect.fail(error()));
-          return;
-        }
-        const cancel = () => resume(Effect.fail(error()));
-        signal.addEventListener("abort", cancel, { once: true });
-        return Effect.sync(() => signal.removeEventListener("abort", cancel));
-      });
-
     const request = <Operation extends CodexWorktreeWorkerOperation>(
       request: Extract<CodexWorktreeWorkerRequest, { readonly operation: Operation }>,
-      requestOptions: Partial<CodexWorktreeWorkerRequestOptions> = {},
-    ): Effect.Effect<SuccessValue<Operation>, WorktreeWorkerError> =>
+      requestOptions: WorktreeWorkerRequestOptions = {},
+    ): Effect.Effect<WorktreeWorkerSuccessValue<Operation>, WorktreeWorkerError> =>
       Effect.gen(function* () {
         if (request.input.hostId !== hostId) {
           return yield* failure(
             "validate-host",
             `Worktree request host ${request.input.hostId} does not match ${hostId}`,
-          );
-        }
-        if (requestOptions.signal?.aborted) {
-          return yield* failure(
-            "cancel-request",
-            "Request canceled",
-            requestOptions.signal.reason ?? new Error("Request canceled"),
           );
         }
         const id = `${request.operation}:${randomUUID()}`;
@@ -372,13 +389,16 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
               }
               const session = yield* ensureWorker();
               admittedSession = session;
+              const messages = yield* Queue.unbounded<PendingMessage>();
               const pending: PendingRequest = {
                 operation: request.operation,
-                onEvent: requestOptions.onEvent ?? (() => undefined),
+                onEvent: requestOptions.onEvent ?? (() => Effect.void),
+                messages,
                 reply,
                 session,
               };
               yield* Ref.update(requests, (state) => new Map(state).set(id, pending));
+              yield* FiberSet.run(callbackFibers, consumePending(id, pending));
               yield* Effect.try({
                 try: () => session.process.send(message),
                 catch: (cause) =>
@@ -402,43 +422,14 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
           return yield* admission.failure;
         }
         const pending = admission.success;
-        const response = requestOptions.signal
-          ? Effect.raceFirst(Deferred.await(reply), externalCancellation(requestOptions.signal))
-          : Deferred.await(reply);
-        const success = yield* response.pipe(Effect.ensuring(cancelPending(id, pending)));
+        const success = yield* Deferred.await(reply).pipe(
+          Effect.ensuring(cancelPending(id, pending)),
+        );
         if (success.operation !== request.operation) {
           return yield* failure("decode-result", "Worktree worker result mismatch");
         }
-        return success.value as SuccessValue<Operation>;
+        return success.value as WorktreeWorkerSuccessValue<Operation>;
       });
-
-    const run = <Operation extends CodexWorktreeWorkerOperation>(
-      requestValue: Extract<CodexWorktreeWorkerRequest, { readonly operation: Operation }>,
-      requestOptions?: Partial<CodexWorktreeWorkerRequestOptions>,
-    ): Promise<SuccessValue<Operation>> => runPromise(request(requestValue, requestOptions));
-
-    const port: CodexWorktreeWorkerPort = {
-      hostId,
-      create: (input, requestOptions) => run({ operation: "create", input }, requestOptions),
-      list: (input, requestOptions) => run({ operation: "list", input }, requestOptions),
-      inspect: (input, requestOptions) => run({ operation: "inspect", input }, requestOptions),
-      snapshot: (input, requestOptions) => run({ operation: "snapshot", input }, requestOptions),
-      remove: (input, requestOptions) => run({ operation: "remove", input }, requestOptions),
-      restore: (input, requestOptions) => run({ operation: "restore", input }, requestOptions),
-      setOwner: (input, requestOptions) => run({ operation: "set-owner", input }, requestOptions),
-      prepareHandoff: (input, requestOptions) =>
-        run({ operation: "prepare-handoff", input }, requestOptions),
-      rollbackHandoff: (input, requestOptions) =>
-        run({ operation: "rollback-handoff", input }, requestOptions),
-      cleanupHandoff: (input, requestOptions) =>
-        run({ operation: "cleanup-handoff", input }, requestOptions),
-      exportHandoff: (input, requestOptions) =>
-        run({ operation: "export-handoff", input }, requestOptions),
-      importHandoff: (input, requestOptions) =>
-        run({ operation: "import-handoff", input }, requestOptions),
-      cleanupTransferHandoff: (input, requestOptions) =>
-        run({ operation: "cleanup-transfer-handoff", input }, requestOptions),
-    };
 
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
@@ -469,7 +460,7 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
       }),
     );
 
-    return WorktreeWorkerRuntime.of({ hostId, port, request });
+    return WorktreeWorkerRuntime.of({ hostId, request });
   });
 
 export const localLive = (

@@ -134,12 +134,12 @@ path changes the ordinary prompt-created worktree state machine.
 ## Host-owned worktree transaction
 
 Main coordinates the lifecycle but performs no worktree filesystem mutation in
-the renderer or app-server process. A host-scoped `CodexWorktreeWorkerPort`
-executes create/remove operations. The local adapter is a dedicated worker
-thread; an SSH host uses the same scoped request/cancellation/shutdown runtime
-over a JSON-lines child channel. Default branch resolution happens inside that
-host's worker. Local-only ignored-file propagation is disabled for non-local
-adapters.
+the renderer or app-server process. A host-scoped `WorktreeWorkerRuntime`
+executes typed create/remove operations. The local platform adapter is a
+dedicated worker thread; an SSH host uses the same scoped
+request/cancellation/shutdown runtime over a JSON-lines child channel. Default
+branch resolution happens inside that host's worker. Local-only ignored-file
+propagation is disabled for non-local adapters.
 
 Every local or remote worker request is checked against the same versioned
 runtime codec before it is dispatched. A producer/codec mismatch fails that

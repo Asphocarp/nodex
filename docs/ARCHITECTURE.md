@@ -1062,19 +1062,24 @@ cancellation for the matching request. Generation failure rejects every
 pending request before later admission starts a replacement. The local adapter
 only creates a `worker_threads` process; the SSH adapter only opens a child and
 frames JSON lines. Neither adapter owns request correlation, reconnect state,
-or a public shutdown protocol. The Promise-shaped execution-host port is a
-state-free projection backed by the owning Scope's FiberSet.
+or a public shutdown protocol. Each request exposes one Effect operation and an
+effectful ordered event consumer. A consumer failure cancels and fails only that
+request; it neither tears down the worker generation nor reorders progress for
+other requests. No Promise port or application-level `AbortSignal` projection
+exists above this transport frontier.
 
-`ExecutionHostRuntime` is the sole owner of execution-host settings and remote
-host activation. Each enabled SSH host is one keyed Scope containing its health
-probe, scoped `WorktreeWorkerRuntime` client, file-transfer adapter, Codex
-endpoint, and host capability association. Removing or changing the
-configuration invalidates that Scope; its finalizers unregister routing, close
-request admission, reject pending work, request cooperative worker shutdown,
+`ExecutionHostConfiguration` is the authoritative Effect capability for enabled
+host definitions and the local managed-worktree root. `ExecutionHostRuntime`
+consumes it and owns remote-host activation. Each enabled SSH host is one keyed
+Scope containing its health probe, scoped `WorktreeWorkerRuntime` client,
+file-transfer adapter, Codex endpoint, and host capability. Removing or changing
+the configuration invalidates that Scope; its finalizers close request admission,
+reject pending work, release the endpoint, request cooperative worker shutdown,
 and force the SSH child only after the bounded deadline. Main shutdown closes
 every remaining host through the same release path. The local
-`WorktreeWorkerRuntime` belongs directly to the Main Scope; execution-host state
-only borrows its registry port and never closes that local owner.
+`WorktreeWorkerRuntime` is provided directly through Context and belongs to the
+Main Scope; execution-host state borrows that capability without closing its
+owner. There is no parallel host registry or service-in-options port.
 Git and Worktree lifecycles have no process-wide aggregate or shared shutdown
 facade because their protocols and ownership semantics are independent.
 
@@ -1114,21 +1119,20 @@ for the rest. Synthetic request completion uses the same lane even though it nee
 Renderer IPC never calls responder methods on `CodexService`, and the class owns no response facade,
 completion callback, request-state bridge, pending map, or shutdown path.
 
-`CodexThreadHandoffRuntime` is the single owner of the cross-system compensation
-transaction. It atomically reserves one operation per Thread before resolving
+`CrossHostThreadHandoff`, `ManagedWorktreeHandoff`, and `CodexThreadExecution`
+form the application transaction graph used by `CodexThreadHandoffRuntime`.
+The runtime atomically reserves one operation per Thread before resolving
 external state, journals every durable boundary before advancing, and keeps the
 transaction fiber in the Main Scope rather than in the initiating tool request.
 Journal mutation is serialized and durable-first: a failed publication cannot
 advance the in-memory authority. Startup recovery, rollback, operation status,
-revision waiting, and bounded completed-status retention use the same runtime;
-there is no parallel Promise queue, waiter registry, or timer in `CodexService`.
-Every remaining Promise-shaped Codex or worker effect receives the current
-transaction fiber's `AbortSignal`. Closing Main's Scope therefore interrupts the
-physical request instead of merely abandoning its result, while the durable
-journal remains the recovery authority. A cross-host preparation that may have
-partially committed performs deterministic, operation-fenced compensation through
-the destination host Scope without reusing the already-aborted request signal; this
-best-effort cleanup is not a second handoff owner.
+revision waiting, and bounded completed-status retention use the same graph;
+there is no parallel Promise adapter, effects bag, waiter registry, or timer in
+`CodexService`. Closing Main's Scope interrupts the typed worker and Gateway
+operations through their owning runtime frontiers, while the durable journal
+remains the recovery authority. A cross-host preparation that may have partially
+committed performs deterministic, operation-fenced compensation through the
+destination host Scope; this best-effort cleanup is not a second handoff owner.
 The temporary canonical projection receives Project Workspace, Automation, Nodex Agent, and
 resource-authority ports as immutable construction dependencies. Startup recovery is admitted as a
 tracked Main Scope fiber after construction; no late setter, unavailable-authority proxy, or

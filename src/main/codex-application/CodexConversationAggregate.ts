@@ -290,6 +290,12 @@ export interface CodexConversationAggregate {
     readonly permissions: CodexCanonicalHydratedPermissionContext;
     readonly projectReplica: boolean;
   }) => boolean;
+  readonly relocateExecution: (input: {
+    readonly cwd: string;
+    readonly managedWorktreePath: string | null;
+    readonly permissions: CodexCanonicalHydratedPermissionContext;
+    readonly projectReplica: boolean;
+  }) => boolean;
   readonly setThreadStatus: (statusType: CodexThreadStatusType, projectReplica: boolean) => boolean;
   readonly listQueuedFollowUps: () => readonly CodexQueuedFollowUp[];
   readonly appendQueuedFollowUp: (
@@ -1157,6 +1163,45 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           ...conversation,
           latestCollaborationMode: settings.collaborationMode ?? undefined,
           latestThreadSettings: settings,
+          approvalPolicy: permissions.approvalPolicy,
+          approvalsReviewer: permissions.approvalsReviewer,
+          sandbox: permissions.sandboxPolicy,
+          canonicalState: canonical,
+        });
+        if (aggregate.snapshot) aggregate.snapshot = project(aggregate.snapshot);
+        if (projectReplica && aggregate.acceptedReplica) {
+          acceptReplica({
+            conversation: project(aggregate.acceptedReplica.conversation),
+            ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+            revision: aggregate.revision + 1,
+          });
+        }
+        return true;
+      },
+      relocateExecution: ({ cwd, managedWorktreePath, permissions, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        const hydration = before?.sidecar.hydrationContext;
+        if (!before || !hydration) return false;
+        const canonical = {
+          ...before,
+          sidecar: {
+            ...before.sidecar,
+            hydrationContext: {
+              ...hydration,
+              cwd,
+              latestThreadSettings: {
+                ...(hydration.latestThreadSettings ?? {}),
+                cwd,
+              },
+              currentPermissions: permissions,
+            },
+          },
+        };
+        aggregate.canonicalState = canonical;
+        const project = (conversation: CodexConversationSnapshot): CodexConversationSnapshot => ({
+          ...conversation,
+          cwd,
+          managedWorktreePath,
           approvalPolicy: permissions.approvalPolicy,
           approvalsReviewer: permissions.approvalsReviewer,
           sandbox: permissions.sandboxPolicy,
