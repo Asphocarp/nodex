@@ -1,6 +1,7 @@
 export type MacApplicationsInstallerPromptChoice = "move" | "continue" | "quit";
 export type MacApplicationsInstallerResult = "continue" | "quit" | "moved";
 export type MacApplicationsMoveConflict = "exists" | "existsAndRunning";
+export type MacApplicationsLaunchKind = "ordinary" | "supervised";
 
 export interface MoveToApplicationsFolderOptions {
   conflictHandler?: (conflictType: MacApplicationsMoveConflict) => boolean;
@@ -9,6 +10,7 @@ export interface MoveToApplicationsFolderOptions {
 export interface MacApplicationsInstallerEnvironment {
   platform: NodeJS.Platform;
   isPackaged: boolean;
+  launchKind: MacApplicationsLaunchKind;
   isInApplicationsFolder: () => boolean;
   showInstallPrompt: () => Promise<MacApplicationsInstallerPromptChoice>;
   showMoveFailedPrompt: (
@@ -27,6 +29,13 @@ export async function runMacApplicationsInstallerGate(
   environment: MacApplicationsInstallerEnvironment,
 ): Promise<MacApplicationsInstallerResult> {
   if (environment.platform !== "darwin" || !environment.isPackaged) {
+    return "continue";
+  }
+
+  // A validated isolated-run supervisor owns launch and cleanup. It must not
+  // block on UI or mutate the user's installed application during automation.
+  if (environment.launchKind === "supervised") {
+    environment.log?.("info", "Continuing supervised packaged macOS launch");
     return "continue";
   }
 

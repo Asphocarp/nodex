@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,10 +8,16 @@ import { afterEach, describe, expect, test } from "vite-plus/test";
 import {
   assertContentAddressedStoreMigrationBackup,
   assertLegacyPackagedRuntimePathsAbsent,
+  isPackagedAppReady,
   removePrivateTemporaryDirectory,
   selectPackagedSmokeProjectId,
   shutdownPackagedCore,
 } from "./verify-native-runtime";
+import {
+  acquireIsolatedRunLease,
+  markIsolatedRunClaimReady,
+  publishIsolatedRunClaim,
+} from "../src/main/core-client/isolated-run-ownership";
 
 const temporaryDirectories: string[] = [];
 
@@ -29,12 +35,19 @@ describe("packaged native runtime verification", () => {
     temporaryDirectories.push(directory);
     const bytes = Buffer.from("content-addressed Store backup");
     const digest = createHash("sha256").update(bytes).digest("hex");
-    const backupPath = path.join(directory, `v130-to-v131-${digest}.db`);
+    const backupPath = path.join(directory, `v130-to-v132-${digest}.db`);
     fs.writeFileSync(backupPath, bytes);
 
-    expect(() => assertContentAddressedStoreMigrationBackup(backupPath)).not.toThrow();
+    const transition = { sourceRevision: 130, targetRevision: 132 };
+    expect(() => assertContentAddressedStoreMigrationBackup(backupPath, transition)).not.toThrow();
+    expect(() =>
+      assertContentAddressedStoreMigrationBackup(backupPath, {
+        sourceRevision: 130,
+        targetRevision: 131,
+      }),
+    ).toThrow("transition does not match the runtime");
     fs.appendFileSync(backupPath, "tampered");
-    expect(() => assertContentAddressedStoreMigrationBackup(backupPath)).toThrow(
+    expect(() => assertContentAddressedStoreMigrationBackup(backupPath, transition)).toThrow(
       "digest does not match its filename",
     );
   });
@@ -80,6 +93,59 @@ describe("packaged native runtime verification", () => {
         descriptor,
       ),
     ).rejects.toThrow("rejected smoke-test shutdown with busy");
+  });
+
+  test("requires one supervised host and Core generation to reach packaged app readiness", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-packaged-app-ready-"));
+    temporaryDirectories.push(directory);
+    const nodexHome = path.join(directory, "profile");
+    fs.mkdirSync(nodexHome, { mode: 0o700 });
+    const runId = randomUUID();
+    const lease = acquireIsolatedRunLease({
+      nodexHome,
+      runId,
+      supervisorPid: process.pid,
+    });
+    const descriptorPath = path.join(nodexHome, "run/core/core.json");
+    const expectedCoreSha256 = "a".repeat(64);
+    const readiness = () =>
+      isPackagedAppReady({
+        descriptorPath,
+        expectedCoreSha256,
+        expectedHostPid: process.pid,
+        nodexHome,
+        runId,
+      });
+
+    try {
+      expect(readiness()).toBe(false);
+      publishIsolatedRunClaim({ nodexHome, runId, hostPid: process.pid });
+      expect(readiness()).toBe(false);
+      fs.mkdirSync(path.dirname(descriptorPath), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(
+        descriptorPath,
+        `${JSON.stringify({
+          artifact: { sha256: expectedCoreSha256 },
+          manifest_digest: "b".repeat(64),
+          pid: 42,
+          start_nonce: "packaged-smoke-core",
+        })}\n`,
+      );
+      markIsolatedRunClaimReady({ nodexHome, runId });
+
+      expect(readiness()).toBe(true);
+      expect(() =>
+        isPackagedAppReady({
+          descriptorPath,
+          expectedCoreSha256,
+          expectedHostPid: process.pid + 1,
+          nodexHome,
+          runId,
+        }),
+      ).toThrow("readiness belongs to another host generation");
+    } finally {
+      lease.release();
+    }
   });
 
   test("rejects the obsolete nested Agent runtime even when canonical resources exist", () => {

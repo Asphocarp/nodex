@@ -11,6 +11,7 @@ function makeEnvironment(
   return {
     platform: "darwin",
     isPackaged: true,
+    launchKind: "ordinary",
     isInApplicationsFolder: () => false,
     showInstallPrompt: async () => "continue",
     showMoveFailedPrompt: async () => "quit",
@@ -32,6 +33,37 @@ describe("runMacApplicationsInstallerGate", () => {
         makeEnvironment({ isInApplicationsFolder: () => true }),
       ),
     ).toBe("continue");
+  });
+
+  test("keeps supervised packaged launches non-interactive and non-mutating", async () => {
+    let applicationsFolderChecks = 0;
+    let promptCalls = 0;
+    let moveCalls = 0;
+
+    const result = await runMacApplicationsInstallerGate(
+      makeEnvironment({
+        launchKind: "supervised",
+        isInApplicationsFolder: () => {
+          applicationsFolderChecks += 1;
+          return false;
+        },
+        showInstallPrompt: async () => {
+          promptCalls += 1;
+          return "move";
+        },
+        moveToApplicationsFolder: () => {
+          moveCalls += 1;
+          return true;
+        },
+      }),
+    );
+
+    expect(result).toBe("continue");
+    expect({ applicationsFolderChecks, moveCalls, promptCalls }).toEqual({
+      applicationsFolderChecks: 0,
+      moveCalls: 0,
+      promptCalls: 0,
+    });
   });
 
   test("honors continue and quit prompt choices", async () => {

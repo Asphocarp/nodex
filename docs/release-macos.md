@@ -47,6 +47,12 @@ smoke once against the extracted notarized ZIP App, including launch and the
 symlinked CLI/Core/ripgrep workflow. The mounted DMG receives structural,
 signature, notarization, and provenance verification only; matching sealed
 provenance proves it contains the same App without repeating stateful smoke.
+The launch check owns a verified isolated-run lease, so the extracted App does
+not open the interactive move-to-Applications flow or mutate an installed copy.
+Success requires the matching Electron host claim to reach full Main-runtime
+readiness and the matching Core generation descriptor to exist. Startup has a
+bounded CI deadline, captures bounded process and Profile logs on failure, and
+terminates the complete Electron process group before releasing the lease.
 Runtime-probe teardown uses bounded filesystem retries because a stopped macOS
 Browser helper can briefly race recursive removal of its temporary Profile.
 On arm64 macOS 14.4 or later, that probe must also complete a real Computer Use
