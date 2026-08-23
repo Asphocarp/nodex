@@ -10,6 +10,7 @@ import type {
 export type SettingsPageKey =
   | "general"
   | "appearance"
+  | "voice"
   | "agent"
   | "import"
   | "keyboard-shortcuts"

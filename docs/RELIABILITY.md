@@ -242,6 +242,14 @@ Detailed behavior lives in
 [Codex Workspace Behavior](product-specs/codex-workspace-behavior.md), and
 [Codex Managed Worktree Lifecycle Behavior](product-specs/codex-managed-worktree-lifecycle-behavior.md).
 
+### Dictation
+
+Dictation is stream-first but record-always. The surface controller keeps a complete `MediaRecorder` recording while streaming PCM frames independently; prepare, socket, protocol, timeout, backpressure, or empty-final failure therefore falls back to the same complete audio. Abort is the only terminal path that intentionally suppresses fallback and text application. Session/generation checks make stop, cancel, dispose, recorder finalization, history finalization, and transcript completion idempotent.
+
+Recording history appends ordered five-second chunks in a private Profile directory. Metadata uses temporary-file replacement; startup removes stale temporary files, reconstructs valid chunk facts, and marks unfinished recordings `interrupted`. Retention keeps at most twenty non-active entries and never removes a current recording. Retry and download rebuild audio from the same validated ordered chunks.
+
+The Profile-scoped dictation runtime owns one session lease across native hotkey, in-app acknowledgement, auxiliary-window readiness, transcription, and paste. Every message carries the session identity; late messages are ignored. Renderer teardown releases its microphone/global ownership, and Profile Scope closure interrupts active transcription before removing IPC and native resources. Native-helper crash cancels the lease and invalidates global capability. Clipboard restoration is conditional, so process delay or a new user copy cannot replay stale clipboard state. See [Dictation Behavior](product-specs/dictation-behavior.md) for visible behavior.
+
 ### Browser, Computer Use, Terminal, and Files
 
 These are Main-owned runtime aggregates. Renderer surfaces hold presentation

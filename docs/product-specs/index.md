@@ -2,6 +2,7 @@
 
 | Spec                                         | Status | Last Updated | Summary                                                                                                                                                                   |
 | -------------------------------------------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| dictation-behavior.md                        | Active | 2026-08-23   | Composer and macOS global dictation, stream-first recovery, Voice settings, recording history, permissions, and privacy                                                   |
 | task-shorthand-page-promotion-behavior.md    | Active | 2026-08-21   | Block → Page task shorthand grammar, Core authority, fallback, authoring preview, modifiers, typed evidence, and safe Undo                                                |
 | new-chat-home-behavior.md                    | Active | 2026-08-15   | New Chat hero composition, Project selector, lazy glyph performance, directional 3D mark, reduced motion, and renderer handoff                                            |
 | brand-language.md                            | Active | 2026-08-14   | Product-wide Nodex naming boundary and the external ChatGPT/Codex names that remain explicit                                                                              |

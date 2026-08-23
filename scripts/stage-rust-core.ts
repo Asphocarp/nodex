@@ -147,6 +147,23 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
       "-o",
       appshotHelperBuild,
     ]);
+    const dictationHelperSource = path.join(
+      repositoryRoot,
+      "resources",
+      "macos",
+      "nodex-dictation-helper.swift",
+    );
+    const dictationHelperBuild = path.join(stagingRoot, ".nodex-dictation-helper.build");
+    execFileSync("xcrun", [
+      "swiftc",
+      "-O",
+      "-parse-as-library",
+      "-target",
+      swiftTargetForNativeRuntime(targetArch),
+      dictationHelperSource,
+      "-o",
+      dictationHelperBuild,
+    ]);
 
     const binaries: ReadonlyArray<{
       readonly name: NativeRuntimeBinaryName;
@@ -171,6 +188,7 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
         source: path.join(repositoryRoot, "target", target, "release", "nodex"),
       },
       { name: "nodex-appshot-helper", source: appshotHelperBuild },
+      { name: "nodex-dictation-helper", source: dictationHelperBuild },
       { name: "nodex-service", source: serviceBuild },
     ] as const;
     const entries = binaries.map(({ name, source }) => {
@@ -220,7 +238,7 @@ const stage = ({ targetArch, outputRoot, signIdentity }: Arguments): void => {
     });
 
     const manifest: NativeRuntimeManifest = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       targetPlatform: "darwin",
       targetArch,
       rustTarget: target,

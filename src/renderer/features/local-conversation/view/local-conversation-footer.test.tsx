@@ -5,7 +5,7 @@ import {
   installMotionPreferenceForTest,
 } from "../../../test/browser-globals";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
-import { renderWithMaitai as render, settleAsyncRender } from "../../../test/dom";
+import { renderWithMaitai, settleAsyncRender } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
 import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
@@ -13,6 +13,9 @@ import {
   EnsureLocalConversationThreadScrollController,
   LocalConversationThreadScrollLayout,
 } from "./local-conversation-thread-scroll-controller";
+
+const render = (ui: Parameters<typeof renderWithMaitai>[0]) =>
+  renderWithMaitai(ui, { wrapper: TestQueryProvider });
 
 function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
   return {
@@ -80,8 +83,16 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     dictation: {
       isEnabled: true,
       authMethod: "chatgpt",
-      isRealtimeVoiceActive: false,
       shortcutLabel: "Ctrl+M",
+      capabilities: {
+        composer: true,
+        global: true,
+        history: true,
+        streaming: "available",
+        semanticCleanup: false,
+        microphoneOwner: "none",
+        auth: "chatgpt",
+      },
     },
     body: {
       threadId: "thread_1",

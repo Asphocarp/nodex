@@ -5,6 +5,7 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import type { Session } from "electron";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
+import { testLayer as mainConfigLayer } from "../app/MainConfig";
 import { live } from "./SessionPolicyRuntime";
 
 const fakeSession = () => {
@@ -40,12 +41,15 @@ it.effect("installs policies before windows and removes them with the Main Scope
     const host = ElectronSessionHost.of({
       defaultSession: Effect.succeed(appSession.session),
       fromPartition: () => Effect.succeed(browserSession.session),
+      hasOwnerWindow: () => true,
       scopedRegistration: (acquire: () => void, release: () => void) =>
         Effect.acquireRelease(Effect.sync(acquire), () => Effect.sync(release)),
     } as unknown as ElectronSessionHost["Service"]);
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      live.pipe(Layer.provide(Layer.succeed(ElectronSessionHost, host))),
+      live.pipe(
+        Layer.provide(Layer.merge(Layer.succeed(ElectronSessionHost, host), mainConfigLayer())),
+      ),
       scope,
     );
     assert.isTrue(appSession.permissionsInstalled());

@@ -7,10 +7,12 @@ describe("validateDictationTranscriptionInput", () => {
       validateDictationTranscriptionInput({
         contentType: " multipart/form-data; boundary=nodex-test ",
         base64Payload: "YXVkaW8=",
+        requestId: "00000000-0000-4000-8000-000000000000",
       }),
     ).toEqual({
       contentType: "multipart/form-data; boundary=nodex-test",
       base64Payload: "YXVkaW8=",
+      requestId: "00000000-0000-4000-8000-000000000000",
     });
   });
 
@@ -32,6 +34,7 @@ describe("validateDictationTranscriptionInput", () => {
         {
           contentType: "multipart/form-data; boundary=x",
           base64Payload: "YXVkaW8=",
+          requestId: "00000000-0000-4000-8000-000000000000",
         },
         7,
       ),

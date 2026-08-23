@@ -7,6 +7,7 @@ import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-pag
 import { ManagedWorktreesSettingControl } from "./managed-worktrees-settings-control";
 import { WorkbenchHooksSettingsPage } from "./workbench-hooks-settings-page";
 import { BrowserSettingsPage } from "@/features/browser-sidebar/browser-settings-pages";
+import { VoiceSettingsPage } from "@/features/dictation/voice-settings-page";
 import {
   FULL_ACCESS_PERMISSION_DESCRIPTION,
   PermissionModeDropdown,
@@ -693,6 +694,7 @@ export function BackupsSettingsPage({ open }: SettingsSectionPageProps) {
 export const SETTINGS_PAGE_COMPONENTS: SettingsPageComponentRegistry = {
   general: GeneralSettingsPage,
   appearance: AppearanceSettingsPage,
+  voice: VoiceSettingsPage,
   browser: BrowserSettingsPage,
   "computer-use": ComputerUseSettingsPage,
   "keyboard-shortcuts": KeyboardShortcutsSettingsPage,

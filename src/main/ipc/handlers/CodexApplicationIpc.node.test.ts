@@ -103,10 +103,19 @@ it.effect("registers application channels directly against their owning modules"
       dictationState: Effect.succeed({
         isEnabled: true,
         authMethod: "chatgpt",
-        isRealtimeVoiceActive: false,
         shortcutLabel: "Ctrl+M",
+        capabilities: {
+          composer: true,
+          global: true,
+          history: true,
+          streaming: "unknown",
+          semanticCleanup: false,
+          microphoneOwner: "none",
+          auth: "chatgpt",
+        },
       }),
       transcribe: () => Effect.succeed("hello"),
+      prepareStreamingConnectInfo: Effect.die("unused"),
       resolveImage: () => Effect.succeed({ ok: false, message: "not available", status: null }),
     });
     const conversations = ConversationCommands.of({
@@ -226,8 +235,6 @@ it.effect("registers application channels directly against their owning modules"
     assert.isTrue(handlers.has("codex:thread:background-terminals:clean-silent"));
     assert.isTrue(handlers.has("codex:thread:background-terminals:list"));
     assert.isTrue(handlers.has("codex:thread:background-terminals:terminate"));
-    assert.isTrue(handlers.has("codex:dictation:state:read"));
-    assert.isTrue(handlers.has("codex:dictation:transcribe"));
     assert.isTrue(handlers.has("codex:conversation-image-asset:resolve"));
     assert.isTrue(handlers.has("codex:experimental-features:list"));
     assert.isTrue(handlers.has("codex:collaboration-mode:list"));

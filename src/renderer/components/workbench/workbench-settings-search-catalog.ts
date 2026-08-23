@@ -244,6 +244,30 @@ const SETTINGS_SEARCH_PANELS = {
       },
     ],
   },
+  voice: {
+    title: "Voice",
+    subtitle: "Microphone, dictation behavior, and recoverable recordings.",
+    groups: [
+      {
+        title: "Microphone",
+        messages: ["Input device", "System default", "Allow access", "Open settings"],
+      },
+      {
+        title: "Dictation",
+        messages: [
+          "Composer shortcut",
+          "Global shortcuts",
+          "Keep global bar visible",
+          "Start sound",
+          "Stop sound",
+        ],
+      },
+      {
+        title: "Recent recordings",
+        messages: ["Copy", "Retry", "Download", "Delete"],
+      },
+    ],
+  },
   agent: {
     title: "Agent",
     subtitle: "Configuration and raw config.toml settings.",
@@ -567,6 +591,9 @@ export const SETTINGS_SEARCH_CATALOG = {
   },
   appearance: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.appearance),
+  },
+  voice: {
+    messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.voice),
   },
   browser: {
     messages: [

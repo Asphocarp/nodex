@@ -11,12 +11,24 @@ import { ThreadComposer } from "./local-conversation-thread-composer";
 import { RendererStateProvider } from "@/app-providers";
 import { TestComposerScopePath } from "@/test/maitai-scope-harness";
 import { TestQueryProvider } from "@/test/query";
+import { createCommandKeymapState } from "../../../../../shared/command-keybindings";
 
 class MockMediaRecorder {
   public mimeType = "audio/webm";
   public state: "inactive" | "recording" = "inactive";
   public ondataavailable: ((event: BlobEvent) => void) | null = null;
   public onstop: (() => void) | null = null;
+  private readonly listeners = new Map<string, Set<(event: Event) => void>>();
+
+  addEventListener(type: string, listener: EventListener): void {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListener): void {
+    this.listeners.get(type)?.delete(listener);
+  }
 
   start(): void {
     this.state = "recording";
@@ -28,13 +40,33 @@ class MockMediaRecorder {
       data: new Blob(["audio-bytes"], { type: "audio/webm" }),
     } as BlobEvent);
     this.onstop?.();
+    const dataEvent = { data: new Blob(["audio-bytes"], { type: "audio/webm" }) } as BlobEvent;
+    for (const listener of this.listeners.get("dataavailable") ?? []) listener(dataEvent);
+    for (const listener of this.listeners.get("stop") ?? []) listener(new Event("stop"));
   }
 }
 
 class MockAudioContext {
+  sampleRate = 48_000;
+  audioWorklet = {
+    addModule: async () => {
+      throw new Error("Streaming worklets are outside this composer fixture");
+    },
+  };
+
   createMediaStreamSource() {
     return {
       connect: () => {},
+      disconnect: () => {},
+    };
+  }
+
+  createAnalyser() {
+    return {
+      fftSize: 256,
+      frequencyBinCount: 128,
+      getFloatTimeDomainData: (values: Float32Array) => values.fill(0),
+      getByteTimeDomainData: (values: Uint8Array) => values.fill(128),
       disconnect: () => {},
     };
   }
@@ -119,8 +151,16 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     dictation: {
       isEnabled: true,
       authMethod: "chatgpt",
-      isRealtimeVoiceActive: false,
       shortcutLabel: "Ctrl+M",
+      capabilities: {
+        composer: true,
+        global: true,
+        history: true,
+        streaming: "available",
+        semanticCleanup: false,
+        microphoneOwner: "none",
+        auth: "chatgpt",
+      },
     },
     body: {
       threadId: "thread_1",
@@ -220,19 +260,37 @@ describe("ThreadComposer dictation", () => {
     document.documentElement.dataset.codexWindowType = "electron";
     installWindowApi({
       invoke: async (channel: string) => {
-        if (channel !== "codex:dictation:transcribe") return null;
-        transcribeCallCount += 1;
-        return transcribeResult;
+        if (channel === "codex:dictation:microphone-access:request") {
+          return { kind: "granted", status: "granted" };
+        }
+        if (channel === "codex:dictation:microphone-lease:acquire") return true;
+        if (channel === "codex:dictation:microphone-lease:release") return true;
+        if (channel === "codex:dictation:settings:read") {
+          return {
+            microphoneInputDeviceId: null,
+            keepGlobalBarVisible: false,
+            playStartSound: true,
+            playStopSound: true,
+            globalShortcutNudgeDismissed: false,
+          };
+        }
+        if (channel === "codex-command-keymap-state") return createCommandKeymapState();
+        if (channel === "codex:dictation:transcribe") {
+          transcribeCallCount += 1;
+          return transcribeResult;
+        }
+        return null;
       },
       on: () => () => {},
-      requestMicrophonePermission: () => {},
     });
 
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
       value: {
+        enumerateDevices: async () => [],
         getUserMedia: async () => ({
           getTracks: () => [{ stop: () => {} }],
+          getAudioTracks: () => [],
         }),
       },
     });
@@ -273,8 +331,16 @@ describe("ThreadComposer dictation", () => {
         dictation: {
           isEnabled: false,
           authMethod: null,
-          isRealtimeVoiceActive: false,
           shortcutLabel: "Ctrl+M",
+          capabilities: {
+            composer: false,
+            global: false,
+            history: true,
+            streaming: "unavailable",
+            semanticCleanup: false,
+            microphoneOwner: "none",
+            auth: "unsupported",
+          },
         },
       },
     });
@@ -288,8 +354,16 @@ describe("ThreadComposer dictation", () => {
         dictation: {
           isEnabled: true,
           authMethod: "chatgpt",
-          isRealtimeVoiceActive: true,
           shortcutLabel: "Ctrl+M",
+          capabilities: {
+            composer: true,
+            global: true,
+            history: true,
+            streaming: "available",
+            semanticCleanup: false,
+            microphoneOwner: "realtime-voice",
+            auth: "chatgpt",
+          },
         },
       },
     });
@@ -327,6 +401,7 @@ describe("ThreadComposer dictation", () => {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
       value: {
+        enumerateDevices: async () => [],
         getUserMedia: () =>
           new Promise<MediaStream>((resolve) => {
             resolveStream = resolve;
@@ -351,6 +426,7 @@ describe("ThreadComposer dictation", () => {
             },
           },
         ],
+        getAudioTracks: () => [],
       } as unknown as MediaStream);
       await Promise.resolve();
     });
@@ -382,6 +458,32 @@ describe("ThreadComposer dictation", () => {
       const editor = container.querySelector<HTMLElement>("[data-codex-composer='true']");
       expect(editor?.textContent ?? "").toBe("send me");
     });
+  });
+
+  test("releases a hold even when keyup moves into a blocked terminal target", async () => {
+    transcribeResult = "released safely";
+    const { container } = await renderThreadComposer();
+    const terminal = document.createElement("button");
+    terminal.dataset.codexTerminal = "true";
+    document.body.append(terminal);
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "m", ctrlKey: true });
+    });
+    await waitFor(() => {
+      expect(Boolean(document.querySelector('[aria-label="Stop dictation"]'))).toBe(true);
+    });
+    await act(async () => {
+      dictationNow += 260;
+      fireEvent.keyUp(terminal, { key: "m", ctrlKey: true });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const editor = container.querySelector<HTMLElement>("[data-codex-composer='true']");
+      expect(editor?.textContent ?? "").toBe("released safely");
+    });
+    terminal.remove();
   });
 
   test("sends the transcript on explicit send stop mode", async () => {

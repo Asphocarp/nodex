@@ -405,8 +405,16 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     dictation: {
       isEnabled: false,
       authMethod: "chatgpt",
-      isRealtimeVoiceActive: false,
       shortcutLabel: "Ctrl+M",
+      capabilities: {
+        composer: false,
+        global: false,
+        history: true,
+        streaming: "unavailable",
+        semanticCleanup: false,
+        microphoneOwner: "none",
+        auth: "chatgpt",
+      },
     },
     body: {
       threadId: "thread_1",

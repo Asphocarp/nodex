@@ -35,6 +35,10 @@ import type { ComposerPickedFile } from "../../../../../shared/ipc-api";
 import { DEFAULT_CODEX_HOST_ID } from "../../../../../shared/codex-host";
 import { dedupeCodexLiveFileAttachments } from "../../../../../shared/codex-live-file-attachments";
 import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
+import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
+import { resolveCommandShortcutPresentation } from "../../../../../shared/command-keybindings";
+import { consumeGlobalDictationShortcutNudge, openMicrophoneSettings } from "@/lib/api";
+import { dictationErrorMessage } from "@/features/dictation/dictation-errors";
 import {
   createPastedTextAttachment,
   readPastedTextAttachment,
@@ -2213,7 +2217,10 @@ function HydratedThreadComposer({
   const canStartNewThread = canStartNewThreadTarget(model);
   const [busyAction, setBusyAction] = useState<StageThreadsBusyAction>(null);
   const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
-  const [dictationToastMessage, setDictationToastMessage] = useState<string | null>(null);
+  const [dictationToast, setDictationToast] = useState<{
+    readonly message: string;
+    readonly action?: { readonly label: string; readonly run: () => void };
+  } | null>(null);
   const [fileAttachments, setFileAttachments] = useScopedAtom(composerFileAttachmentsAtom);
   const [addedFiles, setAddedFiles] = useScopedAtom(composerAddedFilesAtom);
   const [imageAttachments, setImageAttachments] = useScopedAtom(composerImageAttachmentsAtom);
@@ -2252,6 +2259,12 @@ function HydratedThreadComposer({
   const composerMountedRef = useRef(true);
   const [resumeAttemptGate] = useState(createInterruptedTurnResumeGate);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
+  const commandKeymapQuery = useCommandKeymapState();
+  const dictationShortcutPresentation = resolveCommandShortcutPresentation(
+    commandKeymapQuery.data,
+    "composerDictationHold",
+    "Ctrl+M",
+  );
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
   const imageEditComposerTarget = resolveImageEditComposerTarget({
     composerScopeIdentity: model.composerScopeIdentity,
@@ -3042,12 +3055,14 @@ function HydratedThreadComposer({
   const isDictationSupported = useMemo(
     () =>
       model.dictation.isEnabled &&
+      model.dictation.capabilities.composer &&
       isElectronLikeComposerEnvironment() &&
       typeof navigator !== "undefined" &&
       typeof navigator.mediaDevices?.getUserMedia === "function" &&
       typeof MediaRecorder !== "undefined",
-    [model.dictation.isEnabled],
+    [model.dictation.capabilities.composer, model.dictation.isEnabled],
   );
+  const isRealtimeVoiceActive = model.dictation.capabilities.microphoneOwner === "realtime-voice";
 
   const insertDictationTranscript = useCallback(
     (transcript: string): string => {
@@ -3261,9 +3276,36 @@ function HydratedThreadComposer({
     [addOrdinaryComposerFiles, browserImageDrag, handleBrowserImageDrop, imageAttachmentController],
   );
 
-  const showDictationToast = useCallback((message: string) => {
-    setDictationToastMessage(message);
-  }, []);
+  const showDictationToast = useCallback(
+    (message: string, action?: { readonly label: string; readonly run: () => void }) => {
+      setDictationToast({ message, action });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!model.dictation.capabilities.global || !commandKeymapQuery.data) return;
+    const hasGlobalShortcut = commandKeymapQuery.data.entries.some(
+      (entry) =>
+        (entry.id === "globalDictationHold" || entry.id === "globalDictationToggle") &&
+        entry.keybindings.length > 0,
+    );
+    if (hasGlobalShortcut) return;
+
+    let disposed = false;
+    void consumeGlobalDictationShortcutNudge()
+      .then((claimed) => {
+        if (!claimed) return;
+        if (disposed) return;
+        showDictationToast(
+          "Global dictation is ready. Add a hold or toggle shortcut in Voice settings.",
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [commandKeymapQuery.data, model.dictation.capabilities.global, showDictationToast]);
 
   const {
     isDictating,
@@ -3272,6 +3314,8 @@ function HydratedThreadComposer({
     waveformCanvasRef,
     startDictation,
     stopDictation,
+    retryDictation,
+    cancelDictation,
   } = useComposerDictation({
     enabled: isDictationSupported,
     onTranscriptInsert: (transcript) => {
@@ -3298,12 +3342,33 @@ function HydratedThreadComposer({
       }, 0);
     },
     onStartError: (error) => {
-      console.error("[composer-dictation:start]", error);
-      showDictationToast("Unable to start dictation");
+      console.error("[composer-dictation:start]", {
+        kind: error.kind,
+        operation: error.operation,
+        status: error.status,
+        nativeName: error.nativeName,
+      });
+      showDictationToast(
+        dictationErrorMessage(error),
+        error.kind === "microphone-permission-denied" || error.kind === "microphone-restricted"
+          ? {
+              label: "Open microphone settings",
+              run: () => void openMicrophoneSettings(),
+            }
+          : undefined,
+      );
     },
     onTranscribeError: (error) => {
-      console.error("[composer-dictation:transcribe]", error);
-      showDictationToast("Unable to transcribe audio");
+      console.error("[composer-dictation:transcribe]", {
+        kind: error.kind,
+        operation: error.operation,
+        status: error.status,
+        nativeName: error.nativeName,
+      });
+      showDictationToast(dictationErrorMessage(error), {
+        label: "Retry",
+        run: () => void retryDictation(),
+      });
     },
     onUnsupported: () => {
       showDictationToast("Dictation is not available on this device");
@@ -3315,17 +3380,17 @@ function HydratedThreadComposer({
   const stopDictationRef = useRef(stopDictation);
 
   useEffect(() => {
-    if (!dictationToastMessage) {
+    if (!dictationToast || dictationToast.action) {
       return;
     }
 
     const timeout = window.setTimeout(() => {
-      setDictationToastMessage(null);
+      setDictationToast(null);
     }, 4000);
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [dictationToastMessage]);
+  }, [dictationToast]);
 
   useEffect(() => {
     startDictationRef.current = startDictation;
@@ -3333,13 +3398,13 @@ function HydratedThreadComposer({
   }, [startDictation, stopDictation]);
 
   useEffect(() => {
-    if (!isDictationSupported || model.dictation.isRealtimeVoiceActive) {
+    if (!isDictationSupported || isRealtimeVoiceActive) {
       dictationShortcutActiveRef.current = false;
       return;
     }
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.repeat || !isComposerDictationShortcut(event)) {
+      if (event.repeat || !isComposerDictationShortcut(event, commandKeymapQuery.data)) {
         return;
       }
       if (isComposerDictationShortcutTargetBlocked(event.target)) {
@@ -3357,13 +3422,9 @@ function HydratedThreadComposer({
     };
 
     const handleKeyUp = (event: globalThis.KeyboardEvent) => {
-      if (!isComposerDictationShortcut(event)) {
+      if (!isComposerDictationShortcut(event, commandKeymapQuery.data)) {
         return;
       }
-      if (isComposerDictationShortcutTargetBlocked(event.target)) {
-        return;
-      }
-
       event.preventDefault();
       event.stopPropagation();
       if (!dictationShortcutActiveRef.current) {
@@ -3374,14 +3435,28 @@ function HydratedThreadComposer({
       stopDictationRef.current("insert");
     };
 
+    const releaseActiveShortcut = (): void => {
+      if (!dictationShortcutActiveRef.current) return;
+      dictationShortcutActiveRef.current = false;
+      stopDictationRef.current("insert");
+    };
+
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState !== "visible") releaseActiveShortcut();
+    };
+
     document.addEventListener("keydown", handleKeyDown, true);
     document.addEventListener("keyup", handleKeyUp, true);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", releaseActiveShortcut);
     return () => {
-      dictationShortcutActiveRef.current = false;
+      releaseActiveShortcut();
       document.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("keyup", handleKeyUp, true);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", releaseActiveShortcut);
     };
-  }, [isDictationSupported, model.dictation.isRealtimeVoiceActive]);
+  }, [commandKeymapQuery.data, isDictationSupported, isRealtimeVoiceActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4154,18 +4229,22 @@ function HydratedThreadComposer({
   const dictationControl = isDictationSupported ? (
     <NodexTooltip
       tooltipContent={<span className="text-token-foreground">Click to dictate or hold</span>}
-      shortcutLabel={model.dictation.shortcutLabel}
+      shortcutLabel={dictationShortcutPresentation?.label}
       side="top"
       sideOffset={4}
     >
       <button
         type="button"
         className="border-token-border no-drag cursor-interaction flex h-token-button-composer aspect-square items-center justify-center gap-1 rounded-full border border-transparent px-0 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none transition-colors duration-100 focus:outline-none enabled:hover:bg-token-list-hover-background enabled:hover:text-token-foreground disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
-        aria-label="Dictate"
+        aria-label={isTranscribing ? "Cancel dictation transcription" : "Dictate"}
         onClick={() => {
+          if (isTranscribing) {
+            cancelDictation();
+            return;
+          }
           void startDictation();
         }}
-        disabled={model.dictation.isRealtimeVoiceActive}
+        disabled={isRealtimeVoiceActive}
       >
         {isTranscribing ? (
           <ActivitySpinnerIcon className="icon-xs" />
@@ -4449,16 +4528,30 @@ function HydratedThreadComposer({
           onClose={closeSlashMenu}
           onBack={backFromNestedSlashMenu}
         />
-        {dictationToastMessage ? (
-          <NodexTooltip tooltipContent={dictationToastMessage}>
+        {dictationToast ? (
+          <div className="absolute inset-x-0 -top-10 z-20 mx-auto flex w-fit max-w-[min(32rem,100%)] items-center gap-2 rounded-full border border-(--destructive)/30 bg-(--destructive)/10 px-3 py-1 text-xs font-medium text-(--destructive)">
+            <span>{dictationToast.message}</span>
+            {dictationToast.action ? (
+              <button
+                type="button"
+                className="cursor-interaction shrink-0 underline underline-offset-2"
+                onClick={() => {
+                  dictationToast.action?.run();
+                  setDictationToast(null);
+                }}
+              >
+                {dictationToast.action.label}
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => setDictationToastMessage(null)}
-              className="absolute inset-x-0 -top-10 z-20 mx-auto inline-flex w-fit max-w-[min(24rem,100%)] items-center rounded-full border border-(--destructive)/30 bg-(--destructive)/10 px-3 py-1 text-xs font-medium text-(--destructive)"
+              aria-label="Dismiss dictation error"
+              className="cursor-interaction shrink-0 text-(--foreground-tertiary)"
+              onClick={() => setDictationToast(null)}
             >
-              {dictationToastMessage}
+              ×
             </button>
-          </NodexTooltip>
+          </div>
         ) : null}
         {showPlanKeywordSuggestion ? (
           <PlanKeywordSuggestion

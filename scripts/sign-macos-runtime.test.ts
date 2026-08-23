@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vite-plus/test";
 import {
+  applyMacCodeObjectEntitlementPolicy,
   applyMacSigningMode,
   isPreservedBrowserRuntimeVendorCode,
   refreshSignedAgentRuntimeMetadata,
@@ -54,6 +55,42 @@ describe("applyMacSigningMode", () => {
     expect(() => applyMacSigningMode(releaseOptions, "adhoc")).toThrow(
       "Unknown NODEX_MAC_SIGN_MODE: adhoc",
     );
+  });
+});
+
+describe("macOS code-object entitlement policy", () => {
+  const appPath = "/tmp/Nodex.app";
+  const policy = applyMacCodeObjectEntitlementPolicy({
+    app: appPath,
+    platform: "darwin",
+    optionsForFile: (filePath: string) => ({ entitlements: `${filePath}.entitlements` }),
+  });
+
+  test("preserves Electron entitlements only for the main runtime closure", () => {
+    const mainExecutable = path.join(appPath, "Contents/MacOS/Nodex");
+    const rendererHelper = path.join(
+      appPath,
+      "Contents/Frameworks/Nodex Helper (Renderer).app/Contents/MacOS/Nodex Helper (Renderer)",
+    );
+    expect(policy.optionsForFile(mainExecutable).entitlements).toBe(
+      `${mainExecutable}.entitlements`,
+    );
+    expect(policy.optionsForFile(rendererHelper).entitlements).toBe(
+      `${rendererHelper}.entitlements`,
+    );
+  });
+
+  test("replaces inherited Electron entitlements with an empty plist for native helpers", () => {
+    for (const nativePath of [
+      path.join(appPath, "Contents/Resources/bin/nodex-dictation-helper"),
+      path.join(
+        appPath,
+        "Contents/Resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node",
+      ),
+      path.join(appPath, "Contents/Helpers/Nodex Service.app/Contents/MacOS/nodex-service"),
+    ]) {
+      expect(policy.optionsForFile(nativePath).entitlements).toEqual([]);
+    }
   });
 });
 

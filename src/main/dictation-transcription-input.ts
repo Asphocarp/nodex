@@ -3,6 +3,7 @@ import { MAX_MANAGED_RESOURCE_BYTES } from "../shared/managed-assets";
 export interface DictationTranscriptionInput {
   readonly contentType: string;
   readonly base64Payload: string;
+  readonly requestId: string;
 }
 
 const MULTIPART_CONTENT_TYPE = /^multipart\/form-data;\s*boundary=[^;\s]+$/iu;
@@ -33,5 +34,10 @@ export function validateDictationTranscriptionInput(
     throw new Error("Invalid or oversized dictation payload");
   }
 
-  return { contentType, base64Payload };
+  const requestId = candidate.requestId;
+  if (typeof requestId !== "string" || !/^[0-9a-f-]{36}$/iu.test(requestId)) {
+    throw new Error("Invalid dictation request id");
+  }
+
+  return { contentType, base64Payload, requestId };
 }
