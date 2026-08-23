@@ -88,6 +88,10 @@ describe("Effect architecture boundaries", () => {
     expect(codes("src/main/worktree-worker/stdio-entry.ts", "node-runtime.ts")).toEqual([]);
     expect(codes("scripts/codex-probe-session.ts", "node-runtime.ts")).toEqual([]);
     expect(codes("scripts/dev-launcher.ts", "run-promise.ts")).toEqual([]);
+    expect(codes("src/main/data-authority.integration.ts", "run-promise.ts")).toEqual([]);
+    expect(
+      codes("scripts/scenarios/adapters/core-client-seed-runtime.ts", "run-promise.ts"),
+    ).toEqual([]);
     expect(codes("src/main/app/MainEntry.test.ts", "run-promise.ts")).toEqual([]);
     expect(
       codes("src/main/core-runtime/ProjectionLiveRuntime.ts", "callback-unsafe-ingress.ts"),

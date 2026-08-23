@@ -4,6 +4,11 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vite-plus/test";
+import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as Y from "yjs";
 
 import { initializeStandaloneDataAuthority } from "./core-client/standalone-data-authority";
@@ -15,11 +20,9 @@ import {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
 } from "./core-client/database-module-adapter";
-import { createDesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import { createDesktopProjectWorkspaceBridge } from "./core-client/desktop-project-workspace-bridge";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
-import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
@@ -30,9 +33,105 @@ import { parseDataSourcePropertyId } from "../shared/database-identities";
 import { NODEX_APP_TOOL_NAMESPACE, NODEX_APP_TOOLSET_REVISION } from "../shared/nodex-agent-tools";
 import { CreatePagesV6OutputSchema } from "../shared/nodex-agent-tools/v6-schemas";
 import { primaryCanvasDocumentId, type CanvasSceneRealtimeEvent } from "../shared/block-documents";
+import {
+  CoreAuthority,
+  CoreSessionAccess,
+  type CoreAuthorityState,
+} from "./core-runtime/CoreAuthority";
+import { CoreModules, live as coreModulesLive } from "./core-runtime/CoreModules";
+import { DatabaseModule, live as databaseModuleLive } from "./database-application/DatabaseModule";
+import {
+  NodexAgentApplication,
+  live as nodexAgentApplicationLive,
+} from "./nodex-agent-application/NodexAgentApplication";
+import {
+  NodexAgentDynamicTools,
+  live as nodexAgentDynamicToolsLive,
+} from "./nodex-agent-application/NodexAgentDynamicTools";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
+
+const withFinalDataApplications = <A, E>(
+  runtime: RustDataAuthorityRuntime,
+  use: (services: {
+    readonly database: DatabaseModule["Service"];
+    readonly dynamicTools: NodexAgentDynamicTools["Service"];
+  }) => Effect.Effect<A, E>,
+): Promise<A> => {
+  const access = CoreSessionAccess.of({
+    handshake: Effect.succeed(runtime.rootClient.handshake),
+    use: (_operation, operation, options) =>
+      Effect.promise((signal) =>
+        operation(
+          options?.projectId ? runtime.clientForProject(options.projectId) : runtime.rootClient,
+          signal,
+        ),
+      ),
+  });
+  const accessLayer = Layer.succeed(CoreSessionAccess, access);
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const state = yield* SubscriptionRef.make<CoreAuthorityState>({
+          kind: "ready" as const,
+          generation: runtime.rootClient.handshake.generation.start_nonce,
+        });
+        const authority = CoreAuthority.of({
+          identity: runtime.identity,
+          initialLaunch: {
+            executablePath: runtime.launch.executablePath,
+            startedProcessId: runtime.launch.startedProcessId,
+            timings: runtime.launch.timings,
+          },
+          state,
+          retry: Effect.void,
+          requestRelaunch: Effect.void,
+        });
+        const authorityLayer = Layer.succeed(CoreAuthority, authority);
+        const coreContext = yield* Layer.build(coreModulesLive.pipe(Layer.provide(accessLayer)));
+        const core = Context.get(coreContext, CoreModules);
+        const databaseContext = yield* Layer.build(
+          databaseModuleLive.pipe(Layer.provide(Layer.merge(authorityLayer, accessLayer))),
+        );
+        const database = Context.get(databaseContext, DatabaseModule);
+        const agentContext = yield* Layer.build(
+          nodexAgentApplicationLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                authorityLayer,
+                accessLayer,
+                Layer.succeed(CoreModules, core),
+                Layer.succeed(DatabaseModule, database),
+              ),
+            ),
+          ),
+        );
+        const agent = Context.get(agentContext, NodexAgentApplication);
+        const dynamicToolsContext = yield* Layer.build(
+          nodexAgentDynamicToolsLive.pipe(
+            Layer.provide(Layer.succeed(NodexAgentApplication, agent)),
+          ),
+        );
+        return yield* use({
+          database,
+          dynamicTools: Context.get(dynamicToolsContext, NodexAgentDynamicTools),
+        });
+      }),
+    ),
+  );
+};
+
+const parseDynamicToolOutput = (response: DynamicToolCallResponse): unknown => {
+  if (!response.success) {
+    throw new Error(`Nodex dynamic tool failed: ${JSON.stringify(response.contentItems)}`);
+  }
+  const item = response.contentItems[0];
+  if (item?.type !== "inputText") {
+    throw new Error("Nodex dynamic tool returned no JSON output");
+  }
+  return JSON.parse(item.text) as unknown;
+};
 
 const waitUntil = async (predicate: () => boolean, message: string): Promise<void> => {
   const deadline = Date.now() + 5_000;
@@ -78,7 +177,8 @@ describe("Electron native data authority", () => {
       });
       expect(selected.backend).toBe("rust");
       if (selected.backend !== "rust") throw new Error("Expected Rust authority");
-      runtime = selected;
+      const authorityRuntime = selected;
+      runtime = authorityRuntime;
 
       const databasePath = path.join(nodexHome, "nodex.db");
       expect(existsSync(databasePath)).toBe(true);
@@ -789,50 +889,69 @@ describe("Electron native data authority", () => {
         finalLocationRevisions: { [copiedDataSourcePageId]: 2 },
         affectedDatabaseBlockIds: [primaryDatabase.database.databaseId],
       });
-      const desktopDatabase = createDesktopDatabaseModuleBridge({
-        authority: Promise.resolve(runtime),
-      });
-      const nativeAgentService = createDesktopNodexAgentV3DynamicService({
-        authority: Promise.resolve(runtime),
-        projectWorkspace: desktopWorkspace,
-        databaseModule: desktopDatabase,
-      });
-      const nativeAgentContext = await nativeAgentService.registry.execute(
-        {
-          namespace: NODEX_APP_TOOL_NAMESPACE,
-          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-          tool: "get_context",
-        },
-        {
-          include: { databases: true },
-        },
-        {
-          threadId: "thread-native-context",
-          callId: "call-native-context",
-          authority: {
-            threadId: "thread-native-context",
-            turnId: "turn-native-context",
-            rootThreadId: "thread-native-context",
-            actorProjectId: projectId,
-            libraryId: runtime.rootClient.handshake.library_id,
-            storeEpoch: runtime.rootClient.handshake.store_epoch,
-            scope: "project",
-            source: "project_turn",
-          },
-          access: {
-            read: "allowed",
-            write: "consent_required",
-            domains: ["document", "placement", "database"] as (
-              | "document"
-              | "placement"
-              | "database"
-            )[],
-          },
-          resolveResourceAccess: async () => ({ kind: "authorized" }),
-          authorize: async () => "deny",
-        },
+      const finalApplications = await withFinalDataApplications(
+        authorityRuntime,
+        ({ database: databaseApplication, dynamicTools }) =>
+          Effect.gen(function* () {
+            const agentContext = yield* dynamicTools.execute(
+              {
+                threadId: "thread-native-context",
+                turnId: "turn-native-context",
+                callId: "call-native-context",
+                namespace: NODEX_APP_TOOL_NAMESPACE,
+                tool: "get_context",
+                arguments: { include: { databases: true } },
+              },
+              {
+                toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+                authority: {
+                  threadId: "thread-native-context",
+                  turnId: "turn-native-context",
+                  rootThreadId: "thread-native-context",
+                  actorProjectId: projectId,
+                  libraryId: authorityRuntime.rootClient.handshake.library_id,
+                  storeEpoch: authorityRuntime.rootClient.handshake.store_epoch,
+                  scope: "project",
+                  source: "project_turn",
+                },
+                access: {
+                  read: "allowed",
+                  write: "consent_required",
+                  domains: ["document", "placement", "database"],
+                },
+                resolveResourceAccess: () => Effect.succeed({ kind: "authorized" }),
+                authorize: () => Effect.succeed("deny"),
+              },
+            );
+            const nativeWindow = yield* databaseApplication.viewWindow(
+              { kind: "project", projectId },
+              { first: 200 },
+            );
+            const scopedWindow = yield* databaseApplication.viewWindow(
+              { kind: "project", projectId },
+              {
+                first: 200,
+                groupScope: { kind: "path", groupKey: "ship", subgroupKey: null },
+              },
+            );
+            const nativeGroups = yield* databaseApplication.viewGroups(
+              { kind: "project", projectId },
+              {},
+            );
+            const row = yield* databaseApplication.readRowPage({
+              projectId,
+              pageId: copiedDataSourcePageId,
+              status: "ship",
+            });
+            return { agentContext, nativeWindow, scopedWindow, nativeGroups, row };
+          }),
       );
-      expect(nativeAgentContext.output).toMatchObject({
+      expect(finalApplications.agentContext.success).toBe(true);
+      const agentContextItem = finalApplications.agentContext.contentItems[0];
+      const nativeAgentContext = JSON.parse(
+        agentContextItem?.type === "inputText" ? agentContextItem.text : "null",
+      ) as unknown;
+      expect(nativeAgentContext).toMatchObject({
         data: {
           project: {
             projectId,
@@ -846,7 +965,7 @@ describe("Electron native data authority", () => {
           ]),
         },
       });
-      const nativeWindow = await desktopDatabase.getDatabaseViewWindow(projectId, { first: 200 });
+      const { nativeWindow, scopedWindow, nativeGroups } = finalApplications;
       expect(nativeWindow.board.columns.find((column) => column.id === "ship")?.cards).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -856,21 +975,14 @@ describe("Electron native data authority", () => {
           }),
         ]),
       );
-      const scopedWindow = await desktopDatabase.getDatabaseViewWindow(projectId, {
-        first: 200,
-        groupScope: { kind: "path", groupKey: "ship", subgroupKey: null },
-      });
       expect(scopedWindow.rows.length).toBeGreaterThan(0);
       expect(scopedWindow.rows.every((row) => row.groupKey === "ship")).toBe(true);
-      const nativeGroups = await desktopDatabase.getDatabaseViewGroups(projectId, {});
       expect(nativeGroups.grouped).toBe(true);
       expect(nativeGroups.totalRows).toBeGreaterThan(0);
       expect(nativeGroups.groups.find((group) => group.groupKey === "ship")?.totalRows).toBe(
         scopedWindow.rows.length,
       );
-      await expect(
-        desktopDatabase.getDatabaseRowPage(projectId, copiedDataSourcePageId, "ship"),
-      ).resolves.toMatchObject({
+      expect(finalApplications.row).toMatchObject({
         id: copiedDataSourcePageId,
         status: "ship",
         order: 1,
@@ -1038,7 +1150,13 @@ describe("Electron native data authority", () => {
       });
       if (!archived.ok) throw new Error(archived.error.message);
       await expect(
-        desktopDatabase.getDatabaseRowPage(projectId, copiedDataSourcePageId, "ship"),
+        withFinalDataApplications(authorityRuntime, ({ database }) =>
+          database.readRowPage({
+            projectId,
+            pageId: copiedDataSourcePageId,
+            status: "ship",
+          }),
+        ),
       ).resolves.toMatchObject({ archived: true });
       const unarchived = await lifecycleLibrary.applyPageLifecycleMutation({
         ...lifecycleRequestBase,
@@ -1134,39 +1252,14 @@ describe("Electron native data authority", () => {
         throw new Error("Restored Page has no durable parent or membership revision");
       }
       await expect(
-        desktopDatabase.getDatabaseRowPage(projectId, copiedDataSourcePageId, "ship"),
-      ).resolves.toMatchObject({ archived: false });
-      await expect(
-        desktopDatabase.resolveDatabaseViewReference({
-          accessContext: { kind: "project", projectId },
-          databaseViewId: primaryView.viewId,
-          hostBlockId: copiedDataSourcePageId,
-        }),
-      ).resolves.toMatchObject({
-        view: {
-          id: primaryView.viewId,
-          databaseBlockId: primaryDatabase.database.databaseId,
-          projectId,
-          isPrimary: true,
-        },
-        rows: expect.not.arrayContaining([
-          expect.objectContaining({
-            page: expect.objectContaining({ id: copiedDataSourcePageId }),
+        withFinalDataApplications(authorityRuntime, ({ database }) =>
+          database.readRowPage({
+            projectId,
+            pageId: copiedDataSourcePageId,
+            status: "ship",
           }),
-        ]),
-      });
-      await expect(
-        desktopDatabase.resolveDatabaseViewReference({
-          accessContext: { kind: "library" },
-          databaseViewId: primaryView.viewId,
-          hostBlockId: copiedDataSourcePageId,
-        }),
-      ).resolves.toMatchObject({
-        view: {
-          id: primaryView.viewId,
-          projectId: null,
-        },
-      });
+        ),
+      ).resolves.toMatchObject({ archived: false });
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const moveDataSourcePageToLibraryIntent = {
         ...transferIntent,
@@ -1802,8 +1895,7 @@ describe("Electron native data authority", () => {
         }),
       ).resolves.toEqual({ kind: "authorized" });
       const nativeDuplicateContext = {
-        threadId: frozenAuthority.threadId,
-        callId: "call:electron-native-duplicate",
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
         authority: frozenAuthority,
         access: {
           read: "allowed" as const,
@@ -1814,27 +1906,26 @@ describe("Electron native data authority", () => {
             | "database"
           )[],
         },
-        resolveResourceAccess: async (
-          intents: Parameters<typeof agentResources.plan>[0]["intents"],
-        ) =>
-          await agentResources.plan({
-            authority: frozenAuthority,
-            callId: "call:electron-native-duplicate",
-            intents,
-          }),
-        authorize: async () => "deny" as const,
+        resolveResourceAccess: (intents: Parameters<typeof agentResources.plan>[0]["intents"]) =>
+          Effect.promise(() =>
+            agentResources.plan({
+              authority: frozenAuthority,
+              callId: "call:electron-native-duplicate",
+              intents,
+            }),
+          ),
+        authorize: () => Effect.succeed("deny" as const),
       };
       const nativeCreateContext = {
         ...nativeDuplicateContext,
-        callId: "call:electron-native-create-pages",
-        resolveResourceAccess: async (
-          intents: Parameters<typeof agentResources.plan>[0]["intents"],
-        ) =>
-          await agentResources.plan({
-            authority: frozenAuthority,
-            callId: "call:electron-native-create-pages",
-            intents,
-          }),
+        resolveResourceAccess: (intents: Parameters<typeof agentResources.plan>[0]["intents"]) =>
+          Effect.promise(() =>
+            agentResources.plan({
+              authority: frozenAuthority,
+              callId: "call:electron-native-create-pages",
+              intents,
+            }),
+          ),
       };
       const nativeCreateInput = {
         destination: {
@@ -1854,67 +1945,78 @@ describe("Electron native data authority", () => {
         ],
         return: ["block_ids" as const, "etags" as const],
       };
-      const nativeCreated = await nativeAgentService.registry.execute(
-        {
-          namespace: NODEX_APP_TOOL_NAMESPACE,
-          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-          tool: "create_pages",
-        },
-        nativeCreateInput,
-        nativeCreateContext,
+      const nativeCreated = CreatePagesV6OutputSchema.parse(
+        parseDynamicToolOutput(
+          await withFinalDataApplications(authorityRuntime, ({ dynamicTools }) =>
+            dynamicTools.execute(
+              {
+                threadId: frozenAuthority.threadId,
+                turnId: frozenAuthority.turnId,
+                callId: "call:electron-native-create-pages",
+                namespace: NODEX_APP_TOOL_NAMESPACE,
+                tool: "create_pages",
+                arguments: nativeCreateInput,
+              },
+              nativeCreateContext,
+            ),
+          ),
+        ),
       );
       expect(nativeCreated).toMatchObject({
-        effect: "write",
-        output: {
-          data: {
-            created: 2,
-            pages: [
-              {
-                pageId: expect.any(String),
-                location: { kind: "page", pageId: copiedDataSourcePageId },
-                bodyBlocksCreated: 1,
-                blockIds: [expect.any(String)],
-                etags: {
-                  title: expect.stringMatching(/^nxe1\./u),
-                  body: expect.stringMatching(/^nxe1\./u),
-                },
+        data: {
+          created: 2,
+          pages: [
+            {
+              pageId: expect.any(String),
+              location: { kind: "page", pageId: copiedDataSourcePageId },
+              bodyBlocksCreated: 1,
+              blockIds: [expect.any(String)],
+              etags: {
+                title: expect.stringMatching(/^nxe1\./u),
+                body: expect.stringMatching(/^nxe1\./u),
               },
-              {
-                pageId: expect.any(String),
-                location: { kind: "page", pageId: copiedDataSourcePageId },
-                bodyBlocksCreated: 1,
-                blockIds: [expect.any(String)],
-                etags: {
-                  title: expect.stringMatching(/^nxe1\./u),
-                  body: expect.stringMatching(/^nxe1\./u),
-                },
+            },
+            {
+              pageId: expect.any(String),
+              location: { kind: "page", pageId: copiedDataSourcePageId },
+              bodyBlocksCreated: 1,
+              blockIds: [expect.any(String)],
+              etags: {
+                title: expect.stringMatching(/^nxe1\./u),
+                body: expect.stringMatching(/^nxe1\./u),
               },
-            ],
-          },
+            },
+          ],
         },
       });
-      await expect(
-        nativeAgentService.registry.execute(
-          {
-            namespace: NODEX_APP_TOOL_NAMESPACE,
-            toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-            tool: "create_pages",
-          },
-          nativeCreateInput,
-          nativeCreateContext,
+      const nativeCreatedReplay = CreatePagesV6OutputSchema.parse(
+        parseDynamicToolOutput(
+          await withFinalDataApplications(authorityRuntime, ({ dynamicTools }) =>
+            dynamicTools.execute(
+              {
+                threadId: frozenAuthority.threadId,
+                turnId: frozenAuthority.turnId,
+                callId: "call:electron-native-create-pages",
+                namespace: NODEX_APP_TOOL_NAMESPACE,
+                tool: "create_pages",
+                arguments: nativeCreateInput,
+              },
+              nativeCreateContext,
+            ),
+          ),
         ),
-      ).resolves.toEqual(nativeCreated);
+      );
+      expect(nativeCreatedReplay).toEqual(nativeCreated);
       const nativeMoveContext = {
         ...nativeDuplicateContext,
-        callId: "call:electron-native-move-pages",
-        resolveResourceAccess: async (
-          intents: Parameters<typeof agentResources.plan>[0]["intents"],
-        ) =>
-          await agentResources.plan({
-            authority: frozenAuthority,
-            callId: "call:electron-native-move-pages",
-            intents,
-          }),
+        resolveResourceAccess: (intents: Parameters<typeof agentResources.plan>[0]["intents"]) =>
+          Effect.promise(() =>
+            agentResources.plan({
+              authority: frozenAuthority,
+              callId: "call:electron-native-move-pages",
+              intents,
+            }),
+          ),
       };
       const moveTargetConsent = await agentResources.plan({
         authority: frozenAuthority,
@@ -1935,9 +2037,7 @@ describe("Electron native data authority", () => {
       } else if (moveTargetConsent.kind !== "authorized") {
         throw new Error("Native Agent Page-move target was not grantable");
       }
-      const createdPageIds = CreatePagesV6OutputSchema.parse(nativeCreated.output)
-        .data.pages.map((page) => page.pageId)
-        .reverse();
+      const createdPageIds = nativeCreated.data.pages.map((page) => page.pageId).reverse();
       const nativeMoveInput = {
         pageIds: createdPageIds,
         destination: {
@@ -1946,44 +2046,52 @@ describe("Electron native data authority", () => {
           at: { kind: "start" as const },
         },
       };
-      const nativeMoved = await nativeAgentService.registry.execute(
-        {
-          namespace: NODEX_APP_TOOL_NAMESPACE,
-          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-          tool: "move_pages",
-        },
-        nativeMoveInput,
-        nativeMoveContext,
+      const nativeMoved = parseDynamicToolOutput(
+        await withFinalDataApplications(authorityRuntime, ({ dynamicTools }) =>
+          dynamicTools.execute(
+            {
+              threadId: frozenAuthority.threadId,
+              turnId: frozenAuthority.turnId,
+              callId: "call:electron-native-move-pages",
+              namespace: NODEX_APP_TOOL_NAMESPACE,
+              tool: "move_pages",
+              arguments: nativeMoveInput,
+            },
+            nativeMoveContext,
+          ),
+        ),
       );
       expect(nativeMoved).toMatchObject({
-        effect: "write",
-        output: {
-          data: {
-            moved: 2,
-            pages: [
-              {
-                pageId: createdPageIds[0],
-                location: { kind: "page", pageId: nativeContentBlockId },
-              },
-              {
-                pageId: createdPageIds[1],
-                location: { kind: "page", pageId: nativeContentBlockId },
-              },
-            ],
-          },
+        data: {
+          moved: 2,
+          pages: [
+            {
+              pageId: createdPageIds[0],
+              location: { kind: "page", pageId: nativeContentBlockId },
+            },
+            {
+              pageId: createdPageIds[1],
+              location: { kind: "page", pageId: nativeContentBlockId },
+            },
+          ],
         },
       });
-      await expect(
-        nativeAgentService.registry.execute(
-          {
-            namespace: NODEX_APP_TOOL_NAMESPACE,
-            toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-            tool: "move_pages",
-          },
-          nativeMoveInput,
-          nativeMoveContext,
+      const nativeMovedReplay = parseDynamicToolOutput(
+        await withFinalDataApplications(authorityRuntime, ({ dynamicTools }) =>
+          dynamicTools.execute(
+            {
+              threadId: frozenAuthority.threadId,
+              turnId: frozenAuthority.turnId,
+              callId: "call:electron-native-move-pages",
+              namespace: NODEX_APP_TOOL_NAMESPACE,
+              tool: "move_pages",
+              arguments: nativeMoveInput,
+            },
+            nativeMoveContext,
+          ),
         ),
-      ).resolves.toEqual(nativeMoved);
+      );
+      expect(nativeMovedReplay).toEqual(nativeMoved);
       const nativeDuplicateInput = {
         pageId: copiedDataSourcePageId,
         destination: {
@@ -1993,44 +2101,52 @@ describe("Electron native data authority", () => {
         },
         return: ["block_map" as const, "etags" as const],
       };
-      const nativeDuplicate = await nativeAgentService.registry.execute(
-        {
-          namespace: NODEX_APP_TOOL_NAMESPACE,
-          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-          tool: "duplicate_page",
-        },
-        nativeDuplicateInput,
-        nativeDuplicateContext,
+      const nativeDuplicate = parseDynamicToolOutput(
+        await withFinalDataApplications(authorityRuntime, ({ dynamicTools }) =>
+          dynamicTools.execute(
+            {
+              threadId: frozenAuthority.threadId,
+              turnId: frozenAuthority.turnId,
+              callId: "call:electron-native-duplicate",
+              namespace: NODEX_APP_TOOL_NAMESPACE,
+              tool: "duplicate_page",
+              arguments: nativeDuplicateInput,
+            },
+            nativeDuplicateContext,
+          ),
+        ),
       );
       expect(nativeDuplicate).toMatchObject({
-        effect: "write",
-        output: {
-          data: {
-            sourcePageId: copiedDataSourcePageId,
-            pageId: expect.any(String),
-            location: { kind: "page", pageId: copiedDataSourcePageId },
-            bodyBlocksCreated: expect.any(Number),
-            blockMap: expect.objectContaining({
-              [copiedDataSourcePageId]: expect.any(String),
-            }),
-            etags: {
-              title: expect.stringMatching(/^nxe1\./u),
-              body: expect.stringMatching(/^nxe1\./u),
-            },
+        data: {
+          sourcePageId: copiedDataSourcePageId,
+          pageId: expect.any(String),
+          location: { kind: "page", pageId: copiedDataSourcePageId },
+          bodyBlocksCreated: expect.any(Number),
+          blockMap: expect.objectContaining({
+            [copiedDataSourcePageId]: expect.any(String),
+          }),
+          etags: {
+            title: expect.stringMatching(/^nxe1\./u),
+            body: expect.stringMatching(/^nxe1\./u),
           },
         },
       });
-      await expect(
-        nativeAgentService.registry.execute(
-          {
-            namespace: NODEX_APP_TOOL_NAMESPACE,
-            toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-            tool: "duplicate_page",
-          },
-          nativeDuplicateInput,
-          nativeDuplicateContext,
+      const nativeDuplicateReplay = parseDynamicToolOutput(
+        await withFinalDataApplications(authorityRuntime, ({ dynamicTools }) =>
+          dynamicTools.execute(
+            {
+              threadId: frozenAuthority.threadId,
+              turnId: frozenAuthority.turnId,
+              callId: "call:electron-native-duplicate",
+              namespace: NODEX_APP_TOOL_NAMESPACE,
+              tool: "duplicate_page",
+              arguments: nativeDuplicateInput,
+            },
+            nativeDuplicateContext,
+          ),
         ),
-      ).resolves.toEqual(nativeDuplicate);
+      );
+      expect(nativeDuplicateReplay).toEqual(nativeDuplicate);
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];

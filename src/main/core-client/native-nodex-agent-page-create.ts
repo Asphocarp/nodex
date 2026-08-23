@@ -10,7 +10,6 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { CreatePagesV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { CreateInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
-import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
@@ -22,14 +21,15 @@ import {
   toCoreAgentPageDestination,
 } from "./native-nodex-agent-page-destination";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
-import type { NativeNodexAgentMutationStep } from "./native-nodex-agent-mutation-step";
+import type {
+  NativeNodexAgentMutationStep,
+  NodexAgentMutationEnvelope,
+} from "./native-nodex-agent-mutation-step";
 import { applyResultCursor } from "./types";
 
 export type CoreCreateRequest = components["schemas"]["LibraryAgentCreatePagesRequest"];
 export type CoreCreateResult = components["schemas"]["LibraryAgentCreatePagesResult"];
 export type CoreCreatePreparation = components["schemas"]["LibraryAgentCreatePagesPreparation"];
-
-const MAX_PENDING_NATIVE_PAGE_CREATES = 1_024;
 
 export interface PendingNativePageCreate {
   readonly request: PrepareNodexAgentCreatePagesRequest;
@@ -355,52 +355,3 @@ export const executeNativeNodexAgentPageCreate = async (
     };
   }
 };
-
-export class NativeNodexAgentPageCreateRuntime {
-  private readonly pending = new Map<string, PendingNativePageCreate>();
-
-  constructor(private readonly runtime: RustDataAuthorityRuntime) {}
-
-  async prepare(
-    request: PrepareNodexAgentCreatePagesRequest,
-  ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentCreatePagesResult>> {
-    const step = await prepareNativeNodexAgentPageCreate(this.runtime, request);
-    if (step.transition.kind === "clear") {
-      this.pending.delete(step.transition.operationId);
-    } else if (step.transition.kind === "retain") {
-      const pending = step.transition.pending;
-      if (
-        !this.pending.has(pending.operationId) &&
-        this.pending.size >= MAX_PENDING_NATIVE_PAGE_CREATES
-      ) {
-        return envelope(
-          {
-            ok: false,
-            error: mapNativeNodexAgentCoreError(
-              new Error("Native Agent Page-create preparation capacity is exhausted"),
-            ),
-          },
-          pending.operationId,
-        );
-      }
-      this.pending.set(pending.operationId, pending);
-    }
-    return step.result;
-  }
-
-  async execute(
-    command: NodexAgentCreatePagesCommand,
-    documentHeads: readonly NodexAgentDocumentHead[],
-  ): Promise<ExecuteNodexAgentCreatePagesResult> {
-    const step = await executeNativeNodexAgentPageCreate(
-      this.runtime,
-      this.pending.get(command.mutationId),
-      command,
-      documentHeads,
-    );
-    if (step.transition.kind === "clear") {
-      this.pending.delete(step.transition.operationId);
-    }
-    return step.result;
-  }
-}

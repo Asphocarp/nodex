@@ -18,7 +18,7 @@ import {
   type NodexAgentResourceGrantSpec,
   type PersistNodexAgentProjectResourceGrantsInput,
 } from "../../shared/nodex-agent-resource-access";
-import type { NodexAgentDynamicAuthorizationInput } from "../agent-tools/dynamic-service-core";
+import type { NodexAgentDynamicAuthorizationInput } from "../nodex-agent-application/NodexAgentDynamicPolicy";
 import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 
 export type NodexAgentAuthorizationOutcome =

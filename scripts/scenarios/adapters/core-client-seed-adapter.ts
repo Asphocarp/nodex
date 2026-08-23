@@ -2,7 +2,6 @@ import {
   createCoreDocumentSyncAdapter,
   createCoreLibraryModuleAdapter,
   createCoreProjectWorkspaceAdapter,
-  createDesktopDatabaseModuleBridge,
   type RustDataAuthorityRuntime,
 } from "../../../src/main/core-client";
 import { compilePageLifecycleRequestV2 } from "../../../src/shared/page-lifecycle-v2-runtime";
@@ -19,7 +18,9 @@ import { normalizeScenarioBoardGroups } from "./normalize-board-groups";
 import {
   ensurePrimaryDataSourcePropertyCount,
   readPrimaryDataSourcePropertyCount,
+  type ScenarioDatabasePort,
 } from "../seed/primary-data-source-properties";
+import { runScenarioDatabase } from "./core-client-seed-runtime";
 
 const requireSuccess = <Value>(
   result:
@@ -37,16 +38,12 @@ const requireSuccess = <Value>(
 export class CoreClientSeedAdapter implements ScenarioSeedPort {
   readonly #runtime: RustDataAuthorityRuntime;
   readonly #workspace;
-  readonly #database;
   readonly #libraryIdsByProject = new Map<string, string>();
   #bootstrap: Promise<void> | null = null;
 
   constructor(runtime: RustDataAuthorityRuntime) {
     this.#runtime = runtime;
     this.#workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);
-    this.#database = createDesktopDatabaseModuleBridge({
-      authority: Promise.resolve(runtime),
-    });
   }
 
   async createProject(input: ProjectCreateInput): Promise<Project> {
@@ -85,11 +82,11 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     projectId: string,
     count: number,
   ): Promise<{ readonly commitSeq: number; readonly propertyCount: number }> {
-    return await ensurePrimaryDataSourcePropertyCount(this.#database, projectId, count);
+    return await ensurePrimaryDataSourcePropertyCount(this.#databasePort(), projectId, count);
   }
 
   async readPrimaryDataSourcePropertyCount(projectId: string): Promise<number> {
-    return await readPrimaryDataSourcePropertyCount(this.#database, projectId);
+    return await readPrimaryDataSourcePropertyCount(this.#databasePort(), projectId);
   }
 
   async replaceOwnedDocument(
@@ -146,10 +143,15 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     databaseViewId: string,
     minimumCommitSeq?: number,
   ): Promise<ScenarioBoardObservation> {
-    const snapshot = await this.#database.getDatabaseViewGroups(projectId, {
-      databaseViewId,
-      ...(minimumCommitSeq === undefined ? {} : { minimumCommitSeq }),
-    });
+    const snapshot = await runScenarioDatabase(this.#runtime, (database) =>
+      database.viewGroups(
+        { kind: "project", projectId },
+        {
+          databaseViewId,
+          ...(minimumCommitSeq === undefined ? {} : { minimumCommitSeq }),
+        },
+      ),
+    );
     const groups = normalizeScenarioBoardGroups(snapshot);
     return { totalRows: snapshot.totalRows, commitSeq: snapshot.commitSeq, groups };
   }
@@ -165,6 +167,13 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
       profileId: this.#runtime.identity.profileId,
       storeEpoch: this.#runtime.identity.storeEpoch,
     });
+  }
+
+  #databasePort(): ScenarioDatabasePort {
+    return {
+      read: (request) => runScenarioDatabase(this.#runtime, (database) => database.read(request)),
+      apply: (request) => runScenarioDatabase(this.#runtime, (database) => database.apply(request)),
+    };
   }
 
   async #ensureInitialProject(sourceRoot?: string): Promise<void> {

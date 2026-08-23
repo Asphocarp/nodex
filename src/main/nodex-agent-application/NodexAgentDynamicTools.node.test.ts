@@ -1,13 +1,22 @@
 import { assert, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   CreatePagesV3InputSchema,
   CreatePagesV6OutputSchema,
+  NODEX_APP_TOOLSET_REVISION,
   type NodexAgentCreatePagesCommand,
 } from "../../shared/nodex-agent-tools";
 import type { NodexAgentDynamicExecutionContext } from "./NodexAgentDynamicPolicy";
 import { NodexAgentApplication } from "./NodexAgentApplication";
 import { executeNodexAgentV3Tool } from "./NodexAgentDynamicExecution";
+import {
+  buildNodexAgentDynamicToolSpecs,
+  live,
+  NodexAgentDynamicTools,
+  type NodexAgentDynamicToolCallContext,
+} from "./NodexAgentDynamicTools";
 
 it.effect("authorizes a prepared Page creation before the canonical application commit", () =>
   Effect.gen(function* () {
@@ -181,3 +190,96 @@ it.effect("authorizes a prepared Page creation before the canonical application 
     assert.deepEqual(taskGrants, ["page-created"]);
   }),
 );
+
+it.effect("publishes and enforces the current Nodex tool catalog at the protocol boundary", () => {
+  const application = NodexAgentApplication.of({
+    read: () => Effect.die("catalog validation must not enter the application"),
+    completePageUpdate: () => Effect.die("catalog validation must not enter the application"),
+    prepare: () => Effect.die("catalog validation must not enter the application"),
+    apply: () => Effect.die("catalog validation must not enter the application"),
+  });
+  const policy: NodexAgentDynamicToolCallContext = {
+    toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+    authority: null,
+    access: {
+      read: "allowed",
+      write: "consent_required",
+      domains: ["document", "placement", "database"],
+    },
+    resolveResourceAccess: () => Effect.succeed({ kind: "authorized" as const }),
+    authorize: () => Effect.succeed("deny" as const),
+  };
+  const parseFailure = (response: {
+    readonly contentItems: readonly { readonly type: string; readonly text?: string }[];
+  }) => {
+    const item = response.contentItems[0];
+    return JSON.parse(item?.type === "inputText" ? (item.text ?? "null") : "null") as {
+      readonly error?: {
+        readonly code?: string;
+        readonly message?: string;
+        readonly recovery?: string;
+        readonly retryable?: boolean;
+      };
+    };
+  };
+
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const [catalog] = buildNodexAgentDynamicToolSpecs();
+      assert.strictEqual(catalog?.type, "namespace");
+      if (!catalog || catalog.type !== "namespace") return;
+      assert.deepEqual(
+        catalog.tools.map((tool) => tool.name),
+        [
+          "advanced_update_page",
+          "create_pages",
+          "duplicate_page",
+          "fetch",
+          "get_context",
+          "move_pages",
+          "query_data_source",
+          "query_database_view",
+          "search",
+          "update_page",
+        ],
+      );
+
+      const context = yield* Layer.build(
+        live.pipe(Layer.provide(Layer.succeed(NodexAgentApplication, application))),
+      );
+      const tools = Context.get(context, NodexAgentDynamicTools);
+      const stale = yield* tools.execute(
+        {
+          threadId: "thread:stale",
+          turnId: "turn:stale",
+          callId: "call:stale",
+          namespace: "nodex_app",
+          tool: "get_context",
+          arguments: {},
+        },
+        { ...policy, toolsetRevision: null },
+      );
+      assert.isFalse(stale.success);
+      assert.deepEqual(parseFailure(stale).error, {
+        code: "tool_catalog_stale",
+        message: "This task was not launched with the Nodex agent-tool catalog",
+        retryable: false,
+        recovery: "start_new_task",
+      });
+
+      const invalid = yield* tools.execute(
+        {
+          threadId: "thread:current",
+          turnId: "turn:current",
+          callId: "call:invalid",
+          namespace: "nodex_app",
+          tool: "fetch",
+          arguments: {},
+        },
+        policy,
+      );
+      assert.isFalse(invalid.success);
+      assert.strictEqual(parseFailure(invalid).error?.code, "invalid_arguments");
+    }),
+  );
+});

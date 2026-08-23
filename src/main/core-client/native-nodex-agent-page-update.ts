@@ -19,13 +19,12 @@ import {
   AgentDocumentEditCompilerError,
   applyExactNfmPatches,
 } from "../../shared/nodex-agent-tools/exact-nfm-patches";
-import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import { CoreModuleResponseError } from "./core-client";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import type {
   NativeNodexAgentMutationStep,
-  NativeNodexAgentMutationTransition,
+  NodexAgentMutationEnvelope,
 } from "./native-nodex-agent-mutation-step";
 import {
   applyResultCursor,
@@ -43,8 +42,6 @@ type CorePageContent = Extract<
   LibraryReadSnapshot["value"],
   { readonly kind: "page_content" }
 >["value"];
-
-const MAX_PENDING_NATIVE_AGENT_UPDATES = 1_024;
 
 export interface PendingNativePageUpdate {
   readonly request: PrepareNodexAgentPageUpdateRequest;
@@ -731,58 +728,3 @@ export const completeNativeNodexAgentPageUpdate = async (
     };
   }
 };
-
-export class NativeNodexAgentPageUpdateRuntime {
-  private readonly pending = new Map<string, PendingNativePageUpdate>();
-
-  constructor(private readonly runtime: RustDataAuthorityRuntime) {}
-
-  async prepare(
-    request: PrepareNodexAgentPageUpdateRequest,
-  ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentPageUpdateResult>> {
-    const step = await prepareNativeNodexAgentPageUpdate(this.runtime, request);
-    this.applyTransition(step.transition);
-    return step.result;
-  }
-
-  async apply(request: DocumentMutationRequest): Promise<DocumentOperationCommandResult> {
-    const step = await applyNativeNodexAgentPageUpdate(
-      this.runtime,
-      this.pending.get(request.mutationId),
-      request,
-    );
-    this.applyTransition(step.transition);
-    return step.result;
-  }
-
-  async complete(
-    request: CompleteNodexAgentPageUpdateRequest,
-  ): Promise<NodexAgentMutationEnvelope<CompleteNodexAgentPageUpdateResult>> {
-    const operationId = nativeNodexAgentPageUpdateOperationId(request);
-    const step = await completeNativeNodexAgentPageUpdate(
-      this.runtime,
-      this.pending.get(operationId),
-      request,
-    );
-    this.applyTransition(step.transition);
-    return step.result;
-  }
-
-  private applyTransition(
-    transition: NativeNodexAgentMutationTransition<PendingNativePageUpdate>,
-  ): void {
-    if (transition.kind === "keep") return;
-    if (transition.kind === "clear") {
-      this.pending.delete(transition.operationId);
-      return;
-    }
-    const pending = transition.pending;
-    this.pending.delete(pending.operationId);
-    this.pending.set(pending.operationId, pending);
-    while (this.pending.size > MAX_PENDING_NATIVE_AGENT_UPDATES) {
-      const oldest = this.pending.keys().next().value as string | undefined;
-      if (oldest === undefined) return;
-      this.pending.delete(oldest);
-    }
-  }
-}

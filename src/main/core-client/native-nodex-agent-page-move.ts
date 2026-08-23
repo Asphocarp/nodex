@@ -9,7 +9,6 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { MovePagesV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { TransferBlocksInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
-import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
@@ -21,15 +20,16 @@ import {
   toCoreAgentPageDestination,
 } from "./native-nodex-agent-page-destination";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
-import type { NativeNodexAgentMutationStep } from "./native-nodex-agent-mutation-step";
+import type {
+  NativeNodexAgentMutationStep,
+  NodexAgentMutationEnvelope,
+} from "./native-nodex-agent-mutation-step";
 import { applyResultCursor } from "./types";
 
 export type CoreMoveRequest = components["schemas"]["LibraryAgentMovePagesRequest"];
 export type CoreMoveResult = components["schemas"]["LibraryAgentMovePagesResult"];
 export type CoreMovePreparation = components["schemas"]["LibraryAgentMovePagesPreparation"];
 export type CoreMovePagePreparation = components["schemas"]["LibraryAgentMovePagePreparation"];
-
-const MAX_PENDING_NATIVE_PAGE_MOVES = 1_024;
 
 export interface PendingNativePageMove {
   readonly request: PrepareNodexAgentMovePagesRequest;
@@ -338,48 +338,3 @@ export const executeNativeNodexAgentPageMove = async (
     };
   }
 };
-
-export class NativeNodexAgentPageMoveRuntime {
-  private readonly pending = new Map<string, PendingNativePageMove>();
-
-  constructor(private readonly runtime: RustDataAuthorityRuntime) {}
-
-  async prepare(
-    request: PrepareNodexAgentMovePagesRequest,
-  ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentMovePagesResult>> {
-    const step = await prepareNativeNodexAgentPageMove(this.runtime, request);
-    if (step.transition.kind === "clear") {
-      this.pending.delete(step.transition.operationId);
-    } else if (step.transition.kind === "retain") {
-      const pending = step.transition.pending;
-      if (
-        !this.pending.has(pending.operationId) &&
-        this.pending.size >= MAX_PENDING_NATIVE_PAGE_MOVES
-      ) {
-        return envelope(
-          {
-            ok: false,
-            error: mapNativeNodexAgentCoreError(
-              new Error("Native Agent Page-move preparation capacity is exhausted"),
-            ),
-          },
-          pending.operationId,
-        );
-      }
-      this.pending.set(pending.operationId, pending);
-    }
-    return step.result;
-  }
-
-  async execute(command: NodexAgentMovePagesCommand): Promise<ExecuteNodexAgentMovePagesResult> {
-    const step = await executeNativeNodexAgentPageMove(
-      this.runtime,
-      this.pending.get(command.mutationId),
-      command,
-    );
-    if (step.transition.kind === "clear") {
-      this.pending.delete(step.transition.operationId);
-    }
-    return step.result;
-  }
-}

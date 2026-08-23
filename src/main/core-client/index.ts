@@ -34,12 +34,6 @@ export {
   type DesktopAutomationModulePort,
 } from "./desktop-automation-module-bridge";
 export {
-  createDesktopDatabaseModuleBridge,
-  mapCoreDatabaseEvent,
-  mapCoreLibraryDatabaseEvent,
-  type DesktopDatabaseModuleBridge,
-} from "./desktop-database-module-bridge";
-export {
   createCoreDatabaseModuleAdapter,
   createCoreLibraryDatabaseModuleAdapter,
   type CoreDatabaseModuleAdapter,

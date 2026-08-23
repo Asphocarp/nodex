@@ -119,10 +119,11 @@ const nodeRuntimeEntries = new Set([
 const effectRunBoundaries = new Set([
   ...nodeRuntimeEntries,
   "scripts/initial-project-bootstrap-runtime-adapter.ts",
+  "scripts/scenarios/adapters/core-client-seed-runtime.ts",
 ]);
 
 function isEffectRunBoundary(path: string): boolean {
-  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)) return true;
+  if (/\.(?:integration|test|spec)\.[cm]?[jt]sx?$/.test(path)) return true;
   return effectRunBoundaries.has(path);
 }
 

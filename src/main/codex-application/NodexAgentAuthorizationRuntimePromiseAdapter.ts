@@ -6,7 +6,7 @@ import type {
   NodexAgentResourceGrantSpec,
 } from "../../shared/nodex-agent-resource-access";
 import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
-import type { NodexAgentDynamicAuthorizationInput } from "../agent-tools/dynamic-service-core";
+import type { NodexAgentDynamicAuthorizationInput } from "../nodex-agent-application/NodexAgentDynamicPolicy";
 import type {
   NodexAgentAuthorizationOutcome,
   NodexAgentAuthorizationPresentationTarget,

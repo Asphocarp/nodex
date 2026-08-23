@@ -32,12 +32,14 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { GetContextV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
 import { NESTED_MARKDOWN_AGENT_GUIDE } from "../../shared/nfm/agent-guide";
-import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import { CoreModuleResponseError } from "../core-client/core-client";
 import type { RustDataAuthorityRuntime } from "../core-client/desktop-data-authority";
 import type { CoreGenerationClient } from "../core-client/core-generation-client";
 import { readNativeFetch } from "../core-client/native-nodex-agent-fetch";
-import type { NativeNodexAgentMutationTransition } from "../core-client/native-nodex-agent-mutation-step";
+import type {
+  NativeNodexAgentMutationTransition,
+  NodexAgentMutationEnvelope,
+} from "../core-client/native-nodex-agent-mutation-step";
 import {
   executeNativeNodexAgentPageCopy,
   nativeNodexAgentPageCopyOperationId,
