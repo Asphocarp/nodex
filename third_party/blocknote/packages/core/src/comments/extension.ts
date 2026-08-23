@@ -293,6 +293,14 @@ export const CommentsExtension = createExtension(
         return () => {
           unsubscribe();
           unsubscribeOnSelectionChange();
+          store.setState((prev) => ({
+            ...prev,
+            pendingComment: false,
+            selectedThreadId: undefined,
+          }));
+          editor
+            .getExtension(ShowSelectionExtension)
+            ?.showSelection(false, "comments");
         };
       },
       selectThread(threadId: string | undefined, scrollToThread = true) {
@@ -349,12 +357,16 @@ export const CommentsExtension = createExtension(
         initialComment: { body: CommentBody; metadata?: any };
         metadata?: any;
       }) {
-        const thread = await threadStore.createThread(options);
-        if (threadStore.addThreadToDocument) {
-          const view = editor.prosemirrorView!;
+        const addThreadToDocument = threadStore.addThreadToDocument;
+        const selection = (() => {
+          if (!addThreadToDocument) return undefined;
+
+          const view = editor.prosemirrorView;
+          if (!view) return undefined;
+
           const pmSelection = view.state.selection;
           const ystate = ySyncPluginKey.getState(view.state);
-          const selection = {
+          return {
             prosemirror: {
               head: pmSelection.head,
               anchor: pmSelection.anchor,
@@ -363,7 +375,16 @@ export const CommentsExtension = createExtension(
               ? getRelativeSelection(ystate.binding, view.state)
               : undefined,
           };
-          await threadStore.addThreadToDocument({
+        })();
+        if (addThreadToDocument && !selection) {
+          throw new Error(
+            "Cannot create a document comment while the editor view is unmounted",
+          );
+        }
+
+        const thread = await threadStore.createThread(options);
+        if (addThreadToDocument && selection) {
+          await addThreadToDocument({
             threadId: thread.id,
             selection,
           });

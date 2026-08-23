@@ -84,13 +84,9 @@ function setHiddenDragImage(rootEl: Document | ShadowRoot) {
   }
 }
 
-function unsetHiddenDragImage(rootEl: Document | ShadowRoot) {
+function unsetHiddenDragImage(_rootEl?: Document | ShadowRoot) {
   if (dragImageElement) {
-    if (rootEl instanceof Document) {
-      rootEl.body.removeChild(dragImageElement);
-    } else {
-      rootEl.removeChild(dragImageElement);
-    }
+    dragImageElement.remove();
     dragImageElement = undefined;
   }
 }
@@ -164,6 +160,7 @@ export class TableHandlesView implements PluginView {
     >,
     private readonly pmView: EditorView,
     emitUpdate: (state: TableHandlesState) => void,
+    private readonly clearState: () => void,
   ) {
     this.emitUpdate = () => {
       if (!this.state) {
@@ -598,6 +595,9 @@ export class TableHandlesView implements PluginView {
   }
 
   destroy() {
+    this.state = undefined;
+    this.clearState();
+    unsetHiddenDragImage(this.pmView.root);
     this.pmView.dom.removeEventListener("mousemove", this.mouseMoveHandler);
     window.removeEventListener("mouseup", this.mouseUpHandler);
     this.pmView.dom.removeEventListener("mousedown", this.viewMousedownHandler);
@@ -626,18 +626,26 @@ export const TableHandlesExtension = createExtension(({ editor }) => {
       new Plugin({
         key: tableHandlesPluginKey,
         view: (editorView) => {
-          view = new TableHandlesView(editor as any, editorView, (state) => {
-            store.setState(
-              state.block
-                ? {
-                    ...state,
-                    draggingState: state.draggingState
-                      ? { ...state.draggingState }
-                      : undefined,
-                  }
-                : undefined,
-            );
-          });
+          view = new TableHandlesView(
+            editor as any,
+            editorView,
+            (state) => {
+              store.setState(
+                state.block
+                  ? {
+                      ...state,
+                      draggingState: state.draggingState
+                        ? { ...state.draggingState }
+                        : undefined,
+                    }
+                  : undefined,
+              );
+            },
+            () => {
+              view = undefined;
+              store.setState(undefined);
+            },
+          );
           return view;
         },
         // We use decorations to render the drop cursor when dragging a table row
@@ -796,6 +804,7 @@ export const TableHandlesExtension = createExtension(({ editor }) => {
       clientX: number;
     }) {
       if (
+        !event.dataTransfer ||
         view === undefined ||
         view.state === undefined ||
         view.state.colIndex === undefined
@@ -805,30 +814,30 @@ export const TableHandlesExtension = createExtension(({ editor }) => {
         );
       }
 
-      view.state.draggingState = {
+      const tableView = view;
+      tableView.state.draggingState = {
         draggedCellOrientation: "col",
-        originalIndex: view.state.colIndex,
+        originalIndex: tableView.state.colIndex,
         mousePos: event.clientX,
       };
-      view.emitUpdate();
+      tableView.emitUpdate();
 
       editor.transact((tr) =>
         tr.setMeta(tableHandlesPluginKey, {
           draggedCellOrientation:
-            view!.state!.draggingState!.draggedCellOrientation,
-          originalIndex: view!.state!.colIndex,
-          newIndex: view!.state!.colIndex,
-          tablePos: view!.tablePos,
+            tableView.state!.draggingState!.draggedCellOrientation,
+          originalIndex: tableView.state!.colIndex,
+          newIndex: tableView.state!.colIndex,
+          tablePos: tableView.tablePos,
         }),
       );
 
-      if (editor.headless) {
-        return;
-      }
+      const editorView = editor.prosemirrorView;
+      if (!editorView) return;
 
-      setHiddenDragImage(editor.prosemirrorView.root);
-      event.dataTransfer!.setDragImage(dragImageElement!, 0, 0);
-      event.dataTransfer!.effectAllowed = "move";
+      setHiddenDragImage(editorView.root);
+      event.dataTransfer.setDragImage(dragImageElement!, 0, 0);
+      event.dataTransfer.effectAllowed = "move";
     },
 
     /**
@@ -839,36 +848,41 @@ export const TableHandlesExtension = createExtension(({ editor }) => {
       dataTransfer: DataTransfer | null;
       clientY: number;
     }) {
-      if (view!.state === undefined || view!.state.rowIndex === undefined) {
+      if (
+        !event.dataTransfer ||
+        view === undefined ||
+        view.state === undefined ||
+        view.state.rowIndex === undefined
+      ) {
         throw new Error(
           "Attempted to drag table row, but no table block was hovered prior.",
         );
       }
 
-      view!.state.draggingState = {
+      const tableView = view;
+      tableView.state.draggingState = {
         draggedCellOrientation: "row",
-        originalIndex: view!.state.rowIndex,
+        originalIndex: tableView.state.rowIndex,
         mousePos: event.clientY,
       };
-      view!.emitUpdate();
+      tableView.emitUpdate();
 
       editor.transact((tr) =>
         tr.setMeta(tableHandlesPluginKey, {
           draggedCellOrientation:
-            view!.state!.draggingState!.draggedCellOrientation,
-          originalIndex: view!.state!.rowIndex,
-          newIndex: view!.state!.rowIndex,
-          tablePos: view!.tablePos,
+            tableView.state!.draggingState!.draggedCellOrientation,
+          originalIndex: tableView.state!.rowIndex,
+          newIndex: tableView.state!.rowIndex,
+          tablePos: tableView.tablePos,
         }),
       );
 
-      if (editor.headless) {
-        return;
-      }
+      const editorView = editor.prosemirrorView;
+      if (!editorView) return;
 
-      setHiddenDragImage(editor.prosemirrorView.root);
-      event.dataTransfer!.setDragImage(dragImageElement!, 0, 0);
-      event.dataTransfer!.effectAllowed = "copyMove";
+      setHiddenDragImage(editorView.root);
+      event.dataTransfer.setDragImage(dragImageElement!, 0, 0);
+      event.dataTransfer.effectAllowed = "copyMove";
     },
 
     /**
@@ -876,22 +890,18 @@ export const TableHandlesExtension = createExtension(({ editor }) => {
      * used as the row drag handle, and the one used as the column drag handle.
      */
     dragEnd() {
-      if (view!.state === undefined) {
-        throw new Error(
-          "Attempted to drag table row, but no table block was hovered prior.",
-        );
-      }
-
-      view!.state.draggingState = undefined;
-      view!.emitUpdate();
-
-      editor.transact((tr) => tr.setMeta(tableHandlesPluginKey, null));
-
-      if (editor.headless) {
+      const tableView = view;
+      if (!tableView?.state) {
+        unsetHiddenDragImage();
         return;
       }
 
-      unsetHiddenDragImage(editor.prosemirrorView.root);
+      tableView.state.draggingState = undefined;
+      tableView.emitUpdate();
+
+      editor.transact((tr) => tr.setMeta(tableHandlesPluginKey, null));
+
+      unsetHiddenDragImage();
     },
 
     /**
@@ -899,7 +909,7 @@ export const TableHandlesExtension = createExtension(({ editor }) => {
      * cell regardless of which cell is hovered by the mouse cursor.
      */
     freezeHandles() {
-      view!.menuFrozen = true;
+      if (view) view.menuFrozen = true;
     },
 
     /**
@@ -907,7 +917,7 @@ export const TableHandlesExtension = createExtension(({ editor }) => {
      * same cell regardless of which cell is hovered by the mouse cursor.
      */
     unfreezeHandles() {
-      view!.menuFrozen = false;
+      if (view) view.menuFrozen = false;
     },
 
     /**
@@ -916,11 +926,11 @@ export const TableHandlesExtension = createExtension(({ editor }) => {
      * interfering with open submenus.
      */
     hideHandlesIfNotFrozen() {
-      if (!view!.menuFrozen && view!.state?.show) {
-        view!.state.show = false;
-        view!.state.showAddOrRemoveRowsButton = false;
-        view!.state.showAddOrRemoveColumnsButton = false;
-        view!.emitUpdate();
+      if (view && !view.menuFrozen && view.state?.show) {
+        view.state.show = false;
+        view.state.showAddOrRemoveRowsButton = false;
+        view.state.showAddOrRemoveColumnsButton = false;
+        view.emitUpdate();
       }
     },
 
@@ -950,11 +960,11 @@ export const TableHandlesExtension = createExtension(({ editor }) => {
       relativeStartCell: RelativeCellIndices,
       relativeEndCell: RelativeCellIndices = relativeStartCell,
     ) {
-      if (!view) {
+      if (!view || view.tablePos === undefined) {
         throw new Error("Table handles view not initialized");
       }
 
-      const tableResolvedPos = state.doc.resolve(view.tablePos! + 1);
+      const tableResolvedPos = state.doc.resolve(view.tablePos + 1);
       const startRowResolvedPos = state.doc.resolve(
         tableResolvedPos.posAtIndex(relativeStartCell.row) + 1,
       );

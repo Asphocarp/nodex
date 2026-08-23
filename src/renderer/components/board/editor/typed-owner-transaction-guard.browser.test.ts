@@ -21,10 +21,7 @@ const settleEditor = async () => {
   await Promise.resolve();
 };
 
-type BlockedDecision = Exclude<
-  TypedOwnerDocumentChangeDecision,
-  { readonly kind: "allow" }
->;
+type BlockedDecision = Exclude<TypedOwnerDocumentChangeDecision, { readonly kind: "allow" }>;
 
 describe("typed owner transaction guard in Chromium", () => {
   test("intercepts every local Page deletion shape while accepting lifecycle delivery", async () => {
@@ -57,6 +54,8 @@ describe("typed owner transaction guard in Chromium", () => {
     document.body.append(localHost, remoteHost);
     local.mount(localHost);
     remote.mount(remoteHost);
+    const localView = local.prosemirrorView;
+    if (!localView) throw new Error("Expected a mounted local editor view");
     const blocked: BlockedDecision[] = [];
     const releaseGuard = local.onBeforeChange(({ getChanges }) => {
       const decision = resolveTypedOwnerDocumentChanges(getChanges());
@@ -79,7 +78,7 @@ describe("typed owner transaction guard in Chromium", () => {
 
       await act(async () => {
         local.setTextCursorPosition("text", "start");
-        fireEvent.keyDown(local.prosemirrorView.dom, { key: "Tab", code: "Tab" });
+        fireEvent.keyDown(localView.dom, { key: "Tab", code: "Tab" });
         await settleEditor();
       });
       expect(local.getParentBlock("text")).toBeUndefined();
@@ -90,7 +89,7 @@ describe("typed owner transaction guard in Chromium", () => {
 
       await act(async () => {
         local.setTextCursorPosition("text", "start");
-        fireEvent.keyDown(local.prosemirrorView.dom, { key: "Backspace", code: "Backspace" });
+        fireEvent.keyDown(localView.dom, { key: "Backspace", code: "Backspace" });
         await settleEditor();
       });
       expect(local.getBlock("page-before")?.type).toBe("page");
@@ -114,8 +113,8 @@ describe("typed owner transaction guard in Chromium", () => {
         local.setTextCursorPosition("page-before");
         local.focus();
         expect(local.prosemirrorState.selection).toBeInstanceOf(NodeSelection);
-        expect(local.prosemirrorView.hasFocus()).toBe(true);
-        fireEvent.keyDown(local.prosemirrorView.dom, { key: "Backspace", code: "Backspace" });
+        expect(localView.hasFocus()).toBe(true);
+        fireEvent.keyDown(localView.dom, { key: "Backspace", code: "Backspace" });
         await settleEditor();
       });
       expect(local.getBlock("page-before")?.type).toBe("page");
@@ -129,7 +128,7 @@ describe("typed owner transaction guard in Chromium", () => {
       await act(async () => {
         await runNfmEditorFocusPreservingMutation(local, localHost, async () => {
           await prepareNfmEditorForMutation(local, localHost);
-          expect(local.prosemirrorView.hasFocus()).toBe(false);
+          expect(localView.hasFocus()).toBe(false);
           remote.removeBlocks(["page-before"]);
           await settleEditor();
         });
@@ -137,7 +136,7 @@ describe("typed owner transaction guard in Chromium", () => {
       expect(local.getBlock("page-before")).toBeUndefined();
       expect(local.prosemirrorState.selection).not.toBeInstanceOf(NodeSelection);
       expect(local.getTextCursorPosition().block.id).toBe("text");
-      expect(local.prosemirrorView.hasFocus()).toBe(true);
+      expect(localView.hasFocus()).toBe(true);
 
       const currentRemoteText = remote.getBlock("text");
       if (!currentRemoteText) throw new Error("Expected the surviving fixture paragraph");
@@ -156,7 +155,7 @@ describe("typed owner transaction guard in Chromium", () => {
 
       await act(async () => {
         local.setTextCursorPosition("text", "end");
-        fireEvent.keyDown(local.prosemirrorView.dom, { key: "Delete", code: "Delete" });
+        fireEvent.keyDown(localView.dom, { key: "Delete", code: "Delete" });
         await settleEditor();
       });
       expect(local.getBlock("page-after")?.type).toBe("page");

@@ -1,5 +1,6 @@
 import { BlockNoteEditor } from "@blocknote/core";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 import { BlockNoteViewRaw, useCreateBlockNote } from "@blocknote/react";
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -16,6 +17,14 @@ const settleEditor = async () => {
     requestAnimationFrame(() => resolve());
   });
   await Promise.resolve();
+};
+
+const requireMountedEditorView = (editor: {
+  readonly prosemirrorView?: EditorView;
+}): EditorView => {
+  const view = editor.prosemirrorView;
+  if (!view) throw new Error("Expected a mounted editor view");
+  return view;
 };
 
 function ExternalEditorHookOwner({ editor }: { readonly editor: BlockNoteEditor }) {
@@ -58,6 +67,7 @@ describe("collaborative NFM undo in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const localView = requireMountedEditorView(localEditor);
       const draggedBlockId = localEditor.document.at(-1)?.id;
       if (!draggedBlockId) {
         throw new Error("Expected a final Block to drag");
@@ -74,7 +84,7 @@ describe("collaborative NFM undo in Chromium", () => {
       }
       const selectedBlockPosition = draggedBlockPosition;
       await act(async () => {
-        localEditor.prosemirrorView.dispatch(
+        localView.dispatch(
           localEditor.prosemirrorState.tr.setSelection(
             NodeSelection.create(localEditor.prosemirrorState.doc, selectedBlockPosition),
           ),
@@ -173,7 +183,7 @@ describe("collaborative NFM undo in Chromium", () => {
 
     try {
       await act(settleEditor);
-      const mountedView = left.prosemirrorView;
+      const mountedView = requireMountedEditorView(left);
       const mountedDom = mountedView.dom;
       const leftBase = left.getBlock("block-base");
       const rightBase = right.getBlock("block-base");
@@ -197,7 +207,7 @@ describe("collaborative NFM undo in Chromium", () => {
       expect(left.getBlock("block-base")?.content).not.toEqual(leftBase.content);
       expect(left.getBlock("block-right")).toBeDefined();
       expect(left.prosemirrorView).toBe(mountedView);
-      expect(left.prosemirrorView.dom).toBe(mountedDom);
+      expect(requireMountedEditorView(left).dom).toBe(mountedDom);
 
       await act(async () => {
         expect(left.undo()).toBe(true);
@@ -290,6 +300,7 @@ describe("collaborative NFM undo in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const firstLocalView = requireMountedEditorView(localEditor);
       let omegaPosition: number | null = null;
       localEditor.prosemirrorState.doc.descendants((node, position) => {
         if (omegaPosition !== null || !node.isText || !node.text) return;
@@ -299,7 +310,7 @@ describe("collaborative NFM undo in Chromium", () => {
       if (omegaPosition === null) throw new Error("Expected omega text");
       const initialCursor = omegaPosition;
       await act(async () => {
-        localEditor.prosemirrorView.dispatch(
+        firstLocalView.dispatch(
           localEditor.prosemirrorState.tr.setSelection(
             TextSelection.create(localEditor.prosemirrorState.doc, initialCursor),
           ),
@@ -307,7 +318,7 @@ describe("collaborative NFM undo in Chromium", () => {
         editorSession.setShouldRestoreEditorFocus(true);
         localEditor.focus();
       });
-      expect(globalThis.document.activeElement).toBe(localEditor.prosemirrorView.dom);
+      expect(globalThis.document.activeElement).toBe(firstLocalView.dom);
       firstView.unmount();
 
       let alphaPosition: number | null = null;
@@ -318,8 +329,9 @@ describe("collaborative NFM undo in Chromium", () => {
       });
       if (alphaPosition === null) throw new Error("Expected alpha text");
       const remoteInsertPosition = alphaPosition;
+      const remoteView = requireMountedEditorView(remoteEditor);
       await act(async () => {
-        remoteEditor.prosemirrorView.dispatch(
+        remoteView.dispatch(
           remoteEditor.prosemirrorState.tr.insertText("REMOTE ", remoteInsertPosition),
         );
         await settleEditor();
@@ -329,7 +341,7 @@ describe("collaborative NFM undo in Chromium", () => {
       try {
         await act(settleEditor);
         expect(localEditor.prosemirrorState.selection.head).toBe(initialCursor + "REMOTE ".length);
-        expect(globalThis.document.activeElement).toBe(localEditor.prosemirrorView.dom);
+        expect(globalThis.document.activeElement).toBe(requireMountedEditorView(localEditor).dom);
       } finally {
         secondView.unmount();
       }

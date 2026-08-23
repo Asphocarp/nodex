@@ -123,6 +123,7 @@ function makeSideMenuView(
       if (state.show) hoveredBlockId = state.block.id;
     },
     () => {},
+    () => {},
   );
 
   return {
@@ -444,6 +445,7 @@ describe("side-menu drop selection helpers", () => {
       } as never,
       pmView as never,
       () => {},
+      () => {},
       (blockIds) => {
         pendingIds = blockIds.join(",");
       },
@@ -483,6 +485,7 @@ describe("side-menu drop selection helpers", () => {
         getInteractionOwnership: () => "self",
       } as never,
       pmView as never,
+      () => {},
       () => {},
       pendingIds,
       () => true,

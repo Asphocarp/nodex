@@ -335,7 +335,8 @@ export const BlockNoteViewEditor = (props: { children?: ReactNode }) => {
   const portalTarget = ctx.editorProps.portalTarget;
 
   useLayoutEffect(() => {
-    const editorDom = editor.prosemirrorView.dom;
+    const editorDom = editor.domElement;
+    if (!editorDom) return;
     const retainedTabIndex = editorDom.getAttribute("tabindex") ?? "0";
     editor.isEditable = editableRef.current;
     if (!editorDom.hasAttribute("tabindex")) {

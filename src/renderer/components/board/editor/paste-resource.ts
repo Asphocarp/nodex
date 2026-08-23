@@ -279,7 +279,7 @@ function looksLikeMarkdown(src: string): boolean {
 interface ContinueInlinePasteEditor {
   pasteHTML: (html: string, raw?: boolean) => void;
   pasteMarkdown: (markdown: string) => void;
-  pasteText: (text: string) => boolean;
+  pasteText: (text: string) => boolean | undefined;
 }
 
 export function continueInlinePaste(
@@ -318,7 +318,7 @@ export function continueInlinePaste(
       editor.pasteMarkdown(plainText);
       return true;
     }
-    return editor.pasteText(plainText);
+    return editor.pasteText(plainText) ?? false;
   }
 
   return false;

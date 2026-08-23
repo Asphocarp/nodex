@@ -33,6 +33,7 @@ class SuggestionMenuView {
     private readonly editor: BlockNoteEditor<any, any, any>,
     emitUpdate: (menuName: string, state: SuggestionMenuState) => void,
     view: EditorView,
+    private readonly clearState: () => void,
   ) {
     this.pluginState = undefined;
 
@@ -117,6 +118,9 @@ class SuggestionMenuView {
 
   destroy() {
     this.rootEl?.removeEventListener("scroll", this.handleScroll, true);
+    this.state = undefined;
+    this.pluginState = undefined;
+    this.clearState();
   }
 
   closeMenu = () => {
@@ -248,6 +252,10 @@ export const SuggestionMenu = createExtension(({ editor }) => {
               store.setState({ ...state, triggerCharacter });
             },
             v,
+            () => {
+              view = undefined;
+              store.setState(undefined);
+            },
           );
           return view;
         },

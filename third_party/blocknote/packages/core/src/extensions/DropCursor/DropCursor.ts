@@ -64,6 +64,7 @@ export const DropCursorExtension = createExtension<
   let element: HTMLElement | null = null;
   let timeout = -1;
   let dragSourceElement: Element | null = null;
+  let mountedView: EditorView | undefined;
   let externalDragOwnershipResolver = (_event: DragEvent) => false;
 
   const config = {
@@ -98,7 +99,9 @@ export const DropCursorExtension = createExtension<
       return;
     }
 
-    const view = editor.prosemirrorView;
+    const view = mountedView;
+    if (!view) return;
+
     const editorDOM = view.dom;
     const editorRect = editorDOM.getBoundingClientRect();
     const scaleX = editorRect.width / editorDOM.offsetWidth;
@@ -169,7 +172,9 @@ export const DropCursorExtension = createExtension<
       return;
     }
 
-    const view = editor.prosemirrorView;
+    const view = mountedView;
+    if (!view) return;
+
     if (!view.editable) {
       return;
     }
@@ -227,9 +232,11 @@ export const DropCursorExtension = createExtension<
 
   const onDragLeave = (event: Event) => {
     const e = event as DragEvent;
+    const view = mountedView;
     if (
+      !view ||
       !(e.relatedTarget instanceof Node) ||
-      !editor.prosemirrorView.dom.contains(e.relatedTarget)
+      !view.dom.contains(e.relatedTarget)
     ) {
       setCursor(null);
     }
@@ -258,7 +265,8 @@ export const DropCursorExtension = createExtension<
         externalDragOwnershipResolver = () => false;
       };
     },
-    mount({ signal, dom, root }) {
+    mount({ view, signal, dom, root }) {
+      mountedView = view;
       // Track drag source at document level
       root.addEventListener("dragstart", onDragStart, {
         capture: true,
@@ -273,6 +281,7 @@ export const DropCursorExtension = createExtension<
 
       // Clean up on unmount
       signal.addEventListener("abort", () => {
+        if (mountedView === view) mountedView = undefined;
         clearTimeout(timeout);
         setCursor(null);
       });

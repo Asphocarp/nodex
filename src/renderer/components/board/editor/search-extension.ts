@@ -30,7 +30,7 @@ interface BlockRef {
 
 interface EditorWithSearchNavigation {
   domElement?: ParentNode;
-  prosemirrorView: EditorView;
+  prosemirrorView?: EditorView;
   prosemirrorState: EditorState;
   getParentBlock: (id: string) => BlockRef | undefined;
   transact: <T>(callback: (tr: Transaction) => T) => T;
@@ -289,8 +289,11 @@ function expandCollapsedToggle(editorDom: ParentNode | undefined, blockId: strin
 }
 
 function getBlockIdAtPosition(editor: EditorWithSearchNavigation, position: number): string | null {
+  const view = editor.prosemirrorView;
+  if (!view) return null;
+
   try {
-    const { node } = editor.prosemirrorView.domAtPos(Math.max(position, 0));
+    const { node } = view.domAtPos(Math.max(position, 0));
     const el = node instanceof Element ? node : node.parentElement;
     return el?.closest<HTMLElement>(".bn-block[data-id]")?.getAttribute("data-id") ?? null;
   } catch {
@@ -301,6 +304,7 @@ function getBlockIdAtPosition(editor: EditorWithSearchNavigation, position: numb
 export function revealActiveNfmSearchMatch(editor: EditorWithSearchNavigation): boolean {
   const { activeMatch } = getNfmSearchState(editor);
   if (!activeMatch) return false;
+  if (!editor.prosemirrorView) return false;
 
   const blockId = getBlockIdAtPosition(editor, activeMatch.from);
   if (blockId) {
@@ -319,7 +323,7 @@ export function revealActiveNfmSearchMatch(editor: EditorWithSearchNavigation): 
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      const activeEl = editor.prosemirrorView.dom.querySelector<HTMLElement>(
+      const activeEl = editor.prosemirrorView?.dom.querySelector<HTMLElement>(
         ".nfm-search-match-active",
       );
       activeEl?.scrollIntoView({

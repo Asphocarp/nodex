@@ -94,6 +94,9 @@ export function restoreCollaborativeSelection<
   editor: BlockNoteEditor<BSchema, ISchema, SSchema>,
   bookmark: CollaborativeSelectionBookmark,
 ): boolean {
+  const view = editor.prosemirrorView;
+  if (!view) return false;
+
   const syncState = getCollaborativeSelectionSyncState(editor);
   if (!syncState?.binding) return false;
 
@@ -131,7 +134,7 @@ export function restoreCollaborativeSelection<
     selection = Selection.near(state.doc.resolve(clampedHead));
   }
 
-  editor.prosemirrorView.dispatch(
+  view.dispatch(
     state.tr.setSelection(selection).setMeta("addToHistory", false),
   );
   return true;

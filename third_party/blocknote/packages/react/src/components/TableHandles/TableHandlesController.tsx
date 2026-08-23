@@ -11,6 +11,7 @@ import { FC, useCallback, useMemo, useState } from "react";
 
 import { autoUpdate, offset, ReferenceElement, size } from "@floating-ui/react";
 import { useBlockNoteEditor } from "../../hooks/useBlockNoteEditor.js";
+import { useEditorView } from "../../hooks/useEditorView.js";
 import { useExtensionState } from "../../hooks/useExtension.js";
 import { FloatingUIOptions } from "../Popovers/FloatingUIOptions.js";
 import {
@@ -39,6 +40,7 @@ export const TableHandlesController = <
   portalElement?: HTMLElement | null;
 }) => {
   const editor = useBlockNoteEditor<BlockSchema, I, S>();
+  const editorView = useEditorView(editor);
 
   const [onlyShownElement, setOnlyShownElement] = useState<
     | "rowTableHandle"
@@ -64,7 +66,7 @@ export const TableHandlesController = <
       columnReference?: GenericPopoverReference;
     } = {};
 
-    if (state === undefined) {
+    if (state === undefined || !editorView) {
       return {};
     }
 
@@ -79,7 +81,7 @@ export const TableHandlesController = <
 
     const tableBeforePos = nodePosInfo.posBeforeNode + 1;
 
-    const tableElement = editor.prosemirrorView.domAtPos(
+    const tableElement = editorView.domAtPos(
       tableBeforePos + 1,
     ).node;
     if (!(tableElement instanceof Element)) {
@@ -99,7 +101,7 @@ export const TableHandlesController = <
       .resolve(rowBeforePos + 1)
       .posAtIndex(state.colIndex);
 
-    const cellElement = editor.prosemirrorView.domAtPos(cellBeforePos + 1).node;
+    const cellElement = editorView.domAtPos(cellBeforePos + 1).node;
     if (!(cellElement instanceof Element)) {
       return {};
     }
@@ -141,7 +143,7 @@ export const TableHandlesController = <
     };
 
     return references;
-  }, [editor, state]);
+  }, [editor, editorView, state]);
 
   // Hides the table handles on ancestor scroll so they don't overflow
   // outside the editor's scroll container.

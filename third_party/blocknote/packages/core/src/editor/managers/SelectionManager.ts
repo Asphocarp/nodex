@@ -93,9 +93,8 @@ export class SelectionManager<
    * Gets the bounding box of the current selection.
    */
   public getSelectionBoundingBox() {
-    if (!this.editor.prosemirrorView) {
-      return undefined;
-    }
+    const view = this.editor.prosemirrorView;
+    if (!view) return undefined;
 
     const { selection } = this.editor.prosemirrorState;
 
@@ -105,14 +104,14 @@ export class SelectionManager<
     const to = Math.max(...ranges.map((range) => range.$to.pos));
 
     if (isNodeSelection(selection)) {
-      const node = this.editor.prosemirrorView.nodeDOM(from) as HTMLElement;
+      const node = view.nodeDOM(from) as HTMLElement;
       if (node) {
         return node.getBoundingClientRect();
       }
     }
 
     return posToDOMRect(
-      this.editor.prosemirrorView,
+      view,
       from,
       to,
     ).toJSON() as DOMRect;

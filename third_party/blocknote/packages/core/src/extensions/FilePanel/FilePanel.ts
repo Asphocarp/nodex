@@ -31,6 +31,7 @@ export const FilePanelExtension = createExtension(({ editor }) => {
       signal.addEventListener("abort", () => {
         unsubscribeOnChange();
         unsubscribeOnSelectionChange();
+        closeMenu();
       });
     },
     closeMenu,

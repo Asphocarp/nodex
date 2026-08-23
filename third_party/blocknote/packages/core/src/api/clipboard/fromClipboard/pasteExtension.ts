@@ -59,7 +59,8 @@ function defaultPasteHandler({
   if (format === "vscode-editor-data") {
     // If VSCode clipboard data cannot be parsed as a code block, try parsing
     // `text/plain` as a fallback.
-    if (handleVSCodePaste(event, editor.prosemirrorView)) {
+    const view = editor.prosemirrorView;
+    if (view && handleVSCodePaste(event, view)) {
       return true;
     }
 

@@ -56,11 +56,11 @@ describe("task shorthand authoring feedback in Chromium", () => {
     expect(tooltip?.textContent).toBe("P1 · XL · ui · unclear");
     expect(getComputedStyle(tooltip!).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
 
-    const decoration = editor.prosemirrorView.dom.querySelector<HTMLElement>(
-      "[data-task-shorthand-preview]",
-    );
-    const position = editor.prosemirrorView.posAtDOM(decoration!, 0);
-    editor.prosemirrorView.dispatch(
+    const view = editor.prosemirrorView;
+    if (!view) throw new Error("Expected a mounted editor view");
+    const decoration = view.dom.querySelector<HTMLElement>("[data-task-shorthand-preview]");
+    const position = view.posAtDOM(decoration!, 0);
+    view.dispatch(
       editor.prosemirrorState.tr.setSelection(
         TextSelection.create(editor.prosemirrorState.doc, position + 1),
       ),

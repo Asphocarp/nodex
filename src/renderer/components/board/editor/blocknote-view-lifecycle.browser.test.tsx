@@ -1,7 +1,15 @@
 import { BlockNoteEditor } from "@blocknote/core";
-import { DropCursorExtension } from "@blocknote/core/extensions";
-import { BlockNoteViewRaw } from "@blocknote/react";
+import {
+  DropCursorExtension,
+  FilePanelExtension,
+  FormattingToolbarExtension,
+  SideMenuExtension,
+  SuggestionMenu,
+  TableHandlesExtension,
+} from "@blocknote/core/extensions";
+import { BlockNoteViewRaw, TableHandlesController } from "@blocknote/react";
 import { TextSelection } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vite-plus/test";
@@ -16,12 +24,141 @@ const settleEditor = async (): Promise<void> => {
   await Promise.resolve();
 };
 
+const requireMountedEditorView = (editor: {
+  readonly prosemirrorView?: EditorView;
+}): EditorView => {
+  const view = editor.prosemirrorView;
+  if (!view) throw new Error("Expected a mounted editor view");
+  return view;
+};
+
 describe("BlockNote view lifecycle in Chromium", () => {
+  test("clears floating UI state and remounts safely after a retained editor loses its DOM view", async () => {
+    const editor = BlockNoteEditor.create({
+      initialContent: [
+        {
+          id: "table-1",
+          type: "table",
+          content: {
+            type: "tableContent",
+            rows: [{ cells: ["Cell"] }],
+          },
+        },
+      ],
+    });
+    const table = editor.getBlock("table-1");
+    const tableHandles = editor.getExtension(TableHandlesExtension);
+    const filePanel = editor.getExtension(FilePanelExtension);
+    const formattingToolbar = editor.getExtension(FormattingToolbarExtension);
+    const sideMenu = editor.getExtension(SideMenuExtension);
+    const suggestionMenu = editor.getExtension(SuggestionMenu);
+    if (
+      !table ||
+      table.type !== "table" ||
+      !tableHandles ||
+      !filePanel ||
+      !formattingToolbar ||
+      !sideMenu ||
+      !suggestionMenu
+    ) {
+      throw new Error("Expected the floating UI lifecycle fixture");
+    }
+    const staleTableState = {
+      show: true,
+      showAddOrRemoveRowsButton: false,
+      showAddOrRemoveColumnsButton: false,
+      referencePosCell: undefined,
+      referencePosTable: new DOMRect(),
+      block: table,
+      colIndex: undefined,
+      rowIndex: undefined,
+      draggingState: undefined,
+      widgetContainer: undefined,
+    };
+    const renderEditor = () => (
+      <BlockNoteViewRaw
+        editor={editor}
+        formattingToolbar={false}
+        linkToolbar={false}
+        slashMenu={false}
+        sideMenu={false}
+        tableHandles={false}
+      >
+        <TableHandlesController
+          tableHandle={() => null}
+          tableCellHandle={() => null}
+          extendButton={() => null}
+        />
+      </BlockNoteViewRaw>
+    );
+    let view = render(renderEditor());
+
+    try {
+      await act(settleEditor);
+      expect(editor.prosemirrorView).toBeDefined();
+
+      await act(async () => {
+        tableHandles.store.setState(staleTableState);
+        filePanel.showMenu(table.id);
+        formattingToolbar.store.setState(true);
+        sideMenu.store.setState({
+          show: true,
+          referencePos: new DOMRect(),
+          block: table,
+        });
+        suggestionMenu.store.setState({
+          show: true,
+          referencePos: new DOMRect(),
+          query: "",
+          triggerCharacter: "/",
+        });
+        await settleEditor();
+      });
+      expect(tableHandles.store.state).toEqual(staleTableState);
+      expect(filePanel.store.state).toBe(table.id);
+      expect(formattingToolbar.store.state).toBe(true);
+      expect(sideMenu.store.state?.show).toBe(true);
+      expect(suggestionMenu.store.state?.show).toBe(true);
+
+      view.unmount();
+      expect(editor.headless).toBe(true);
+      expect(editor.prosemirrorView).toBeUndefined();
+      expect(tableHandles.store.state).toBeUndefined();
+      expect(filePanel.store.state).toBeUndefined();
+      expect(formattingToolbar.store.state).toBe(false);
+      expect(sideMenu.store.state).toBeUndefined();
+      expect(suggestionMenu.store.state).toBeUndefined();
+      expect(() => {
+        tableHandles.freezeHandles();
+        tableHandles.unfreezeHandles();
+        tableHandles.hideHandlesIfNotFrozen();
+        tableHandles.dragEnd();
+        sideMenu.freezeMenu();
+        sideMenu.unfreezeMenu();
+        sideMenu.hideMenuIfNotFrozen();
+        sideMenu.blockDragEnd();
+      }).not.toThrow();
+
+      // A delayed store delivery must also be harmless during React's render
+      // before BlockNote's layout effect attaches the replacement EditorView.
+      tableHandles.store.setState(staleTableState);
+      view = render(renderEditor());
+      await act(settleEditor);
+
+      expect(editor.headless).toBe(false);
+      expect(editor.prosemirrorView).toBeDefined();
+    } finally {
+      view.unmount();
+      editor._tiptapEditor.destroy();
+    }
+  });
+
   test("mounts the NFM side-menu provider before the editor view is available", async () => {
     const editor = BlockNoteEditor.create({
       initialContent: [{ id: "block-1", type: "paragraph", content: "One" }],
     });
     expect(editor.headless).toBe(true);
+    expect(editor.prosemirrorView).toBeUndefined();
 
     const view = render(
       <BlockNoteViewRaw
@@ -67,7 +204,7 @@ describe("BlockNote view lifecycle in Chromium", () => {
 
     try {
       await act(settleEditor);
-      const mountedView = editor.prosemirrorView;
+      const mountedView = requireMountedEditorView(editor);
       const mountedDom = mountedView.dom;
 
       await act(async () => {
@@ -76,7 +213,7 @@ describe("BlockNote view lifecycle in Chromium", () => {
       });
 
       expect(editor.prosemirrorView).toBe(mountedView);
-      expect(editor.prosemirrorView.dom).toBe(mountedDom);
+      expect(requireMountedEditorView(editor).dom).toBe(mountedDom);
       expect(editor.isEditable).toBe(false);
       expect(mountedDom.getAttribute("tabindex")).toBe("0");
 
@@ -115,8 +252,9 @@ describe("BlockNote view lifecycle in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const mountedView = requireMountedEditorView(editor);
       await act(async () => {
-        editor.prosemirrorView.dom.dispatchEvent(
+        mountedView.dom.dispatchEvent(
           new DragEvent("dragover", {
             bubbles: true,
             cancelable: true,
@@ -179,11 +317,12 @@ describe("BlockNote view lifecycle in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const mountedView = requireMountedEditorView(editor);
       await act(async () => {
         const transaction = editor.prosemirrorState.tr.setSelection(
           TextSelection.create(editor.prosemirrorState.doc, 2, 8),
         );
-        editor.prosemirrorView.dispatch(transaction);
+        mountedView.dispatch(transaction);
         editor.focus();
         await settleEditor();
       });
@@ -240,8 +379,9 @@ describe("BlockNote view lifecycle in Chromium", () => {
 
     try {
       await act(settleEditor);
+      const mountedView = requireMountedEditorView(editor);
       await act(async () => {
-        editor.prosemirrorView.dispatch(
+        mountedView.dispatch(
           editor.prosemirrorState.tr.setSelection(
             TextSelection.create(editor.prosemirrorState.doc, 3, 8),
           ),
@@ -267,7 +407,7 @@ describe("BlockNote view lifecycle in Chromium", () => {
       const openRect = openPopover.getBoundingClientRect();
 
       await act(async () => {
-        fireEvent.keyDown(editor.prosemirrorView.dom, {
+        fireEvent.keyDown(mountedView.dom, {
           key: "Backspace",
           code: "Backspace",
         });

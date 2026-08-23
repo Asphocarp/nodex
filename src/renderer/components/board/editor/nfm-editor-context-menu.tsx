@@ -28,7 +28,7 @@ interface NfmEditorCommandEditor {
   isEditable?: boolean;
   pasteHTML?: (html: string, raw?: boolean) => void;
   pasteMarkdown?: (markdown: string) => void;
-  pasteText?: (text: string) => boolean;
+  pasteText?: (text: string) => boolean | undefined;
   prosemirrorView?: {
     dom?: HTMLElement;
     focus: () => void;
@@ -204,7 +204,7 @@ async function runPasteCommand(
   }
 
   if (payload?.text && editor.pasteText) {
-    return editor.pasteText(payload.text);
+    return editor.pasteText(payload.text) ?? false;
   }
 
   return false;

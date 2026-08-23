@@ -432,14 +432,9 @@ function setDragImage(view: EditorView, from: number, to = from) {
   }
 }
 
-export function unsetDragImage(rootEl: Document | ShadowRoot) {
+export function unsetDragImage(_rootEl?: Document | ShadowRoot) {
   if (dragImageElement !== undefined) {
-    if (rootEl instanceof ShadowRoot) {
-      rootEl.removeChild(dragImageElement);
-    } else {
-      rootEl.body.removeChild(dragImageElement);
-    }
-
+    dragImageElement.remove();
     dragImageElement = undefined;
   }
 }
@@ -457,10 +452,8 @@ export function dragStart<
     return;
   }
 
-  if (editor.headless) {
-    return;
-  }
   const view = editor.prosemirrorView;
+  if (!view) return;
 
   const posInfo = getNodeById(block.id, view.state.doc);
   if (!posInfo) {

@@ -20,7 +20,7 @@ interface SelectionWithAdjacentNodes {
 }
 
 interface EditorWithProsemirrorView {
-  readonly prosemirrorView: EditorView;
+  readonly prosemirrorView?: EditorView;
 }
 
 const MENTION_NODE_TYPES = new Set(["pageMention", "threadMention"]);
@@ -80,7 +80,10 @@ export function selectAdjacentMention(
   editor: EditorWithProsemirrorView,
   direction: MentionChipArrowDirection,
 ): boolean {
-  const { state, dispatch } = editor.prosemirrorView;
+  const view = editor.prosemirrorView;
+  if (!view) return false;
+
+  const { state, dispatch } = view;
   const range = getAdjacentMentionTokenRange(
     state.selection as SelectionWithAdjacentNodes,
     direction,
@@ -120,7 +123,9 @@ function findMentionActivationTarget(
 }
 
 export function activateSelectedMention(editor: EditorWithProsemirrorView): boolean {
-  const { prosemirrorView: view } = editor;
+  const view = editor.prosemirrorView;
+  if (!view) return false;
+
   const range = getSelectedMentionTokenRange(view.state);
   if (!range) return false;
 
@@ -131,7 +136,7 @@ export function activateSelectedMention(editor: EditorWithProsemirrorView): bool
   return true;
 }
 
-export const mentionChipKeyboardNavigationExtension = createExtension(({ editor }) => ({
+export const mentionChipKeyboardNavigationExtension = createExtension(() => ({
   key: "mention-chip-keyboard-navigation",
   prosemirrorPlugins: [
     new Plugin({
@@ -148,7 +153,7 @@ export const mentionChipKeyboardNavigationExtension = createExtension(({ editor 
               return false;
             }
             const direction = event.key === "ArrowLeft" ? "left" : "right";
-            return selectAdjacentMention(editor, direction);
+            return selectAdjacentMention({ prosemirrorView: view }, direction);
           }
 
           if (

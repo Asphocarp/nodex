@@ -309,6 +309,8 @@ const structuredPlainTextCopyExt = createExtension(
  */
 function splitParentIntoFirstChild(editor: any, parentId: string): boolean {
   const view = editor.prosemirrorView;
+  if (!view) return false;
+
   const { state } = view;
   const { doc, selection } = state;
   if (!selection.empty) return false;
@@ -378,6 +380,8 @@ const childGroupEnterExt = createExtension({
  */
 function mergeIntoBlock(editor: any, targetId: string, sourceId: string): void {
   const view = editor.prosemirrorView;
+  if (!view) return;
+
   const { state } = view;
   const { doc } = state;
 

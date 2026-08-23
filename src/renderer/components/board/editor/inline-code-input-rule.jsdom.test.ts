@@ -4,6 +4,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vite-plus
 
 function simulateTextInput(editor: BlockNoteEditor, text: string) {
   const view = editor.prosemirrorView;
+  if (!view) throw new Error("Expected a mounted editor view");
+
   const { from, to } = view.state.selection;
   const defaultTransaction = () => view.state.tr.insertText(text, from, to);
   const handled = view.someProp("handleTextInput", (handler) =>
@@ -23,6 +25,8 @@ function typeString(editor: BlockNoteEditor, text: string) {
 
 function setCursorBefore(editor: BlockNoteEditor, character: string) {
   const view = editor.prosemirrorView;
+  if (!view) throw new Error("Expected a mounted editor view");
+
   let position: number | undefined;
 
   view.state.doc.descendants((node, nodePosition) => {
