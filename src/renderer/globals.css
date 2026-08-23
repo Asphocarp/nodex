@@ -185,6 +185,14 @@
   position: relative;
 }
 
+[data-nodex-editor-selection-surface] ::selection {
+  background-color: var(--color-background-editor-text-selection);
+}
+
+[data-nodex-editor-selection-surface].ProseMirror-hideselection ::selection {
+  background-color: transparent;
+}
+
 /* Interactive editor links use the same compact link treatment as message links. */
 .nfm-editor a:not([data-page-mention-inline-anchor="true"]) {
   color: color-mix(

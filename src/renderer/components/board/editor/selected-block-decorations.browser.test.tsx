@@ -97,7 +97,10 @@ describe("selected Block presentation in Chromium", () => {
         '.bn-block-content[data-content-type="testPage"]',
       );
       const pageTitle = pageContainer?.querySelector<HTMLElement>("[data-test-page-title]");
-      if (!pageContainer || !pageNodeView || !pageContent || !pageTitle) {
+      const beforeInlineContent = view.container.querySelector<HTMLElement>(
+        '.bn-block-outer[data-id="before"] .bn-inline-content',
+      );
+      if (!pageContainer || !pageNodeView || !pageContent || !pageTitle || !beforeInlineContent) {
         throw new Error("Expected the selected atomic React Block");
       }
 
@@ -130,6 +133,15 @@ describe("selected Block presentation in Chromium", () => {
         ),
       ).toBe("7");
       expect(pageContainer.classList.contains("nodex-selected-block")).toBe(false);
+      expect(getComputedStyle(beforeInlineContent, "::selection").backgroundColor).toBe(
+        "rgba(35, 131, 226, 0.28)",
+      );
+
+      view.container.classList.add("dark");
+      expect(getComputedStyle(beforeInlineContent, "::selection").backgroundColor).toBe(
+        "rgba(35, 131, 226, 0.28)",
+      );
+      view.container.classList.remove("dark");
 
       const showSelection = editor.getExtension(ShowSelectionExtension);
       showSelection?.showSelection(true, "inline-selection-test");
