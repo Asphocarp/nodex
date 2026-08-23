@@ -230,11 +230,6 @@ import {
 import type { CodexAttachments } from "../codex-application/CodexAttachments";
 import type { CodexBackgroundProcessConversationProjection } from "../codex-application/CodexBackgroundProcesses";
 import type { CodexPendingServerRequestRuntimeService } from "../codex-application/CodexPendingServerRequestRuntime";
-import type { CodexServerRequestResponsesPromiseAdapter } from "../codex-application/CodexServerRequestResponsesPromiseAdapter";
-import type {
-  CodexServerRequestConversationProjection,
-  CodexServerRequestResolvedEvent,
-} from "../codex-application/CodexServerRequestResponses";
 import type {
   CodexPreparedTurnStart,
   CodexPreparedTurnSteer,
@@ -1065,7 +1060,6 @@ type CodexServiceOptions = {
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
   pendingServerRequests: CodexPendingServerRequestRuntimeService;
-  serverRequestResponses: CodexServerRequestResponsesPromiseAdapter;
   turnCommands: CodexTurnCommandsPromiseAdapter;
   persistedAtoms: PersistedAtomStore;
   sessionStore: CodexSessionStore;
@@ -1136,8 +1130,6 @@ export interface CodexTerminalRuntimePort {
   readonly getThreadSnapshot: (threadId: string) => Promise<TerminalSessionSnapshot | null>;
 }
 
-type CodexConversationStreamRole = "owner" | "follower" | null;
-
 interface CodexConversationRecord {
   readonly threadId: string;
   detail: CodexThreadDetail | null;
@@ -1154,7 +1146,6 @@ interface CodexConversationRecord {
   completedThreadGoal: ThreadGoal | null;
   threadGoalResumeConfirmation: ThreadGoal | null;
   resumeState: CodexConversationResumeState;
-  streamRole: CodexConversationStreamRole;
   isStreaming: boolean;
 }
 
@@ -2127,7 +2118,6 @@ export class CodexService {
   private readonly projectlessHomeDirectory: () => string;
   private readonly attachments: CodexAttachments["Service"]["legacy"];
   private readonly pendingServerRequests: CodexPendingServerRequestRuntimeService;
-  private readonly serverRequestResponses: CodexServerRequestResponsesPromiseAdapter;
   private readonly turnCommands: CodexTurnCommandsPromiseAdapter;
   private readonly persistedAtoms: PersistedAtomStore;
   private readonly sessionStore: CodexSessionStore;
@@ -2245,7 +2235,6 @@ export class CodexService {
     this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
     this.pendingServerRequests = options.pendingServerRequests;
-    this.serverRequestResponses = options.serverRequestResponses;
     this.turnCommands = options.turnCommands;
     this.persistedAtoms = options.persistedAtoms;
     this.sessionStore = options.sessionStore;
@@ -3227,7 +3216,7 @@ export class CodexService {
 
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return false;
-    if (!ownerDetached && record.streamRole !== "owner") return false;
+    if (!ownerDetached && this.readConversationStreamRole(threadId) !== "owner") return false;
     if (!ownerDetached && !record.isStreaming) return false;
     if (
       record.resumeState !== "resumed" &&
@@ -3243,7 +3232,7 @@ export class CodexService {
     const record = this.getMaybeConversationRecord(threadId);
     if (record) {
       record.resumeState = "needs_resume";
-      record.streamRole = null;
+      this.setConversationStreamRole(threadId, null);
       record.isStreaming = false;
       if (record.detail) {
         record.detail = {
@@ -3285,7 +3274,7 @@ export class CodexService {
       const record = this.getMaybeConversationRecord(conversationId);
       if (record) {
         record.resumeState = "needs_resume";
-        record.streamRole = null;
+        this.setConversationStreamRole(conversationId, null);
         record.isStreaming = false;
       }
       this.rejectPendingDynamicToolCallsForThread(
@@ -4558,7 +4547,6 @@ export class CodexService {
       completedThreadGoal: null,
       threadGoalResumeConfirmation: null,
       resumeState: "resumed",
-      streamRole: null,
       isStreaming: false,
     };
   }
@@ -4582,6 +4570,14 @@ export class CodexService {
 
   private conversationAggregate(threadId: string): CodexConversationAggregate {
     return this.conversationRuntimes.conversation(threadId);
+  }
+
+  private readConversationStreamRole(threadId: string) {
+    return this.conversationRuntimes.currentConversation(threadId)?.readStreamRole() ?? null;
+  }
+
+  private setConversationStreamRole(threadId: string, role: "owner" | "follower" | null): void {
+    this.conversationAggregate(threadId).setStreamRole(role);
   }
 
   private readConversationAggregate(threadId: string) {
@@ -5216,7 +5212,7 @@ export class CodexService {
       if (!threadId) continue;
       const record = this.ensureConversationRecord(threadId);
       record.resumeState = "needs_resume";
-      record.streamRole = null;
+      this.setConversationStreamRole(threadId, null);
       record.isStreaming = false;
     }
 
@@ -10170,92 +10166,6 @@ export class CodexService {
     };
   }
 
-  /** Temporary projection port while canonical conversation state remains in this class. */
-  readServerRequestConversationForModule(
-    threadId: string,
-  ): CodexServerRequestConversationProjection | null {
-    const record = this.getMaybeConversationRecord(threadId);
-    if (!record) return null;
-    return {
-      canonicalState: this.readCanonicalConversationState(record.threadId),
-      rawState: this.buildTransportOnlyServerRequestRawState(threadId, record),
-      streamRole: record.streamRole,
-    };
-  }
-
-  resolveServerRequestThreadIdForModule(requestId: RequestId): string | null {
-    for (const [threadId, record] of this.conversationRecords) {
-      if (this.readConversationServerRequests(record).some((request) => request.id === requestId)) {
-        return threadId;
-      }
-    }
-    return null;
-  }
-
-  applyServerRequestCanonicalLifecycleForModule(input: {
-    readonly threadId: string;
-    readonly before: CodexCanonicalConversationState;
-    readonly lifecycle: CodexServerRequestLifecycleResult;
-  }): void {
-    this.applyServerRequestCanonicalLifecycleResult(input.threadId, input.before, input.lifecycle);
-  }
-
-  applyServerRequestRawLifecycleForModule(input: {
-    readonly threadId: string;
-    readonly lifecycle: CodexServerRequestRawLifecycleResult;
-  }): void {
-    this.applyTransportOnlyServerRequestRawLifecycleResult(input.threadId, input.lifecycle);
-  }
-
-  hasRendererConversationOwnerForModule(threadId: string): boolean {
-    return this.rendererConversations.hasOwner(threadId);
-  }
-
-  syncServerRequestLifecycleForModule(input: {
-    readonly threadId: string;
-    readonly lifecycle: CodexServerRequestRawLifecycleResult | CodexServerRequestLifecycleResult;
-    readonly additionalTurnIds?: readonly string[];
-  }): void {
-    this.syncBroadcastServerRequestLifecycle(
-      input.threadId,
-      input.lifecycle,
-      input.additionalTurnIds,
-    );
-  }
-
-  clearApprovalRequestAttachmentForModule(input: {
-    readonly threadId: string;
-    readonly turnId: string;
-    readonly requestId: RequestId;
-  }): void {
-    this.clearApprovalRequestAttachment(input.threadId, input.turnId, input.requestId);
-  }
-
-  removeUserInputRequestProjectionForModule(input: {
-    readonly threadId: string;
-    readonly turnId: string;
-    readonly requestId: RequestId;
-  }): void {
-    this.removeStandalonePendingRequestProjection(
-      input.threadId,
-      input.turnId,
-      input.requestId,
-      "requestUserInput",
-    );
-  }
-
-  emitServerRequestResolvedForModule(event: CodexServerRequestResolvedEvent): void {
-    if (event.type === "approval") {
-      this.emitEvent({
-        type: "approvalResolved",
-        requestId: event.requestId,
-        decision: event.decision,
-      });
-      return;
-    }
-    this.emitEvent({ type: "userInputResolved", requestId: event.requestId });
-  }
-
   private applyTransportOnlyServerRequestRawLifecycleResult(
     threadId: string,
     result: CodexServerRequestRawLifecycleResult,
@@ -10263,13 +10173,17 @@ export class CodexService {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record || !result.stateChanged) return;
 
-    const previousHasUnreadTurn = record.hasUnreadTurn;
-    this.replaceConversationServerRequests(threadId, result.state.requests);
-    record.hasUnreadTurn = result.state.hasUnreadTurn;
-    if (record.hasUnreadTurn !== previousHasUnreadTurn) {
+    const committed = this.conversationAggregate(threadId).commitServerRequestLifecycle({
+      kind: "raw",
+      lifecycle: result,
+      observedAtMs: Date.now(),
+      projectReplica: !this.rendererConversations.hasOwner(threadId),
+    });
+    record.hasUnreadTurn = committed.hasUnreadTurn;
+    if (committed.unreadChanged) {
       void this.threadReadState.persistProjected({
         threadId,
-        hasUnreadTurn: record.hasUnreadTurn,
+        hasUnreadTurn: committed.hasUnreadTurn,
       });
     }
   }
@@ -10282,13 +10196,19 @@ export class CodexService {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record || !result.stateChanged) return;
 
-    const previousHasUnreadTurn = record.hasUnreadTurn;
-    this.acceptCanonicalConversationState(record.threadId, result.state);
-    record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
-    if (record.hasUnreadTurn !== previousHasUnreadTurn) {
+    const observedAtMs = Date.now();
+    const committed = this.conversationAggregate(threadId).commitServerRequestLifecycle({
+      kind: "canonical",
+      before,
+      lifecycle: result,
+      observedAtMs,
+      projectReplica: !this.rendererConversations.hasOwner(threadId),
+    });
+    record.hasUnreadTurn = committed.hasUnreadTurn;
+    if (committed.unreadChanged) {
       void this.threadReadState.persistProjected({
         threadId,
-        hasUnreadTurn: record.hasUnreadTurn,
+        hasUnreadTurn: committed.hasUnreadTurn,
       });
     }
     if (!record.detail) return;
@@ -10301,29 +10221,8 @@ export class CodexService {
         turnIndex: mutation.turnIndex,
         beforeTurn: before.turns[mutation.turnIndex] ?? null,
         afterTurn,
-        observedAtMs: Date.now(),
+        observedAtMs,
         preserveExistingUpdatedAt: true,
-      });
-    }
-  }
-
-  private syncBroadcastServerRequestLifecycle(
-    threadId: string,
-    lifecycle: CodexServerRequestRawLifecycleResult | CodexServerRequestLifecycleResult,
-    additionalTurnIds: readonly string[] = [],
-  ): void {
-    const turnIds = new Set<string>(additionalTurnIds.filter((turnId) => turnId.length > 0));
-    for (const mutation of lifecycle.turnMutations) {
-      if (mutation.turn.turnId) turnIds.add(mutation.turn.turnId);
-    }
-    if (turnIds.size === 0) {
-      this.syncAcceptedConversationRequests(threadId, { syncCapabilityFlags: true });
-      return;
-    }
-    for (const turnId of turnIds) {
-      this.syncAcceptedConversationTurnState(threadId, turnId, {
-        syncRequests: true,
-        syncCapabilityFlags: true,
       });
     }
   }
@@ -11399,7 +11298,7 @@ export class CodexService {
     const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(sessionDetail);
     this.setConversationRecordDetail(reconciledDetail);
     const record = this.ensureConversationRecord(threadId);
-    if (record.streamRole === null && !record.isStreaming) {
+    if (this.readConversationStreamRole(threadId) === null && !record.isStreaming) {
       record.resumeState = "needs_resume";
     }
     return reconciledDetail;
@@ -13703,7 +13602,7 @@ export class CodexService {
     const record = this.ensureConversationRecord(threadId);
     if (
       !force &&
-      record.streamRole !== null &&
+      this.readConversationStreamRole(threadId) !== null &&
       (record.resumeState !== "needs_resume" || record.isStreaming)
     ) {
       return this.serializeThreadDetail(threadId);
@@ -14073,7 +13972,7 @@ export class CodexService {
     await this.persistThreadDetailSummary(resumedDetail);
 
     record.isStreaming = true;
-    record.streamRole = "owner";
+    this.setConversationStreamRole(threadId, "owner");
     return resumedDetail;
   }
 
@@ -14090,7 +13989,7 @@ export class CodexService {
     if (
       !force &&
       existingRecord !== null &&
-      existingRecord.streamRole !== null &&
+      this.readConversationStreamRole(threadId) !== null &&
       (existingRecord.resumeState !== "needs_resume" || existingRecord.isStreaming)
     ) {
       return this.serializeThreadDetail(threadId);
@@ -14190,7 +14089,7 @@ export class CodexService {
     const existingRecord = this.getMaybeConversationRecord(threadId);
     if (
       existingRecord &&
-      existingRecord.streamRole !== null &&
+      this.readConversationStreamRole(threadId) !== null &&
       (existingRecord.resumeState !== "needs_resume" || existingRecord.isStreaming)
     ) {
       const hadDeferredBuffer = this.hasResumeNotificationBuffer(threadId);
@@ -14237,7 +14136,7 @@ export class CodexService {
       this.postResumeGoals.clear(threadId);
       this.setConversationResumeState(threadId, "needs_resume");
       const record = this.ensureConversationRecord(threadId);
-      record.streamRole = null;
+      this.setConversationStreamRole(threadId, null);
       record.isStreaming = false;
       this.rendererOwnerRetention.reconcile(threadId);
       if (isThreadArchivedError(error)) {
@@ -14378,7 +14277,7 @@ export class CodexService {
     try {
       const record = this.getConversationRecord(threadId);
       record.resumeState = "resumed";
-      record.streamRole = "owner";
+      this.setConversationStreamRole(threadId, "owner");
       record.isStreaming = true;
       this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
       const conversation =
@@ -15475,7 +15374,7 @@ export class CodexService {
     this.setConversationResumeState(forkedThreadId, "resumed");
     const sideChatRecord = this.ensureConversationRecord(forkedThreadId);
     sideChatRecord.isStreaming = true;
-    sideChatRecord.streamRole = "owner";
+    this.setConversationStreamRole(forkedThreadId, "owner");
     this.syncDormantConversationFromRecord(forkedThreadId, "owner-unavailable");
 
     return {
@@ -15808,7 +15707,7 @@ export class CodexService {
     if (record.threadGoal?.status !== "active") return false;
     if (this.readConversationServerRequests(record).length > 0) return false;
     if (this.hasPendingThreadGoalSteering(threadId, record)) return false;
-    if (record.streamRole !== "owner") return false;
+    if (this.readConversationStreamRole(threadId) !== "owner") return false;
     if (!record.isStreaming) return false;
     if (this.hasInProgressThreadGoalWork(threadId, record)) return false;
     return true;
@@ -16739,21 +16638,6 @@ export class CodexService {
       if (turn.turnId === null || turn.turnId === activeTurnId) continue;
       this.completePlanImplementationItemsForTurn(threadId, turn.turnId);
     }
-  }
-
-  /** Effect Module projection operation; callers use CodexServerRequestResponses. */
-  completePlanImplementationRequestForModule(input: {
-    readonly threadId: string;
-    readonly turnId: string;
-  }): void {
-    const { threadId, turnId } = input;
-    this.removePlanImplementationRequestFromRecord(threadId, turnId);
-    this.completePlanImplementationItemsForTurn(threadId, turnId);
-
-    this.syncAcceptedConversationTurnState(threadId, turnId, {
-      syncRequests: true,
-      syncCapabilityFlags: true,
-    });
   }
 
   private buildDynamicToolSuccess(value: unknown): DynamicToolCallResponse {
@@ -18765,7 +18649,7 @@ export class CodexService {
     };
     await input.beforeFirstTurn?.(threadId);
     record.isStreaming = true;
-    record.streamRole = "owner";
+    this.setConversationStreamRole(threadId, "owner");
     const clientUserMessageId = randomUUID();
     const delegatedInput =
       input.firstTurnInput ??
@@ -19779,8 +19663,6 @@ export class CodexService {
     const ownerRouted = this.forwardServerRequestToRendererOwner(request);
     if (ownerRouted) {
       this.rendererOwnerRetention.reconcile(threadId);
-    } else {
-      this.syncBroadcastServerRequestLifecycle(threadId, lifecycle);
     }
     if (request.method === "item/tool/requestOptionPicker") {
       this.emitUserInputRequiredNotification({
@@ -19966,8 +19848,6 @@ export class CodexService {
 
     if (ownerRouted) {
       this.rendererOwnerRetention.reconcile(threadId);
-    } else {
-      this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle, [turnId]);
     }
     this.emitEvent({ type: "approvalRequested", request: payload });
     this.emitThreadNotificationEvent({
@@ -20175,8 +20055,6 @@ export class CodexService {
     });
     if (ownerRouted) {
       this.rendererOwnerRetention.reconcile(threadId);
-    } else {
-      this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle);
     }
     this.emitThreadNotificationEvent({
       type: "approval-requested",
@@ -20253,18 +20131,7 @@ export class CodexService {
       occurrenceToken: request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
     });
     if (!params.isBlocking) {
-      this.userInputAutoResolution.observeRequest(threadId, requestId, async () => {
-        const resolved = await this.serverRequestResponses.userInput({
-          threadId,
-          requestId,
-          answers: {},
-        });
-        if (!resolved) throw new Error("Codex user-input auto-resolution was not accepted");
-        this.forwardNotificationToRendererOwner({
-          method: "serverRequest/resolved",
-          params: { threadId, requestId },
-        });
-      });
+      this.userInputAutoResolution.observeRequest(threadId, requestId);
     }
     this.applyStandalonePendingRequestProjection(request);
     const ownerRouted = this.forwardServerRequestToRendererOwner({
@@ -20274,8 +20141,6 @@ export class CodexService {
     });
     if (ownerRouted) {
       this.rendererOwnerRetention.reconcile(threadId);
-    } else {
-      this.syncBroadcastServerRequestLifecycle(threadId, ingressLifecycle);
     }
     this.emitEvent({ type: "userInputRequested", request: payload });
     this.emitUserInputRequiredNotification({
@@ -20360,8 +20225,6 @@ export class CodexService {
     });
     if (ownerRouted) {
       this.rendererOwnerRetention.reconcile(threadId);
-    } else {
-      this.syncBroadcastServerRequestLifecycle(threadId, lifecycle);
     }
     return CodexApplicationRequestPending;
   }
@@ -20568,11 +20431,7 @@ export class CodexService {
     });
   }
 
-  private resolvePendingServerRequest(
-    threadId: string,
-    requestId: RequestId,
-    options: { suppressConversationSync?: boolean } = {},
-  ): void {
+  private resolvePendingServerRequest(threadId: string, requestId: RequestId): void {
     this.clearRendererOwnerRequestDelivery(threadId, requestId);
     this.emitThreadNotificationEvent({
       type: "request-resolved",
@@ -20586,14 +20445,12 @@ export class CodexService {
       method: "serverRequest/resolved" as const,
       params: { threadId, requestId },
     };
-    let lifecycle: CodexServerRequestRawLifecycleResult | CodexServerRequestLifecycleResult;
     if (!this.readCanonicalConversationState(record.threadId)) {
       const transportOnly = this.buildTransportOnlyServerRequestRawState(threadId, record);
       const rawLifecycle = reduceCodexServerRequestResolvedRawState(transportOnly, notification, {
         now: () => Date.now(),
       });
       if (!rawLifecycle.stateChanged) return;
-      lifecycle = rawLifecycle;
       this.applyTransportOnlyServerRequestRawLifecycleResult(threadId, rawLifecycle);
     } else {
       const before = this.readCanonicalConversationState(record.threadId);
@@ -20604,7 +20461,6 @@ export class CodexService {
         { now: () => Date.now() },
       );
       if (!canonicalLifecycle.stateChanged) return;
-      lifecycle = canonicalLifecycle;
       this.applyServerRequestCanonicalLifecycleResult(threadId, before, canonicalLifecycle);
     }
 
@@ -20615,8 +20471,6 @@ export class CodexService {
       pendingMcpElicitation: this.pendingServerRequests.has("mcp-elicitation", requestId),
       pendingPermissionRequest: this.pendingServerRequests.has("permission", requestId),
     });
-    const projectionTurnIds = new Set<string>();
-
     const pendingApprovals = this.pendingServerRequests.takeAll(
       "approval",
       requestId,
@@ -20629,7 +20483,6 @@ export class CodexService {
         pendingApproval.request.turnId,
         requestId,
       );
-      projectionTurnIds.add(pendingApproval.request.turnId);
     }
     if (pendingApprovals.length > 0) {
       this.emitEvent({ type: "approvalResolved", requestId, decision: "cancel" });
@@ -20686,10 +20539,6 @@ export class CodexService {
       (pending) => pending.disposition === "stored" && pending.request.params.threadId === threadId,
     )) {
       this.pendingServerRequests.complete(pendingDynamicRequest, CODEX_SERVER_REQUEST_NO_RESPONSE);
-    }
-
-    if (!options.suppressConversationSync) {
-      this.syncBroadcastServerRequestLifecycle(threadId, lifecycle, [...projectionTurnIds]);
     }
   }
 
@@ -20792,9 +20641,7 @@ export class CodexService {
       }
       if (method === "serverRequest/resolved") {
         const requestId = params.requestId;
-        this.resolvePendingServerRequest(commandOnlyThreadId, requestId, {
-          suppressConversationSync: true,
-        });
+        this.resolvePendingServerRequest(commandOnlyThreadId, requestId);
       }
       this.logger.debug(
         "Suppressed command-only automation notification from conversation pipeline",
@@ -21474,10 +21321,8 @@ export class CodexService {
       const threadId = payload.threadId;
       if (typeof threadId !== "string") return;
       this.userInputAutoResolution.observeServerResolution(threadId, requestId);
-      const ownerRouted = this.forwardNotificationToRendererOwner(notification);
-      this.resolvePendingServerRequest(threadId, requestId, {
-        suppressConversationSync: ownerRouted,
-      });
+      this.forwardNotificationToRendererOwner(notification);
+      this.resolvePendingServerRequest(threadId, requestId);
       return;
     }
 

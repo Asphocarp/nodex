@@ -1,16 +1,16 @@
 import { assert, it } from "@effect/vitest";
+import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
 import * as Context from "effect/Context";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
-import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
-import type { CodexApprovalRequest } from "../../shared/types";
+import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
+import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import type { CodexApprovalRequest, CodexUserInputRequest } from "../../shared/types";
 import {
   createCodexCanonicalConversationState,
-  type CodexCanonicalConversationState,
   type CodexCanonicalTurnParams,
 } from "../../shared/codex-conversation-state/codex-conversation-state";
 import { reduceCodexConversationServerRequest } from "../../shared/codex-conversation-state/codex-server-request-lifecycle";
@@ -18,16 +18,33 @@ import {
   AGENT_ACTIVITY_V2_CORPUS_TURN_ID,
   buildAgentActivityV2CorpusThread,
 } from "../../shared/codex-conversation-state/test-fixtures/agent-activity-v2-corpus-provenance";
-import { agentActivityV2CommandApprovalRequest } from "../../shared/codex-conversation-state/test-fixtures/agent-activity-v2-request-family-corpus";
-import { make as makeInbox } from "./CodexPendingServerRequestRuntime";
+import {
+  agentActivityV2CommandApprovalRequest,
+  agentActivityV2UserInputRequest,
+} from "../../shared/codex-conversation-state/test-fixtures/agent-activity-v2-request-family-corpus";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { codexRuntimeError } from "../codex-runtime/CodexRuntimeError";
+import { CodexApplicationEventHub, type CodexApplicationEvent } from "./CodexApplicationEventHub";
+import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
+import {
+  CodexPendingServerRequestRuntime,
+  make as makeInbox,
+} from "./CodexPendingServerRequestRuntime";
+import {
+  CodexRendererConversationRuntime,
+  makeCodexRendererConversationState,
+} from "./CodexRendererConversationRuntime";
+import { CodexThreadReadState } from "./CodexThreadReadState";
+import {
+  CodexUserInputAutoResolution,
+  make as makeAutoResolution,
+  USER_INPUT_AUTO_RESOLUTION_COUNTDOWN,
+} from "./CodexUserInputAutoResolution";
 import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
-import {
-  CodexServerRequestResponseProjectionError,
-  make as makeResponses,
-} from "./CodexServerRequestResponses";
+import { make as makeResponses } from "./CodexServerRequestResponses";
 
 interface Completion {
   readonly occurrenceToken: number;
@@ -79,7 +96,6 @@ const canonicalApproval = (threadId: string, requestId: string) => {
     },
   };
   return {
-    request,
     state: reduceCodexConversationServerRequest(initial, request, { now: () => 1 }).state,
   };
 };
@@ -95,12 +111,88 @@ const approvalView = (threadId: string, requestId: string): CodexApprovalRequest
   createdAt: 1,
 });
 
+const canonicalUserInput = (threadId: string, requestId: string) => {
+  const thread = {
+    ...buildAgentActivityV2CorpusThread([]),
+    id: threadId,
+    turns: buildAgentActivityV2CorpusThread([]).turns.map((turn) => ({
+      ...turn,
+      id: AGENT_ACTIVITY_V2_CORPUS_TURN_ID,
+    })),
+  };
+  const initial = createCodexCanonicalConversationState(thread, {
+    turnParamsById: { [AGENT_ACTIVITY_V2_CORPUS_TURN_ID]: turnParams(threadId) },
+  });
+  return reduceCodexConversationServerRequest(
+    initial,
+    {
+      ...agentActivityV2UserInputRequest,
+      id: requestId,
+      params: {
+        ...agentActivityV2UserInputRequest.params,
+        threadId,
+        turnId: AGENT_ACTIVITY_V2_CORPUS_TURN_ID,
+      },
+    },
+    { now: () => 1 },
+  ).state;
+};
+
+const userInputView = (threadId: string, requestId: string): CodexUserInputRequest => ({
+  type: "userInput",
+  requestId,
+  projectId: "project-1",
+  threadId,
+  turnId: AGENT_ACTIVITY_V2_CORPUS_TURN_ID,
+  itemId: `item-${requestId}`,
+  questions: [],
+  isBlocking: false,
+  createdAt: 1,
+});
+
+const makeGateway = (
+  requestRawForThread: CodexGateway["Service"]["requestRawForThread"],
+): CodexGateway["Service"] => {
+  const unsupported = () => Effect.die(new Error("Unsupported test operation"));
+  return CodexGateway.of({
+    localHostId: "local",
+    events: Stream.empty,
+    requestLocal: unsupported,
+    requestOnHost: unsupported,
+    requestForThread: unsupported,
+    requestRawForThread,
+    notifyLocal: unsupported,
+    connection: unsupported,
+    connectionChanges: () => Stream.empty,
+    awaitReady: unsupported,
+    reconcileHost: unsupported,
+    removeHost: unsupported,
+    restartHost: unsupported,
+  });
+};
+
+const autoResolution = CodexUserInputAutoResolution.of({
+  changes: Stream.empty,
+  timeouts: Stream.empty,
+  snapshot: Effect.succeed([]),
+  observeRequest: () => Effect.void,
+  observeResponse: () => Effect.void,
+  observeServerResolution: () => Effect.void,
+  reevaluatePresentation: () => Effect.void,
+  recordActivity: () => Effect.void,
+  snooze: () => Effect.succeed(false),
+  clearConversation: () => Effect.void,
+  reconcilePendingRequests: () => Effect.void,
+  handleDisconnect: Effect.void,
+});
+
 const makeHarness = (
-  scope: Scope.Scope,
-  follower: boolean,
-  respondFollowerApproval: Effect.Effect<void, CodexServerRequestResponseProjectionError>,
+  requestRawForThread: CodexGateway["Service"]["requestRawForThread"] = () =>
+    Effect.succeed(undefined),
+  autoResolutionRuntime: CodexUserInputAutoResolution["Service"] = autoResolution,
 ) =>
   Effect.gen(function* () {
+    const scope = yield* Scope.Scope;
     const conversationContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
     const conversations = Context.get(conversationContext, ConversationRuntimeMap);
     const completions: Completion[] = [];
@@ -112,166 +204,290 @@ const makeHarness = (
         }),
       reject: () => Effect.succeed(true),
     }).pipe(Effect.provideService(Scope.Scope, scope));
-    const states = new Map<string, CodexCanonicalConversationState>();
-    const emitted: unknown[] = [];
-    const completedPlans: Array<{ readonly threadId: string; readonly turnId: string }> = [];
-    const responses = yield* makeResponses({
-      inbox,
-      projection: {
-        completePlanImplementation: (input) => completedPlans.push(input),
-        read: (threadId) => {
-          const state = states.get(threadId);
-          return state
-            ? {
-                canonicalState: state,
-                rawState: {
-                  threadId,
-                  turns: [],
-                  requests: state.requests,
-                  hasUnreadTurn: state.sidecar.hasUnreadTurn,
-                },
-                streamRole: follower ? "follower" : "owner",
-              }
-            : null;
-        },
-        resolveThreadId: (requestId) =>
-          [...states].find(([, state]) =>
-            state.requests.some((request) => request.id === requestId),
-          )?.[0] ?? null,
-        applyCanonical: ({ threadId, lifecycle }) => states.set(threadId, lifecycle.state),
-        applyRaw: () => undefined,
-        clearApprovalAttachment: () => undefined,
-        removeUserInputProjection: () => undefined,
-        hasRendererOwner: () => false,
-        broadcast: () => undefined,
-        emitResolved: (event) => emitted.push(event),
-        observeUserInputResponse: () => Effect.void,
-        respondFollowerApproval: () => respondFollowerApproval,
-      },
-    }).pipe(
+    const emitted: CodexApplicationEvent[] = [];
+    const rendererConversations = makeCodexRendererConversationState();
+    const responses = yield* makeResponses.pipe(
+      Effect.provideService(
+        CodexApplicationEventHub,
+        CodexApplicationEventHub.of({
+          events: Stream.empty,
+          publish: (event) => emitted.push(event),
+        }),
+      ),
+      Effect.provideService(CodexGateway, makeGateway(requestRawForThread)),
+      Effect.provideService(
+        CodexOwnerNotificationDrainRuntime,
+        CodexOwnerNotificationDrainRuntime.of({
+          next: () => 1,
+          ack: () => undefined,
+          awaitCurrent: () => Effect.void,
+          resetOwner: () => undefined,
+          release: () => undefined,
+          clear: () => undefined,
+        }),
+      ),
+      Effect.provideService(CodexPendingServerRequestRuntime, inbox),
+      Effect.provideService(CodexRendererConversationRuntime, rendererConversations),
+      Effect.provideService(
+        CodexThreadReadState,
+        CodexThreadReadState.of({
+          set: () => Effect.succeed(false),
+          persistProjected: () => Effect.void,
+        }),
+      ),
+      Effect.provideService(CodexUserInputAutoResolution, autoResolutionRuntime),
       Effect.provideService(ConversationRuntimeMap, conversations),
-      Effect.provideService(Scope.Scope, scope),
     );
-    return { completedPlans, completions, emitted, inbox, responses, states };
+    return {
+      completions,
+      conversations,
+      emitted,
+      inbox,
+      rendererConversations,
+      responses,
+    };
   });
 
-it.effect("settles a synthetic plan implementation request in the Thread response lane", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const harness = yield* makeHarness(scope, false, Effect.void);
+it.effect("commits one semantic response and releases duplicate physical occurrences", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const threadId = "thread-owner";
+      const requestId = "approval-shared";
+      const aggregate = harness.conversations.conversation(threadId);
+      aggregate.acceptCanonicalState(canonicalApproval(threadId, requestId).state);
+      aggregate.setStreamRole("owner");
+      harness.inbox.register({
+        kind: "approval",
+        occurrenceToken: 1,
+        request: approvalView(threadId, requestId),
+      });
+      harness.inbox.register({
+        kind: "approval",
+        occurrenceToken: 2,
+        request: approvalView(threadId, requestId),
+      });
 
-    assert.isTrue(yield* harness.responses.planImplementation("thread-plan", "turn-plan"));
-    assert.deepEqual(harness.completedPlans, [{ threadId: "thread-plan", turnId: "turn-plan" }]);
-    yield* Scope.close(scope, Exit.void);
-  }),
+      assert.isTrue(
+        yield* harness.responses.approval({
+          threadId,
+          requestId,
+          response: { kind: "command", decision: "decline" },
+        }),
+      );
+      yield* Effect.yieldNow;
+
+      assert.deepEqual(
+        harness.completions.map(({ occurrenceToken, response }) => ({
+          occurrenceToken,
+          response,
+        })),
+        [
+          { occurrenceToken: 1, response: { decision: "decline" } },
+          { occurrenceToken: 2, response: CodexAppServerNoResponse },
+        ],
+      );
+      assert.strictEqual(aggregate.readServerRequests().length, 0);
+      assert.deepEqual(harness.emitted, [
+        {
+          kind: "codex",
+          value: { type: "approvalResolved", requestId, decision: "decline" },
+        },
+      ]);
+    }),
+  ),
 );
 
-it.effect("commits one owner response and explicitly releases duplicate physical occurrences", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const harness = yield* makeHarness(scope, false, Effect.void);
-    const threadId = "thread-owner";
-    const requestId = "approval-shared";
-    const canonical = canonicalApproval(threadId, requestId);
-    harness.states.set(threadId, canonical.state);
-    harness.inbox.register({
-      kind: "approval",
-      occurrenceToken: 1,
-      request: approvalView(threadId, requestId),
-    });
-    harness.inbox.register({
-      kind: "approval",
-      occurrenceToken: 2,
-      request: approvalView(threadId, requestId),
-    });
+it.effect("executes timed-out user input through the canonical response capability", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const autoResolutionRuntime = yield* makeAutoResolution({
+        isConversationPresented: () => false,
+      });
+      const harness = yield* makeHarness(undefined, autoResolutionRuntime);
+      const threadId = "thread-auto-resolution";
+      const requestId = "user-input-timeout";
+      const aggregate = harness.conversations.conversation(threadId);
+      aggregate.acceptCanonicalState(canonicalUserInput(threadId, requestId));
+      aggregate.setStreamRole("owner");
+      harness.inbox.register({
+        kind: "user-input",
+        occurrenceToken: 1,
+        request: userInputView(threadId, requestId),
+      });
 
-    assert.isTrue(
-      yield* harness.responses.approval({
-        threadId,
-        requestId,
-        response: { kind: "command", decision: "decline" },
-      }),
-    );
-    yield* Effect.yieldNow;
+      yield* autoResolutionRuntime.observeRequest(threadId, requestId);
+      yield* TestClock.adjust(USER_INPUT_AUTO_RESOLUTION_COUNTDOWN);
+      yield* Effect.yieldNow;
 
-    assert.deepEqual(
-      harness.completions.map(({ occurrenceToken, response }) => ({ occurrenceToken, response })),
-      [
-        { occurrenceToken: 1, response: { decision: "decline" } },
-        { occurrenceToken: 2, response: CodexAppServerNoResponse },
-      ],
-    );
-    assert.strictEqual(harness.states.get(threadId)?.requests.length, 0);
-    assert.deepEqual(harness.emitted, [{ type: "approval", requestId, decision: "decline" }]);
-    yield* Scope.close(scope, Exit.void);
-  }),
+      assert.strictEqual(aggregate.readServerRequests().length, 0);
+      assert.deepEqual(harness.completions, [
+        { threadId, occurrenceToken: 1, response: { answers: {} } },
+      ]);
+    }),
+  ),
 );
 
-it.effect("keeps a follower occurrence retryable when the host decision fails", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const failure = new CodexServerRequestResponseProjectionError({
-      operation: "respond-follower-approval",
-      cause: new Error("host unavailable"),
-    });
-    const harness = yield* makeHarness(scope, true, Effect.fail(failure));
-    const threadId = "thread-follower";
-    const requestId = "approval-follower";
-    harness.states.set(threadId, canonicalApproval(threadId, requestId).state);
-    harness.inbox.register({
-      kind: "approval",
-      occurrenceToken: 1,
-      request: approvalView(threadId, requestId),
-    });
+it.effect("executes timed-out user input and resolves the exact renderer owner", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const autoResolutionRuntime = yield* makeAutoResolution({
+        isConversationPresented: () => false,
+      });
+      const harness = yield* makeHarness(undefined, autoResolutionRuntime);
+      const threadId = "thread-auto-resolution";
+      const requestId = "user-input-timeout";
+      const aggregate = harness.conversations.conversation(threadId);
+      aggregate.acceptCanonicalState(canonicalUserInput(threadId, requestId));
+      aggregate.setStreamRole("owner");
+      harness.rendererConversations.setOwner(threadId, "renderer-owner");
+      harness.inbox.register({
+        kind: "user-input",
+        occurrenceToken: 1,
+        request: userInputView(threadId, requestId),
+      });
 
-    const exit = yield* Effect.exit(
-      harness.responses.approval({
-        threadId,
-        requestId,
-        response: { kind: "command", decision: "decline" },
-      }),
-    );
+      yield* autoResolutionRuntime.observeRequest(threadId, requestId);
+      yield* TestClock.adjust(USER_INPUT_AUTO_RESOLUTION_COUNTDOWN);
+      yield* Effect.yieldNow;
 
-    assert.isTrue(Exit.isFailure(exit));
-    assert.isDefined(harness.inbox.find("approval", requestId));
-    assert.strictEqual(harness.states.get(threadId)?.requests.length, 1);
-    assert.deepEqual(harness.completions, []);
-    yield* Scope.close(scope, Exit.void);
-  }),
+      assert.strictEqual(aggregate.readServerRequests().length, 0);
+      assert.deepEqual(harness.completions, [
+        { threadId, occurrenceToken: 1, response: { answers: {} } },
+      ]);
+      assert.deepInclude(harness.emitted, {
+        kind: "rendererOwnerHostMessage",
+        value: {
+          targetClientId: "renderer-owner",
+          message: {
+            type: "threadOwnerNotification",
+            hostId: DEFAULT_CODEX_HOST_ID,
+            sequence: 1,
+            notification: {
+              method: "serverRequest/resolved",
+              params: { threadId, requestId },
+            },
+          },
+        },
+      });
+    }),
+  ),
 );
 
-it.effect("interrupts an admitted follower response when its owning Scope closes", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const started = yield* Deferred.make<void>();
-    const interrupted = yield* Deferred.make<void>();
-    const follower = Deferred.succeed(started, undefined).pipe(
-      Effect.andThen(Effect.never),
-      Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
-    );
-    const harness = yield* makeHarness(scope, true, follower);
-    const threadId = "thread-closing";
-    const requestId = "approval-closing";
-    harness.states.set(threadId, canonicalApproval(threadId, requestId).state);
-    harness.inbox.register({
-      kind: "approval",
-      occurrenceToken: 1,
-      request: approvalView(threadId, requestId),
-    });
-    const command = yield* harness.responses
-      .approval({
-        threadId,
-        requestId,
-        response: { kind: "command", decision: "decline" },
-      })
-      .pipe(Effect.forkChild);
-    yield* Deferred.await(started);
+it.effect("keeps a follower occurrence retryable when its host decision fails", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const failure = codexRuntimeError({
+        operation: "test-follower-decision",
+        reason: "host-unavailable",
+        retryable: true,
+      });
+      const harness = yield* makeHarness(() => Effect.fail(failure));
+      const threadId = "thread-follower";
+      const requestId = "approval-follower";
+      const aggregate = harness.conversations.conversation(threadId);
+      aggregate.acceptCanonicalState(canonicalApproval(threadId, requestId).state);
+      aggregate.setStreamRole("follower");
+      harness.inbox.register({
+        kind: "approval",
+        occurrenceToken: 1,
+        request: approvalView(threadId, requestId),
+      });
 
-    yield* Scope.close(scope, Exit.void);
-    yield* Deferred.await(interrupted);
-    const exit = yield* Fiber.await(command);
+      const exit = yield* Effect.exit(
+        harness.responses.approval({
+          threadId,
+          requestId,
+          response: { kind: "command", decision: "decline" },
+        }),
+      );
 
-    assert.isTrue(Exit.isFailure(exit));
-    assert.deepEqual(harness.completions, []);
-  }),
+      assert.isTrue(Exit.isFailure(exit));
+      assert.isDefined(
+        harness.inbox.find("approval", requestId, (pending) => pending.threadId === threadId),
+      );
+      assert.strictEqual(aggregate.readServerRequests().length, 1);
+      assert.deepEqual(harness.completions, []);
+    }),
+  ),
+);
+
+it.effect("keeps an exact pending occurrence across renderer owner replacement", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const threadId = "thread-owner-replacement";
+      const requestId = "approval-owner-replacement";
+      const aggregate = harness.conversations.conversation(threadId);
+      aggregate.acceptCanonicalState(canonicalApproval(threadId, requestId).state);
+      aggregate.setStreamRole("owner");
+      harness.inbox.register({
+        kind: "approval",
+        occurrenceToken: 1,
+        request: approvalView(threadId, requestId),
+      });
+      harness.rendererConversations.setOwner(threadId, "owner-before");
+      harness.rendererConversations.handleClientDisposed("owner-before");
+      harness.rendererConversations.setOwner(threadId, "owner-after");
+
+      assert.isTrue(
+        yield* harness.responses.approval({
+          threadId,
+          requestId,
+          response: { kind: "command", decision: "decline" },
+        }),
+      );
+
+      assert.strictEqual(aggregate.readServerRequests().length, 0);
+      assert.deepEqual(harness.completions, [
+        { threadId, occurrenceToken: 1, response: { decision: "decline" } },
+      ]);
+    }),
+  ),
+);
+
+it.effect("never resolves a same-id occurrence from another Thread", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const requestId = "approval-shared-across-threads";
+      const first = harness.conversations.conversation("thread-first");
+      const second = harness.conversations.conversation("thread-second");
+      first.acceptCanonicalState(canonicalApproval("thread-first", requestId).state);
+      second.acceptCanonicalState(canonicalApproval("thread-second", requestId).state);
+      first.setStreamRole("owner");
+      second.setStreamRole("owner");
+      harness.inbox.register({
+        kind: "approval",
+        occurrenceToken: 1,
+        request: approvalView("thread-first", requestId),
+      });
+      harness.inbox.register({
+        kind: "approval",
+        occurrenceToken: 2,
+        request: approvalView("thread-second", requestId),
+      });
+
+      assert.isTrue(
+        yield* harness.responses.approval({
+          threadId: "thread-second",
+          requestId,
+          response: { kind: "command", decision: "decline" },
+        }),
+      );
+
+      assert.strictEqual(first.readServerRequests().length, 1);
+      assert.strictEqual(second.readServerRequests().length, 0);
+      assert.isDefined(
+        harness.inbox.find("approval", requestId, (pending) => pending.threadId === "thread-first"),
+      );
+      assert.isUndefined(
+        harness.inbox.find(
+          "approval",
+          requestId,
+          (pending) => pending.threadId === "thread-second",
+        ),
+      );
+    }),
+  ),
 );

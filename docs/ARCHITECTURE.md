@@ -1070,16 +1070,21 @@ Thread cleanup, and Main Scope close all settle the same inbox. Canonical
 conversation reducers remain the sole owner of transcript/request truth.
 `CodexServerRequestResponses` is the only application command owner for renderer,
 automatic, interrupt-time, and synthetic plan-implementation responses. The shared
-Thread-generation lane serializes target resolution, follower-host forwarding, canonical
-transition, projection cleanup, and exact occurrence settlement. A complete command that already
+Thread-generation lane serializes exact occurrence selection, follower-host forwarding, canonical
+transition, dormant-replica projection, and occurrence settlement. A complete command that already
 holds that lane, such as Turn interruption, composes the explicitly internal in-transaction decline
-step rather than recursively acquiring the non-reentrant lane. Its pure response kernel is shared
-by the legacy reducer test harness, but production concurrency and I/O remain in the Effect Module.
+step rather than recursively acquiring the non-reentrant lane. `ConversationAggregate` owns the
+canonical request state, stream role, and accepted dormant replica; both request ingress and
+resolution commit through its one semantic lifecycle operation. Pure projectors receive an
+Effect-clock timestamp from the application interpreter and own no runtime state.
+A non-blocking user-input timeout is a typed projection of the single auto-resolution change stream;
+the scoped response consumer submits the empty answer through the same command and then sends the
+sequenced `serverRequest/resolved` notification to the exact renderer owner.
 A failed follower decision leaves the occurrence queued and the canonical request unchanged;
 duplicate physical occurrences receive one protocol response and explicit no-response settlement
 for the rest. Synthetic request completion uses the same lane even though it needs no transport occurrence.
 Renderer IPC never calls responder methods on `CodexService`, and the class owns no response facade,
-completion callback, pending map, or shutdown path.
+completion callback, request-state bridge, pending map, or shutdown path.
 
 `CodexThreadHandoffRuntime` is the single owner of the cross-system compensation
 transaction. It atomically reserves one operation per Thread before resolving

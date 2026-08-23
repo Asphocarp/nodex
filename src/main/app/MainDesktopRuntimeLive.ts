@@ -92,13 +92,14 @@ import {
   CodexGlobalServerRequestRuntime,
   applicationRequestDispatcherLive,
 } from "../codex-application/ApprovalCoordinator";
-import { make as makeCodexPendingServerRequestRuntime } from "../codex-application/CodexPendingServerRequestRuntime";
+import {
+  CodexPendingServerRequestRuntime,
+  make as makeCodexPendingServerRequestRuntime,
+} from "../codex-application/CodexPendingServerRequestRuntime";
 import {
   CodexServerRequestResponses,
-  CodexServerRequestResponseProjectionError,
   make as makeCodexServerRequestResponses,
 } from "../codex-application/CodexServerRequestResponses";
-import { makeCodexServerRequestResponsesPromiseAdapter } from "../codex-application/CodexServerRequestResponsesPromiseAdapter";
 import {
   CodexTurnCommands,
   CodexTurnCommandProjectionError,
@@ -148,6 +149,7 @@ import {
 } from "../codex-application/CodexThreadCatalog";
 import { makeCodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
 import {
+  CodexThreadReadState,
   CodexThreadReadStateError,
   make as makeCodexThreadReadState,
 } from "../codex-application/CodexThreadReadState";
@@ -690,65 +692,55 @@ export const live: Layer.Layer<
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
         const codexClient = makeCodexGatewayPromiseClient(codexGateway, callbacks);
-        const userInputAutoResolution = yield* makeCodexUserInputAutoResolution({
-          isConversationPresented: (conversationId) =>
-            codexService?.isRendererConversationPresentedInForeground(conversationId) === true,
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const serverRequestResponses = yield* makeCodexServerRequestResponses({
-          inbox: pendingServerRequests,
-          projection: {
-            read: (threadId) =>
-              requireCodexService().readServerRequestConversationForModule(threadId),
-            completePlanImplementation: (input) =>
-              requireCodexService().completePlanImplementationRequestForModule(input),
-            resolveThreadId: (requestId) =>
-              requireCodexService().resolveServerRequestThreadIdForModule(requestId),
-            applyCanonical: (input) =>
-              requireCodexService().applyServerRequestCanonicalLifecycleForModule(input),
-            applyRaw: (input) =>
-              requireCodexService().applyServerRequestRawLifecycleForModule(input),
-            clearApprovalAttachment: (input) =>
-              requireCodexService().clearApprovalRequestAttachmentForModule(input),
-            removeUserInputProjection: (input) =>
-              requireCodexService().removeUserInputRequestProjectionForModule(input),
-            hasRendererOwner: (threadId) =>
-              requireCodexService().hasRendererConversationOwnerForModule(threadId),
-            broadcast: (input) => requireCodexService().syncServerRequestLifecycleForModule(input),
-            emitResolved: (event) =>
-              requireCodexService().emitServerRequestResolvedForModule(event),
-            observeUserInputResponse: (threadId, requestId) =>
-              userInputAutoResolution.observeResponse(threadId, requestId),
-            respondFollowerApproval: (input) =>
-              codexGateway
-                .requestRawForThread(
-                  input.threadId,
-                  input.response.kind === "command"
-                    ? "thread-follower-command-approval-decision"
-                    : "thread-follower-file-approval-decision",
-                  {
-                    conversationId: input.threadId,
-                    requestId: input.requestId,
-                    decision: input.response.decision,
-                  },
-                )
-                .pipe(
-                  Effect.asVoid,
-                  Effect.mapError(
-                    (cause) =>
-                      new CodexServerRequestResponseProjectionError({
-                        operation: "respond-follower-approval",
-                        cause,
-                      }),
-                  ),
-                ),
-          },
-        }).pipe(
-          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+        const codexApplicationEvents = yield* makeCodexApplicationEventHub.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const serverRequestResponseAdapter = makeCodexServerRequestResponsesPromiseAdapter(
-          serverRequestResponses,
-          callbacks,
+        const ownerNotificationDrain = yield* makeCodexOwnerNotificationDrainRuntime().pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const rendererConversations = yield* makeCodexRendererConversationRuntime({
+          projection: {
+            following: (input) =>
+              requireCodexService().applyRendererConversationFollowingForModule(input),
+            viewActive: (input) =>
+              requireCodexService().applyRendererConversationViewActiveForModule(input),
+            presented: (input) =>
+              requireCodexService().applyRendererConversationPresentedForModule(input),
+          },
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const threadReadState = yield* makeCodexThreadReadState({
+          inspect: (threadId) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().inspectThreadReadStateProjection(threadId),
+              catch: (cause) => new CodexThreadReadStateError({ operation: "inspect", cause }),
+            }),
+          persist: ({ threadId, hasUnreadTurn }) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().persistThreadReadStateProjection(threadId, hasUnreadTurn),
+              catch: (cause) => new CodexThreadReadStateError({ operation: "persist", cause }),
+            }),
+          project: ({ threadId, hasUnreadTurn }) =>
+            Effect.try({
+              try: () =>
+                requireCodexService().applyThreadReadStateProjection(threadId, hasUnreadTurn),
+              catch: (cause) => new CodexThreadReadStateError({ operation: "project", cause }),
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const userInputAutoResolution = yield* makeCodexUserInputAutoResolution({
+          isConversationPresented: (conversationId) =>
+            rendererConversations.isPresentedInForeground(conversationId),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const serverRequestResponses = yield* makeCodexServerRequestResponses.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
+          Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
+          Effect.provideService(CodexRendererConversationRuntime, rendererConversations),
+          Effect.provideService(CodexThreadReadState, threadReadState),
+          Effect.provideService(CodexUserInputAutoResolution, userInputAutoResolution),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(Scope.Scope, runtimeScope),
         );
         const electronNetContext = yield* Layer.buildWithScope(ElectronNet.live, runtimeScope);
         const electronNet = Context.get(electronNetContext, ElectronNet.ElectronNet);
@@ -1545,19 +1537,6 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexNotificationRoutingError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const ownerNotificationDrain = yield* makeCodexOwnerNotificationDrainRuntime().pipe(
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
-        const rendererConversations = yield* makeCodexRendererConversationRuntime({
-          projection: {
-            following: (input) =>
-              requireCodexService().applyRendererConversationFollowingForModule(input),
-            viewActive: (input) =>
-              requireCodexService().applyRendererConversationViewActiveForModule(input),
-            presented: (input) =>
-              requireCodexService().applyRendererConversationPresentedForModule(input),
-          },
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const sidebarSync = yield* makeCodexSidebarSyncRuntime({
           refresh: (input) =>
             Effect.tryPromise({
@@ -1696,25 +1675,6 @@ export const live: Layer.Layer<
           Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const threadReadState = yield* makeCodexThreadReadState({
-          inspect: (threadId) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().inspectThreadReadStateProjection(threadId),
-              catch: (cause) => new CodexThreadReadStateError({ operation: "inspect", cause }),
-            }),
-          persist: ({ threadId, hasUnreadTurn }) =>
-            Effect.tryPromise({
-              try: () =>
-                requireCodexService().persistThreadReadStateProjection(threadId, hasUnreadTurn),
-              catch: (cause) => new CodexThreadReadStateError({ operation: "persist", cause }),
-            }),
-          project: ({ threadId, hasUnreadTurn }) =>
-            Effect.try({
-              try: () =>
-                requireCodexService().applyThreadReadStateProjection(threadId, hasUnreadTurn),
-              catch: (cause) => new CodexThreadReadStateError({ operation: "project", cause }),
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const sidebarSweep = yield* makeCodexSidebarSweepRuntime().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
@@ -2221,9 +2181,6 @@ export const live: Layer.Layer<
           yield* makeCodexRendererOwnerRetentionCallbackAdapter(rendererOwnerRetention, {
             isCandidate: isInactiveRendererOwnerCandidate,
           }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const codexApplicationEvents = yield* makeCodexApplicationEventHub.pipe(
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
         const forkBrowserSnapshotAdapter = createCodexForkBrowserSnapshotAdapter({
           getProjectSession: (projectSessionId) =>
             projectWorkspace.getProjectSession(projectSessionId),
@@ -2649,7 +2606,6 @@ export const live: Layer.Layer<
               persistedAtoms,
               attachments: attachments.legacy,
               pendingServerRequests,
-              serverRequestResponses: serverRequestResponseAdapter,
               turnCommands: turnCommandsAdapter,
               activeGoalContinuation: activeGoalContinuationCallbacks,
               ownerNotificationDrain: makeCodexOwnerNotificationDrainRuntimePromiseAdapter(

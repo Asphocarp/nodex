@@ -1,9 +1,7 @@
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FiberMap from "effect/FiberMap";
-import * as FiberSet from "effect/FiberSet";
 import * as HashMap from "effect/HashMap";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
@@ -21,14 +19,14 @@ export const USER_INPUT_FOREGROUND_INACTIVITY = "60 seconds";
 export const USER_INPUT_AUTO_RESOLUTION_COUNTDOWN = "90 seconds";
 const USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS = 90_000;
 
-export class CodexUserInputAutoResolutionError extends Data.TaggedError(
-  "CodexUserInputAutoResolutionError",
-)<{ readonly cause: unknown }> {}
+export type CodexUserInputAutoResolutionTimeout = Extract<
+  CodexUserInputAutoResolutionChange,
+  { readonly type: "timedOut" }
+>;
 
 interface TrackedUserInput {
   readonly entry: CodexUserInputAutoResolutionEntry;
   readonly generation: number;
-  readonly resolve: Effect.Effect<void, CodexUserInputAutoResolutionError>;
 }
 
 export interface CodexUserInputAutoResolutionOptions {
@@ -39,11 +37,11 @@ export class CodexUserInputAutoResolution extends Context.Service<
   CodexUserInputAutoResolution,
   {
     readonly changes: Stream.Stream<CodexUserInputAutoResolutionChange>;
+    readonly timeouts: Stream.Stream<CodexUserInputAutoResolutionTimeout>;
     readonly snapshot: Effect.Effect<CodexUserInputAutoResolutionEntry[]>;
     readonly observeRequest: (
       conversationId: string,
       requestId: CodexProtocolRequestId,
-      resolve: Effect.Effect<void, CodexUserInputAutoResolutionError>,
     ) => Effect.Effect<void>;
     readonly observeResponse: (
       conversationId: string,
@@ -83,7 +81,6 @@ export const make = (
     const state = yield* Ref.make(HashMap.empty<string, TrackedUserInput>());
     const changes = yield* PubSub.unbounded<CodexUserInputAutoResolutionChange>();
     const timers = yield* FiberMap.make<string, void>();
-    const resolutions = yield* FiberSet.make<void>();
     const mutations = yield* Semaphore.make(1);
     yield* Effect.addFinalizer(() => PubSub.shutdown(changes));
 
@@ -106,42 +103,19 @@ export const make = (
       mutations
         .withPermits(1)(
           Effect.gen(function* () {
-            if (!(yield* isCurrent(tracked))) {
-              return Option.none<Effect.Effect<void, CodexUserInputAutoResolutionError>>();
-            }
+            if (!(yield* isCurrent(tracked))) return;
             yield* Ref.update(state, (entries) =>
               HashMap.remove(entries, tracked.entry.conversationId),
             );
-            yield* publish({
+            const event: CodexUserInputAutoResolutionTimeout = {
               type: "timedOut",
               conversationId: tracked.entry.conversationId,
               requestId: tracked.entry.requestId,
-            });
-            return Option.some(tracked.resolve);
+            };
+            yield* publish(event);
           }),
         )
-        .pipe(
-          Effect.flatMap(
-            Option.match({
-              onNone: () => Effect.void,
-              onSome: (resolve) =>
-                FiberSet.run(
-                  resolutions,
-                  resolve.pipe(
-                    Effect.catch((error) =>
-                      Effect.logWarning("Could not auto-resolve Codex user input").pipe(
-                        Effect.annotateLogs({
-                          cause: String(error.cause),
-                          conversationId: tracked.entry.conversationId,
-                          requestId: String(tracked.entry.requestId),
-                        }),
-                      ),
-                    ),
-                  ),
-                ).pipe(Effect.asVoid),
-            }),
-          ),
-        );
+        .pipe(Effect.asVoid);
 
     const countdown = (tracked: TrackedUserInput) =>
       Effect.sleep(USER_INPUT_AUTO_RESOLUTION_COUNTDOWN).pipe(Effect.andThen(timeout(tracked)));
@@ -246,8 +220,14 @@ export const make = (
 
     yield* Effect.addFinalizer(() => clearAll("disposed"));
 
+    const changeStream = Stream.fromPubSub(changes);
     return CodexUserInputAutoResolution.of({
-      changes: Stream.fromPubSub(changes),
+      changes: changeStream,
+      timeouts: changeStream.pipe(
+        Stream.filter(
+          (change): change is CodexUserInputAutoResolutionTimeout => change.type === "timedOut",
+        ),
+      ),
       snapshot: Ref.get(state).pipe(
         Effect.map((entries) =>
           [...HashMap.values(entries)]
@@ -255,7 +235,7 @@ export const make = (
             .sort((left, right) => left.conversationId.localeCompare(right.conversationId)),
         ),
       ),
-      observeRequest: (conversationId, requestId, resolve) =>
+      observeRequest: (conversationId, requestId) =>
         mutations.withPermits(1)(
           Effect.gen(function* () {
             const previous = yield* current(conversationId);
@@ -272,7 +252,6 @@ export const make = (
             const tracked: TrackedUserInput = {
               entry: { conversationId, requestId, phase: { type: "waitingForInactivity" } },
               generation: previous?.generation ?? 0,
-              resolve,
             };
             yield* schedule(
               tracked,
@@ -362,11 +341,7 @@ export const make = (
   });
 
 export interface CodexUserInputAutoResolutionLegacyPort {
-  readonly observeRequest: (
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-    resolve: () => Promise<void>,
-  ) => void;
+  readonly observeRequest: (conversationId: string, requestId: CodexProtocolRequestId) => void;
   readonly observeResponse: (conversationId: string, requestId: CodexProtocolRequestId) => void;
   readonly observeServerResolution: (
     conversationId: string,
