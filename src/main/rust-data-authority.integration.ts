@@ -2169,6 +2169,7 @@ describe("Electron native data authority", () => {
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const automation = createDesktopAutomationModuleBridge({
         authority: Promise.resolve(runtime),
+        routing: { commit: () => undefined },
       });
       const automationDefinition = await automation.createDefinition({
         kind: "cron",

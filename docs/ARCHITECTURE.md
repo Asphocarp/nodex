@@ -454,7 +454,7 @@ sequenceDiagram
 
 Core writes the semantic mutation, immutable receipt, physical evidence, Document references, visibility changes, and per-scope Projection effects in one transaction represented by one LocalCommit identity. Command authorization and delivery authorization are separate Core decisions. Main routes Core-authored audiences; it cannot broaden them.
 
-The initiating renderer admits its authorized apply-response delivery before the feature Promise resolves. Other renderers converge through the scoped live broker and durable replay. Main's LocalCommit Module owns Manifest/resource deduplication, exact-key causal Queue actors, shared completion signals, bounded pending work, retry, and checkpoint gating as children of the Main Scope; an interrupted tail waiter never becomes the physical delivery owner. The Projection live Module separately owns the multiplexed physical lease, replacement attempts, callback ingress, backoff, and release. Its audience Module atomically owns renderer subscriptions, Core-issued recipient leases, ACK correlation, reset recovery, and the desired-scope projection; audience membership does not own a physical Core connection. Apply delivery and later stream delivery are complementary copies of the same committed fact, not competing authorities.
+The initiating renderer admits its authorized apply-response delivery before the feature Promise resolves. Other renderers converge through the scoped live broker and durable replay. Main's Projection delivery capability directly composes Core authority/session access, application projection, Document sessions, LocalCommit delivery, and renderer audience ownership; the composition root does not reconstruct causal delivery as a callback bag or borrow a legacy data-authority client. LocalCommit owns Manifest/resource deduplication, exact-key causal Queue actors, shared completion signals, bounded pending work, retry, and checkpoint gating as children of the Main Scope; an interrupted tail waiter never becomes the physical delivery owner. The Projection live Module separately owns the multiplexed physical lease, replacement attempts, callback ingress, backoff, and release. Its audience Module atomically owns renderer subscriptions, Core-issued recipient leases, ACK correlation, reset recovery, and the desired-scope projection; audience membership does not own a physical Core connection. Apply delivery and later stream delivery are complementary copies of the same committed fact, not competing authorities.
 
 Database-scoped Page-key namespace reads and prefix mutations belong to the Database Module. Project creation may provide the primary Database's initial prefix inside its aggregate transaction; after creation, Project surfaces only adapt the primary Database coordinate and do not copy namespace revision into Project state. A prefix rename authors bounded Database/View canonical-read floors plus `PageDetailDatabase` delivery in one LocalCommit, so mounted Views and Page Detail converge without advancing Project binding revision or enumerating Page patches.
 
@@ -1226,13 +1226,15 @@ three Store maintenance lanes. Every schedule is a scoped Effect fiber.
 Per-domain semaphores reject overlapping ticks, the maintenance lanes share one
 Store-wide permit, and backup configuration replacement interrupts the previous
 schedule through one `FiberHandle`. Core remains the durable definition and
-lease authority. The Core Automation adapter owns the synchronous routing
-projection from Codex Thread IDs to runs and active heartbeat definitions. A
-complete background read atomically rebuilds that projection, unless a newer
-committed mutation fences the stale read; successful definition/run reads and
-mutations update it immediately. Codex conversation code may borrow these
-synchronous lookups while reducing protocol events, but cannot own or repair a
-parallel cache. Core recovery triggers an immediate projection rebuild and
+lease authority. `AutomationRoutingIndex` owns the synchronous routing
+projection from Codex Thread IDs to all runs and active heartbeat definitions.
+A complete cursor-paginated background read, including archived runs, atomically
+rebuilds that projection. A newer committed mutation fences a stale read and
+forces a new canonical rebuild; successful definition/run mutations apply their
+routing consequence before returning to application code. The Automation
+command adapter and Codex conversation code may borrow only that commit or pure
+lookup capability; neither owns a parallel Map or synchronization policy. Core
+recovery triggers an immediate projection rebuild and
 automation pass, while Main Scope closure interrupts every schedule and returns
 admitted leases. Scheduled Codex execution receives the owning schedule fiber's
 `AbortSignal` through the temporary Promise adapter, and passes it unchanged to

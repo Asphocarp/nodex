@@ -20,7 +20,6 @@ import type {
   CodexPlanImplementationServerRequest,
   CodexPromptInput,
   CodexScheduledAutomation,
-  CodexSideChatStartInput,
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
@@ -51,7 +50,6 @@ import { CodexConversationDeltaBufferRuntime } from "../codex-application/CodexC
 import { TestCodexConversationResumeRuntime } from "./codex-conversation-resume-runtime.test-support";
 import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
 import { TestCodexConversationEventBufferRuntime } from "./codex-conversation-event-buffer-runtime.test-support";
-import { TestCodexFreshThreadLaunchRuntime } from "./codex-fresh-thread-launch-runtime.test-support";
 import { TestCodexPendingServerRequestRuntime } from "./codex-pending-server-request-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
@@ -204,17 +202,10 @@ interface TestableCodexService {
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
   threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
-  readConversationSnapshotForModule: CodexService["readConversationSnapshotForModule"];
   requestConversationResume: (
     threadId: string,
     options?: { syncDormantConversationSnapshots?: boolean; replayBufferedNotifications?: boolean },
   ) => Promise<CodexConversationSnapshot | null>;
-  freshThreadLaunch: import("../codex-application/CodexFreshThreadLaunchRuntimePromiseAdapter").CodexFreshThreadLaunchRuntimePromiseAdapter;
-  prepareFreshThreadFirstTurnForModule: CodexService["prepareFreshThreadFirstTurnForModule"];
-  beginFreshThreadFirstTurnForModule: CodexService["beginFreshThreadFirstTurnForModule"];
-  commitFreshThreadFirstTurnForModule: CodexService["commitFreshThreadFirstTurnForModule"];
-  finishFreshThreadFirstTurnForModule: CodexService["finishFreshThreadFirstTurnForModule"];
-  rollbackFreshThreadFirstTurnForModule: CodexService["rollbackFreshThreadFirstTurnForModule"];
   releaseConversationResumeBufferForModule: CodexService["releaseConversationResumeBufferForModule"];
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
@@ -240,9 +231,6 @@ interface TestableCodexService {
       localEnvironmentConfigPath?: string | null;
     },
   ) => Promise<ProjectSessionForkResult>;
-  prepareSideChatForModule: CodexService["prepareSideChatForModule"];
-  commitSideChatForkForModule: CodexService["commitSideChatForkForModule"];
-  finishSideChatForModule: CodexService["finishSideChatForModule"];
   startTurn: (
     threadId: string,
     prompt: string,
@@ -257,14 +245,6 @@ interface TestableCodexService {
     },
   ) => Promise<CodexTurnSummary | null>;
   steerTurn: (input: CodexSteerTurnInput) => Promise<{ turnId: string } | null>;
-  prepareSessionThreadLaunchForModule: CodexService["prepareSessionThreadLaunchForModule"];
-  failSessionThreadLaunchForModule: CodexService["failSessionThreadLaunchForModule"];
-  materializeSubagentThreadReadForModule: CodexService["materializeSubagentThreadReadForModule"];
-  shouldRetrySubagentReadWithoutTurnsForModule: CodexService["shouldRetrySubagentReadWithoutTurnsForModule"];
-  readSubagentWorkspaceThreadForModule: CodexService["readSubagentWorkspaceThreadForModule"];
-  readSubagentCanonicalParentForModule: CodexService["readSubagentCanonicalParentForModule"];
-  materializeSubagentThreadForModule: CodexService["materializeSubagentThreadForModule"];
-  publishSubagentSummaryForModule: CodexService["publishSubagentSummaryForModule"];
   runScheduledAutomationNow: (
     input: import("../../shared/types").CodexScheduledAutomationRunNowInput,
     rendererClientId?: string | null,
@@ -302,9 +282,6 @@ interface TestableCodexService {
     signal: AbortSignal,
   ) => Promise<CodexPreparedThreadSettingsUpdate>;
 }
-
-const prepareSideChatForTest = (service: TestableCodexService, input: CodexSideChatStartInput) =>
-  service.prepareSideChatForModule(input, new AbortController().signal);
 
 function makeThreadDetail(threadId: string): CodexThreadDetail {
   return {
@@ -785,9 +762,6 @@ class TestCodexGatewayPromiseClient implements CodexGatewayPromiseClient {
 }
 
 const createTestAutomationModule = (): DesktopAutomationModulePort => ({
-  peekRunAutomationId: () => null,
-  peekActiveHeartbeatAutomationId: () => null,
-  synchronizeIndex: async () => undefined,
   listDefinitions: async () => [],
   getDefinition: async () => null,
   createDefinition: async () => {
@@ -1761,7 +1735,15 @@ function createService(options?: {
     },
     snapshot: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
-      return await service.readConversationSnapshotForModule(threadId);
+      const snapshot = service.serializeConversationSnapshot(threadId);
+      if (snapshot) {
+        (
+          service as unknown as {
+            syncDormantConversationFromRecord: (threadId: string, reason: string) => void;
+          }
+        ).syncDormantConversationFromRecord(threadId, "explicit-resync");
+      }
+      return snapshot;
     },
     readRendererState: (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -1798,57 +1780,22 @@ function createService(options?: {
     },
     reportThreadStartReplayFailure: (input) => service?.recordThreadStartReplayFailure(input),
   });
-  const freshThreadLaunch = new TestCodexFreshThreadLaunchRuntime({
-    adopt: async (launch) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      const conversation = service.serializeConversationSnapshot(launch.threadId);
-      if (!conversation) throw new Error(`Fresh thread '${launch.threadId}' is unavailable`);
-      const adoption = adoptRendererConversation({
-        threadId: launch.threadId,
-        ownerClientId: launch.rendererClientId,
-        conversation,
-      });
-      if (!adoption.checkpoint) throw new Error(`Fresh thread '${launch.threadId}' has no replica`);
-      return {
-        role: "owner",
-        conversation,
-        revision: adoption.revision,
-        checkpoint: adoption.checkpoint,
-      };
-    },
-    readAdopted: async (launch) => {
-      const state = conversationAggregates.current(launch.threadId)?.read();
-      if (
-        rendererConversations.getOwnerClientId(launch.threadId) !== launch.rendererClientId ||
-        !state?.acceptedReplica
-      ) {
-        throw new Error(`Fresh thread '${launch.threadId}' has no adopted renderer owner`);
-      }
-      return {
-        role: "owner",
-        conversation: state.acceptedReplica.conversation,
-        revision: state.revision,
-        checkpoint: state.acceptedReplica.checkpoint,
-      };
-    },
-    start: async (launch) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      const prepared = service.prepareFreshThreadFirstTurnForModule(launch);
-      try {
-        await service.beginFreshThreadFirstTurnForModule(prepared);
+  const turnCommands: CodexTurnCommandsService = {
+    start: () => Effect.die("Turn commands are exercised by final semantic service tests"),
+    startRendererOwned: () =>
+      Effect.die("Renderer-owned Turn commands are unavailable in the CodexService fixture"),
+    acceptPreparedRendererTurn: (plan) =>
+      Effect.promise(async () => {
+        if (!service) throw new Error("Codex test service is not constructed");
         const client = Reflect.get(service as object, "client") as {
           request: (method: string, params: unknown) => Promise<TurnStartResponse>;
         };
-        const response = await client.request("turn/start", prepared.request);
-        const committed = await service.commitFreshThreadFirstTurnForModule(prepared, response);
-        return await service.finishFreshThreadFirstTurnForModule(prepared, committed);
-      } catch (error) {
-        service.rollbackFreshThreadFirstTurnForModule(prepared);
-        throw error;
-      }
-    },
-    abandon: (launch, reason) => service?.abandonFreshThreadLaunch(launch, reason),
-  });
+        return await client.request("turn/start", plan.request);
+      }),
+    steer: () => Effect.die("Turn commands are exercised by final semantic service tests"),
+    steerRendererOwned: () =>
+      Effect.die("Renderer-owned Turn commands are unavailable in the CodexService fixture"),
+  };
   const threadGoals: CodexThreadGoalRuntimePromiseAdapter = {
     set: async (input) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -1918,14 +1865,6 @@ function createService(options?: {
     },
   });
   const testClient = new TestCodexGatewayPromiseClient();
-  const turnCommands: CodexTurnCommandsService = {
-    start: () => Effect.die("Turn commands are exercised by final semantic service tests"),
-    startRendererOwned: () =>
-      Effect.die("Renderer-owned Turn commands are unavailable in the CodexService fixture"),
-    steer: () => Effect.die("Turn commands are exercised by final semantic service tests"),
-    steerRendererOwned: () =>
-      Effect.die("Renderer-owned Turn commands are unavailable in the CodexService fixture"),
-  };
   const testService = new CodexService({
     conversationRuntimes,
     applicationEvents,
@@ -2082,7 +2021,6 @@ function createService(options?: {
     conversationDeltaBuffer,
     conversationResume,
     conversationEventBuffer,
-    freshThreadLaunch,
     manualCompaction: {
       start: async () => {
         throw new Error("Manual compaction is unavailable in the legacy CodexService fixture");
@@ -2098,7 +2036,13 @@ function createService(options?: {
     client: testClient,
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome,
-    nodexAgentDynamicService: null,
+    nodexAgentDynamicTools: {
+      execute: () =>
+        Effect.succeed({
+          contentItems: [{ type: "inputText", text: "Nodex Agent tools are unavailable" }],
+          success: false,
+        }),
+    },
     nodexAgentAuthority: TEST_NODEX_AGENT_AUTHORITY,
     nodexAgentResourceAuthority: TEST_NODEX_AGENT_RESOURCE_AUTHORITY,
     nodexAgentAuthorization: {
@@ -2108,6 +2052,10 @@ function createService(options?: {
       revokeRoot: async () => undefined,
     },
     automationModule: options?.automationModule ?? createTestAutomationModule(),
+    automationRouting: {
+      activeHeartbeatAutomationId: () => null,
+      runAutomationId: () => null,
+    },
     projectWorkspace,
     executionHosts,
     managedWorktrees,
@@ -2192,7 +2140,6 @@ function createService(options?: {
       sidebarSync.dispose();
       pendingWorktrees.shutdown();
       conversationResume.dispose();
-      await freshThreadLaunch.shutdown();
       await conversationEventBuffer.shutdown(new Error("Codex test service is shutting down"));
       await sidebarSweep.cancel();
       await pendingServerRequests.shutdown(new Error("Codex test service is shutting down"));
@@ -5195,168 +5142,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     }
   });
 
-  test("side chat prepares project-aware instructions and exact fork config", async () => {
-    const resolverInputs: Array<{
-      baseInstructions?: string | null;
-      cwd: string;
-      model?: string | null;
-      threadId: string | null;
-      threadToolsEnabled?: boolean;
-    }> = [];
-    const configCwds: Array<string | null> = [];
-    const service = createService({
-      projectAwareDeveloperInstructionsResolver: async (input) => {
-        resolverInputs.push(input);
-        return "  Resolved desktop instructions  ";
-      },
-      threadCodexConfigBuilder: async (cwd) => {
-        configCwds.push(cwd);
-        return { "mcp.test_enabled": true };
-      },
-    });
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const forkResponse = makeCanonicalForkResponse({
-      threadId: "thr_side_exact_child",
-      cwd: "/workspace/side-exact",
-      turns: [],
-    });
-    client.start = async () => undefined;
-    service.readThread = async () => ({
-      ...makeThreadDetail("thr_side_exact_parent"),
-      projectId: "project-side-exact",
-      source: null,
-      cwd: "/workspace/side-exact",
-    });
-
-    try {
-      const prepared = await prepareSideChatForTest(service, {
-        parentThreadId: "thr_side_exact_parent",
-        reasoningEffort: "xhigh",
-      });
-      const committed = await service.commitSideChatForkForModule(prepared, forkResponse);
-      const result = await service.finishSideChatForModule(committed);
-      const forkParams = prepared.forkRequest as Record<string, unknown>;
-      const config = forkParams.config as Record<string, unknown>;
-
-      expect(JSON.stringify(resolverInputs)).toBe(
-        JSON.stringify([
-          {
-            cwd: "/workspace/side-exact",
-            model: null,
-            threadId: "thr_side_exact_parent",
-          },
-        ]),
-      );
-      expect(JSON.stringify(configCwds)).toBe(JSON.stringify(["/workspace/side-exact"]));
-      expect(forkParams.path).toBe(null);
-      expect(forkParams.ephemeral).toBe(true);
-      expect(forkParams.excludeTurns).toBe(true);
-      expect(config["mcp.test_enabled"]).toBe(true);
-      expect(config.model_reasoning_effort).toBe("xhigh");
-      expect(
-        String(forkParams.developerInstructions).startsWith(
-          "  Resolved desktop instructions  \n\nYou are in a side conversation",
-        ),
-      ).toBe(true);
-      expect(result.threadId).toBe("thr_side_exact_child");
-      expect(getCanonicalConversationState(service, result.threadId)?.turns.length ?? -1).toBe(0);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test.each([
-    { label: "missing", hasStaleCwd: false },
-    { label: "non-empty but unavailable", hasStaleCwd: true },
-  ])(
-    "side chat repairs and persists a $label projectless parent workspace before forking",
-    async ({ hasStaleCwd }) => {
-      const projectlessHome = fs.mkdtempSync(
-        path.join(os.tmpdir(), "nodex-side-chat-projectless-"),
-      );
-      const staleCwd = hasStaleCwd ? path.join(projectlessHome, "deleted-parent-workspace") : null;
-      const projectWorkspace = createTestProjectWorkspace();
-      await projectWorkspace.upsertThread("thr_side_projectless_parent", {
-        projectId: null,
-        cwd: staleCwd,
-        projectlessOutputDirectory: null,
-        projectlessWorkspaceBrowserRoot: null,
-        threadName: "Repair side chat workspace",
-        threadPreview: "Repair side chat workspace",
-      });
-      const service = createService({
-        projectWorkspace,
-        projectlessHomeDirectory: () => projectlessHome,
-      });
-      await (
-        service as unknown as {
-          readWorkspaceThread: (threadId: string) => Promise<DesktopProjectWorkspaceThread | null>;
-        }
-      ).readWorkspaceThread("thr_side_projectless_parent");
-      const client = Reflect.get(service as object, "client") as {
-        start: () => Promise<void>;
-      };
-      client.start = async () => undefined;
-      service.readThread = async () => ({
-        ...makeThreadDetail("thr_side_projectless_parent"),
-        projectId: null,
-        source: null,
-        cwd: staleCwd,
-        projectlessOutputDirectory: null,
-        projectlessWorkspaceBrowserRoot: null,
-        threadName: "Repair side chat workspace",
-        threadPreview: "Repair side chat workspace",
-        sandbox: {
-          type: "workspaceWrite",
-          writableRoots: [],
-          networkAccess: false,
-          excludeTmpdirEnvVar: false,
-          excludeSlashTmp: false,
-        },
-      });
-
-      try {
-        const prepared = await prepareSideChatForTest(service, {
-          parentThreadId: "thr_side_projectless_parent",
-          parentNavigationPath: "session:session-projectless/thread:thr_side_projectless_parent",
-        });
-        const forkParams = prepared.forkRequest;
-        const forkResponse = makeCanonicalForkResponse({
-          threadId: "thr_side_projectless_child",
-          cwd: forkParams.cwd ?? "/",
-          turns: [],
-        });
-        const committed = await service.commitSideChatForkForModule(prepared, forkResponse);
-        const result = await service.finishSideChatForModule(committed);
-        const persistedParent = await projectWorkspace.getThread("thr_side_projectless_parent");
-
-        expect(forkParams.cwd?.startsWith(path.join(projectlessHome, "Documents", "Nodex"))).toBe(
-          true,
-        );
-        expect(forkParams.cwd).not.toBe(staleCwd);
-        expect(fs.statSync(forkParams.cwd ?? "").isDirectory()).toBe(true);
-        expect(persistedParent?.cwd).toBe(forkParams.cwd);
-        expect(persistedParent?.projectlessOutputDirectory).toBe(forkParams.cwd);
-        expect(persistedParent?.projectlessWorkspaceBrowserRoot).toBe(
-          path.join(projectlessHome, "Documents", "Nodex"),
-        );
-        expect(result.conversation.projectId).toBeNull();
-        expect(result.conversation.cwd).toBe(forkParams.cwd);
-        expect(result.conversation.projectlessOutputDirectory).toBe(forkParams.cwd);
-        expect(result.conversation.projectlessWorkspaceBrowserRoot).toBe(
-          path.join(projectlessHome, "Documents", "Nodex"),
-        );
-        expect(await projectWorkspace.getThread(result.threadId)).toBeNull();
-      } finally {
-        await service.shutdown();
-        fs.rmSync(projectlessHome, { recursive: true, force: true });
-      }
-    },
-  );
-
   test.each([
     {
       label: "Project owner when cwd moves outside every source",
@@ -5457,72 +5242,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       expect(
         upsertPatches.some((patch) => Object.prototype.hasOwnProperty.call(patch, "projectId")),
       ).toBe(false);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("side chat rejects a projectless parent whose workspace cannot be persisted", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-    };
-    client.start = async () => undefined;
-    service.readThread = async () => ({
-      ...makeThreadDetail("thr_side_unpersisted_parent"),
-      projectId: null,
-      source: null,
-      cwd: null,
-      projectlessOutputDirectory: null,
-      projectlessWorkspaceBrowserRoot: null,
-    });
-
-    try {
-      await expect(
-        prepareSideChatForTest(service, {
-          parentThreadId: "thr_side_unpersisted_parent",
-        }),
-      ).rejects.toThrow(
-        "Projectless side chat requires a workspace, but its parent workspace could not be repaired",
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("side chat aborts before fork when project-aware instruction resolution fails", async () => {
-    let configBuildStarted = false;
-    const service = createService({
-      projectAwareDeveloperInstructionsResolver: async () => {
-        throw new Error("developer instruction host failed");
-      },
-      threadCodexConfigBuilder: async () => {
-        configBuildStarted = true;
-        return {};
-      },
-    });
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-    };
-    client.start = async () => undefined;
-    service.readThread = async () => ({
-      ...makeThreadDetail("thr_side_failure_parent"),
-      projectId: "project-side-failure",
-      source: null,
-      cwd: "/workspace/side-failure",
-    });
-
-    try {
-      let message = "";
-      try {
-        await prepareSideChatForTest(service, {
-          parentThreadId: "thr_side_failure_parent",
-        });
-      } catch (error) {
-        message = error instanceof Error ? error.message : String(error);
-      }
-      expect(message).toBe("developer instruction host failed");
-      expect(configBuildStarted).toBe(false);
     } finally {
       await service.shutdown();
     }
@@ -5996,74 +5715,6 @@ describe("codex-service collaboration modes", () => {
 });
 
 describe("codex-service Session Thread launch projections", () => {
-  test("rejects a second Thread start for an already linked Session", async () => {
-    const sessionId = "session-already-linked";
-    const threadId = "thread-already-linked";
-    const projectWorkspace = {
-      ...createTestProjectWorkspace(),
-      getProjectSession: async (candidateSessionId: string): Promise<ProjectSession | null> =>
-        candidateSessionId === sessionId
-          ? {
-              id: sessionId,
-              projectId: "alpha",
-              noThreadFallbackTitle: "Existing chat",
-              displayTitle: "Existing chat",
-              order: 0,
-              pinned: false,
-              pinnedOrder: null,
-              archived: false,
-              archivedAt: null,
-              unread: false,
-              thread: {
-                sessionId,
-                projectId: "alpha",
-                threadId,
-                threadPreview: "Existing chat",
-                modelProvider: "openai",
-                executionHostId: "local",
-                statusType: "idle",
-                statusActiveFlags: [],
-                archived: false,
-                createdAt: 1,
-                updatedAt: 1,
-                linkedAt: "2026-08-15T00:00:00.000Z",
-              },
-              createdAt: "2026-08-15T00:00:00.000Z",
-              updatedAt: "2026-08-15T00:00:00.000Z",
-            }
-          : null,
-    } as DesktopProjectWorkspacePort;
-    const service = createService({ projectWorkspace });
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: string[] = [];
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      requests.push(method);
-      throw new Error(`Unexpected request: ${method}`);
-    };
-
-    try {
-      await expect(
-        service.prepareSessionThreadLaunchForModule(
-          {
-            projectId: "alpha",
-            sessionId,
-            prompt: "Do not create another Thread",
-            runInTarget: "localProject",
-          },
-          { browserViewScopeId: "test", ownerClientId: null },
-          new AbortController().signal,
-        ),
-      ).rejects.toThrow(`Project session is already linked to Codex thread: ${threadId}`);
-      expect(requests).toEqual([]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test("persists the exact bounded prompt fallback when generated title metadata is empty", async () => {
     const service = createService();
     const appliedTitles: string[] = [];
@@ -6525,65 +6176,6 @@ describe("codex-service pending goal draft lifecycle", () => {
         }),
       );
     } finally {
-      await service.shutdown();
-      fs.rmSync(attachmentsRoot, { recursive: true, force: true });
-    }
-  });
-
-  test("readiness failure removes materialized goal files but retains raw sources", async () => {
-    const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-readiness-fail-"));
-    const service = createService({ resolveThreadGoalAttachmentsRoot: () => attachmentsRoot });
-    const internals = pendingGoalInternals(service);
-    const manager = await internals.getPastedTextAttachmentManager();
-    const source = await manager.createRawSource({ text: "retry after app-server readiness" });
-    const goalManager = await internals.getThreadGoalDirectoryManager();
-    const materialized = await goalManager.materializeDraft({
-      objective: "Retry the eager-local goal",
-      pastedTextAttachments: [source],
-      imageAttachments: [],
-    });
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-    };
-    client.start = async () => {
-      throw new Error("app-server unavailable");
-    };
-
-    try {
-      const request = {
-        projectId: "missing-project",
-        sessionId: "missing-session",
-        prompt: materialized.objective,
-        threadGoalDraft: {
-          objective: "Retry the eager-local goal",
-          pastedTextAttachments: [source],
-          imageAttachments: [],
-        },
-        threadGoalMaterializedDraft: materialized,
-        runInTarget: "localProject" as const,
-      };
-      let errorMessage = "";
-      try {
-        await service.prepareSessionThreadLaunchForModule(
-          request,
-          { browserViewScopeId: "test", ownerClientId: null },
-          new AbortController().signal,
-        );
-      } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error);
-        await service.failSessionThreadLaunchForModule({
-          request,
-          prepared: null,
-          committedThreadId: null,
-          cause: error,
-        });
-      }
-
-      expect(errorMessage).toBe("app-server unavailable");
-      expect(fs.existsSync(materialized.attachmentDirectory ?? "")).toBe(false);
-      expect(fs.existsSync(source.file.fsPath)).toBe(true);
-    } finally {
-      await manager.remove(source.file.path).catch(() => undefined);
       await service.shutdown();
       fs.rmSync(attachmentsRoot, { recursive: true, force: true });
     }
