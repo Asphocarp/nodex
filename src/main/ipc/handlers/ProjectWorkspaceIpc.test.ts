@@ -51,6 +51,9 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
           uploadFeedback: () => Effect.die("unused"),
           listBackgroundTerminals: () => Effect.die("unused"),
           terminateBackgroundTerminal: () => Effect.die("unused"),
+          interrupt: () => Effect.die("unused"),
+          cleanBackgroundTerminals: () => Effect.die("unused"),
+          cleanBackgroundTerminalsSilently: () => Effect.die("unused"),
         }),
       }).pipe(
         Layer.provide(

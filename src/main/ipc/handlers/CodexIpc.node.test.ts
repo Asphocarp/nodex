@@ -133,6 +133,9 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           uploadFeedback: () => Effect.die("unused"),
           listBackgroundTerminals: () => Effect.die("unused"),
           terminateBackgroundTerminal: () => Effect.die("unused"),
+          interrupt: () => Effect.die("unused"),
+          cleanBackgroundTerminals: () => Effect.die("unused"),
+          cleanBackgroundTerminalsSilently: () => Effect.die("unused"),
         }),
         rendererClientRouter: {} as RendererClientRuntimeService,
       }).pipe(
@@ -152,6 +155,8 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
 
     assert.isTrue(channels.has("codex:threads:list"));
     assert.isTrue(channels.has("codex:turn:start"));
+    assert.isFalse(channels.has("codex:turn:interrupt"));
+    assert.isFalse(channels.has("codex:thread:background-terminals:clean"));
     assert.isFalse(channels.has("codex:permission:custom-description:get"));
     assert.isFalse(channels.has("worktrees:execution-hosts:update"));
 

@@ -132,6 +132,9 @@ it.effect("registers application channels directly against their owning modules"
           },
         ]),
       terminateBackgroundTerminal: () => Effect.succeed(true),
+      interrupt: () => Effect.succeed(true),
+      cleanBackgroundTerminals: () => Effect.succeed(true),
+      cleanBackgroundTerminalsSilently: () => Effect.succeed(true),
     });
     let personality: CodexPersonality = "friendly";
     const preferences = CodexPreferences.of({
@@ -227,6 +230,9 @@ it.effect("registers application channels directly against their owning modules"
     assert.isTrue(handlers.has("codex:thread:memory-mode:set"));
     assert.isTrue(handlers.has("codex:review:start"));
     assert.isTrue(handlers.has("codex:feedback:upload"));
+    assert.isTrue(handlers.has("codex:turn:interrupt"));
+    assert.isTrue(handlers.has("codex:thread:background-terminals:clean"));
+    assert.isTrue(handlers.has("codex:thread:background-terminals:clean-silent"));
     assert.isTrue(handlers.has("codex:thread:background-terminals:list"));
     assert.isTrue(handlers.has("codex:thread:background-terminals:terminate"));
     assert.isTrue(handlers.has("codex:dictation:state:read"));

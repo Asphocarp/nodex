@@ -719,12 +719,17 @@ directly; `CodexService` temporarily exposes only inspect, persistence, and proj
 no public read-state command or write queue.
 
 Thread archive and unarchive are complete `ConversationCommands` transactions. A reference-counted
-per-Thread lane serializes the typed Gateway transition with automation/worktree cleanup, Project
-Workspace persistence, canonical projection, sidebar publication, and conversation-runtime eviction.
-Renderer, Project Session, scheduled-automation, and dynamic-tool ingress all borrow this owner;
-none calls a public `CodexService` lifecycle command. `CodexService` temporarily supplies only the
-post-Gateway domain projection operations while those state owners are split further. The Module
-exposes only complete named commands, not a generic protocol request escape hatch.
+per-Thread lane also serializes Turn interrupt and background-terminal cleanup. Archive transitions
+combine the typed Gateway command with automation/worktree cleanup, Project Workspace persistence,
+canonical projection, sidebar publication, and conversation-runtime eviction. Interrupt resolves
+one target, pauses an active goal, declines pending interaction requests, sends the typed Gateway
+command, and applies the terminal Turn/item projection; cleanup either runs those complete interrupt
+transactions for the projected background Turns or uses the owner-mode clean command and commits its
+silent projection. Renderer, Project Session, scheduled-automation, owner-action, handoff, and
+dynamic-tool ingress all borrow this owner. `CodexService` temporarily supplies only prepare/apply
+domain projection operations while those state owners are split further; it owns no public archive,
+interrupt, or cleanup command and sends none of their protocol requests. The Module exposes only
+complete named commands, not a generic protocol request escape hatch.
 
 Background-process discovery and local terminal actions are owned by `CodexBackgroundProcesses`.
 One owner-scoped read drains the typed app-server terminal cursor, degrades a failed live observation

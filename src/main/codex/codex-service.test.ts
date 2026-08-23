@@ -163,6 +163,7 @@ import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHo
 import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
 import { normalizeCodexThreadGoalSetAction } from "../codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
+import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
 import { CodexPendingWorktreeRuntime } from "./codex-pending-worktree-runtime.test-support";
@@ -269,9 +270,12 @@ interface TestableCodexService {
   startThreadForSession: (
     input: CodexThreadStartForSessionInput,
   ) => Promise<CodexThreadStartForSessionResult>;
-  interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
-  cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
-  cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
+  prepareTurnInterruptForModule: (threadId: string, turnId?: string) => Promise<string>;
+  applyTurnInterruptForModule: (input: {
+    threadId: string;
+    turnId: string;
+    syncDormantConversationUpdates: boolean;
+  }) => Promise<boolean>;
   markSubagentThreadOpened: (threadId: string) => boolean;
   hydrateBackgroundSubagentThreads: (
     input: CodexBackgroundSubagentThreadsHydrateInput,
@@ -1820,6 +1824,23 @@ function createService(options?: {
       await client.request("thread/unarchive", { threadId });
       return await service.applyThreadUnarchiveProjection(threadId);
     },
+    interrupt: async (
+      threadId: string,
+      turnId?: string,
+      interruptOptions?: { readonly syncDormantConversationUpdates?: boolean },
+    ) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      const resolvedTurnId = await service.prepareTurnInterruptForModule(threadId, turnId);
+      const client = Reflect.get(service, "client") as {
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      await client.request("turn/interrupt", { threadId, turnId: resolvedTurnId });
+      return await service.applyTurnInterruptForModule({
+        threadId,
+        turnId: resolvedTurnId,
+        syncDormantConversationUpdates: interruptOptions?.syncDormantConversationUpdates ?? true,
+      });
+    },
   };
   const threadTitlePersistence = new TestCodexThreadTitlePersistence({
     project: ({ threadId, name, syncDormantConversationUpdates }) => {
@@ -2585,6 +2606,16 @@ const updateThreadSettingsForTest = (
   (
     Reflect.get(service as object, "threadSettingsRuntime") as TestCodexThreadSettingsRuntime
   ).update({ threadId, patch });
+
+const interruptTurnForTest = (
+  service: TestableCodexService,
+  threadId: string,
+  turnId?: string,
+  options?: { readonly syncDormantConversationUpdates?: boolean },
+): Promise<boolean> =>
+  (
+    Reflect.get(service as object, "conversationCommands") as ConversationCommandsPromiseAdapter
+  ).interrupt(threadId, turnId, options);
 
 describe("codex-service sidebar Thread Project moves", () => {
   test("confirms Project-wide source access, replays the move, and can remove it to Chats", async () => {
@@ -8096,7 +8127,7 @@ describe("codex-service interrupt target resolution", () => {
     });
 
     try {
-      const result = await service.interruptTurn("thr_interrupt");
+      const result = await interruptTurnForTest(service, "thr_interrupt");
       const interruptRequest = requests.find((request) => request.method === "turn/interrupt");
       expect(result).toBe(true);
       expect(requests.length >= 1).toBe(true);
@@ -8178,7 +8209,7 @@ describe("codex-service interrupt target resolution", () => {
     };
 
     try {
-      const result = await service.interruptTurn("thr_goal_interrupt");
+      const result = await interruptTurnForTest(service, "thr_goal_interrupt");
       const snapshot = service.serializeConversationSnapshot("thr_goal_interrupt");
 
       expect(result).toBe(true);
@@ -8490,7 +8521,7 @@ describe("codex-service interrupt target resolution", () => {
     });
 
     try {
-      const result = await service.interruptTurn("thr_explicit", "turn_explicit");
+      const result = await interruptTurnForTest(service, "thr_explicit", "turn_explicit");
       expect(result).toBe(true);
       expect(requests.length >= 1).toBe(true);
       expect(requests[0]?.method).toBe("turn/interrupt");
@@ -8516,7 +8547,7 @@ describe("codex-service interrupt target resolution", () => {
       let failed = false;
       let message = "";
       try {
-        await service.interruptTurn("thr_missing");
+        await interruptTurnForTest(service, "thr_missing");
       } catch (error) {
         failed = true;
         message = error instanceof Error ? error.message : String(error);
@@ -14373,7 +14404,7 @@ describe("codex-service approval fallback", () => {
         ]),
       );
 
-      expect(await service.interruptTurn(threadId, turnId)).toBe(true);
+      expect(await interruptTurnForTest(service, threadId, turnId)).toBe(true);
       expect(JSON.stringify(interruptCalls)).toBe(
         JSON.stringify([
           {
@@ -16434,7 +16465,8 @@ describe("codex-service terminal turn reconciliation", () => {
         updatedAt: 10,
       });
 
-      const interrupted = await service.interruptTurn(
+      const interrupted = await interruptTurnForTest(
+        service,
         "thr_interrupt_terminal",
         "turn_interrupt_terminal",
       );

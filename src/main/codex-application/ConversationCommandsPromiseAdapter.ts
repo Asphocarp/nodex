@@ -9,6 +9,11 @@ export interface ConversationCommandsPromiseAdapter {
   readonly unarchive: (
     threadId: string,
   ) => Promise<import("../../shared/types").CodexThreadSummary | null>;
+  readonly interrupt: (
+    threadId: string,
+    turnId?: string,
+    options?: { readonly syncDormantConversationUpdates?: boolean },
+  ) => Promise<boolean>;
 }
 
 const unwrapProjectionError = (error: unknown): never => {
@@ -25,4 +30,8 @@ export const makeConversationCommandsPromiseAdapter = (
     callbacks.runPromise(commands.archive(threadId)).catch(unwrapProjectionError),
   unarchive: (threadId) =>
     callbacks.runPromise(commands.unarchive(threadId)).catch(unwrapProjectionError),
+  interrupt: (threadId, turnId, options) =>
+    callbacks
+      .runPromise(commands.interrupt(threadId, turnId, options))
+      .catch(unwrapProjectionError),
 });

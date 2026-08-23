@@ -785,6 +785,46 @@ export const live: Layer.Layer<
                     cause,
                   }),
               }),
+            prepareInterrupt: (threadId, turnId) =>
+              Effect.tryPromise({
+                try: () => requireCodexService().prepareTurnInterruptForModule(threadId, turnId),
+                catch: (cause) =>
+                  new ConversationCommandProjectionError({
+                    operation: "interrupt-prepare",
+                    threadId,
+                    cause,
+                  }),
+              }),
+            applyInterrupt: (input) =>
+              Effect.tryPromise({
+                try: () => requireCodexService().applyTurnInterruptForModule(input),
+                catch: (cause) =>
+                  new ConversationCommandProjectionError({
+                    operation: "interrupt-apply",
+                    threadId: input.threadId,
+                    cause,
+                  }),
+              }),
+            backgroundTerminalTurnIds: (threadId) =>
+              Effect.try({
+                try: () => requireCodexService().readBackgroundTerminalTurnIdsForModule(threadId),
+                catch: (cause) =>
+                  new ConversationCommandProjectionError({
+                    operation: "background-terminal-turns",
+                    threadId,
+                    cause,
+                  }),
+              }),
+            backgroundTerminalsCleaned: (threadId) =>
+              Effect.try({
+                try: () => requireCodexService().applyBackgroundTerminalsCleanedForModule(threadId),
+                catch: (cause) =>
+                  new ConversationCommandProjectionError({
+                    operation: "background-terminals-cleaned",
+                    threadId,
+                    cause,
+                  }),
+              }),
           }).pipe(
             Layer.provide(
               Layer.merge(

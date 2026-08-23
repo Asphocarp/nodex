@@ -265,6 +265,24 @@ export const live: Layer.Layer<
     yield* ipc.handle("codex:feedback:upload", (_event, params: FeedbackUploadParams) =>
       conversations.uploadFeedback(parseFeedbackUpload(params)),
     );
+    yield* ipc.handle("codex:turn:interrupt", (_event, threadId: string, turnId?: string) =>
+      conversations.interrupt(threadId.trim(), turnId),
+    );
+    yield* ipc.handle("codex:thread:background-terminals:clean", (_event, threadId: string) => {
+      const normalized = threadId.trim();
+      return normalized
+        ? conversations.cleanBackgroundTerminals(normalized)
+        : Effect.succeed(false);
+    });
+    yield* ipc.handle(
+      "codex:thread:background-terminals:clean-silent",
+      (_event, threadId: string) => {
+        const normalized = threadId.trim();
+        return normalized
+          ? conversations.cleanBackgroundTerminalsSilently(normalized)
+          : Effect.succeed(false);
+      },
+    );
     yield* ipc.handle("codex:thread:background-terminals:list", (_event, threadId: string) => {
       const normalized = threadId.trim();
       return normalized

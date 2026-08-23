@@ -847,18 +847,6 @@ export const codexIpcLive = (
 
       registerHandle("codex:turn:steer", (_, input) => codexService.steerTurn(input));
 
-      registerHandle("codex:turn:interrupt", (_, threadId: string, turnId?: string) =>
-        codexService.interruptTurn(threadId, turnId),
-      );
-
-      registerHandle("codex:thread:background-terminals:clean", (_, threadId: string) =>
-        codexService.cleanBackgroundTerminals(threadId),
-      );
-
-      registerHandle("codex:thread:background-terminals:clean-silent", (_, threadId: string) =>
-        codexService.cleanBackgroundTerminalsSilently(threadId),
-      );
-
       registerEffectHandle(
         "codex:thread:background-processes:list",
         (

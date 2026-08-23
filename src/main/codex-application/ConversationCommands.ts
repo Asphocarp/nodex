@@ -21,7 +21,13 @@ type BackgroundTerminal =
 export class ConversationCommandProjectionError extends Data.TaggedError(
   "ConversationCommandProjectionError",
 )<{
-  readonly operation: "archive" | "unarchive";
+  readonly operation:
+    | "archive"
+    | "unarchive"
+    | "interrupt-prepare"
+    | "interrupt-apply"
+    | "background-terminal-turns"
+    | "background-terminals-cleaned";
   readonly threadId: string;
   readonly cause: unknown;
 }> {}
@@ -33,6 +39,21 @@ export interface ConversationCommandProjection {
   readonly unarchive: (
     threadId: string,
   ) => Effect.Effect<CodexThreadSummary | null, ConversationCommandProjectionError>;
+  readonly prepareInterrupt: (
+    threadId: string,
+    turnId?: string,
+  ) => Effect.Effect<string, ConversationCommandProjectionError>;
+  readonly applyInterrupt: (input: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly syncDormantConversationUpdates: boolean;
+  }) => Effect.Effect<boolean, ConversationCommandProjectionError>;
+  readonly backgroundTerminalTurnIds: (
+    threadId: string,
+  ) => Effect.Effect<readonly string[] | null, ConversationCommandProjectionError>;
+  readonly backgroundTerminalsCleaned: (
+    threadId: string,
+  ) => Effect.Effect<void, ConversationCommandProjectionError>;
 }
 
 export class ConversationCommands extends Context.Service<
@@ -64,6 +85,17 @@ export class ConversationCommands extends Context.Service<
       threadId: string,
       processId: string,
     ) => Effect.Effect<boolean, CodexRuntimeError>;
+    readonly interrupt: (
+      threadId: string,
+      turnId?: string,
+      options?: { readonly syncDormantConversationUpdates?: boolean },
+    ) => Effect.Effect<boolean, CodexRuntimeError | ConversationCommandProjectionError>;
+    readonly cleanBackgroundTerminals: (
+      threadId: string,
+    ) => Effect.Effect<boolean, CodexRuntimeError | ConversationCommandProjectionError>;
+    readonly cleanBackgroundTerminalsSilently: (
+      threadId: string,
+    ) => Effect.Effect<boolean, CodexRuntimeError | ConversationCommandProjectionError>;
   }
 >()("nodex/main/codex-application/ConversationCommands") {}
 
@@ -116,6 +148,38 @@ export const live = (
                 : Effect.succeed(next);
             }),
           );
+      const interruptInLane = (
+        threadId: string,
+        turnId: string | undefined,
+        syncDormantConversationUpdates: boolean,
+      ): Effect.Effect<boolean, CodexRuntimeError | ConversationCommandProjectionError> =>
+        projection.prepareInterrupt(threadId, turnId).pipe(
+          Effect.tap((resolvedTurnId) =>
+            Effect.logWarning("Interrupting Codex turn").pipe(
+              Effect.annotateLogs({
+                threadId,
+                requestedTurnId: turnId ?? null,
+                resolvedTurnId,
+              }),
+            ),
+          ),
+          Effect.flatMap((resolvedTurnId) =>
+            gateway
+              .requestForThread(threadId, "turn/interrupt", {
+                threadId,
+                turnId: resolvedTurnId,
+              })
+              .pipe(
+                Effect.andThen(
+                  projection.applyInterrupt({
+                    threadId,
+                    turnId: resolvedTurnId,
+                    syncDormantConversationUpdates,
+                  }),
+                ),
+              ),
+          ),
+        );
       return ConversationCommands.of({
         archive: (threadId) =>
           runSerial(
@@ -147,6 +211,40 @@ export const live = (
               processId,
             })
             .pipe(Effect.map((response) => response.terminated)),
+        interrupt: (threadId, turnId, options) =>
+          runSerial(
+            threadId,
+            interruptInLane(threadId, turnId, options?.syncDormantConversationUpdates ?? true),
+          ),
+        cleanBackgroundTerminals: (threadId) =>
+          runSerial(
+            threadId,
+            projection.backgroundTerminalTurnIds(threadId).pipe(
+              Effect.flatMap((turnIds) => {
+                if (turnIds === null) return Effect.succeed(false);
+                if (turnIds.length === 0) return Effect.succeed(true);
+                return Effect.logWarning("Cleaning background terminals").pipe(
+                  Effect.annotateLogs({ threadId, turnIds }),
+                  Effect.andThen(
+                    Effect.forEach(turnIds, (turnId) => interruptInLane(threadId, turnId, true), {
+                      discard: true,
+                    }),
+                  ),
+                  Effect.as(true),
+                );
+              }),
+            ),
+          ),
+        cleanBackgroundTerminalsSilently: (threadId) =>
+          runSerial(
+            threadId,
+            gateway
+              .requestForThread(threadId, "thread/backgroundTerminals/clean", { threadId })
+              .pipe(
+                Effect.andThen(projection.backgroundTerminalsCleaned(threadId)),
+                Effect.as(true),
+              ),
+          ),
       });
     }),
   );

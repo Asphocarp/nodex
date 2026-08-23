@@ -94,6 +94,28 @@ it.effect("routes direct thread operations and drains background-terminal pages"
             projections.push(`unarchive:${threadId}`);
             return null;
           }),
+        prepareInterrupt: (threadId, turnId) =>
+          Effect.sync(() => {
+            const resolved = turnId ?? "turn-inferred";
+            projections.push(`prepare-interrupt:${threadId}:${resolved}`);
+            return resolved;
+          }),
+        applyInterrupt: ({ threadId, turnId, syncDormantConversationUpdates }) =>
+          Effect.sync(() => {
+            projections.push(
+              `apply-interrupt:${threadId}:${turnId}:${syncDormantConversationUpdates}`,
+            );
+            return true;
+          }),
+        backgroundTerminalTurnIds: (threadId) =>
+          Effect.sync(() => {
+            projections.push(`background-turns:${threadId}`);
+            return ["turn-background"];
+          }),
+        backgroundTerminalsCleaned: (threadId) =>
+          Effect.sync(() => {
+            projections.push(`background-cleaned:${threadId}`);
+          }),
       }).pipe(
         Layer.provide(
           Layer.merge(
@@ -122,6 +144,9 @@ it.effect("routes direct thread operations and drains background-terminal pages"
     });
     const terminals = yield* commands.listBackgroundTerminals("thread-a");
     const terminated = yield* commands.terminateBackgroundTerminal("thread-a", "process-b");
+    assert.isTrue(yield* commands.interrupt("thread-a", "turn-explicit"));
+    assert.isTrue(yield* commands.cleanBackgroundTerminals("thread-a"));
+    assert.isTrue(yield* commands.cleanBackgroundTerminalsSilently("thread-a"));
     assert.isTrue(yield* commands.archive("thread-a"));
     assert.isNull(yield* commands.unarchive("thread-a"));
 
@@ -145,7 +170,16 @@ it.effect("routes direct thread operations and drains background-terminal pages"
         .map(({ params }) => (params as { readonly cursor?: string | null }).cursor ?? null),
       [null, "page-2"],
     );
-    assert.deepEqual(projections, ["archive:thread-a", "unarchive:thread-a"]);
+    assert.deepEqual(projections, [
+      "prepare-interrupt:thread-a:turn-explicit",
+      "apply-interrupt:thread-a:turn-explicit:true",
+      "background-turns:thread-a",
+      "prepare-interrupt:thread-a:turn-background",
+      "apply-interrupt:thread-a:turn-background:true",
+      "background-cleaned:thread-a",
+      "archive:thread-a",
+      "unarchive:thread-a",
+    ]);
 
     yield* Scope.close(scope, Exit.void);
   }),
@@ -182,6 +216,10 @@ it.effect("interrupts an active archive command when its owning Scope closes", (
       conversationCommandsLive({
         archive: () => Effect.succeed(true),
         unarchive: () => Effect.succeed(null),
+        prepareInterrupt: (_threadId, turnId) => Effect.succeed(turnId ?? "turn-a"),
+        applyInterrupt: () => Effect.succeed(true),
+        backgroundTerminalTurnIds: () => Effect.succeed([]),
+        backgroundTerminalsCleaned: () => Effect.void,
       }).pipe(
         Layer.provide(
           Layer.merge(

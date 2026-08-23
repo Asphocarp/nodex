@@ -28,7 +28,6 @@ import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/Mode
 import type { PermissionsRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalResponse";
 import type { ThreadListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
-import type { ThreadBackgroundTerminalsCleanResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsCleanResponse";
 import type { ThreadBackgroundTerminalsListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsListResponse";
 import type { ThreadBackgroundTerminalsTerminateResponse } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminalsTerminateResponse";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
@@ -8508,7 +8507,7 @@ export class CodexService {
       }
     }
     if (!activeTurn?.turnId) return;
-    await this.interruptTurn(threadId, activeTurn.turnId);
+    await this.conversationCommands.interrupt(threadId, activeTurn.turnId);
     signal.throwIfAborted();
     const terminal = this.getKnownTurn(threadId, activeTurn.turnId);
     if (terminal?.status === "inProgress") {
@@ -15142,7 +15141,7 @@ export class CodexService {
           readOwnerTurnSteerParams(conversationId, request.params),
         );
       case "turn/interrupt":
-        return await this.interruptTurn(conversationId, request.params.turnId, {
+        return await this.conversationCommands.interrupt(conversationId, request.params.turnId, {
           syncDormantConversationUpdates: false,
         });
       case "thread/settings/update":
@@ -16411,35 +16410,22 @@ export class CodexService {
     return { turnId: result.turnId };
   }
 
-  async interruptTurn(
-    threadId: string,
-    turnId?: string,
-    options: DormantConversationSyncOptions = {},
-  ): Promise<boolean> {
-    await this.ensureClientReady();
-    const syncDormantConversationUpdates = options.syncDormantConversationUpdates ?? true;
-
+  async prepareTurnInterruptForModule(threadId: string, turnId?: string): Promise<string> {
     const resolvedTurnId = await this.resolveInterruptTurnId(threadId, turnId);
     if (!resolvedTurnId) {
       throw new Error("Could not determine which turn to interrupt");
     }
-
-    this.logger.warn("Interrupting Codex turn", {
-      threadId,
-      requestedTurnId: turnId ?? null,
-      resolvedTurnId,
-    });
-
     await this.pauseActiveThreadGoalBeforeInterrupt(threadId);
-
     await this.declinePendingRequestsBeforeInterrupt(threadId);
+    return resolvedTurnId;
+  }
 
-    await this.client.request("turn/interrupt", {
-      threadId,
-      turnId: resolvedTurnId,
-    });
-
-    const knownTurn = this.getKnownTurn(threadId, resolvedTurnId);
+  async applyTurnInterruptForModule(input: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly syncDormantConversationUpdates: boolean;
+  }): Promise<boolean> {
+    const knownTurn = this.getKnownTurn(input.threadId, input.turnId);
     if (!knownTurn || knownTurn.status !== "inProgress") {
       return true;
     }
@@ -16449,17 +16435,17 @@ export class CodexService {
       status: "interrupted",
       interruptedCommandExecutionItemIds: [
         ...(knownTurn.interruptedCommandExecutionItemIds ?? []),
-        ...this.listRecordedInterruptedCommandExecutionItemIds(threadId, resolvedTurnId),
+        ...this.listRecordedInterruptedCommandExecutionItemIds(input.threadId, input.turnId),
       ],
     };
-    this.mergeTurn(threadId, interruptedTurn);
-    await this.syncThreadStatusFromKnownTurns(threadId);
-    this.reconcileTurnItemsToTerminalStatus(threadId, resolvedTurnId, "interrupted");
+    this.mergeTurn(input.threadId, interruptedTurn);
+    await this.syncThreadStatusFromKnownTurns(input.threadId);
+    this.reconcileTurnItemsToTerminalStatus(input.threadId, input.turnId, "interrupted");
     this.emitEvent({ type: "turn", turn: interruptedTurn });
-    if (syncDormantConversationUpdates) {
-      this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
+    if (input.syncDormantConversationUpdates) {
+      this.syncDormantConversationFromRecord(input.threadId, "owner-unavailable");
     }
-    this.maybeDispatchQueuedFollowUp(threadId);
+    this.maybeDispatchQueuedFollowUp(input.threadId);
     return true;
   }
 
@@ -16513,42 +16499,16 @@ export class CodexService {
     }
   }
 
-  async cleanBackgroundTerminals(threadId: string): Promise<boolean> {
-    await this.ensureClientReady();
-
+  readBackgroundTerminalTurnIdsForModule(threadId: string): readonly string[] | null {
     const conversation = this.serializeConversationSnapshot(threadId);
-    if (!conversation) {
-      return false;
-    }
-
-    const backgroundTerminalTurnIds = [
+    if (!conversation) return null;
+    return [
       ...new Set(this.collectBackgroundTerminalRows(conversation).map(({ turnId }) => turnId)),
     ];
-    if (backgroundTerminalTurnIds.length === 0) {
-      return true;
-    }
-
-    this.logger.warn("Cleaning background terminals", {
-      threadId,
-      turnIds: backgroundTerminalTurnIds,
-    });
-
-    for (const backgroundTurnId of backgroundTerminalTurnIds) {
-      await this.interruptTurn(threadId, backgroundTurnId);
-    }
-
-    return true;
   }
 
-  async cleanBackgroundTerminalsSilently(threadId: string): Promise<boolean> {
-    await this.ensureClientReady();
-
-    await this.client.request<
-      "thread/backgroundTerminals/clean",
-      ThreadBackgroundTerminalsCleanResponse
-    >("thread/backgroundTerminals/clean", { threadId });
+  applyBackgroundTerminalsCleanedForModule(threadId: string): void {
     this.markBackgroundTerminalsInterruptedSilently(threadId);
-    return true;
   }
 
   /** Temporary read-only projection while the conversation replica remains in this class. */
