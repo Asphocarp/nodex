@@ -2718,7 +2718,6 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(LibraryModule, libraryModule),
                 Layer.succeed(MainConfig, config),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),
