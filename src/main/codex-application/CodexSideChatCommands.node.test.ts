@@ -59,6 +59,7 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
 
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
       requestOnHost: ((hostId: string, method: string, params: { threadId?: string }) =>
         Effect.suspend(() => {
           events.push(`request:${hostId}:${method}:${params.threadId ?? parentThreadId}`);
@@ -79,7 +80,7 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
           }
           return Effect.die(`unexpected request: ${method}`);
         })) as CodexGateway["Service"]["requestOnHost"],
-    } as CodexGateway["Service"]);
+    } as unknown as CodexGateway["Service"]);
     const hostResolver = CodexThreadHostResolver.of({
       resolve: (threadId) =>
         Effect.sync(() => events.push(`resolve:${threadId}`)).pipe(

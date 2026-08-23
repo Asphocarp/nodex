@@ -6,12 +6,10 @@ import type { CoreResult } from "../../../shared/core-result";
 import type { IpcApi } from "../../../shared/ipc-api";
 import { WorkbenchSceneSnapshotSchema } from "../../../shared/schemas/workbench-scene";
 import { ProjectLifecycleInputSchema } from "../../../shared/schemas/projects";
-import type { TerminalSessionSnapshot } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
 import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import type { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import type { ConversationCommands } from "../../codex-application/ConversationCommands";
-import type { CodexBackgroundProcesses } from "../../codex-application/CodexBackgroundProcesses";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { coreResultFrom } from "../../core-result-ipc";
@@ -26,30 +24,17 @@ import { resolveNodexProjectsDirectory } from "../../nodex-projects-directory";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
-import { ProjectRuntimeLifecycleRuntime } from "../../host-runtime/ProjectRuntimeLifecycleRuntime";
-import { makeProjectRuntimeLifecyclePromiseAdapter } from "../../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
 import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { deleteProjectSessionWithBrowserCleanupUsing } from "../../project-session-browser-ownership";
-import { createProjectLifecycleService } from "../../project-lifecycle-service";
+import { ProjectLifecycleCommands } from "../../project-application/ProjectLifecycleCommands";
 import { renameProjectSessionChat } from "../../project-session-rename-service";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface ProjectWorkspaceIpcOptions {
   readonly codex: CodexService;
-  readonly backgroundProcesses: CodexBackgroundProcesses["Service"];
   readonly projects: DesktopProjectWorkspacePort;
   readonly threadTitles: CodexThreadTitlePersistence["Service"];
   readonly conversationCommands: ConversationCommands["Service"];
-  readonly terminals?: {
-    readonly listLiveSessionsForOwners: (input: {
-      readonly conversationIds: ReadonlySet<string>;
-      readonly projectSessionIds: ReadonlySet<string>;
-    }) => Promise<readonly TerminalSessionSnapshot[]>;
-    readonly discardExitedSessionsForOwners: (input: {
-      readonly conversationIds: ReadonlySet<string>;
-      readonly projectSessionIds: ReadonlySet<string>;
-    }) => Promise<readonly string[]>;
-  };
 }
 
 export class ProjectWorkspaceIpcError extends Schema.TaggedError<ProjectWorkspaceIpcError>()(
@@ -74,7 +59,7 @@ export const live = (
   | ElectronDesktop
   | ElectronIpc
   | MainConfig
-  | ProjectRuntimeLifecycleRuntime
+  | ProjectLifecycleCommands
   | ScopedCallbackRuntime
   | WindowRuntime
 > =>
@@ -83,7 +68,7 @@ export const live = (
       const config = yield* MainConfig;
       const desktop = yield* ElectronDesktop;
       const ipc = yield* ElectronIpc;
-      const projectRuntimeLifecycle = yield* ProjectRuntimeLifecycleRuntime;
+      const projectLifecycle = yield* ProjectLifecycleCommands;
       const callbacks = yield* ScopedCallbackRuntime;
       const windows = yield* WindowRuntime;
       const browserSidebar = yield* BrowserSidebarRuntime;
@@ -153,19 +138,6 @@ export const live = (
             : await desktop.dialog.showOpenDialog(dialogOptions);
           return result.canceled ? null : (result.filePaths[0] ?? null);
         });
-      const lifecycle = createProjectLifecycleService({
-        projectWorkspace: options.projects,
-        browserRuntime: projectSessionBrowserRuntime,
-        listCodexBlockers: (threadIds) => options.codex.listProjectArchiveBlockers(threadIds),
-        listBackgroundProcessRows: (threadId) =>
-          callbacks.runPromise(options.backgroundProcesses.list({ threadId })),
-        listLiveTerminalSessions: (input) =>
-          options.terminals?.listLiveSessionsForOwners(input) ?? Promise.resolve([]),
-        discardExitedTerminalSessions: (input) =>
-          options.terminals?.discardExitedSessionsForOwners(input) ?? Promise.resolve([]),
-        coordinator: makeProjectRuntimeLifecyclePromiseAdapter(projectRuntimeLifecycle, callbacks),
-      });
-
       yield* invoke("projects:list", (_, input) => options.projects.listProjectWindow(input));
       yield* invoke("projects:get", (_, projectId) => options.projects.getProject(projectId));
       yield* invoke("projects:activity-summaries", (_, projectIds) =>
@@ -210,10 +182,18 @@ export const live = (
           ),
         ),
       );
-      yield* invoke("projects:set-lifecycle", (_, projectId, input) => {
-        const parsed = ProjectLifecycleInputSchema.parse(input);
-        return lifecycle.setLifecycle(projectId, parsed.lifecycle);
-      });
+      yield* handle("projects:set-lifecycle", (event, projectId, input) =>
+        authorize(event).pipe(
+          Effect.andThen(
+            Effect.try({
+              try: () => ProjectLifecycleInputSchema.parse(input),
+              catch: (cause) =>
+                new ProjectWorkspaceIpcError({ operation: "projects:set-lifecycle", cause }),
+            }),
+          ),
+          Effect.flatMap((parsed) => projectLifecycle.setLifecycle(projectId, parsed.lifecycle)),
+        ),
+      );
       yield* invoke("workspace:tasks:list", async (_, projectId, input) => {
         const startedAt = getDevRuntimeMetricStart();
         const window = await options.projects.listProjectSessionSummaryWindow(projectId, input);

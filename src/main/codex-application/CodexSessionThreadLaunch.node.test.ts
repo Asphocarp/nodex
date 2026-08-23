@@ -75,6 +75,7 @@ const makeHarness = (scope: Scope.Scope, options: HarnessOptions = {}) =>
 
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
       requestLocal: ((method: string, params: { threadId?: string }) =>
         Effect.suspend(() => {
           if (method === "thread/delete") {
@@ -91,7 +92,7 @@ const makeHarness = (scope: Scope.Scope, options: HarnessOptions = {}) =>
             } as unknown as ThreadStartResponse)
           );
         })) as CodexGateway["Service"]["requestLocal"],
-    } as CodexGateway["Service"]);
+    } as unknown as CodexGateway["Service"]);
     const turns = CodexTurnCommands.of({
       start: (threadId) =>
         Effect.sync(() => {

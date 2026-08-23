@@ -95,6 +95,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
   } as CodexRendererConversationCoordinator["Service"]);
   const gateway = CodexGateway.of({
     localHostId: "local",
+    requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
     events: Stream.empty,
     requestForThread: (() =>
       options.start ?? Effect.succeed(turnStart())) as CodexGateway["Service"]["requestForThread"],

@@ -329,7 +329,10 @@ independent, and Main Scope closure interrupts admitted or queued work. Composit
 transactions may re-enter the same Project gate only from the exact owning fiber; a forked child
 inherits no lock authority and queues normally. This permits deep Modules to compose smaller
 Project-owned commands without either releasing the lifecycle fence between commits or exposing an
-unsafe “already locked” bypass API.
+unsafe “already locked” bypass API. `ProjectArchiveBlockers` derives the archive gate from the
+canonical Conversation aggregate, durable Project Session projection, background-process runtime,
+and Terminal runtime. `ProjectLifecycleCommands` owns the double blocker read, durable lifecycle
+commit, and best-effort runtime cleanup under that gate; Project IPC only authorizes and delegates.
 
 Core application invalidation enters one process-scoped database notification runtime. That
 runtime is the typed publication capability: it performs synchronous renderer projection itself
@@ -338,13 +341,14 @@ projection borrows the publisher directly; Sidebar sync consumes the Stream befo
 starts. There is no EventEmitter, listener-registration API, or import-created local-store bus;
 Scope release fences publication, shuts the PubSub, and interrupts every subscriber.
 
-Git application actions are admitted through one Main-scoped `GitActionOperationRuntime`. A scoped
-`FiberMap` owns commit, push, and generated commit/pull-request-message work by renderer operation
-identity; replacement or explicit cancellation interrupts the exact child, while the waiting IPC
-fiber observes its `Exit` and returns the stable canceled domain result. Scope release closes
-admission and interrupts every remaining action. Stateless Git action helpers receive only the
-runtime-owned `AbortSignal` at the child-process/worker Promise seam; they do not own a registry,
-controller map, or manual shutdown path.
+Git application actions enter the Main-scoped `GitActions` Module. It composes the typed Git worker,
+`GitActionOperationRuntime`, and `CodexGitMessageGeneration` directly: no Promise worker port,
+callback runtime, or parallel mutation helper exists. A scoped `FiberMap` owns commit, push, and
+generated commit/pull-request-message work by renderer operation identity; replacement or explicit
+cancellation interrupts the exact child, while the waiting IPC fiber observes its `Exit` and
+returns the stable canceled domain result. Codex-backed text generation routes through the selected
+host on `CodexGateway`'s narrow raw-extension seam and validates the untrusted response before it
+reaches Git policy. Scope release closes admission and interrupts every remaining action.
 
 Local Environment settings are a filesystem-backed host Module, not Codex conversation state.
 Its scoped runtime resolves Project workspace authority through Core, owns one low-frequency config
@@ -1020,9 +1024,10 @@ path or issue a compensating refresh whose correctness depends on the caller rem
 `GitWorkerRuntime` owns the corresponding Main-side channel. Its single state
 tracks the active Worker generation, Main request `Deferred`s, renderer request
 ownership, and live-subscription ownership; worker callbacks enter one scoped
-FiberSet. Main callers use typed Effects. The stateless Promise-shaped Git action
-helpers are invoked only inside `GitActionOperationRuntime` child Effects and
-receive the Effect interruption signal through the application callback boundary.
+FiberSet. Main callers use typed Effects, and `GitActions` performs application
+mutations directly through this capability inside `GitActionOperationRuntime`
+children. Effect interruption therefore reaches the worker request without an
+Effect-to-Promise-to-Effect callback sandwich.
 Renderer destruction cancels only that renderer's requests and subscriptions.
 Generation failure rejects every pending owner before later admission starts a
 new generation, and Scope release gives cooperative shutdown one Effect-clock

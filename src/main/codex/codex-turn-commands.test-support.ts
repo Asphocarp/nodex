@@ -12,7 +12,6 @@ import type {
 import type { CodexTurnCommandsPromiseAdapter } from "../codex-application/CodexTurnCommandsPromiseAdapter";
 import type { CodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import { CodexRpcError } from "../codex-runtime/CodexGatewayPromiseAdapter";
-import type { ProjectRuntimeLifecyclePromiseAdapter } from "../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
 
 interface TestCodexTurnCommandProjection {
   readonly prepareStart: (input: {
@@ -94,7 +93,12 @@ const isSteerTurnInactive = (error: unknown): boolean => {
  */
 export const makeCodexTurnCommandsTestAdapter = (input: {
   readonly client: CodexGatewayPromiseClient;
-  readonly projectLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
+  readonly projectLifecycle: {
+    readonly runExclusive: <A>(
+      projectId: string | null,
+      operation: () => A | Promise<A>,
+    ) => Promise<A>;
+  };
   readonly projection: TestCodexTurnCommandProjection;
 }): CodexTurnCommandsPromiseAdapter => {
   const runInThread = makeKeyedLane();

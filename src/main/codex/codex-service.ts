@@ -138,7 +138,6 @@ import type {
   CodexPromptInput,
   CodexPromptTextAttachmentInput,
   Project,
-  ProjectArchiveBlocker,
   ProjectSession,
   ProjectSessionSummary,
   ProjectSessionForkInput,
@@ -499,7 +498,6 @@ import type {
   DesktopProjectWorkspaceThreadPatch,
 } from "../core-client/project-workspace-adapter";
 import { CodexScheduledAutomationRetryError } from "../host-runtime/ScheduledAutomationPolicy";
-import type { ProjectRuntimeLifecyclePromiseAdapter } from "../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
 import {
   buildCodexNewConversationParams,
   parseCodexStoredShellEnvironment,
@@ -1083,7 +1081,6 @@ type CodexServiceOptions = {
   executionHosts: CodexExecutionHostRegistry;
   managedWorktrees: ManagedWorktreeRuntimePromiseAdapter;
   requestManagedWorktreeRetention: () => void;
-  projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   browserTransferStateReader?: CodexBrowserTransferStateReader;
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferRuntimePromiseAdapter;
   userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
@@ -1345,28 +1342,6 @@ function normalizeNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
-}
-
-function parseGeneratedCommitMessageResponse(value: unknown): string | null {
-  const record = asRecord(value);
-  const message = record?.message;
-  if (typeof message !== "string") return null;
-
-  const normalizedMessage = message.trim();
-  return normalizedMessage.length > 0 ? normalizedMessage : null;
-}
-
-function parseGeneratedPullRequestMessageResponse(value: unknown): {
-  title: string | null;
-  body: string | null;
-} {
-  const record = asRecord(value);
-  const title = typeof record?.title === "string" ? record.title.trim() : "";
-  const body = typeof record?.body === "string" ? record.body.trim() : "";
-  return {
-    title: title.length > 0 ? title : null,
-    body: body.length > 0 ? body : null,
-  };
 }
 
 function hasPendingSteeringTranscriptEntry(entries: readonly CodexTranscriptEntry[]): boolean {
@@ -2047,7 +2022,6 @@ export class CodexService {
   private readonly executionHosts: CodexExecutionHostRegistry;
   private readonly managedWorktreeLifecycle: ManagedWorktreeRuntimePromiseAdapter;
   private readonly requestManagedWorktreeRetention: () => void;
-  private readonly projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
   private readonly threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
   private readonly browserTransferStateReader: CodexServiceOptions["browserTransferStateReader"];
@@ -2202,7 +2176,6 @@ export class CodexService {
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
     this.managedWorktreeLifecycle = options.managedWorktrees;
     this.requestManagedWorktreeRetention = options.requestManagedWorktreeRetention;
-    this.projectRuntimeLifecycle = options.projectRuntimeLifecycle;
     this.crossHostThreadHandoff = new CodexCrossHostThreadHandoffService({
       executionHosts: this.executionHosts,
       relayBaseRoot: path.join(this.runtimeStateHome, "handoffs"),
@@ -2823,35 +2796,6 @@ export class CodexService {
         this.readConversationAggregate(threadId)?.checkpoint?.ownerEpoch ??
         0,
     });
-  }
-
-  listProjectArchiveBlockers(threadIds: readonly string[]): ProjectArchiveBlocker[] {
-    const blockers: ProjectArchiveBlocker[] = [];
-    for (const threadId of new Set(threadIds.map((value) => value.trim()).filter(Boolean))) {
-      const record = this.getMaybeConversationRecord(threadId);
-      const workspaceThread = this.workspaceThreadProjectionById.get(threadId);
-      if (!record && !workspaceThread) continue;
-      const label =
-        record?.detail?.threadName?.trim() || workspaceThread?.threadName?.trim() || null;
-      const hasActiveTurn =
-        workspaceThread?.statusType === "active" ||
-        record?.detail?.statusType === "active" ||
-        this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress") ||
-        hasRunningCollabAgentTranscriptEntry(record?.detail?.transcript ?? []) ||
-        record?.threadGoal?.status === "active";
-      if (hasActiveTurn) {
-        blockers.push({ kind: "active-turn", threadId, label });
-      }
-      if (
-        (workspaceThread?.statusActiveFlags.length ?? 0) > 0 ||
-        (record?.detail?.statusActiveFlags.length ?? 0) > 0 ||
-        (record ? this.readConversationServerRequests(record).length : 0) > 0 ||
-        (record ? this.hasPendingThreadGoalSteering(threadId, record) : false)
-      ) {
-        blockers.push({ kind: "pending-request", threadId, label });
-      }
-    }
-    return blockers;
   }
 
   private async promoteBrowserUseRouteForFirstTurn(input: {
@@ -11444,50 +11388,6 @@ export class CodexService {
       cwd,
       ...(serviceName === undefined ? {} : { serviceName }),
     });
-  }
-
-  async generateCommitMessage(input: {
-    hostId?: string | null;
-    prompt: string;
-    cwd: string;
-  }): Promise<string | null> {
-    try {
-      await this.ensureClientReady();
-      const hostId = input.hostId?.trim() || CODEX_APP_LOCAL_HOST_ID;
-      const result = await this.client.request<unknown>("generate-commit-message", {
-        hostId,
-        prompt: input.prompt,
-        cwd: input.cwd,
-      });
-      return parseGeneratedCommitMessageResponse(result);
-    } catch (error) {
-      this.logger.warn("Failed to generate commit message", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  }
-
-  async generatePullRequestMessage(input: {
-    hostId?: string | null;
-    prompt: string;
-    cwd: string;
-  }): Promise<{ title: string | null; body: string | null }> {
-    try {
-      await this.ensureClientReady();
-      const hostId = input.hostId?.trim() || CODEX_APP_LOCAL_HOST_ID;
-      const result = await this.client.request<unknown>("generate-pull-request-message", {
-        hostId,
-        prompt: input.prompt,
-        cwd: input.cwd,
-      });
-      return parseGeneratedPullRequestMessageResponse(result);
-    } catch (error) {
-      this.logger.warn("Failed to generate pull request message", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
   }
 
   private async enqueueSessionPendingWorktreeStart(input: {

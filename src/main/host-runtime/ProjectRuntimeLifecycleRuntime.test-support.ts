@@ -1,14 +1,19 @@
-import type { ProjectRuntimeLifecyclePromiseAdapter } from "./ProjectRuntimeLifecycleRuntimePromiseAdapter";
+interface ProjectRuntimeLifecycleTestAdapter {
+  readonly runExclusive: <A>(
+    projectId: string | null,
+    operation: () => A | Promise<A>,
+  ) => Promise<A>;
+}
 
 export interface ProjectRuntimeLifecycleTestHarness {
-  readonly adapter: ProjectRuntimeLifecyclePromiseAdapter;
+  readonly adapter: ProjectRuntimeLifecycleTestAdapter;
   readonly close: () => Promise<void>;
 }
 
 export const makeProjectRuntimeLifecycleTestHarness = (): ProjectRuntimeLifecycleTestHarness => {
   const tails = new Map<string, Promise<void>>();
   let closed = false;
-  const adapter: ProjectRuntimeLifecyclePromiseAdapter = {
+  const adapter: ProjectRuntimeLifecycleTestAdapter = {
     runExclusive: async (projectId, operation) => {
       if (closed) throw new Error("Project runtime lifecycle test harness is closed");
       const key = projectId?.trim() || "";

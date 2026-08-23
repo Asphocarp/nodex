@@ -2231,7 +2231,6 @@ function createService(options?: {
     executionHosts,
     managedWorktrees: managedWorktreeHarness.adapter,
     requestManagedWorktreeRetention: () => undefined,
-    projectRuntimeLifecycle: projectRuntimeLifecycleHarness.adapter,
     supportsChatGptApps: options?.supportsChatGptApps,
     projectAwareDeveloperInstructionsResolver: options?.projectAwareDeveloperInstructionsResolver,
     gitSettingsResolver: options?.gitSettingsResolver,
@@ -7262,98 +7261,6 @@ describe("codex-service Session Thread launch projections", () => {
       await service.shutdown();
     }
   });
-
-  test("generates commit messages through the app-server commit-message method", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      generateCommitMessage: (input: {
-        hostId?: string | null;
-        prompt: string;
-        cwd: string;
-      }) => Promise<string | null>;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      return { message: "  feat: generated commit message\n" };
-    };
-
-    try {
-      const message = await serviceInternals.generateCommitMessage({
-        hostId: "local",
-        prompt: "Changes:\ndiff --git a/feature.txt b/feature.txt",
-        cwd: "/tmp/project",
-      });
-
-      expect(message).toBe("feat: generated commit message");
-      const capturedRequest = requests[0];
-      expect(capturedRequest?.method).toBe("generate-commit-message");
-      expect(JSON.stringify(capturedRequest?.params)).toBe(
-        JSON.stringify({
-          hostId: "local",
-          prompt: "Changes:\ndiff --git a/feature.txt b/feature.txt",
-          cwd: "/tmp/project",
-        }),
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("generates pull request messages through the app-server pull-request-message method", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      generatePullRequestMessage: (input: {
-        hostId?: string | null;
-        prompt: string;
-        cwd: string;
-      }) => Promise<{ title: string | null; body: string | null }>;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      return {
-        title: "  Generated PR title\n",
-        body: "  Generated PR body\n",
-      };
-    };
-
-    try {
-      const message = await serviceInternals.generatePullRequestMessage({
-        hostId: "local",
-        prompt: "Branches:\n- Head: feature\n- Base: main",
-        cwd: "/tmp/project",
-      });
-
-      expect(JSON.stringify(message)).toBe(
-        JSON.stringify({
-          title: "Generated PR title",
-          body: "Generated PR body",
-        }),
-      );
-      const capturedRequest = requests[0];
-      expect(capturedRequest?.method).toBe("generate-pull-request-message");
-      expect(JSON.stringify(capturedRequest?.params)).toBe(
-        JSON.stringify({
-          hostId: "local",
-          prompt: "Branches:\n- Head: feature\n- Base: main",
-          cwd: "/tmp/project",
-        }),
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
 });
 
 describe("codex-service pending managed worktree setup", () => {
@@ -9276,8 +9183,8 @@ describe("codex-service streaming notification parity", () => {
         },
       });
 
-      planItem = service.serializeConversationSnapshot("thr_plan_delta_existing")?.turns[0]
-        ?.items[0];
+      planItem =
+        service.serializeConversationSnapshot("thr_plan_delta_existing")?.turns[0]?.items[0];
       expect(planItem?.semanticKind).toBe("proposedPlan");
       expect(planItem?.markdownText).toBe("Final authoritative plan");
     } finally {

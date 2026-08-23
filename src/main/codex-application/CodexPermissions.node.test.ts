@@ -47,6 +47,7 @@ const makeHarness = (options: { readonly rejectConfigWrite?: boolean } = {}) => 
   const unsupported = () => Effect.die(new Error("Unsupported test operation"));
   const gateway = CodexGateway.of({
     localHostId: "local",
+    requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
     requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
     events: Stream.empty,
     requestLocal,

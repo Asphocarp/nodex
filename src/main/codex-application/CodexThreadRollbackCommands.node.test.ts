@@ -14,6 +14,7 @@ const makeGateway = (
 ): CodexGateway["Service"] =>
   CodexGateway.of({
     localHostId: "local",
+    requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
     events: Stream.empty,
     requestForThread,
     requestRawForThread: () => Effect.die("unused"),

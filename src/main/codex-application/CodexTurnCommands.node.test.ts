@@ -68,6 +68,7 @@ const makeHarness = (
     let attempts = 0;
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
       requestForThread: ((_threadId: string, method: string) =>
         Effect.suspend(() => {
           if (method !== "turn/start") return Effect.die(`unexpected method: ${method}`);
@@ -75,7 +76,7 @@ const makeHarness = (
           events.push(`request:${attempts}`);
           return input.request(attempts);
         })) as CodexGateway["Service"]["requestForThread"],
-    } as CodexGateway["Service"]);
+    } as unknown as CodexGateway["Service"]);
     const projection: CodexTurnCommandProjection = {
       prepareStart: ({ threadId, rendererOwnsState }) =>
         Effect.sync(() => {
@@ -221,6 +222,7 @@ const makeSteerHarness = (
     const events: string[] = [];
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
       requestForThread: ((_threadId: string, method: string) =>
         Effect.suspend(() => {
           events.push(`request:${method}`);
@@ -228,7 +230,7 @@ const makeSteerHarness = (
           if (method === "turn/start") return Effect.succeed({ turn: { id: "turn-restarted" } });
           return Effect.die(`unexpected method: ${method}`);
         })) as CodexGateway["Service"]["requestForThread"],
-    } as CodexGateway["Service"]);
+    } as unknown as CodexGateway["Service"]);
     const projection: CodexTurnCommandProjection = {
       prepareStart: ({ threadId, rendererOwnsState }) =>
         Effect.sync(() => {

@@ -86,7 +86,14 @@ import {
   live as conversationCommandsLive,
 } from "../codex-application/ConversationCommands";
 import { makeConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
-import { make as makeCodexBackgroundProcesses } from "../codex-application/CodexBackgroundProcesses";
+import {
+  CodexBackgroundProcesses,
+  make as makeCodexBackgroundProcesses,
+} from "../codex-application/CodexBackgroundProcesses";
+import {
+  CodexGitMessageGeneration,
+  live as codexGitMessageGenerationLive,
+} from "../codex-application/CodexGitMessageGeneration";
 import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
 import {
   ApprovalCoordinator,
@@ -372,6 +379,7 @@ import {
   live as gitActionOperationRuntimeLive,
 } from "../host-runtime/GitActionOperationRuntime";
 import { GitWorkerRuntime, live as gitWorkerRuntimeLive } from "../host-runtime/GitWorkerRuntime";
+import { GitActions, live as gitActionsLive } from "../git-application/GitActions";
 import {
   localLive as localWorktreeWorkerRuntimeLive,
   WorktreeWorkerRuntime,
@@ -388,7 +396,14 @@ import {
   live as projectRuntimeLifecycleLive,
   ProjectRuntimeLifecycleRuntime,
 } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
-import { makeProjectRuntimeLifecyclePromiseAdapter } from "../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
+import {
+  ProjectArchiveBlockers,
+  live as projectArchiveBlockersLive,
+} from "../project-application/ProjectArchiveBlockers";
+import {
+  ProjectLifecycleCommands,
+  live as projectLifecycleCommandsLive,
+} from "../project-application/ProjectLifecycleCommands";
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import { projectSessionIdFromTerminalSessionId } from "../browser/browser-local-server-runtime";
 import {
@@ -636,10 +651,6 @@ export const live: Layer.Layer<
         const projectRuntimeLifecycle = Context.get(
           projectRuntimeLifecycleContext,
           ProjectRuntimeLifecycleRuntime,
-        );
-        const projectRuntimeLifecycleAdapter = makeProjectRuntimeLifecyclePromiseAdapter(
-          projectRuntimeLifecycle,
-          callbacks,
         );
         let codexService: CodexService | undefined;
         const requireCodexService = (): CodexService => {
@@ -1135,6 +1146,29 @@ export const live: Layer.Layer<
           gitActionOperationContext,
           GitActionOperationRuntime,
         );
+        const codexGitMessageGenerationContext = yield* Layer.buildWithScope(
+          codexGitMessageGenerationLive.pipe(
+            Layer.provide(Layer.succeed(CodexGateway, codexGateway)),
+          ),
+          runtimeScope,
+        );
+        const codexGitMessageGeneration = Context.get(
+          codexGitMessageGenerationContext,
+          CodexGitMessageGeneration,
+        );
+        const gitActionsContext = yield* Layer.buildWithScope(
+          gitActionsLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexGitMessageGeneration, codexGitMessageGeneration),
+                Layer.succeed(GitActionOperationRuntime, gitActionOperations),
+                Layer.succeed(GitWorkerRuntime, gitWorker),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const gitActions = Context.get(gitActionsContext, GitActions);
         yield* Layer.buildWithScope(
           GitWorkerIpc.live.pipe(
             Layer.provide(
@@ -2720,7 +2754,6 @@ export const live: Layer.Layer<
               ),
               requestManagedWorktreeRetention: () =>
                 callbacks.fork(managedWorktreeRetention.request),
-              projectRuntimeLifecycle: projectRuntimeLifecycleAdapter,
               terminalRuntime: {
                 getThreadSnapshot: (threadId) =>
                   callbacks.runPromise(terminals.getThreadSnapshot(threadId)),
@@ -2748,6 +2781,39 @@ export const live: Layer.Layer<
           Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
           Effect.provideService(Scope.Scope, runtimeScope),
           Effect.provideService(TerminalSessions, terminals),
+        );
+        const projectArchiveBlockersContext = yield* Layer.buildWithScope(
+          projectArchiveBlockersLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexBackgroundProcesses, backgroundProcesses),
+                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
+                Layer.succeed(TerminalSessions, terminals),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const projectArchiveBlockers = Context.get(
+          projectArchiveBlockersContext,
+          ProjectArchiveBlockers,
+        );
+        const projectLifecycleCommandsContext = yield* Layer.buildWithScope(
+          projectLifecycleCommandsLive({ projectWorkspace }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
+                Layer.succeed(ProjectArchiveBlockers, projectArchiveBlockers),
+                Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+                Layer.succeed(TerminalSessions, terminals),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const projectLifecycleCommands = Context.get(
+          projectLifecycleCommandsContext,
+          ProjectLifecycleCommands,
         );
         const managedWorktreeCatalog = yield* makeManagedWorktreeCatalog({
           projectWorkspace,
@@ -2900,16 +2966,9 @@ export const live: Layer.Layer<
         yield* Layer.buildWithScope(
           ProjectWorkspaceIpc.live({
             codex: codexService,
-            backgroundProcesses,
             conversationCommands,
             projects: projectWorkspace,
             threadTitles: threadTitlePersistence,
-            terminals: {
-              listLiveSessionsForOwners: (input) =>
-                callbacks.runPromise(terminals.listLiveSessionsForOwners(input)),
-              discardExitedSessionsForOwners: (input) =>
-                callbacks.runPromise(terminals.discardExitedSessionsForOwners(input)),
-            },
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -2917,7 +2976,7 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(BrowserSidebarRuntime, browserSidebar),
                 Layer.succeed(MainConfig, config),
-                Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+                Layer.succeed(ProjectLifecycleCommands, projectLifecycleCommands),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
@@ -3020,14 +3079,12 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
-          GitApplicationIpc.live({ codex: codexService }).pipe(
+          GitApplicationIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(GitActionOperationRuntime, gitActionOperations),
-                Layer.succeed(GitWorkerRuntime, gitWorker),
+                Layer.succeed(GitActions, gitActions),
                 Layer.succeed(MainConfig, config),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),

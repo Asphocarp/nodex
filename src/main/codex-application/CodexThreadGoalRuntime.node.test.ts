@@ -35,6 +35,7 @@ const gateway = (request: CodexGateway["Service"]["requestForThread"]): CodexGat
   const unsupported = () => Effect.die(new Error("Unsupported test operation"));
   return CodexGateway.of({
     localHostId: "local",
+    requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
     requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
     events: Stream.empty,
     requestLocal: unsupported as CodexGateway["Service"]["requestLocal"],

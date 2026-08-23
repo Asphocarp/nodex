@@ -79,6 +79,7 @@ it.effect("routes direct thread operations and drains background-terminal pages"
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
       requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.empty,
       requestLocal: ((method: string, params: unknown) =>
@@ -217,6 +218,7 @@ it.effect("interrupts an active archive command when its owning Scope closes", (
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
       requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.empty,
       requestLocal: unsupported,

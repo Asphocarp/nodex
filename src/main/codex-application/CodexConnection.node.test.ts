@@ -35,6 +35,7 @@ it.effect("projects the authoritative endpoint state without losing retry histor
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
     const gateway = CodexGateway.of({
       localHostId: "local",
+      requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
       requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.empty,
       requestLocal: unsupported,

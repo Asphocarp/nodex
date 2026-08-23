@@ -49,6 +49,12 @@ export class CodexGateway extends Context.Service<
       method: M,
       params: ClientRequestParamsByMethod[M],
     ) => Effect.Effect<ClientRequestResponsesByMethod[M], CodexRuntimeError>;
+    /** Extension seam for app-server methods absent from the generated public protocol. */
+    readonly requestRawOnHost: (
+      hostId: string,
+      method: string,
+      params: unknown,
+    ) => Effect.Effect<unknown, CodexRuntimeError>;
     readonly requestForThread: <M extends ClientRequestMethod>(
       threadId: string,
       method: M,
@@ -177,6 +183,7 @@ export const live = (
         events,
         requestLocal: (method, params) => requestOnHost(endpoints.localHostId, method, params),
         requestOnHost,
+        requestRawOnHost,
         requestForThread: (threadId, method, params) =>
           threadHosts
             .resolve(threadId)

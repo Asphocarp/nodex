@@ -1,0 +1,173 @@
+import { assert, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { vi } from "vite-plus/test";
+import { DEFAULT_PROJECT_APPEARANCE } from "../../shared/project-appearance";
+import type { Project, ProjectArchiveBlocker, ProjectSessionSummary } from "../../shared/types";
+import { BrowserSidebarRuntime } from "../host-runtime/BrowserSidebarRuntime";
+import { live as projectRuntimeLifecycleLive } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
+import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
+import { ProjectArchiveBlockers } from "./ProjectArchiveBlockers";
+import { ProjectLifecycleCommands, live } from "./ProjectLifecycleCommands";
+
+const makeProject = (lifecycle: Project["lifecycle"] = "active"): Project => ({
+  id: "project-1",
+  libraryId: "library-1",
+  databaseId: "database-1",
+  defaultDatabaseViewId: "view-1",
+  lifecycle,
+  bindingRevision: 1,
+  name: "Alpha",
+  description: "",
+  appearance: DEFAULT_PROJECT_APPEARANCE,
+  sources: [{ root: "/workspace/alpha", order: 0 }],
+  primaryWorkspaceRoot: "/workspace/alpha",
+  pinned: false,
+  pinnedOrder: null,
+  created: new Date("2026-01-01T00:00:00.000Z"),
+  updated: new Date("2026-01-01T00:00:00.000Z"),
+});
+
+const session = (): ProjectSessionSummary => ({
+  id: "session-1",
+  projectId: "project-1",
+  noThreadFallbackTitle: "Alpha chat",
+  displayTitle: "Alpha chat",
+  order: 0,
+  pinned: false,
+  pinnedOrder: null,
+  archived: false,
+  archivedAt: null,
+  unread: false,
+  thread: {
+    sessionId: "session-1",
+    projectId: "project-1",
+    threadId: "thread-1",
+    threadPreview: "",
+    executionHostId: "local",
+    statusType: "idle",
+    statusActiveFlags: [],
+    archived: false,
+    createdAt: 1,
+    updatedAt: 1,
+    linkedAt: "2026-01-01T00:00:00.000Z",
+  },
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+});
+
+const testRuntime = (blockers: readonly (readonly ProjectArchiveBlocker[])[]) => {
+  let project = makeProject();
+  let blockerRead = 0;
+  const setProjectLifecycle = vi.fn(async (_projectId: string, lifecycle: Project["lifecycle"]) => {
+    project = { ...project, lifecycle, bindingRevision: project.bindingRevision + 1 };
+    return project;
+  });
+  const closeBrowserConversation = vi.fn();
+  const closeBrowserProject = vi.fn(() => Effect.void);
+  const discardExitedSessionsForOwners = vi.fn(() => Effect.succeed<readonly string[]>([]));
+  const lifecycleLayer = live({
+    projectWorkspace: {
+      getProject: async () => project,
+      listProjectSessionSummaryWindow: async () => ({
+        items: [session()],
+        nextCursor: null,
+        hasMore: false,
+        projectionRevision: 1,
+      }),
+      setProjectLifecycle,
+    },
+  }).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.succeed(
+          BrowserSidebarRuntime,
+          BrowserSidebarRuntime.of({
+            browser: { closeBrowserConversation },
+            localServers: { closeProject: closeBrowserProject },
+          } as unknown as BrowserSidebarRuntime["Service"]),
+        ),
+        Layer.succeed(
+          ProjectArchiveBlockers,
+          ProjectArchiveBlockers.of({
+            list: () => Effect.succeed(blockers[blockerRead++] ?? []),
+          }),
+        ),
+        projectRuntimeLifecycleLive,
+        Layer.succeed(
+          TerminalSessions,
+          TerminalSessions.of({
+            discardExitedSessionsForOwners,
+          } as unknown as TerminalSessions["Service"]),
+        ),
+      ),
+    ),
+  );
+  return {
+    layer: lifecycleLayer,
+    setProjectLifecycle,
+    closeBrowserConversation,
+    closeBrowserProject,
+    discardExitedSessionsForOwners,
+    blockerReads: () => blockerRead,
+  };
+};
+
+it.effect("blocks archive before durable mutation or runtime cleanup", () => {
+  const blocker: ProjectArchiveBlocker = {
+    kind: "active-turn",
+    threadId: "thread-1",
+    label: "Alpha chat",
+  };
+  const runtime = testRuntime([[blocker]]);
+  return Effect.gen(function* () {
+    const commands = yield* ProjectLifecycleCommands;
+    const result = yield* commands.setLifecycle("project-1", "archived");
+    assert.strictEqual(result.kind, "blocked");
+    assert.strictEqual(runtime.setProjectLifecycle.mock.calls.length, 0);
+    assert.strictEqual(runtime.closeBrowserConversation.mock.calls.length, 0);
+    assert.strictEqual(runtime.closeBrowserProject.mock.calls.length, 0);
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this test owns the complete ProjectLifecycleCommands application layer.
+  }).pipe(Effect.provide(runtime.layer));
+});
+
+it.effect("rechecks blockers under the Project gate immediately before commit", () => {
+  const blocker: ProjectArchiveBlocker = {
+    kind: "pending-request",
+    threadId: "thread-1",
+    label: null,
+  };
+  const runtime = testRuntime([[], [blocker]]);
+  return Effect.gen(function* () {
+    const commands = yield* ProjectLifecycleCommands;
+    const result = yield* commands.setLifecycle("project-1", "archived");
+    assert.strictEqual(result.kind, "blocked");
+    assert.strictEqual(runtime.blockerReads(), 2);
+    assert.strictEqual(runtime.setProjectLifecycle.mock.calls.length, 0);
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this test owns the complete ProjectLifecycleCommands application layer.
+  }).pipe(Effect.provide(runtime.layer));
+});
+
+it.effect("archives, cleans Project-owned runtimes, and restores through one command owner", () => {
+  const runtime = testRuntime([[], []]);
+  return Effect.gen(function* () {
+    const commands = yield* ProjectLifecycleCommands;
+    const archived = yield* commands.setLifecycle("project-1", "archived");
+    assert.deepStrictEqual(archived, {
+      kind: "updated",
+      project: { ...makeProject(), lifecycle: "archived", bindingRevision: 2 },
+      changed: true,
+    });
+    assert.strictEqual(runtime.closeBrowserConversation.mock.calls.length, 1);
+    assert.strictEqual(runtime.closeBrowserProject.mock.calls.length, 1);
+    assert.strictEqual(runtime.discardExitedSessionsForOwners.mock.calls.length, 1);
+
+    const restored = yield* commands.setLifecycle("project-1", "active");
+    assert.strictEqual(restored.kind, "updated");
+    if (restored.kind !== "updated") return;
+    assert.strictEqual(restored.changed, true);
+    assert.strictEqual(restored.project.lifecycle, "active");
+    assert.strictEqual(runtime.setProjectLifecycle.mock.calls.length, 2);
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this test owns the complete ProjectLifecycleCommands application layer.
+  }).pipe(Effect.provide(runtime.layer));
+});
