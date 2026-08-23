@@ -8,12 +8,7 @@ import {
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
-import type {
-  AutomationApplyResult,
-  AutomationRead,
-  AutomationReadSnapshot,
-  CoreRequestOptions,
-} from "./types";
+import type { AutomationApplyResult, AutomationReadSnapshot } from "./types";
 
 const definition = (overrides: Record<string, unknown> = {}) => ({
   automation_id: "daily-report",
@@ -233,6 +228,7 @@ describe("Desktop Automation Module bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
+      routing: { commit: () => undefined },
     });
     const definitions = readSnapshot({
       kind: "definitions",
@@ -247,179 +243,11 @@ describe("Desktop Automation Module bridge", () => {
     expect(client.automationReadOptions).toEqual([undefined, { class: "background" }]);
   });
 
-  test("owns the synchronous Codex routing projection across rebuilds and mutations", async () => {
-    const client = new FakeCoreClient();
-    const bridge = createDesktopAutomationModuleBridge({
-      authority: Promise.resolve(rustRuntime(client)),
-    });
-    client.enqueueAutomationRead(
-      readSnapshot({
-        kind: "definitions",
-        window: collectionWindow([
-          definition({
-            automation_id: "heartbeat-one",
-            kind: "heartbeat",
-            target_thread_id: "thread:heartbeat-one",
-          }),
-        ]),
-      }),
-    );
-    client.enqueueAutomationRead(
-      readSnapshot({
-        kind: "inbox",
-        window: collectionWindow([inboxItem()]),
-        unread_counts: { total: 0 },
-      }),
-    );
-
-    await bridge.synchronizeIndex();
-
-    expect(bridge.peekActiveHeartbeatAutomationId("thread:heartbeat-one")).toBe("heartbeat-one");
-    expect(bridge.peekRunAutomationId("thread:daily-report")).toBe("daily-report");
-    expect(client.automationReadOptions).toEqual([
-      { class: "background" },
-      { class: "background" },
-    ]);
-
-    client.enqueueAutomationRead(
-      readSnapshot({
-        kind: "definition",
-        item: definition({
-          automation_id: "heartbeat-one",
-          kind: "heartbeat",
-          target_thread_id: "thread:heartbeat-two",
-        }),
-      }),
-    );
-    await bridge.getDefinition("heartbeat-one");
-    expect(bridge.peekActiveHeartbeatAutomationId("thread:heartbeat-one")).toBeNull();
-    expect(bridge.peekActiveHeartbeatAutomationId("thread:heartbeat-two")).toBe("heartbeat-one");
-
-    client.enqueueAutomationApply(
-      committed({
-        runs: [
-          run({
-            thread_id: "thread:new-run",
-            automation_id: "heartbeat-one",
-            status: "IN_PROGRESS",
-          }),
-        ],
-      }),
-    );
-    await bridge.beginRun({
-      threadId: "thread:new-run",
-      automationId: "heartbeat-one",
-    });
-    expect(bridge.peekRunAutomationId("thread:new-run")).toBe("heartbeat-one");
-
-    client.enqueueAutomationRead(
-      readSnapshot({
-        kind: "run",
-        item: run({
-          thread_id: "thread:new-run",
-          automation_id: "heartbeat-one",
-        }),
-      }),
-    );
-    client.enqueueAutomationApply(committed({ deleted_run_ids: ["thread:new-run"] }));
-    await bridge.deleteRun("thread:new-run");
-    expect(bridge.peekRunAutomationId("thread:new-run")).toBeNull();
-
-    client.enqueueAutomationRead(
-      readSnapshot({
-        kind: "definition",
-        item: definition({
-          automation_id: "heartbeat-one",
-          kind: "heartbeat",
-          target_thread_id: "thread:heartbeat-two",
-        }),
-      }),
-    );
-    client.enqueueAutomationApply(committed({ deleted_run_ids: [] }));
-    await bridge.deleteDefinition("heartbeat-one");
-    expect(bridge.peekActiveHeartbeatAutomationId("thread:heartbeat-two")).toBeNull();
-  });
-
-  test("fences stale full rebuilds behind newer committed routing mutations", async () => {
-    const client = new FakeCoreClient();
-    const originalRead = client.automationRead.bind(client);
-    let resolveDefinitions!: (snapshot: AutomationReadSnapshot) => void;
-    let resolveInbox!: (snapshot: AutomationReadSnapshot) => void;
-    const definitionsRead = new Promise<AutomationReadSnapshot>((resolve) => {
-      resolveDefinitions = resolve;
-    });
-    const inboxRead = new Promise<AutomationReadSnapshot>((resolve) => {
-      resolveInbox = resolve;
-    });
-    client.automationRead = async (
-      read: AutomationRead,
-      options?: CoreRequestOptions,
-    ): Promise<AutomationReadSnapshot> => {
-      if (read.kind !== "definitions" && read.kind !== "inbox") {
-        return await originalRead(read, options);
-      }
-      client.automationReads.push(read);
-      client.automationReadOptions.push(options);
-      return await (read.kind === "definitions" ? definitionsRead : inboxRead);
-    };
-    const bridge = createDesktopAutomationModuleBridge({
-      authority: Promise.resolve(rustRuntime(client)),
-    });
-    const synchronization = bridge.synchronizeIndex();
-    await vi.waitFor(() => expect(client.automationReads).toHaveLength(2));
-
-    client.enqueueAutomationRead(readSnapshot({ kind: "definition", item: null }));
-    client.enqueueAutomationApply(
-      committed({
-        definitions: [
-          definition({
-            automation_id: "heartbeat-one",
-            kind: "heartbeat",
-            target_thread_id: "thread:heartbeat-one",
-          }),
-        ],
-      }),
-    );
-    await bridge.createDefinition({
-      kind: "heartbeat",
-      targetThreadId: "thread:heartbeat-one",
-      name: "Heartbeat One",
-      prompt: "Check for updates.",
-    });
-    client.enqueueAutomationApply(
-      committed({
-        runs: [
-          run({
-            thread_id: "thread:heartbeat-run",
-            automation_id: "heartbeat-one",
-            status: "IN_PROGRESS",
-          }),
-        ],
-      }),
-    );
-    await bridge.beginRun({
-      threadId: "thread:heartbeat-run",
-      automationId: "heartbeat-one",
-    });
-
-    resolveDefinitions(readSnapshot({ kind: "definitions", window: collectionWindow([]) }));
-    resolveInbox(
-      readSnapshot({
-        kind: "inbox",
-        window: collectionWindow([]),
-        unread_counts: { total: 0 },
-      }),
-    );
-    await synchronization;
-
-    expect(bridge.peekActiveHeartbeatAutomationId("thread:heartbeat-one")).toBe("heartbeat-one");
-    expect(bridge.peekRunAutomationId("thread:heartbeat-run")).toBe("heartbeat-one");
-  });
-
   test("maps Definition CRUD and preserves slug identities through Core", async () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
+      routing: { commit: () => undefined },
     });
     client.enqueueAutomationRead(
       readSnapshot({
@@ -515,6 +343,7 @@ describe("Desktop Automation Module bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
+      routing: { commit: () => undefined },
     });
     client.enqueueAutomationRead(readSnapshot({ kind: "run", item: run() }));
     client.enqueueAutomationApply(
@@ -546,6 +375,7 @@ describe("Desktop Automation Module bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
+      routing: { commit: () => undefined },
     });
 
     client.enqueueAutomationRead(
@@ -681,6 +511,7 @@ describe("Desktop Automation Module bridge", () => {
     } as unknown as RustDataAuthorityRuntime;
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(runtime),
+      routing: { commit: () => undefined },
     });
     const windowStart = new Date("2026-07-20T00:00:00.000Z");
     const windowEnd = new Date("2026-07-21T00:00:00.000Z");
@@ -822,6 +653,7 @@ describe("Desktop Automation Module bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
+      routing: { commit: () => undefined },
     });
     client.enqueueAutomationApply(
       committed({
@@ -895,6 +727,7 @@ describe("Desktop Automation Module bridge", () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
       authority: Promise.resolve(rustRuntime(client)),
+      routing: { commit: () => undefined },
     });
     const inboxValue = {
       kind: "inbox" as const,

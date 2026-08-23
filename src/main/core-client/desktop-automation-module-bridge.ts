@@ -35,6 +35,7 @@ import {
   projectCoreAutomationEvent,
   type CoreAutomationInvalidation,
 } from "../core-runtime/CoreApplicationEventProjection";
+import type { AutomationRoutingIndex } from "../core-runtime/AutomationRoutingIndex";
 
 const BACKGROUND_CORE_REQUEST = { class: "background" } as const satisfies CoreRequestOptions;
 
@@ -108,12 +109,6 @@ export interface DesktopPageOccurrenceWindow {
 export type DesktopAutomationReadClass = "interactive" | "background";
 
 export interface DesktopAutomationModulePort {
-  /** Synchronous read projection used while routing already-materialized Codex notifications. */
-  peekRunAutomationId(threadId: string): string | null;
-  /** Synchronous read projection used while deriving Thread launch instructions. */
-  peekActiveHeartbeatAutomationId(threadId: string): string | null;
-  /** Rebuilds both routing projections from the canonical Core Automation Module. */
-  synchronizeIndex(): Promise<void>;
   listDefinitions(requestClass?: DesktopAutomationReadClass): Promise<CodexScheduledAutomation[]>;
   getDefinition(id: string): Promise<CodexScheduledAutomation | null>;
   createDefinition(input: CodexScheduledAutomationCreateInput): Promise<CodexScheduledAutomation>;
@@ -208,6 +203,7 @@ export interface DesktopAutomationModulePort {
 
 export interface DesktopAutomationModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
+  readonly routing: Pick<AutomationRoutingIndex["Service"], "commit">;
 }
 
 export type { CoreAutomationInvalidation } from "../core-runtime/CoreApplicationEventProjection";
@@ -460,66 +456,8 @@ const requireRun = (committed: AutomationApplyResult, threadId: string): CoreAut
 const createCoreAutomationPort = (
   client: CoreClientPort,
   clientForProject: (projectId: string) => CoreClientPort,
+  routing: Pick<AutomationRoutingIndex["Service"], "commit">,
 ): DesktopAutomationModulePort => {
-  const runAutomationIdByThreadId = new Map<string, string>();
-  const heartbeatAutomationIdByThreadId = new Map<string, string>();
-  let definitionReadGeneration = 0;
-  let definitionMutationRevision = 0;
-  let runReadGeneration = 0;
-  let runMutationRevision = 0;
-  const beginDefinitionRead = () => ({
-    generation: ++definitionReadGeneration,
-    mutationRevision: definitionMutationRevision,
-  });
-  const isCurrentDefinitionRead = (ticket: ReturnType<typeof beginDefinitionRead>): boolean =>
-    ticket.generation === definitionReadGeneration &&
-    ticket.mutationRevision === definitionMutationRevision;
-  const commitDefinitionProjection = (commit: () => void): void => {
-    definitionMutationRevision += 1;
-    definitionReadGeneration += 1;
-    commit();
-  };
-  const beginRunRead = () => ({
-    generation: ++runReadGeneration,
-    mutationRevision: runMutationRevision,
-  });
-  const isCurrentRunRead = (ticket: ReturnType<typeof beginRunRead>): boolean =>
-    ticket.generation === runReadGeneration && ticket.mutationRevision === runMutationRevision;
-  const commitRunProjection = (commit: () => void): void => {
-    runMutationRevision += 1;
-    runReadGeneration += 1;
-    commit();
-  };
-  const removeDefinitionFromIndex = (automationId: string): void => {
-    for (const [threadId, indexedAutomationId] of heartbeatAutomationIdByThreadId) {
-      if (indexedAutomationId !== automationId) continue;
-      heartbeatAutomationIdByThreadId.delete(threadId);
-    }
-  };
-  const indexDefinition = (definition: CoreAutomationDefinition): void => {
-    removeDefinitionFromIndex(definition.automation_id);
-    if (
-      definition.kind !== "heartbeat" ||
-      definition.status !== "ACTIVE" ||
-      !definition.target_thread_id
-    ) {
-      return;
-    }
-    heartbeatAutomationIdByThreadId.set(definition.target_thread_id, definition.automation_id);
-  };
-  const replaceDefinitionIndex = (definitions: readonly CoreAutomationDefinition[]): void => {
-    heartbeatAutomationIdByThreadId.clear();
-    for (const definition of definitions) indexDefinition(definition);
-  };
-  const indexRun = (run: CoreAutomationRun): void => {
-    runAutomationIdByThreadId.set(run.thread_id, run.automation_id);
-  };
-  const replaceRunIndex = (items: readonly CoreAutomationInboxItem[]): void => {
-    runAutomationIdByThreadId.clear();
-    for (const item of items) {
-      runAutomationIdByThreadId.set(item.thread_id, item.automation_id);
-    }
-  };
   const readDefinition = async (automationId: string): Promise<CoreAutomationDefinition | null> => {
     const snapshot = await client.automationRead({
       kind: "definition",
@@ -534,7 +472,6 @@ const createCoreAutomationPort = (
     threadId: string,
     options?: CoreRequestOptions,
   ): Promise<CoreAutomationRun | null> => {
-    const ticket = beginRunRead();
     const snapshot = await client.automationRead(
       {
         kind: "run",
@@ -545,12 +482,7 @@ const createCoreAutomationPort = (
     if (snapshot.value.kind !== "run") {
       throw new Error("Core returned a non-Run Automation read");
     }
-    const run = snapshot.value.item ?? null;
-    if (isCurrentRunRead(ticket)) {
-      if (run) indexRun(run);
-      else runAutomationIdByThreadId.delete(threadId);
-    }
-    return run;
+    return snapshot.value.item ?? null;
   };
   const applyRun = async (
     threadId: string,
@@ -660,32 +592,12 @@ const createCoreAutomationPort = (
   };
 
   return {
-    peekRunAutomationId: (threadId) => runAutomationIdByThreadId.get(threadId) ?? null,
-    peekActiveHeartbeatAutomationId: (threadId) =>
-      heartbeatAutomationIdByThreadId.get(threadId) ?? null,
-    synchronizeIndex: async () => {
-      const definitionTicket = beginDefinitionRead();
-      const runTicket = beginRunRead();
-      const [definitions, inbox] = await Promise.all([
-        readActiveDefinitions("background"),
-        readInboxItems(200, "background"),
-      ]);
-      if (isCurrentDefinitionRead(definitionTicket)) replaceDefinitionIndex(definitions);
-      if (isCurrentRunRead(runTicket)) replaceRunIndex(inbox.items);
-    },
     listDefinitions: async (requestClass) => {
-      const ticket = beginDefinitionRead();
       const definitions = await readActiveDefinitions(requestClass);
-      if (isCurrentDefinitionRead(ticket)) replaceDefinitionIndex(definitions);
       return definitions.map(mapDefinition);
     },
     getDefinition: async (id) => {
-      const ticket = beginDefinitionRead();
       const item = await readDefinition(id);
-      if (isCurrentDefinitionRead(ticket)) {
-        if (item) indexDefinition(item);
-        else removeDefinitionFromIndex(id);
-      }
       return item ? mapDefinition(item) : null;
     },
     createDefinition: async (input) => {
@@ -702,7 +614,7 @@ const createCoreAutomationPort = (
         },
       });
       const definition = requireDefinition(committed, automationId);
-      commitDefinitionProjection(() => indexDefinition(definition));
+      routing.commit({ definitions: { upsert: [definition] } });
       return mapDefinition(definition);
     },
     updateDefinition: async (input) => {
@@ -726,14 +638,12 @@ const createCoreAutomationPort = (
               },
       });
       const definition = requireDefinition(committed, input.id);
-      commitDefinitionProjection(() => indexDefinition(definition));
+      routing.commit({ definitions: { upsert: [definition] } });
       return mapDefinition(definition);
     },
     deleteDefinition: async (id) => {
-      const ticket = beginDefinitionRead();
       const current = await readDefinition(id);
       if (!current) {
-        if (isCurrentDefinitionRead(ticket)) removeDefinitionFromIndex(id);
         return {
           item: null,
           success: true,
@@ -749,14 +659,10 @@ const createCoreAutomationPort = (
           expected_revision: current.definition_revision,
         },
       });
-      commitDefinitionProjection(() => removeDefinitionFromIndex(id));
-      if (committed.outcome.deleted_run_ids.length > 0) {
-        commitRunProjection(() => {
-          for (const threadId of committed.outcome.deleted_run_ids) {
-            runAutomationIdByThreadId.delete(threadId);
-          }
-        });
-      }
+      routing.commit({
+        definitions: { removeIds: [id] },
+        runs: { removeThreadIds: committed.outcome.deleted_run_ids },
+      });
       return {
         item: mapDefinition(current),
         success: true,
@@ -878,7 +784,7 @@ const createCoreAutomationPort = (
       const run = committed.outcome.runs.find(
         (candidate) => candidate.thread_id === input.threadId,
       );
-      if (run) commitRunProjection(() => indexRun(run));
+      if (run) routing.commit({ runs: { upsert: [run] } });
       return run !== undefined;
     },
     replacePendingRunThread: async (input) => {
@@ -900,9 +806,8 @@ const createCoreAutomationPort = (
         (candidate) => candidate.thread_id === input.threadId,
       );
       if (!run) return false;
-      commitRunProjection(() => {
-        runAutomationIdByThreadId.delete(input.pendingThreadId);
-        indexRun(run);
+      routing.commit({
+        runs: { removeThreadIds: [input.pendingThreadId], upsert: [run] },
       });
       return true;
     },
@@ -968,9 +873,7 @@ const createCoreAutomationPort = (
         },
       });
       const deleted = committed.outcome.deleted_run_ids.includes(threadId);
-      if (deleted) {
-        commitRunProjection(() => runAutomationIdByThreadId.delete(threadId));
-      }
+      if (deleted) routing.commit({ runs: { removeThreadIds: [threadId] } });
       return deleted;
     },
     unarchiveRun: async (threadId) =>
@@ -980,13 +883,7 @@ const createCoreAutomationPort = (
         expected_revision: run.run_revision,
       }))) !== null,
     readInbox: async (limit, requestClass = "interactive") => {
-      const ticket = beginRunRead();
       const { items, unreadTotal } = await readInboxItems(limit, requestClass);
-      if (isCurrentRunRead(ticket)) {
-        for (const item of items) {
-          runAutomationIdByThreadId.set(item.thread_id, item.automation_id);
-        }
-      }
       const mappedItems = items.map(mapInboxItem);
       const unreadItems = mappedItems.filter(
         (item) =>
@@ -1145,14 +1042,14 @@ export const createDesktopAutomationModuleBridge = (
   let corePort: DesktopAutomationModulePort | null = null;
   const port = async (): Promise<DesktopAutomationModulePort> => {
     const runtime = await input.authority;
-    corePort ??= createCoreAutomationPort(runtime.rootClient, runtime.clientForProject);
+    corePort ??= createCoreAutomationPort(
+      runtime.rootClient,
+      runtime.clientForProject,
+      input.routing,
+    );
     return corePort;
   };
   return {
-    peekRunAutomationId: (threadId) => corePort?.peekRunAutomationId(threadId) ?? null,
-    peekActiveHeartbeatAutomationId: (threadId) =>
-      corePort?.peekActiveHeartbeatAutomationId(threadId) ?? null,
-    synchronizeIndex: async () => (await port()).synchronizeIndex(),
     listDefinitions: async (requestClass) => (await port()).listDefinitions(requestClass),
     getDefinition: async (id) => (await port()).getDefinition(id),
     createDefinition: async (definition) => (await port()).createDefinition(definition),
