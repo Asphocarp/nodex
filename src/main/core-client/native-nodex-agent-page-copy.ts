@@ -8,7 +8,7 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { TransferBlocksInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
   hasExactNativeAgentDocumentHeads,
@@ -142,7 +142,7 @@ const normalizedInput = (
 };
 
 export const prepareNativeNodexAgentPageCopy = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   request: PrepareNodexAgentDuplicatePageRequest,
   signal?: AbortSignal,
 ): Promise<
@@ -242,7 +242,7 @@ export const prepareNativeNodexAgentPageCopy = async (
 };
 
 export const executeNativeNodexAgentPageCopy = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   pending: PendingNativePageCopy | undefined,
   command: NodexAgentDuplicatePageCommand,
   signal?: AbortSignal,

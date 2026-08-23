@@ -33,8 +33,8 @@ import type {
 import { GetContextV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
 import { NESTED_MARKDOWN_AGENT_GUIDE } from "../../shared/nfm/agent-guide";
 import { CoreModuleResponseError } from "../core-client/core-client";
-import type { RustDataAuthorityRuntime } from "../core-client/desktop-data-authority";
 import type { CoreGenerationClient } from "../core-client/core-generation-client";
+import type { NativeNodexAgentCore } from "../core-client/native-nodex-agent-core";
 import { readNativeFetch } from "../core-client/native-nodex-agent-fetch";
 import type {
   NativeNodexAgentMutationTransition,
@@ -243,14 +243,9 @@ export const live: Layer.Layer<
         cause: new Error("Nodex Agent application scope is closed"),
       });
     });
-    const runtimeFor = (client: CoreGenerationClient): RustDataAuthorityRuntime => {
-      const runtime: RustDataAuthorityRuntime = {
-        backend: "rust",
+    const runtimeFor = (client: CoreGenerationClient): NativeNodexAgentCore => {
+      const runtime: NativeNodexAgentCore = {
         identity: authority.identity,
-        launch: {
-          ...authority.initialLaunch,
-          client: client as RustDataAuthorityRuntime["launch"]["client"],
-        },
         rootClient: client,
         clientForProject: (projectId) => client.forProject(projectId),
       };
@@ -258,7 +253,7 @@ export const live: Layer.Layer<
     };
     const useNative = <A>(
       operation: string,
-      run: (runtime: RustDataAuthorityRuntime, signal: AbortSignal) => Promise<A>,
+      run: (runtime: NativeNodexAgentCore, signal: AbortSignal) => Promise<A>,
     ): NodexAgentEffect<A> =>
       assertOpen.pipe(
         Effect.andThen(

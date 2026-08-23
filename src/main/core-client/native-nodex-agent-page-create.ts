@@ -10,7 +10,7 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { CreatePagesV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { CreateInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
   hasExactNativeAgentDocumentHeads,
@@ -178,7 +178,7 @@ const command = (
 };
 
 export const prepareNativeNodexAgentPageCreate = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   request: PrepareNodexAgentCreatePagesRequest,
   signal?: AbortSignal,
 ): Promise<
@@ -269,7 +269,7 @@ export const prepareNativeNodexAgentPageCreate = async (
 };
 
 export const executeNativeNodexAgentPageCreate = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   pending: PendingNativePageCreate | undefined,
   command: NodexAgentCreatePagesCommand,
   documentHeads: readonly NodexAgentDocumentHead[],

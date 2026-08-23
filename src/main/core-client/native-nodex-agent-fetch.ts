@@ -8,7 +8,7 @@ import type {
 import { FetchV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { serializeInlineMarkdownTitle } from "../../shared/nfm/agent-title";
 import { extractPlainText } from "../../shared/nfm/extract-text";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 
@@ -83,7 +83,7 @@ const dataSource = (detail: CorePageDetail) => {
 
 export async function readNativeFetch(
   request: FetchRequest,
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   signal?: AbortSignal,
 ): Promise<NodexAgentV3ReadCommandResult> {
   if (!request.authority) {

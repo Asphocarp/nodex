@@ -4,7 +4,7 @@ import type {
   NodexAgentV3ReadRequest,
 } from "../../shared/nodex-agent-tools";
 import { SearchV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 
@@ -98,7 +98,7 @@ const mapResult = (result: CoreSearchResult) => {
 
 export async function readNativeSearch(
   request: SearchRequest,
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   signal?: AbortSignal,
 ): Promise<NodexAgentV3ReadCommandResult> {
   if (!request.authority) {

@@ -20,7 +20,7 @@ import {
   applyExactNfmPatches,
 } from "../../shared/nodex-agent-tools/exact-nfm-patches";
 import { CoreModuleResponseError } from "./core-client";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import type {
   NativeNodexAgentMutationStep,
@@ -402,7 +402,7 @@ const projectNativeNodexAgentPageUpdateOutput = (
 };
 
 const readNativeNodexAgentPageUpdateOutput = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   request: PrepareNodexAgentPageUpdateRequest,
   committed: CoreCommittedDocument,
   signal?: AbortSignal,
@@ -420,7 +420,7 @@ const readNativeNodexAgentPageUpdateOutput = async (
 };
 
 export const prepareNativeNodexAgentPageUpdate = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   request: PrepareNodexAgentPageUpdateRequest,
   signal?: AbortSignal,
 ): Promise<
@@ -581,7 +581,7 @@ export const prepareNativeNodexAgentPageUpdate = async (
 };
 
 export const applyNativeNodexAgentPageUpdate = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   pending: PendingNativePageUpdate | undefined,
   request: DocumentMutationRequest,
   signal?: AbortSignal,
@@ -670,7 +670,7 @@ export const applyNativeNodexAgentPageUpdate = async (
 };
 
 export const completeNativeNodexAgentPageUpdate = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   pending: PendingNativePageUpdate | undefined,
   request: CompleteNodexAgentPageUpdateRequest,
   signal?: AbortSignal,

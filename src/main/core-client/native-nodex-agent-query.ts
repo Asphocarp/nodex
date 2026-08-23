@@ -14,7 +14,7 @@ import {
   projectCoreDatabaseViewQuery,
   projectCoreDataSourceQuery,
 } from "../../shared/database-page-projection";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 import { createCoreDatabaseModuleAdapter } from "./database-module-adapter";
@@ -28,7 +28,7 @@ type QueryRequest = Extract<
 
 export async function readNativeDatabaseQuery(
   request: QueryRequest,
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   signal?: AbortSignal,
 ): Promise<NodexAgentV3ReadCommandResult> {
   if (!request.authority) {

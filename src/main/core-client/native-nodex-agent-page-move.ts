@@ -9,7 +9,7 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { MovePagesV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { TransferBlocksInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
 import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
 import {
   hasExactNativeAgentDocumentHeads,
@@ -167,7 +167,7 @@ const command = (
 };
 
 export const prepareNativeNodexAgentPageMove = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   request: PrepareNodexAgentMovePagesRequest,
   signal?: AbortSignal,
 ): Promise<
@@ -253,7 +253,7 @@ export const prepareNativeNodexAgentPageMove = async (
 };
 
 export const executeNativeNodexAgentPageMove = async (
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
   pending: PendingNativePageMove | undefined,
   command: NodexAgentMovePagesCommand,
   signal?: AbortSignal,
