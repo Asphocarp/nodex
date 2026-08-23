@@ -190,10 +190,11 @@ export const live = (
         archive: (threadId) =>
           runSerial(
             threadId,
-            gateway.requestForThread(threadId, "thread/archive", { threadId }).pipe(
-              Effect.andThen(archiveProjection.archive(threadId)),
-              Effect.tap((archived) => (archived ? conversations.close(threadId) : Effect.void)),
-            ),
+            gateway
+              .requestForThread(threadId, "thread/archive", { threadId })
+              .pipe(Effect.andThen(archiveProjection.archive(threadId))),
+          ).pipe(
+            Effect.tap((archived) => (archived ? conversations.close(threadId) : Effect.void)),
           ),
         unarchive: (threadId) =>
           runSerial(

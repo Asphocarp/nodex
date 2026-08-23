@@ -47,10 +47,9 @@ const conversationLane = (events: string[]): ConversationRuntimeMap["Service"] =
   return ConversationRuntimeMap.of({
     conversation: conversations.acquire,
     currentConversation: conversations.current,
-    requests: Stream.empty,
-    runtime: () => Effect.die("unused"),
     runExclusive: (threadId, operation) =>
       Effect.sync(() => events.push(`lane:${threadId}`)).pipe(Effect.andThen(operation)),
+    markAllNeedsResume: conversations.markAllNeedsResume,
     close: () => Effect.void,
   });
 };

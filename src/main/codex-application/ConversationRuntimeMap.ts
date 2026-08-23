@@ -1,89 +1,15 @@
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as LayerMap from "effect/LayerMap";
-import * as PubSub from "effect/PubSub";
-import * as Queue from "effect/Queue";
-import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
-import * as Stream from "effect/Stream";
-import * as SubscriptionRef from "effect/SubscriptionRef";
-import {
-  CodexAppServerInputStreamEndedError,
-  type CodexAppServerError,
-} from "@nodex/effect-codex-app-server/errors";
 import {
   makeCodexConversationAggregateRegistry,
   type CodexConversationAggregate,
   type CodexConversationAggregateRegistry,
 } from "./CodexConversationAggregate";
-
-export interface ConversationServerRequest {
-  readonly hostId: string;
-  readonly generation: number;
-  readonly requestId: string | number;
-  readonly method: string;
-  readonly params: unknown;
-}
-
-export interface ConversationServerRequestOccurrence extends ConversationServerRequest {
-  readonly token: number;
-}
-
-export type ConversationRuntimeEvent =
-  | { readonly kind: "server-request"; readonly value: ConversationServerRequestOccurrence }
-  | { readonly kind: "notification"; readonly method: string; readonly params: unknown };
-
-export interface ConversationRuntimeEventEnvelope {
-  readonly threadId: string;
-  readonly sequence: number;
-  readonly event: ConversationRuntimeEvent;
-}
-
-export type ConversationServerRequestEnvelope = Omit<ConversationRuntimeEventEnvelope, "event"> & {
-  readonly event: Extract<ConversationRuntimeEvent, { readonly kind: "server-request" }>;
-};
-
-export type ConversationRuntimeState =
-  | { readonly kind: "active"; readonly sequence: number; readonly pendingRequests: number }
-  | { readonly kind: "closing"; readonly sequence: number; readonly pendingRequests: number };
-
-interface PendingRequest {
-  readonly generation: number;
-  readonly requestId: string | number;
-  readonly token: number;
-  readonly response: Deferred.Deferred<unknown, CodexAppServerError>;
-}
-
-export class ConversationRuntime extends Context.Service<
-  ConversationRuntime,
-  {
-    readonly threadId: string;
-    readonly state: SubscriptionRef.SubscriptionRef<ConversationRuntimeState>;
-    readonly events: Stream.Stream<ConversationRuntimeEventEnvelope>;
-    readonly publish: (event: ConversationRuntimeEvent) => Effect.Effect<void>;
-    readonly request: (
-      request: ConversationServerRequest,
-    ) => Effect.Effect<unknown, CodexAppServerError>;
-    readonly respond: (
-      generation: number,
-      requestId: string | number,
-      response: unknown,
-    ) => Effect.Effect<boolean>;
-    readonly reject: (
-      generation: number,
-      requestId: string | number,
-      error: CodexAppServerError,
-    ) => Effect.Effect<boolean>;
-    readonly respondToken: (token: number, response: unknown) => Effect.Effect<boolean>;
-    readonly rejectToken: (token: number, error: CodexAppServerError) => Effect.Effect<boolean>;
-    /** Serializes complete application commands for this Thread generation. */
-    readonly runExclusive: <A, E, R>(operation: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
-  }
->()("nodex/main/codex-application/ConversationRuntime") {}
 
 export class ConversationRuntimeMap extends Context.Service<
   ConversationRuntimeMap,
@@ -92,215 +18,92 @@ export class ConversationRuntimeMap extends Context.Service<
     readonly conversation: (threadId: string) => CodexConversationAggregate;
     /** Pure query that never creates or resurrects a Thread generation. */
     readonly currentConversation: (threadId: string) => CodexConversationAggregate | null;
-    /** Lossless process ingress for the single application request dispatcher. */
-    readonly requests: Stream.Stream<ConversationServerRequestEnvelope>;
-    readonly runtime: (threadId: string) => Effect.Effect<ConversationRuntime["Service"]>;
+    /** Serializes complete application commands within the current Thread generation. */
     readonly runExclusive: <A, E, R>(
       threadId: string,
       operation: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E, R>;
+    /** Marks every loaded Thread non-live after the app-server connection is lost. */
+    readonly markAllNeedsResume: () => void;
+    /** Closes the exact live generation and interrupts its active or queued commands. */
     readonly close: (threadId: string) => Effect.Effect<void>;
   }
 >()("nodex/main/codex-application/ConversationRuntimeMap") {}
 
-const runtimeLayer = (
+class ConversationCausalLane extends Context.Service<
+  ConversationCausalLane,
+  {
+    readonly runExclusive: <A, E, R>(operation: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+  }
+>()("nodex/main/codex-application/ConversationCausalLane") {}
+
+const causalLaneLayer = (
   threadId: string,
-  ingress: Queue.Enqueue<ConversationServerRequestEnvelope>,
-  aggregate: CodexConversationAggregateRegistry,
-): Layer.Layer<ConversationRuntime> =>
+  aggregates: CodexConversationAggregateRegistry,
+): Layer.Layer<ConversationCausalLane> =>
   Layer.effect(
-    ConversationRuntime,
+    ConversationCausalLane,
     Effect.gen(function* () {
-      const aggregateGeneration = aggregate.acquire(threadId).generation;
-      const state = yield* SubscriptionRef.make<ConversationRuntimeState>({
-        kind: "active",
-        sequence: 0,
-        pendingRequests: 0,
-      });
-      const events = yield* PubSub.unbounded<ConversationRuntimeEventEnvelope>();
-      const pending = yield* Ref.make<readonly PendingRequest[]>([]);
-      const nextRequestToken = yield* Ref.make(1);
-      const publishLock = yield* Semaphore.make(1);
-      const commandLane = yield* Semaphore.make(1);
+      const generation = aggregates.acquire(threadId).generation;
+      const semaphore = yield* Semaphore.make(1);
       const ownerScope = yield* Effect.scope;
+
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => aggregates.releaseGeneration(threadId, generation)),
+      );
+
       const runExclusive = <A, E, R>(operation: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
         Effect.acquireUseRelease(
-          commandLane
+          semaphore
             .withPermit(operation)
             .pipe(Effect.forkIn(ownerScope, { startImmediately: true })),
           Fiber.join,
           Fiber.interrupt,
         );
 
-      const syncPendingCount = Ref.get(pending).pipe(
-        Effect.flatMap((current) =>
-          SubscriptionRef.update(state, (value) => ({
-            ...value,
-            pendingRequests: current.length,
-          })),
-        ),
-      );
-
-      yield* Effect.addFinalizer(() =>
-        Effect.gen(function* () {
-          const outstanding = yield* Ref.getAndSet(pending, []);
-          const current = yield* SubscriptionRef.get(state);
-          const closing: ConversationRuntimeState = {
-            kind: "closing",
-            sequence: current.sequence,
-            pendingRequests: 0,
-          };
-          yield* SubscriptionRef.set(state, closing);
-          yield* Effect.forEach(
-            outstanding,
-            ({ response }) =>
-              Deferred.fail(response, new CodexAppServerInputStreamEndedError()).pipe(
-                Effect.asVoid,
-              ),
-            { discard: true },
-          );
-          yield* PubSub.shutdown(events);
-          aggregate.releaseGeneration(threadId, aggregateGeneration);
-        }),
-      );
-
-      const publish = Effect.fn("ConversationRuntime.publish")((event: ConversationRuntimeEvent) =>
-        SubscriptionRef.modify(state, (current) => {
-          const sequence = current.sequence + 1;
-          return [
-            sequence,
-            {
-              ...current,
-              sequence,
-            },
-          ];
-        }).pipe(
-          Effect.flatMap((sequence) =>
-            Effect.gen(function* () {
-              const envelope = { threadId, sequence, event } as const;
-              yield* PubSub.publish(events, envelope);
-              if (event.kind === "server-request") {
-                yield* Queue.offer(ingress, { threadId, sequence, event });
-              }
-            }),
-          ),
-          publishLock.withPermits(1),
-        ),
-      );
-
-      const complete = Effect.fn("ConversationRuntime.complete")(
-        (
-          matches: (pending: PendingRequest) => boolean,
-          finish: (pending: PendingRequest) => Effect.Effect<boolean>,
-        ) =>
-          Ref.modify(pending, (current) => {
-            const index = current.findIndex(matches);
-            const entry = current[index];
-            if (entry === undefined) return [undefined, current] as const;
-            const next = [...current.slice(0, index), ...current.slice(index + 1)];
-            return [entry, next] as const;
-          }).pipe(
-            Effect.flatMap((entry) =>
-              entry === undefined
-                ? Effect.succeed(false)
-                : finish(entry).pipe(Effect.tap(() => syncPendingCount)),
-            ),
-          ),
-      );
-
-      return ConversationRuntime.of({
-        threadId,
-        state,
-        events: Stream.fromPubSub(events),
-        publish,
-        request: (request) =>
-          Effect.gen(function* () {
-            const response = yield* Deferred.make<unknown, CodexAppServerError>();
-            const token = yield* Ref.getAndUpdate(nextRequestToken, (current) => current + 1);
-            const entry: PendingRequest = {
-              generation: request.generation,
-              requestId: request.requestId,
-              token,
-              response,
-            };
-            yield* Ref.update(pending, (current) => [...current, entry]);
-            yield* syncPendingCount;
-            yield* publish({ kind: "server-request", value: { ...request, token } });
-            return yield* Deferred.await(response).pipe(
-              Effect.ensuring(
-                Ref.update(pending, (current) =>
-                  current.filter((candidate) => candidate !== entry),
-                ).pipe(Effect.andThen(syncPendingCount)),
-              ),
-            );
-          }),
-        respond: (generation, id, response) =>
-          complete(
-            (pending) => pending.generation === generation && pending.requestId === id,
-            ({ response: deferred }) => Deferred.succeed(deferred, response),
-          ),
-        reject: (generation, id, error) =>
-          complete(
-            (pending) => pending.generation === generation && pending.requestId === id,
-            ({ response }) => Deferred.fail(response, error),
-          ),
-        respondToken: (token, response) =>
-          complete(
-            (pending) => pending.token === token,
-            ({ response: deferred }) => Deferred.succeed(deferred, response),
-          ),
-        rejectToken: (token, error) =>
-          complete(
-            (pending) => pending.token === token,
-            ({ response }) => Deferred.fail(response, error),
-          ),
-        runExclusive,
-      });
+      return ConversationCausalLane.of({ runExclusive });
     }),
   );
 
-/** A thread runtime is process-cached and only released by close/invalidation or root Scope close. */
+/**
+ * Profile-scoped owner of canonical Thread generations and their single causal command lanes.
+ * A lane is cached until explicit Thread close or Main Scope close; no consumer can observe its
+ * semaphore, Scope, or lifecycle bookkeeping.
+ */
 export const live: Layer.Layer<ConversationRuntimeMap> = Layer.effect(
   ConversationRuntimeMap,
   Effect.gen(function* () {
-    const aggregate = makeCodexConversationAggregateRegistry();
-    const ingress = yield* Queue.unbounded<ConversationServerRequestEnvelope>();
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => aggregate.releaseAll()).pipe(Effect.andThen(Queue.shutdown(ingress))),
+    const aggregates = makeCodexConversationAggregateRegistry();
+    yield* Effect.addFinalizer(() => Effect.sync(aggregates.releaseAll));
+    const lanes = yield* LayerMap.make(
+      (threadId: string) => causalLaneLayer(threadId, aggregates),
+      { idleTimeToLive: Duration.infinity },
     );
-    const runtimes = yield* LayerMap.make(
-      (threadId: string) => runtimeLayer(threadId, ingress, aggregate),
-      {
-        idleTimeToLive: Duration.infinity,
-      },
-    );
+
+    // Release the RcMap borrow before running the command. The cached lane owns the command fiber,
+    // so explicit invalidation can close that owner Scope instead of waiting on its own borrower.
+    const lane = (threadId: string): Effect.Effect<ConversationCausalLane["Service"]> =>
+      Effect.scoped(
+        lanes
+          .contextEffect(threadId)
+          .pipe(Effect.map((context) => Context.get(context, ConversationCausalLane))),
+      );
+
     return ConversationRuntimeMap.of({
-      conversation: aggregate.acquire,
-      currentConversation: aggregate.current,
-      requests: Stream.fromQueue(ingress),
-      runtime: (threadId) =>
-        Effect.scoped(runtimes.contextEffect(threadId)).pipe(
-          Effect.map((context) => Context.get(context, ConversationRuntime)),
-        ),
+      conversation: aggregates.acquire,
+      currentConversation: aggregates.current,
       runExclusive: (threadId, operation) =>
-        Effect.scoped(
-          runtimes
-            .contextEffect(threadId)
-            .pipe(
-              Effect.flatMap((context) =>
-                Context.get(context, ConversationRuntime).runExclusive(operation),
-              ),
-            ),
-        ),
+        lane(threadId).pipe(Effect.flatMap((current) => current.runExclusive(operation))),
+      markAllNeedsResume: aggregates.markAllNeedsResume,
       close: (threadId) => {
-        const generation = aggregate.current(threadId)?.generation;
-        return runtimes
+        const generation = aggregates.current(threadId)?.generation;
+        return lanes
           .invalidate(threadId)
           .pipe(
             Effect.ensuring(
               generation === undefined
                 ? Effect.void
-                : Effect.sync(() => aggregate.releaseGeneration(threadId, generation)),
+                : Effect.sync(() => aggregates.releaseGeneration(threadId, generation)),
             ),
           );
       },

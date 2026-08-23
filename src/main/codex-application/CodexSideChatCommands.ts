@@ -425,9 +425,7 @@ export const make: Effect.Effect<
               ),
             );
             return unsubscribe.pipe(
-              Effect.onExit(() =>
-                routing.remove(threadId).pipe(Effect.andThen(conversations.close(threadId))),
-              ),
+              Effect.onExit(() => routing.remove(threadId)),
               Effect.as(true),
             );
           }),

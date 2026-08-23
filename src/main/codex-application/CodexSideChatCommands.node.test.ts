@@ -233,12 +233,13 @@ it.effect("discards local ownership even when the remote unsubscribe fails", () 
     });
     harness.markExisting();
     yield* harness.routing.register(sideThreadId, remoteHostId);
-    const before = yield* harness.conversations.runtime(sideThreadId);
+    const beforeGeneration = harness.conversations.currentConversation(sideThreadId)?.generation;
 
     assert.isTrue(yield* harness.commands.discard(sideThreadId));
 
-    const after = yield* harness.conversations.runtime(sideThreadId);
-    assert.notStrictEqual(after, before);
+    assert.isNull(harness.conversations.currentConversation(sideThreadId));
+    const afterGeneration = harness.conversations.conversation(sideThreadId).generation;
+    assert.notStrictEqual(afterGeneration, beforeGeneration);
     assert.isNull(yield* harness.routing.resolve(sideThreadId));
     assert.deepEqual(harness.events, [
       `request:${remoteHostId}:thread/unsubscribe:${sideThreadId}`,
@@ -254,12 +255,13 @@ it.effect("discards local ownership when the parent host is unavailable", () =>
       hostResolution: Effect.fail(requestFailure("resolve-host")),
     });
     harness.markExisting();
-    const before = yield* harness.conversations.runtime(sideThreadId);
+    const beforeGeneration = harness.conversations.currentConversation(sideThreadId)?.generation;
 
     assert.isTrue(yield* harness.commands.discard(sideThreadId));
 
-    const after = yield* harness.conversations.runtime(sideThreadId);
-    assert.notStrictEqual(after, before);
+    assert.isNull(harness.conversations.currentConversation(sideThreadId));
+    const afterGeneration = harness.conversations.conversation(sideThreadId).generation;
+    assert.notStrictEqual(afterGeneration, beforeGeneration);
     assert.deepEqual(harness.events, [`resolve:${parentThreadId}`]);
     yield* Scope.close(scope, Exit.void);
   }),

@@ -1,42 +1,25 @@
+import { assert, it } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
-import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
-import * as Stream from "effect/Stream";
-import * as SubscriptionRef from "effect/SubscriptionRef";
-import { assert, it } from "@effect/vitest";
-import type {
-  CodexCanonicalConversationState,
-  CodexConversationSnapshot,
-} from "../../shared/types";
-import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationRequestInbox";
-import {
-  ApprovalCoordinator,
-  CodexApplicationRequestPending,
-  CodexGlobalServerRequestRuntime,
-  applicationRequestDispatcherLive,
-  live as approvalLive,
-  unhandledGlobal,
-} from "./ApprovalCoordinator";
-import { requestHandlingLive } from "./CodexApplicationLayers";
 import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
 
-const applicationLayer: Layer.Layer<ApprovalCoordinator | ConversationRuntimeMap> =
-  approvalLive.pipe(Layer.provideMerge(Layer.merge(conversationRuntimeMapLive, unhandledGlobal)));
+const build = Effect.fn("ConversationRuntimeMapTest.build")(function* (scope: Scope.Scope) {
+  const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+  return Context.get(context, ConversationRuntimeMap);
+});
 
-it.effect("serializes application commands across owners in one Thread generation", () =>
+it.effect("serializes commands admitted to the same Thread generation", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(context, ConversationRuntimeMap);
+    const conversations = yield* build(scope);
     const firstStarted = yield* Deferred.make<void>();
     const releaseFirst = yield* Deferred.make<void>();
     const order: string[] = [];
@@ -68,466 +51,125 @@ it.effect("serializes application commands across owners in one Thread generatio
   }),
 );
 
-it.effect("keeps canonical state and the accepted renderer replica in one generation", () =>
+it.effect("keeps different Thread generations causally independent", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(context, ConversationRuntimeMap);
-    yield* conversations.runtime("thread-a");
-    const canonical = { requests: [] } as unknown as CodexCanonicalConversationState;
-    const conversation = {
-      threadId: "thread-a",
-      queuedFollowUps: [],
-      requests: [],
-    } as unknown as CodexConversationSnapshot;
+    const conversations = yield* build(scope);
+    const firstStarted = yield* Deferred.make<void>();
+    const releaseFirst = yield* Deferred.make<void>();
+    const secondStarted = yield* Deferred.make<void>();
+    const first = yield* conversations
+      .runExclusive(
+        "thread-a",
+        Deferred.succeed(firstStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseFirst)),
+        ),
+      )
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(firstStarted);
+    const second = yield* conversations
+      .runExclusive("thread-b", Deferred.succeed(secondStarted, undefined))
+      .pipe(Effect.forkChild);
 
-    const aggregate = conversations.conversation("thread-a");
-    aggregate.acceptCanonicalState(canonical);
-    const generation = aggregate.generation;
-    aggregate.acceptReplica({
-      conversation,
-      revision: 4,
-      ownerEpoch: 2,
-    });
-
-    const accepted = aggregate.read();
-    assert.strictEqual(accepted?.generation, generation);
-    assert.strictEqual(accepted?.canonicalState, canonical);
-    assert.strictEqual(accepted?.acceptedReplica?.conversation, conversation);
-    assert.strictEqual(accepted?.revision, 4);
-    assert.strictEqual(accepted?.checkpoint?.ownerEpoch, 2);
+    yield* Deferred.await(secondStarted);
+    yield* Deferred.succeed(releaseFirst, undefined);
+    yield* Fiber.join(first);
+    yield* Fiber.join(second);
     yield* Scope.close(scope, Exit.void);
   }),
 );
 
-it.effect("owns read, resume, streaming, and cursor-fenced history sidecars", () =>
+it.effect("marks every loaded generation non-live after connection loss", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(context, ConversationRuntimeMap);
-    const aggregate = conversations.conversation("thread-a");
-    aggregate.installSnapshot({
-      threadId: "thread-a",
-      hasUnreadTurn: false,
-      queuedFollowUps: [],
-      resumeState: "resumed",
-      turns: [],
-    } as unknown as CodexConversationSnapshot);
-    aggregate.seedHasUnreadTurn(true);
-    aggregate.setResumeState("needs_resume");
-    aggregate.setStreaming(true);
-    aggregate.initializeHistory(
-      {
-        olderCursor: "cursor-1",
-        backwardsCursor: null,
-        oldestLoadedTurnId: "turn-2",
-        isLoadingOlder: false,
-        hasLoadedOldest: false,
-        loadedTurnCount: 1,
-        itemsView: "full",
-      },
-      1,
-    );
+    const conversations = yield* build(scope);
+    const first = conversations.conversation("thread-a");
+    const second = conversations.conversation("thread-b");
+    first.setResumeState("resumed");
+    first.setStreamRole("owner");
+    first.setStreaming(true);
+    second.setResumeState("resuming");
+    second.setStreamRole("follower");
+    second.setStreaming(true);
 
-    const fence = aggregate.beginHistoryLoad(1);
-    assert.isNotNull(fence);
-    if (!fence) return;
-    assert.isTrue(aggregate.isHistoryLoadCurrent(fence));
-    assert.isFalse(
-      aggregate.commitHistoryLoad(
-        { ...fence, generation: fence.generation - 1 },
-        aggregate.readTurnPagination(),
-        2,
-      ),
-    );
-    assert.isTrue(
-      aggregate.commitHistoryLoad(
-        fence,
-        {
-          olderCursor: null,
-          backwardsCursor: "cursor-1",
-          oldestLoadedTurnId: "turn-1",
-          isLoadingOlder: false,
-          hasLoadedOldest: true,
-          loadedTurnCount: 2,
-          itemsView: "full",
-        },
-        2,
-      ),
-    );
+    conversations.markAllNeedsResume();
 
-    assert.isTrue(aggregate.readHasUnreadTurn());
-    assert.strictEqual(aggregate.readResumeState(), "needs_resume");
-    assert.isTrue(aggregate.isStreaming());
-    assert.isTrue(aggregate.readTurnPagination().hasLoadedOldest);
-    assert.strictEqual(aggregate.readTurnPagination().loadedTurnCount, 2);
-    assert.isTrue(aggregate.readSnapshot()?.hasUnreadTurn);
-    assert.strictEqual(aggregate.readSnapshot()?.resumeState, "needs_resume");
-    assert.isTrue(aggregate.readSnapshot()?.turnPagination?.hasLoadedOldest);
+    for (const aggregate of [first, second]) {
+      assert.strictEqual(aggregate.readResumeState(), "needs_resume");
+      assert.isNull(aggregate.readStreamRole());
+      assert.isFalse(aggregate.isStreaming());
+    }
     yield* Scope.close(scope, Exit.void);
   }),
 );
 
-it.effect("owns coalesced delta buffers inside the Thread generation", () =>
+it.effect("close interrupts the live lane and fences it from the next generation", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(context, ConversationRuntimeMap);
+    const conversations = yield* build(scope);
     const aggregate = conversations.conversation("thread-a");
-    aggregate.bufferFrameTextDelta({
-      conversationId: "thread-a",
-      turnId: "turn-a",
-      itemId: "item-a",
-      target: { type: "agentMessage" },
-      delta: "first",
-    });
-    aggregate.bufferFrameTextDelta({
-      conversationId: "thread-a",
-      turnId: "turn-a",
-      itemId: "item-a",
-      target: { type: "agentMessage" },
-      delta: "-second",
-    });
-    aggregate.bufferCommandOutputDelta(
-      {
-        conversationId: "thread-a",
-        turnId: "turn-a",
-        itemId: "command-a",
-        delta: "1234",
-      },
-      5,
-    );
-    aggregate.bufferCommandOutputDelta(
-      {
-        conversationId: "thread-a",
-        turnId: "turn-a",
-        itemId: "command-a",
-        delta: "567",
-      },
-      5,
-    );
-
-    assert.strictEqual(aggregate.takeBufferedFrameTextDeltas()[0]?.delta, "first-second");
-    assert.strictEqual(aggregate.takeBufferedCommandOutputDeltas()[0]?.delta, "34567");
-    assert.isFalse(aggregate.hasBufferedFrameTextDeltas());
-    assert.isFalse(aggregate.hasBufferedCommandOutputDeltas());
-    yield* Scope.close(scope, Exit.void);
-  }),
-);
-
-it.effect("evicts a closed generation without recreating it from reads", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(context, ConversationRuntimeMap);
-    const aggregate = conversations.conversation("thread-a");
-    aggregate.replaceServerRequests([]);
     const firstGeneration = aggregate.generation;
-
-    yield* conversations.close("thread-a");
-    assert.isNull(conversations.currentConversation("thread-a"));
-    aggregate.acceptCanonicalState({ requests: [] } as unknown as CodexCanonicalConversationState);
-    assert.isNull(conversations.currentConversation("thread-a"));
-
-    yield* conversations.runtime("thread-a");
-    const secondGeneration = conversations.currentConversation("thread-a")?.generation;
-    assert.notStrictEqual(secondGeneration, firstGeneration);
-    yield* Scope.close(scope, Exit.void);
-  }),
-);
-
-it.effect("completes a thread-owned server request exactly once", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const generationScope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(
-      requestHandlingLive.pipe(Layer.provide(unhandledGlobal)),
-      scope,
-    );
-    const inbox = Context.get(context, CodexApplicationRequestInbox);
-    const approvals = Context.get(context, ApprovalCoordinator);
-    const conversations = Context.get(context, ConversationRuntimeMap);
-    const generation = yield* inbox
-      .openGeneration("local", 7)
-      .pipe(Effect.provideService(Scope.Scope, generationScope));
-    const runtime = yield* conversations.runtime("thread-a");
-    const eventFiber = yield* Stream.runHead(runtime.events).pipe(
-      Effect.forkIn(scope, { startImmediately: true }),
-    );
-    const settlementFiber = yield* Stream.runHead(generation.settlements).pipe(
-      Effect.forkIn(scope, { startImmediately: true }),
-    );
-
-    const occurrence = yield* generation.admit({
-      requestId: 42,
-      method: "item/tool/requestUserInput",
-      params: {
-        isBlocking: true,
-        itemId: "item-a",
-        questions: [],
-        threadId: "thread-a",
-        turnId: "turn-a",
-      },
-    });
-    const event = yield* Fiber.join(eventFiber);
-    assert.isTrue(Option.isSome(event));
-    if (Option.isSome(event)) {
-      assert.strictEqual(event.value.sequence, 1);
-      assert.strictEqual(event.value.event.kind, "server-request");
-      if (event.value.event.kind === "server-request") {
-        assert.strictEqual(event.value.event.value.requestId, 42);
-      }
-    }
-
-    assert.isTrue(yield* approvals.respond("thread-a", 7, 42, { answers: {} }));
-    const settlement = yield* Fiber.join(settlementFiber);
-    assert.strictEqual(settlement._tag, "Some");
-    if (settlement._tag === "Some") {
-      assert.strictEqual(settlement.value.occurrence, occurrence);
-      assert.deepEqual(settlement.value.outcome, {
-        kind: "result",
-        value: { answers: {} },
-      });
-    }
-    assert.isFalse(yield* approvals.respond("thread-a", 7, 42, { answers: {} }));
-    assert.isFalse(yield* inbox.settle(occurrence, { kind: "result", value: "duplicate" }));
-    yield* Scope.close(generationScope, Exit.void);
-    yield* Scope.close(scope, Exit.void);
-  }),
-);
-
-it.effect("rejects pending requests when a thread runtime is invalidated", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(applicationLayer, scope);
-    const approvals = Context.get(context, ApprovalCoordinator);
-    const conversations = Context.get(context, ConversationRuntimeMap);
-    const runtime = yield* conversations.runtime("thread-a");
-    const request = yield* approvals
-      .handle("local", 1, "request-a", "item/fileChange/requestApproval", {
-        itemId: "item-a",
-        startedAtMs: 0,
-        threadId: "thread-a",
-        turnId: "turn-a",
-      })
-      .pipe(Effect.result, Effect.forkScoped);
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      if ((yield* SubscriptionRef.get(runtime.state)).pendingRequests === 1) break;
-      yield* Effect.yieldNow;
-    }
-    assert.strictEqual((yield* SubscriptionRef.get(runtime.state)).pendingRequests, 1);
-
-    yield* conversations.close("thread-a");
-    assert.strictEqual((yield* SubscriptionRef.get(runtime.state)).kind, "closing");
-    const result = yield* Fiber.join(request);
-    assert.isTrue(Result.isFailure(result));
-    if (Result.isFailure(result)) {
-      assert.strictEqual(result.failure._tag, "CodexAppServerInputStreamEndedError");
-    }
-    yield* Scope.close(scope, Exit.void);
-  }),
-);
-
-it.effect("routes private app-server methods through the same thread runtime", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(applicationLayer, scope);
-    const approvals = Context.get(context, ApprovalCoordinator);
-    const response = yield* approvals
-      .handleUnknown("local", 2, "private-a", "item/tool/requestOptionPicker", {
-        threadId: "thread-private",
-        turnId: "turn-private",
-      })
-      .pipe(Effect.forkScoped);
-    const runtime = yield* Context.get(context, ConversationRuntimeMap).runtime("thread-private");
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      if ((yield* SubscriptionRef.get(runtime.state)).pendingRequests === 1) break;
-      yield* Effect.yieldNow;
-    }
-
-    assert.isTrue(
-      yield* approvals.respond("thread-private", 2, "private-a", { selected: "choice-a" }),
-    );
-    assert.deepEqual(yield* Fiber.join(response), { selected: "choice-a" });
-    yield* Scope.close(scope, Exit.void);
-  }),
-);
-
-it.effect("preserves duplicate JSON-RPC ids and completes them in arrival order", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(applicationLayer, scope);
-    const approvals = Context.get(context, ApprovalCoordinator);
-    const conversations = Context.get(context, ConversationRuntimeMap);
-    const runtime = yield* conversations.runtime("thread-a");
-    const invoke = () =>
-      approvals.handle("local", 3, 7, "item/tool/requestUserInput", {
-        isBlocking: true,
-        itemId: "item-a",
-        questions: [],
-        threadId: "thread-a",
-        turnId: "turn-a",
-      });
-    const first = yield* invoke().pipe(Effect.forkScoped);
-    const second = yield* invoke().pipe(Effect.forkScoped);
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      if ((yield* SubscriptionRef.get(runtime.state)).pendingRequests === 2) break;
-      yield* Effect.yieldNow;
-    }
-    assert.strictEqual((yield* SubscriptionRef.get(runtime.state)).pendingRequests, 2);
-
-    assert.isTrue(yield* approvals.respond("thread-a", 3, 7, { order: "first" }));
-    assert.isTrue(yield* approvals.respond("thread-a", 3, 7, { order: "second" }));
-    assert.isFalse(yield* approvals.respond("thread-a", 3, 7, { order: "third" }));
-    assert.deepEqual(yield* Fiber.join(first), { order: "first" });
-    assert.deepEqual(yield* Fiber.join(second), { order: "second" });
-    yield* Scope.close(scope, Exit.void);
-  }),
-);
-
-it.effect("keeps each thread on an independent ordered event worker", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(context, ConversationRuntimeMap);
-    const first = yield* conversations.runtime("thread-a");
-    const second = yield* conversations.runtime("thread-b");
-    yield* first.events.pipe(
-      Stream.runForEach(() => Effect.never),
-      Effect.forkScoped,
-    );
-    const secondEvent = yield* Stream.runHead(second.events).pipe(Effect.forkScoped);
+    const started = yield* Deferred.make<void>();
+    const interrupted = yield* Deferred.make<void>();
+    let queuedEntered = false;
+    const active = yield* conversations
+      .runExclusive(
+        "thread-a",
+        Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
+        ),
+      )
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(started);
+    const queued = yield* conversations
+      .runExclusive(
+        "thread-a",
+        Effect.sync(() => {
+          queuedEntered = true;
+        }),
+      )
+      .pipe(Effect.forkChild);
     yield* Effect.yieldNow;
 
-    yield* first.publish({ kind: "notification", method: "first", params: null });
-    yield* second.publish({ kind: "notification", method: "second", params: null });
-    const observed = yield* Fiber.join(secondEvent);
-    assert.isTrue(Option.isSome(observed));
-    if (Option.isSome(observed)) assert.strictEqual(observed.value.threadId, "thread-b");
+    yield* conversations.close("thread-a");
+    yield* Deferred.await(interrupted);
+    assert.strictEqual((yield* Fiber.await(active))._tag, "Failure");
+    assert.strictEqual((yield* Fiber.await(queued))._tag, "Failure");
+    assert.isFalse(queuedEntered);
+    assert.isNull(conversations.currentConversation("thread-a"));
+
+    yield* conversations.runExclusive("thread-a", Effect.void);
+    const secondGeneration = conversations.currentConversation("thread-a")?.generation;
+    assert.isDefined(secondGeneration);
+    assert.notStrictEqual(secondGeneration, firstGeneration);
+
+    aggregate.reset();
+    assert.strictEqual(conversations.currentConversation("thread-a")?.generation, secondGeneration);
     yield* Scope.close(scope, Exit.void);
   }),
 );
 
-it.effect("buffers application ingress and dispatches waiting threads concurrently", () =>
+it.effect("Main Scope close interrupts every lane and releases aggregate generations", () =>
   Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const runtimeContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(runtimeContext, ConversationRuntimeMap);
-    const application = CodexGlobalServerRequestRuntime.of({
-      handle: (_hostId, _generation, requestId) =>
-        requestId === "blocked" ? Effect.never : Effect.succeed({ answers: {} }),
-    });
-    const approvalsContext = yield* Layer.buildWithScope(
-      approvalLive.pipe(
-        Layer.provide(
-          Layer.merge(
-            Layer.succeed(ConversationRuntimeMap, conversations),
-            Layer.succeed(CodexGlobalServerRequestRuntime, application),
-          ),
+    const ownerScope = yield* Scope.make();
+    const conversations = yield* build(ownerScope);
+    const started = yield* Deferred.make<void>();
+    const interrupted = yield* Deferred.make<void>();
+    const active = yield* conversations
+      .runExclusive(
+        "thread-a",
+        Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
         ),
-      ),
-      scope,
-    );
-    const approvals = Context.get(approvalsContext, ApprovalCoordinator);
-    const invoke = (threadId: string, requestId: string) =>
-      approvals.handle("local", 1, requestId, "item/tool/requestUserInput", {
-        isBlocking: true,
-        itemId: `item-${threadId}`,
-        questions: [],
-        threadId,
-        turnId: `turn-${threadId}`,
-      });
-    const blocked = yield* invoke("thread-a", "blocked").pipe(Effect.forkScoped);
-    const ready = yield* invoke("thread-b", "ready").pipe(Effect.forkScoped);
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const first = yield* conversations.runtime("thread-a");
-      const second = yield* conversations.runtime("thread-b");
-      if (
-        (yield* SubscriptionRef.get(first.state)).pendingRequests === 1 &&
-        (yield* SubscriptionRef.get(second.state)).pendingRequests === 1
-      ) {
-        break;
-      }
-      yield* Effect.yieldNow;
-    }
+      )
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(started);
 
-    yield* Layer.buildWithScope(
-      applicationRequestDispatcherLive.pipe(
-        Layer.provide(
-          Layer.merge(
-            Layer.succeed(ConversationRuntimeMap, conversations),
-            Layer.succeed(CodexGlobalServerRequestRuntime, application),
-          ),
-        ),
-      ),
-      scope,
-    );
-    assert.deepEqual(yield* Fiber.join(ready), { answers: {} });
-    yield* Scope.close(scope, Exit.void);
-    yield* Fiber.await(blocked);
-  }),
-);
-
-it.effect("leaves pending application requests open and resolves exact occurrences", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const runtimeContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(runtimeContext, ConversationRuntimeMap);
-    const tokens: number[] = [];
-    const application = CodexGlobalServerRequestRuntime.of({
-      handle: (_hostId, _generation, _requestId, _method, _params, occurrenceToken) =>
-        Effect.sync(() => {
-          if (occurrenceToken === undefined) throw new Error("Missing occurrence token");
-          tokens.push(occurrenceToken);
-          return CodexApplicationRequestPending;
-        }),
-    });
-    const approvalsContext = yield* Layer.buildWithScope(
-      approvalLive.pipe(
-        Layer.provide(
-          Layer.merge(
-            Layer.succeed(ConversationRuntimeMap, conversations),
-            Layer.succeed(CodexGlobalServerRequestRuntime, application),
-          ),
-        ),
-      ),
-      scope,
-    );
-    const approvals = Context.get(approvalsContext, ApprovalCoordinator);
-    yield* Layer.buildWithScope(
-      applicationRequestDispatcherLive.pipe(
-        Layer.provide(
-          Layer.merge(
-            Layer.succeed(ConversationRuntimeMap, conversations),
-            Layer.succeed(CodexGlobalServerRequestRuntime, application),
-          ),
-        ),
-      ),
-      scope,
-    );
-    const invoke = () =>
-      approvals.handle("local", 8, 19, "item/tool/requestUserInput", {
-        isBlocking: true,
-        itemId: "item-a",
-        questions: [],
-        threadId: "thread-a",
-        turnId: "turn-a",
-      });
-    const first = yield* invoke().pipe(Effect.forkScoped);
-    for (let attempt = 0; attempt < 100 && tokens.length < 1; attempt += 1) {
-      yield* Effect.yieldNow;
-    }
-    assert.strictEqual(tokens.length, 1);
-    const second = yield* invoke().pipe(Effect.forkScoped);
-    for (let attempt = 0; attempt < 100 && tokens.length < 2; attempt += 1) {
-      yield* Effect.yieldNow;
-    }
-    assert.strictEqual(tokens.length, 2);
-
-    assert.isTrue(yield* approvals.respondToken("thread-a", tokens[1]!, { order: "second" }));
-    assert.isTrue(yield* approvals.respondToken("thread-a", tokens[0]!, { order: "first" }));
-    assert.deepEqual(yield* Fiber.join(first), { order: "first" });
-    assert.deepEqual(yield* Fiber.join(second), { order: "second" });
-    yield* Scope.close(scope, Exit.void);
+    yield* Scope.close(ownerScope, Exit.void);
+    yield* Deferred.await(interrupted);
+    assert.strictEqual((yield* Fiber.await(active))._tag, "Failure");
+    assert.isNull(conversations.currentConversation("thread-a"));
   }),
 );

@@ -375,6 +375,8 @@ export interface CodexConversationAggregateRegistry {
   readonly releaseGeneration: (threadId: string, generation: number) => void;
   /** Releases every generation at the process Scope boundary. */
   readonly releaseAll: () => void;
+  /** Marks every loaded generation non-live after the app-server connection is lost. */
+  readonly markAllNeedsResume: () => void;
 }
 
 const initialAggregate = (generation: number): MutableCodexConversationAggregate => ({
@@ -1493,6 +1495,13 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
     releaseAll: () => {
       aggregates.clear();
       capabilities.clear();
+    },
+    markAllNeedsResume: () => {
+      for (const conversation of capabilities.values()) {
+        conversation.setResumeState("needs_resume");
+        conversation.setStreamRole(null);
+        conversation.setStreaming(false);
+      }
     },
   };
 }
