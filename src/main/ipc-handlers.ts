@@ -500,9 +500,21 @@ export const codexIpcLive = (
           Effect.mapError((cause) => new CodexIpcError({ operation: "worktrees:list", cause })),
         ),
       );
-      registerHandle("worktrees:settings:get", () => codexService.getManagedWorktreeSettings());
-      registerHandle("worktrees:settings:update", (_, input) =>
-        codexService.updateManagedWorktreeSettings(input),
+      registerEffectHandle("worktrees:settings:get", () =>
+        options.managedWorktreeCatalog.settings.pipe(
+          Effect.mapError(
+            (cause) => new CodexIpcError({ operation: "worktrees:settings:get", cause }),
+          ),
+        ),
+      );
+      registerEffectHandle("worktrees:settings:update", (_, input) =>
+        options.managedWorktreeCatalog
+          .updateSettings(input)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "worktrees:settings:update", cause }),
+            ),
+          ),
       );
       registerEffectHandle("worktrees:thread:availability", (_, threadId: string) =>
         options.managedWorktreeCatalog
@@ -523,8 +535,12 @@ export const codexIpcLive = (
           ),
       );
 
-      registerHandle("worktrees:delete", (_, hostId: string, worktreePath: string) =>
-        codexService.deleteManagedWorktree(hostId, worktreePath),
+      registerEffectHandle("worktrees:delete", (_, hostId: string, worktreePath: string) =>
+        options.managedWorktreeCatalog
+          .delete(hostId, worktreePath)
+          .pipe(
+            Effect.mapError((cause) => new CodexIpcError({ operation: "worktrees:delete", cause })),
+          ),
       );
 
       registerHandle("codex:thread:snapshot:request", (_, threadId: string) =>

@@ -7,25 +7,43 @@ import type {
   ManagedWorktreeAvailability,
   ManagedWorktreeRecord,
   ManagedWorktreeRestoreResult,
+  ManagedWorktreeSettings,
+  UpdateManagedWorktreeSettingsInput,
 } from "../../shared/types";
 import { CODEX_APP_LOCAL_HOST_ID } from "../codex/codex-app-meta-thread-tools";
 import {
   normalizeWorktreePathForIdentity,
   resolveWorktreePathComparisonKey,
 } from "../codex/codex-managed-worktree-effects";
-import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
+import type {
+  DesktopProjectWorkspacePort,
+  DesktopProjectWorkspaceThread,
+} from "../core-client/project-workspace-adapter";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { buildWorkspaceThreadSummary } from "./CodexThreadCatalogProjection";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 import { ManagedWorktreeRuntime } from "./ManagedWorktreeRuntime";
+import { ManagedWorktreeRetentionRuntime } from "./ManagedWorktreeRetentionRuntime";
 
 export class ManagedWorktreeCatalogError extends Data.TaggedError("ManagedWorktreeCatalogError")<{
-  readonly operation: "list" | "inspect-thread" | "restore-thread";
+  readonly operation:
+    | "delete"
+    | "list"
+    | "read-settings"
+    | "inspect-thread"
+    | "restore-thread"
+    | "update-settings";
   readonly cause: unknown;
 }> {}
 
 export interface ManagedWorktreeCatalogOptions {
   readonly projectWorkspace: DesktopProjectWorkspacePort;
+  readonly settings: {
+    readonly read: () => ManagedWorktreeSettings;
+    readonly update: (input: UpdateManagedWorktreeSettingsInput) => ManagedWorktreeSettings;
+  };
+  readonly defaultManagedRoot: string;
+  readonly projectThread: (thread: DesktopProjectWorkspaceThread) => void;
 }
 
 export class ManagedWorktreeCatalog extends Context.Service<
@@ -38,6 +56,14 @@ export class ManagedWorktreeCatalog extends Context.Service<
     readonly restoreThread: (
       threadId: string,
     ) => Effect.Effect<ManagedWorktreeRestoreResult, ManagedWorktreeCatalogError>;
+    readonly settings: Effect.Effect<ManagedWorktreeSettings, ManagedWorktreeCatalogError>;
+    readonly updateSettings: (
+      input: UpdateManagedWorktreeSettingsInput,
+    ) => Effect.Effect<ManagedWorktreeSettings, ManagedWorktreeCatalogError>;
+    readonly delete: (
+      hostId: string,
+      worktreePath: string,
+    ) => Effect.Effect<boolean, ManagedWorktreeCatalogError>;
   }
 >()("nodex/main/codex-application/ManagedWorktreeCatalog") {}
 
@@ -61,12 +87,17 @@ export const make = (
 ): Effect.Effect<
   ManagedWorktreeCatalog["Service"],
   never,
-  CodexApplicationEventHub | ExecutionHostRuntime | ManagedWorktreeRuntime | Scope.Scope
+  | CodexApplicationEventHub
+  | ExecutionHostRuntime
+  | ManagedWorktreeRetentionRuntime
+  | ManagedWorktreeRuntime
+  | Scope.Scope
 > =>
   Effect.gen(function* () {
     const events = yield* CodexApplicationEventHub;
     const executionHosts = yield* ExecutionHostRuntime;
     const managed = yield* ManagedWorktreeRuntime;
+    const retention = yield* ManagedWorktreeRetentionRuntime;
     const ownerScope = yield* Scope.Scope;
 
     const fail = (
@@ -84,6 +115,11 @@ export const make = (
       run: () => Promise<A>,
     ): Effect.Effect<A, ManagedWorktreeCatalogError> =>
       Effect.tryPromise({ try: run, catch: (cause) => fail(operation, cause) });
+    const fromSync = <A>(
+      operation: ManagedWorktreeCatalogError["operation"],
+      run: () => A,
+    ): Effect.Effect<A, ManagedWorktreeCatalogError> =>
+      Effect.try({ try: run, catch: (cause) => fail(operation, cause) });
 
     const resolveThreadContext = (
       threadId: string,
@@ -233,6 +269,25 @@ export const make = (
 
     return ManagedWorktreeCatalog.of({
       list,
+      settings: fromSync("read-settings", options.settings.read),
+      updateSettings: (input) =>
+        runOwned(
+          Effect.uninterruptible(
+            Effect.gen(function* () {
+              const settings = yield* fromSync("update-settings", () =>
+                options.settings.update(input),
+              );
+              yield* fromSync("update-settings", () =>
+                executionHosts.registry.updateManagedRoot(
+                  CODEX_APP_LOCAL_HOST_ID,
+                  settings.worktreeRoot ?? options.defaultManagedRoot,
+                ),
+              );
+              yield* retention.request;
+              return settings;
+            }),
+          ),
+        ),
       inspectThread: (threadId) => {
         const normalizedThreadId = threadId.trim();
         if (!normalizedThreadId) {
@@ -294,6 +349,34 @@ export const make = (
               availability: { state: "available" as const },
               ownerWarning: result.ownerWarning,
             };
+          }),
+        ),
+      delete: (hostId, worktreePath) =>
+        runOwned(
+          Effect.gen(function* () {
+            const lifecycle = yield* project("delete", () =>
+              options.projectWorkspace.readManagedWorktreeLifecycleSnapshot(),
+            );
+            const normalizedPath = normalizeWorktreePathForIdentity(worktreePath);
+            const consumers = lifecycle.consumers.filter(
+              (consumer) =>
+                consumer.executionHostId === hostId &&
+                normalizeWorktreePathForIdentity(consumer.managedWorktreePath) === normalizedPath,
+            );
+            for (const consumer of consumers) {
+              const sidebar = yield* project("delete", () =>
+                options.projectWorkspace.setThreadArchived(consumer.threadId, true),
+              );
+              for (const thread of sidebar.threads) options.projectThread(thread);
+            }
+            const result = yield* managed
+              .remove({
+                hostId,
+                worktreeGitRoot: worktreePath,
+                reason: "settings-delete",
+              })
+              .pipe(Effect.mapError((cause) => fail("delete", cause)));
+            return result.removed || result.alreadyMissing;
           }),
         ),
     });

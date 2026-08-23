@@ -166,14 +166,12 @@ import type {
   CodexPromptAgentConfigInput,
   CodexPromptInput,
   CodexPromptTextAttachmentInput,
-  ManagedWorktreeSettings,
   Project,
   ProjectArchiveBlocker,
   ProjectSession,
   ProjectSessionSummary,
   ProjectSessionForkInput,
   ProjectSessionForkResult,
-  UpdateManagedWorktreeSettingsInput,
   WorktreeStartMode,
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
@@ -194,7 +192,6 @@ import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import type { ManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
-import type { ManagedWorktreeRetentionRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRetentionRuntimePromiseAdapter";
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import type { CodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import type { CodexExternalAgentImportRuntimePromiseAdapter } from "../codex-application/CodexExternalAgentImportRuntimePromiseAdapter";
@@ -435,9 +432,7 @@ import {
   getCodexDeveloperInstructionSettings,
   getCodexGitSettings,
   getKnownManagedWorktreeRoots,
-  getManagedWorktreeSettings,
   getNodexHome,
-  updateManagedWorktreeSettings,
 } from "../local-store/config";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
@@ -595,15 +590,8 @@ import {
 } from "./codex-thread-handoff-journal";
 import {
   normalizeWorktreePathForIdentity,
-  resolveManagedWorktreeId,
   resolveWorktreePathComparisonKey,
 } from "./codex-managed-worktree-effects";
-import {
-  executeManagedWorktreeRetentionPlan,
-  planManagedWorktreeRetention,
-  type CodexManagedWorktreeRetentionPlan,
-  type CodexManagedWorktreeRetentionPathProtection,
-} from "./codex-managed-worktree-retention";
 import {
   createCodexProjectlessWorkspace,
   parseCodexProjectlessWorkspace,
@@ -1120,8 +1108,6 @@ type CodexBrowserTransferStateReader = Pick<
 >;
 
 type CodexManagedWorktreeSettingsPort = {
-  readonly read: () => ManagedWorktreeSettings;
-  readonly update: (input: UpdateManagedWorktreeSettingsInput) => ManagedWorktreeSettings;
   readonly listKnownRoots: () => string[];
 };
 
@@ -1191,7 +1177,7 @@ type CodexServiceOptions = {
   loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   executionHosts: CodexExecutionHostRegistry;
   managedWorktrees: ManagedWorktreeRuntimePromiseAdapter;
-  managedWorktreeRetention: ManagedWorktreeRetentionRuntimePromiseAdapter;
+  requestManagedWorktreeRetention: () => void;
   projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   browserTransferStateReader?: CodexBrowserTransferStateReader;
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferRuntimePromiseAdapter;
@@ -2266,7 +2252,7 @@ export class CodexService {
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
   private readonly executionHosts: CodexExecutionHostRegistry;
   private readonly managedWorktreeLifecycle: ManagedWorktreeRuntimePromiseAdapter;
-  private readonly managedWorktreeRetention: ManagedWorktreeRetentionRuntimePromiseAdapter;
+  private readonly requestManagedWorktreeRetention: () => void;
   private readonly projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
   private readonly threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
@@ -2418,8 +2404,6 @@ export class CodexService {
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
     this.gitSettingsResolver = options?.gitSettingsResolver ?? getCodexGitSettings;
     this.managedWorktreeSettingsPort = options?.managedWorktreeSettingsPort ?? {
-      read: getManagedWorktreeSettings,
-      update: updateManagedWorktreeSettings,
       listKnownRoots: getKnownManagedWorktreeRoots,
     };
     this.projectAwareDeveloperInstructionsResolver =
@@ -2429,7 +2413,7 @@ export class CodexService {
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
     this.managedWorktreeLifecycle = options.managedWorktrees;
-    this.managedWorktreeRetention = options.managedWorktreeRetention;
+    this.requestManagedWorktreeRetention = options.requestManagedWorktreeRetention;
     this.projectRuntimeLifecycle = options.projectRuntimeLifecycle;
     this.crossHostThreadHandoff = new CodexCrossHostThreadHandoffService({
       executionHosts: this.executionHosts,
@@ -6192,6 +6176,11 @@ export class CodexService {
     return this.workspaceThreadProjectionById.get(threadId) ?? null;
   }
 
+  /** Temporary synchronous projection seam for application Modules committing Core Threads. */
+  projectWorkspaceThreadFromModule(thread: DesktopProjectWorkspaceThread): void {
+    this.rememberWorkspaceThread(thread);
+  }
+
   /** Effect Module adapter operation; materializes the first app-server window. */
   async refreshSidebarThreadsForSync(input: {
     includeArchived: boolean;
@@ -7463,218 +7452,6 @@ export class CodexService {
     return summary;
   }
 
-  getManagedWorktreeSettings(): ManagedWorktreeSettings {
-    return this.managedWorktreeSettingsPort.read();
-  }
-
-  updateManagedWorktreeSettings(
-    input: UpdateManagedWorktreeSettingsInput,
-  ): ManagedWorktreeSettings {
-    const settings = this.managedWorktreeSettingsPort.update(input);
-    this.executionHosts.updateManagedRoot(
-      CODEX_APP_LOCAL_HOST_ID,
-      settings.worktreeRoot ?? path.resolve(getNodexHome(), "worktrees"),
-    );
-    this.requestManagedWorktreeRetentionSweep();
-    return settings;
-  }
-
-  /** Coalesces app-ready and lifecycle mutations into one retention pass. */
-  requestManagedWorktreeRetentionSweep(): void {
-    this.managedWorktreeRetention.request(() => this.runManagedWorktreeRetentionSweepOnce());
-  }
-
-  async runManagedWorktreeRetentionSweep(): Promise<CodexManagedWorktreeRetentionPlan> {
-    return await this.managedWorktreeRetention.run(() =>
-      this.runManagedWorktreeRetentionSweepOnce(),
-    );
-  }
-
-  private async runManagedWorktreeRetentionSweepOnce(): Promise<CodexManagedWorktreeRetentionPlan> {
-    const settings = this.managedWorktreeSettingsPort.read();
-    if (!settings.autoDeleteEnabled) {
-      return planManagedWorktreeRetention({
-        enabled: false,
-        keepCount: settings.autoDeleteLimit,
-        metadataComplete: true,
-        records: [],
-        threadMetadata: [],
-        pathProtections: [],
-        protectPreMigrationOwnerlessWorktrees: true,
-        nowMs: Date.now(),
-      });
-    }
-
-    const hostIds = this.executionHosts.listHostIds("list");
-    let lifecycle: Awaited<
-      ReturnType<DesktopProjectWorkspacePort["readManagedWorktreeLifecycleSnapshot"]>
-    >;
-    let physicalByHost: Array<{
-      readonly hostId: string;
-      readonly inventory: Awaited<ReturnType<ManagedWorktreeRuntimePromiseAdapter["list"]>>;
-    }>;
-    try {
-      [lifecycle, physicalByHost] = await Promise.all([
-        this.projectWorkspace.readManagedWorktreeLifecycleSnapshot(),
-        Promise.all(
-          hostIds.map(async (hostId) => ({
-            hostId,
-            inventory: await this.managedWorktreeLifecycle.list(hostId),
-          })),
-        ),
-      ]);
-    } catch (error) {
-      this.logger.warn("Managed worktree retention skipped because metadata is incomplete", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return planManagedWorktreeRetention({
-        enabled: true,
-        keepCount: settings.autoDeleteLimit,
-        metadataComplete: false,
-        records: [],
-        threadMetadata: [],
-        pathProtections: [],
-        protectPreMigrationOwnerlessWorktrees: true,
-        nowMs: Date.now(),
-      });
-    }
-
-    const physicalEntries = physicalByHost.flatMap(({ hostId, inventory }) =>
-      inventory.entries.map((entry) => ({ hostId, entry })),
-    );
-    const pathProtections: CodexManagedWorktreeRetentionPathProtection[] = [];
-    const localPermanentKeys = new Set(
-      await Promise.all(
-        lifecycle.projects
-          .flatMap((project) => project.sourceRoots)
-          .map(resolveWorktreePathComparisonKey),
-      ),
-    );
-    for (const { hostId, entry } of physicalEntries) {
-      if (
-        hostId === CODEX_APP_LOCAL_HOST_ID &&
-        localPermanentKeys.has(await resolveWorktreePathComparisonKey(entry.worktreeGitRoot))
-      ) {
-        pathProtections.push({
-          hostId,
-          worktreeGitRoot: entry.worktreeGitRoot,
-          reason: "permanent",
-        });
-      }
-    }
-    for (const entry of this.pendingWorktreeRuntime.list()) {
-      if (!entry.worktreeGitRoot) continue;
-      pathProtections.push({
-        hostId: entry.hostId,
-        worktreeGitRoot: entry.worktreeGitRoot,
-        reason: "pending",
-      });
-    }
-    for (const newborn of this.managedWorktreeLifecycle.listNewborns()) {
-      pathProtections.push({ ...newborn, reason: "newborn" });
-    }
-    for (const consumer of lifecycle.consumers) {
-      const reason =
-        consumer.pinnedOrder !== null
-          ? "pinned"
-          : consumer.statusType === "active" || consumer.statusActiveFlags.length > 0
-            ? "in-progress"
-            : this.automationIdByRunThreadId.has(consumer.threadId)
-              ? "automation"
-              : null;
-      if (!reason) continue;
-      pathProtections.push({
-        hostId: consumer.executionHostId,
-        worktreeGitRoot: consumer.managedWorktreePath,
-        reason,
-      });
-    }
-
-    const plan = planManagedWorktreeRetention({
-      enabled: true,
-      keepCount: settings.autoDeleteLimit,
-      metadataComplete: true,
-      records: physicalEntries.map(({ hostId, entry }) => ({
-        hostId,
-        worktreeGitRoot: entry.worktreeGitRoot,
-        createdAtMs: entry.createdAtMs,
-        ownerThreadId: entry.ownerThreadId,
-        ownerReadFailed: entry.ownerReadFailed,
-      })),
-      threadMetadata: lifecycle.consumers.map((consumer) => ({
-        threadId: consumer.threadId,
-        updatedAtMs: consumer.updatedAt,
-        pinned: consumer.pinnedOrder !== null,
-        inProgress: consumer.statusType === "active" || consumer.statusActiveFlags.length > 0,
-        automationProtected: this.automationIdByRunThreadId.has(consumer.threadId),
-      })),
-      pathProtections,
-      protectPreMigrationOwnerlessWorktrees: true,
-      nowMs: Date.now(),
-    });
-    if (plan.status !== "planned") return plan;
-
-    this.logger.info("Managed worktree retention plan", {
-      totalWorktrees: plan.items.length,
-      keepCount: settings.autoDeleteLimit,
-      protectedCount: plan.items.filter((item) => item.protectionReasons.length > 0).length,
-      ownerlessCount: plan.items.filter((item) => item.ownerThreadId === null).length,
-      deletesPlanned: plan.delete.length,
-    });
-    for (const item of plan.delete.slice(0, 20)) {
-      this.logger.info("Managed worktree retention candidate", {
-        worktreeId: resolveManagedWorktreeId(item.worktreeGitRoot),
-        hostId: item.hostId,
-        reason: item.ownerThreadId === null ? "ownerless" : "owned",
-        ownerThreadId: item.ownerThreadId,
-        ownerThreadUpdatedAtMs: item.ownerUpdatedAtMs,
-        createdAtMs: item.createdAtMs,
-        ownerReadFailed: item.ownerReadFailed,
-      });
-    }
-    const results = await executeManagedWorktreeRetentionPlan(
-      plan.delete,
-      async (item) => {
-        await this.managedWorktreeLifecycle.remove({
-          hostId: item.hostId,
-          worktreeGitRoot: item.worktreeGitRoot,
-          reason: "automatic-retention",
-        });
-      },
-      3,
-    );
-    for (const result of results) {
-      if (result.status !== "rejected") continue;
-      this.logger.warn("Managed worktree retention candidate was retained", {
-        worktreeId: resolveManagedWorktreeId(result.item.worktreeGitRoot),
-        hostId: result.item.hostId,
-        error: result.error instanceof Error ? result.error.message : String(result.error),
-      });
-    }
-    return plan;
-  }
-
-  /** Archive all consumers, retain their execution location, then remove once. */
-  async deleteManagedWorktree(hostId: string, worktreePath: string): Promise<boolean> {
-    const lifecycle = await this.projectWorkspace.readManagedWorktreeLifecycleSnapshot();
-    const normalizedPath = normalizeWorktreePathForIdentity(worktreePath);
-    const consumers = lifecycle.consumers.filter(
-      (consumer) =>
-        consumer.executionHostId === hostId &&
-        normalizeWorktreePathForIdentity(consumer.managedWorktreePath) === normalizedPath,
-    );
-    for (const consumer of consumers) {
-      const sidebar = await this.projectWorkspace.setThreadArchived(consumer.threadId, true);
-      this.rememberWorkspaceSidebar(sidebar);
-    }
-    const result = await this.managedWorktreeLifecycle.remove({
-      hostId,
-      worktreeGitRoot: worktreePath,
-      reason: "settings-delete",
-    });
-    return result.removed || result.alreadyMissing;
-  }
-
   async listModels(): Promise<CodexModelOption[]> {
     return await this.composerCatalog.listModels();
   }
@@ -8514,7 +8291,7 @@ export class CodexService {
               CODEX_APP_LOCAL_HOST_ID,
               managedWorktreePath,
             );
-            this.requestManagedWorktreeRetentionSweep();
+            this.requestManagedWorktreeRetention();
           }
         }
         if (executionProfile) {
@@ -9278,7 +9055,7 @@ export class CodexService {
           worktreeGitRoot,
         );
       }
-      this.requestManagedWorktreeRetentionSweep();
+      this.requestManagedWorktreeRetention();
     }
   }
 
@@ -13508,7 +13285,7 @@ export class CodexService {
           threadStartParams.dynamicTools,
         );
         worktreeOwnershipTransferred = true;
-        this.requestManagedWorktreeRetentionSweep();
+        this.requestManagedWorktreeRetention();
         this.setThreadPermissionFields(link.threadId, {
           approvalPolicy: threadStart.approvalPolicy,
           approvalsReviewer: threadStart.approvalsReviewer,
@@ -13969,7 +13746,7 @@ export class CodexService {
         throw new Error("Thread fork completed but could not be attached to a project session");
       }
       worktreeOwnershipTransferred = true;
-      this.requestManagedWorktreeRetentionSweep();
+      this.requestManagedWorktreeRetention();
       const projectedDetail =
         this.buildThreadDetailFromRead(projectedThread, {
           preserveExistingTimeline: true,
@@ -16298,7 +16075,7 @@ export class CodexService {
         });
       });
     }
-    this.requestManagedWorktreeRetentionSweep();
+    this.requestManagedWorktreeRetention();
     await this.readWorkspaceThread(threadId);
     this.applyCommittedConversationUnreadState(threadId, false, {
       broadcast: hadUnreadState,
@@ -19360,7 +19137,7 @@ export class CodexService {
         });
       } finally {
         this.managedWorktreeLifecycle.releaseNewborn(entry.hostId, entry.worktreeGitRoot);
-        this.requestManagedWorktreeRetentionSweep();
+        this.requestManagedWorktreeRetention();
       }
     }
     if (materializedGoal) {

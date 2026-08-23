@@ -974,13 +974,19 @@ physical runtime. It joins host inventories with one Core Workspace lifecycle
 snapshot, excludes permanent Project roots, enriches consumer Threads and
 Sessions, resolves durable Thread execution locations for inspection and
 restoration, and republishes the restored Thread projection. Renderer list,
-availability, and restore IPC call this typed Interface directly; the canonical
+availability, restore, settings, and targeted-delete IPC call this typed
+Interface directly. Settings mutation updates the local execution-host root and
+admits retention as one uninterruptible application commit; targeted deletion
+archives every Core consumer before one physical removal. The canonical
 conversation reducer does not proxy or duplicate those policies.
 `ManagedWorktreeRetentionRuntime` owns retention admission, the fixed coalescing
-window, single-flight execution, and Scope cancellation; policy evaluation still
-combines the physical lifecycle Interface with durable Core metadata and active
-application protections. Core Workspace atomically persists the durable
-host/cwd/worktree execution location but never inspects a repository or stores
+window, single-flight execution, policy evaluation, bounded deletion, Effect
+Clock, and Scope cancellation. Each sweep combines one durable Core lifecycle
+snapshot with every host inventory plus pending, newborn, pinned, active, and
+automation protections; incomplete metadata fails closed. Callers only signal
+or await retention and cannot inject an alternate sweep callback. Core
+Workspace atomically persists the durable host/cwd/worktree execution location
+but never inspects a repository or stores
 snapshot refs. Its lifecycle read publishes all managed-worktree consumers and
 Project protection roots at one projection revision. Settings, archive,
 automation, and handoff call the same lifecycle Interface rather than invoking

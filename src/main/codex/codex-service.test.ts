@@ -336,12 +336,10 @@ interface TestableCodexService {
       };
     },
   ) => Promise<void>;
-  deleteManagedWorktree: (hostId: string, worktreePath: string) => Promise<boolean>;
   reconcileArchivedThreadManagedWorktree: (
     thread: DesktopProjectWorkspaceThread,
     reason: "archive" | "automation-archive",
   ) => Promise<void>;
-  runManagedWorktreeRetentionSweep: CodexService["runManagedWorktreeRetentionSweep"];
   prepareThreadSettingsUpdate: (
     input: CodexThreadSettingsUpdateCommand,
     signal: AbortSignal,
@@ -2210,11 +2208,7 @@ function createService(options?: {
     projectWorkspace,
     executionHosts,
     managedWorktrees: managedWorktreeHarness.adapter,
-    managedWorktreeRetention: {
-      // Scheduling semantics have a dedicated Effect TestClock suite; Codex tests exercise policy.
-      request: () => undefined,
-      run: (sweep) => sweep(),
-    },
+    requestManagedWorktreeRetention: () => undefined,
     projectRuntimeLifecycle: projectRuntimeLifecycleHarness.adapter,
     supportsChatGptApps: options?.supportsChatGptApps,
     projectAwareDeveloperInstructionsResolver: options?.projectAwareDeveloperInstructionsResolver,
@@ -18537,125 +18531,6 @@ describe("codex-service managed worktree inventory", () => {
         expect.objectContaining({
           reason: "archive",
           snapshotPolicy: "required",
-        }),
-        expect.any(Object),
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("plans from one Core snapshot and prunes through lifecycle policy", async () => {
-    const basePort = createTestProjectWorkspace();
-    const readSnapshot = vi.fn(async () => ({
-      projectionRevision: 9,
-      consumers: [],
-      projects: [],
-    }));
-    const projectWorkspace = {
-      ...basePort,
-      readManagedWorktreeLifecycleSnapshot: readSnapshot,
-    } satisfies DesktopProjectWorkspacePort;
-    const service = createService({ projectWorkspace });
-    const limit = (service as unknown as CodexService).getManagedWorktreeSettings().autoDeleteLimit;
-    const remove = vi.fn(async () => ({
-      removed: true,
-      alreadyMissing: false,
-      snapshot: null,
-      warnings: [],
-    }));
-    const worker = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
-      list: async () => ({
-        entries: Array.from({ length: limit + 2 }, (_, index) => ({
-          worktreeGitRoot: `/managed/${String(index).padStart(4, "0")}/repository`,
-          repositoryPath: "/repositories/repository",
-          createdAtMs: Date.parse("2026-08-13T00:00:00.000Z") + index,
-          ownerThreadId: null,
-          ownerReadFailed: false,
-        })),
-      }),
-      remove,
-    } satisfies CodexWorktreeWorkerPort;
-    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
-
-    try {
-      const plan = await service.runManagedWorktreeRetentionSweep();
-      expect(readSnapshot).toHaveBeenCalledOnce();
-      expect(plan.status).toBe("planned");
-      expect(plan.delete.map((item) => item.worktreeGitRoot)).toEqual([
-        "/managed/0000/repository",
-        "/managed/0001/repository",
-      ]);
-      expect(remove).toHaveBeenCalledTimes(2);
-      expect(remove).toHaveBeenCalledWith(
-        expect.objectContaining({
-          reason: "automatic-retention",
-          snapshotPolicy: "required",
-        }),
-        expect.any(Object),
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("archives all consumers before one targeted lifecycle deletion and keeps their links", async () => {
-    const worktreePath = "/managed/a1b2/repository";
-    const calls: string[] = [];
-    const basePort = createTestProjectWorkspace();
-    const projectWorkspace = {
-      ...basePort,
-      readManagedWorktreeLifecycleSnapshot: async () => ({
-        projectionRevision: 1,
-        consumers: ["thread-one", "thread-two"].map((threadId, index) => ({
-          threadId,
-          projectId: "project-one",
-          sessionId: `session-${index}`,
-          executionHostId: "local",
-          cwd: worktreePath,
-          managedWorktreePath: worktreePath,
-          runtimeWorkspaceRoots: [worktreePath],
-          archived: false,
-          pinnedOrder: null,
-          statusType: "idle" as const,
-          statusActiveFlags: [],
-          createdAt: index,
-          updatedAt: index,
-          linkedAt: "2026-08-14T00:00:00.000Z",
-        })),
-        projects: [],
-      }),
-      setThreadArchived: async (threadId: string, archived: boolean) => {
-        calls.push(`archive:${threadId}:${archived}`);
-        return await basePort.setThreadArchived(threadId, archived);
-      },
-    } satisfies DesktopProjectWorkspacePort;
-    const remove = vi.fn(async () => {
-      calls.push("remove");
-      return {
-        removed: true,
-        alreadyMissing: false,
-        snapshot: null,
-        warnings: [],
-      };
-    });
-    const service = createService({ projectWorkspace });
-    const worker = {
-      ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
-      remove,
-    } satisfies CodexWorktreeWorkerPort;
-    (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
-
-    try {
-      await expect(service.deleteManagedWorktree("local", worktreePath)).resolves.toBe(true);
-      expect(calls).toEqual(["archive:thread-one:true", "archive:thread-two:true", "remove"]);
-      expect(remove).toHaveBeenCalledWith(
-        expect.objectContaining({
-          hostId: "local",
-          worktreeGitRoot: worktreePath,
-          reason: "settings-delete",
-          snapshotPolicy: "best-effort",
         }),
         expect.any(Object),
       );

@@ -3,7 +3,7 @@ import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
-import type { Project, ProjectSession } from "../../shared/types";
+import type { ManagedWorktreeSettings, Project, ProjectSession } from "../../shared/types";
 import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceThread,
@@ -17,6 +17,7 @@ import {
   type ManagedWorktreeInspectInput,
   type ManagedWorktreeRestoreInput,
 } from "./ManagedWorktreeRuntime";
+import { ManagedWorktreeRetentionRuntime } from "./ManagedWorktreeRetentionRuntime";
 
 const makeThread = (
   overrides: Partial<DesktopProjectWorkspaceThread> = {},
@@ -66,10 +67,13 @@ const makeProjectWorkspace = (
     ...overrides,
   }) as DesktopProjectWorkspacePort;
 
-const makeExecutionHosts = (): ExecutionHostRuntime["Service"] =>
+const makeExecutionHosts = (
+  updateManagedRoot: (hostId: string, managedRoot: string) => void = () => undefined,
+): ExecutionHostRuntime["Service"] =>
   ({
     registry: {
       listHostIds: () => ["local"],
+      updateManagedRoot,
     },
   }) as unknown as ExecutionHostRuntime["Service"];
 
@@ -95,17 +99,51 @@ const makeCatalog = (
   scope: Scope.Scope,
   projectWorkspace: DesktopProjectWorkspacePort,
   managed: ManagedWorktreeRuntime["Service"],
-  publish: (event: CodexApplicationEvent) => void = () => undefined,
-) =>
-  make({ projectWorkspace }).pipe(
+  options: {
+    readonly executionHosts?: ExecutionHostRuntime["Service"];
+    readonly projectThread?: (thread: DesktopProjectWorkspaceThread) => void;
+    readonly publish?: (event: CodexApplicationEvent) => void;
+    readonly retention?: ManagedWorktreeRetentionRuntime["Service"];
+    readonly settings?: {
+      readonly read: () => ManagedWorktreeSettings;
+      readonly update: (input: Partial<ManagedWorktreeSettings>) => ManagedWorktreeSettings;
+    };
+  } = {},
+) => {
+  const defaultSettings: ManagedWorktreeSettings = {
+    worktreeRoot: null,
+    autoDeleteEnabled: true,
+    autoDeleteLimit: 15,
+  };
+  return make({
+    projectWorkspace,
+    settings: options.settings ?? {
+      read: () => defaultSettings,
+      update: () => defaultSettings,
+    },
+    defaultManagedRoot: "/managed",
+    projectThread: options.projectThread ?? (() => undefined),
+  }).pipe(
     Effect.provideService(
       CodexApplicationEventHub,
-      CodexApplicationEventHub.of({ events: Stream.empty, publish }),
+      CodexApplicationEventHub.of({
+        events: Stream.empty,
+        publish: options.publish ?? (() => undefined),
+      }),
     ),
-    Effect.provideService(ExecutionHostRuntime, makeExecutionHosts()),
+    Effect.provideService(ExecutionHostRuntime, options.executionHosts ?? makeExecutionHosts()),
+    Effect.provideService(
+      ManagedWorktreeRetentionRuntime,
+      options.retention ??
+        ManagedWorktreeRetentionRuntime.of({
+          request: Effect.void,
+          run: Effect.die("Unexpected retention run"),
+        }),
+    ),
     Effect.provideService(ManagedWorktreeRuntime, managed),
     Effect.provideService(Scope.Scope, scope),
   );
+};
 
 it.effect("owns product inventory, inspection, restoration, and projection publication", () =>
   Effect.gen(function* () {
@@ -260,9 +298,9 @@ it.effect("owns product inventory, inspection, restoration, and projection publi
         }),
     });
     const scope = yield* Scope.make();
-    const catalog = yield* makeCatalog(scope, projectWorkspace, managed, (event) =>
-      events.push(event),
-    );
+    const catalog = yield* makeCatalog(scope, projectWorkspace, managed, {
+      publish: (event) => events.push(event),
+    });
 
     assert.deepEqual(yield* catalog.list, [
       {
@@ -376,6 +414,103 @@ it.effect("keeps inspection total while preserving restoration failures", () =>
     const error = yield* Effect.flip(catalog.restoreThread("missing"));
     assert.instanceOf(error, ManagedWorktreeCatalogError);
     assert.strictEqual(error.operation, "restore-thread");
+
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("commits settings side effects and archives every consumer before deletion", () =>
+  Effect.gen(function* () {
+    const worktreePath = "/managed/shared/repository";
+    const calls: string[] = [];
+    const projected: string[] = [];
+    let settings: ManagedWorktreeSettings = {
+      worktreeRoot: null,
+      autoDeleteEnabled: true,
+      autoDeleteLimit: 15,
+    };
+    const projectWorkspace = makeProjectWorkspace({
+      readManagedWorktreeLifecycleSnapshot: async () => ({
+        projectionRevision: 1,
+        consumers: ["thread-one", "thread-two"].map((threadId, index) => ({
+          threadId,
+          projectId: "project-one",
+          sessionId: `session-${index}`,
+          executionHostId: "local",
+          cwd: worktreePath,
+          managedWorktreePath: worktreePath,
+          runtimeWorkspaceRoots: [worktreePath],
+          archived: false,
+          pinnedOrder: null,
+          statusType: "idle" as const,
+          statusActiveFlags: [],
+          createdAt: index,
+          updatedAt: index,
+          linkedAt: "2026-08-14T00:00:00.000Z",
+        })),
+        projects: [],
+      }),
+      setThreadArchived: async (threadId, archived) => {
+        calls.push(`archive:${threadId}:${archived}`);
+        return {
+          threads: [makeThread({ threadId, archived })],
+        };
+      },
+    });
+    const managed = makeManaged({
+      remove: (input) =>
+        Effect.sync(() => {
+          calls.push(`remove:${input.hostId}:${input.reason}`);
+          return {
+            removed: true,
+            alreadyMissing: false,
+            snapshot: null,
+            warnings: [],
+          };
+        }),
+    });
+    const roots: string[] = [];
+    let retentionRequests = 0;
+    const scope = yield* Scope.make();
+    const catalog = yield* makeCatalog(scope, projectWorkspace, managed, {
+      executionHosts: makeExecutionHosts((_hostId, root) => roots.push(root)),
+      projectThread: (thread) => projected.push(thread.threadId),
+      retention: ManagedWorktreeRetentionRuntime.of({
+        request: Effect.sync(() => {
+          retentionRequests += 1;
+        }),
+        run: Effect.die("Unexpected retention run"),
+      }),
+      settings: {
+        read: () => settings,
+        update: (input) => {
+          settings = { ...settings, ...input };
+          return settings;
+        },
+      },
+    });
+
+    assert.deepEqual(yield* catalog.settings, settings);
+    assert.deepEqual(
+      yield* catalog.updateSettings({
+        worktreeRoot: "/managed/next",
+        autoDeleteLimit: 20,
+      }),
+      {
+        worktreeRoot: "/managed/next",
+        autoDeleteEnabled: true,
+        autoDeleteLimit: 20,
+      },
+    );
+    assert.deepEqual(roots, ["/managed/next"]);
+    assert.strictEqual(retentionRequests, 1);
+    assert.isTrue(yield* catalog.delete("local", worktreePath));
+    assert.deepEqual(calls, [
+      "archive:thread-one:true",
+      "archive:thread-two:true",
+      "remove:local:settings-delete",
+    ]);
+    assert.deepEqual(projected, ["thread-one", "thread-two"]);
 
     yield* Scope.close(scope, Exit.void);
   }),

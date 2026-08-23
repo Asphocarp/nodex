@@ -145,6 +145,7 @@ import { makeCodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/
 import { make as makeCodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
 import { makeCodexThreadHandoffRuntimePromiseAdapter } from "../codex-application/CodexThreadHandoffRuntimePromiseAdapter";
 import {
+  CodexPendingWorktreeRuntime,
   CodexPendingWorktreeEffectError,
   make as makeCodexPendingWorktreeRuntime,
 } from "../codex-application/CodexPendingWorktreeRuntime";
@@ -247,9 +248,9 @@ import {
 import { makeManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
 import {
   ManagedWorktreeRetentionRuntime,
+  ManagedWorktreeRetentionRuntimeError,
   live as managedWorktreeRetentionRuntimeLive,
 } from "../codex-application/ManagedWorktreeRetentionRuntime";
-import { makeManagedWorktreeRetentionRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRetentionRuntimePromiseAdapter";
 import { CODEX_APP_LOCAL_HOST_ID } from "../codex/codex-app-meta-thread-tools";
 import {
   CodexAttachments,
@@ -419,6 +420,7 @@ import {
   getThreadNotificationSettings,
   getWindowRestoreSettings,
   updateCodexExecutionHostSettings,
+  updateManagedWorktreeSettings,
 } from "../local-store/config";
 import { makePersistedAtomStore } from "../local-store/persisted-atoms";
 import { requestsExplicitNewWindow } from "../main-runtime-startup-events";
@@ -1316,14 +1318,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const managedWorktrees = Context.get(managedWorktreeContext, ManagedWorktreeRuntime);
-        const managedWorktreeRetentionContext = yield* Layer.buildWithScope(
-          managedWorktreeRetentionRuntimeLive(),
-          runtimeScope,
-        );
-        const managedWorktreeRetention = Context.get(
-          managedWorktreeRetentionContext,
-          ManagedWorktreeRetentionRuntime,
-        );
         yield* Layer.buildWithScope(
           ExecutionHostIpc.live.pipe(
             Layer.provide(
@@ -1826,6 +1820,34 @@ export const live: Layer.Layer<
           Effect.forkIn(runtimeScope),
           Effect.asVoid,
         );
+        const managedWorktreeRetentionContext = yield* Layer.buildWithScope(
+          managedWorktreeRetentionRuntimeLive({
+            settings: { read: getManagedWorktreeSettings },
+            projectWorkspace,
+            isAutomationProtected: (threadId) =>
+              Effect.tryPromise({
+                try: () => automationModule.getRun(threadId),
+                catch: (cause) =>
+                  new ManagedWorktreeRetentionRuntimeError({
+                    operation: "read-automation-protection",
+                    cause,
+                  }),
+              }).pipe(Effect.map((run) => run !== null)),
+          }).pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexPendingWorktreeRuntime, pendingWorktrees),
+                Layer.succeed(ExecutionHostRuntime, executionHosts),
+                Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const managedWorktreeRetention = Context.get(
+          managedWorktreeRetentionContext,
+          ManagedWorktreeRetentionRuntime,
+        );
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1853,14 +1875,6 @@ export const live: Layer.Layer<
             codexService?.isRendererConversationPresentedInForeground(conversationId) === true,
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const codexApplicationEvents = yield* makeCodexApplicationEventHub.pipe(
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
-        const managedWorktreeCatalog = yield* makeManagedWorktreeCatalog({
-          projectWorkspace,
-        }).pipe(
-          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
-          Effect.provideService(ExecutionHostRuntime, executionHosts),
-          Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const forkBrowserSnapshotAdapter = createCodexForkBrowserSnapshotAdapter({
@@ -2093,10 +2107,8 @@ export const live: Layer.Layer<
                 managedWorktrees,
                 callbacks,
               ),
-              managedWorktreeRetention: makeManagedWorktreeRetentionRuntimePromiseAdapter(
-                managedWorktreeRetention,
-                callbacks,
-              ),
+              requestManagedWorktreeRetention: () =>
+                callbacks.fork(managedWorktreeRetention.request),
               projectRuntimeLifecycle: projectRuntimeLifecycleAdapter,
               terminalRuntime: {
                 getSessionSnapshot: (sessionId) =>
@@ -2119,6 +2131,21 @@ export const live: Layer.Layer<
           ),
           Effect.forkIn(runtimeScope, { startImmediately: true }),
           Effect.asVoid,
+        );
+        const managedWorktreeCatalog = yield* makeManagedWorktreeCatalog({
+          projectWorkspace,
+          settings: {
+            read: getManagedWorktreeSettings,
+            update: updateManagedWorktreeSettings,
+          },
+          defaultManagedRoot: `${config.nodexHome}/worktrees`,
+          projectThread: (thread) => codexService.projectWorkspaceThreadFromModule(thread),
+        }).pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(ExecutionHostRuntime, executionHosts),
+          Effect.provideService(ManagedWorktreeRetentionRuntime, managedWorktreeRetention),
+          Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
+          Effect.provideService(Scope.Scope, runtimeScope),
         );
         yield* Layer.buildWithScope(
           codexApplicationIngressRuntimeLive({
@@ -2681,7 +2708,7 @@ export const live: Layer.Layer<
             try: () => codexService.synchronizeAutomationRuntime(),
             catch: (cause) => runtimeError("synchronize-automations", cause),
           });
-          codexService.requestManagedWorktreeRetentionSweep();
+          yield* managedWorktreeRetention.request;
           yield* Effect.all(
             [
               reminderScheduler.activate({

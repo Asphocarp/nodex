@@ -47,6 +47,9 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           list: Effect.die("unused"),
           inspectThread: () => Effect.die("unused"),
           restoreThread: () => Effect.die("unused"),
+          settings: Effect.die("unused"),
+          updateSettings: () => Effect.die("unused"),
+          delete: () => Effect.die("unused"),
         }),
         manualCompaction: CodexManualCompactionRuntime.of({
           start: () => Effect.void,
