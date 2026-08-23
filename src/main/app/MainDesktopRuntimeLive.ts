@@ -100,10 +100,15 @@ import {
 } from "../codex-application/CodexServerRequestResponses";
 import { makeCodexServerRequestResponsesPromiseAdapter } from "../codex-application/CodexServerRequestResponsesPromiseAdapter";
 import {
+  CodexTurnCommands,
   CodexTurnCommandProjectionError,
   make as makeCodexTurnCommands,
 } from "../codex-application/CodexTurnCommands";
 import { makeCodexTurnCommandsPromiseAdapter } from "../codex-application/CodexTurnCommandsPromiseAdapter";
+import {
+  CodexSideChatProjectionError,
+  make as makeCodexSideChatCommands,
+} from "../codex-application/CodexSideChatCommands";
 import {
   CodexActiveGoalContinuationError,
   make as makeCodexActiveGoalContinuation,
@@ -283,6 +288,10 @@ import {
 } from "../codex-application/CodexToolRuntime";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
+import {
+  CodexEphemeralThreadRouting,
+  live as codexEphemeralThreadRoutingLive,
+} from "../codex-runtime/CodexEphemeralThreadRouting";
 import { makeCodexApplicationServerRequests } from "../codex-runtime/CodexApplicationServerRequests";
 import { makeCodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
@@ -566,10 +575,27 @@ export const live: Layer.Layer<
           if (!service) throw new Error("CodexService is not constructed");
           return service;
         };
-        const resolveCodexThreadHost = (threadId: string) =>
-          Effect.sync(
-            () => codexService?.resolveThreadExecutionHostId(threadId) ?? CODEX_APP_LOCAL_HOST_ID,
-          );
+        const ephemeralThreadRoutingContext = yield* Layer.buildWithScope(
+          codexEphemeralThreadRoutingLive,
+          runtimeScope,
+        );
+        const ephemeralThreadRouting = Context.get(
+          ephemeralThreadRoutingContext,
+          CodexEphemeralThreadRouting,
+        );
+        const threadHostResolver = CodexThreadHostResolver.of({
+          resolve: (threadId) =>
+            ephemeralThreadRouting
+              .resolve(threadId)
+              .pipe(
+                Effect.map(
+                  (hostId) =>
+                    hostId ??
+                    codexService?.resolveThreadExecutionHostId(threadId) ??
+                    CODEX_APP_LOCAL_HOST_ID,
+                ),
+              ),
+        });
         const applicationServerRequests = CodexGlobalServerRequestRuntime.of(
           makeCodexApplicationServerRequests({
             current: () => {
@@ -612,12 +638,7 @@ export const live: Layer.Layer<
         const codexDependencies = Layer.mergeAll(
           CodexSessionTransport.nodeLive,
           Layer.succeed(CodexServerRequestRuntime, serverRequests),
-          Layer.succeed(
-            CodexThreadHostResolver,
-            CodexThreadHostResolver.of({
-              resolve: resolveCodexThreadHost,
-            }),
-          ),
+          Layer.succeed(CodexThreadHostResolver, threadHostResolver),
         );
         const codexContext = yield* Layer.buildWithScope(
           CodexRuntimeLive.live({
@@ -1705,7 +1726,7 @@ export const live: Layer.Layer<
         const heartbeatTurnCompletion = yield* makeCodexHeartbeatTurnCompletion({
           events: codexGateway.events,
           resolveHost: (threadId) =>
-            resolveCodexThreadHost(threadId).pipe(
+            threadHostResolver.resolve(threadId).pipe(
               Effect.mapError(
                 (cause) =>
                   new CodexHeartbeatTurnCompletionError({
@@ -2334,6 +2355,74 @@ export const live: Layer.Layer<
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const turnCommandsAdapter = makeCodexTurnCommandsPromiseAdapter(turnCommands, callbacks);
+        const sideChatCommands = yield* makeCodexSideChatCommands({
+          prepare: (input) =>
+            Effect.tryPromise({
+              try: (signal) => requireCodexService().prepareSideChatForModule(input, signal),
+              catch: (cause) =>
+                new CodexSideChatProjectionError({
+                  operation: "prepare",
+                  threadId: input.parentThreadId,
+                  cause,
+                }),
+            }),
+          commit: (prepared, response) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().commitSideChatForkForModule(prepared, response),
+              catch: (cause) =>
+                new CodexSideChatProjectionError({
+                  operation: "commit",
+                  threadId: prepared.parentThreadId,
+                  cause,
+                }),
+            }),
+          finish: (committed) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().finishSideChatForModule(committed),
+              catch: (cause) =>
+                new CodexSideChatProjectionError({
+                  operation: "finish",
+                  threadId: committed.threadId,
+                  cause,
+                }),
+            }),
+          inspect: (threadId) =>
+            Effect.try({
+              try: () => requireCodexService().inspectSideChatForModule(threadId),
+              catch: (cause) =>
+                new CodexSideChatProjectionError({
+                  operation: "inspect",
+                  threadId,
+                  cause,
+                }),
+            }),
+          discard: (threadId) =>
+            Effect.try({
+              try: () => requireCodexService().discardSideChatProjectionForModule(threadId),
+              catch: (cause) =>
+                new CodexSideChatProjectionError({
+                  operation: "discard",
+                  threadId,
+                  cause,
+                }),
+            }),
+          rollback: (threadId) =>
+            Effect.try({
+              try: () => requireCodexService().rollbackSideChatProjectionForModule(threadId),
+              catch: (cause) =>
+                new CodexSideChatProjectionError({
+                  operation: "rollback",
+                  threadId,
+                  cause,
+                }),
+            }),
+        }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexThreadHostResolver, threadHostResolver),
+          Effect.provideService(CodexEphemeralThreadRouting, ephemeralThreadRouting),
+          Effect.provideService(CodexTurnCommands, turnCommands),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+        );
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
@@ -3136,6 +3225,7 @@ export const live: Layer.Layer<
             subagentCatalog,
             serverRequestResponses,
             turnCommands,
+            sideChatCommands,
             rendererClientRouter: rendererClients,
           }).pipe(
             Layer.provide(

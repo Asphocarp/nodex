@@ -21,6 +21,7 @@ import type { CodexBackgroundProcesses } from "./codex-application/CodexBackgrou
 import type { CodexSubagentCatalog } from "./codex-application/CodexSubagentCatalog";
 import type { CodexServerRequestResponsesService } from "./codex-application/CodexServerRequestResponses";
 import type { CodexTurnCommandsService } from "./codex-application/CodexTurnCommands";
+import type { CodexSideChatCommandsService } from "./codex-application/CodexSideChatCommands";
 import type { CodexSidebarSyncRuntime } from "./codex-application/CodexSidebarSyncRuntime";
 import type { CodexThreadReadState } from "./codex-application/CodexThreadReadState";
 import type { AgentImportRuntime } from "./codex-application/AgentImportRuntime";
@@ -127,6 +128,7 @@ interface CodexIpcOptions {
   subagentCatalog: CodexSubagentCatalog["Service"];
   serverRequestResponses: CodexServerRequestResponsesService;
   turnCommands: CodexTurnCommandsService;
+  sideChatCommands: CodexSideChatCommandsService;
   rendererClientRouter: RendererClientRuntimeService;
 }
 
@@ -486,12 +488,22 @@ export const codexIpcLive = (
         },
       );
 
-      registerHandle("codex:thread:side-chat:start", (_, input: CodexSideChatStartInput) =>
-        codexService.startSideChat(input),
+      registerEffectHandle("codex:thread:side-chat:start", (_, input: CodexSideChatStartInput) =>
+        options.sideChatCommands
+          .start(input)
+          .pipe(
+            Effect.mapError((cause) => new CodexIpcError({ operation: "side-chat:start", cause })),
+          ),
       );
 
-      registerHandle("codex:thread:side-chat:discard", (_, threadId: string) =>
-        codexService.discardSideChat(threadId),
+      registerEffectHandle("codex:thread:side-chat:discard", (_, threadId: string) =>
+        options.sideChatCommands
+          .discard(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "side-chat:discard", cause }),
+            ),
+          ),
       );
 
       registerEffectHandle("worktrees:list", () =>

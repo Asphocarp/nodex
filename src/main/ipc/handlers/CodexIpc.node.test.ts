@@ -161,6 +161,10 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           steer: () => Effect.die("unused"),
           steerRendererOwned: () => Effect.die("unused"),
         },
+        sideChatCommands: {
+          start: () => Effect.die("unused"),
+          discard: () => Effect.die("unused"),
+        },
         conversationCommands: ConversationCommands.of({
           archive: () => Effect.die("unused"),
           unarchive: () => Effect.die("unused"),

@@ -777,6 +777,20 @@ or inactive fallback because the renderer owns those state transitions. Standard
 invokes the Effect command directly; the still-generic renderer-owner request router temporarily
 borrows its stateless adapter and owns no parallel protocol request or recovery policy.
 
+Side-chat creation and discard are complete `CodexSideChatCommands` transactions. Creation holds
+the parent Thread-generation lane while it prepares inherited workspace policy, forks an ephemeral
+excluded-history Thread on the parent's exact execution host, injects the side-conversation
+boundary, commits the temporary conversation projection, and optionally starts the first Turn
+through `CodexTurnCommands`. A Main-scoped ephemeral routing authority binds the returned child ID
+to that host before any child request can run; the shared Thread host resolver consults this map
+before durable Workspace projection, so child Turns, notifications, and unsubscribe never fall
+back to the local endpoint for a remote parent. Typed failure or Scope interruption compensates the
+fork, route, and local projection. Discard holds the child lane and releases local projection,
+route, and `ConversationRuntimeMap` generation even when host resolution or best-effort remote
+unsubscribe fails. Renderer IPC invokes the Effect commands directly; `CodexService` temporarily
+supplies only preparation and canonical projection stages and owns no production side-chat request,
+host-affinity map, command lane, or cancellation lifetime.
+
 Background-process discovery and local terminal actions are owned by `CodexBackgroundProcesses`.
 One owner-scoped read drains the typed app-server terminal cursor, degrades a failed live observation
 to the durable Project Workspace catalog, records successful observations, refreshes local PTY

@@ -23,6 +23,7 @@ import type {
   CodexPlanImplementationServerRequest,
   CodexPromptInput,
   CodexScheduledAutomation,
+  CodexSideChatStartInput,
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
@@ -241,22 +242,9 @@ interface TestableCodexService {
       localEnvironmentConfigPath?: string | null;
     },
   ) => Promise<ProjectSessionForkResult>;
-  startSideChat: (input: {
-    parentThreadId: string;
-    parentNavigationPath?: string | null;
-    prompt?: string;
-    permissionMode?: CodexPermissionMode;
-    model?: string;
-    serviceTier?: null | "fast";
-    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-    collaborationMode?: "default" | "plan";
-    promptInput?: CodexPromptInput;
-  }) => Promise<{
-    parentThreadId: string;
-    threadId: string;
-    conversation: CodexConversationSnapshot;
-  }>;
-  discardSideChat: (threadId: string) => Promise<boolean>;
+  prepareSideChatForModule: CodexService["prepareSideChatForModule"];
+  commitSideChatForkForModule: CodexService["commitSideChatForkForModule"];
+  finishSideChatForModule: CodexService["finishSideChatForModule"];
   startTurn: (
     threadId: string,
     prompt: string,
@@ -347,6 +335,9 @@ interface TestableCodexService {
     input: CodexThreadOwnerStreamStatePublishInput,
   ) => CodexThreadOwnerStreamStatePublishResult;
 }
+
+const prepareSideChatForTest = (service: TestableCodexService, input: CodexSideChatStartInput) =>
+  service.prepareSideChatForModule(input, new AbortController().signal);
 
 function makeThreadDetail(threadId: string): CodexThreadDetail {
   return {
@@ -8086,7 +8077,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     }
   });
 
-  test("side chat resolves project-aware instructions and thread config before an exact fork", async () => {
+  test("side chat prepares project-aware instructions and exact fork config", async () => {
     const resolverInputs: Array<{
       baseInstructions?: string | null;
       cwd: string;
@@ -8109,19 +8100,12 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       start: () => Promise<void>;
       request: (method: string, params: unknown) => Promise<unknown>;
     };
-    const requests: Array<{ method: string; params: unknown }> = [];
     const forkResponse = makeCanonicalForkResponse({
       threadId: "thr_side_exact_child",
       cwd: "/workspace/side-exact",
       turns: [],
     });
     client.start = async () => undefined;
-    client.request = async (method, params) => {
-      requests.push({ method, params });
-      if (method === "thread/fork") return forkResponse;
-      if (method === "thread/inject_items") return {};
-      throw new Error(`Unexpected client request: ${method}`);
-    };
     service.readThread = async () => ({
       ...makeThreadDetail("thr_side_exact_parent"),
       projectId: "project-side-exact",
@@ -8130,16 +8114,15 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     });
 
     try {
-      const result = await service.startSideChat({
+      const prepared = await prepareSideChatForTest(service, {
         parentThreadId: "thr_side_exact_parent",
         reasoningEffort: "xhigh",
       });
-      const forkParams = requests[0]?.params as Record<string, unknown>;
+      const committed = await service.commitSideChatForkForModule(prepared, forkResponse);
+      const result = await service.finishSideChatForModule(committed);
+      const forkParams = prepared.forkRequest as Record<string, unknown>;
       const config = forkParams.config as Record<string, unknown>;
 
-      expect(requests.map((request) => request.method).join(",")).toBe(
-        "thread/fork,thread/inject_items",
-      );
       expect(JSON.stringify(resolverInputs)).toBe(
         JSON.stringify([
           {
@@ -8197,23 +8180,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       ).readWorkspaceThread("thr_side_projectless_parent");
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
-        request: (method: string, params: unknown) => Promise<unknown>;
       };
-      const requests: Array<{ method: string; params: unknown }> = [];
       client.start = async () => undefined;
-      client.request = async (method, params) => {
-        requests.push({ method, params });
-        if (method === "thread/fork") {
-          const cwd = (params as { cwd: string }).cwd;
-          return makeCanonicalForkResponse({
-            threadId: "thr_side_projectless_child",
-            cwd,
-            turns: [],
-          });
-        }
-        if (method === "thread/inject_items") return {};
-        throw new Error(`Unexpected client request: ${method}`);
-      };
       service.readThread = async () => ({
         ...makeThreadDetail("thr_side_projectless_parent"),
         projectId: null,
@@ -8233,16 +8201,20 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       });
 
       try {
-        const result = await service.startSideChat({
+        const prepared = await prepareSideChatForTest(service, {
           parentThreadId: "thr_side_projectless_parent",
           parentNavigationPath: "session:session-projectless/thread:thr_side_projectless_parent",
         });
-        const forkParams = requests[0]?.params as { cwd?: string };
+        const forkParams = prepared.forkRequest;
+        const forkResponse = makeCanonicalForkResponse({
+          threadId: "thr_side_projectless_child",
+          cwd: forkParams.cwd ?? "/",
+          turns: [],
+        });
+        const committed = await service.commitSideChatForkForModule(prepared, forkResponse);
+        const result = await service.finishSideChatForModule(committed);
         const persistedParent = await projectWorkspace.getThread("thr_side_projectless_parent");
 
-        expect(requests.map((request) => request.method).join(",")).toBe(
-          "thread/fork,thread/inject_items",
-        );
         expect(forkParams.cwd?.startsWith(path.join(projectlessHome, "Documents", "Nodex"))).toBe(
           true,
         );
@@ -8376,14 +8348,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     const service = createService();
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
     };
-    const requests: string[] = [];
     client.start = async () => undefined;
-    client.request = async (method) => {
-      requests.push(method);
-      throw new Error(`Unexpected client request: ${method}`);
-    };
     service.readThread = async () => ({
       ...makeThreadDetail("thr_side_unpersisted_parent"),
       projectId: null,
@@ -8395,13 +8361,12 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 
     try {
       await expect(
-        service.startSideChat({
+        prepareSideChatForTest(service, {
           parentThreadId: "thr_side_unpersisted_parent",
         }),
       ).rejects.toThrow(
         "Projectless side chat requires a workspace, but its parent workspace could not be repaired",
       );
-      expect(requests.length).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -8420,14 +8385,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     });
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
     };
-    const requests: string[] = [];
     client.start = async () => undefined;
-    client.request = async (method) => {
-      requests.push(method);
-      throw new Error(`Unexpected client request: ${method}`);
-    };
     service.readThread = async () => ({
       ...makeThreadDetail("thr_side_failure_parent"),
       projectId: "project-side-failure",
@@ -8438,7 +8397,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     try {
       let message = "";
       try {
-        await service.startSideChat({
+        await prepareSideChatForTest(service, {
           parentThreadId: "thr_side_failure_parent",
         });
       } catch (error) {
@@ -8446,7 +8405,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       }
       expect(message).toBe("developer instruction host failed");
       expect(configBuildStarted).toBe(false);
-      expect(requests.length).toBe(0);
     } finally {
       await service.shutdown();
     }
