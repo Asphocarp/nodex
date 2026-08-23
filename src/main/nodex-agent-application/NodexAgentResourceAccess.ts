@@ -275,6 +275,7 @@ export const live: Layer.Layer<NodexAgentResourceAccess, never, CoreAuthority | 
                 task_access: input.taskAccess ? toOverlay(input.taskAccess) : null,
               },
               undefined,
+              input.authority.actorProjectId,
             )
             .pipe(
               Effect.flatMap((snapshot) =>
@@ -299,14 +300,17 @@ export const live: Layer.Layer<NodexAgentResourceAccess, never, CoreAuthority | 
             ),
         persistProjectGrants: (input) =>
           core.library
-            .apply({
-              operationId: input.operationId,
-              intent: {
-                kind: "persist_agent_project_resource_grants",
-                provenance: provenance(authority.identity.profileId, input.authority),
-                grants: canonicalizeNodexAgentResourceGrantSpecs(input.grants).map(toGrant),
+            .apply(
+              {
+                operationId: input.operationId,
+                intent: {
+                  kind: "persist_agent_project_resource_grants",
+                  provenance: provenance(authority.identity.profileId, input.authority),
+                  grants: canonicalizeNodexAgentResourceGrantSpecs(input.grants).map(toGrant),
+                },
               },
-            })
+              input.authority.actorProjectId,
+            )
             .pipe(
               Effect.flatMap((committed) =>
                 Effect.try({
