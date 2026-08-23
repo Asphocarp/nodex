@@ -58,8 +58,12 @@ export interface CoreModuleClients {
     readonly read: (
       read: LibraryRead,
       options?: CoreRequestOptions,
+      projectId?: string,
     ) => CoreEffect<LibraryReadSnapshot>;
-    readonly apply: (input: LibraryApplyInput) => CoreEffect<LibraryApplyResult>;
+    readonly apply: (
+      input: LibraryApplyInput,
+      projectId?: string,
+    ) => CoreEffect<LibraryApplyResult>;
     readonly filterProjectionImpactForProject: (
       projectId: string,
       impact: ProjectionImpact,
@@ -88,10 +92,12 @@ export interface CoreModuleClients {
     readonly read: (
       read: AutomationRead,
       options?: CoreRequestOptions,
+      projectId?: string,
     ) => CoreEffect<AutomationReadSnapshot>;
     readonly apply: (
       input: AutomationApplyInput,
       options?: CoreRequestOptions,
+      projectId?: string,
     ) => CoreEffect<AutomationApplyResult>;
   };
   readonly administration: {
@@ -151,13 +157,17 @@ export const live: Layer.Layer<CoreModules, never, CoreSessionAccess> = Layer.ef
         ),
       },
       library: {
-        read: Effect.fn("CoreModules.library.read")((read, options) =>
-          access.use("library.read", (client, signal) =>
-            client.libraryRead(read, requestOptions(options, signal)),
+        read: Effect.fn("CoreModules.library.read")((read, options, projectId) =>
+          access.use(
+            "library.read",
+            (client, signal) => client.libraryRead(read, requestOptions(options, signal)),
+            { projectId },
           ),
         ),
-        apply: Effect.fn("CoreModules.library.apply")((input) =>
-          access.use("library.apply", (client, signal) => client.libraryApply(input, { signal })),
+        apply: Effect.fn("CoreModules.library.apply")((input, projectId) =>
+          access.use("library.apply", (client, signal) => client.libraryApply(input, { signal }), {
+            projectId,
+          }),
         ),
         filterProjectionImpactForProject: Effect.fn(
           "CoreModules.library.filterProjectionImpactForProject",
@@ -200,14 +210,18 @@ export const live: Layer.Layer<CoreModules, never, CoreSessionAccess> = Layer.ef
         ),
       },
       automation: {
-        read: Effect.fn("CoreModules.automation.read")((read, options) =>
-          access.use("automation.read", (client, signal) =>
-            client.automationRead(read, requestOptions(options, signal)),
+        read: Effect.fn("CoreModules.automation.read")((read, options, projectId) =>
+          access.use(
+            "automation.read",
+            (client, signal) => client.automationRead(read, requestOptions(options, signal)),
+            { projectId },
           ),
         ),
-        apply: Effect.fn("CoreModules.automation.apply")((input, options) =>
-          access.use("automation.apply", (client, signal) =>
-            client.automationApply(input, requestOptions(options, signal)),
+        apply: Effect.fn("CoreModules.automation.apply")((input, options, projectId) =>
+          access.use(
+            "automation.apply",
+            (client, signal) => client.automationApply(input, requestOptions(options, signal)),
+            { projectId },
           ),
         ),
       },
