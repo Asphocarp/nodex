@@ -4,14 +4,16 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
-import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
 import { CodexProjectSessionFork } from "../../codex-application/CodexProjectSessionFork";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
-import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
 import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { ProjectLifecycleCommands } from "../../project-application/ProjectLifecycleCommands";
+import {
+  ProjectWorkspace,
+  type ProjectWorkspaceService,
+} from "../../project-application/ProjectWorkspace";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./ProjectWorkspaceIpc";
@@ -31,28 +33,33 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
     } as unknown as ElectronIpc["Service"]);
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      live({
-        projects: {} as DesktopProjectWorkspacePort,
-        threadTitles: CodexThreadTitlePersistence.of({
-          set: () => Effect.die("unused"),
-          setRequired: () => Effect.die("unused"),
-        }),
-        conversationCommands: ConversationCommands.of({
-          archive: () => Effect.die("unused"),
-          unarchive: () => Effect.die("unused"),
-          setMemoryMode: () => Effect.die("unused"),
-          startReview: () => Effect.die("unused"),
-          uploadFeedback: () => Effect.die("unused"),
-          listBackgroundTerminalsPage: () => Effect.die("unused"),
-          listBackgroundTerminals: () => Effect.die("unused"),
-          terminateBackgroundTerminal: () => Effect.die("unused"),
-          interrupt: () => Effect.die("unused"),
-          cleanBackgroundTerminals: () => Effect.die("unused"),
-          cleanBackgroundTerminalsSilently: () => Effect.die("unused"),
-        }),
-      }).pipe(
+      live.pipe(
         Layer.provide(
           Layer.mergeAll(
+            Layer.succeed(ProjectWorkspace, ProjectWorkspace.of({} as ProjectWorkspaceService)),
+            Layer.succeed(
+              CodexThreadTitlePersistence,
+              CodexThreadTitlePersistence.of({
+                set: () => Effect.die("unused"),
+                setRequired: () => Effect.die("unused"),
+              }),
+            ),
+            Layer.succeed(
+              ConversationCommands,
+              ConversationCommands.of({
+                archive: () => Effect.die("unused"),
+                unarchive: () => Effect.die("unused"),
+                setMemoryMode: () => Effect.die("unused"),
+                startReview: () => Effect.die("unused"),
+                uploadFeedback: () => Effect.die("unused"),
+                listBackgroundTerminalsPage: () => Effect.die("unused"),
+                listBackgroundTerminals: () => Effect.die("unused"),
+                terminateBackgroundTerminal: () => Effect.die("unused"),
+                interrupt: () => Effect.die("unused"),
+                cleanBackgroundTerminals: () => Effect.die("unused"),
+                cleanBackgroundTerminalsSilently: () => Effect.die("unused"),
+              }),
+            ),
             Layer.succeed(ElectronIpc, ipc),
             Layer.succeed(
               CodexProjectSessionFork,
@@ -67,7 +74,6 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
               ProjectLifecycleCommands,
               ProjectLifecycleCommands.of({ setLifecycle: () => Effect.die("unused") }),
             ),
-            scopedCallbackRuntimeLive,
             Layer.succeed(ElectronDesktop, { dialog: {} } as unknown as ElectronDesktop["Service"]),
             Layer.succeed(WindowRuntime, {
               has: () => true,

@@ -7,7 +7,7 @@ import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
-import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
+import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
@@ -150,69 +150,61 @@ const makeWithOperations = (
     return CodexThreadReadState.of({ set, persistProjected });
   });
 
-export type CodexThreadReadStateWorkspace = Pick<
-  DesktopProjectWorkspacePort,
-  "getThread" | "setThreadUnread"
->;
-
 /** Final construction path: durable Workspace + canonical aggregate + application projection. */
-export const make = (
-  workspace: CodexThreadReadStateWorkspace,
-): Effect.Effect<
+export const make: Effect.Effect<
   CodexThreadReadState["Service"],
   never,
   | CodexApplicationEventHub
   | CodexRendererConversationRegistry
   | ConversationRuntimeMap
+  | ProjectWorkspace
   | Scope.Scope
-> =>
-  Effect.gen(function* () {
-    const conversations = yield* ConversationRuntimeMap;
-    const events = yield* CodexApplicationEventHub;
-    const rendererConversations = yield* CodexRendererConversationRegistry;
-    const readState = yield* makeWithOperations({
-      inspect: (threadId) =>
-        Effect.tryPromise({
-          try: () => workspace.getThread(threadId),
-          catch: (cause) => new CodexThreadReadStateError({ operation: "inspect", cause }),
-        }).pipe(
-          Effect.map((thread) => {
-            const aggregate = conversations.currentConversation(threadId);
-            const accepted = aggregate?.read().acceptedReplica?.conversation ?? null;
-            return {
-              exists: aggregate !== null || thread !== null,
-              archived: Boolean(thread?.archived || accepted?.archived),
-              conversationHasUnreadTurn: aggregate?.readHasUnreadTurn() ?? null,
-              workspaceHasUnreadTurn: thread?.hasUnreadTurn ?? null,
-            };
-          }),
-        ),
-      persist: ({ threadId, hasUnreadTurn }) =>
-        Effect.tryPromise({
-          try: () => workspace.setThreadUnread(threadId, hasUnreadTurn),
-          catch: (cause) => new CodexThreadReadStateError({ operation: "persist", cause }),
-        }).pipe(Effect.map((thread) => thread !== null)),
-      project: ({ threadId, hasUnreadTurn }) =>
-        Effect.sync(() => {
-          conversations
-            .currentConversation(threadId)
-            ?.setHasUnreadTurn(hasUnreadTurn, !rendererConversations.hasOwner(threadId));
-          events.publish({
-            kind: "hostMessage",
-            value: {
-              type: "threadReadStateChanged",
-              hostId: DEFAULT_CODEX_HOST_ID,
-              conversationId: threadId,
-              hasUnreadTurn,
-            },
-          });
+> = Effect.gen(function* () {
+  const conversations = yield* ConversationRuntimeMap;
+  const events = yield* CodexApplicationEventHub;
+  const rendererConversations = yield* CodexRendererConversationRegistry;
+  const workspace = yield* ProjectWorkspace;
+  const readState = yield* makeWithOperations({
+    inspect: (threadId) =>
+      workspace.getThread(threadId).pipe(
+        Effect.mapError((cause) => new CodexThreadReadStateError({ operation: "inspect", cause })),
+        Effect.map((thread) => {
+          const aggregate = conversations.currentConversation(threadId);
+          const accepted = aggregate?.read().acceptedReplica?.conversation ?? null;
+          return {
+            exists: aggregate !== null || thread !== null,
+            archived: Boolean(thread?.archived || accepted?.archived),
+            conversationHasUnreadTurn: aggregate?.readHasUnreadTurn() ?? null,
+            workspaceHasUnreadTurn: thread?.hasUnreadTurn ?? null,
+          };
         }),
-    });
-    yield* events.events.pipe(
-      Stream.filter((event) => event.kind === "conversationReadStateCommitted"),
-      Stream.mapEffect((event) => readState.persistProjected(event.value)),
-      Stream.runDrain,
-      Effect.forkScoped({ startImmediately: true }),
-    );
-    return readState;
+      ),
+    persist: ({ threadId, hasUnreadTurn }) =>
+      workspace.setThreadUnread(threadId, hasUnreadTurn).pipe(
+        Effect.mapError((cause) => new CodexThreadReadStateError({ operation: "persist", cause })),
+        Effect.map((thread) => thread !== null),
+      ),
+    project: ({ threadId, hasUnreadTurn }) =>
+      Effect.sync(() => {
+        conversations
+          .currentConversation(threadId)
+          ?.setHasUnreadTurn(hasUnreadTurn, !rendererConversations.hasOwner(threadId));
+        events.publish({
+          kind: "hostMessage",
+          value: {
+            type: "threadReadStateChanged",
+            hostId: DEFAULT_CODEX_HOST_ID,
+            conversationId: threadId,
+            hasUnreadTurn,
+          },
+        });
+      }),
   });
+  yield* events.events.pipe(
+    Stream.filter((event) => event.kind === "conversationReadStateCommitted"),
+    Stream.mapEffect((event) => readState.persistProjected(event.value)),
+    Stream.runDrain,
+    Effect.forkScoped({ startImmediately: true }),
+  );
+  return readState;
+});

@@ -8,9 +8,9 @@ import {
   parseSessionDeepLink,
   parseViewDeepLink,
 } from "../../shared/nodex-deeplink";
-import type { DesktopProjectWorkspacePort } from "../core-client";
 import { safeSendToWindow } from "../ipc-safe-send";
 import { LibraryModule } from "../library-application/LibraryModule";
+import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import type { WindowRuntimeService } from "../window-runtime/WindowRuntime";
 
 interface DeepLinkState {
@@ -43,7 +43,6 @@ export class DeepLinkRuntimeError extends Schema.TaggedError<DeepLinkRuntimeErro
 
 export interface DeepLinkRuntimeOptions {
   readonly focusWindow: () => void;
-  readonly projectWorkspace: Pick<DesktopProjectWorkspacePort, "getProjectSession">;
   readonly windows: WindowRuntimeService;
 }
 
@@ -61,11 +60,12 @@ export class DeepLinkRuntime extends Context.Service<
 
 export const live = (
   options: DeepLinkRuntimeOptions,
-): Layer.Layer<DeepLinkRuntime, never, LibraryModule> =>
+): Layer.Layer<DeepLinkRuntime, never, LibraryModule | ProjectWorkspace> =>
   Layer.effect(
     DeepLinkRuntime,
     Effect.gen(function* () {
       const library = yield* LibraryModule;
+      const workspace = yield* ProjectWorkspace;
       const state = yield* Ref.make(initialState);
 
       const flush = Effect.gen(function* () {
@@ -132,10 +132,13 @@ export const live = (
         const snapshot = yield* Ref.get(state);
         if (!snapshot.ready || !snapshot.sessionId) return yield* flush;
         const sessionId = snapshot.sessionId;
-        const session = yield* Effect.tryPromise({
-          try: () => options.projectWorkspace.getProjectSession(sessionId),
-          catch: (cause) => new DeepLinkRuntimeError({ operation: "resolve-session", cause }),
-        });
+        const session = yield* workspace
+          .getProjectSession(sessionId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new DeepLinkRuntimeError({ operation: "resolve-session", cause }),
+            ),
+          );
         yield* Ref.update(state, (current) =>
           current.sessionId !== sessionId
             ? current

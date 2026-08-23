@@ -15,10 +15,11 @@ import {
   normalizeWorktreePathForIdentity,
   resolveWorktreePathComparisonKey,
 } from "../codex/codex-managed-worktree-effects";
-import type {
-  DesktopProjectWorkspacePort,
-  DesktopProjectWorkspaceThread,
-} from "../core-client/project-workspace-adapter";
+import {
+  ProjectWorkspace,
+  type DesktopProjectWorkspaceThread,
+  type ProjectWorkspaceError,
+} from "../project-application/ProjectWorkspace";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { buildWorkspaceThreadSummary } from "./CodexThreadCatalogProjection";
 import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
@@ -38,7 +39,6 @@ export class ManagedWorktreeCatalogError extends Data.TaggedError("ManagedWorktr
 }> {}
 
 export interface ManagedWorktreeCatalogOptions {
-  readonly projectWorkspace: DesktopProjectWorkspacePort;
   readonly defaultManagedRoot: string;
   readonly projectThread: (thread: DesktopProjectWorkspaceThread) => void;
 }
@@ -87,6 +87,7 @@ export const make = (
   | CodexApplicationEventHub
   | ExecutionHostRuntime
   | ManagedWorktreeConfiguration
+  | ProjectWorkspace
   | ManagedWorktreeRetentionRuntime
   | ManagedWorktreeRuntime
   | Scope.Scope
@@ -97,6 +98,7 @@ export const make = (
     const configuration = yield* ManagedWorktreeConfiguration;
     const managed = yield* ManagedWorktreeRuntime;
     const retention = yield* ManagedWorktreeRetentionRuntime;
+    const workspace = yield* ProjectWorkspace;
     const ownerScope = yield* Scope.Scope;
 
     const fail = (
@@ -111,24 +113,25 @@ export const make = (
       );
     const project = <A>(
       operation: ManagedWorktreeCatalogError["operation"],
-      run: () => Promise<A>,
+      effect: Effect.Effect<A, ProjectWorkspaceError>,
     ): Effect.Effect<A, ManagedWorktreeCatalogError> =>
-      Effect.tryPromise({ try: run, catch: (cause) => fail(operation, cause) });
+      effect.pipe(Effect.mapError((cause) => fail(operation, cause)));
+    const resolvePath = (operation: ManagedWorktreeCatalogError["operation"], path: string) =>
+      Effect.tryPromise({
+        try: () => resolveWorktreePathComparisonKey(path),
+        catch: (cause) => fail(operation, cause),
+      });
     const resolveThreadContext = (
       threadId: string,
       operation: "inspect-thread" | "restore-thread",
     ): Effect.Effect<ManagedThreadContext | null, ManagedWorktreeCatalogError> =>
       Effect.gen(function* () {
-        const thread = yield* project(operation, () =>
-          options.projectWorkspace.getThread(threadId),
-        );
+        const thread = yield* project(operation, workspace.getThread(threadId));
         const worktreeGitRoot = thread?.managedWorktreePath?.trim();
         const cwd = thread?.cwd?.trim();
         if (!thread || !worktreeGitRoot || !cwd) return null;
 
-        const lifecycle = yield* project(operation, () =>
-          options.projectWorkspace.readManagedWorktreeLifecycleSnapshot(),
-        );
+        const lifecycle = yield* project(operation, workspace.readManagedWorktreeLifecycleSnapshot);
         const candidates = new Set(
           lifecycle.projects
             .filter((project) => project.projectId === thread.projectId)
@@ -174,8 +177,8 @@ export const make = (
                 ),
               { concurrency: "unbounded" },
             ),
-            project("list", () => options.projectWorkspace.readManagedWorktreeLifecycleSnapshot()),
-            project("list", () => options.projectWorkspace.listProjects()),
+            project("list", workspace.readManagedWorktreeLifecycleSnapshot),
+            project("list", workspace.listProjects),
           ] as const,
           { concurrency: "unbounded" },
         );
@@ -185,7 +188,7 @@ export const make = (
         const permanentRoots = new Set(
           (yield* Effect.forEach(
             lifecycle.projects.flatMap((entry) => entry.sourceRoots),
-            (root) => project("list", () => resolveWorktreePathComparisonKey(root)),
+            (root) => resolvePath("list", root),
             { concurrency: "unbounded" },
           )).map((root) => `${CODEX_APP_LOCAL_HOST_ID}\0${root}`),
         );
@@ -207,9 +210,7 @@ export const make = (
           }): Effect.Effect<ManagedWorktreeRecord | null, ManagedWorktreeCatalogError> =>
             Effect.gen(function* () {
               const normalizedPath = normalizeWorktreePathForIdentity(entry.worktreeGitRoot);
-              const comparisonKey = yield* project("list", () =>
-                resolveWorktreePathComparisonKey(entry.worktreeGitRoot),
-              );
+              const comparisonKey = yield* resolvePath("list", entry.worktreeGitRoot);
               if (permanentRoots.has(`${hostId}\0${comparisonKey}`)) return null;
               const consumers = consumersByPath.get(`${hostId}\0${normalizedPath}`) ?? [];
               const conversations = yield* Effect.forEach(
@@ -217,11 +218,9 @@ export const make = (
                 (consumer) =>
                   Effect.all(
                     [
-                      project("list", () => options.projectWorkspace.getThread(consumer.threadId)),
+                      project("list", workspace.getThread(consumer.threadId)),
                       consumer.sessionId
-                        ? project("list", () =>
-                            options.projectWorkspace.getProjectSession(consumer.sessionId!),
-                          )
+                        ? project("list", workspace.getProjectSession(consumer.sessionId))
                         : Effect.succeed(null),
                     ] as const,
                     { concurrency: "unbounded" },
@@ -328,8 +327,9 @@ export const make = (
                 }),
               );
             }
-            const persisted = yield* project("restore-thread", () =>
-              options.projectWorkspace.getThread(context.threadId),
+            const persisted = yield* project(
+              "restore-thread",
+              workspace.getThread(context.threadId),
             );
             if (persisted) {
               events.publish({
@@ -346,8 +346,9 @@ export const make = (
       delete: (hostId, worktreePath) =>
         runOwned(
           Effect.gen(function* () {
-            const lifecycle = yield* project("delete", () =>
-              options.projectWorkspace.readManagedWorktreeLifecycleSnapshot(),
+            const lifecycle = yield* project(
+              "delete",
+              workspace.readManagedWorktreeLifecycleSnapshot,
             );
             const normalizedPath = normalizeWorktreePathForIdentity(worktreePath);
             const consumers = lifecycle.consumers.filter(
@@ -356,8 +357,9 @@ export const make = (
                 normalizeWorktreePathForIdentity(consumer.managedWorktreePath) === normalizedPath,
             );
             for (const consumer of consumers) {
-              const sidebar = yield* project("delete", () =>
-                options.projectWorkspace.setThreadArchived(consumer.threadId, true),
+              const sidebar = yield* project(
+                "delete",
+                workspace.setThreadArchived(consumer.threadId, true),
               );
               for (const thread of sidebar.threads) options.projectThread(thread);
             }

@@ -4,10 +4,11 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type { ManagedWorktreeSettings, Project, ProjectSession } from "../../shared/types";
-import type {
-  DesktopProjectWorkspacePort,
-  DesktopProjectWorkspaceThread,
-} from "../core-client/project-workspace-adapter";
+import {
+  ProjectWorkspace,
+  type DesktopProjectWorkspaceThread,
+  type ProjectWorkspaceService,
+} from "../project-application/ProjectWorkspace";
 import { CodexApplicationEventHub, type CodexApplicationEvent } from "./CodexApplicationEventHub";
 import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
@@ -54,19 +55,19 @@ const makeThread = (
 });
 
 const makeProjectWorkspace = (
-  overrides: Partial<DesktopProjectWorkspacePort> = {},
-): DesktopProjectWorkspacePort =>
+  overrides: Partial<ProjectWorkspaceService> = {},
+): ProjectWorkspaceService =>
   ({
-    getThread: async () => null,
-    getProjectSession: async () => null,
-    listProjects: async () => [],
-    readManagedWorktreeLifecycleSnapshot: async () => ({
+    getThread: () => Effect.succeed(null),
+    getProjectSession: () => Effect.succeed(null),
+    listProjects: Effect.succeed([]),
+    readManagedWorktreeLifecycleSnapshot: Effect.succeed({
       projectionRevision: 1,
       consumers: [],
       projects: [],
     }),
     ...overrides,
-  }) as DesktopProjectWorkspacePort;
+  }) as ProjectWorkspaceService;
 
 const makeExecutionHosts = (
   updateManagedRoot: (hostId: string, managedRoot: string) => void = () => undefined,
@@ -95,7 +96,7 @@ const makeManaged = (
 
 const makeCatalog = (
   scope: Scope.Scope,
-  projectWorkspace: DesktopProjectWorkspacePort,
+  projectWorkspace: ProjectWorkspaceService,
   managed: ManagedWorktreeRuntime["Service"],
   options: {
     readonly executionHosts?: ExecutionHostRuntime["Service"];
@@ -118,7 +119,6 @@ const makeCatalog = (
     update: () => defaultSettings,
   };
   return make({
-    projectWorkspace,
     defaultManagedRoot: "/managed",
     projectThread: options.projectThread ?? (() => undefined),
   }).pipe(
@@ -147,6 +147,7 @@ const makeCatalog = (
         }),
     ),
     Effect.provideService(ManagedWorktreeRuntime, managed),
+    Effect.provideService(ProjectWorkspace, ProjectWorkspace.of(projectWorkspace)),
     Effect.provideService(Scope.Scope, scope),
   );
 };
@@ -208,10 +209,10 @@ it.effect("owns product inventory, inspection, restoration, and projection publi
       ],
     ]);
     const projectWorkspace = makeProjectWorkspace({
-      getThread: async (threadId) => threads.get(threadId) ?? null,
-      getProjectSession: async (sessionId) => sessions.get(sessionId) ?? null,
-      listProjects: async () => [{ id: "project-one", name: "Repository" } as Project],
-      readManagedWorktreeLifecycleSnapshot: async () => ({
+      getThread: (threadId) => Effect.succeed(threads.get(threadId) ?? null),
+      getProjectSession: (sessionId) => Effect.succeed(sessions.get(sessionId) ?? null),
+      listProjects: Effect.succeed([{ id: "project-one", name: "Repository" } as Project]),
+      readManagedWorktreeLifecycleSnapshot: Effect.succeed({
         projectionRevision: 7,
         consumers: [
           {
@@ -379,11 +380,12 @@ it.effect("keeps inspection total while preserving restoration failures", () =>
     let threadReads = 0;
     const thread = makeThread();
     const projectWorkspace = makeProjectWorkspace({
-      getThread: async (threadId) => {
-        threadReads += 1;
-        return threadId === thread.threadId ? thread : null;
-      },
-      readManagedWorktreeLifecycleSnapshot: async () => ({
+      getThread: (threadId) =>
+        Effect.sync(() => {
+          threadReads += 1;
+          return threadId === thread.threadId ? thread : null;
+        }),
+      readManagedWorktreeLifecycleSnapshot: Effect.succeed({
         projectionRevision: 1,
         consumers: [],
         projects: [
@@ -436,7 +438,7 @@ it.effect("commits settings side effects and archives every consumer before dele
       autoDeleteLimit: 15,
     };
     const projectWorkspace = makeProjectWorkspace({
-      readManagedWorktreeLifecycleSnapshot: async () => ({
+      readManagedWorktreeLifecycleSnapshot: Effect.succeed({
         projectionRevision: 1,
         consumers: ["thread-one", "thread-two"].map((threadId, index) => ({
           threadId,
@@ -456,12 +458,13 @@ it.effect("commits settings side effects and archives every consumer before dele
         })),
         projects: [],
       }),
-      setThreadArchived: async (threadId, archived) => {
-        calls.push(`archive:${threadId}:${archived}`);
-        return {
-          threads: [makeThread({ threadId, archived })],
-        };
-      },
+      setThreadArchived: (threadId, archived) =>
+        Effect.sync(() => {
+          calls.push(`archive:${threadId}:${archived}`);
+          return {
+            threads: [makeThread({ threadId, archived })],
+          };
+        }),
     });
     const managed = makeManaged({
       remove: (input) =>

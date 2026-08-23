@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { mkdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import type { Project, ProjectCreateInput } from "../shared/types";
 import { getLogger } from "./logging/logger";
 
@@ -8,15 +10,28 @@ const DEFAULT_PROJECT_NAME = "New project";
 const WINDOWS_RESERVED_FILE_NAME = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
 const logger = getLogger({ subsystem: "default-project-source" });
 
-type CreateProject = (input: ProjectCreateInput) => Promise<Project>;
+type CreateProject<Error, Requirements> = (
+  input: ProjectCreateInput,
+) => Effect.Effect<Project, Error, Requirements>;
 
-interface CreateProjectWithDefaultSourceOptions {
+interface CreateProjectWithDefaultSourceOptions<Error, Requirements> {
   projectsDirectory: string;
-  createProject: CreateProject;
-  createDirectory?: (path: string) => Promise<void>;
-  pathExists?: (path: string) => Promise<boolean>;
-  initializeRepository?: (path: string) => Promise<void>;
+  createProject: CreateProject<Error, Requirements>;
+  createDirectory?: (path: string) => Effect.Effect<void, Error, Requirements>;
+  pathExists?: (path: string) => Effect.Effect<boolean, Error, Requirements>;
+  initializeRepository?: (path: string) => Effect.Effect<void, Error, Requirements>;
 }
+
+export class DefaultProjectSourceError extends Schema.TaggedError<DefaultProjectSourceError>()(
+  "DefaultProjectSourceError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
+const attempt = <A, Error, Requirements>(
+  operation: string,
+  effect: Effect.Effect<A, Error, Requirements>,
+): Effect.Effect<A, DefaultProjectSourceError, Requirements> =>
+  effect.pipe(Effect.mapError((cause) => new DefaultProjectSourceError({ operation, cause })));
 
 function runGit(args: string[], cwd: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -40,23 +55,19 @@ function runGit(args: string[], cwd: string): Promise<void> {
   });
 }
 
-async function defaultPathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
+const defaultPathExists = (path: string): Effect.Effect<boolean> =>
+  Effect.tryPromise(() => stat(path)).pipe(
+    Effect.as(true),
+    Effect.catch(() => Effect.succeed(false)),
+  );
 
-async function defaultCreateDirectory(path: string): Promise<void> {
-  await mkdir(path, { recursive: true });
-}
+const defaultCreateDirectory = (path: string): Effect.Effect<void, unknown> =>
+  Effect.tryPromise(() => mkdir(path, { recursive: true })).pipe(Effect.asVoid);
 
-async function defaultInitializeRepository(path: string): Promise<void> {
-  await runGit(["--version"], path);
-  await runGit(["init"], path);
-}
+const defaultInitializeRepository = (path: string): Effect.Effect<void, unknown> =>
+  Effect.tryPromise(() => runGit(["--version"], path)).pipe(
+    Effect.andThen(Effect.tryPromise(() => runGit(["init"], path))),
+  );
 
 export function sanitizeDefaultProjectDirectoryName(name: string): string {
   const sanitized = Array.from(basename(name).trim(), (character) => {
@@ -71,47 +82,57 @@ export function sanitizeDefaultProjectDirectoryName(name: string): string {
   return sanitized;
 }
 
-export async function findAvailableDefaultProjectSource(
+export const findAvailableDefaultProjectSource = <Error, Requirements>(
   projectsDirectory: string,
   directoryName: string,
-  pathExists: (path: string) => Promise<boolean> = defaultPathExists,
-): Promise<string> {
-  let suffix: number | null = null;
-  while (true) {
-    const candidateName = suffix === null ? directoryName : `${directoryName} ${suffix}`;
-    const candidate = join(projectsDirectory, candidateName);
-    if (!(await pathExists(candidate))) return candidate;
-    suffix = suffix === null ? 2 : suffix + 1;
-  }
-}
-
-export async function createProjectWithDefaultSource(
-  input: ProjectCreateInput,
-  options: CreateProjectWithDefaultSourceOptions,
-): Promise<Project> {
-  if ((input.sources?.length ?? 0) > 0) {
-    return await options.createProject(input);
-  }
-
-  const directoryName = sanitizeDefaultProjectDirectoryName(input.name ?? "");
-  const source = await findAvailableDefaultProjectSource(
-    options.projectsDirectory,
-    directoryName,
-    options.pathExists,
-  );
-  await (options.createDirectory ?? defaultCreateDirectory)(source);
-
-  try {
-    await (options.initializeRepository ?? defaultInitializeRepository)(source);
-  } catch (error) {
-    logger.warn("Failed to initialize default Project source as a Git repository", {
-      error,
-      source,
-    });
-  }
-
-  return await options.createProject({
-    ...input,
-    sources: [source],
+  pathExists: (path: string) => Effect.Effect<boolean, Error, Requirements> = defaultPathExists,
+): Effect.Effect<string, DefaultProjectSourceError, Requirements> =>
+  Effect.gen(function* () {
+    let suffix: number | null = null;
+    while (true) {
+      const candidateName = suffix === null ? directoryName : `${directoryName} ${suffix}`;
+      const candidate = join(projectsDirectory, candidateName);
+      if (!(yield* attempt("path-exists", pathExists(candidate)))) return candidate;
+      suffix = suffix === null ? 2 : suffix + 1;
+    }
   });
-}
+
+export const createProjectWithDefaultSource = <Error, Requirements>(
+  input: ProjectCreateInput,
+  options: CreateProjectWithDefaultSourceOptions<Error, Requirements>,
+): Effect.Effect<Project, DefaultProjectSourceError, Requirements> =>
+  Effect.gen(function* () {
+    if ((input.sources?.length ?? 0) > 0) {
+      return yield* attempt("create-project", options.createProject(input));
+    }
+
+    const directoryName = sanitizeDefaultProjectDirectoryName(input.name ?? "");
+    const source = yield* findAvailableDefaultProjectSource(
+      options.projectsDirectory,
+      directoryName,
+      options.pathExists,
+    );
+    yield* attempt("create-directory", (options.createDirectory ?? defaultCreateDirectory)(source));
+
+    yield* attempt(
+      "initialize-repository",
+      (options.initializeRepository ?? defaultInitializeRepository)(source),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() =>
+          logger.warn("Failed to initialize default Project source as a Git repository", {
+            error,
+            source,
+          }),
+        ),
+      ),
+    );
+
+    return yield* attempt(
+      "create-project",
+      options.createProject({
+        ...input,
+        sources: [source],
+      }),
+    );
+  });

@@ -4,6 +4,10 @@ import * as Layer from "effect/Layer";
 import { assert, it } from "@effect/vitest";
 import type { BrowserWindow } from "electron";
 import { LibraryModule } from "../library-application/LibraryModule";
+import {
+  ProjectWorkspace,
+  type ProjectWorkspaceService,
+} from "../project-application/ProjectWorkspace";
 import type { WindowRuntimeService } from "../window-runtime/WindowRuntime";
 import { DeepLinkRuntime, live } from "./DeepLinkRuntime";
 
@@ -34,14 +38,24 @@ it.effect("keeps the newest queued targets behind readiness and flushes resolved
     const context = yield* Layer.build(
       live({
         focusWindow: () => undefined,
-        projectWorkspace: {
-          getProjectSession: async (sessionId: string) => ({
-            id: sessionId,
-            projectId: "project-1",
-          }),
-        } as never,
         windows,
-      }).pipe(Layer.provide(Layer.succeed(LibraryModule, library))),
+      }).pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(LibraryModule, library),
+            Layer.succeed(
+              ProjectWorkspace,
+              ProjectWorkspace.of({
+                getProjectSession: (sessionId: string) =>
+                  Effect.succeed({
+                    id: sessionId,
+                    projectId: "project-1",
+                  }),
+              } as unknown as ProjectWorkspaceService),
+            ),
+          ),
+        ),
+      ),
     );
     const runtime = Context.get(context, DeepLinkRuntime);
     assert.isTrue(yield* runtime.handle("nodex://pages/old"));

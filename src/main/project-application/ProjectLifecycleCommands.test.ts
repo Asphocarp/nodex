@@ -9,6 +9,7 @@ import { live as projectRuntimeLifecycleLive } from "../host-runtime/ProjectRunt
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import { ProjectArchiveBlockers } from "./ProjectArchiveBlockers";
 import { ProjectLifecycleCommands, live } from "./ProjectLifecycleCommands";
+import { ProjectWorkspace, type ProjectWorkspaceService } from "./ProjectWorkspace";
 
 const makeProject = (lifecycle: Project["lifecycle"] = "active"): Project => ({
   id: "project-1",
@@ -44,6 +45,7 @@ const session = (): ProjectSessionSummary => ({
     projectId: "project-1",
     threadId: "thread-1",
     threadPreview: "",
+    modelProvider: "openai",
     executionHostId: "local",
     statusType: "idle",
     statusActiveFlags: [],
@@ -59,25 +61,27 @@ const session = (): ProjectSessionSummary => ({
 const testRuntime = (blockers: readonly (readonly ProjectArchiveBlocker[])[]) => {
   let project = makeProject();
   let blockerRead = 0;
-  const setProjectLifecycle = vi.fn(async (_projectId: string, lifecycle: Project["lifecycle"]) => {
-    project = { ...project, lifecycle, bindingRevision: project.bindingRevision + 1 };
-    return project;
-  });
+  const setProjectLifecycle = vi.fn((_projectId: string, lifecycle: Project["lifecycle"]) =>
+    Effect.sync(() => {
+      project = { ...project, lifecycle, bindingRevision: project.bindingRevision + 1 };
+      return project;
+    }),
+  );
   const closeBrowserConversation = vi.fn();
   const closeBrowserProject = vi.fn(() => Effect.void);
   const discardExitedSessionsForOwners = vi.fn(() => Effect.succeed<readonly string[]>([]));
-  const lifecycleLayer = live({
-    projectWorkspace: {
-      getProject: async () => project,
-      listProjectSessionSummaryWindow: async () => ({
+  const workspace = ProjectWorkspace.of({
+    getProject: () => Effect.succeed(project),
+    listProjectSessionSummaryWindow: () =>
+      Effect.succeed({
         items: [session()],
         nextCursor: null,
         hasMore: false,
         projectionRevision: 1,
       }),
-      setProjectLifecycle,
-    },
-  }).pipe(
+    setProjectLifecycle,
+  } as unknown as ProjectWorkspaceService);
+  const lifecycleLayer = live.pipe(
     Layer.provide(
       Layer.mergeAll(
         Layer.succeed(
@@ -94,6 +98,7 @@ const testRuntime = (blockers: readonly (readonly ProjectArchiveBlocker[])[]) =>
           }),
         ),
         projectRuntimeLifecycleLive,
+        Layer.succeed(ProjectWorkspace, workspace),
         Layer.succeed(
           TerminalSessions,
           TerminalSessions.of({

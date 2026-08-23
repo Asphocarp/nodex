@@ -21,7 +21,7 @@ import {
   type CodexManagedWorktreeRetentionPlan,
   type CodexManagedWorktreeRetentionPathProtection,
 } from "../codex/codex-managed-worktree-retention";
-import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
+import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
@@ -37,7 +37,6 @@ export class ManagedWorktreeRetentionRuntimeError extends Schema.TaggedError<Man
 
 export interface ManagedWorktreeRetentionRuntimeOptions {
   readonly debounce?: Duration.Input;
-  readonly projectWorkspace: DesktopProjectWorkspacePort;
   readonly isAutomationProtected: (
     threadId: string,
   ) => Effect.Effect<boolean, ManagedWorktreeRetentionRuntimeError>;
@@ -73,6 +72,7 @@ export const live = (
   | CodexPendingWorktreeRuntime
   | ExecutionHostRuntime
   | ManagedWorktreeConfiguration
+  | ProjectWorkspace
   | ManagedWorktreeRuntime
 > =>
   Layer.effect(
@@ -82,6 +82,7 @@ export const live = (
       const configuration = yield* ManagedWorktreeConfiguration;
       const managed = yield* ManagedWorktreeRuntime;
       const pending = yield* CodexPendingWorktreeRuntime;
+      const workspace = yield* ProjectWorkspace;
       const commands = yield* Queue.unbounded<RetentionCommand>();
       yield* Effect.addFinalizer(() => Queue.shutdown(commands).pipe(Effect.asVoid));
 
@@ -120,8 +121,8 @@ export const live = (
 
         const metadata = yield* Effect.all(
           [
-            fromPromise("read-lifecycle", () =>
-              options.projectWorkspace.readManagedWorktreeLifecycleSnapshot(),
+            workspace.readManagedWorktreeLifecycleSnapshot.pipe(
+              Effect.mapError((cause) => error("read-lifecycle", cause)),
             ),
             executionHosts.hosts("list").pipe(
               Effect.flatMap((hosts) =>

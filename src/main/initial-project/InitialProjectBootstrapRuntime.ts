@@ -14,10 +14,11 @@ import {
   type InitialProjectPresentation,
   renderInitialProjectWelcomePage,
 } from "../../shared/initial-project-welcome";
-import type {
-  DesktopInitialProjectCreateResult,
-  DesktopProjectWorkspacePort,
-} from "../core-client/project-workspace-adapter";
+import {
+  ProjectWorkspace,
+  type DesktopInitialProjectCreateResult,
+  type ProjectWorkspaceError,
+} from "../project-application/ProjectWorkspace";
 import {
   claimInitialProjectDirectory,
   createInitialProjectId,
@@ -46,7 +47,6 @@ export class InitialProjectPresentationError extends Schema.TaggedError<InitialP
 ) {}
 
 export interface InitialProjectBootstrapRuntimeOptions {
-  readonly projectWorkspace: DesktopProjectWorkspacePort;
   readonly projectsDirectory: string;
   readonly journalPath: string;
   readonly createId?: () => string;
@@ -74,6 +74,7 @@ const fromPromise = <A>(operation: string, evaluate: () => Promise<A>) =>
 
 const make = (options: InitialProjectBootstrapRuntimeOptions) =>
   Effect.gen(function* () {
+    const workspace = yield* ProjectWorkspace;
     const journal = new InitialProjectRecoveryJournal({ filePath: options.journalPath });
     const createId = options.createId ?? createInitialProjectId;
     const admission = yield* Semaphore.make(1);
@@ -91,6 +92,8 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
       fromPromise("journal.save", () => journal.save(attempt));
 
     const clearJournal = fromPromise("journal.clear", () => journal.clear());
+    const project = <A>(operation: string, effect: Effect.Effect<A, ProjectWorkspaceError>) =>
+      effect.pipe(Effect.mapError((cause) => runtimeError(operation, cause)));
 
     const createAttempt = (
       sourceRoot: string,
@@ -156,8 +159,9 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
 
     const createInitialProject = Effect.fn("InitialProjectBootstrapRuntime.createInitialProject")(
       function* (attempt: InitialProjectJournal) {
-        return yield* fromPromise("project.create", () =>
-          options.projectWorkspace.createInitialProject({
+        return yield* project(
+          "project.create",
+          workspace.createInitialProject({
             operationId: attempt.operationId,
             projectId: attempt.payload.projectId,
             name: attempt.payload.name,
@@ -269,8 +273,9 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
         presentation: InitialProjectPresentation,
       ) => Effect.Effect<void, InitialProjectPresentationError>,
     ) {
-      const ownProject = yield* fromPromise("project.read", () =>
-        options.projectWorkspace.getProject(attempt.payload.projectId),
+      const ownProject = yield* project(
+        "project.read",
+        workspace.getProject(attempt.payload.projectId),
       );
       if (!ownProject) {
         yield* cleanupAttempt(attempt);
@@ -294,13 +299,15 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
       const created = yield* createInitialProject(attempt).pipe(
         Effect.catch((initialError) =>
           Effect.gen(function* () {
-            const ownProject = yield* fromPromise("project.read", () =>
-              options.projectWorkspace.getProject(attempt.payload.projectId),
+            const ownProject = yield* project(
+              "project.read",
+              workspace.getProject(attempt.payload.projectId),
             );
             if (ownProject) return yield* createInitialProject(attempt);
 
-            const bootstrap = yield* fromPromise("project.read-bootstrap", () =>
-              options.projectWorkspace.readProjectBootstrap(),
+            const bootstrap = yield* project(
+              "project.read-bootstrap",
+              workspace.readProjectBootstrap,
             );
             if (bootstrap.status !== "ready") return yield* initialError;
             yield* cleanupAttempt(attempt);
@@ -329,9 +336,7 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
       ) => Effect.Effect<void, InitialProjectPresentationError>,
     ) {
       yield* ensureOpen;
-      const bootstrap = yield* fromPromise("project.read-bootstrap", () =>
-        options.projectWorkspace.readProjectBootstrap(),
-      );
+      const bootstrap = yield* project("project.read-bootstrap", workspace.readProjectBootstrap);
       const quarantineTimestamp = yield* Clock.currentTimeMillis;
       let attempt = yield* fromPromise("journal.load", () => journal.load(quarantineTimestamp));
 
@@ -368,5 +373,5 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
 
 export const live = (
   options: InitialProjectBootstrapRuntimeOptions,
-): Layer.Layer<InitialProjectBootstrapRuntime> =>
+): Layer.Layer<InitialProjectBootstrapRuntime, never, ProjectWorkspace> =>
   Layer.effect(InitialProjectBootstrapRuntime, make(options));

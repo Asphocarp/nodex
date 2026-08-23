@@ -7,7 +7,11 @@ import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
-import type { DesktopProjectWorkspaceThread } from "../core-client/project-workspace-adapter";
+import {
+  ProjectWorkspace,
+  type DesktopProjectWorkspaceThread,
+  type ProjectWorkspaceService,
+} from "../project-application/ProjectWorkspace";
 import { CodexApplicationEventHub, make as makeEventHub } from "./CodexApplicationEventHub";
 import {
   CodexRendererConversationRegistry,
@@ -20,7 +24,7 @@ import {
 } from "./ConversationRuntimeMap";
 
 const buildRuntime = Effect.fn("CodexThreadReadStateTest.buildRuntime")(function* (
-  workspace: Parameters<typeof make>[0],
+  workspace: ProjectWorkspaceService,
 ) {
   const scope = yield* Scope.make();
   const conversationsContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
@@ -29,10 +33,11 @@ const buildRuntime = Effect.fn("CodexThreadReadStateTest.buildRuntime")(function
   const rendererConversations = yield* makeCodexRendererConversationRegistry().pipe(
     Effect.provideService(Scope.Scope, scope),
   );
-  const readState = yield* make(workspace).pipe(
+  const readState = yield* make.pipe(
     Effect.provideService(CodexApplicationEventHub, events),
     Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
     Effect.provideService(ConversationRuntimeMap, conversations),
+    Effect.provideService(ProjectWorkspace, ProjectWorkspace.of(workspace)),
     Effect.provideService(Scope.Scope, scope),
   );
   return { scope, conversations, events, readState };
@@ -50,12 +55,12 @@ it.effect(
           hasUnreadTurn: workspaceUnread,
         }) as DesktopProjectWorkspaceThread;
       const runtime = yield* buildRuntime({
-        getThread: () => Promise.resolve(workspaceThread()),
-        setThreadUnread: (_threadId, hasUnreadTurn) => {
+        getThread: () => Effect.succeed(workspaceThread()),
+        setThreadUnread: (_threadId: string, hasUnreadTurn: boolean) => {
           workspaceUnread = hasUnreadTurn;
-          return Promise.resolve(workspaceThread());
+          return Effect.succeed(workspaceThread());
         },
-      });
+      } as unknown as ProjectWorkspaceService);
       const aggregate = runtime.conversations.conversation("thread-a");
       aggregate.seedHasUnreadTurn(true);
       const published = yield* Stream.runHead(runtime.events.events).pipe(
@@ -81,12 +86,12 @@ it.effect("persists reducer commits from the typed application event path", () =
   Effect.gen(function* () {
     const writes: boolean[] = [];
     const runtime = yield* buildRuntime({
-      getThread: () => Promise.resolve(null),
-      setThreadUnread: (_threadId, hasUnreadTurn) => {
+      getThread: () => Effect.succeed(null),
+      setThreadUnread: (_threadId: string, hasUnreadTurn: boolean) => {
         writes.push(hasUnreadTurn);
-        return Promise.resolve({ hasUnreadTurn } as DesktopProjectWorkspaceThread);
+        return Effect.succeed({ hasUnreadTurn } as DesktopProjectWorkspaceThread);
       },
-    });
+    } as unknown as ProjectWorkspaceService);
 
     runtime.events.publish({
       kind: "conversationReadStateCommitted",

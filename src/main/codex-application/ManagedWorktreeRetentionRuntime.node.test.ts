@@ -9,7 +9,10 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import type { ManagedWorktreeSettings } from "../../shared/types";
-import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
+import {
+  ProjectWorkspace,
+  type ProjectWorkspaceService,
+} from "../project-application/ProjectWorkspace";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
@@ -27,16 +30,16 @@ const disabledSettings: ManagedWorktreeSettings = {
 };
 
 const projectWorkspace = (
-  overrides: Partial<DesktopProjectWorkspacePort> = {},
-): DesktopProjectWorkspacePort =>
+  overrides: Partial<ProjectWorkspaceService> = {},
+): ProjectWorkspaceService =>
   ({
-    readManagedWorktreeLifecycleSnapshot: async () => ({
+    readManagedWorktreeLifecycleSnapshot: Effect.succeed({
       projectionRevision: 1,
       consumers: [],
       projects: [],
     }),
     ...overrides,
-  }) as DesktopProjectWorkspacePort;
+  }) as ProjectWorkspaceService;
 
 const executionHosts = (hostIds: readonly string[] = []): ExecutionHostRuntime["Service"] =>
   ({
@@ -79,7 +82,7 @@ const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void>
 const buildRuntime = (
   options: {
     readonly settings?: () => ManagedWorktreeSettings;
-    readonly projectWorkspace?: DesktopProjectWorkspacePort;
+    readonly projectWorkspace?: ProjectWorkspaceService;
     readonly executionHosts?: ExecutionHostRuntime["Service"];
     readonly managedWorktrees?: ManagedWorktreeRuntime["Service"];
     readonly pendingWorktrees?: CodexPendingWorktreeRuntime["Service"];
@@ -92,12 +95,15 @@ const buildRuntime = (
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
       managedWorktreeRetentionRuntimeLive({
-        projectWorkspace: options.projectWorkspace ?? projectWorkspace(),
         isAutomationProtected: options.isAutomationProtected ?? (() => Effect.succeed(false)),
       }).pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ExecutionHostRuntime, options.executionHosts ?? executionHosts()),
+            Layer.succeed(
+              ProjectWorkspace,
+              ProjectWorkspace.of(options.projectWorkspace ?? projectWorkspace()),
+            ),
             Layer.succeed(
               ManagedWorktreeConfiguration,
               ManagedWorktreeConfiguration.of({

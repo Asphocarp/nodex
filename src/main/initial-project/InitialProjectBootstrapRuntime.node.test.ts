@@ -14,8 +14,12 @@ import type { Project } from "../../shared/types";
 import type {
   DesktopInitialProjectCreateInput,
   DesktopInitialProjectCreateResult,
-  DesktopProjectWorkspacePort,
-} from "../core-client/project-workspace-adapter";
+} from "../project-application/ProjectWorkspace";
+import {
+  ProjectWorkspace,
+  ProjectWorkspaceError,
+  type ProjectWorkspaceService,
+} from "../project-application/ProjectWorkspace";
 import {
   InitialProjectPresentationError,
   InitialProjectBootstrapRuntime,
@@ -71,32 +75,37 @@ class FakeProjectWorkspace {
   } | null = null;
 
   readonly port = {
-    readProjectBootstrap: async () => ({ status: this.status }),
-    getProject: async (projectId: string) => (this.project?.id === projectId ? this.project : null),
-    createInitialProject: async (
+    readProjectBootstrap: Effect.sync(() => ({ status: this.status })),
+    getProject: (projectId: string) =>
+      Effect.sync(() => (this.project?.id === projectId ? this.project : null)),
+    createInitialProject: (
       input: DesktopInitialProjectCreateInput,
-    ): Promise<DesktopInitialProjectCreateResult> => {
-      this.createInputs.push(structuredClone(input));
-      this.creationBarrier?.started();
-      if (this.creationBarrier) await this.creationBarrier.wait;
-      if (this.competingWinner) {
-        this.status = "ready";
-        this.project = makeProject({
-          id: "project:competing-winner",
-          sourceRoot: "/workspace/competing-winner",
-        });
-        throw new Error("initial Project lost the catalog race");
-      }
-      if (!this.project) {
-        this.project = makeProject({
-          id: input.projectId,
-          sourceRoot: input.sources?.[0] ?? "",
-        });
-        this.status = "ready";
-      }
-      return { project: this.project };
-    },
-  } as unknown as DesktopProjectWorkspacePort;
+    ): Effect.Effect<DesktopInitialProjectCreateResult, ProjectWorkspaceError> =>
+      Effect.tryPromise({
+        try: async () => {
+          this.createInputs.push(structuredClone(input));
+          this.creationBarrier?.started();
+          if (this.creationBarrier) await this.creationBarrier.wait;
+          if (this.competingWinner) {
+            this.status = "ready";
+            this.project = makeProject({
+              id: "project:competing-winner",
+              sourceRoot: "/workspace/competing-winner",
+            });
+            throw new Error("initial Project lost the catalog race");
+          }
+          if (!this.project) {
+            this.project = makeProject({
+              id: input.projectId,
+              sourceRoot: input.sources?.[0] ?? "",
+            });
+            this.status = "ready";
+          }
+          return { project: this.project };
+        },
+        catch: (cause) => new ProjectWorkspaceError({ operation: "project.create", cause }),
+      }),
+  } as unknown as ProjectWorkspaceService;
 }
 
 function makeProject(input: { id: string; sourceRoot: string }): Project {
@@ -128,11 +137,12 @@ const runtimeLayer = (input: {
   readonly createId?: () => string;
 }) =>
   live({
-    projectWorkspace: input.workspace.port,
     projectsDirectory: join(input.root, "workspace"),
     journalPath: resolveInitialProjectJournalPath(join(input.root, ".nodex")),
     createId: input.createId,
-  });
+  }).pipe(
+    Layer.provide(Layer.succeed(ProjectWorkspace, ProjectWorkspace.of(input.workspace.port))),
+  );
 
 const getRuntime = (input: {
   readonly root: string;
