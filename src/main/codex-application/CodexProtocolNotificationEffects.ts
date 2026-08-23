@@ -50,6 +50,7 @@ import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRun
 import { CodexProtocolNotificationProjection } from "./CodexProtocolNotificationProjection";
 import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
+import { buildCodexCanonicalTurnSummary } from "./CodexConversationServerRequestProjection";
 import { parseThreadStatus } from "./CodexThreadCatalogProjection";
 import {
   CodexThreadDurableProjection,
@@ -468,6 +469,7 @@ export const make: Effect.Effect<
       return;
     }
 
+    const before = aggregate?.readCanonicalState() ?? null;
     const committed = aggregate?.commitProtocolNotification({
       notification,
       observedAtMs,
@@ -482,6 +484,23 @@ export const make: Effect.Effect<
       },
     });
     if (committed) yield* consumeReducerEffects(threadId, ownerRouted, committed.effects);
+    if (committed?.stateChanged && !ownerRouted) {
+      const after = aggregate?.readCanonicalState();
+      for (const [turnIndex, turn] of after?.turns.entries() ?? []) {
+        if (turn === before?.turns[turnIndex]) continue;
+        events.publish({
+          kind: "codex",
+          value: {
+            type: "turn",
+            turn: buildCodexCanonicalTurnSummary(
+              threadId,
+              turn,
+              turn.items.map((item) => item.id),
+            ),
+          },
+        });
+      }
+    }
 
     if (notification.method === "thread/status/changed") {
       const status = parseThreadStatus(notification.params.status);
