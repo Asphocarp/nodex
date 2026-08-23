@@ -21,6 +21,30 @@ import {
   LooseBlockSpec,
 } from "./types.js";
 
+export const NESTED_EDITOR_EVENT_BOUNDARY_ATTRIBUTE =
+  "data-bn-nested-editor-event-boundary";
+
+const NESTED_EDITOR_EVENT_BOUNDARY_SELECTOR =
+  `[${NESTED_EDITOR_EVENT_BOUNDARY_ATTRIBUTE}]`;
+
+/**
+ * Keeps events owned by an independently mounted editor or interactive scene
+ * from also being interpreted by the enclosing BlockNote NodeView.
+ */
+export function applyNestedEditorEventBoundary(nodeView: NodeView) {
+  const defaultStopEvent = nodeView.stopEvent?.bind(nodeView);
+
+  nodeView.stopEvent = (event) => {
+    const target = event.target;
+    if (target instanceof Element) {
+      const boundary = target.closest(NESTED_EDITOR_EVENT_BOUNDARY_SELECTOR);
+      if (boundary && nodeView.dom.contains(boundary)) return true;
+    }
+
+    return defaultStopEvent?.(event) ?? false;
+  };
+}
+
 // Function that causes events within non-selectable blocks to be handled by the
 // browser instead of the editor.
 export function applyNonSelectableBlockFix(nodeView: NodeView, editor: Editor) {
@@ -218,6 +242,8 @@ export function addNodeAndExtensionsToSpec<
           if (blockImplementation.meta?.selectable === false) {
             applyNonSelectableBlockFix(typedNodeView, this.editor);
           }
+
+          applyNestedEditorEventBoundary(typedNodeView);
 
           // See explanation for why `update` is not implemented for NodeViews
           // https://github.com/TypeCellOS/BlockNote/pull/1904#discussion_r2313461464

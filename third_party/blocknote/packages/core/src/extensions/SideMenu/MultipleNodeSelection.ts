@@ -86,4 +86,9 @@ export class MultipleNodeSelection extends Selection {
   }
 }
 
+// A structural node selection is presented by the selected nodes themselves,
+// not by the browser's text-range paint. This mirrors ProseMirror's
+// NodeSelection contract and keeps copy/drag semantics independent of visuals.
+MultipleNodeSelection.prototype.visible = false;
+
 Selection.jsonID("multiple-node", MultipleNodeSelection);

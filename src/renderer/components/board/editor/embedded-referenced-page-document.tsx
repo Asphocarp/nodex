@@ -5,6 +5,7 @@ import { CollaborativePageTitle } from "@/components/block-documents/collaborati
 import { OwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
 import type { BlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
 import type { DatabasePageSummary } from "@/lib/types";
+import { embeddedEditorSelectionContextAttributes } from "@/lib/editor-selection-presentation";
 import { useProjects } from "@/lib/use-projects";
 import { resolveReferencedProjectContext } from "@/lib/referenced-project-context";
 import {
@@ -73,6 +74,7 @@ export function EmbeddedReferencedPageDocument({
             {(surface) => (
               <div
                 data-embedded-page-document={card.id}
+                {...embeddedEditorSelectionContextAttributes}
                 className="min-w-0 py-1"
                 onBeforeInput={stopNestedEditorEvent}
                 onClick={stopNestedEditorEvent}
