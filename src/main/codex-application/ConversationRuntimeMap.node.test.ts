@@ -113,6 +113,12 @@ it.effect("owns read, resume, streaming, and cursor-fenced history sidecars", ()
     const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
     const conversations = Context.get(context, ConversationRuntimeMap);
     const aggregate = conversations.conversation("thread-a");
+    aggregate.installSnapshot({
+      threadId: "thread-a",
+      hasUnreadTurn: false,
+      resumeState: "resumed",
+      turns: [],
+    } as unknown as CodexConversationSnapshot);
     aggregate.seedHasUnreadTurn(true);
     aggregate.setResumeState("needs_resume");
     aggregate.setStreaming(true);
@@ -161,6 +167,56 @@ it.effect("owns read, resume, streaming, and cursor-fenced history sidecars", ()
     assert.isTrue(aggregate.isStreaming());
     assert.isTrue(aggregate.readTurnPagination().hasLoadedOldest);
     assert.strictEqual(aggregate.readTurnPagination().loadedTurnCount, 2);
+    assert.isTrue(aggregate.readSnapshot()?.hasUnreadTurn);
+    assert.strictEqual(aggregate.readSnapshot()?.resumeState, "needs_resume");
+    assert.isTrue(aggregate.readSnapshot()?.turnPagination?.hasLoadedOldest);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("owns coalesced delta buffers inside the Thread generation", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversations = Context.get(context, ConversationRuntimeMap);
+    const aggregate = conversations.conversation("thread-a");
+    aggregate.bufferFrameTextDelta({
+      conversationId: "thread-a",
+      turnId: "turn-a",
+      itemId: "item-a",
+      target: { type: "agentMessage" },
+      delta: "first",
+    });
+    aggregate.bufferFrameTextDelta({
+      conversationId: "thread-a",
+      turnId: "turn-a",
+      itemId: "item-a",
+      target: { type: "agentMessage" },
+      delta: "-second",
+    });
+    aggregate.bufferCommandOutputDelta(
+      {
+        conversationId: "thread-a",
+        turnId: "turn-a",
+        itemId: "command-a",
+        delta: "1234",
+      },
+      5,
+    );
+    aggregate.bufferCommandOutputDelta(
+      {
+        conversationId: "thread-a",
+        turnId: "turn-a",
+        itemId: "command-a",
+        delta: "567",
+      },
+      5,
+    );
+
+    assert.strictEqual(aggregate.takeBufferedFrameTextDeltas()[0]?.delta, "first-second");
+    assert.strictEqual(aggregate.takeBufferedCommandOutputDeltas()[0]?.delta, "34567");
+    assert.isFalse(aggregate.hasBufferedFrameTextDeltas());
+    assert.isFalse(aggregate.hasBufferedCommandOutputDeltas());
     yield* Scope.close(scope, Exit.void);
   }),
 );

@@ -13,6 +13,23 @@ import type {
 } from "../../shared/codex-conversation-state/codex-server-request-lifecycle";
 import { completeCodexCanonicalPlanImplementationState } from "../../shared/codex-conversation-state/codex-server-request-lifecycle";
 import {
+  reduceCodexConversationFrameTextDeltas,
+  type CodexFrameTextDeltaOutcome,
+} from "../../shared/codex-conversation-state/codex-frame-text-delta";
+import {
+  buildCodexFrameTextDeltaKey,
+  type CodexFrameTextDeltaUpdate,
+} from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
+import {
+  reduceCodexConversationCommandOutput,
+  type CodexCommandExecutionMutationDisposition,
+} from "../../shared/codex-conversation-state/codex-command-execution-stream";
+import {
+  appendCodexCommandOutputTail,
+  buildCodexCommandOutputKey,
+  type CodexCommandOutputUpdate,
+} from "../../shared/codex-conversation-state/codex-command-output-queue";
+import {
   buildCodexThreadStreamCheckpoint,
   type CodexThreadStreamReplica,
 } from "../../shared/codex-owner-follower-replication";
@@ -21,6 +38,15 @@ import {
   projectCodexConversationPlanImplementationCompleted,
   projectCodexConversationServerRequestLifecycle,
 } from "./CodexConversationServerRequestProjection";
+import { projectCodexConversationSnapshot } from "./CodexConversationSnapshotProjection";
+import type {
+  CodexBufferedConversationEvent,
+  CodexBufferedConversationRequestCompletion,
+} from "./CodexConversationBufferedEvent";
+import type {
+  CodexServerNotification,
+  CodexServerRequest,
+} from "../codex-runtime/CodexApplicationProtocol";
 
 export type CodexConversationStreamRole = "follower" | "owner" | null;
 
@@ -57,6 +83,7 @@ export interface CodexConversationAggregateSnapshot {
   readonly version: number;
   readonly revision: number;
   readonly checkpoint: CodexThreadStreamCheckpoint | null;
+  readonly snapshot: CodexConversationSnapshot | null;
   readonly resumeState: CodexConversationResumeState;
   readonly turnPagination: CodexConversationTurnPagination;
   readonly isStreaming: boolean;
@@ -78,10 +105,17 @@ interface MutableCodexConversationAggregate {
   version: number;
   revision: number;
   checkpoint: CodexThreadStreamCheckpoint | null;
+  snapshot: CodexConversationSnapshot | null;
   resumeState: CodexConversationResumeState;
   turnPagination: CodexConversationTurnPagination;
   isStreaming: boolean;
   historyGeneration: number;
+  bufferedFrameText: Map<string, CodexFrameTextDeltaUpdate>;
+  bufferedCommandOutput: Map<string, CodexCommandOutputUpdate>;
+  resumeEventBuffer: CodexBufferedConversationEvent[] | null;
+  threadStartEventBuffer: CodexBufferedConversationEvent[] | null;
+  threadStartDeferred: boolean;
+  threadStartReady: boolean;
 }
 
 export interface CodexConversationAggregate {
@@ -92,6 +126,9 @@ export interface CodexConversationAggregate {
   readonly readServerRequests: () => readonly CodexCanonicalServerRequest[];
   readonly readServerRequestState: () => CodexConversationServerRequestState;
   readonly readHasUnreadTurn: () => boolean;
+  readonly readSnapshot: () => CodexConversationSnapshot | null;
+  /** Installs the canonical application snapshot without implying renderer ownership. */
+  readonly installSnapshot: (snapshot: CodexConversationSnapshot) => void;
   /** Seeds durable Workspace state before canonical app-server hydration. */
   readonly seedHasUnreadTurn: (hasUnreadTurn: boolean) => void;
   /** Applies the canonical read-state transition to every loaded conversation projection. */
@@ -114,7 +151,51 @@ export interface CodexConversationAggregate {
     pagination: CodexConversationTurnPagination,
     loadedTurnCount: number,
   ) => boolean;
+  readonly commitHistoryProjection: (input: {
+    readonly fence: CodexConversationHistoryFence;
+    readonly state: CodexCanonicalConversationState;
+    readonly pagination: CodexConversationTurnPagination;
+    readonly loadedTurnCount: number;
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => boolean;
   readonly failHistoryLoad: (fence: CodexConversationHistoryFence) => boolean;
+  readonly bufferFrameTextDelta: (update: CodexFrameTextDeltaUpdate) => void;
+  readonly bufferCommandOutputDelta: (update: CodexCommandOutputUpdate, maxChars: number) => void;
+  readonly takeBufferedFrameTextDeltas: () => readonly CodexFrameTextDeltaUpdate[];
+  readonly takeBufferedCommandOutputDeltas: () => readonly CodexCommandOutputUpdate[];
+  readonly hasBufferedFrameTextDeltas: () => boolean;
+  readonly hasBufferedCommandOutputDeltas: () => boolean;
+  readonly clearBufferedDeltas: () => void;
+  readonly beginResumeEventBuffer: () => boolean;
+  readonly hasResumeEventBuffer: () => boolean;
+  readonly offerBufferedNotification: (input: {
+    readonly notification: CodexServerNotification;
+    readonly bypassResume: boolean;
+    readonly startsThread: boolean;
+    readonly deferThreadStart: boolean;
+  }) => boolean;
+  readonly offerBufferedRequest: (input: {
+    readonly request: CodexServerRequest;
+    readonly completion: CodexBufferedConversationRequestCompletion;
+  }) => boolean;
+  readonly takeResumeEventBuffer: () => readonly CodexBufferedConversationEvent[] | null;
+  readonly takeThreadStartEventBuffer: () => readonly CodexBufferedConversationEvent[] | null;
+  readonly markThreadStartReady: () => void;
+  readonly resetThreadStartReady: () => void;
+  readonly hasDeferredThreadStart: () => boolean;
+  readonly discardResumeEventBuffer: () => readonly CodexBufferedConversationEvent[];
+  readonly clearBufferedEvents: () => readonly CodexBufferedConversationEvent[];
+  readonly commitFrameTextDeltas: (input: {
+    readonly updates: readonly CodexFrameTextDeltaUpdate[];
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => readonly CodexFrameTextDeltaOutcome[];
+  readonly commitCommandOutputDeltas: (input: {
+    readonly updates: readonly CodexCommandOutputUpdate[];
+    readonly observedAtMs: number;
+    readonly projectReplica: boolean;
+  }) => readonly CodexCommandExecutionMutationDisposition[];
   readonly commitServerRequestLifecycle: (
     input: CodexConversationServerRequestLifecycleCommit & {
       readonly observedAtMs: number;
@@ -167,6 +248,7 @@ const initialAggregate = (generation: number): MutableCodexConversationAggregate
   version: 0,
   revision: 0,
   checkpoint: null,
+  snapshot: null,
   resumeState: "resumed",
   turnPagination: {
     olderCursor: null,
@@ -179,6 +261,12 @@ const initialAggregate = (generation: number): MutableCodexConversationAggregate
   },
   isStreaming: false,
   historyGeneration: 0,
+  bufferedFrameText: new Map(),
+  bufferedCommandOutput: new Map(),
+  resumeEventBuffer: null,
+  threadStartEventBuffer: null,
+  threadStartDeferred: false,
+  threadStartReady: false,
 });
 
 const snapshot = (
@@ -199,6 +287,7 @@ const snapshot = (
   version: aggregate.version,
   revision: aggregate.revision,
   checkpoint: aggregate.checkpoint,
+  snapshot: aggregate.snapshot,
   resumeState: aggregate.resumeState,
   turnPagination: { ...aggregate.turnPagination },
   isStreaming: aggregate.isStreaming,
@@ -230,10 +319,17 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
     aggregate.version = 0;
     aggregate.revision = 0;
     aggregate.checkpoint = null;
+    aggregate.snapshot = null;
     aggregate.resumeState = "resumed";
     aggregate.turnPagination = initialAggregate(aggregate.generation).turnPagination;
     aggregate.isStreaming = false;
     aggregate.historyGeneration = 0;
+    aggregate.bufferedFrameText.clear();
+    aggregate.bufferedCommandOutput.clear();
+    aggregate.resumeEventBuffer = null;
+    aggregate.threadStartEventBuffer = null;
+    aggregate.threadStartDeferred = false;
+    aggregate.threadStartReady = false;
   };
 
   const makeCapability = (
@@ -252,6 +348,7 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
       });
       const replica = { checkpoint, conversation: input.conversation };
       aggregate.acceptedReplica = replica;
+      aggregate.snapshot = input.conversation;
       aggregate.revision = input.revision;
       aggregate.checkpoint = checkpoint;
       return replica;
@@ -266,9 +363,16 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
         aggregate.canonicalState?.requests ?? aggregate.preHydrationServerRequests,
       readHasUnreadTurn: () =>
         aggregate.canonicalState?.sidecar.hasUnreadTurn ?? aggregate.preHydrationHasUnreadTurn,
+      readSnapshot: () => aggregate.snapshot,
+      installSnapshot: (conversation) => {
+        aggregate.snapshot = conversation;
+      },
       seedHasUnreadTurn: (hasUnreadTurn) => {
         if (aggregate.canonicalState) return;
         aggregate.preHydrationHasUnreadTurn = hasUnreadTurn;
+        if (aggregate.snapshot) {
+          aggregate.snapshot = { ...aggregate.snapshot, hasUnreadTurn };
+        }
       },
       setHasUnreadTurn: (hasUnreadTurn, projectReplica) => {
         const previous =
@@ -287,6 +391,13 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
             };
           } else {
             aggregate.preHydrationHasUnreadTurn = hasUnreadTurn;
+          }
+          if (aggregate.snapshot) {
+            aggregate.snapshot = {
+              ...aggregate.snapshot,
+              hasUnreadTurn,
+              ...(hasUnreadTurn ? {} : { unreadMessageCount: 0 }),
+            };
           }
         }
         if (projectReplica && replicaChanged && aggregate.acceptedReplica) {
@@ -310,6 +421,9 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           aggregate.acceptedReplica.conversation.resumeState !== state;
         if (aggregate.resumeState === state && !replicaChanged) return;
         aggregate.resumeState = state;
+        if (aggregate.snapshot) {
+          aggregate.snapshot = { ...aggregate.snapshot, resumeState: state };
+        }
         if (!replicaChanged || !aggregate.acceptedReplica) return;
         acceptReplica({
           conversation: { ...aggregate.acceptedReplica.conversation, resumeState: state },
@@ -325,6 +439,12 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
       initializeHistory: (pagination, loadedTurnCount) => {
         aggregate.historyGeneration += 1;
         aggregate.turnPagination = { ...pagination, loadedTurnCount };
+        if (aggregate.snapshot) {
+          aggregate.snapshot = {
+            ...aggregate.snapshot,
+            turnPagination: { ...aggregate.turnPagination },
+          };
+        }
       },
       beginHistoryLoad: (loadedTurnCount) => {
         const pagination = aggregate.turnPagination;
@@ -347,6 +467,12 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           hasLoadedOldest: false,
           loadedTurnCount,
         };
+        if (aggregate.snapshot) {
+          aggregate.snapshot = {
+            ...aggregate.snapshot,
+            turnPagination: { ...aggregate.turnPagination },
+          };
+        }
         return fence;
       },
       isHistoryLoadCurrent: (fence) =>
@@ -362,6 +488,62 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           return false;
         }
         aggregate.turnPagination = { ...pagination, loadedTurnCount, isLoadingOlder: false };
+        if (aggregate.snapshot) {
+          aggregate.snapshot = {
+            ...aggregate.snapshot,
+            turnPagination: { ...aggregate.turnPagination },
+          };
+        }
+        return true;
+      },
+      commitHistoryProjection: ({
+        fence,
+        state,
+        pagination,
+        loadedTurnCount,
+        observedAtMs,
+        projectReplica,
+      }) => {
+        if (
+          !aggregate.turnPagination.isLoadingOlder ||
+          aggregate.historyGeneration !== fence.generation ||
+          aggregate.turnPagination.olderCursor !== fence.olderCursor
+        ) {
+          return false;
+        }
+        const before = aggregate.canonicalState;
+        if (!before) return false;
+        aggregate.canonicalState = state;
+        if (aggregate.snapshot) {
+          aggregate.snapshot = projectCodexConversationSnapshot({
+            conversation: aggregate.snapshot,
+            before,
+            after: state,
+            observedAtMs,
+          });
+        }
+        aggregate.turnPagination = { ...pagination, loadedTurnCount, isLoadingOlder: false };
+        if (aggregate.snapshot) {
+          aggregate.snapshot = {
+            ...aggregate.snapshot,
+            turnPagination: { ...aggregate.turnPagination },
+          };
+        }
+        if (projectReplica && aggregate.acceptedReplica) {
+          acceptReplica({
+            conversation: {
+              ...projectCodexConversationSnapshot({
+                conversation: aggregate.acceptedReplica.conversation,
+                before,
+                after: state,
+                observedAtMs,
+              }),
+              turnPagination: { ...aggregate.turnPagination },
+            },
+            ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+            revision: aggregate.revision + 1,
+          });
+        }
         return true;
       },
       failHistoryLoad: (fence) => {
@@ -379,7 +561,175 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           isLoadingOlder: false,
           hasLoadedOldest: false,
         };
+        if (aggregate.snapshot) {
+          aggregate.snapshot = {
+            ...aggregate.snapshot,
+            turnPagination: { ...aggregate.turnPagination },
+          };
+        }
         return true;
+      },
+      bufferFrameTextDelta: (update) => {
+        const key = buildCodexFrameTextDeltaKey(update);
+        const existing = aggregate.bufferedFrameText.get(key);
+        aggregate.bufferedFrameText.set(key, {
+          ...update,
+          delta: `${existing?.delta ?? ""}${update.delta}`,
+        });
+      },
+      bufferCommandOutputDelta: (update, maxChars) => {
+        const key = buildCodexCommandOutputKey(update);
+        const existing = aggregate.bufferedCommandOutput.get(key);
+        const { next } = appendCodexCommandOutputTail({
+          current: existing?.delta ?? "",
+          delta: update.delta,
+          maxChars,
+        });
+        aggregate.bufferedCommandOutput.set(key, { ...update, delta: next });
+      },
+      takeBufferedFrameTextDeltas: () => {
+        const updates = [...aggregate.bufferedFrameText.values()];
+        aggregate.bufferedFrameText.clear();
+        return updates;
+      },
+      takeBufferedCommandOutputDeltas: () => {
+        const updates = [...aggregate.bufferedCommandOutput.values()];
+        aggregate.bufferedCommandOutput.clear();
+        return updates;
+      },
+      hasBufferedFrameTextDeltas: () => aggregate.bufferedFrameText.size > 0,
+      hasBufferedCommandOutputDeltas: () => aggregate.bufferedCommandOutput.size > 0,
+      clearBufferedDeltas: () => {
+        aggregate.bufferedFrameText.clear();
+        aggregate.bufferedCommandOutput.clear();
+      },
+      beginResumeEventBuffer: () => {
+        if (aggregate.resumeEventBuffer !== null) return false;
+        aggregate.resumeEventBuffer = [];
+        return true;
+      },
+      hasResumeEventBuffer: () => aggregate.resumeEventBuffer !== null,
+      offerBufferedNotification: ({
+        notification,
+        bypassResume,
+        startsThread,
+        deferThreadStart,
+      }) => {
+        if (!bypassResume && aggregate.resumeEventBuffer !== null) {
+          aggregate.resumeEventBuffer.push({ type: "notification", notification });
+          return true;
+        }
+        if (aggregate.threadStartEventBuffer !== null) {
+          aggregate.threadStartEventBuffer.push({ type: "notification", notification });
+          return true;
+        }
+        if (!startsThread || !deferThreadStart || aggregate.threadStartReady) return false;
+        aggregate.threadStartDeferred = true;
+        aggregate.threadStartEventBuffer = [{ type: "notification", notification }];
+        return true;
+      },
+      offerBufferedRequest: ({ request, completion }) => {
+        const buffer = aggregate.resumeEventBuffer ?? aggregate.threadStartEventBuffer;
+        if (!buffer) return false;
+        buffer.push({ type: "request", request, ...completion });
+        return true;
+      },
+      takeResumeEventBuffer: () => {
+        const buffered = aggregate.resumeEventBuffer;
+        aggregate.resumeEventBuffer = null;
+        return buffered;
+      },
+      takeThreadStartEventBuffer: () => {
+        if (!aggregate.threadStartDeferred) return null;
+        const buffered = aggregate.threadStartEventBuffer;
+        aggregate.threadStartEventBuffer = null;
+        aggregate.threadStartDeferred = false;
+        return buffered;
+      },
+      markThreadStartReady: () => {
+        aggregate.threadStartReady = true;
+      },
+      resetThreadStartReady: () => {
+        aggregate.threadStartReady = false;
+      },
+      hasDeferredThreadStart: () => aggregate.threadStartDeferred,
+      discardResumeEventBuffer: () => {
+        const buffered = aggregate.resumeEventBuffer ?? [];
+        aggregate.resumeEventBuffer = null;
+        return buffered;
+      },
+      clearBufferedEvents: () => {
+        const buffered = [
+          ...(aggregate.resumeEventBuffer ?? []),
+          ...(aggregate.threadStartEventBuffer ?? []),
+        ];
+        aggregate.resumeEventBuffer = null;
+        aggregate.threadStartEventBuffer = null;
+        aggregate.threadStartDeferred = false;
+        aggregate.threadStartReady = false;
+        return buffered;
+      },
+      commitFrameTextDeltas: ({ updates, observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before || updates.length === 0) return [];
+        const result = reduceCodexConversationFrameTextDeltas(before, updates, {
+          now: () => observedAtMs,
+        });
+        aggregate.canonicalState = result.state;
+        if (aggregate.snapshot && result.state !== before) {
+          aggregate.snapshot = projectCodexConversationSnapshot({
+            conversation: aggregate.snapshot,
+            before,
+            after: result.state,
+            observedAtMs,
+          });
+        }
+        if (projectReplica && aggregate.acceptedReplica && result.state !== before) {
+          acceptReplica({
+            conversation: projectCodexConversationSnapshot({
+              conversation: aggregate.acceptedReplica.conversation,
+              before,
+              after: result.state,
+              observedAtMs,
+            }),
+            ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+            revision: aggregate.revision + 1,
+          });
+        }
+        return result.outcomes;
+      },
+      commitCommandOutputDeltas: ({ updates, observedAtMs, projectReplica }) => {
+        const before = aggregate.canonicalState;
+        if (!before || updates.length === 0) return [];
+        let state = before;
+        const dispositions: CodexCommandExecutionMutationDisposition[] = [];
+        for (const update of updates) {
+          const result = reduceCodexConversationCommandOutput(state, update);
+          state = result.state;
+          dispositions.push(result.disposition);
+        }
+        aggregate.canonicalState = state;
+        if (aggregate.snapshot && state !== before) {
+          aggregate.snapshot = projectCodexConversationSnapshot({
+            conversation: aggregate.snapshot,
+            before,
+            after: state,
+            observedAtMs,
+          });
+        }
+        if (projectReplica && aggregate.acceptedReplica && state !== before) {
+          acceptReplica({
+            conversation: projectCodexConversationSnapshot({
+              conversation: aggregate.acceptedReplica.conversation,
+              before,
+              after: state,
+              observedAtMs,
+            }),
+            ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+            revision: aggregate.revision + 1,
+          });
+        }
+        return dispositions;
       },
       readServerRequestState: () => {
         const canonicalState = aggregate.canonicalState;
@@ -483,9 +833,18 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
         aggregate.streamRole = role;
       },
       acceptCanonicalState: (state) => {
+        const before = aggregate.canonicalState;
         aggregate.canonicalState = state;
         aggregate.preHydrationServerRequests = [];
         aggregate.preHydrationHasUnreadTurn = false;
+        if (aggregate.snapshot && before !== state) {
+          aggregate.snapshot = projectCodexConversationSnapshot({
+            conversation: aggregate.snapshot,
+            before,
+            after: state,
+            observedAtMs: Date.now(),
+          });
+        }
         return state;
       },
       replaceServerRequests: (requests) => {

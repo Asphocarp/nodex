@@ -205,7 +205,6 @@ import {
 } from "../codex-application/CodexQueuedFollowUpRuntime";
 import { makeCodexQueuedFollowUpRuntimePromiseAdapter } from "../codex-application/CodexQueuedFollowUpRuntimePromiseAdapter";
 import { make as makeCodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
-import { makeCodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntimePromiseAdapter";
 import {
   CodexConversationResumeError,
   make as makeCodexConversationResumeRuntime,
@@ -2065,10 +2064,11 @@ export const live: Layer.Layer<
           project: (threadId, entries) =>
             requireCodexService().projectQueuedFollowUps(threadId, entries),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const conversationDeltaBuffer = yield* makeCodexConversationDeltaBufferRuntime({
-          flushFrameText: (updates) => requireCodexService().applyFrameTextDeltas(updates),
-          flushCommandOutput: (updates) => requireCodexService().applyOutputDeltas(updates),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const conversationDeltaBuffer = yield* makeCodexConversationDeltaBufferRuntime().pipe(
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const postResumeGoals = yield* makeCodexPostResumeGoalRuntime({
           load: threadGoals.load,
           commit: (threadId, expectedRevision, goal) =>
@@ -2674,10 +2674,7 @@ export const live: Layer.Layer<
                 queuedFollowUps,
                 callbacks,
               ),
-              conversationDeltaBuffer: makeCodexConversationDeltaBufferRuntimePromiseAdapter(
-                conversationDeltaBuffer,
-                callbacks,
-              ),
+              conversationDeltaBuffer,
               conversationResume: makeCodexConversationResumeRuntimePromiseAdapter(
                 conversationResume,
                 callbacks,

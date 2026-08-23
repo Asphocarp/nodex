@@ -339,20 +339,14 @@ import {
 import { applyCodexLifecycleProjectionDiff } from "../../shared/codex-conversation-state/codex-lifecycle-projection-diff";
 import { buildCodexTurnOccurrenceKey } from "../../shared/codex-turn-identity";
 import {
-  groupCodexFrameTextDeltasByConversation,
   isCodexFrameTextDeltaNotification,
-  reduceCodexConversationFrameTextDeltas,
   toCodexFrameTextDelta,
 } from "../../shared/codex-conversation-state/codex-frame-text-delta";
-import type { CodexFrameTextDeltaUpdate } from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
 import {
-  groupCodexCommandOutputUpdatesByConversation,
   isCodexCommandOutputNotification,
-  reduceCodexConversationCommandOutput,
   reduceCodexConversationTerminalCommands,
   toCodexCommandOutputUpdate,
 } from "../../shared/codex-conversation-state/codex-command-execution-stream";
-import type { CodexCommandOutputUpdate } from "../../shared/codex-conversation-state/codex-command-output-queue";
 import {
   isCodexFileChangePatchUpdatedNotification,
   isCodexMcpToolCallProgressNotification,
@@ -609,7 +603,7 @@ import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-app
 import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
 import type { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
 import type { CodexQueuedFollowUpRuntimePromiseAdapter } from "../codex-application/CodexQueuedFollowUpRuntimePromiseAdapter";
-import type { CodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntime";
+import type { CodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import type {
   CodexConversationResumeDemand,
   CodexConversationResumeOutcome,
@@ -1064,7 +1058,7 @@ type CodexServiceOptions = {
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   subagentCatalog: CodexSubagentCatalog["Service"];
   queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
-  conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
+  conversationDeltaBuffer: CodexConversationDeltaBufferRuntime["Service"];
   conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   freshThreadLaunch: CodexFreshThreadLaunchRuntimePromiseAdapter;
@@ -2078,7 +2072,7 @@ export class CodexService {
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   private readonly subagentCatalog: CodexSubagentCatalog["Service"];
   private readonly queuedFollowUps: CodexQueuedFollowUpRuntimePromiseAdapter;
-  private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
+  private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntime["Service"];
   private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   private readonly conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   private readonly freshThreadLaunch: CodexFreshThreadLaunchRuntimePromiseAdapter;
@@ -2750,7 +2744,8 @@ export class CodexService {
   }
 
   private waitForFrameTextDeltaDrain(conversationId: string): Promise<void> {
-    return this.conversationDeltaBuffer.drainFrameText(conversationId);
+    this.conversationDeltaBuffer.drainFrameText(conversationId);
+    return Promise.resolve();
   }
 
   private clearOwnerNotificationDrain(conversationId: string): void {
@@ -10761,6 +10756,8 @@ export class CodexService {
       itemsByTurn.set(item.turnId, byItem);
     }
     record.itemsByTurn = itemsByTurn;
+    const snapshot = this.buildConversationBaseSnapshot(detail.threadId);
+    if (snapshot) this.conversationAggregate(detail.threadId).installSnapshot(snapshot);
   }
 
   private hydrateThreadDetail(detail: CodexThreadDetail): void {
@@ -19348,136 +19345,6 @@ export class CodexService {
     return CodexApplicationRequestPending;
   }
 
-  /** Effect Module adapter operation; applies a scheduled canonical frame-text batch. */
-  applyFrameTextDeltas(
-    updates: readonly CodexFrameTextDeltaUpdate[],
-    options: { publishMainFallback?: boolean } = {},
-  ): void {
-    if (updates.length === 0) return;
-    const publishMainFallback = options.publishMainFallback ?? true;
-
-    for (const [threadId, threadUpdates] of groupCodexFrameTextDeltasByConversation(updates)) {
-      const record = this.getMaybeConversationRecord(threadId);
-      const before = record ? this.readCanonicalConversationState(record.threadId) : null;
-      if (!record || !before || before.turns.length === 0) {
-        this.logger.warn("Dropping frame-text delta batch without canonical conversation state", {
-          threadId,
-          updateCount: threadUpdates.length,
-        });
-        continue;
-      }
-
-      const observedAtMs = Date.now();
-      const result = reduceCodexConversationFrameTextDeltas(before, threadUpdates, {
-        now: () => observedAtMs,
-      });
-      this.acceptCanonicalConversationState(threadId, result.state);
-      for (const outcome of result.outcomes) {
-        if (outcome.disposition === "applied") continue;
-        this.logger.warn("Skipping frame-text delta at canonical raw boundary", {
-          threadId,
-          turnId: outcome.update.turnId,
-          itemId: outcome.update.itemId,
-          target: outcome.update.target.type,
-          disposition: outcome.disposition,
-          deltaPreview: previewText(outcome.update.delta),
-        });
-      }
-
-      const detail = record.detail;
-      if (!detail) continue;
-      const changedTurnIds = new Set<string | null>();
-      const reboundTurnIds: Array<{
-        readonly sourceTurnId: string | null;
-        readonly targetTurnId: string;
-      }> = [];
-      for (const [turnIndex, afterTurn] of result.state.turns.entries()) {
-        const beforeTurn = before.turns[turnIndex] ?? null;
-        if (afterTurn === beforeTurn) continue;
-        const sourceTurnId = beforeTurn?.protocol.id ?? null;
-        const targetTurnId = this.applyCanonicalLifecycleTurnProjection({
-          threadId,
-          turnIndex,
-          beforeTurn,
-          afterTurn,
-          observedAtMs,
-        });
-        if (!targetTurnId) continue;
-        changedTurnIds.add(targetTurnId);
-        if (sourceTurnId !== targetTurnId) {
-          reboundTurnIds.push({ sourceTurnId, targetTurnId });
-        }
-      }
-
-      if (!publishMainFallback || changedTurnIds.size === 0) continue;
-      const projectedTurns = [...changedTurnIds].flatMap((turnId) => {
-        const turn = detail.turns.find(
-          (candidate) => (candidate as { turnId: string | null }).turnId === turnId,
-        );
-        return turn ? [{ turnId, turn: buildCodexConversationTurn(detail, turn) }] : [];
-      });
-      this.mutateAcceptedConversationDocument(threadId, (draft) => {
-        for (const rebind of reboundTurnIds) {
-          const sourceIndex = draft.turns.findIndex(
-            (turn) => (turn as { turnId: string | null }).turnId === rebind.sourceTurnId,
-          );
-          if (sourceIndex >= 0) draft.turns.splice(sourceIndex, 1);
-        }
-        for (const projected of projectedTurns) {
-          const existingIndex = draft.turns.findIndex(
-            (turn) => (turn as { turnId: string | null }).turnId === projected.turnId,
-          );
-          if (existingIndex >= 0) {
-            draft.turns[existingIndex] = projected.turn;
-          } else {
-            draft.turns.push(projected.turn);
-          }
-        }
-      });
-    }
-  }
-
-  /** Effect Module adapter operation; applies a scheduled canonical command-output batch. */
-  applyOutputDeltas(updates: readonly CodexCommandOutputUpdate[]): void {
-    if (updates.length === 0) return;
-
-    for (const [threadId, threadUpdates] of groupCodexCommandOutputUpdatesByConversation(updates)) {
-      const record = this.getMaybeConversationRecord(threadId);
-      const before = record ? this.readCanonicalConversationState(record.threadId) : null;
-      if (!record || !before || before.turns.length === 0) continue;
-
-      let state = before;
-      for (const update of threadUpdates) {
-        const result = reduceCodexConversationCommandOutput(state, update);
-        state = result.state;
-        if (result.disposition === "missingItem") {
-          this.logger.warn("Skipping command output delta for missing raw command execution", {
-            threadId,
-            turnId: update.turnId,
-            itemId: update.itemId,
-            deltaPreview: previewText(update.delta),
-          });
-        }
-      }
-      this.acceptCanonicalConversationState(threadId, state);
-      if (state === before || !record.detail) continue;
-
-      for (const [turnIndex, afterTurn] of state.turns.entries()) {
-        const beforeTurn = before.turns[turnIndex] ?? null;
-        if (afterTurn === beforeTurn) continue;
-        this.applyCanonicalLifecycleTurnProjection({
-          threadId,
-          turnIndex,
-          beforeTurn,
-          afterTurn,
-          observedAtMs: Date.now(),
-          preserveExistingUpdatedAt: true,
-        });
-        this.syncCommandExecutionTurnToBroadcastCache(threadId, turnIndex);
-      }
-    }
-  }
-
   private applyTerminalInteraction(input: {
     threadId: string;
     turnId: string | null;
@@ -20337,7 +20204,7 @@ export class CodexService {
       if (!isCodexFrameTextDeltaNotification(notification)) return;
       const frameTextDelta = toCodexFrameTextDelta(notification);
       if (this.rendererConversationCoordinator.forwardNotification(notification)) {
-        this.applyFrameTextDeltas([frameTextDelta], { publishMainFallback: false });
+        this.conversationDeltaBuffer.enqueueFrameText(frameTextDelta);
         return;
       }
       this.conversationDeltaBuffer.enqueueFrameText(frameTextDelta);
@@ -20558,7 +20425,7 @@ export class CodexService {
     const record = this.ensureConversationRecord(threadId);
     const requests = this.listPendingConversationRequests(threadId);
 
-    return buildCodexConversationSnapshot({
+    const snapshot = buildCodexConversationSnapshot({
       detail,
       resumeState: this.resolveConversationResumeState(threadId),
       requests,
@@ -20578,6 +20445,21 @@ export class CodexService {
       completedThreadGoal: record.completedThreadGoal,
       threadGoalResumeConfirmation: record.threadGoalResumeConfirmation,
     });
+    const aggregate = this.conversationAggregate(threadId);
+    const owned = aggregate.readSnapshot();
+    if (!owned || owned.canonicalState !== snapshot.canonicalState) return snapshot;
+    const reconciled = {
+      ...snapshot,
+      turns: owned.turns,
+      resumeState: aggregate.readResumeState(),
+      turnPagination: aggregate.readTurnPagination(),
+      hasUnreadTurn: aggregate.readHasUnreadTurn(),
+      ...(owned.unreadMessageCount === undefined
+        ? {}
+        : { unreadMessageCount: owned.unreadMessageCount }),
+    };
+    aggregate.installSnapshot(reconciled);
+    return reconciled;
   }
 
   private extractConversationChildThreadIds(conversation: CodexConversationSnapshot): string[] {
@@ -20805,11 +20687,13 @@ export class CodexService {
 
     const childMemberships = this.deriveConversationChildMemberships(baseConversation);
 
-    return {
+    const snapshot = {
       ...baseConversation,
       childMemberships,
       backgroundTerminalRows: this.deriveConversationBackgroundTerminalRows(baseConversation),
     };
+    this.conversationAggregate(threadId).installSnapshot(snapshot);
+    return snapshot;
   }
 
   serializeConversationSnapshot(

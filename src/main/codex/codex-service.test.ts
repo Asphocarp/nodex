@@ -50,7 +50,7 @@ import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime
 import { TestCodexConversationHistoryRuntime } from "./codex-conversation-history-runtime.test-support";
 import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-subagent-metadata-repair.test-support";
 import { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
-import { TestCodexConversationDeltaBufferRuntime } from "./codex-conversation-delta-buffer-runtime.test-support";
+import { CodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import { TestCodexConversationResumeRuntime } from "./codex-conversation-resume-runtime.test-support";
 import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
 import { TestCodexConversationEventBufferRuntime } from "./codex-conversation-event-buffer-runtime.test-support";
@@ -1800,9 +1800,29 @@ function createService(options?: {
     reset: () => undefined,
     clear: () => undefined,
   };
-  const conversationDeltaBuffer = new TestCodexConversationDeltaBufferRuntime({
-    flushFrameText: (updates) => service?.applyFrameTextDeltas(updates),
-    flushCommandOutput: (updates) => service?.applyOutputDeltas(updates),
+  const conversationDeltaBuffer = CodexConversationDeltaBufferRuntime.of({
+    enqueueFrameText: (update) => {
+      const aggregate = conversationRuntimes.conversation(update.conversationId);
+      aggregate.bufferFrameTextDelta(update);
+      aggregate.commitFrameTextDeltas({
+        updates: aggregate.takeBufferedFrameTextDeltas(),
+        observedAtMs: Date.now(),
+        projectReplica: !rendererConversations.hasOwner(update.conversationId),
+      });
+    },
+    enqueueCommandOutput: (update) => {
+      const aggregate = conversationRuntimes.conversation(update.conversationId);
+      aggregate.bufferCommandOutputDelta(update, 100_000);
+      aggregate.commitCommandOutputDeltas({
+        updates: aggregate.takeBufferedCommandOutputDeltas(),
+        observedAtMs: Date.now(),
+        projectReplica: !rendererConversations.hasOwner(update.conversationId),
+      });
+    },
+    drainFrameText: () => undefined,
+    clear: (conversationId) => {
+      conversationRuntimes.currentConversation(conversationId)?.clearBufferedDeltas();
+    },
   });
   const adoptRendererConversation = (input: {
     readonly threadId: string;
@@ -2290,7 +2310,6 @@ function createService(options?: {
       ownerNotificationDrain.dispose();
       sidebarSync.dispose();
       pendingWorktrees.shutdown();
-      conversationDeltaBuffer.dispose();
       conversationResume.dispose();
       await freshThreadLaunch.shutdown();
       await conversationEventBuffer.shutdown(new Error("Codex test service is shutting down"));
@@ -2513,7 +2532,7 @@ function createService(options?: {
           turnId === null
             ? (canonical?.turns.length ?? 0) > 0
             : canonical?.turns.some((turn) => turn.protocol.id === turnId) === true;
-        if (requiresFullCanonicalSync || !canonical || (!isThreadMetadata && !hasTurn)) {
+        if (!canonical || isThreadMetadata || (!requiresFullCanonicalSync && !hasTurn)) {
           syncCanonicalFixture(threadId, isThreadMetadata);
         }
       }
@@ -9240,12 +9259,7 @@ describe("codex-service streaming notification parity", () => {
       const latest = service.serializeConversationSnapshot("thr_plan_delta_existing");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe("Draft plan from deltas");
 
-      let planItem = getRecordedItem(
-        serviceInternals,
-        "thr_plan_delta_existing",
-        "turn_plan_delta_existing",
-        "plan_item",
-      );
+      let planItem = latest?.turns[0]?.items[0];
       expect(planItem?.semanticKind).toBe("proposedPlan");
       expect(planItem?.markdownText).toBe("Draft plan from deltas");
 
@@ -9262,12 +9276,8 @@ describe("codex-service streaming notification parity", () => {
         },
       });
 
-      planItem = getRecordedItem(
-        serviceInternals,
-        "thr_plan_delta_existing",
-        "turn_plan_delta_existing",
-        "plan_item",
-      );
+      planItem = service.serializeConversationSnapshot("thr_plan_delta_existing")?.turns[0]
+        ?.items[0];
       expect(planItem?.semanticKind).toBe("proposedPlan");
       expect(planItem?.markdownText).toBe("Final authoritative plan");
     } finally {
@@ -11537,14 +11547,16 @@ describe("codex-service terminal turn reconciliation", () => {
 
       const record = serviceInternals.getMaybeConversationRecord(threadId);
       if (record) record.detail = null;
-      serviceInternals.applyOutputDeltas([
-        {
-          conversationId: threadId,
+      await serviceInternals.handleNotification({
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId,
           turnId,
           itemId,
           delta: "canonical output\n",
         },
-      ]);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 70));
 
       const canonicalCommand = (record ? readTestCanonicalState(record) : null)?.turns[0]?.items[0];
       expect(canonicalCommand?.type).toBe("commandExecution");
@@ -12203,6 +12215,9 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(snapshot?.turns[0]?.turnId).toBe(reboundTurnId);
       expect(snapshot?.turns[0]?.status).toBe("inProgress");
       expect(snapshot?.turns[0]?.items.length ?? -1).toBe(0);
+      expect(getCanonicalConversationState(service, threadId)?.turns[0]?.protocol.id).toBe(
+        reboundTurnId,
+      );
 
       await serviceInternals.handleNotification({
         method: "item/agentMessage/delta",
@@ -12323,10 +12338,7 @@ describe("codex-service terminal turn reconciliation", () => {
         (transcriptSnapshot?.turns[0] as { turnId: string | null } | undefined)?.turnId ?? null,
       ).toBe(null);
       expect(transcriptSnapshot?.turns[0]?.status).toBe("completed");
-      expect(
-        serviceInternals.conversationRecords.get(recordThreadId)?.itemsByTurn.get(nullTurnId)
-          ?.size ?? 0,
-      ).toBe(0);
+      expect(recordSnapshot?.turns[0]?.items.length).toBe(0);
       expect(service.serializeThreadDetail(transcriptThreadId)?.transcript[0]?.itemId).toBe(
         transcriptItem.itemId,
       );
@@ -12366,75 +12378,6 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       expect(serviceInternals.conversationRecords.has("thr_unknown_item_lifecycle")).toBe(false);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("item/completed leaves pending command output on its independent timer", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-    };
-
-    try {
-      serviceInternals.setConversationRecordDetail({
-        ...makeThreadDetail("thr_completed_output_timer"),
-        turns: [
-          {
-            threadId: "thr_completed_output_timer",
-            turnId: "turn_completed_output_timer",
-            status: "inProgress",
-            itemIds: ["exec_completed_output_timer"],
-          },
-        ],
-        transcript: [],
-      });
-
-      await serviceInternals.handleNotification({
-        method: "item/started",
-        params: {
-          threadId: "thr_completed_output_timer",
-          turnId: "turn_completed_output_timer",
-          item: makeProtocolCommandExecution({
-            id: "exec_completed_output_timer",
-            command: "bun test",
-            aggregatedOutput: null,
-          }),
-        },
-      });
-      await serviceInternals.handleNotification({
-        method: "item/commandExecution/outputDelta",
-        params: {
-          threadId: "thr_completed_output_timer",
-          turnId: "turn_completed_output_timer",
-          itemId: "exec_completed_output_timer",
-          delta: "provisional output\n",
-        },
-      });
-      await serviceInternals.handleNotification({
-        method: "item/completed",
-        params: {
-          threadId: "thr_completed_output_timer",
-          turnId: "turn_completed_output_timer",
-          item: makeProtocolCommandExecution({
-            id: "exec_completed_output_timer",
-            command: "bun test",
-            status: "completed",
-            aggregatedOutput: null,
-          }),
-        },
-      });
-
-      const beforeTimer = service.serializeConversationSnapshot("thr_completed_output_timer");
-      expect(beforeTimer?.turns[0]?.items[0]?.status).toBe("completed");
-      expect(beforeTimer?.turns[0]?.items[0]?.aggregatedOutput).toBe(null);
-
-      await new Promise((resolve) => setTimeout(resolve, 70));
-      const afterTimer = service.serializeConversationSnapshot("thr_completed_output_timer");
-      expect(afterTimer?.turns[0]?.items[0]?.status).toBe("completed");
-      expect(afterTimer?.turns[0]?.items[0]?.aggregatedOutput).toBe("provisional output\n");
     } finally {
       await service.shutdown();
     }
