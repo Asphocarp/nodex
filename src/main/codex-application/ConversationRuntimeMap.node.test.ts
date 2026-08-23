@@ -107,6 +107,64 @@ it.effect("keeps canonical state and the accepted renderer replica in one genera
   }),
 );
 
+it.effect("owns read, resume, streaming, and cursor-fenced history sidecars", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversations = Context.get(context, ConversationRuntimeMap);
+    const aggregate = conversations.conversation("thread-a");
+    aggregate.seedHasUnreadTurn(true);
+    aggregate.setResumeState("needs_resume");
+    aggregate.setStreaming(true);
+    aggregate.initializeHistory(
+      {
+        olderCursor: "cursor-1",
+        backwardsCursor: null,
+        oldestLoadedTurnId: "turn-2",
+        isLoadingOlder: false,
+        hasLoadedOldest: false,
+        loadedTurnCount: 1,
+        itemsView: "full",
+      },
+      1,
+    );
+
+    const fence = aggregate.beginHistoryLoad(1);
+    assert.isNotNull(fence);
+    if (!fence) return;
+    assert.isTrue(aggregate.isHistoryLoadCurrent(fence));
+    assert.isFalse(
+      aggregate.commitHistoryLoad(
+        { ...fence, generation: fence.generation - 1 },
+        aggregate.readTurnPagination(),
+        2,
+      ),
+    );
+    assert.isTrue(
+      aggregate.commitHistoryLoad(
+        fence,
+        {
+          olderCursor: null,
+          backwardsCursor: "cursor-1",
+          oldestLoadedTurnId: "turn-1",
+          isLoadingOlder: false,
+          hasLoadedOldest: true,
+          loadedTurnCount: 2,
+          itemsView: "full",
+        },
+        2,
+      ),
+    );
+
+    assert.isTrue(aggregate.readHasUnreadTurn());
+    assert.strictEqual(aggregate.readResumeState(), "needs_resume");
+    assert.isTrue(aggregate.isStreaming());
+    assert.isTrue(aggregate.readTurnPagination().hasLoadedOldest);
+    assert.strictEqual(aggregate.readTurnPagination().loadedTurnCount, 2);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect("evicts a closed generation without recreating it from reads", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();

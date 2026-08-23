@@ -603,7 +603,6 @@ import {
   parseThreadStatus,
   resolveSidebarProjectIdForCwd,
 } from "../codex-application/CodexThreadCatalogProjection";
-import type { CodexThreadReadStatePromiseAdapter } from "../codex-application/CodexThreadReadStatePromiseAdapter";
 import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
@@ -1059,7 +1058,6 @@ type CodexServiceOptions = {
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   threadCatalog: CodexThreadCatalogPromiseAdapter;
-  threadReadState: CodexThreadReadStatePromiseAdapter;
   conversationCommands: ConversationCommandsPromiseAdapter;
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
@@ -1106,19 +1104,14 @@ interface CodexConversationRecord {
   readonly threadId: string;
   detail: CodexThreadDetail | null;
   itemsByTurn: Map<string, Map<string, CodexItemView>>;
-  hasUnreadTurn: boolean;
-  unreadMessageCount?: number;
   planImplementationRequestsByTurnId: Map<string, CodexPlanImplementationServerRequest>;
   pendingSteers: CodexPendingSteer[];
-  turnPagination: CodexConversationTurnPagination;
   latestCollaborationMode: CodexCollaborationModeState;
   latestThreadSettings: CodexConversationThreadSettings | null;
   latestTokenUsageInfo: CodexThreadTokenUsage | null;
   threadGoal: ThreadGoal | null;
   completedThreadGoal: ThreadGoal | null;
   threadGoalResumeConfirmation: ThreadGoal | null;
-  resumeState: CodexConversationResumeState;
-  isStreaming: boolean;
 }
 
 interface CodexThreadReadMaterialization {
@@ -2079,7 +2072,6 @@ export class CodexService {
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   private readonly threadCatalog: CodexThreadCatalogPromiseAdapter;
-  private readonly threadReadState: CodexThreadReadStatePromiseAdapter;
   private readonly conversationCommands: ConversationCommandsPromiseAdapter;
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
@@ -2189,7 +2181,6 @@ export class CodexService {
     this.threadSettingsRuntime = options.threadSettingsRuntime;
     this.threadTitlePersistence = options.threadTitlePersistence;
     this.threadCatalog = options.threadCatalog;
-    this.threadReadState = options.threadReadState;
     this.conversationCommands = options.conversationCommands;
     this.postResumeGoals = options.postResumeGoals;
     this.conversationHistory = options.conversationHistory;
@@ -3158,7 +3149,7 @@ export class CodexService {
       }
       if (requestState) {
         draft.canonicalRequests = [...this.readConversationServerRequests(requestState)];
-        draft.hasUnreadTurn = requestState.hasUnreadTurn;
+        draft.hasUnreadTurn = this.conversationHasUnreadTurn(requestState.threadId);
       }
       if (queuedFollowUps) {
         draft.queuedFollowUps = queuedFollowUps;
@@ -3851,18 +3842,14 @@ export class CodexService {
       threadId,
       detail: null,
       itemsByTurn: new Map<string, Map<string, CodexItemView>>(),
-      hasUnreadTurn: false,
       planImplementationRequestsByTurnId: new Map<string, CodexPlanImplementationServerRequest>(),
       pendingSteers: [],
-      turnPagination: COMPLETE_TURN_PAGINATION,
       latestCollaborationMode: this.buildDefaultCollaborationModeState(),
       latestThreadSettings: null,
       latestTokenUsageInfo: null,
       threadGoal: null,
       completedThreadGoal: null,
       threadGoalResumeConfirmation: null,
-      resumeState: "resumed",
-      isStreaming: false,
     };
   }
 
@@ -3874,7 +3861,9 @@ export class CodexService {
     const existing = this.getMaybeConversationRecord(threadId);
     if (existing) return existing;
     const created = this.createConversationRecord(threadId);
-    created.hasUnreadTurn = this.getThreadLinkSafely(threadId)?.hasUnreadTurn ?? false;
+    this.conversationAggregate(threadId).seedHasUnreadTurn(
+      this.getThreadLinkSafely(threadId)?.hasUnreadTurn ?? false,
+    );
     this.conversationRecords.set(threadId, created);
     return created;
   }
@@ -3901,6 +3890,17 @@ export class CodexService {
 
   private readCanonicalConversationState(threadId: string): CodexCanonicalConversationState | null {
     return this.conversationRuntimes.currentConversation(threadId)?.readCanonicalState() ?? null;
+  }
+
+  private conversationHasUnreadTurn(threadId: string): boolean {
+    return this.conversationRuntimes.currentConversation(threadId)?.readHasUnreadTurn() ?? false;
+  }
+
+  private readConversationTurnPagination(threadId: string): CodexConversationTurnPagination {
+    return (
+      this.conversationRuntimes.currentConversation(threadId)?.readTurnPagination() ??
+      COMPLETE_TURN_PAGINATION
+    );
   }
 
   private readConversationServerRequests(
@@ -4187,7 +4187,7 @@ export class CodexService {
       activePermissionProfile: historyPermissions.activePermissionProfile,
       runtimeWorkspaceRoots: [...historyPermissions.runtimeWorkspaceRoots],
       pendingRequests,
-      hasUnreadTurn: record.hasUnreadTurn,
+      hasUnreadTurn: this.conversationHasUnreadTurn(record.threadId),
     });
     const previousCanonical = this.readCanonicalConversationState(record.threadId);
     const mergedTurns =
@@ -4240,7 +4240,7 @@ export class CodexService {
       turns: canonicalizeCodexCanonicalTurnStates(turns),
       requests: [...pendingRequests],
       sidecar: {
-        hasUnreadTurn: record.hasUnreadTurn,
+        hasUnreadTurn: this.conversationHasUnreadTurn(record.threadId),
         latestThreadSettings,
         hydrationContext: {
           model: input.model,
@@ -4289,7 +4289,7 @@ export class CodexService {
         activePermissionProfile: null,
         runtimeWorkspaceRoots: [],
         pendingRequests: current.requests,
-        hasUnreadTurn: record.hasUnreadTurn,
+        hasUnreadTurn: this.conversationHasUnreadTurn(record.threadId),
       },
     );
     const nextCanonicalState: CodexCanonicalConversationState = {
@@ -4302,7 +4302,7 @@ export class CodexService {
       requests: [...current.requests],
       sidecar: {
         ...current.sidecar,
-        hasUnreadTurn: record.hasUnreadTurn,
+        hasUnreadTurn: this.conversationHasUnreadTurn(record.threadId),
       },
     };
     return this.acceptCanonicalConversationState(record.threadId, nextCanonicalState);
@@ -4372,70 +4372,17 @@ export class CodexService {
     return this.getThreadLinkSafely(threadId)?.archived === true;
   }
 
-  private async persistConversationUnreadState(
-    threadId: string,
-    hasUnreadTurn: boolean,
-  ): Promise<DesktopProjectWorkspaceThread | null> {
-    try {
-      return await this.projectWorkspace.setThreadUnread(threadId, hasUnreadTurn);
-    } catch (error) {
-      this.logger.warn("Failed to persist Codex conversation unread state", {
-        threadId,
-        hasUnreadTurn,
-        error,
-      });
-      return null;
-    }
-  }
-
-  /** Effect Module projection operation; callers use CodexThreadReadState. */
-  async inspectThreadReadStateProjection(threadId: string): Promise<{
-    exists: boolean;
-    archived: boolean;
-    conversationHasUnreadTurn: boolean | null;
-    workspaceHasUnreadTurn: boolean | null;
-  }> {
-    const record = this.getMaybeConversationRecord(threadId);
-    const thread = await this.readWorkspaceThread(threadId);
-    return {
-      exists: record !== null || thread !== null,
-      archived: Boolean(thread?.archived || record?.detail?.archived),
-      conversationHasUnreadTurn: record?.hasUnreadTurn ?? null,
-      workspaceHasUnreadTurn: thread?.hasUnreadTurn ?? null,
-    };
-  }
-
-  /** Effect Module projection operation; callers use CodexThreadReadState. */
-  async persistThreadReadStateProjection(
-    threadId: string,
-    hasUnreadTurn: boolean,
-  ): Promise<boolean> {
-    return (await this.persistConversationUnreadState(threadId, hasUnreadTurn)) !== null;
-  }
-
-  /** Effect Module projection operation; callers use CodexThreadReadState. */
-  applyThreadReadStateProjection(threadId: string, hasUnreadTurn: boolean): void {
-    this.applyCommittedConversationUnreadState(threadId, hasUnreadTurn, { broadcast: true });
-  }
-
   private applyCommittedConversationUnreadState(
     threadId: string,
     hasUnreadTurn: boolean,
     options: { readonly broadcast: boolean },
   ): void {
     const record = this.getMaybeConversationRecord(threadId);
-    if (record && record.hasUnreadTurn !== hasUnreadTurn) {
-      record.hasUnreadTurn = hasUnreadTurn;
-      if (!hasUnreadTurn) record.unreadMessageCount = 0;
-    }
-    const acceptedConversation =
-      this.readConversationAggregate(threadId)?.acceptedReplica?.conversation;
-    if (acceptedConversation && acceptedConversation.hasUnreadTurn !== hasUnreadTurn) {
-      this.mutateAcceptedConversationDocumentSilently(threadId, (draft) => {
-        draft.hasUnreadTurn = hasUnreadTurn;
-        if (!hasUnreadTurn) draft.unreadMessageCount = 0;
-      });
-    }
+    this.conversationAggregate(threadId).setHasUnreadTurn(
+      hasUnreadTurn,
+      !this.rendererConversations.hasOwner(threadId),
+    );
+    if (record?.detail) record.detail.hasUnreadTurn = hasUnreadTurn;
     if (!options.broadcast) return;
     this.emitHostMessage({
       type: "threadReadStateChanged",
@@ -4492,7 +4439,7 @@ export class CodexService {
           statusType: "idle",
           statusActiveFlags: [],
           archived: false,
-          hasUnreadTurn: record.hasUnreadTurn,
+          hasUnreadTurn: this.conversationHasUnreadTurn(threadId),
           createdAt: 0,
           updatedAt: 0,
           linkedAt: new Date(0).toISOString(),
@@ -4509,12 +4456,11 @@ export class CodexService {
     threadId: string,
     resumeState: CodexConversationResumeState,
   ): void {
-    const record = this.getConversationRecord(threadId);
-    record.resumeState = resumeState;
+    this.conversationAggregate(threadId).setResumeState(resumeState);
   }
 
   private resolveConversationResumeState(threadId: string): CodexConversationResumeState {
-    return this.getMaybeConversationRecord(threadId)?.resumeState ?? "resumed";
+    return this.conversationRuntimes.currentConversation(threadId)?.readResumeState() ?? "resumed";
   }
 
   private markAllConversationRecordsNeedResumeAfterReconnect(): void {
@@ -4525,10 +4471,10 @@ export class CodexService {
 
     for (const threadId of knownThreadIds) {
       if (!threadId) continue;
-      const record = this.ensureConversationRecord(threadId);
-      record.resumeState = "needs_resume";
+      this.ensureConversationRecord(threadId);
+      this.setConversationResumeState(threadId, "needs_resume");
       this.setConversationStreamRole(threadId, null);
-      record.isStreaming = false;
+      this.conversationAggregate(threadId).setStreaming(false);
     }
 
     this.syncDormantConversations(Array.from(knownThreadIds), "durable-recovery");
@@ -6206,7 +6152,10 @@ export class CodexService {
         latestThreadSettings: detail.latestThreadSettings,
         latestTokenUsageInfo: detail.latestTokenUsageInfo,
       };
-      record.hasUnreadTurn = summary.hasUnreadTurn ?? false;
+      this.conversationAggregate(thread.threadId).setHasUnreadTurn(
+        summary.hasUnreadTurn ?? false,
+        !this.rendererConversations.hasOwner(thread.threadId),
+      );
     }
     return thread;
   }
@@ -9163,7 +9112,7 @@ export class CodexService {
 
     for (const effect of result.effects) {
       if (effect.type === "markConversationStreaming") {
-        record.isStreaming = true;
+        this.conversationAggregate(threadId).setStreaming(true);
         continue;
       }
       if (effect.type === "touchConversationUpdatedAt" && record.detail) {
@@ -9281,7 +9230,6 @@ export class CodexService {
       observedAtMs: input.observedAtMs,
     });
     this.acceptCanonicalConversationState(record.threadId, result.state);
-    record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
     let targetTurnId: string | null = null;
     for (const [turnIndex, afterTurn] of result.state.turns.entries()) {
       const beforeTurn = before.turns[turnIndex] ?? null;
@@ -9325,11 +9273,10 @@ export class CodexService {
       },
     );
     this.acceptCanonicalConversationState(threadId, result.state);
-    record.hasUnreadTurn = result.state.sidecar.hasUnreadTurn;
 
     for (const effect of result.effects) {
       if (effect.type === "markConversationStreaming") {
-        record.isStreaming = true;
+        this.conversationAggregate(threadId).setStreaming(true);
         continue;
       }
       if (effect.type !== "hydrateCollabThreads") continue;
@@ -9477,7 +9424,7 @@ export class CodexService {
       threadId,
       turns: [],
       requests: [...this.readConversationServerRequests(record)],
-      hasUnreadTurn: record.hasUnreadTurn,
+      hasUnreadTurn: this.conversationHasUnreadTurn(threadId),
     };
   }
 
@@ -9494,11 +9441,10 @@ export class CodexService {
       observedAtMs: Date.now(),
       projectReplica: !this.rendererConversations.hasOwner(threadId),
     });
-    record.hasUnreadTurn = committed.hasUnreadTurn;
     if (committed.unreadChanged) {
-      void this.threadReadState.persistProjected({
-        threadId,
-        hasUnreadTurn: committed.hasUnreadTurn,
+      this.applicationEvents.publish({
+        kind: "conversationReadStateCommitted",
+        value: { threadId, hasUnreadTurn: committed.hasUnreadTurn },
       });
     }
   }
@@ -9519,11 +9465,10 @@ export class CodexService {
       observedAtMs,
       projectReplica: !this.rendererConversations.hasOwner(threadId),
     });
-    record.hasUnreadTurn = committed.hasUnreadTurn;
     if (committed.unreadChanged) {
-      void this.threadReadState.persistProjected({
-        threadId,
-        hasUnreadTurn: committed.hasUnreadTurn,
+      this.applicationEvents.publish({
+        kind: "conversationReadStateCommitted",
+        value: { threadId, hasUnreadTurn: committed.hasUnreadTurn },
       });
     }
     if (!record.detail) return;
@@ -10612,9 +10557,12 @@ export class CodexService {
 
     const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(sessionDetail);
     this.setConversationRecordDetail(reconciledDetail);
-    const record = this.ensureConversationRecord(threadId);
-    if (this.readConversationStreamRole(threadId) === null && !record.isStreaming) {
-      record.resumeState = "needs_resume";
+    this.ensureConversationRecord(threadId);
+    if (
+      this.readConversationStreamRole(threadId) === null &&
+      !this.conversationAggregate(threadId).isStreaming()
+    ) {
+      this.setConversationResumeState(threadId, "needs_resume");
     }
     return reconciledDetail;
   }
@@ -10793,11 +10741,17 @@ export class CodexService {
       turns: [...detail.turns],
       transcript: [...detail.transcript],
     };
-    record.turnPagination = options?.turnPagination
-      ? this.normalizeTurnPagination(options.turnPagination, detail.turns.length)
-      : options?.preserveTurnPagination
-        ? this.normalizeTurnPagination(record.turnPagination, detail.turns.length)
-        : this.buildCompleteTurnPagination(detail.turns.length);
+    this.conversationAggregate(detail.threadId).initializeHistory(
+      options?.turnPagination
+        ? this.normalizeTurnPagination(options.turnPagination, detail.turns.length)
+        : options?.preserveTurnPagination
+          ? this.normalizeTurnPagination(
+              this.readConversationTurnPagination(detail.threadId),
+              detail.turns.length,
+            )
+          : this.buildCompleteTurnPagination(detail.turns.length),
+      detail.turns.length,
+    );
     const itemsByTurn = new Map<string, Map<string, CodexItemView>>();
     for (const entry of record.detail.transcript) {
       const item = projectTranscriptEntryToItemView(entry);
@@ -10938,7 +10892,7 @@ export class CodexService {
       activePermissionProfile: permissions.activePermissionProfile,
       runtimeWorkspaceRoots: [...runtimeWorkspaceRoots],
       pendingRequests: this.readConversationServerRequests(record),
-      hasUnreadTurn: record.hasUnreadTurn,
+      hasUnreadTurn: this.conversationHasUnreadTurn(record.threadId),
     });
     const hydrationContext = hydrated.sidecar.hydrationContext;
     if (!hydrationContext) {
@@ -12918,7 +12872,8 @@ export class CodexService {
     if (
       !force &&
       this.readConversationStreamRole(threadId) !== null &&
-      (record.resumeState !== "needs_resume" || record.isStreaming)
+      (this.resolveConversationResumeState(threadId) !== "needs_resume" ||
+        this.conversationAggregate(threadId).isStreaming())
     ) {
       return this.serializeThreadDetail(threadId);
     }
@@ -13286,7 +13241,7 @@ export class CodexService {
     const resumedDetail = this.serializeThreadDetail(threadId) ?? detail;
     await this.persistThreadDetailSummary(resumedDetail);
 
-    record.isStreaming = true;
+    this.conversationAggregate(threadId).setStreaming(true);
     this.setConversationStreamRole(threadId, "owner");
     return resumedDetail;
   }
@@ -13305,7 +13260,8 @@ export class CodexService {
       !force &&
       existingRecord !== null &&
       this.readConversationStreamRole(threadId) !== null &&
-      (existingRecord.resumeState !== "needs_resume" || existingRecord.isStreaming)
+      (this.resolveConversationResumeState(threadId) !== "needs_resume" ||
+        this.conversationAggregate(threadId).isStreaming())
     ) {
       return this.serializeThreadDetail(threadId);
     }
@@ -13405,7 +13361,8 @@ export class CodexService {
     if (
       existingRecord &&
       this.readConversationStreamRole(threadId) !== null &&
-      (existingRecord.resumeState !== "needs_resume" || existingRecord.isStreaming)
+      (this.resolveConversationResumeState(threadId) !== "needs_resume" ||
+        this.conversationAggregate(threadId).isStreaming())
     ) {
       const hadDeferredBuffer = this.hasResumeNotificationBuffer(threadId);
       if (replayBufferedNotifications && hadDeferredBuffer) {
@@ -13450,9 +13407,9 @@ export class CodexService {
       this.discardConversationResumeBuffer(threadId, error);
       this.postResumeGoals.clear(threadId);
       this.setConversationResumeState(threadId, "needs_resume");
-      const record = this.ensureConversationRecord(threadId);
+      this.ensureConversationRecord(threadId);
       this.setConversationStreamRole(threadId, null);
-      record.isStreaming = false;
+      this.conversationAggregate(threadId).setStreaming(false);
       this.rendererConversationCoordinator.reconcileOwnership(threadId);
       if (isThreadArchivedError(error)) {
         this.rememberWorkspaceSidebar(
@@ -13509,11 +13466,12 @@ export class CodexService {
     const { threadId, loadCompleteHistory, broadcastResult } = input;
     for (;;) {
       const record = this.getMaybeConversationRecord(threadId);
+      const pagination = this.readConversationTurnPagination(threadId);
       if (
         !record ||
-        record.turnPagination.isLoadingOlder ||
-        record.turnPagination.olderCursor === null ||
-        record.turnPagination.hasLoadedOldest
+        pagination.isLoadingOlder ||
+        pagination.olderCursor === null ||
+        pagination.hasLoadedOldest
       ) {
         return;
       }
@@ -13538,13 +13496,16 @@ export class CodexService {
     pageHydrationContext: CodexOlderTurnHydrationContext,
   ): Promise<"loaded" | "stale"> {
     await this.ensureClientReady();
-    const record = this.ensureConversationRecord(threadId);
     const detail = this.ensureConversationDetail(threadId);
     if (!detail) return "loaded";
 
-    const pagination = record.turnPagination;
+    const aggregate = this.conversationAggregate(threadId);
+    const pagination = aggregate.readTurnPagination();
     if (pagination.hasLoadedOldest || pagination.olderCursor === null) {
-      record.turnPagination = this.buildCompleteTurnPagination(detail.turns.length);
+      aggregate.initializeHistory(
+        this.buildCompleteTurnPagination(detail.turns.length),
+        detail.turns.length,
+      );
       const snapshot = this.serializeConversationSnapshot(threadId);
       if (snapshot && options.broadcastResult) {
         this.storeDormantConversationSnapshot(threadId, snapshot, "explicit-resync");
@@ -13552,14 +13513,10 @@ export class CodexService {
       return "loaded";
     }
 
-    const requestedCursor = pagination.olderCursor;
-    const requestedOldestLoadedTurnId = pagination.oldestLoadedTurnId;
-    record.turnPagination = {
-      ...pagination,
-      isLoadingOlder: true,
-      hasLoadedOldest: false,
-      loadedTurnCount: detail.turns.length,
-    };
+    const fence = aggregate.beginHistoryLoad(detail.turns.length);
+    if (!fence) return "stale";
+    const requestedCursor = fence.olderCursor;
+    const requestedOldestLoadedTurnId = fence.oldestLoadedTurnId;
     if (options.broadcastLoading) {
       const loadingSnapshot = this.serializeConversationSnapshot(threadId);
       if (loadingSnapshot) {
@@ -13578,12 +13535,12 @@ export class CodexService {
           itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
         },
       );
-      const currentRecord = this.ensureConversationRecord(threadId);
       const currentDetail = this.ensureConversationDetail(threadId);
-      if (!currentDetail) return "loaded";
-      if (currentRecord.turnPagination.olderCursor !== requestedCursor) {
-        return "stale";
+      if (!currentDetail) {
+        aggregate.failHistoryLoad(fence);
+        return "loaded";
       }
+      if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
 
       if (page.nextCursor === requestedCursor) {
         throw new Error("Codex older-turn pagination did not advance its cursor");
@@ -13600,13 +13557,15 @@ export class CodexService {
       if (!mergedDetail) {
         throw new Error(`Canonical history projection failed for '${threadId}'`);
       }
-      this.setConversationRecordDetail(mergedDetail, {
-        turnPagination: this.buildTurnPaginationFromPage(
-          page,
-          mergedDetail.turns.length,
-          rawPageTurns[0]?.id ?? requestedOldestLoadedTurnId,
-        ),
-      });
+      this.setConversationRecordDetail(mergedDetail, { preserveTurnPagination: true });
+      const nextPagination = this.buildTurnPaginationFromPage(
+        page,
+        mergedDetail.turns.length,
+        rawPageTurns[0]?.id ?? requestedOldestLoadedTurnId,
+      );
+      if (!aggregate.commitHistoryLoad(fence, nextPagination, mergedDetail.turns.length)) {
+        return "stale";
+      }
       await this.persistThreadDetailSummary(mergedDetail);
       const snapshot = this.serializeConversationSnapshot(threadId);
       if (snapshot && options.broadcastResult) {
@@ -13614,19 +13573,12 @@ export class CodexService {
       }
       return "loaded";
     } catch (error) {
-      const currentRecord = this.getMaybeConversationRecord(threadId);
-      if (currentRecord?.turnPagination.olderCursor !== requestedCursor) return "stale";
+      if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
       this.logger.warn("Failed to load older Codex thread turns", {
         threadId,
         error: error instanceof Error ? error.message : String(error),
       });
-      currentRecord.turnPagination = {
-        ...currentRecord.turnPagination,
-        olderCursor: requestedCursor,
-        oldestLoadedTurnId: requestedOldestLoadedTurnId,
-        isLoadingOlder: false,
-        hasLoadedOldest: false,
-      };
+      aggregate.failHistoryLoad(fence);
       throw error;
     }
   }
@@ -13638,9 +13590,8 @@ export class CodexService {
   shouldLoadRemainingThreadTurns(threadId: string): boolean {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return false;
-    return !(
-      record.turnPagination.olderCursor === null || record.turnPagination.hasLoadedOldest === true
-    );
+    const pagination = this.readConversationTurnPagination(threadId);
+    return !(pagination.olderCursor === null || pagination.hasLoadedOldest === true);
   }
 
   private async loadRemainingThreadTurns(
@@ -13649,24 +13600,22 @@ export class CodexService {
     options: { broadcastResult: boolean },
   ): Promise<"loaded" | "stale"> {
     await this.ensureClientReady();
-    const record = this.ensureConversationRecord(threadId);
     const detail = this.ensureConversationDetail(threadId);
     if (!detail) return "loaded";
 
-    const pagination = record.turnPagination;
+    const aggregate = this.conversationAggregate(threadId);
+    const pagination = aggregate.readTurnPagination();
     const requestedCursor = pagination.olderCursor;
-    const requestedOldestLoadedTurnId = pagination.oldestLoadedTurnId;
     if (pagination.hasLoadedOldest || requestedCursor === null) {
-      record.turnPagination = this.buildCompleteTurnPagination(detail.turns.length);
+      aggregate.initializeHistory(
+        this.buildCompleteTurnPagination(detail.turns.length),
+        detail.turns.length,
+      );
       return "loaded";
     }
-
-    record.turnPagination = {
-      ...pagination,
-      isLoadingOlder: true,
-      hasLoadedOldest: false,
-      loadedTurnCount: detail.turns.length,
-    };
+    const fence = aggregate.beginHistoryLoad(detail.turns.length);
+    if (!fence) return "stale";
+    const requestedOldestLoadedTurnId = fence.oldestLoadedTurnId;
 
     const hydratedPages: Turn[][] = [];
     let cursor: string | null = requestedCursor;
@@ -13683,11 +13632,7 @@ export class CodexService {
           sortDirection: "desc",
           itemsView: THREAD_TURNS_PAGE_ITEMS_VIEW,
         });
-        if (
-          this.getMaybeConversationRecord(threadId)?.turnPagination.olderCursor !== requestedCursor
-        ) {
-          return "stale";
-        }
+        if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
         if (page.nextCursor === cursor) {
           throw new Error("Codex older-turn pagination did not advance its cursor");
         }
@@ -13697,10 +13642,11 @@ export class CodexService {
       }
 
       const currentDetail = this.ensureConversationDetail(threadId);
-      if (!currentDetail || !lastPage) return "loaded";
-      if (this.ensureConversationRecord(threadId).turnPagination.olderCursor !== requestedCursor) {
-        return "stale";
+      if (!currentDetail || !lastPage) {
+        aggregate.failHistoryLoad(fence);
+        return "loaded";
       }
+      if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
       const rawTurns = hydratedPages.reverse().flat();
       const canonicalState = this.mergeCanonicalOlderTurnPage(
         threadId,
@@ -13717,13 +13663,15 @@ export class CodexService {
       if (!mergedDetail) {
         throw new Error(`Canonical history projection failed for '${threadId}'`);
       }
-      this.setConversationRecordDetail(mergedDetail, {
-        turnPagination: this.buildTurnPaginationFromPage(
-          combinedPage,
-          mergedDetail.turns.length,
-          rawTurns[0]?.id ?? requestedOldestLoadedTurnId,
-        ),
-      });
+      this.setConversationRecordDetail(mergedDetail, { preserveTurnPagination: true });
+      const nextPagination = this.buildTurnPaginationFromPage(
+        combinedPage,
+        mergedDetail.turns.length,
+        rawTurns[0]?.id ?? requestedOldestLoadedTurnId,
+      );
+      if (!aggregate.commitHistoryLoad(fence, nextPagination, mergedDetail.turns.length)) {
+        return "stale";
+      }
       await this.persistThreadDetailSummary(mergedDetail);
       const snapshot = this.serializeConversationSnapshot(threadId);
       if (snapshot && options.broadcastResult) {
@@ -13731,19 +13679,12 @@ export class CodexService {
       }
       return "loaded";
     } catch (error) {
-      const currentRecord = this.getMaybeConversationRecord(threadId);
-      if (currentRecord?.turnPagination.olderCursor !== requestedCursor) return "stale";
+      if (!aggregate.isHistoryLoadCurrent(fence)) return "stale";
       this.logger.warn("Failed to load older Codex thread turns", {
         threadId,
         error: error instanceof Error ? error.message : String(error),
       });
-      currentRecord.turnPagination = {
-        ...currentRecord.turnPagination,
-        olderCursor: requestedCursor,
-        oldestLoadedTurnId: requestedOldestLoadedTurnId,
-        isLoadingOlder: false,
-        hasLoadedOldest: false,
-      };
+      aggregate.failHistoryLoad(fence);
       throw error;
     }
   }
@@ -13915,9 +13856,9 @@ export class CodexService {
     const record = this.getMaybeConversationRecord(detail.threadId);
     const hasEligibleFirstTurn =
       (record ? this.readCanonicalConversationState(record.threadId) : null) !== null &&
-      record?.turnPagination.hasLoadedOldest === true;
+      this.readConversationTurnPagination(detail.threadId).hasLoadedOldest === true;
     const firstTurnParams = hasEligibleFirstTurn
-      ? this.readCanonicalConversationState(record.threadId)?.turns[0]?.sidecar.params
+      ? this.readCanonicalConversationState(detail.threadId)?.turns[0]?.sidecar.params
       : undefined;
     return resolveCodexForkSourceConversationTitle({
       explicitTitle: detail.threadName,
@@ -14042,8 +13983,8 @@ export class CodexService {
           : replacement.sidecar.hydrationContext,
       },
     });
-    record.hasUnreadTurn = false;
-    record.resumeState = "resumed";
+    this.conversationAggregate(record.threadId).setHasUnreadTurn(false, false);
+    this.setConversationResumeState(record.threadId, "resumed");
 
     const { detail, summary } = input.materialize
       ? await input.materialize(input.response.thread, cwd)
@@ -14550,8 +14491,8 @@ export class CodexService {
     });
     this.setConversationRecordDetail(detail);
     this.setConversationResumeState(forkedThreadId, "resumed");
-    const sideChatRecord = this.ensureConversationRecord(forkedThreadId);
-    sideChatRecord.isStreaming = true;
+    this.ensureConversationRecord(forkedThreadId);
+    this.conversationAggregate(forkedThreadId).setStreaming(true);
     this.setConversationStreamRole(forkedThreadId, "owner");
     this.syncDormantConversationFromRecord(forkedThreadId, "owner-unavailable");
 
@@ -14709,8 +14650,8 @@ export class CodexService {
     const previous = await this.readWorkspaceThread(threadId);
     const hadUnreadState = Boolean(
       previous?.hasUnreadTurn ||
-      this.getMaybeConversationRecord(threadId)?.hasUnreadTurn ||
-      this.readConversationAggregate(threadId)?.acceptedReplica?.conversation.hasUnreadTurn,
+      this.readConversationAggregate(threadId)?.preHydrationHasUnreadTurn ||
+      this.readConversationAggregate(threadId)?.canonicalState?.sidecar.hasUnreadTurn,
     );
     this.rememberWorkspaceSidebar(await this.projectWorkspace.setThreadArchived(threadId, true));
     if (previous) {
@@ -14881,12 +14822,12 @@ export class CodexService {
   private canContinueActiveThreadGoal(threadId: string): boolean {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return false;
-    if (record.resumeState !== "resumed") return false;
+    if (this.resolveConversationResumeState(threadId) !== "resumed") return false;
     if (record.threadGoal?.status !== "active") return false;
     if (this.readConversationServerRequests(record).length > 0) return false;
     if (this.hasPendingThreadGoalSteering(threadId, record)) return false;
     if (this.readConversationStreamRole(threadId) !== "owner") return false;
-    if (!record.isStreaming) return false;
+    if (!this.conversationAggregate(threadId).isStreaming()) return false;
     if (this.hasInProgressThreadGoalWork(threadId, record)) return false;
     return true;
   }
@@ -15214,7 +15155,7 @@ export class CodexService {
       after: afterAppend,
       observedAtMs: optimisticStartedAt,
     });
-    transaction.record.isStreaming = true;
+    this.conversationAggregate(transaction.threadId).setStreaming(true);
     await this.markThreadAsActive(transaction.threadId);
     this.syncDormantConversationFromRecord(transaction.threadId, "owner-unavailable");
   }
@@ -17826,7 +17767,7 @@ export class CodexService {
       statusActiveFlags: [...detail.statusActiveFlags],
     };
     await input.beforeFirstTurn?.(threadId);
-    record.isStreaming = true;
+    this.conversationAggregate(threadId).setStreaming(true);
     this.setConversationStreamRole(threadId, "owner");
     const clientUserMessageId = randomUUID();
     const delegatedInput =
@@ -19963,9 +19904,8 @@ export class CodexService {
       const previous = await this.readWorkspaceThread(payload.threadId);
       const hadUnreadState = Boolean(
         previous?.hasUnreadTurn ||
-        this.getMaybeConversationRecord(payload.threadId)?.hasUnreadTurn ||
-        this.readConversationAggregate(payload.threadId)?.acceptedReplica?.conversation
-          .hasUnreadTurn,
+        this.readConversationAggregate(payload.threadId)?.preHydrationHasUnreadTurn ||
+        this.readConversationAggregate(payload.threadId)?.canonicalState?.sidecar.hasUnreadTurn,
       );
       this.rememberWorkspaceSidebar(
         await this.projectWorkspace.setThreadArchived(payload.threadId, archived),
@@ -20015,9 +19955,8 @@ export class CodexService {
       if (existingThread) markSidebarSyncScopeChanged(metadata, existingThread.projectId);
       const hadUnreadState = Boolean(
         existingThread?.hasUnreadTurn ||
-        this.getMaybeConversationRecord(payload.threadId)?.hasUnreadTurn ||
-        this.readConversationAggregate(payload.threadId)?.acceptedReplica?.conversation
-          .hasUnreadTurn,
+        this.readConversationAggregate(payload.threadId)?.preHydrationHasUnreadTurn ||
+        this.readConversationAggregate(payload.threadId)?.canonicalState?.sidecar.hasUnreadTurn,
       );
       const deleted = await this.projectWorkspace.deleteThread(payload.threadId);
       if (deleted.deleted) {
@@ -20625,12 +20564,16 @@ export class CodexService {
       requests,
       canonicalState: this.readCanonicalConversationState(record.threadId),
       canonicalRequests: this.readConversationServerRequests(record),
-      hasUnreadTurn: record.hasUnreadTurn,
-      unreadMessageCount: record.unreadMessageCount,
+      hasUnreadTurn: this.conversationHasUnreadTurn(record.threadId),
+      unreadMessageCount: this.readConversationAggregate(record.threadId)?.acceptedReplica
+        ?.conversation.unreadMessageCount,
       queuedFollowUps: this.listQueuedFollowUps(threadId),
       pendingSteers: this.listPendingSteers(threadId),
       capabilityFlags: this.buildConversationCapabilityFlags(detail, requests),
-      turnPagination: this.normalizeTurnPagination(record.turnPagination, detail.turns.length),
+      turnPagination: this.normalizeTurnPagination(
+        this.readConversationTurnPagination(record.threadId),
+        detail.turns.length,
+      ),
       threadGoal: record.threadGoal,
       completedThreadGoal: record.completedThreadGoal,
       threadGoalResumeConfirmation: record.threadGoalResumeConfirmation,

@@ -35,6 +35,10 @@ export type CodexApplicationEvent =
     }
   | { readonly kind: "rendererConversationPresentedInForeground"; readonly value: string }
   | {
+      readonly kind: "conversationReadStateCommitted";
+      readonly value: { readonly threadId: string; readonly hasUnreadTurn: boolean };
+    }
+  | {
       readonly kind: "pendingWorktreesChanged";
       readonly value: IpcEvents["codex:pending-worktrees:changed"];
     }

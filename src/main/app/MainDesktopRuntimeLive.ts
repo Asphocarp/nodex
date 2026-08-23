@@ -155,10 +155,8 @@ import {
 import { makeCodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
 import {
   CodexThreadReadState,
-  CodexThreadReadStateError,
   make as makeCodexThreadReadState,
 } from "../codex-application/CodexThreadReadState";
-import { makeCodexThreadReadStatePromiseAdapter } from "../codex-application/CodexThreadReadStatePromiseAdapter";
 import { make as makeCodexSidebarSweepRuntime } from "../codex-application/CodexSidebarSweepRuntime";
 import { makeCodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
@@ -581,6 +579,49 @@ export const live: Layer.Layer<
           catch: (cause) => runtimeError("provider-credential-store", cause),
         });
         const runtimeStateHome = `${config.nodexHome}/agent`;
+        const windowRuntimeContext = yield* Layer.buildWithScope(
+          windowRuntimeLive(userDataPath, config.platform as NodeJS.Platform),
+          runtimeScope,
+        );
+        const windows = Context.get(windowRuntimeContext, WindowRuntime);
+        const initializationContext = yield* Layer.buildWithScope(
+          applicationInitializationRuntimeLive(windows),
+          runtimeScope,
+        );
+        const initialization = Context.get(initializationContext, ApplicationInitializationRuntime);
+        const authorityLayer = coreAuthorityLive().pipe(
+          Layer.provide(
+            Layer.merge(
+              coreTransportLive({
+                appResourcesPath: config.isPackaged ? config.resourcesPath : undefined,
+                buildId: `nodex-desktop/${config.appVersion}`,
+                isPackaged: config.isPackaged,
+                nodexHome: config.nodexHome,
+                onAuthorityProcessExit: (event) => {
+                  void callbacks.runPromise(initialization.observeAuthorityExit(event));
+                },
+                onStartupEvent: (event) => {
+                  void callbacks.runPromise(initialization.observeCoreStartup(event));
+                },
+                repositoryRoot: config.projectRootPath,
+              }),
+              Layer.succeed(MainShutdown, shutdown),
+            ),
+          ),
+        );
+        const authorityContext = yield* Layer.buildWithScope(authorityLayer, runtimeScope).pipe(
+          Effect.mapError((cause) => runtimeError("core-authority", cause)),
+        );
+        const authority = Context.get(authorityContext, CoreAuthority);
+        const access = Context.get(authorityContext, CoreSessionAccess);
+        const dataAuthority = yield* makeDesktopDataAuthority(callbacks).pipe(
+          Effect.provideService(CoreAuthority, authority),
+          Effect.provideService(CoreSessionAccess, access),
+        );
+        const legacyDataAuthority = Promise.resolve(dataAuthority);
+        const projectWorkspace = createDesktopProjectWorkspaceBridge({
+          authority: legacyDataAuthority,
+        });
         const projectRuntimeLifecycleContext = yield* Layer.buildWithScope(
           projectRuntimeLifecycleLive,
           runtimeScope,
@@ -705,25 +746,12 @@ export const live: Layer.Layer<
         const rendererConversations = yield* makeCodexRendererConversationRegistry().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const threadReadState = yield* makeCodexThreadReadState({
-          inspect: (threadId) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().inspectThreadReadStateProjection(threadId),
-              catch: (cause) => new CodexThreadReadStateError({ operation: "inspect", cause }),
-            }),
-          persist: ({ threadId, hasUnreadTurn }) =>
-            Effect.tryPromise({
-              try: () =>
-                requireCodexService().persistThreadReadStateProjection(threadId, hasUnreadTurn),
-              catch: (cause) => new CodexThreadReadStateError({ operation: "persist", cause }),
-            }),
-          project: ({ threadId, hasUnreadTurn }) =>
-            Effect.try({
-              try: () =>
-                requireCodexService().applyThreadReadStateProjection(threadId, hasUnreadTurn),
-              catch: (cause) => new CodexThreadReadStateError({ operation: "project", cause }),
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const threadReadState = yield* makeCodexThreadReadState(projectWorkspace).pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const userInputAutoResolution = yield* makeCodexUserInputAutoResolution.pipe(
           Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(Scope.Scope, runtimeScope),
@@ -840,16 +868,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const rendererClients = Context.get(rendererClientContext, RendererClientRuntime);
-        const windowRuntimeContext = yield* Layer.buildWithScope(
-          windowRuntimeLive(userDataPath, config.platform as NodeJS.Platform),
-          runtimeScope,
-        );
-        const windows = Context.get(windowRuntimeContext, WindowRuntime);
-        const initializationContext = yield* Layer.buildWithScope(
-          applicationInitializationRuntimeLive(windows),
-          runtimeScope,
-        );
-        const initialization = Context.get(initializationContext, ApplicationInitializationRuntime);
         const databaseNotifierContext = yield* Layer.buildWithScope(
           DatabaseNotifierRuntime.live.pipe(
             Layer.provide(
@@ -1360,31 +1378,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const authorityLayer = coreAuthorityLive().pipe(
-          Layer.provide(
-            Layer.merge(
-              coreTransportLive({
-                appResourcesPath: config.isPackaged ? config.resourcesPath : undefined,
-                buildId: `nodex-desktop/${config.appVersion}`,
-                isPackaged: config.isPackaged,
-                nodexHome: config.nodexHome,
-                onAuthorityProcessExit: (event) => {
-                  void callbacks.runPromise(initialization.observeAuthorityExit(event));
-                },
-                onStartupEvent: (event) => {
-                  void callbacks.runPromise(initialization.observeCoreStartup(event));
-                },
-                repositoryRoot: config.projectRootPath,
-              }),
-              Layer.succeed(MainShutdown, shutdown),
-            ),
-          ),
-        );
-        const authorityContext = yield* Layer.buildWithScope(authorityLayer, runtimeScope).pipe(
-          Effect.mapError((cause) => runtimeError("core-authority", cause)),
-        );
-        const authority = Context.get(authorityContext, CoreAuthority);
-        const access = Context.get(authorityContext, CoreSessionAccess);
         yield* Layer.buildWithScope(
           CoreAuthorityIpc.live.pipe(
             Layer.provide(
@@ -1424,11 +1417,6 @@ export const live: Layer.Layer<
           worktreeShellEnvironmentContext,
           WorktreeShellEnvironmentRuntime,
         );
-        const dataAuthority = yield* makeDesktopDataAuthority(callbacks).pipe(
-          Effect.provideService(CoreAuthority, authority),
-          Effect.provideService(CoreSessionAccess, access),
-        );
-        const legacyDataAuthority = Promise.resolve(dataAuthority);
         const automationModule = createDesktopAutomationModuleBridge({
           authority: legacyDataAuthority,
         });
@@ -1456,9 +1444,6 @@ export const live: Layer.Layer<
         const documentSync = Context.get(documentSessionContext, DesktopDocumentSessionRuntime);
         const libraryModule = createDesktopLibraryModuleBridge({ authority: legacyDataAuthority });
         const databaseModule = createDesktopDatabaseModuleBridge({
-          authority: legacyDataAuthority,
-        });
-        const projectWorkspace = createDesktopProjectWorkspaceBridge({
           authority: legacyDataAuthority,
         });
         const nodexAgentDynamicService = createDesktopNodexAgentV3DynamicService({
@@ -2639,7 +2624,6 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               threadCatalog: makeCodexThreadCatalogPromiseAdapter(threadCatalog, callbacks),
-              threadReadState: makeCodexThreadReadStatePromiseAdapter(threadReadState, callbacks),
               postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
                 postResumeGoals,
                 callbacks,

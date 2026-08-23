@@ -5,6 +5,12 @@ import * as Fiber from "effect/Fiber";
 import * as RcMap from "effect/RcMap";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
+import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import type { DesktopProjectWorkspacePort } from "../core-client/project-workspace-adapter";
+import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
+import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
+import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
 export interface CodexThreadReadStateSnapshot {
   readonly exists: boolean;
@@ -47,7 +53,7 @@ export class CodexThreadReadState extends Context.Service<
   }
 >()("nodex/main/codex-application/CodexThreadReadState") {}
 
-export const make = (
+const makeWithOperations = (
   options: CodexThreadReadStateOptions,
 ): Effect.Effect<CodexThreadReadState["Service"], never, Scope.Scope> =>
   Effect.gen(function* () {
@@ -142,4 +148,71 @@ export const make = (
     };
 
     return CodexThreadReadState.of({ set, persistProjected });
+  });
+
+export type CodexThreadReadStateWorkspace = Pick<
+  DesktopProjectWorkspacePort,
+  "getThread" | "setThreadUnread"
+>;
+
+/** Final construction path: durable Workspace + canonical aggregate + application projection. */
+export const make = (
+  workspace: CodexThreadReadStateWorkspace,
+): Effect.Effect<
+  CodexThreadReadState["Service"],
+  never,
+  | CodexApplicationEventHub
+  | CodexRendererConversationRegistry
+  | ConversationRuntimeMap
+  | Scope.Scope
+> =>
+  Effect.gen(function* () {
+    const conversations = yield* ConversationRuntimeMap;
+    const events = yield* CodexApplicationEventHub;
+    const rendererConversations = yield* CodexRendererConversationRegistry;
+    const readState = yield* makeWithOperations({
+      inspect: (threadId) =>
+        Effect.tryPromise({
+          try: () => workspace.getThread(threadId),
+          catch: (cause) => new CodexThreadReadStateError({ operation: "inspect", cause }),
+        }).pipe(
+          Effect.map((thread) => {
+            const aggregate = conversations.currentConversation(threadId);
+            const accepted = aggregate?.read().acceptedReplica?.conversation ?? null;
+            return {
+              exists: aggregate !== null || thread !== null,
+              archived: Boolean(thread?.archived || accepted?.archived),
+              conversationHasUnreadTurn: aggregate?.readHasUnreadTurn() ?? null,
+              workspaceHasUnreadTurn: thread?.hasUnreadTurn ?? null,
+            };
+          }),
+        ),
+      persist: ({ threadId, hasUnreadTurn }) =>
+        Effect.tryPromise({
+          try: () => workspace.setThreadUnread(threadId, hasUnreadTurn),
+          catch: (cause) => new CodexThreadReadStateError({ operation: "persist", cause }),
+        }).pipe(Effect.map((thread) => thread !== null)),
+      project: ({ threadId, hasUnreadTurn }) =>
+        Effect.sync(() => {
+          conversations
+            .currentConversation(threadId)
+            ?.setHasUnreadTurn(hasUnreadTurn, !rendererConversations.hasOwner(threadId));
+          events.publish({
+            kind: "hostMessage",
+            value: {
+              type: "threadReadStateChanged",
+              hostId: DEFAULT_CODEX_HOST_ID,
+              conversationId: threadId,
+              hasUnreadTurn,
+            },
+          });
+        }),
+    });
+    yield* events.events.pipe(
+      Stream.filter((event) => event.kind === "conversationReadStateCommitted"),
+      Stream.mapEffect((event) => readState.persistProjected(event.value)),
+      Stream.runDrain,
+      Effect.forkScoped({ startImmediately: true }),
+    );
+    return readState;
   });

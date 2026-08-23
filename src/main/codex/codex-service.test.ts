@@ -180,6 +180,15 @@ const setTestConversationStreamRole = (
   conversationAggregatesByTestService.get(service)?.conversation(threadId).setStreamRole(role);
 };
 
+const conversationAggregateForTest = (
+  service: object,
+  threadId: string,
+): CodexConversationAggregate => {
+  const aggregate = conversationAggregatesByTestService.get(service)?.conversation(threadId);
+  if (!aggregate) throw new Error(`Missing test conversation aggregate for '${threadId}'`);
+  return aggregate;
+};
+
 interface TestableCodexService {
   manualCompactionProjection: CodexService["manualCompactionProjection"];
   threadGoalProjection: CodexService["threadGoalProjection"];
@@ -203,7 +212,6 @@ interface TestableCodexService {
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
   threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
-  threadReadState: import("../codex-application/CodexThreadReadStatePromiseAdapter").CodexThreadReadStatePromiseAdapter;
   readConversationSnapshotForModule: CodexService["readConversationSnapshotForModule"];
   requestConversationResume: (
     threadId: string,
@@ -1653,12 +1661,6 @@ function createService(options?: {
       return await service.applySidebarThreadMove(input);
     },
   };
-  const threadReadState = {
-    persistProjected: async (input: { threadId: string; hasUnreadTurn: boolean }) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      await service.persistThreadReadStateProjection(input.threadId, input.hasUnreadTurn);
-    },
-  };
   const pendingWorktrees = new CodexPendingWorktreeRuntime({
     createWorktree: async (entry, context) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2170,7 +2172,6 @@ function createService(options?: {
     threadSettingsRuntime,
     threadTitlePersistence,
     threadCatalog,
-    threadReadState,
     conversationCommands,
     postResumeGoals,
     conversationHistory,
@@ -2304,7 +2305,6 @@ function createService(options?: {
   const internals = testService as unknown as {
     getMaybeConversationRecord: (threadId: string) => {
       detail: CodexThreadDetail | null;
-      hasUnreadTurn: boolean;
       latestThreadSettings: CodexConversationThreadSettings | null;
       latestTokenUsageInfo: CodexCanonicalConversationState["sidecar"]["latestTokenUsageInfo"];
       threadGoal: ThreadGoal | null;
@@ -2411,7 +2411,7 @@ function createService(options?: {
       requests: [...aggregate.readServerRequests()],
       sidecar: {
         ...canonical.sidecar,
-        hasUnreadTurn: record.hasUnreadTurn,
+        hasUnreadTurn: aggregate.readHasUnreadTurn(),
         latestThreadSettings: existingCanonical?.sidecar.latestThreadSettings ?? null,
         latestTokenUsageInfo:
           record.latestTokenUsageInfo ?? existingCanonical?.sidecar.latestTokenUsageInfo ?? null,
@@ -3908,8 +3908,7 @@ function installRendererOwnerConversation(
   const serviceInternals = service as unknown as {
     setConversationRecordDetail: (detail: CodexThreadDetail) => void;
     getConversationRecord: (threadId: string) => {
-      resumeState: string;
-      isStreaming: boolean;
+      detail: CodexThreadDetail | null;
     };
   };
 
@@ -3927,10 +3926,11 @@ function installRendererOwnerConversation(
     ],
     transcript: [],
   });
-  const record = serviceInternals.getConversationRecord(threadId);
-  record.resumeState = "resumed";
+  serviceInternals.getConversationRecord(threadId);
+  const aggregate = conversationAggregateForTest(service, threadId);
+  aggregate.setResumeState("resumed");
+  aggregate.setStreaming(true);
   setTestConversationStreamRole(service, threadId, "owner");
-  record.isStreaming = true;
   rendererConversationsForTest(service).setOwner(threadId, input.ownerClientId ?? "renderer-owner");
 }
 
@@ -5880,8 +5880,6 @@ describe("codex-service interrupt target resolution", () => {
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       getConversationRecord: (threadId: string) => {
-        resumeState: string;
-        isStreaming: boolean;
         threadGoal: ThreadGoal | null;
         detail: CodexThreadDetail | null;
       };
@@ -5908,9 +5906,10 @@ describe("codex-service interrupt target resolution", () => {
 
     serviceInternals.setConversationRecordDetail(detail);
     const record = serviceInternals.getConversationRecord("thr_goal_continue");
-    record.resumeState = "resumed";
+    const aggregate = conversationAggregateForTest(service, "thr_goal_continue");
+    aggregate.setResumeState("resumed");
+    aggregate.setStreaming(true);
     setTestConversationStreamRole(service, "thr_goal_continue", "owner");
-    record.isStreaming = true;
     record.threadGoal = {
       threadId: "thr_goal_continue",
       objective: "finish the migration",
@@ -5965,8 +5964,6 @@ describe("codex-service interrupt target resolution", () => {
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       getConversationRecord: (threadId: string) => {
-        resumeState: string;
-        isStreaming: boolean;
         threadGoal: ThreadGoal | null;
         detail: CodexThreadDetail | null;
       };
@@ -5998,9 +5995,10 @@ describe("codex-service interrupt target resolution", () => {
     threadSettingsRuntime.recordRemoteUpdateUnsupported();
     serviceInternals.setConversationRecordDetail(detail);
     const record = serviceInternals.getConversationRecord("thr_goal_continue_fallback");
-    record.resumeState = "resumed";
+    const aggregate = conversationAggregateForTest(service, "thr_goal_continue_fallback");
+    aggregate.setResumeState("resumed");
+    aggregate.setStreaming(true);
     setTestConversationStreamRole(service, "thr_goal_continue_fallback", "owner");
-    record.isStreaming = true;
     record.threadGoal = {
       threadId: "thr_goal_continue_fallback",
       objective: "finish the migration",
@@ -6048,8 +6046,6 @@ describe("codex-service interrupt target resolution", () => {
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       getConversationRecord: (threadId: string) => {
-        resumeState: string;
-        isStreaming: boolean;
         threadGoal: ThreadGoal | null;
         detail: CodexThreadDetail | null;
       };
@@ -6088,9 +6084,10 @@ describe("codex-service interrupt target resolution", () => {
     );
     serviceInternals.setConversationRecordDetail(detail);
     const record = serviceInternals.getConversationRecord("thr_goal_continue_settings");
-    record.resumeState = "resumed";
+    const aggregate = conversationAggregateForTest(service, "thr_goal_continue_settings");
+    aggregate.setResumeState("resumed");
+    aggregate.setStreaming(true);
     setTestConversationStreamRole(service, "thr_goal_continue_settings", "owner");
-    record.isStreaming = true;
     record.threadGoal = {
       threadId: "thr_goal_continue_settings",
       objective: "finish the migration",
@@ -10427,7 +10424,6 @@ describe("codex-service item lifecycle status fallback", () => {
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       getConversationRecord: (threadId: string) => {
-        hasUnreadTurn: boolean;
         planImplementationRequestsByTurnId: Map<string, CodexPlanImplementationServerRequest>;
       };
       upsertPlanImplementationRequest: (
@@ -10467,7 +10463,8 @@ describe("codex-service item lifecycle status fallback", () => {
       planRequest(currentTurnId, "duplicate-current"),
       planRequest(orphanTurnId, "orphan-plan"),
     ]);
-    record.hasUnreadTurn = false;
+    const aggregate = conversationAggregateForTest(service, threadId);
+    aggregate.setHasUnreadTurn(false, false);
     for (const turnId of [staleTurnId, orphanTurnId]) {
       record.planImplementationRequestsByTurnId.set(turnId, {
         type: "implementPlan",
@@ -10488,7 +10485,7 @@ describe("codex-service item lifecycle status fallback", () => {
         "same plan",
         2,
       );
-      expect(record.hasUnreadTurn).toBe(true);
+      expect(aggregate.readHasUnreadTurn()).toBe(true);
       expect(JSON.stringify(readTestServerRequests(record).map((request) => request.id))).toBe(
         JSON.stringify(["unrelated-option", "stale-plan", "orphan-plan", fresh.requestId]),
       );

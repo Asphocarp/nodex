@@ -1,6 +1,8 @@
 import type {
   CodexCanonicalConversationState,
   CodexCanonicalServerRequest,
+  CodexConversationTurnPagination,
+  CodexConversationResumeState,
   CodexConversationSnapshot,
   CodexThreadStreamCheckpoint,
 } from "../../shared/types";
@@ -55,6 +57,15 @@ export interface CodexConversationAggregateSnapshot {
   readonly version: number;
   readonly revision: number;
   readonly checkpoint: CodexThreadStreamCheckpoint | null;
+  readonly resumeState: CodexConversationResumeState;
+  readonly turnPagination: CodexConversationTurnPagination;
+  readonly isStreaming: boolean;
+}
+
+export interface CodexConversationHistoryFence {
+  readonly generation: number;
+  readonly olderCursor: string;
+  readonly oldestLoadedTurnId: string | null;
 }
 
 interface MutableCodexConversationAggregate {
@@ -67,6 +78,10 @@ interface MutableCodexConversationAggregate {
   version: number;
   revision: number;
   checkpoint: CodexThreadStreamCheckpoint | null;
+  resumeState: CodexConversationResumeState;
+  turnPagination: CodexConversationTurnPagination;
+  isStreaming: boolean;
+  historyGeneration: number;
 }
 
 export interface CodexConversationAggregate {
@@ -76,6 +91,30 @@ export interface CodexConversationAggregate {
   readonly readCanonicalState: () => CodexCanonicalConversationState | null;
   readonly readServerRequests: () => readonly CodexCanonicalServerRequest[];
   readonly readServerRequestState: () => CodexConversationServerRequestState;
+  readonly readHasUnreadTurn: () => boolean;
+  /** Seeds durable Workspace state before canonical app-server hydration. */
+  readonly seedHasUnreadTurn: (hasUnreadTurn: boolean) => void;
+  /** Applies the canonical read-state transition to every loaded conversation projection. */
+  readonly setHasUnreadTurn: (hasUnreadTurn: boolean, projectReplica: boolean) => boolean;
+  readonly readResumeState: () => CodexConversationResumeState;
+  readonly setResumeState: (state: CodexConversationResumeState) => void;
+  readonly isStreaming: () => boolean;
+  readonly setStreaming: (isStreaming: boolean) => void;
+  readonly readTurnPagination: () => CodexConversationTurnPagination;
+  /** Replaces pagination when a canonical hydration installs a new history window. */
+  readonly initializeHistory: (
+    pagination: CodexConversationTurnPagination,
+    loadedTurnCount: number,
+  ) => void;
+  /** Opens one cursor-fenced physical history load. */
+  readonly beginHistoryLoad: (loadedTurnCount: number) => CodexConversationHistoryFence | null;
+  readonly isHistoryLoadCurrent: (fence: CodexConversationHistoryFence) => boolean;
+  readonly commitHistoryLoad: (
+    fence: CodexConversationHistoryFence,
+    pagination: CodexConversationTurnPagination,
+    loadedTurnCount: number,
+  ) => boolean;
+  readonly failHistoryLoad: (fence: CodexConversationHistoryFence) => boolean;
   readonly commitServerRequestLifecycle: (
     input: CodexConversationServerRequestLifecycleCommit & {
       readonly observedAtMs: number;
@@ -128,6 +167,18 @@ const initialAggregate = (generation: number): MutableCodexConversationAggregate
   version: 0,
   revision: 0,
   checkpoint: null,
+  resumeState: "resumed",
+  turnPagination: {
+    olderCursor: null,
+    backwardsCursor: null,
+    oldestLoadedTurnId: null,
+    isLoadingOlder: false,
+    hasLoadedOldest: true,
+    loadedTurnCount: 0,
+    itemsView: "full",
+  },
+  isStreaming: false,
+  historyGeneration: 0,
 });
 
 const snapshot = (
@@ -148,6 +199,9 @@ const snapshot = (
   version: aggregate.version,
   revision: aggregate.revision,
   checkpoint: aggregate.checkpoint,
+  resumeState: aggregate.resumeState,
+  turnPagination: { ...aggregate.turnPagination },
+  isStreaming: aggregate.isStreaming,
 });
 
 /**
@@ -176,6 +230,10 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
     aggregate.version = 0;
     aggregate.revision = 0;
     aggregate.checkpoint = null;
+    aggregate.resumeState = "resumed";
+    aggregate.turnPagination = initialAggregate(aggregate.generation).turnPagination;
+    aggregate.isStreaming = false;
+    aggregate.historyGeneration = 0;
   };
 
   const makeCapability = (
@@ -206,6 +264,123 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
       readCanonicalState: () => aggregate.canonicalState,
       readServerRequests: () =>
         aggregate.canonicalState?.requests ?? aggregate.preHydrationServerRequests,
+      readHasUnreadTurn: () =>
+        aggregate.canonicalState?.sidecar.hasUnreadTurn ?? aggregate.preHydrationHasUnreadTurn,
+      seedHasUnreadTurn: (hasUnreadTurn) => {
+        if (aggregate.canonicalState) return;
+        aggregate.preHydrationHasUnreadTurn = hasUnreadTurn;
+      },
+      setHasUnreadTurn: (hasUnreadTurn, projectReplica) => {
+        const previous =
+          aggregate.canonicalState?.sidecar.hasUnreadTurn ?? aggregate.preHydrationHasUnreadTurn;
+        const replicaChanged =
+          aggregate.acceptedReplica !== null &&
+          aggregate.acceptedReplica.conversation.hasUnreadTurn !== hasUnreadTurn;
+        if (previous !== hasUnreadTurn) {
+          if (aggregate.canonicalState) {
+            aggregate.canonicalState = {
+              ...aggregate.canonicalState,
+              sidecar: {
+                ...aggregate.canonicalState.sidecar,
+                hasUnreadTurn,
+              },
+            };
+          } else {
+            aggregate.preHydrationHasUnreadTurn = hasUnreadTurn;
+          }
+        }
+        if (projectReplica && replicaChanged && aggregate.acceptedReplica) {
+          const conversation = {
+            ...aggregate.acceptedReplica.conversation,
+            hasUnreadTurn,
+            ...(hasUnreadTurn ? {} : { unreadMessageCount: 0 }),
+          };
+          acceptReplica({
+            conversation,
+            ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+            revision: aggregate.revision + 1,
+          });
+        }
+        return previous !== hasUnreadTurn || (projectReplica && replicaChanged);
+      },
+      readResumeState: () => aggregate.resumeState,
+      setResumeState: (state) => {
+        const replicaChanged =
+          aggregate.acceptedReplica !== null &&
+          aggregate.acceptedReplica.conversation.resumeState !== state;
+        if (aggregate.resumeState === state && !replicaChanged) return;
+        aggregate.resumeState = state;
+        if (!replicaChanged || !aggregate.acceptedReplica) return;
+        acceptReplica({
+          conversation: { ...aggregate.acceptedReplica.conversation, resumeState: state },
+          ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
+          revision: aggregate.revision + 1,
+        });
+      },
+      isStreaming: () => aggregate.isStreaming,
+      setStreaming: (isStreaming) => {
+        aggregate.isStreaming = isStreaming;
+      },
+      readTurnPagination: () => ({ ...aggregate.turnPagination }),
+      initializeHistory: (pagination, loadedTurnCount) => {
+        aggregate.historyGeneration += 1;
+        aggregate.turnPagination = { ...pagination, loadedTurnCount };
+      },
+      beginHistoryLoad: (loadedTurnCount) => {
+        const pagination = aggregate.turnPagination;
+        if (
+          pagination.isLoadingOlder ||
+          pagination.hasLoadedOldest ||
+          pagination.olderCursor === null
+        ) {
+          return null;
+        }
+        aggregate.historyGeneration += 1;
+        const fence = {
+          generation: aggregate.historyGeneration,
+          olderCursor: pagination.olderCursor,
+          oldestLoadedTurnId: pagination.oldestLoadedTurnId,
+        };
+        aggregate.turnPagination = {
+          ...pagination,
+          isLoadingOlder: true,
+          hasLoadedOldest: false,
+          loadedTurnCount,
+        };
+        return fence;
+      },
+      isHistoryLoadCurrent: (fence) =>
+        aggregate.historyGeneration === fence.generation &&
+        aggregate.turnPagination.isLoadingOlder &&
+        aggregate.turnPagination.olderCursor === fence.olderCursor,
+      commitHistoryLoad: (fence, pagination, loadedTurnCount) => {
+        if (
+          !aggregate.turnPagination.isLoadingOlder ||
+          aggregate.historyGeneration !== fence.generation ||
+          aggregate.turnPagination.olderCursor !== fence.olderCursor
+        ) {
+          return false;
+        }
+        aggregate.turnPagination = { ...pagination, loadedTurnCount, isLoadingOlder: false };
+        return true;
+      },
+      failHistoryLoad: (fence) => {
+        if (
+          !aggregate.turnPagination.isLoadingOlder ||
+          aggregate.historyGeneration !== fence.generation ||
+          aggregate.turnPagination.olderCursor !== fence.olderCursor
+        ) {
+          return false;
+        }
+        aggregate.turnPagination = {
+          ...aggregate.turnPagination,
+          olderCursor: fence.olderCursor,
+          oldestLoadedTurnId: fence.oldestLoadedTurnId,
+          isLoadingOlder: false,
+          hasLoadedOldest: false,
+        };
+        return true;
+      },
       readServerRequestState: () => {
         const canonicalState = aggregate.canonicalState;
         return {
