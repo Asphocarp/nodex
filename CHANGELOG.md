@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed backup history and retention failing after an upgrade when a Profile contains cleanup receipts written by an earlier durable outcome format.
 - Fixed large, clean Profiles reopening slowly by reusing one single-use validation receipt after a graceful Core shutdown; interrupted, migrated, restored, or otherwise changed Stores still receive complete integrity validation before opening.
 - Fixed digit-leading Block titles without a shorthand separator being reported as malformed shorthand during Database promotion; authoring preview and Core promotion now use the same explicit boundary rules.
 - Fixed moving the final Block from Page Stage into Board or List crashing the source editor; remote structural deletions now restore a valid selection, and cross-surface transfers require prepared causal heads.
