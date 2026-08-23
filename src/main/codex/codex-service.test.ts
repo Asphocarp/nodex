@@ -36,7 +36,6 @@ import type {
   CodexThreadStreamCheckpoint,
   CodexThreadSummary,
   CodexTurnSummary,
-  CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
   ManagedWorktreeRecord,
   ManagedWorktreeSettings,
@@ -199,10 +198,6 @@ interface TestableCodexService {
   sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
   threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
   threadReadState: import("../codex-application/CodexThreadReadStatePromiseAdapter").CodexThreadReadStatePromiseAdapter;
-  searchCommandPaletteThreads: (input: {
-    query: string;
-    limit?: number;
-  }) => Promise<CommandPaletteThreadSearchResult[]>;
   requestConversationSnapshot: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   requestConversationResume: (
     threadId: string,
@@ -6368,173 +6363,6 @@ function initializeGitRepository(repoPath: string): void {
   execFileSync("git", ["add", "README.md"], { cwd: repoPath });
   execFileSync("git", ["commit", "-m", "initial"], { cwd: repoPath });
 }
-
-describe("codex-service readThread fallback", () => {
-  test("searches app-server tasks and paginates past filtered results", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    client.start = async () => undefined;
-    client.request = async (method, params) => {
-      requests.push({ method, params });
-      if (method !== "thread/search") throw new Error(`Unexpected method: ${method}`);
-
-      const cursor = (params as { cursor?: string | null }).cursor;
-      if (cursor === null) {
-        return {
-          data: [
-            {
-              thread: {
-                ...makeProtocolThread("thr_search_child", "/tmp/codex"),
-                parentThreadId: "thr_parent",
-              },
-              snippet: "Filtered child task",
-            },
-          ],
-          nextCursor: "page-2",
-          backwardsCursor: null,
-        };
-      }
-
-      return {
-        data: [
-          {
-            thread: {
-              ...makeProtocolThread("thr_search_server_only", "/workspace/server-only"),
-              name: "Server-only task",
-              preview: "Not materialized in Nodex",
-              gitInfo: { sha: "abc", branch: "feature/search", originUrl: null },
-              status: { type: "idle" },
-            },
-            snippet: "Matched server-only transcript",
-          },
-        ],
-        nextCursor: null,
-        backwardsCursor: "backwards",
-      };
-    };
-
-    try {
-      const results = await service.searchCommandPaletteThreads({
-        query: "transcript",
-        limit: 1,
-      });
-
-      expect(results).toEqual([
-        {
-          thread: {
-            threadId: "thr_search_server_only",
-            sessionId: null,
-            projectId: null,
-            projectName: null,
-            title: "Server-only task",
-            preview: "Not materialized in Nodex",
-            cwd: "/workspace/server-only",
-            gitBranch: "feature/search",
-            projectless: true,
-            pinned: false,
-            pinnedOrder: null,
-            statusType: "idle",
-            statusActiveFlags: [],
-            createdAt: 1_711_278_000_000,
-            updatedAt: 1_711_278_060_000,
-          },
-          snippet: "Matched server-only transcript",
-        },
-      ]);
-      expect(requests).toEqual([
-        {
-          method: "thread/search",
-          params: {
-            cursor: null,
-            limit: 1,
-            sortKey: "updated_at",
-            sortDirection: "desc",
-            sourceKinds: [],
-            archived: false,
-            searchTerm: "transcript",
-          },
-        },
-        {
-          method: "thread/search",
-          params: {
-            cursor: "page-2",
-            limit: 1,
-            sortKey: "updated_at",
-            sortDirection: "desc",
-            sourceKinds: [],
-            archived: false,
-            searchTerm: "transcript",
-          },
-        },
-      ]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("bounds app-server task search when pagination repeats a cursor", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const cursors: Array<string | null | undefined> = [];
-    client.start = async () => undefined;
-    client.request = async (_method, params) => {
-      cursors.push((params as { cursor?: string | null }).cursor);
-      return {
-        data: [
-          {
-            thread: {
-              ...makeProtocolThread(`thr_internal_${cursors.length}`, "/tmp/codex"),
-              threadSource: "system",
-            },
-            snippet: "Filtered internal task",
-          },
-        ],
-        nextCursor: "repeated-cursor",
-        backwardsCursor: null,
-      };
-    };
-
-    try {
-      await expect(
-        service.searchCommandPaletteThreads({ query: "internal", limit: 5 }),
-      ).resolves.toEqual([]);
-      expect(cursors).toEqual([null, "repeated-cursor"]);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("skips app-server task search for blank queries and surfaces request failures", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: () => Promise<never>;
-    };
-    let requestCalls = 0;
-    client.start = async () => undefined;
-    client.request = async () => {
-      requestCalls += 1;
-      throw new Error("search unavailable");
-    };
-
-    try {
-      await expect(service.searchCommandPaletteThreads({ query: "   " })).resolves.toEqual([]);
-      await expect(service.searchCommandPaletteThreads({ query: "needle" })).rejects.toThrow(
-        "search unavailable",
-      );
-      expect(requestCalls).toBe(1);
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
 
 describe("codex-service session-backed transcript recovery", () => {
   test("reconciles historically inverted and stale app-server Thread timestamps", async () => {

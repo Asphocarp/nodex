@@ -682,19 +682,22 @@ domain step that materializes one app-server page or one reconciliation batch an
 immutable cursor state. A temporary Promise adapter drains the current non-cancellable page before
 a forced refresh starts, but it owns no timer, retry counter, generation fence, or in-flight queue.
 
-Thread Catalog reads and placement are owned by `CodexThreadCatalog`. Project Thread windows and the
-bounded command-palette list are projected directly from Project Workspace; the latter merges the
-sidebar overview, projectless sessions, and Project windows, deduplicates by Thread, and applies the
-same recency ordering in one owner-scoped Effect. Paginated pin reads, pin/unpin placement, full
-pinned-order replacement, and cross-Project/sidebar-lane moves share that source of truth. All
+Thread Catalog reads, search, and placement are owned by `CodexThreadCatalog`. Project Thread
+windows and the bounded command-palette list are projected directly from Project Workspace; the
+latter merges the sidebar overview, projectless sessions, and Project windows, deduplicates by
+Thread, and applies the same recency ordering in one owner-scoped Effect. Full-text palette search
+uses the typed local Codex Gateway directly, pages past filtered child/internal Threads with a
+repeated-cursor fence, and merges server results with the same local Project, pin, and runtime-status
+projection. Paginated pin reads, pin/unpin placement, full pinned-order replacement, and
+cross-Project/sidebar-lane moves share that source of truth. All
 mutations pass through one Main-scoped semaphore; reads remain concurrent but close with Main Scope.
 Moves include validation, Project access confirmation, Workspace/settings/canonical consequences,
 and exact sidebar publication before releasing admission. Pin mutations publish the exact
 Project/projectless invalidation through `CodexSidebarSyncRuntime` only after Core commits. Renderer
-ingress calls the typed Module directly, while command-palette search and internal launch flows use a
-stateless tracked projection. `CodexService` owns no public Project/palette-list or placement command,
-Promise chain, semaphore, or recovery tail; it temporarily supplies only cached runtime fields and
-the move domain projection.
+ingress calls the typed Module directly, while internal launch flows use a stateless tracked
+projection. `CodexService` owns no public Project/palette read/search or placement command, Promise
+chain, semaphore, or recovery tail; it temporarily supplies only cached runtime fields and the move
+domain projection.
 
 Thread read state is owned by `CodexThreadReadState`. Manual read/unread transitions inspect the
 canonical and Project Workspace projections, reject archived or unknown Threads, persist to Project

@@ -4,15 +4,19 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type {
   CodexSidebarSnapshot,
   CodexSidebarSyncResult,
+  Project,
   ProjectSessionSummaryWindow,
 } from "../../shared/types";
 import type { DesktopProjectWorkspaceSidebar } from "../core-client/project-workspace-adapter";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { codexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
-import { make } from "./CodexThreadCatalog";
+import { CodexThreadCatalogError, make } from "./CodexThreadCatalog";
 
 const snapshot = (pinnedThreadIds: readonly string[] = []): CodexSidebarSnapshot => ({
   items: [],
@@ -32,6 +36,63 @@ const syncResult = (value: CodexSidebarSnapshot): CodexSidebarSyncResult => ({
   materializedSessionIds: [],
   failedThreadIds: [],
 });
+
+type RequestLocal = CodexGateway["Service"]["requestLocal"];
+
+const makeGateway = (requestLocal: RequestLocal): CodexGateway["Service"] => {
+  const unsupported = () => Effect.die(new Error("Unsupported test operation"));
+  return CodexGateway.of({
+    localHostId: "local",
+    events: Stream.empty,
+    requestLocal,
+    requestOnHost: (_hostId, method, params) => requestLocal(method, params),
+    requestForThread: (_threadId, method, params) => requestLocal(method, params),
+    notifyLocal: unsupported,
+    connection: () => unsupported(),
+    connectionChanges: () => Stream.empty,
+    awaitReady: () => Effect.void,
+    reconcileHost: unsupported,
+    removeHost: unsupported,
+    restartHost: unsupported,
+  });
+};
+
+const unusedGateway = makeGateway((() =>
+  Effect.die(new Error("Unexpected Codex request"))) as RequestLocal);
+
+const emptyWindow = (): ProjectSessionSummaryWindow =>
+  ({
+    items: [],
+    nextCursor: null,
+    hasMore: false,
+    projectionRevision: 1,
+  }) as ProjectSessionSummaryWindow;
+
+const searchSidebar = CodexSidebarSyncRuntime.of({
+  sync: () => Effect.die("unused"),
+  publish: () => Effect.die("unused"),
+  invalidate: () => undefined,
+  scheduleNotification: () => undefined,
+});
+
+const makeSearchCatalog = (
+  scope: Scope.Scope,
+  requestLocal: RequestLocal,
+  projects: readonly Project[] = [],
+) =>
+  make({
+    readSidebarOverview: () => Effect.succeed(emptyWindow()),
+    listProjectWindow: () => Effect.succeed(emptyWindow()),
+    listProjects: Effect.succeed(projects),
+    readThreadProjection: () => null,
+    setThreadPinned: () => Effect.die("unused"),
+    reorderPinnedThreads: () => Effect.die("unused"),
+    move: () => Effect.die("unused"),
+  }).pipe(
+    Effect.provideService(CodexGateway, makeGateway(requestLocal)),
+    Effect.provideService(CodexSidebarSyncRuntime, searchSidebar),
+    Effect.provideService(Scope.Scope, scope),
+  );
 
 it.effect("owns paginated pin reads and complete mutation publication", () =>
   Effect.gen(function* () {
@@ -87,6 +148,7 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
           };
         }),
     }).pipe(
+      Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
       Effect.provideService(Scope.Scope, scope),
     );
@@ -150,6 +212,7 @@ it.effect("interrupts active and queued pin mutations with its owning Scope", ()
         }),
       move: () => Effect.die("unused"),
     }).pipe(
+      Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
       Effect.provideService(Scope.Scope, scope),
     );
@@ -238,6 +301,7 @@ it.effect("owns Project and command-palette Thread projections", () =>
       reorderPinnedThreads: () => Effect.die("unused"),
       move: () => Effect.die("unused"),
     }).pipe(
+      Effect.provideService(CodexGateway, unusedGateway),
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
       Effect.provideService(Scope.Scope, scope),
     );
@@ -293,6 +357,175 @@ it.effect("owns Project and command-palette Thread projections", () =>
       },
     ]);
 
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("searches app-server Threads and paginates past filtered results", () =>
+  Effect.gen(function* () {
+    const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
+    const requestLocal = ((method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method !== "thread/search") return Effect.die(new Error(`Unexpected request: ${method}`));
+      const cursor = (params as { readonly cursor?: string | null }).cursor;
+      if (cursor === null) {
+        return Effect.succeed({
+          data: [
+            {
+              thread: {
+                id: "thread-child",
+                ephemeral: false,
+                parentThreadId: "thread-parent",
+                threadSource: null,
+                source: "appServer",
+              },
+              snippet: "Filtered child Thread",
+            },
+          ],
+          nextCursor: "page-2",
+          backwardsCursor: null,
+        });
+      }
+      return Effect.succeed({
+        data: [
+          {
+            thread: {
+              id: "thread-server-only",
+              ephemeral: false,
+              parentThreadId: null,
+              threadSource: null,
+              source: "appServer",
+              name: "Server-only Thread",
+              preview: "Not materialized in Nodex",
+              cwd: "/workspace/project/server-only",
+              gitInfo: { sha: "abc", branch: "feature/search", originUrl: null },
+              status: { type: "idle" },
+              createdAt: 1_711_278_000,
+              updatedAt: 1_711_278_060,
+              recencyAt: null,
+            },
+            snippet: "Matched server-only transcript",
+          },
+        ],
+        nextCursor: null,
+        backwardsCursor: "backwards",
+      });
+    }) as RequestLocal;
+    const scope = yield* Scope.make();
+    const catalog = yield* makeSearchCatalog(scope, requestLocal, [
+      {
+        id: "project-a",
+        name: "Project A",
+        sources: [{ root: "/workspace/project" }],
+      } as unknown as Project,
+    ]);
+
+    assert.deepEqual(yield* catalog.searchPalette({ query: "transcript", limit: 1 }), [
+      {
+        thread: {
+          threadId: "thread-server-only",
+          sessionId: null,
+          projectId: "project-a",
+          projectName: "Project A",
+          title: "Server-only Thread",
+          preview: "Not materialized in Nodex",
+          cwd: "/workspace/project/server-only",
+          gitBranch: "feature/search",
+          projectless: false,
+          pinned: false,
+          pinnedOrder: null,
+          statusType: "idle",
+          statusActiveFlags: [],
+          createdAt: 1_711_278_000_000,
+          updatedAt: 1_711_278_060_000,
+        },
+        snippet: "Matched server-only transcript",
+      },
+    ]);
+    assert.deepEqual(requests, [
+      {
+        method: "thread/search",
+        params: {
+          cursor: null,
+          limit: 1,
+          sortKey: "updated_at",
+          sortDirection: "desc",
+          sourceKinds: [],
+          archived: false,
+          searchTerm: "transcript",
+        },
+      },
+      {
+        method: "thread/search",
+        params: {
+          cursor: "page-2",
+          limit: 1,
+          sortKey: "updated_at",
+          sortDirection: "desc",
+          sourceKinds: [],
+          archived: false,
+          searchTerm: "transcript",
+        },
+      },
+    ]);
+
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("bounds repeated search cursors and filters internal Threads", () =>
+  Effect.gen(function* () {
+    const cursors: Array<string | null | undefined> = [];
+    const requestLocal = ((_method: string, params: unknown) => {
+      cursors.push((params as { readonly cursor?: string | null }).cursor);
+      return Effect.succeed({
+        data: [
+          {
+            thread: {
+              id: `thread-internal-${cursors.length}`,
+              ephemeral: false,
+              parentThreadId: null,
+              threadSource: "system",
+              source: "appServer",
+            },
+            snippet: "Filtered internal Thread",
+          },
+        ],
+        nextCursor: "repeated-cursor",
+        backwardsCursor: null,
+      });
+    }) as RequestLocal;
+    const scope = yield* Scope.make();
+    const catalog = yield* makeSearchCatalog(scope, requestLocal);
+
+    assert.deepEqual(yield* catalog.searchPalette({ query: "internal", limit: 5 }), []);
+    assert.deepEqual(cursors, [null, "repeated-cursor"]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("skips blank search and preserves typed Gateway failures", () =>
+  Effect.gen(function* () {
+    const failure = codexRuntimeError({
+      operation: "gateway.request",
+      reason: "request",
+      retryable: false,
+      cause: new Error("search unavailable"),
+    });
+    let requestCalls = 0;
+    const requestLocal = (() => {
+      requestCalls += 1;
+      return Effect.fail(failure);
+    }) as RequestLocal;
+    const scope = yield* Scope.make();
+    const catalog = yield* makeSearchCatalog(scope, requestLocal);
+
+    assert.deepEqual(yield* catalog.searchPalette({ query: "   " }), []);
+    const error = yield* catalog.searchPalette({ query: "needle" }).pipe(Effect.flip);
+    assert.isTrue(error instanceof CodexThreadCatalogError);
+    assert.strictEqual(error.operation, "search-palette");
+    assert.strictEqual(error.cause, failure);
+    assert.strictEqual(requestCalls, 1);
     yield* Scope.close(scope, Exit.void);
   }),
 );

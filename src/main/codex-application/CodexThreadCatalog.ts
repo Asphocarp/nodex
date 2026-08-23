@@ -4,6 +4,8 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
+import type { ClientRequestResponsesByMethod } from "@nodex/effect-codex-app-server/rpc";
 import {
   CodexSidebarThreadMoveInputSchema,
   type CodexSidebarThreadMoveInput,
@@ -15,6 +17,8 @@ import type {
   CodexThreadSummaryWindow,
   CodexThreadSummaryWindowInput,
   CommandPaletteThreadListInput,
+  CommandPaletteThreadSearchInput,
+  CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
   Project,
   ProjectSessionSummaryWindow,
@@ -24,13 +28,21 @@ import type {
   DesktopProjectWorkspaceSidebar,
   DesktopProjectWorkspaceThread,
 } from "../core-client/project-workspace-adapter";
+import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexSidebarSyncRuntime, type CodexSidebarSyncMetadata } from "./CodexSidebarSyncRuntime";
+import {
+  isNonSidebarThreadWithoutParent,
+  parseThreadStatus,
+  resolveSidebarProjectIdForCwd,
+  resolveSidebarThreadTitle,
+} from "./CodexThreadCatalogProjection";
 
 export class CodexThreadCatalogError extends Data.TaggedError("CodexThreadCatalogError")<{
   readonly operation:
     | "list-pinned"
     | "list-project"
     | "list-palette"
+    | "search-palette"
     | "set-pinned"
     | "reorder-pinned"
     | "move"
@@ -72,6 +84,9 @@ export class CodexThreadCatalog extends Context.Service<
     readonly listPalette: (
       input: CommandPaletteThreadListInput,
     ) => Effect.Effect<readonly CommandPaletteThreadSummary[], CodexThreadCatalogError>;
+    readonly searchPalette: (
+      input: CommandPaletteThreadSearchInput,
+    ) => Effect.Effect<readonly CommandPaletteThreadSearchResult[], CodexThreadCatalogError>;
     readonly setPinned: (
       threadId: string,
       pinned: boolean,
@@ -85,6 +100,18 @@ export class CodexThreadCatalog extends Context.Service<
     ) => Effect.Effect<CodexSidebarThreadMoveResult, CodexThreadCatalogError>;
   }
 >()("nodex/main/codex-application/CodexThreadCatalog") {}
+
+const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [] as const satisfies readonly ThreadSourceKind[];
+const COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT = 50;
+const COMMAND_PALETTE_THREAD_SEARCH_MAX_LIMIT = 60;
+
+const normalizeCommandPaletteThreadSearchLimit = (limit: number | undefined): number => {
+  if (!Number.isFinite(limit)) return COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT;
+  return Math.min(
+    COMMAND_PALETTE_THREAD_SEARCH_MAX_LIMIT,
+    Math.max(1, Math.floor(limit ?? COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT)),
+  );
+};
 
 const metadataForProject = (projectId: string | null): CodexSidebarSyncMetadata => ({
   changedProjectIds: projectId === null ? [] : [projectId],
@@ -139,9 +166,14 @@ const projectThreadSummary = (
 
 export const make = (
   options: CodexThreadCatalogOptions,
-): Effect.Effect<CodexThreadCatalog["Service"], never, CodexSidebarSyncRuntime | Scope.Scope> =>
+): Effect.Effect<
+  CodexThreadCatalog["Service"],
+  never,
+  CodexGateway | CodexSidebarSyncRuntime | Scope.Scope
+> =>
   Effect.gen(function* () {
     const ownerScope = yield* Scope.Scope;
+    const gateway = yield* CodexGateway;
     const sidebar = yield* CodexSidebarSyncRuntime;
     const mutations = yield* Semaphore.make(1);
     const runOwned = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
@@ -178,6 +210,73 @@ export const make = (
     };
     const runMutation = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
       runOwned(mutations.withPermit(operation));
+
+    const listPalette = (
+      input: CommandPaletteThreadListInput,
+    ): Effect.Effect<readonly CommandPaletteThreadSummary[], CodexThreadCatalogError> => {
+      if (input.scope !== "sidebar") return Effect.succeed([]);
+      return Effect.gen(function* () {
+        const projects = yield* options.listProjects;
+        const projectNameById = new Map(
+          projects.map((project) => [project.id, project.name] as const),
+        );
+        const seenThreadIds = new Set<string>();
+        const summaries: CommandPaletteThreadSummary[] = [];
+        const addWindow = (window: ProjectSessionSummaryWindow): void => {
+          for (const session of window.items) {
+            if (summaries.length >= 100) return;
+            const thread = session.thread;
+            if (
+              !thread ||
+              thread.parentThreadId ||
+              session.archived ||
+              thread.archived ||
+              seenThreadIds.has(thread.threadId)
+            ) {
+              continue;
+            }
+            seenThreadIds.add(thread.threadId);
+            summaries.push({
+              threadId: thread.threadId,
+              sessionId: session.id,
+              projectId: session.projectId,
+              projectName: session.projectId
+                ? (projectNameById.get(session.projectId) ?? null)
+                : null,
+              title: session.displayTitle,
+              preview: thread.threadPreview,
+              cwd: thread.cwd ?? null,
+              gitBranch: null,
+              projectless: session.projectId === null,
+              pinned: session.pinned,
+              pinnedOrder: session.pinnedOrder,
+              statusType: thread.statusType,
+              statusActiveFlags: [...thread.statusActiveFlags],
+              createdAt: thread.createdAt,
+              updatedAt: thread.recencyAt ?? thread.updatedAt,
+            });
+          }
+        };
+        addWindow(yield* options.readSidebarOverview({ first: 100 }));
+        if (summaries.length < 100) {
+          addWindow(
+            yield* options.listProjectWindow(null, {
+              first: 100 - summaries.length,
+            }),
+          );
+        }
+        for (const project of projects) {
+          if (summaries.length >= 100) break;
+          addWindow(
+            yield* options.listProjectWindow(project.id, {
+              first: 100 - summaries.length,
+            }),
+          );
+        }
+        summaries.sort((left, right) => right.updatedAt - left.updatedAt);
+        return summaries.slice(0, 100);
+      });
+    };
 
     return CodexThreadCatalog.of({
       listPinned: runOwned(
@@ -224,69 +323,93 @@ export const make = (
           ),
         );
       },
-      listPalette: (input) => {
-        if (input.scope !== "sidebar") return Effect.succeed([]);
+      listPalette: (input) => runOwned(listPalette(input)),
+      searchPalette: (input) => {
+        const query = input.query.trim();
+        if (!query) return Effect.succeed([]);
+        const limit = normalizeCommandPaletteThreadSearchLimit(input.limit);
         return runOwned(
           Effect.gen(function* () {
-            const projects = yield* options.listProjects;
+            const [localThreads, projects] = yield* Effect.all(
+              [listPalette({ scope: "sidebar" }), options.listProjects] as const,
+              { concurrency: "unbounded" },
+            );
+            const localByThreadId = new Map(
+              localThreads.map((thread) => [thread.threadId, thread] as const),
+            );
             const projectNameById = new Map(
               projects.map((project) => [project.id, project.name] as const),
             );
+            const results: CommandPaletteThreadSearchResult[] = [];
             const seenThreadIds = new Set<string>();
-            const summaries: CommandPaletteThreadSummary[] = [];
-            const addWindow = (window: ProjectSessionSummaryWindow): void => {
-              for (const session of window.items) {
-                if (summaries.length >= 100) return;
-                const thread = session.thread;
-                if (
-                  !thread ||
-                  thread.parentThreadId ||
-                  session.archived ||
-                  thread.archived ||
-                  seenThreadIds.has(thread.threadId)
-                ) {
+            const seenCursors = new Set<string>();
+            let cursor: string | null = null;
+
+            while (results.length < limit) {
+              const response: ClientRequestResponsesByMethod["thread/search"] = yield* gateway
+                .requestLocal("thread/search", {
+                  cursor,
+                  limit: limit - results.length,
+                  sortKey: "updated_at",
+                  sortDirection: "desc",
+                  sourceKinds: [...CODEX_SIDEBAR_THREAD_SOURCE_KINDS],
+                  archived: false,
+                  searchTerm: query,
+                })
+                .pipe(
+                  Effect.mapError(
+                    (cause) => new CodexThreadCatalogError({ operation: "search-palette", cause }),
+                  ),
+                );
+
+              for (const result of response.data) {
+                const thread = result.thread;
+                if (thread.ephemeral || thread.parentThreadId) continue;
+                if (isNonSidebarThreadWithoutParent(thread as unknown as Record<string, unknown>)) {
                   continue;
                 }
-                seenThreadIds.add(thread.threadId);
-                summaries.push({
-                  threadId: thread.threadId,
-                  sessionId: session.id,
-                  projectId: session.projectId,
-                  projectName: session.projectId
-                    ? (projectNameById.get(session.projectId) ?? null)
+                if (seenThreadIds.has(thread.id)) continue;
+                seenThreadIds.add(thread.id);
+
+                const local = localByThreadId.get(thread.id);
+                const inferredProjectId = resolveSidebarProjectIdForCwd(thread.cwd, projects);
+                const projectId = local?.projectId ?? inferredProjectId;
+                const parsedStatus = parseThreadStatus(thread.status);
+                const createdAt = Number(thread.createdAt) * 1_000;
+                const updatedAt = Number(thread.recencyAt ?? thread.updatedAt) * 1_000;
+                const candidate: CommandPaletteThreadSummary = {
+                  threadId: thread.id,
+                  sessionId: local?.sessionId ?? null,
+                  projectId,
+                  projectName: projectId
+                    ? (projectNameById.get(projectId) ?? local?.projectName ?? null)
                     : null,
-                  title: session.displayTitle,
-                  preview: thread.threadPreview,
-                  cwd: thread.cwd ?? null,
-                  gitBranch: null,
-                  projectless: session.projectId === null,
-                  pinned: session.pinned,
-                  pinnedOrder: session.pinnedOrder,
-                  statusType: thread.statusType,
-                  statusActiveFlags: [...thread.statusActiveFlags],
-                  createdAt: thread.createdAt,
-                  updatedAt: thread.recencyAt ?? thread.updatedAt,
-                });
+                  title: resolveSidebarThreadTitle({
+                    threadName: thread.name,
+                    threadPreview: thread.preview,
+                  }),
+                  preview: thread.preview,
+                  cwd: thread.cwd,
+                  gitBranch: thread.gitInfo?.branch ?? null,
+                  projectless: projectId === null,
+                  pinned: local?.pinned ?? false,
+                  pinnedOrder: local?.pinnedOrder ?? null,
+                  statusType: local?.statusType ?? parsedStatus.statusType,
+                  statusActiveFlags: local?.statusActiveFlags ?? parsedStatus.statusActiveFlags,
+                  createdAt: Number.isFinite(createdAt) ? createdAt : (local?.createdAt ?? 0),
+                  updatedAt: Number.isFinite(updatedAt) ? updatedAt : (local?.updatedAt ?? 0),
+                };
+                results.push({ thread: candidate, snippet: result.snippet });
+                if (results.length >= limit) break;
               }
-            };
-            addWindow(yield* options.readSidebarOverview({ first: 100 }));
-            if (summaries.length < 100) {
-              addWindow(
-                yield* options.listProjectWindow(null, {
-                  first: 100 - summaries.length,
-                }),
-              );
+
+              const nextCursor: string | null = response.nextCursor ?? null;
+              if (!nextCursor || seenCursors.has(nextCursor)) break;
+              seenCursors.add(nextCursor);
+              cursor = nextCursor;
             }
-            for (const project of projects) {
-              if (summaries.length >= 100) break;
-              addWindow(
-                yield* options.listProjectWindow(project.id, {
-                  first: 100 - summaries.length,
-                }),
-              );
-            }
-            summaries.sort((left, right) => right.updatedAt - left.updatedAt);
-            return summaries.slice(0, 100);
+
+            return results;
           }),
         );
       },

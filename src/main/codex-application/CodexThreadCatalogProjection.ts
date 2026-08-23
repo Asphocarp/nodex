@@ -1,0 +1,99 @@
+import path from "node:path";
+import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSource";
+import type {
+  CodexThreadActiveFlag,
+  CodexThreadRuntimeStatus,
+  CodexThreadStatusType,
+  Project,
+} from "../../shared/types";
+import { CodexThreadStatusSchema } from "../../shared/schemas/codex";
+import { hasCodexSubagentSource } from "../../shared/codex-subagent-metadata";
+
+export interface ParsedThreadStatus {
+  readonly statusType: CodexThreadStatusType;
+  readonly statusActiveFlags: CodexThreadActiveFlag[];
+  readonly threadRuntimeStatus: CodexThreadRuntimeStatus;
+}
+
+const normalizeSidebarPath = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    const resolved = path.resolve(trimmed);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  } catch {
+    return null;
+  }
+};
+
+const isSameOrDescendantPath = (candidatePath: string, rootPath: string): boolean => {
+  if (candidatePath === rootPath) return true;
+  const relative = path.relative(rootPath, candidatePath);
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+};
+
+export const resolveSidebarProjectIdForCwd = (
+  cwd: string | null | undefined,
+  projects: readonly Project[],
+): string | null => {
+  const normalizedCwd = normalizeSidebarPath(cwd);
+  if (!normalizedCwd) return null;
+
+  let best: { projectId: string; sourcePath: string } | null = null;
+  for (const project of projects) {
+    for (const source of project.sources) {
+      const sourcePath = normalizeSidebarPath(source.root);
+      if (!sourcePath || !isSameOrDescendantPath(normalizedCwd, sourcePath)) continue;
+      if (!best || sourcePath.length > best.sourcePath.length) {
+        best = { projectId: project.id, sourcePath };
+      }
+    }
+  }
+
+  return best?.projectId ?? null;
+};
+
+export const resolveSidebarThreadTitle = (thread: {
+  readonly threadName?: string | null;
+  readonly threadPreview?: string | null;
+}): string => {
+  const title = thread.threadName?.trim() || thread.threadPreview?.trim();
+  return title || "New thread";
+};
+
+const buildThreadRuntimeStatus = (
+  statusType: CodexThreadStatusType,
+  statusActiveFlags: CodexThreadActiveFlag[],
+): CodexThreadRuntimeStatus =>
+  statusType === "active"
+    ? { type: "active", activeFlags: [...statusActiveFlags] }
+    : { type: statusType };
+
+export const parseThreadStatus = (status: unknown): ParsedThreadStatus => {
+  const parsed = CodexThreadStatusSchema.safeParse(status);
+  if (!parsed.success) {
+    return {
+      statusType: "notLoaded",
+      statusActiveFlags: [],
+      threadRuntimeStatus: buildThreadRuntimeStatus("notLoaded", []),
+    };
+  }
+  const statusType = parsed.data.type;
+  const activeFlags = statusType === "active" ? parsed.data.activeFlags : [];
+  return {
+    statusType,
+    statusActiveFlags: activeFlags,
+    threadRuntimeStatus: parsed.data,
+  };
+};
+
+export const parseThreadSourceValue = (value: unknown): ThreadSource | null =>
+  typeof value === "string" && value.trim().length > 0 ? (value as ThreadSource) : null;
+
+export const isInternalThreadSourceValue = (threadSource: ThreadSource | null): boolean =>
+  threadSource === "system" || threadSource === "subagent";
+
+export const isNonSidebarThreadWithoutParent = (thread: Record<string, unknown>): boolean => {
+  const threadSource = parseThreadSourceValue(thread.threadSource);
+  return isInternalThreadSourceValue(threadSource) || hasCodexSubagentSource(thread.source);
+};

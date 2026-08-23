@@ -38,8 +38,6 @@ import type { ThreadDeleteResponse } from "@nodex/codex-app-server-protocol/v2/T
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
 import type { ThreadListParams } from "@nodex/codex-app-server-protocol/v2/ThreadListParams";
 import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
-import type { ThreadSearchParams } from "@nodex/codex-app-server-protocol/v2/ThreadSearchParams";
-import type { ThreadSearchResponse } from "@nodex/codex-app-server-protocol/v2/ThreadSearchResponse";
 import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSource";
 import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2/ThreadItem";
@@ -63,9 +61,6 @@ import type { TurnSteerResponse } from "@nodex/codex-app-server-protocol/v2/Turn
 import type { ToolRequestUserInputResponse } from "@nodex/codex-app-server-protocol/v2/ToolRequestUserInputResponse";
 import type {
   PageRunInTarget,
-  CommandPaletteThreadSearchInput,
-  CommandPaletteThreadSearchResult,
-  CommandPaletteThreadSummary,
   CodexAgentMode,
   CodexAutomationRunsUpdatedEvent,
   CodexApprovalRequest,
@@ -258,7 +253,6 @@ import {
 } from "../../shared/codex-prompt-preparation";
 import {
   CodexThreadGoalStatusSchema,
-  CodexThreadStatusSchema,
   parseCodexThreadTokenUsage,
 } from "../../shared/schemas/codex";
 import { buildCodexBackgroundProcessRow } from "./background-process-rows";
@@ -665,6 +659,14 @@ import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-applica
 import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
 import type { CodexThreadCatalogPromiseAdapter } from "../codex-application/CodexThreadCatalogPromiseAdapter";
+import {
+  isInternalThreadSourceValue,
+  isNonSidebarThreadWithoutParent,
+  parseThreadSourceValue,
+  parseThreadStatus,
+  resolveSidebarProjectIdForCwd,
+  resolveSidebarThreadTitle,
+} from "../codex-application/CodexThreadCatalogProjection";
 import type { CodexThreadReadStatePromiseAdapter } from "../codex-application/CodexThreadReadStatePromiseAdapter";
 import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
@@ -716,8 +718,6 @@ import {
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [] as const satisfies readonly ThreadSourceKind[];
-const COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT = 50;
-const COMMAND_PALETTE_THREAD_SEARCH_MAX_LIMIT = 60;
 const AUTO_REVIEW_REVIEWER_PROMPT_PREFIXES = [
   "The following is the Codex agent history",
   "The following is the Codex agent history added since your last approval assessment",
@@ -913,60 +913,6 @@ function mergeSidebarThreadMaterialization(
   markSidebarSyncScopeChanged(metadata, result.projectId);
 }
 
-function normalizeSidebarPath(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-  try {
-    const resolved = path.resolve(trimmed);
-    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-  } catch {
-    return null;
-  }
-}
-
-function isSameOrDescendantPath(candidatePath: string, rootPath: string): boolean {
-  if (candidatePath === rootPath) return true;
-  const relative = path.relative(rootPath, candidatePath);
-  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
-}
-
-function resolveSidebarProjectIdForCwd(
-  cwd: string | null | undefined,
-  projects: readonly Project[],
-): string | null {
-  const normalizedCwd = normalizeSidebarPath(cwd);
-  if (!normalizedCwd) return null;
-
-  let best: { projectId: string; sourcePath: string } | null = null;
-  for (const project of projects) {
-    for (const source of project.sources) {
-      const sourcePath = normalizeSidebarPath(source.root);
-      if (!sourcePath || !isSameOrDescendantPath(normalizedCwd, sourcePath)) continue;
-      if (!best || sourcePath.length > best.sourcePath.length) {
-        best = { projectId: project.id, sourcePath };
-      }
-    }
-  }
-
-  return best?.projectId ?? null;
-}
-
-function resolveSidebarThreadTitle(thread: {
-  threadName?: string | null;
-  threadPreview?: string | null;
-}): string {
-  const title = thread.threadName?.trim() || thread.threadPreview?.trim();
-  return title || "New thread";
-}
-
-function normalizeCommandPaletteThreadSearchLimit(limit: number | undefined): number {
-  if (!Number.isFinite(limit)) return COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT;
-  return Math.min(
-    COMMAND_PALETTE_THREAD_SEARCH_MAX_LIMIT,
-    Math.max(1, Math.floor(limit ?? COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT)),
-  );
-}
-
 function normalizeSidebarSessionFallbackTitle(thread: {
   threadName?: string | null;
   threadPreview?: string | null;
@@ -1076,12 +1022,6 @@ interface CodexResumePermissionSelection {
 
 interface HandleNotificationOptions {
   bypassResumeBuffer?: boolean;
-}
-
-interface ParsedThreadStatus {
-  statusType: CodexThreadStatusType;
-  statusActiveFlags: CodexThreadActiveFlag[];
-  threadRuntimeStatus: CodexThreadRuntimeStatus;
 }
 
 type StartTurnOverrides = CodexTurnStartOptions & {
@@ -1663,39 +1603,6 @@ function parseTurnDiff(value: unknown): string | undefined {
   return typeof diff === "string" ? diff : undefined;
 }
 
-function buildThreadRuntimeStatus(
-  statusType: CodexThreadStatusType,
-  statusActiveFlags: CodexThreadActiveFlag[],
-): CodexThreadRuntimeStatus {
-  if (statusType === "active") {
-    return {
-      type: "active",
-      activeFlags: [...statusActiveFlags],
-    };
-  }
-
-  return { type: statusType };
-}
-
-function parseThreadStatus(status: unknown): ParsedThreadStatus {
-  const parsed = CodexThreadStatusSchema.safeParse(status);
-  if (parsed.success) {
-    const statusType = parsed.data.type;
-    const activeFlags = statusType === "active" ? parsed.data.activeFlags : [];
-    return {
-      statusType,
-      statusActiveFlags: activeFlags,
-      threadRuntimeStatus: parsed.data,
-    };
-  }
-
-  return {
-    statusType: "notLoaded",
-    statusActiveFlags: [],
-    threadRuntimeStatus: buildThreadRuntimeStatus("notLoaded", []),
-  };
-}
-
 function applyThreadAgentMetadata<T extends CodexThreadSummary>(
   summary: T,
   candidate: Record<string, unknown>,
@@ -1751,22 +1658,8 @@ function isSubagentThreadSpawnSource(source: unknown): boolean {
   return extractCodexThreadSubagentMetadata({ source }).parentThreadId !== null;
 }
 
-function parseThreadSourceValue(value: unknown): ThreadSource | null {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function isInternalThreadSourceValue(threadSource: ThreadSource | null): boolean {
-  return threadSource === "system" || threadSource === "subagent";
-}
-
 function isGuardianSubagentSource(source: unknown): boolean {
   return getCodexSubagentOtherSource(source)?.toLowerCase() === "guardian";
-}
-
-function isNonSidebarThreadWithoutParent(thread: Record<string, unknown>): boolean {
-  const threadSource = parseThreadSourceValue(thread.threadSource);
-  if (isInternalThreadSourceValue(threadSource)) return true;
-  return hasCodexSubagentSource(thread.source);
 }
 
 function isPotentialAutoReviewReviewerPreview(value: unknown): boolean {
@@ -7599,99 +7492,6 @@ export class CodexService {
       reason,
       forceEmit: options.force,
     });
-  }
-
-  async searchCommandPaletteThreads(
-    input: CommandPaletteThreadSearchInput,
-  ): Promise<CommandPaletteThreadSearchResult[]> {
-    const query = input.query.trim();
-    if (!query) return [];
-
-    const limit = normalizeCommandPaletteThreadSearchLimit(input.limit);
-    await this.ensureClientReady();
-    const [localThreads, projects] = await Promise.all([
-      this.threadCatalog.listPalette({ scope: "sidebar" }),
-      this.projectWorkspace.listProjects(),
-    ]);
-    const localByThreadId = new Map(
-      localThreads.map((thread) => [thread.threadId, thread] as const),
-    );
-    const projectNameById = new Map(projects.map((project) => [project.id, project.name] as const));
-    const results: CommandPaletteThreadSearchResult[] = [];
-    const seenThreadIds = new Set<string>();
-    const seenCursors = new Set<string>();
-    let cursor: string | null = null;
-
-    try {
-      while (results.length < limit) {
-        const params: ThreadSearchParams = {
-          cursor,
-          limit: limit - results.length,
-          sortKey: "updated_at",
-          sortDirection: "desc",
-          sourceKinds: [...CODEX_SIDEBAR_THREAD_SOURCE_KINDS],
-          archived: false,
-          searchTerm: query,
-        };
-        const response = await this.client.request<"thread/search", ThreadSearchResponse>(
-          "thread/search",
-          params,
-        );
-
-        for (const result of response.data) {
-          const thread = result.thread;
-          if (thread.ephemeral || thread.parentThreadId) continue;
-          if (isNonSidebarThreadWithoutParent(thread as unknown as Record<string, unknown>))
-            continue;
-          if (seenThreadIds.has(thread.id)) continue;
-          seenThreadIds.add(thread.id);
-
-          const local = localByThreadId.get(thread.id);
-          const inferredProjectId = resolveSidebarProjectIdForCwd(thread.cwd, projects);
-          const projectId = local?.projectId ?? inferredProjectId;
-          const parsedStatus = parseThreadStatus(thread.status);
-          const createdAt = Number(thread.createdAt) * 1_000;
-          const updatedAt = Number(thread.recencyAt ?? thread.updatedAt) * 1_000;
-          const candidate: CommandPaletteThreadSummary = {
-            threadId: thread.id,
-            sessionId: local?.sessionId ?? null,
-            projectId,
-            projectName: projectId
-              ? (projectNameById.get(projectId) ?? local?.projectName ?? null)
-              : null,
-            title: resolveSidebarThreadTitle({
-              threadName: thread.name,
-              threadPreview: thread.preview,
-            }),
-            preview: thread.preview,
-            cwd: thread.cwd,
-            gitBranch: thread.gitInfo?.branch ?? null,
-            projectless: projectId === null,
-            pinned: local?.pinned ?? false,
-            pinnedOrder: local?.pinnedOrder ?? null,
-            statusType: local?.statusType ?? parsedStatus.statusType,
-            statusActiveFlags: local?.statusActiveFlags ?? parsedStatus.statusActiveFlags,
-            createdAt: Number.isFinite(createdAt) ? createdAt : (local?.createdAt ?? 0),
-            updatedAt: Number.isFinite(updatedAt) ? updatedAt : (local?.updatedAt ?? 0),
-          };
-          results.push({ thread: candidate, snippet: result.snippet });
-          if (results.length >= limit) break;
-        }
-
-        const nextCursor = response.nextCursor;
-        if (!nextCursor || seenCursors.has(nextCursor)) break;
-        seenCursors.add(nextCursor);
-        cursor = nextCursor;
-      }
-    } catch (error) {
-      this.logger.debug("Codex task search failed", {
-        queryLength: query.length,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-
-    return results;
   }
 
   async resolveThreadSummary(threadId: string): Promise<CodexThreadSummary | null> {

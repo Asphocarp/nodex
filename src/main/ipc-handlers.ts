@@ -359,8 +359,13 @@ export const codexIpcLive = (
         ),
       );
 
-      registerHandle("codex:threads:palette:search", (_, input) =>
-        codexService.searchCommandPaletteThreads(input),
+      registerEffectHandle("codex:threads:palette:search", (_, input) =>
+        options.threadCatalog.searchPalette(input).pipe(
+          Effect.map((results) => [...results]),
+          Effect.mapError(
+            (cause) => new CodexIpcError({ operation: "codex:threads:palette:search", cause }),
+          ),
+        ),
       );
 
       registerHandle("codex:thread:summary:get", (_, threadId: string) =>

@@ -1446,6 +1446,7 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexThreadCatalogError({ operation: "move", cause }),
             }),
         }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
