@@ -1,6 +1,5 @@
 import { afterAll, describe, expect, test, vi } from "vite-plus/test";
 import * as Effect from "effect/Effect";
-import * as Stream from "effect/Stream";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -31,7 +30,6 @@ import type {
   ProjectSession,
   ProjectSessionForkResult,
 } from "../../shared/types";
-import type { CodexUserInputAutoResolutionEntry } from "../../shared/codex-user-input-auto-resolution";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import {
   getCodexThreadOwnerNotificationThreadId,
@@ -90,7 +88,7 @@ import type {
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
-import { CodexService } from "./codex-service";
+import { CodexApplicationRequestPending, CodexService } from "./codex-service";
 import { CodexSessionStore } from "./codex-session-store";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
 import type { CodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
@@ -133,7 +131,6 @@ import type {
   DesktopProjectWorkspaceThreadMoveInput,
 } from "../core-client/project-workspace-adapter";
 import { PersistedAtomStore } from "../local-store/persisted-atoms";
-import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import type { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
 import type { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
 import type { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
@@ -198,7 +195,6 @@ interface TestableCodexService {
   ) => () => void;
   shutdown: () => Promise<void>;
   routeAppServerNotification: (notification: CodexServerNotification) => Promise<void>;
-  observeConnection: (connection: import("../../shared/types").CodexConnectionState) => void;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
   threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
@@ -206,7 +202,6 @@ interface TestableCodexService {
     threadId: string,
     options?: { syncDormantConversationSnapshots?: boolean; replayBufferedNotifications?: boolean },
   ) => Promise<CodexConversationSnapshot | null>;
-  releaseConversationResumeBufferForModule: CodexService["releaseConversationResumeBufferForModule"];
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
   listPendingWorktrees: () => readonly import("../../shared/codex-pending-worktree").CodexPendingWorktreeEntry[];
@@ -1307,8 +1302,7 @@ function createService(options?: {
   const conversationRuntimes = ConversationRuntimeMap.of({
     conversation: conversationAggregates.acquire,
     currentConversation: conversationAggregates.current,
-    requests: Stream.empty,
-    runtime: () => Effect.die(new Error("Conversation runtime is unavailable in this fixture")),
+    markAllNeedsResume: conversationAggregates.markAllNeedsResume,
     runExclusive: (_threadId, operation) => operation,
     close: () => Effect.void,
   });
@@ -1445,12 +1439,8 @@ function createService(options?: {
   });
   const activeGoalContinuation = new TestCodexActiveGoalContinuation({
     delayMs: 250,
-    isEligible: (conversationId) =>
-      service?.isActiveThreadGoalContinuationCandidate(conversationId) === true,
-    continueGoal: async (conversationId) => {
-      if (!service) throw new Error("Codex test service is not constructed");
-      await service.runActiveThreadGoalContinuation(conversationId);
-    },
+    isEligible: () => false,
+    continueGoal: async () => undefined,
   });
   const ownerNotificationDrain = new TestCodexOwnerNotificationDrainRuntime(
     DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT,
@@ -1762,7 +1752,13 @@ function createService(options?: {
     adoptRenderer: adoptRendererConversation,
     releaseBuffer: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
-      return await service.releaseConversationResumeBufferForModule(threadId);
+      const testService = service as unknown as {
+        hasResumeNotificationBuffer: (id: string) => boolean;
+        releaseConversationResumeBufferCore: (id: string) => Promise<void>;
+      };
+      const hadBuffer = testService.hasResumeNotificationBuffer(threadId);
+      await testService.releaseConversationResumeBufferCore(threadId);
+      return hadBuffer;
     },
   });
   const conversationEventBuffer = new TestCodexConversationEventBufferRuntime({
@@ -1795,6 +1791,8 @@ function createService(options?: {
     steer: () => Effect.die("Turn commands are exercised by final semantic service tests"),
     steerRendererOwned: () =>
       Effect.die("Renderer-owned Turn commands are unavailable in the CodexService fixture"),
+    continueGoal: () =>
+      Effect.die("Goal continuation is exercised by the final semantic capability"),
   };
   const threadGoals: CodexThreadGoalRuntimePromiseAdapter = {
     set: async (input) => {
@@ -4944,204 +4942,6 @@ describe("codex-service session-backed transcript recovery", () => {
 });
 
 describe("codex-service edit-last-user-turn and fork-from-turn", () => {
-  test("fork-from-turn uses full fork, seeded resume, child rollback, a provenance marker, and caller title", async () => {
-    const projectWorkspace = createTestProjectWorkspace();
-    const persistedWritableRoots = new Map<string, readonly string[]>();
-    const replaceThreadWritableRoots =
-      projectWorkspace.replaceThreadWritableRoots.bind(projectWorkspace);
-    projectWorkspace.replaceThreadWritableRoots = async (threadId, roots) => {
-      persistedWritableRoots.set(threadId, [...roots]);
-      return await replaceThreadWritableRoots(threadId, roots);
-    };
-    const service = createService({ projectWorkspace });
-    const sourceThreadId = "thr_exact_fork_source";
-    const childThreadId = "thr_exact_fork_child";
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const order: string[] = [];
-    const sourceTurns = [
-      makeCanonicalHydrationTurn("turn_1"),
-      makeCanonicalHydrationTurn("turn_2"),
-      makeCanonicalHydrationTurn("turn_3"),
-    ];
-    const forkResponse = makeCanonicalForkResponse({
-      threadId: childThreadId,
-      cwd: "/workspace/project",
-      turns: sourceTurns,
-    });
-    const sourceDetail: CodexThreadDetail = {
-      ...makeThreadDetail(sourceThreadId),
-      projectId: "project-exact-fork",
-      threadName: "Exact fork source",
-      cwd: "/workspace/project",
-      turns: sourceTurns.map((turn) => ({
-        threadId: sourceThreadId,
-        turnId: turn.id,
-        status: "completed",
-        itemIds: turn.items.map((item) => item.id),
-      })),
-      transcript: [],
-    };
-    const serviceInternals = service as unknown as {
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      parseThreadRef: (id: string) => Record<string, unknown> | null;
-      maybeResolveProjectRuntimeContext: (projectId: string) => {
-        workspaceRoots: string[];
-        primaryWorkspaceRoot: string;
-      };
-      upsertLinkFromThread: () => null;
-      buildThreadDetailFromRead: (thread: Thread) => CodexThreadDetail;
-      buildThreadDetailFromCanonicalState: (
-        state: CodexCanonicalConversationState,
-      ) => CodexThreadDetail;
-      persistThreadDetailSummary: (detail: CodexThreadDetail) => void;
-      applyThreadNameLocal: (id: string, name: string) => void;
-      beginThreadStartNotificationDeferral: () => void;
-      completeThreadStartNotificationDeferral: (threadId: string | null) => Promise<void>;
-      endThreadStartNotificationDeferral: () => Promise<void>;
-      appendForkedFromConversationMarker: (
-        targetThreadId: string,
-        sourceThreadId: string,
-        sourceTitle: string | null,
-      ) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    serviceInternals.setConversationRecordDetail(sourceDetail);
-    serviceInternals.parseThreadRef = () => ({
-      projectId: "project-exact-fork",
-      cwd: "/workspace/project",
-      projectlessWorkspaceBrowserRoot: null,
-    });
-    serviceInternals.maybeResolveProjectRuntimeContext = () => ({
-      workspaceRoots: ["/workspace/project", "/workspace/shared"],
-      primaryWorkspaceRoot: "/workspace/project",
-    });
-    serviceInternals.upsertLinkFromThread = () => null;
-    serviceInternals.buildThreadDetailFromRead = (thread) => ({
-      ...makeThreadDetail(thread.id),
-      projectId: "project-exact-fork",
-      threadName: thread.name,
-      cwd: thread.cwd,
-      turns: thread.turns.map((turn) => ({
-        threadId: thread.id,
-        turnId: turn.id,
-        status: turn.status === "inProgress" ? "inProgress" : "completed",
-        itemIds: turn.items.map((item) => item.id),
-      })),
-      transcript: [],
-    });
-    serviceInternals.buildThreadDetailFromCanonicalState = (state) =>
-      makeCanonicalStateDetailFixture(state, { projectId: "project-exact-fork" });
-    serviceInternals.persistThreadDetailSummary = () => {};
-    serviceInternals.applyThreadNameLocal = (id, name) => {
-      const detail = service.serializeThreadDetail(id);
-      if (!detail) return;
-      serviceInternals.setConversationRecordDetail({ ...detail, threadName: name });
-    };
-    const originalAppendForkMarker =
-      serviceInternals.appendForkedFromConversationMarker.bind(service);
-    serviceInternals.beginThreadStartNotificationDeferral = () => {
-      order.push("deferral:begin");
-    };
-    serviceInternals.completeThreadStartNotificationDeferral = async () => {
-      order.push("deferral:complete");
-    };
-    serviceInternals.endThreadStartNotificationDeferral = async () => {
-      order.push("deferral:end");
-    };
-    serviceInternals.appendForkedFromConversationMarker = (...args) => {
-      order.push("provenance:append");
-      originalAppendForkMarker(...args);
-    };
-    client.start = async () => undefined;
-    client.request = async (method, params) => {
-      requests.push({ method, params });
-      order.push(`request:${method}`);
-      if (method === "thread/fork") return forkResponse;
-      if (method === "thread/read") {
-        return { thread: { ...forkResponse.thread, turns: [] } };
-      }
-      if (method === "thread/resume") return makeCanonicalForkResumeResponse(forkResponse);
-      if (method === "thread/goal/get") return { goal: null };
-      if (method === "thread/rollback") {
-        return {
-          thread: {
-            ...forkResponse.thread,
-            turns: sourceTurns.slice(0, 2),
-          },
-        };
-      }
-      if (method === "thread/name/set") return {};
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-
-    try {
-      const result = await service.forkConversationFromTurn(
-        sourceThreadId,
-        "turn_2",
-        "This text must not prefill the child composer",
-      );
-      const forkParams = requests[0]?.params as Record<string, unknown>;
-      const rollbackParams = requests.find((request) => request.method === "thread/rollback")
-        ?.params as Record<string, unknown>;
-      const resumeParams = requests.find((request) => request.method === "thread/resume")
-        ?.params as Record<string, unknown>;
-      const canonical = getCanonicalConversationState(service, childThreadId);
-      const marker = canonical?.turns.at(-1)?.items.at(-1);
-
-      expect(requests.map((request) => request.method).join(",")).toBe(
-        "thread/fork,thread/read,thread/resume,thread/goal/get,thread/rollback,thread/name/set",
-      );
-      expect(forkParams.path).toBe(null);
-      expect(forkParams.threadSource).toBe("user");
-      expect(Object.prototype.hasOwnProperty.call(forkParams, "lastTurnId")).toBe(false);
-      expect(Object.prototype.hasOwnProperty.call(forkParams, "runtimeWorkspaceRoots")).toBe(false);
-      expect(Object.prototype.hasOwnProperty.call(forkParams, "config")).toBe(true);
-      expect(resumeParams.runtimeWorkspaceRoots).toEqual([
-        "/workspace/project",
-        "/workspace/shared",
-      ]);
-      expect(persistedWritableRoots.get(childThreadId)).toEqual([
-        "/workspace/project",
-        "/workspace/shared",
-      ]);
-      expect(forkParams.config).toMatchObject({
-        "features.apply_patch_streaming_events": true,
-        "features.thread_tools": true,
-      });
-      expect(rollbackParams.threadId).toBe(childThreadId);
-      expect(rollbackParams.numTurns).toBe(1);
-      expect(order.indexOf("deferral:begin") < order.indexOf("request:thread/fork")).toBe(true);
-      expect(order.indexOf("deferral:complete") < order.indexOf("request:thread/rollback")).toBe(
-        true,
-      );
-      expect(order.indexOf("deferral:end") < order.indexOf("request:thread/rollback")).toBe(true);
-      expect(order.indexOf("request:thread/rollback") < order.indexOf("provenance:append")).toBe(
-        true,
-      );
-      expect(result.composerIntent?.prompt ?? "missing").toBe("");
-      expect(canonical?.turns.length ?? 0).toBe(2);
-      expect(canonical?.turns.at(-1)?.protocol.id).toBe("turn_2");
-      expect(marker?.type).toBe("forkedFromConversation");
-      expect(marker && "sourceConversationId" in marker ? marker.sourceConversationId : null).toBe(
-        sourceThreadId,
-      );
-      expect(
-        marker && "sourceConversationTitle" in marker ? marker.sourceConversationTitle : null,
-      ).toBe("Exact fork source");
-      expect((requests.at(-1)?.params as { name?: string }).name ?? "").toBe(
-        "Exact fork source (2)",
-      );
-      expect(service.serializeThreadDetail(childThreadId)?.threadName ?? "").toBe(
-        "Exact fork source (2)",
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test.each([
     {
       label: "Project owner when cwd moves outside every source",
@@ -5243,269 +5043,6 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         upsertPatches.some((patch) => Object.prototype.hasOwnProperty.call(patch, "projectId")),
       ).toBe(false);
     } finally {
-      await service.shutdown();
-    }
-  });
-});
-
-describe("codex-service interrupt target resolution", () => {
-  test("continues active thread goal after idle status in no-owner fallback", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      getConversationRecord: (threadId: string) => {
-        threadGoal: ThreadGoal | null;
-        detail: CodexThreadDetail | null;
-      };
-      maybeContinueActiveThreadGoal: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const detail: CodexThreadDetail = {
-      ...makeThreadDetail("thr_goal_continue"),
-      cwd: "/tmp/goal-continue",
-      statusType: "active",
-      turns: [
-        {
-          threadId: "thr_goal_continue",
-          turnId: "turn_done",
-          status: "completed",
-          itemIds: [],
-        },
-      ],
-    };
-
-    serviceInternals.setConversationRecordDetail(detail);
-    const record = serviceInternals.getConversationRecord("thr_goal_continue");
-    const aggregate = conversationAggregateForTest(service, "thr_goal_continue");
-    aggregate.setResumeState("resumed");
-    aggregate.setStreaming(true);
-    setTestConversationStreamRole(service, "thr_goal_continue", "owner");
-    record.threadGoal = {
-      threadId: "thr_goal_continue",
-      objective: "finish the migration",
-      status: "active",
-      tokenBudget: null,
-      tokensUsed: 12,
-      timeUsedSeconds: 34,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "thread/goal/set") {
-        return {
-          goal: {
-            ...record.threadGoal,
-            status: (params as ThreadGoalSetParams).status ?? "active",
-            updatedAt: 2,
-          },
-        };
-      }
-      return {};
-    };
-
-    try {
-      record.detail = record.detail
-        ? { ...record.detail, statusType: "idle", statusActiveFlags: [] }
-        : null;
-      serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue");
-      serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue");
-      await waitForCondition(
-        () => requests.some((request) => request.method === "thread/goal/set"),
-        1_000,
-      );
-
-      const goalSetRequests = requests.filter((request) => request.method === "thread/goal/set");
-      expect(goalSetRequests.length).toBe(1);
-      expect((goalSetRequests[0]?.params as { threadId?: string })?.threadId).toBe(
-        "thr_goal_continue",
-      );
-      expect((goalSetRequests[0]?.params as { status?: string })?.status).toBe("active");
-      expect(record.detail?.statusType).toBe("idle");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("falls back to an empty turn when active goal continuation cannot use settings update", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      getConversationRecord: (threadId: string) => {
-        threadGoal: ThreadGoal | null;
-        detail: CodexThreadDetail | null;
-      };
-      maybeContinueActiveThreadGoal: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const detail: CodexThreadDetail = {
-      ...makeThreadDetail("thr_goal_continue_fallback"),
-      cwd: "/tmp/goal-continue-fallback",
-      statusType: "active",
-      turns: [
-        {
-          threadId: "thr_goal_continue_fallback",
-          turnId: "turn_done",
-          status: "completed",
-          itemIds: [],
-        },
-      ],
-    };
-
-    const threadSettingsRuntime = Reflect.get(
-      service as object,
-      "threadSettingsRuntime",
-    ) as TestCodexThreadSettingsRuntime;
-    threadSettingsRuntime.recordRemoteUpdateUnsupported();
-    serviceInternals.setConversationRecordDetail(detail);
-    const record = serviceInternals.getConversationRecord("thr_goal_continue_fallback");
-    const aggregate = conversationAggregateForTest(service, "thr_goal_continue_fallback");
-    aggregate.setResumeState("resumed");
-    aggregate.setStreaming(true);
-    setTestConversationStreamRole(service, "thr_goal_continue_fallback", "owner");
-    record.threadGoal = {
-      threadId: "thr_goal_continue_fallback",
-      objective: "finish the migration",
-      status: "active",
-      tokenBudget: null,
-      tokensUsed: 12,
-      timeUsedSeconds: 34,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      return {};
-    };
-
-    try {
-      record.detail = record.detail
-        ? { ...record.detail, statusType: "idle", statusActiveFlags: [] }
-        : null;
-      void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue_fallback");
-
-      await waitForCondition(
-        () => requests.some((request) => request.method === "turn/start"),
-        1_000,
-      );
-
-      const turnStartRequest = requests.find((request) => request.method === "turn/start");
-      expect(requests.some((request) => request.method === "thread/goal/set")).toBe(false);
-      expect((turnStartRequest?.params as { threadId?: string })?.threadId).toBe(
-        "thr_goal_continue_fallback",
-      );
-      expect((turnStartRequest?.params as { cwd?: string })?.cwd).toBe(
-        "/tmp/goal-continue-fallback",
-      );
-      expect(((turnStartRequest?.params as { input?: unknown[] })?.input ?? []).length).toBe(0);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("waits for pending thread settings before active goal continuation", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      getConversationRecord: (threadId: string) => {
-        threadGoal: ThreadGoal | null;
-        detail: CodexThreadDetail | null;
-      };
-      maybeContinueActiveThreadGoal: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const threadSettingsRuntime = Reflect.get(
-      service as object,
-      "threadSettingsRuntime",
-    ) as TestCodexThreadSettingsRuntime;
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const detail: CodexThreadDetail = {
-      ...makeThreadDetail("thr_goal_continue_settings"),
-      cwd: "/tmp/goal-continue-settings",
-      statusType: "active",
-      turns: [
-        {
-          threadId: "thr_goal_continue_settings",
-          turnId: "turn_done",
-          status: "completed",
-          itemIds: [],
-        },
-      ],
-    };
-    let resolveSettings: () => void = () => {};
-
-    const heldSettingsMutation = threadSettingsRuntime.holdMutation(
-      "thr_goal_continue_settings",
-      async () =>
-        await new Promise<void>((resolve) => {
-          resolveSettings = resolve;
-        }),
-    );
-    serviceInternals.setConversationRecordDetail(detail);
-    const record = serviceInternals.getConversationRecord("thr_goal_continue_settings");
-    const aggregate = conversationAggregateForTest(service, "thr_goal_continue_settings");
-    aggregate.setResumeState("resumed");
-    aggregate.setStreaming(true);
-    setTestConversationStreamRole(service, "thr_goal_continue_settings", "owner");
-    record.threadGoal = {
-      threadId: "thr_goal_continue_settings",
-      objective: "finish the migration",
-      status: "active",
-      tokenBudget: null,
-      tokensUsed: 12,
-      timeUsedSeconds: 34,
-      createdAt: 1,
-      updatedAt: 1,
-    };
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      return {
-        goal: {
-          ...record.threadGoal,
-          status: (params as ThreadGoalSetParams).status ?? "active",
-          updatedAt: 2,
-        },
-      };
-    };
-
-    try {
-      record.detail = record.detail
-        ? { ...record.detail, statusType: "idle", statusActiveFlags: [] }
-        : null;
-      void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue_settings");
-
-      await new Promise((resolve) => setTimeout(resolve, 350));
-      expect(requests.some((request) => request.method === "thread/goal/set")).toBe(false);
-
-      resolveSettings();
-
-      await waitForCondition(
-        () => requests.some((request) => request.method === "thread/goal/set"),
-        1_000,
-      );
-
-      const goalSetRequest = requests.find((request) => request.method === "thread/goal/set");
-      expect((goalSetRequest?.params as { status?: string })?.status).toBe("active");
-    } finally {
-      resolveSettings();
-      await heldSettingsMutation;
       await service.shutdown();
     }
   });
@@ -6528,80 +6065,6 @@ describe("codex-service pending goal draft lifecycle", () => {
       await manager.remove(failedSource.file.path).catch(() => undefined);
       await service.shutdown();
       fs.rmSync(attachmentsRoot, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("codex-service approval fallback", () => {
-  test("answers app-server currentTime/read requests with Unix seconds", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      handleServerRequest: (request: {
-        id: string | number;
-        method: string;
-        params: unknown;
-      }) => Promise<unknown>;
-    };
-    const originalDateNow = Date.now;
-
-    try {
-      Date.now = () => 1_700_000_123_999;
-      const result = await serviceInternals.handleServerRequest({
-        id: "time_req",
-        method: "currentTime/read",
-        params: { threadId: "thr_time" },
-      });
-
-      expect((result as { currentTimeAt?: number }).currentTimeAt ?? 0).toBe(1_700_000_123);
-    } finally {
-      Date.now = originalDateNow;
-      await service.shutdown();
-    }
-  });
-
-  test("clears the pending user-input generation when app-server disconnects", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      handleServerRequest: (request: {
-        id: string | number;
-        method: string;
-        params: unknown;
-      }) => Promise<unknown>;
-      getUserInputAutoResolutionSnapshot: () => CodexUserInputAutoResolutionEntry[];
-    };
-    const threadId = "thread-auto-resolution-disconnect";
-    const requestId = "request-auto-resolution-disconnect";
-
-    try {
-      service.observeConnection({ status: "connected", retries: 0 });
-      const request = serviceInternals.handleServerRequest({
-        id: requestId,
-        method: "item/tool/requestUserInput",
-        params: {
-          threadId,
-          turnId: "turn-1",
-          itemId: "item-1",
-          isBlocking: false,
-          questions: [
-            {
-              id: "scope",
-              header: "Scope",
-              question: "Continue?",
-              isOther: false,
-              isSecret: false,
-            },
-          ],
-        },
-      });
-      await Promise.resolve();
-      expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toHaveLength(1);
-
-      service.observeConnection({ status: "disconnected", retries: 1 });
-      expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toEqual([]);
-
-      expect(await request).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
-    } finally {
-      await service.shutdown();
     }
   });
 });

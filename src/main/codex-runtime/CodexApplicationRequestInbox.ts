@@ -76,8 +76,6 @@ export interface CodexApplicationRequestGeneration {
 export interface CodexApplicationRequestInboxService {
   /** Lossless, transport-ordered ingress for requests and notifications from every Endpoint. */
   readonly occurrences: Stream.Stream<CodexApplicationProtocolOccurrence>;
-  /** Lossless single-consumer ingress for the canonical application protocol interpreter. */
-  readonly requests: Stream.Stream<CodexApplicationRequestOccurrence>;
   readonly publishNotification: (input: {
     readonly hostId: string;
     readonly generation: number;
@@ -384,12 +382,6 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
 
     return CodexApplicationRequestInbox.of({
       occurrences: Stream.fromQueue(occurrences),
-      requests: Stream.fromQueue(occurrences).pipe(
-        Stream.filter(
-          (occurrence): occurrence is CodexApplicationRequestOccurrence =>
-            occurrence.kind === "request",
-        ),
-      ),
       publishNotification,
       openGeneration,
       settle,

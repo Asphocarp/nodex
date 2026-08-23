@@ -62,6 +62,14 @@ import {
   NodexAgentDynamicTools,
   live as nodexAgentDynamicToolsLive,
 } from "../nodex-agent-application/NodexAgentDynamicTools";
+import {
+  NodexAgentProtocolTools,
+  live as nodexAgentProtocolToolsLive,
+} from "../nodex-agent-application/NodexAgentProtocolTools";
+import {
+  NodexAgentResourceAccess,
+  live as nodexAgentResourceAccessLive,
+} from "../nodex-agent-application/NodexAgentResourceAccess";
 import { makeDocumentLiveRuntimeAdapter } from "../core-client/document-live-runtime-adapter";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { CodexService } from "../codex/codex-service";
@@ -85,6 +93,7 @@ import {
 } from "../codex-application/NodexAgentAuthorizationRuntime";
 import { makeNodexAgentAuthorizationRuntimePromiseAdapter } from "../codex-application/NodexAgentAuthorizationRuntimePromiseAdapter";
 import { CodexConnection, live as codexConnectionLive } from "../codex-application/CodexConnection";
+import { make as makeCodexConnectionLifecycle } from "../codex-application/CodexConnectionLifecycle";
 import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
 import { ChatGptDesktop, live as chatGptDesktopLive } from "../codex-application/ChatGptDesktop";
 import {
@@ -106,12 +115,10 @@ import {
   CodexGitMessageGeneration,
   live as codexGitMessageGenerationLive,
 } from "../codex-application/CodexGitMessageGeneration";
-import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
 import {
-  ApprovalCoordinator,
-  CodexGlobalServerRequestRuntime,
-  applicationRequestDispatcherLive,
-} from "../codex-application/ApprovalCoordinator";
+  ConversationRuntimeMap,
+  live as conversationRuntimeMapLive,
+} from "../codex-application/ConversationRuntimeMap";
 import {
   CodexPendingServerRequestRuntime,
   make as makeCodexPendingServerRequestRuntime,
@@ -127,15 +134,14 @@ import {
 import { make as makeCodexSideChatCommands } from "../codex-application/CodexSideChatCommands";
 import { make as makeCodexSessionThreadLaunch } from "../codex-application/CodexSessionThreadLaunch";
 import {
-  CodexActiveGoalContinuationError,
+  CodexConversationFork,
+  make as makeCodexConversationFork,
+} from "../codex-application/CodexConversationFork";
+import {
+  CodexActiveGoalContinuation,
   make as makeCodexActiveGoalContinuation,
 } from "../codex-application/CodexActiveGoalContinuation";
 import { makeCodexActiveGoalContinuationCallbackAdapter } from "../codex-application/CodexActiveGoalContinuationCallbackAdapter";
-import {
-  CodexNotificationRoutingError,
-  make as makeCodexNotificationRouting,
-} from "../codex-application/CodexNotificationRouting";
-import { live as codexApplicationIngressRuntimeLive } from "../codex-application/CodexApplicationIngressRuntime";
 import {
   CodexOwnerNotificationDrainRuntime,
   make as makeCodexOwnerNotificationDrainRuntime,
@@ -149,10 +155,7 @@ import {
   CodexRendererConversationCoordinator,
   make as makeCodexRendererConversationCoordinator,
 } from "../codex-application/CodexRendererConversationCoordinator";
-import {
-  CodexRendererOwnerCommandProjectionError,
-  make as makeCodexRendererOwnerCommands,
-} from "../codex-application/CodexRendererOwnerCommands";
+import { make as makeCodexRendererOwnerCommands } from "../codex-application/CodexRendererOwnerCommands";
 import {
   CodexSidebarSyncError,
   CodexSidebarSyncRuntime,
@@ -160,6 +163,7 @@ import {
 } from "../codex-application/CodexSidebarSyncRuntime";
 import { makeCodexSidebarSyncRuntimePromiseAdapter } from "../codex-application/CodexSidebarSyncRuntimePromiseAdapter";
 import {
+  CodexThreadCatalog,
   CodexThreadCatalogError,
   make as makeCodexThreadCatalog,
 } from "../codex-application/CodexThreadCatalog";
@@ -241,7 +245,10 @@ import {
   CodexQueuedFollowUps,
   make as makeCodexQueuedFollowUps,
 } from "../codex-application/CodexQueuedFollowUps";
-import { make as makeCodexQueuedFollowUpDispatcher } from "../codex-application/CodexQueuedFollowUpDispatcher";
+import {
+  CodexQueuedFollowUpDispatcher,
+  make as makeCodexQueuedFollowUpDispatcher,
+} from "../codex-application/CodexQueuedFollowUpDispatcher";
 import {
   CodexTurnAuthority,
   make as makeCodexTurnAuthority,
@@ -250,11 +257,11 @@ import {
   CodexTurnPreparation,
   make as makeCodexTurnPreparation,
 } from "../codex-application/CodexTurnPreparation";
-import { make as makeCodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import {
-  CodexConversationResumeError,
-  make as makeCodexConversationResumeRuntime,
-} from "../codex-application/CodexConversationResumeRuntime";
+  CodexConversationDeltaBufferRuntime,
+  make as makeCodexConversationDeltaBufferRuntime,
+} from "../codex-application/CodexConversationDeltaBufferRuntime";
+import { make as makeCodexConversationResumeRuntime } from "../codex-application/CodexConversationResumeRuntime";
 import { makeCodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
 import {
   CodexConversationEventBufferError,
@@ -270,11 +277,15 @@ import {
   make as makeCodexThreadLaunchCompletion,
 } from "../codex-application/CodexThreadLaunchCompletion";
 import {
+  CodexForkSidePanelTransfer,
   CodexForkSidePanelAdapterError,
   make as makeCodexForkSidePanelTransferRuntime,
 } from "../codex-application/CodexForkSidePanelTransferRuntime";
 import { makeCodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
-import { make as makeCodexPostResumeGoalRuntime } from "../codex-application/CodexPostResumeGoalRuntime";
+import {
+  CodexPostResumeGoalRuntime,
+  make as makeCodexPostResumeGoalRuntime,
+} from "../codex-application/CodexPostResumeGoalRuntime";
 import { makeCodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import {
   CodexThreadGoalOperationError,
@@ -298,6 +309,7 @@ import {
 } from "../codex-application/CodexThreadRollbackCommands";
 import { makeCodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
+  CodexThreadTitlePersistence,
   CodexThreadTitlePersistenceEffectError,
   make as makeCodexThreadTitlePersistence,
 } from "../codex-application/CodexThreadTitlePersistence";
@@ -315,8 +327,39 @@ import {
   CodexApplicationEventHub,
   make as makeCodexApplicationEventHub,
 } from "../codex-application/CodexApplicationEventHub";
+import {
+  CodexApplicationProtocol,
+  make as makeCodexApplicationProtocol,
+} from "../codex-application/CodexApplicationProtocol";
+import {
+  CodexAutomationTurnCompletion,
+  live as codexAutomationTurnCompletionLive,
+} from "../codex-application/CodexAutomationTurnCompletion";
+import {
+  CodexConversationLifecycle,
+  make as makeCodexConversationLifecycle,
+} from "../codex-application/CodexConversationLifecycle";
+import {
+  CodexAutomationInbox,
+  live as codexAutomationInboxLive,
+} from "../codex-application/CodexAutomationInbox";
+import {
+  CodexOneShotServerRequests,
+  live as codexOneShotServerRequestsLive,
+} from "../codex-application/CodexOneShotServerRequests";
+import {
+  CodexProtocolNotificationProjection,
+  live as codexProtocolNotificationProjectionLive,
+} from "../codex-application/CodexProtocolNotificationProjection";
+import {
+  CodexProtocolNotificationEffects,
+  make as makeCodexProtocolNotificationEffects,
+} from "../codex-application/CodexProtocolNotificationEffects";
+import {
+  CodexThreadDurableProjection,
+  make as makeCodexThreadDurableProjection,
+} from "../codex-application/CodexThreadDurableProjection";
 import { make as makeManagedWorktreeCatalog } from "../codex-application/ManagedWorktreeCatalog";
-import { requestHandlingLive } from "../codex-application/CodexApplicationLayers";
 import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
 import { createCodexForkBrowserSnapshotAdapter } from "../codex/codex-fork-browser-snapshot-adapter";
 import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
@@ -363,8 +406,10 @@ import {
   CodexEphemeralThreadRouting,
   live as codexEphemeralThreadRoutingLive,
 } from "../codex-runtime/CodexEphemeralThreadRouting";
-import { makeCodexApplicationServerRequests } from "../codex-runtime/CodexApplicationServerRequests";
-import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationRequestInbox";
+import {
+  CodexApplicationRequestInbox,
+  make as makeCodexApplicationRequestInbox,
+} from "../codex-runtime/CodexApplicationRequestInbox";
 import { makeCodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
@@ -710,38 +755,27 @@ export const live: Layer.Layer<
                 ),
               ),
         });
-        const applicationServerRequests = CodexGlobalServerRequestRuntime.of(
-          makeCodexApplicationServerRequests({
-            current: () => {
-              const service = codexService;
-              return service === undefined
-                ? null
-                : { handle: (request) => service.handleServerRequest(request) };
-            },
-          }),
+        const applicationRequestInbox = yield* makeCodexApplicationRequestInbox.pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const requestHandlingContext = yield* Layer.buildWithScope(
-          requestHandlingLive.pipe(
-            Layer.provide(
-              Layer.succeed(CodexGlobalServerRequestRuntime, applicationServerRequests),
-            ),
-          ),
+        const conversationRuntimeContext = yield* Layer.buildWithScope(
+          conversationRuntimeMapLive,
           runtimeScope,
         );
-        const conversationRuntimes = Context.get(requestHandlingContext, ConversationRuntimeMap);
-        const applicationRequestInbox = Context.get(
-          requestHandlingContext,
-          CodexApplicationRequestInbox,
+        const conversationRuntimes = Context.get(
+          conversationRuntimeContext,
+          ConversationRuntimeMap,
         );
-        const approvalCoordinator = Context.get(requestHandlingContext, ApprovalCoordinator);
         const pendingServerRequests = yield* makeCodexPendingServerRequestRuntime({
-          respond: (threadId, _requestId, occurrenceToken, response) =>
-            approvalCoordinator.respondToken(threadId, occurrenceToken, response),
-          reject: (threadId, requestId, occurrenceToken, reason) =>
-            approvalCoordinator.rejectToken(
-              threadId,
-              occurrenceToken,
-              CodexAppServerRequestError.internalError(
+          respond: (_threadId, _requestId, occurrenceToken, response) =>
+            applicationRequestInbox.settleOccurrenceToken(occurrenceToken, {
+              kind: "result",
+              value: response,
+            }),
+          reject: (_threadId, requestId, occurrenceToken, reason) =>
+            applicationRequestInbox.settleOccurrenceToken(occurrenceToken, {
+              kind: "error",
+              error: CodexAppServerRequestError.internalError(
                 "Codex application request failed",
                 undefined,
                 {
@@ -750,7 +784,7 @@ export const live: Layer.Layer<
                   cause: reason,
                 },
               ),
-            ),
+            }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const codexDependencies = Layer.mergeAll(
           CodexSessionTransport.nodeLive,
@@ -1565,27 +1599,6 @@ export const live: Layer.Layer<
           runtimeScope,
           Effect.sync(() => codexSessionStore.clear()),
         );
-        const isActiveGoalContinuationCandidate = (conversationId: string) =>
-          codexService?.isActiveThreadGoalContinuationCandidate(conversationId) === true;
-        const activeGoalContinuation = yield* makeCodexActiveGoalContinuation({
-          isEligible: isActiveGoalContinuationCandidate,
-          continueGoal: (conversationId) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().runActiveThreadGoalContinuation(conversationId),
-              catch: (cause) => new CodexActiveGoalContinuationError({ cause }),
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const activeGoalContinuationCallbacks =
-          yield* makeCodexActiveGoalContinuationCallbackAdapter(activeGoalContinuation).pipe(
-            Effect.provideService(Scope.Scope, runtimeScope),
-          );
-        const notificationRouting = yield* makeCodexNotificationRouting({
-          route: (notification) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().routeAppServerNotification(notification),
-              catch: (cause) => new CodexNotificationRoutingError({ cause }),
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const sidebarSync = yield* makeCodexSidebarSyncRuntime({
           refresh: (input) =>
             Effect.tryPromise({
@@ -1985,6 +1998,17 @@ export const live: Layer.Layer<
           Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const activeGoalContinuation = yield* makeCodexActiveGoalContinuation.pipe(
+          Effect.provideService(CodexThreadGoalRuntime, threadGoals),
+          Effect.provideService(CodexThreadSettingsRuntime, threadSettingsRuntime),
+          Effect.provideService(CodexTurnCommands, turnCommands),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const activeGoalContinuationCallbacks =
+          yield* makeCodexActiveGoalContinuationCallbackAdapter(activeGoalContinuation).pipe(
+            Effect.provideService(Scope.Scope, runtimeScope),
+          );
         const threadLaunchCompletion = yield* makeCodexThreadLaunchCompletion.pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
           Effect.provideService(CodexAttachments, attachments),
@@ -1998,45 +2022,6 @@ export const live: Layer.Layer<
           ),
           Effect.provideService(CodexThreadLaunchCompletion, threadLaunchCompletion),
           Effect.provideService(CodexTurnCommands, turnCommands),
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
-        const conversationResume = yield* makeCodexConversationResumeRuntime({
-          run: (input) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().runConversationResume(input),
-              catch: (cause) => new CodexConversationResumeError({ cause }),
-            }),
-          snapshot: (threadId) =>
-            threadDirectory
-              .resolve({
-                threadId,
-                fidelity: "durable",
-                hostId: codexGateway.localHostId,
-              })
-              .pipe(
-                Effect.map((entry) => entry?.snapshot ?? null),
-                Effect.mapError((cause) => new CodexConversationResumeError({ cause })),
-              ),
-          releaseBuffer: (threadId) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().releaseConversationResumeBufferForModule(threadId),
-              catch: (cause) => new CodexConversationResumeError({ cause }),
-            }).pipe(
-              Effect.tap((releasedGoal) =>
-                Effect.sync(() => {
-                  if (!releasedGoal) conversationHistory.requestRemaining(threadId);
-                }),
-              ),
-              Effect.as(true),
-            ),
-          observe: (outcome) => requireCodexService().recordConversationResumeOutcome(outcome),
-        }).pipe(
-          Effect.provideService(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
-          Effect.provideService(
-            CodexRendererConversationCoordinator,
-            rendererConversationCoordinator,
-          ),
-          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const queuedFollowUpDispatcher = yield* makeCodexQueuedFollowUpDispatcher.pipe(
@@ -2109,18 +2094,11 @@ export const live: Layer.Layer<
           Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const postResumeGoals = yield* makeCodexPostResumeGoalRuntime({
-          load: threadGoals.load,
-          commit: (threadId, expectedRevision, goal) =>
-            requireCodexService().commitThreadGoalHydratedAfterResume(
-              threadId,
-              expectedRevision,
-              goal,
-            ),
-          requestContinuation: (threadId) =>
-            requireCodexService().requestActiveGoalContinuationAfterResume(threadId),
-        }).pipe(
+        const postResumeGoals = yield* makeCodexPostResumeGoalRuntime.pipe(
+          Effect.provideService(CodexActiveGoalContinuation, activeGoalContinuation),
           Effect.provideService(CodexConversationHistoryRuntime, conversationHistory),
+          Effect.provideService(CodexThreadGoalRuntime, threadGoals),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const pendingWorktrees = yield* makeCodexPendingWorktreeRuntime({
@@ -2397,23 +2375,25 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadDirectory, threadDirectory),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
         );
-        const rendererOwnerCommands = yield* makeCodexRendererOwnerCommands({
-          forkFromTurn: (input) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().forkRendererOwnedThreadFromTurnForModule(input),
-              catch: (cause) =>
-                new CodexRendererOwnerCommandProjectionError({
-                  operation: "fork",
-                  threadId: input.threadId,
-                  cause,
-                }),
-            }),
-        }).pipe(
-          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+        const conversationFork = yield* makeCodexConversationFork.pipe(
+          Effect.provideService(CoreModules, coreModules),
+          Effect.provideService(CodexGateway, codexGateway),
+          Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
+          Effect.provideService(CodexPendingWorktreeRuntime, pendingWorktrees),
           Effect.provideService(
             CodexRendererConversationCoordinator,
             rendererConversationCoordinator,
           ),
+          Effect.provideService(CodexForkSidePanelTransfer, forkSidePanelTransfers),
+          Effect.provideService(CodexThreadCatalog, threadCatalog),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+        );
+        const rendererOwnerCommands = yield* makeCodexRendererOwnerCommands.pipe(
+          Effect.provideService(CodexConversationFork, conversationFork),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
           Effect.provideService(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
           Effect.provideService(CodexManualCompactionRuntime, manualCompaction),
           Effect.provideService(CodexThreadGoalRuntime, threadGoals),
@@ -2441,6 +2421,175 @@ export const live: Layer.Layer<
           Effect.provideService(CodexTurnPreparation, turnPreparation),
           Effect.provideService(CoreModules, coreModules),
           Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const automationInboxContext = yield* Layer.buildWithScope(
+          codexAutomationInboxLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(AutomationRoutingIndex, automationRouting),
+                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
+                Layer.succeed(CoreModules, coreModules),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const automationInbox = Context.get(automationInboxContext, CodexAutomationInbox);
+        const oneShotServerRequestsContext = yield* Layer.buildWithScope(
+          codexOneShotServerRequestsLive,
+          runtimeScope,
+        );
+        const oneShotServerRequests = Context.get(
+          oneShotServerRequestsContext,
+          CodexOneShotServerRequests,
+        );
+        const protocolNotificationProjectionContext = yield* Layer.buildWithScope(
+          codexProtocolNotificationProjectionLive({
+            supportsChatGptApps: CODEX_INTEGRATION_CAPABILITIES.chatGptApps,
+          }).pipe(Layer.provide(Layer.succeed(CodexApplicationEventHub, codexApplicationEvents))),
+          runtimeScope,
+        );
+        const protocolNotificationProjection = Context.get(
+          protocolNotificationProjectionContext,
+          CodexProtocolNotificationProjection,
+        );
+        const automationTurnCompletionContext = yield* Layer.buildWithScope(
+          codexAutomationTurnCompletionLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(AutomationRoutingIndex, automationRouting),
+                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
+                Layer.succeed(CoreModules, coreModules),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const automationTurnCompletion = Context.get(
+          automationTurnCompletionContext,
+          CodexAutomationTurnCompletion,
+        );
+        const conversationLifecycle = yield* makeCodexConversationLifecycle.pipe(
+          Effect.provideService(CodexActiveGoalContinuation, activeGoalContinuation),
+          Effect.provideService(CodexConversationDeltaBufferRuntime, conversationDeltaBuffer),
+          Effect.provideService(CodexManualCompactionRuntime, manualCompaction),
+          Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
+          Effect.provideService(CodexQueuedFollowUpDispatcher, queuedFollowUpDispatcher),
+          Effect.provideService(
+            CodexRendererConversationCoordinator,
+            rendererConversationCoordinator,
+          ),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(DesktopToolRuntime, desktopToolRuntime),
+        );
+        const threadDurableProjection = yield* makeCodexThreadDurableProjection.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(CoreModules, coreModules),
+        );
+        const protocolNotificationEffects = yield* makeCodexProtocolNotificationEffects.pipe(
+          Effect.provideService(CodexActiveGoalContinuation, activeGoalContinuation),
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexAutomationTurnCompletion, automationTurnCompletion),
+          Effect.provideService(CodexConversationDeltaBufferRuntime, conversationDeltaBuffer),
+          Effect.provideService(CodexConversationLifecycle, conversationLifecycle),
+          Effect.provideService(CodexConversationProjection, conversationProjection),
+          Effect.provideService(CodexManualCompactionRuntime, manualCompaction),
+          Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
+          Effect.provideService(
+            CodexProtocolNotificationProjection,
+            protocolNotificationProjection,
+          ),
+          Effect.provideService(CodexQueuedFollowUps, queuedFollowUps),
+          Effect.provideService(
+            CodexRendererConversationCoordinator,
+            rendererConversationCoordinator,
+          ),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadDurableProjection, threadDurableProjection),
+          Effect.provideService(CodexThreadGoalRuntime, threadGoals),
+          Effect.provideService(CodexUserInputAutoResolution, userInputAutoResolution),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(DesktopToolRuntime, desktopToolRuntime),
+        );
+        const nodexAgentResourceAccessContext = yield* Layer.buildWithScope(
+          nodexAgentResourceAccessLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CoreAuthority, authority),
+                Layer.succeed(CoreModules, coreModules),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const nodexAgentResourceAccess = Context.get(
+          nodexAgentResourceAccessContext,
+          NodexAgentResourceAccess,
+        );
+        const nodexAgentProtocolToolsContext = yield* Layer.buildWithScope(
+          nodexAgentProtocolToolsLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexConversationContext, conversationContext),
+                Layer.succeed(CodexRendererConversationRegistry, rendererConversations),
+                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
+                Layer.succeed(CoreModules, coreModules),
+                Layer.succeed(NodexAgentAuthorizationRuntime, nodexAgentAuthorization),
+                Layer.succeed(NodexAgentDynamicTools, nodexAgentDynamicTools),
+                Layer.succeed(NodexAgentResourceAccess, nodexAgentResourceAccess),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const nodexAgentProtocolTools = Context.get(
+          nodexAgentProtocolToolsContext,
+          NodexAgentProtocolTools,
+        );
+        const applicationProtocol = yield* makeCodexApplicationProtocol.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexApplicationRequestInbox, applicationRequestInbox),
+          Effect.provideService(CodexAutomationInbox, automationInbox),
+          Effect.provideService(CodexOneShotServerRequests, oneShotServerRequests),
+          Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
+          Effect.provideService(CodexProtocolNotificationEffects, protocolNotificationEffects),
+          Effect.provideService(
+            CodexRendererConversationCoordinator,
+            rendererConversationCoordinator,
+          ),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(CodexUserInputAutoResolution, userInputAutoResolution),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(NodexAgentProtocolTools, nodexAgentProtocolTools),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        yield* makeCodexConnectionLifecycle.pipe(
+          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
+          Effect.provideService(CodexConnection, codexConnectionService),
+          Effect.provideService(CodexPendingServerRequestRuntime, pendingServerRequests),
+          Effect.provideService(CodexProtocolNotificationEffects, protocolNotificationEffects),
+          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
+          Effect.provideService(CodexUserInputAutoResolution, userInputAutoResolution),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        const conversationResume = yield* makeCodexConversationResumeRuntime.pipe(
+          Effect.provideService(CodexApplicationProtocol, applicationProtocol),
+          Effect.provideService(CodexConversationHistoryRuntime, conversationHistory),
+          Effect.provideService(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
+          Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
+          Effect.provideService(CodexPostResumeGoalRuntime, postResumeGoals),
+          Effect.provideService(
+            CodexRendererConversationCoordinator,
+            rendererConversationCoordinator,
+          ),
+          Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         codexService = yield* Effect.try({
@@ -2619,15 +2768,6 @@ export const live: Layer.Layer<
           Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        yield* Layer.buildWithScope(
-          codexApplicationIngressRuntimeLive({
-            connections: codexConnectionService.changes,
-            events: codexGateway.events,
-            observeConnection: (connection) => codexService.observeConnection(connection),
-            offerNotification: notificationRouting.offer,
-          }),
-          runtimeScope,
-        );
         yield* SubscriptionRef.changes(executionHosts.activeSshHosts).pipe(
           Stream.runForEach(() =>
             Effect.sync(() => codexService.handleExecutionHostTopologyChanged()),
@@ -2675,17 +2815,6 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          applicationRequestDispatcherLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
-                Layer.succeed(CodexGlobalServerRequestRuntime, applicationServerRequests),
               ),
             ),
           ),

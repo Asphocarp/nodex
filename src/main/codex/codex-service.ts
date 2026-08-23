@@ -70,7 +70,6 @@ import type {
   CodexConversationTurnPagination,
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
-  CodexConnectionState,
   CodexEvent,
   CodexHeartbeatAutomationCollaborationMode,
   CodexHeartbeatAutomationPermissions,
@@ -102,7 +101,6 @@ import type {
   CodexTranscriptEntry,
   CodexTranscriptEntrySource,
   CodexThreadActiveFlag,
-  CodexThreadActionResult,
   CodexThreadDetail,
   CodexThreadGoalDraftInput,
   CodexThreadRuntimeStatus,
@@ -215,7 +213,6 @@ import type {
   CodexTurnStartOverrides,
 } from "../codex-application/CodexTurnCommands";
 import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
-import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import {
   buildThreadPermissionOverrides,
   buildTurnPermissionOverrides,
@@ -1222,14 +1219,6 @@ function normalizeNonEmptyString(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function hasPendingSteeringTranscriptEntry(entries: readonly CodexTranscriptEntry[]): boolean {
-  return entries.some((entry) => {
-    if (entry.steeringStatus === "pending") return true;
-    const rawItem = asRecord(entry.rawItem);
-    return rawItem?.type === "steeringUserMessage" && rawItem.status === "pending";
-  });
-}
-
 function hasRunningAgentState(value: unknown): boolean {
   const record = asRecord(value);
   if (!record) return false;
@@ -1640,6 +1629,11 @@ function isUnsupportedThreadSettingsUpdateError(error: unknown): boolean {
   );
 }
 
+/** Internal sentinel for the remaining class-local request projection. */
+export const CodexApplicationRequestPending = Symbol.for(
+  "nodex/main/codex-application/CodexApplicationRequestPending",
+);
+
 export class CodexService {
   private readonly foldSidebarPathCase: boolean;
   private readonly logger = codexLogger;
@@ -1726,7 +1720,6 @@ export class CodexService {
   >();
   private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   private readonly terminalInputBuffers = new Map<string, string>();
-  private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
   private sidebarUseStateDbOnlyThreadList = true;
 
   /** Temporary canonical projection port while conversation state is still owned by this class. */
@@ -1850,22 +1843,6 @@ export class CodexService {
       this.workspaceThreadProjectionById.get(threadId.trim())?.executionHostId ??
       CODEX_APP_LOCAL_HOST_ID
     );
-  }
-
-  observeConnection(connection: CodexConnectionState): void {
-    const wasConnected = this.lastConnectionStatus === "connected";
-    this.lastConnectionStatus = connection.status;
-    if (wasConnected && connection.status !== "connected") {
-      this.userInputAutoResolution.handleDisconnect();
-      this.clearPendingServerRequestsAfterDisconnect();
-    }
-    this.emitEvent({ type: "connection", connection });
-    if (connection.status !== "connected" || connection.retries <= 0 || wasConnected) return;
-    this.markConversationsNeedResumeAfterReconnect();
-    void this.sidebarSync.sync({
-      policy: "stale",
-      reason: "app-server-reconnect",
-    });
   }
 
   private emitEvent(event: CodexEvent): void {
@@ -2188,12 +2165,6 @@ export class CodexService {
   private discardConversationResumeBuffer(threadId: string, reason: unknown): void {
     this.conversationEventBuffer.discardResume(threadId, reason);
     this.rendererConversationCoordinator.reconcileOwnership(threadId);
-  }
-
-  async releaseConversationResumeBufferForModule(threadId: string): Promise<boolean> {
-    await this.releaseConversationResumeBufferCore(threadId);
-    const revision = this.readConversationAggregate(threadId)?.revision ?? 0;
-    return this.postResumeGoals.release(threadId, revision);
   }
 
   /** Effect Module adapter operation; replays one request after its lifecycle fence opens. */
@@ -3935,27 +3906,6 @@ export class CodexService {
 
   private resolveConversationResumeState(threadId: string): CodexConversationResumeState {
     return this.conversationRuntimes.currentConversation(threadId)?.readResumeState() ?? "resumed";
-  }
-
-  private markAllConversationRecordsNeedResumeAfterReconnect(): void {
-    const knownThreadIds = new Set<string>([
-      ...this.workspaceThreadProjectionById.keys(),
-      ...this.conversationRecords.keys(),
-    ]);
-
-    for (const threadId of knownThreadIds) {
-      if (!threadId) continue;
-      this.ensureConversationRecord(threadId);
-      this.setConversationResumeState(threadId, "needs_resume");
-      this.setConversationStreamRole(threadId, null);
-      this.conversationAggregate(threadId).setStreaming(false);
-    }
-
-    this.syncDormantConversations(Array.from(knownThreadIds), "durable-recovery");
-  }
-
-  private markConversationsNeedResumeAfterReconnect(): void {
-    this.markAllConversationRecordsNeedResumeAfterReconnect();
   }
 
   private buildComposerIntent(prompt: string): CodexComposerIntent {
@@ -11232,132 +11182,6 @@ export class CodexService {
     return { detail, summary };
   }
 
-  async forkRendererOwnedThreadFromTurnForModule(input: {
-    readonly threadId: string;
-    readonly turnId: string;
-    readonly message: string;
-  }): Promise<CodexThreadActionResult> {
-    await this.waitForRendererOwnerNotificationDrain(input.threadId);
-    if (!input.turnId.trim()) throw new Error("Owner thread/fork requires a turnId");
-    return await this.forkConversationFromTurn(input.threadId, input.turnId, input.message, {
-      syncDormantConversationUpdates: false,
-    });
-  }
-
-  async forkConversationFromTurn(
-    threadId: string,
-    turnId: string,
-    _message: string,
-    options: { syncDormantConversationUpdates?: boolean } = {},
-  ): Promise<CodexThreadActionResult> {
-    await this.ensureClientReady();
-
-    const currentDetail =
-      this.serializeThreadDetail(threadId) ?? (await this.readThread(threadId, true));
-    if (!currentDetail) {
-      throw new Error(`Thread '${threadId}' was not found`);
-    }
-
-    const sourceTurn = currentDetail.turns.find((turn) => turn.turnId === turnId);
-    if (!sourceTurn) {
-      throw new Error(`Turn '${turnId}' was not found in thread '${threadId}'`);
-    }
-
-    const sourceTurnIndex = currentDetail.turns.findIndex((turn) => turn.turnId === turnId);
-    const trailingTurnCount = currentDetail.turns.length - sourceTurnIndex - 1;
-
-    const sourceTitle = this.resolveForkedFromConversationTitle(currentDetail);
-    const forkThreadTitle = this.resolveUserFacingForkThreadTitle(currentDetail);
-
-    const threadRef = this.parseThreadRef(threadId);
-    if (!threadRef) {
-      throw new Error(`Thread '${threadId}' is not linked to a project card`);
-    }
-    const forkWorkspaceRoots = threadRef.projectId
-      ? ((await this.maybeResolveProjectRuntimeContext(threadRef.projectId))?.workspaceRoots ?? [])
-      : [currentDetail.cwd].filter((cwd): cwd is string => cwd !== null);
-
-    const shouldDeferThreadStarted = threadRef.projectId !== null;
-    if (shouldDeferThreadStarted) {
-      this.beginThreadStartNotificationDeferral();
-    }
-    let threadStartDeferralOpen = shouldDeferThreadStarted;
-    let detail: CodexThreadDetail;
-    let summary: CodexThreadSummary | null;
-    try {
-      const fork = await this.forkAndResumePersistentConversation({
-        sourceThreadId: threadId,
-        requestedCwd: currentDetail.cwd,
-        workspaceRoots: forkWorkspaceRoots,
-        syncDormantConversationSnapshot: options.syncDormantConversationUpdates !== false,
-        threadSource: "user",
-        materialize: (projectedThread, resolvedCwd) =>
-          this.materializeThreadDetailFromThreadPayload(
-            projectedThread,
-            threadRef,
-            resolvedCwd ?? currentDetail.cwd,
-            { preserveExistingTimeline: true },
-          ),
-      });
-      const forkedThreadId = fork.threadId;
-      const resolvedCwd = fork.resolvedCwd;
-      detail = fork.detail;
-      summary = fork.summary;
-      if (threadStartDeferralOpen) {
-        await this.completeThreadStartNotificationDeferral(forkedThreadId);
-        await this.endThreadStartNotificationDeferral();
-        threadStartDeferralOpen = false;
-      }
-      if (trailingTurnCount > 0) {
-        const rollbackResponse = await this.client.request<
-          "thread/rollback",
-          ThreadRollbackResponse
-        >("thread/rollback", {
-          threadId: forkedThreadId,
-          numTurns: trailingTurnCount,
-        });
-        const rollbackMaterialized = await this.applyForkRollbackResponse({
-          threadId: forkedThreadId,
-          response: rollbackResponse,
-          fallbackRef: threadRef,
-          fallbackCwd: resolvedCwd ?? currentDetail.cwd,
-        });
-        detail = rollbackMaterialized.detail;
-        summary = rollbackMaterialized.summary ?? summary;
-      }
-      this.appendForkedFromConversationMarker(forkedThreadId, threadId, sourceTitle);
-      if (options.syncDormantConversationUpdates === false) {
-        this.syncAcceptedConversationDocumentSilently(forkedThreadId);
-      } else {
-        this.syncDormantConversationFromRecord(forkedThreadId, "owner-unavailable");
-      }
-    } finally {
-      if (threadStartDeferralOpen) {
-        await this.endThreadStartNotificationDeferral();
-      }
-    }
-
-    if (summary) {
-      this.emitEvent({ type: "threadSummary", thread: summary });
-    }
-    if (forkThreadTitle) {
-      await this.threadTitlePersistence.set({
-        threadId: detail.threadId,
-        name: forkThreadTitle,
-        normalization: "manual",
-        syncDormantConversationUpdates: options.syncDormantConversationUpdates,
-      });
-    }
-    await this.forkSidePanelTransferLifecycle?.stageDirect({
-      sourceConversationId: threadId,
-      targetConversationId: detail.threadId,
-    });
-    return {
-      threadId: detail.threadId,
-      composerIntent: this.buildComposerIntent(""),
-    };
-  }
-
   /** Effect Module adapter operation; callers use threadTitlePersistence instead. */
   async persistThreadTitleInProjectWorkspace(threadId: string, name: string): Promise<void> {
     const summary = await this.updateWorkspaceThreadSummary(threadId, {
@@ -11613,95 +11437,7 @@ export class CodexService {
     return { nextSettings, params };
   }
 
-  private async ensureReasoningSummaryForGoalContinuation(threadId: string): Promise<void> {
-    const record = this.getConversationRecord(threadId);
-    const summary = resolveCodexReasoningSummary({
-      configuredSummary: record.latestThreadSettings?.summary,
-    });
-    if (record.latestThreadSettings?.summary === summary) return;
-
-    await this.threadSettingsRuntime.update({ threadId, patch: { summary } });
-  }
-
-  private hasPendingThreadGoalSteering(threadId: string, record: CodexConversationRecord): boolean {
-    if (this.listPendingSteers(threadId).length > 0) return true;
-    return hasPendingSteeringTranscriptEntry(record.detail?.transcript ?? []);
-  }
-
-  private hasInProgressThreadGoalWork(threadId: string, record: CodexConversationRecord): boolean {
-    if (record.detail?.statusType === "active") return true;
-    if ((record.detail?.statusActiveFlags.length ?? 0) > 0) return true;
-    if (this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress")) return true;
-    return hasRunningCollabAgentTranscriptEntry(record.detail?.transcript ?? []);
-  }
-
-  private canContinueActiveThreadGoal(threadId: string): boolean {
-    const record = this.getMaybeConversationRecord(threadId);
-    if (!record) return false;
-    if (this.resolveConversationResumeState(threadId) !== "resumed") return false;
-    if (record.threadGoal?.status !== "active") return false;
-    if (this.readConversationServerRequests(record).length > 0) return false;
-    if (this.hasPendingThreadGoalSteering(threadId, record)) return false;
-    if (this.readConversationStreamRole(threadId) !== "owner") return false;
-    if (!this.conversationAggregate(threadId).isStreaming()) return false;
-    if (this.hasInProgressThreadGoalWork(threadId, record)) return false;
-    return true;
-  }
-
-  private async continueActiveThreadGoalWithEmptyTurn(threadId: string): Promise<void> {
-    const record = this.getMaybeConversationRecord(threadId);
-    const detail = record?.detail ?? this.serializeThreadDetail(threadId);
-    const params: TurnStartParams = {
-      threadId,
-      input: [],
-      ...(detail?.cwd ? { cwd: detail.cwd } : {}),
-      summary: resolveCodexReasoningSummary({
-        configuredSummary: record?.latestThreadSettings?.summary,
-      }),
-    };
-    const projectId = this.parseThreadRef(threadId)?.projectId ?? null;
-    const permissionDecision = await this.resolvePermissionStateForRequest(
-      projectId,
-      undefined,
-      detail?.cwd ? [detail.cwd] : [],
-    );
-    const authorityLaunch = await this.beginNodexAgentTurnAuthority(
-      threadId,
-      permissionDecision.verifiedBuiltinFullAccess,
-    );
-    try {
-      const response = await this.client.request<"turn/start", TurnStartResponse>(
-        "turn/start",
-        params,
-      );
-      await this.nodexAgentAuthorityRegistry.bindTurn(authorityLaunch, response.turn.id);
-    } catch (error) {
-      this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
-      throw error;
-    }
-  }
-
-  isActiveThreadGoalContinuationCandidate(threadId: string): boolean {
-    return this.canContinueActiveThreadGoal(threadId);
-  }
-
-  async runActiveThreadGoalContinuation(threadId: string): Promise<void> {
-    if (!this.canContinueActiveThreadGoal(threadId)) return;
-
-    await this.threadSettingsRuntime.awaitCurrent(threadId);
-    if (!this.canContinueActiveThreadGoal(threadId)) return;
-
-    await this.ensureReasoningSummaryForGoalContinuation(threadId);
-    if (this.threadSettingsRuntime.remoteUpdateSupport() === "unsupported") {
-      await this.continueActiveThreadGoalWithEmptyTurn(threadId);
-      return;
-    }
-
-    await this.threadGoals.set({ threadId, status: "active" });
-  }
-
   private maybeContinueActiveThreadGoal(threadId: string): void {
-    if (!this.canContinueActiveThreadGoal(threadId)) return;
     this.activeGoalContinuation.request(threadId);
   }
 
@@ -11727,12 +11463,6 @@ export class CodexService {
 
   async steerTurn(input: CodexSteerTurnInput): Promise<{ turnId: string } | null> {
     return await this.controlPlane.runPromise(this.turnCommands.steer(input));
-  }
-
-  private clearPendingServerRequestsAfterDisconnect(): void {
-    for (const { threadId, requestId } of this.pendingServerRequests.disconnectIdentities()) {
-      this.resolvePendingServerRequest(threadId, requestId);
-    }
   }
 
   private abandonOtherPendingRequestsById(threadId: string, requestId: RequestId): void {

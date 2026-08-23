@@ -76,6 +76,7 @@ const makeHarness = (input: {
       steer: ({ threadId, prompt }) =>
         input.submit(threadId, prompt).pipe(Effect.as({ turnId: "turn-a" })),
       steerRendererOwned: () => Effect.die("unused"),
+      continueGoal: () => Effect.die("unused"),
     });
     const dispatcher = yield* makeQueuedFollowUpDispatcher.pipe(
       Effect.provideService(CodexConversationProjection, projection),

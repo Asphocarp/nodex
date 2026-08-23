@@ -267,7 +267,11 @@ it.effect(
       assert.strictEqual(observedNotification._tag, "Some");
       assert.strictEqual(yield* Queue.size(attempt.output), 0);
 
-      const occurrences = yield* inbox.requests.pipe(Stream.take(2), Stream.runCollect);
+      const occurrences = yield* inbox.occurrences.pipe(
+        Stream.filter((occurrence) => occurrence.kind === "request"),
+        Stream.take(2),
+        Stream.runCollect,
+      );
       const accepted = occurrences[0];
       const rejected = occurrences[1];
       if (accepted === undefined || rejected === undefined) {

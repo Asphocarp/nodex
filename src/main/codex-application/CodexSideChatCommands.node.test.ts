@@ -120,6 +120,7 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       acceptPreparedRendererTurn: () => Effect.die("unused"),
       steer: () => Effect.die("unused"),
       steerRendererOwned: () => Effect.die("unused"),
+      continueGoal: () => Effect.die("unused"),
     } satisfies CodexTurnCommandsService);
     const parentSnapshot = {
       threadId: parentThreadId,

@@ -86,6 +86,8 @@ export interface CodexTurnCommandsService {
   readonly steerRendererOwned: (
     params: TurnSteerParams,
   ) => Effect.Effect<TurnSteerResponse, CodexRuntimeError>;
+  /** Starts the next autonomous goal turn without projecting a synthetic user message. */
+  readonly continueGoal: (threadId: string) => Effect.Effect<void, CodexTurnCommandsError>;
 }
 
 export class CodexTurnCommands extends Context.Service<
@@ -216,7 +218,10 @@ export const make: Effect.Effect<
         );
     });
 
-  const startTransaction = (plan: CodexTurnStartPlan) =>
+  const startTransaction = (
+    plan: CodexTurnStartPlan,
+    options: { readonly projectOptimisticTurn: boolean } = { projectOptimisticTurn: true },
+  ) =>
     projectLifecycle.runExclusive(
       plan.projectId,
       Effect.gen(function* () {
@@ -248,7 +253,7 @@ export const make: Effect.Effect<
             plan.threadId,
             plan.verifiedBuiltinFullAccess,
           );
-          if (!plan.rendererOwnsState && canonicalParams) {
+          if (!plan.rendererOwnsState && canonicalParams && options.projectOptimisticTurn) {
             yield* projection.admitTurn({
               threadId: plan.threadId,
               params: canonicalParams,
@@ -283,7 +288,7 @@ export const make: Effect.Effect<
                 ),
               ),
               Effect.andThen(
-                !plan.rendererOwnsState && canonicalParams
+                !plan.rendererOwnsState && canonicalParams && options.projectOptimisticTurn
                   ? Clock.currentTimeMillis.pipe(
                       Effect.flatMap((observedAtMs) =>
                         projection.acceptTurn({
@@ -544,6 +549,21 @@ export const make: Effect.Effect<
           Effect.withSpan("CodexTurnCommands.steerRendererOwned", {
             attributes: { threadId: params.threadId },
           }),
+        ),
+    continueGoal: (threadId) =>
+      conversations
+        .runExclusive(
+          threadId,
+          materialization.ensure(threadId).pipe(
+            Effect.mapError((cause) => commandError("start", threadId, cause)),
+            Effect.andThen(prepareStart(threadId, "", undefined, false)),
+            Effect.flatMap((plan) => startTransaction(plan, { projectOptimisticTurn: false })),
+            Effect.asVoid,
+          ),
+        )
+        .pipe(
+          Effect.mapError((cause) => commandError("start", threadId, cause)),
+          Effect.withSpan("CodexTurnCommands.continueGoal", { attributes: { threadId } }),
         ),
   });
 });

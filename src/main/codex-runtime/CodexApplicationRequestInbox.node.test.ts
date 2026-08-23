@@ -20,7 +20,11 @@ it.effect("keeps exact request occurrences lossless and settles each at most onc
 
     const first = yield* generation.admit({ requestId: 7, method: "approval", params: { n: 1 } });
     const second = yield* generation.admit({ requestId: 7, method: "approval", params: { n: 2 } });
-    const admitted = yield* inbox.requests.pipe(Stream.take(2), Stream.runCollect);
+    const admitted = yield* inbox.occurrences.pipe(
+      Stream.filter((occurrence) => occurrence.kind === "request"),
+      Stream.take(2),
+      Stream.runCollect,
+    );
 
     assert.deepEqual([...admitted], [first, second]);
     assert.notStrictEqual(first.occurrenceToken, second.occurrenceToken);

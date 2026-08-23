@@ -1,18 +1,16 @@
-import type {
-  CodexPostResumeGoalLoadResult,
-  CodexPostResumeGoalRuntimeOptions,
-} from "../codex-application/CodexPostResumeGoalRuntime";
+import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
+import type { CodexThreadGoalLoadResult } from "../codex-application/CodexThreadGoalRuntime";
 
 export interface TestCodexPostResumeGoalRuntimeOptions {
-  readonly load: (threadId: string) => Promise<CodexPostResumeGoalLoadResult>;
-  readonly commit: CodexPostResumeGoalRuntimeOptions["commit"];
-  readonly requestContinuation: CodexPostResumeGoalRuntimeOptions["requestContinuation"];
+  readonly load: (threadId: string) => Promise<CodexThreadGoalLoadResult>;
+  readonly commit: (threadId: string, expectedRevision: number, goal: ThreadGoal | null) => boolean;
+  readonly requestContinuation: (threadId: string) => void;
 }
 
 /** Mutable vertical harness used only by the legacy CodexService test suite. */
 export class TestCodexPostResumeGoalRuntime implements CodexPostResumeGoalRuntimePromiseAdapter {
-  private readonly loads = new Map<string, Promise<CodexPostResumeGoalLoadResult>>();
+  private readonly loads = new Map<string, Promise<CodexThreadGoalLoadResult>>();
   private readonly activeRequests = new Set<string>();
   private readonly latestRevision = new Map<string, number>();
   private readonly deferred = new Set<string>();
@@ -64,12 +62,12 @@ export class TestCodexPostResumeGoalRuntime implements CodexPostResumeGoalRuntim
     this.deferred.delete(threadId);
   }
 
-  private load(threadId: string): Promise<CodexPostResumeGoalLoadResult> {
+  private load(threadId: string): Promise<CodexThreadGoalLoadResult> {
     const existing = this.loads.get(threadId);
     if (existing) return existing;
     const pending = this.options
       .load(threadId)
-      .catch(() => ({ ok: false, goal: null }) satisfies CodexPostResumeGoalLoadResult);
+      .catch(() => ({ ok: false, goal: null }) satisfies CodexThreadGoalLoadResult);
     this.loads.set(threadId, pending);
     return pending.finally(() => {
       if (this.loads.get(threadId) === pending) this.loads.delete(threadId);
