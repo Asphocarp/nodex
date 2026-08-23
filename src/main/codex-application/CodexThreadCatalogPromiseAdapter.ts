@@ -1,4 +1,10 @@
-import type { CodexSidebarSnapshot } from "../../shared/types";
+import type {
+  CodexSidebarSnapshot,
+  CodexThreadSummaryWindow,
+  CodexThreadSummaryWindowInput,
+  CommandPaletteThreadListInput,
+  CommandPaletteThreadSummary,
+} from "../../shared/types";
 import type {
   CodexSidebarThreadMoveInput,
   CodexSidebarThreadMoveResult,
@@ -8,6 +14,13 @@ import { CodexThreadCatalogError, type CodexThreadCatalog } from "./CodexThreadC
 
 export interface CodexThreadCatalogPromiseAdapter {
   readonly listPinned: () => Promise<readonly string[]>;
+  readonly listProject: (
+    projectId: string,
+    input?: CodexThreadSummaryWindowInput,
+  ) => Promise<CodexThreadSummaryWindow>;
+  readonly listPalette: (
+    input: CommandPaletteThreadListInput,
+  ) => Promise<readonly CommandPaletteThreadSummary[]>;
   readonly setPinned: (
     threadId: string,
     pinned: boolean,
@@ -28,6 +41,10 @@ export const makeCodexThreadCatalogPromiseAdapter = (
   callbacks: Pick<ScopedCallbackRuntime["Service"], "runPromise">,
 ): CodexThreadCatalogPromiseAdapter => ({
   listPinned: () => callbacks.runPromise(catalog.listPinned).catch(unwrapCatalogError),
+  listProject: (projectId, input) =>
+    callbacks.runPromise(catalog.listProject(projectId, input)).catch(unwrapCatalogError),
+  listPalette: (input) =>
+    callbacks.runPromise(catalog.listPalette(input)).catch(unwrapCatalogError),
   setPinned: (threadId, pinned, beforeThreadId) =>
     callbacks
       .runPromise(catalog.setPinned(threadId, pinned, beforeThreadId))

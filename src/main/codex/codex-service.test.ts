@@ -196,20 +196,9 @@ interface TestableCodexService {
   resolveThreadSummary: (
     threadId: string,
   ) => Promise<import("../../shared/types").CodexThreadSummary | null>;
-  listProjectThreads: (
-    projectId: string,
-    opts?: {
-      includeArchived?: boolean;
-      after?: string | null;
-      first?: number;
-    },
-  ) => Promise<import("../../shared/types").CodexThreadSummaryWindow>;
   sidebarSync: import("../codex-application/CodexSidebarSyncRuntimePromiseAdapter").CodexSidebarSyncRuntimePromiseAdapter;
   threadCatalog: import("../codex-application/CodexThreadCatalogPromiseAdapter").CodexThreadCatalogPromiseAdapter;
   threadReadState: import("../codex-application/CodexThreadReadStatePromiseAdapter").CodexThreadReadStatePromiseAdapter;
-  listCommandPaletteThreads: (input: {
-    scope: "sidebar";
-  }) => Promise<CommandPaletteThreadSummary[]>;
   searchCommandPaletteThreads: (input: {
     query: string;
     limit?: number;
@@ -1784,6 +1773,13 @@ function createService(options?: {
       } while (after !== null);
       return threadIds;
     },
+    listProject: async () => ({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 0,
+    }),
+    listPalette: async (): Promise<readonly CommandPaletteThreadSummary[]> => [],
     setPinned: async (threadId: string, pinned: boolean, beforeThreadId?: string | null) => {
       await projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId);
       return {

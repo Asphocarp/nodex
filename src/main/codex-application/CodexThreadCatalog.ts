@@ -9,19 +9,45 @@ import {
   type CodexSidebarThreadMoveInput,
   type CodexSidebarThreadMoveResult,
 } from "../../shared/codex-sidebar-thread-move";
-import type { CodexSidebarSnapshot, ProjectSessionSummaryWindow } from "../../shared/types";
-import type { DesktopProjectWorkspaceSidebar } from "../core-client/project-workspace-adapter";
+import type {
+  CodexSidebarSnapshot,
+  CodexThreadSummary,
+  CodexThreadSummaryWindow,
+  CodexThreadSummaryWindowInput,
+  CommandPaletteThreadListInput,
+  CommandPaletteThreadSummary,
+  Project,
+  ProjectSessionSummaryWindow,
+  ProjectSessionSummaryWindowInput,
+} from "../../shared/types";
+import type {
+  DesktopProjectWorkspaceSidebar,
+  DesktopProjectWorkspaceThread,
+} from "../core-client/project-workspace-adapter";
 import { CodexSidebarSyncRuntime, type CodexSidebarSyncMetadata } from "./CodexSidebarSyncRuntime";
 
 export class CodexThreadCatalogError extends Data.TaggedError("CodexThreadCatalogError")<{
-  readonly operation: "list-pinned" | "set-pinned" | "reorder-pinned" | "move" | "publish";
+  readonly operation:
+    | "list-pinned"
+    | "list-project"
+    | "list-palette"
+    | "set-pinned"
+    | "reorder-pinned"
+    | "move"
+    | "publish";
   readonly cause: unknown;
 }> {}
 
 export interface CodexThreadCatalogOptions {
   readonly readSidebarOverview: (
-    after: string | null,
+    input: ProjectSessionSummaryWindowInput,
   ) => Effect.Effect<ProjectSessionSummaryWindow, CodexThreadCatalogError>;
+  readonly listProjectWindow: (
+    projectId: string | null,
+    input: ProjectSessionSummaryWindowInput,
+  ) => Effect.Effect<ProjectSessionSummaryWindow, CodexThreadCatalogError>;
+  readonly listProjects: Effect.Effect<readonly Project[], CodexThreadCatalogError>;
+  readonly readThreadProjection: (threadId: string) => DesktopProjectWorkspaceThread | null;
   readonly setThreadPinned: (
     threadId: string,
     pinned: boolean,
@@ -39,6 +65,13 @@ export class CodexThreadCatalog extends Context.Service<
   CodexThreadCatalog,
   {
     readonly listPinned: Effect.Effect<readonly string[], CodexThreadCatalogError>;
+    readonly listProject: (
+      projectId: string,
+      input?: CodexThreadSummaryWindowInput,
+    ) => Effect.Effect<CodexThreadSummaryWindow, CodexThreadCatalogError>;
+    readonly listPalette: (
+      input: CommandPaletteThreadListInput,
+    ) => Effect.Effect<readonly CommandPaletteThreadSummary[], CodexThreadCatalogError>;
     readonly setPinned: (
       threadId: string,
       pinned: boolean,
@@ -65,6 +98,43 @@ const emptyMetadata: CodexSidebarSyncMetadata = {
   projectlessChanged: false,
   materializedSessionIds: [],
   failedThreadIds: [],
+};
+
+const projectThreadSummary = (
+  session: ProjectSessionSummaryWindow["items"][number],
+  projection: DesktopProjectWorkspaceThread | null,
+): CodexThreadSummary | null => {
+  const thread = session.thread;
+  if (!thread || thread.parentThreadId) return null;
+  return {
+    threadId: thread.threadId,
+    projectId: session.projectId,
+    forkedFromId: thread.forkedFromId ?? null,
+    source: null,
+    ephemeral: false,
+    threadSource: thread.threadSource ?? null,
+    serviceName: thread.serviceName ?? null,
+    agentNickname: thread.agentNickname ?? null,
+    agentRole: thread.agentRole ?? null,
+    agentPath: thread.agentPath ?? null,
+    threadName: thread.threadName ?? null,
+    threadPreview: thread.threadPreview,
+    modelProvider: projection?.modelProvider ?? "openai",
+    executionProfile: projection?.executionProfile ?? null,
+    cwd: thread.cwd ?? null,
+    managedWorktreePath: projection?.managedWorktreePath ?? null,
+    projectlessOutputDirectory: projection?.projectlessOutputDirectory ?? null,
+    projectlessWorkspaceBrowserRoot: projection?.projectlessWorkspaceBrowserRoot ?? null,
+    statusType: thread.statusType,
+    statusActiveFlags: [...thread.statusActiveFlags],
+    archived: session.archived || thread.archived,
+    pinned: session.pinned,
+    hasUnreadTurn: session.unread,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    recencyAt: thread.recencyAt,
+    linkedAt: thread.linkedAt,
+  };
 };
 
 export const make = (
@@ -115,7 +185,10 @@ export const make = (
           const threadIds: string[] = [];
           let after: string | null = null;
           do {
-            const window: ProjectSessionSummaryWindow = yield* options.readSidebarOverview(after);
+            const window: ProjectSessionSummaryWindow = yield* options.readSidebarOverview({
+              after,
+              first: 200,
+            });
             threadIds.push(
               ...window.items.flatMap((session) =>
                 session.thread ? [session.thread.threadId] : [],
@@ -126,6 +199,97 @@ export const make = (
           return threadIds;
         }),
       ),
+      listProject: (projectId, input = {}) => {
+        const normalizedProjectId = projectId.trim();
+        if (!normalizedProjectId) {
+          return Effect.fail(
+            new CodexThreadCatalogError({
+              operation: "list-project",
+              cause: new Error("Project id is required"),
+            }),
+          );
+        }
+        return runOwned(
+          options.listProjectWindow(normalizedProjectId, input).pipe(
+            Effect.map((window) => ({
+              ...window,
+              items: window.items.flatMap((session) => {
+                const summary = projectThreadSummary(
+                  session,
+                  session.thread ? options.readThreadProjection(session.thread.threadId) : null,
+                );
+                return summary ? [summary] : [];
+              }),
+            })),
+          ),
+        );
+      },
+      listPalette: (input) => {
+        if (input.scope !== "sidebar") return Effect.succeed([]);
+        return runOwned(
+          Effect.gen(function* () {
+            const projects = yield* options.listProjects;
+            const projectNameById = new Map(
+              projects.map((project) => [project.id, project.name] as const),
+            );
+            const seenThreadIds = new Set<string>();
+            const summaries: CommandPaletteThreadSummary[] = [];
+            const addWindow = (window: ProjectSessionSummaryWindow): void => {
+              for (const session of window.items) {
+                if (summaries.length >= 100) return;
+                const thread = session.thread;
+                if (
+                  !thread ||
+                  thread.parentThreadId ||
+                  session.archived ||
+                  thread.archived ||
+                  seenThreadIds.has(thread.threadId)
+                ) {
+                  continue;
+                }
+                seenThreadIds.add(thread.threadId);
+                summaries.push({
+                  threadId: thread.threadId,
+                  sessionId: session.id,
+                  projectId: session.projectId,
+                  projectName: session.projectId
+                    ? (projectNameById.get(session.projectId) ?? null)
+                    : null,
+                  title: session.displayTitle,
+                  preview: thread.threadPreview,
+                  cwd: thread.cwd ?? null,
+                  gitBranch: null,
+                  projectless: session.projectId === null,
+                  pinned: session.pinned,
+                  pinnedOrder: session.pinnedOrder,
+                  statusType: thread.statusType,
+                  statusActiveFlags: [...thread.statusActiveFlags],
+                  createdAt: thread.createdAt,
+                  updatedAt: thread.recencyAt ?? thread.updatedAt,
+                });
+              }
+            };
+            addWindow(yield* options.readSidebarOverview({ first: 100 }));
+            if (summaries.length < 100) {
+              addWindow(
+                yield* options.listProjectWindow(null, {
+                  first: 100 - summaries.length,
+                }),
+              );
+            }
+            for (const project of projects) {
+              if (summaries.length >= 100) break;
+              addWindow(
+                yield* options.listProjectWindow(project.id, {
+                  first: 100 - summaries.length,
+                }),
+              );
+            }
+            summaries.sort((left, right) => right.updatedAt - left.updatedAt);
+            return summaries.slice(0, 100);
+          }),
+        );
+      },
       setPinned: (threadId, pinned, beforeThreadId) => {
         const normalizedThreadId = threadId.trim();
         if (!normalizedThreadId) return runOwned(readSnapshot());

@@ -66,6 +66,8 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         }),
         threadCatalog: CodexThreadCatalog.of({
           listPinned: Effect.die("unused"),
+          listProject: () => Effect.die("unused"),
+          listPalette: () => Effect.die("unused"),
           setPinned: () => Effect.die("unused"),
           reorderPinned: () => Effect.die("unused"),
           move: () => Effect.die("unused"),

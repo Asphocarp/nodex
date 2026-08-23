@@ -48,7 +48,7 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
     });
     const scope = yield* Scope.make();
     const catalog = yield* make({
-      readSidebarOverview: (after) =>
+      readSidebarOverview: ({ after }) =>
         Effect.sync(
           () =>
             ({
@@ -62,6 +62,9 @@ it.effect("owns paginated pin reads and complete mutation publication", () =>
               projectionRevision: 1,
             }) as ProjectSessionSummaryWindow,
         ),
+      listProjectWindow: () => Effect.die("unused"),
+      listProjects: Effect.succeed([]),
+      readThreadProjection: () => null,
       setThreadPinned: (threadId, pinned) =>
         Effect.sync(() => {
           calls.push(`set:${threadId}:${pinned}`);
@@ -133,6 +136,9 @@ it.effect("interrupts active and queued pin mutations with its owning Scope", ()
     const scope = yield* Scope.make();
     const catalog = yield* make({
       readSidebarOverview: () => Effect.die("unused"),
+      listProjectWindow: () => Effect.die("unused"),
+      listProjects: Effect.die("unused"),
+      readThreadProjection: () => null,
       setThreadPinned: () =>
         Deferred.succeed(started, undefined).pipe(
           Effect.andThen(Effect.never),
@@ -160,5 +166,133 @@ it.effect("interrupts active and queued pin mutations with its owning Scope", ()
     assert.isTrue(Exit.isFailure(queuedExit));
     if (Exit.isFailure(activeExit)) assert.isTrue(Cause.hasInterruptsOnly(activeExit.cause));
     if (Exit.isFailure(queuedExit)) assert.isTrue(Cause.hasInterruptsOnly(queuedExit.cause));
+  }),
+);
+
+it.effect("owns Project and command-palette Thread projections", () =>
+  Effect.gen(function* () {
+    const sidebar = CodexSidebarSyncRuntime.of({
+      sync: () => Effect.succeed(syncResult(snapshot())),
+      publish: () => Effect.succeed(syncResult(snapshot())),
+      invalidate: () => undefined,
+      scheduleNotification: () => undefined,
+    });
+    const scope = yield* Scope.make();
+    const window = {
+      items: [
+        {
+          id: "session-a",
+          projectId: "project-a",
+          displayTitle: "Thread A",
+          pinned: true,
+          pinnedOrder: 1,
+          archived: false,
+          unread: true,
+          thread: {
+            threadId: "thread-a",
+            projectId: "project-a",
+            sessionId: "session-a",
+            forkedFromId: null,
+            parentThreadId: null,
+            threadSource: null,
+            serviceName: null,
+            agentNickname: null,
+            agentRole: null,
+            agentPath: null,
+            threadName: "Thread A",
+            threadPreview: "Preview A",
+            executionHostId: "local",
+            cwd: "/workspace/a",
+            managedWorktreePath: null,
+            statusType: "idle",
+            statusActiveFlags: [],
+            archived: false,
+            createdAt: 1,
+            updatedAt: 2,
+            recencyAt: 3,
+            linkedAt: "2026-08-23T00:00:00.000Z",
+          },
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 4,
+    } as unknown as ProjectSessionSummaryWindow;
+    const emptyWindow = { ...window, items: [] };
+    const catalog = yield* make({
+      readSidebarOverview: () => Effect.succeed(window),
+      listProjectWindow: (projectId) =>
+        Effect.succeed(projectId === "project-a" ? window : emptyWindow),
+      listProjects: Effect.succeed([
+        { id: "project-a", name: "Project A" } as unknown as import("../../shared/types").Project,
+      ]),
+      readThreadProjection: () =>
+        ({
+          modelProvider: "anthropic",
+          executionProfile: null,
+          managedWorktreePath: "/workspace/a",
+          projectlessOutputDirectory: null,
+          projectlessWorkspaceBrowserRoot: null,
+        }) as unknown as import("../core-client/project-workspace-adapter").DesktopProjectWorkspaceThread,
+      setThreadPinned: () => Effect.die("unused"),
+      reorderPinnedThreads: () => Effect.die("unused"),
+      move: () => Effect.die("unused"),
+    }).pipe(
+      Effect.provideService(CodexSidebarSyncRuntime, sidebar),
+      Effect.provideService(Scope.Scope, scope),
+    );
+
+    const projectThreads = yield* catalog.listProject(" project-a ");
+    assert.strictEqual(projectThreads.projectionRevision, 4);
+    assert.deepEqual(projectThreads.items[0], {
+      threadId: "thread-a",
+      projectId: "project-a",
+      forkedFromId: null,
+      source: null,
+      ephemeral: false,
+      threadSource: null,
+      serviceName: null,
+      agentNickname: null,
+      agentRole: null,
+      agentPath: null,
+      threadName: "Thread A",
+      threadPreview: "Preview A",
+      modelProvider: "anthropic",
+      executionProfile: null,
+      cwd: "/workspace/a",
+      managedWorktreePath: "/workspace/a",
+      projectlessOutputDirectory: null,
+      projectlessWorkspaceBrowserRoot: null,
+      statusType: "idle",
+      statusActiveFlags: [],
+      archived: false,
+      pinned: true,
+      hasUnreadTurn: true,
+      createdAt: 1,
+      updatedAt: 2,
+      recencyAt: 3,
+      linkedAt: "2026-08-23T00:00:00.000Z",
+    });
+    assert.deepEqual(yield* catalog.listPalette({ scope: "sidebar" }), [
+      {
+        threadId: "thread-a",
+        sessionId: "session-a",
+        projectId: "project-a",
+        projectName: "Project A",
+        title: "Thread A",
+        preview: "Preview A",
+        cwd: "/workspace/a",
+        gitBranch: null,
+        projectless: false,
+        pinned: true,
+        pinnedOrder: 1,
+        statusType: "idle",
+        statusActiveFlags: [],
+        createdAt: 1,
+        updatedAt: 3,
+      },
+    ]);
+
+    yield* Scope.close(scope, Exit.void);
   }),
 );

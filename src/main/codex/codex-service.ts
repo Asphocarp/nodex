@@ -63,7 +63,6 @@ import type { TurnSteerResponse } from "@nodex/codex-app-server-protocol/v2/Turn
 import type { ToolRequestUserInputResponse } from "@nodex/codex-app-server-protocol/v2/ToolRequestUserInputResponse";
 import type {
   PageRunInTarget,
-  CommandPaletteThreadListInput,
   CommandPaletteThreadSearchInput,
   CommandPaletteThreadSearchResult,
   CommandPaletteThreadSummary,
@@ -180,7 +179,6 @@ import type {
   ProjectArchiveBlocker,
   ProjectSession,
   ProjectSessionSummary,
-  ProjectSessionSummaryWindow,
   ProjectSessionForkInput,
   ProjectSessionForkResult,
   UpdateManagedWorktreeSettingsInput,
@@ -6325,64 +6323,9 @@ export class CodexService {
     }
   }
 
-  async listProjectThreads(
-    projectId: string,
-    input?: {
-      includeArchived?: boolean;
-      after?: string | null;
-      first?: number;
-    },
-  ): Promise<{
-    items: CodexThreadSummary[];
-    nextCursor: string | null;
-    hasMore: boolean;
-    projectionRevision: number;
-  }> {
-    const normalizedProjectId = projectId.trim();
-    if (!normalizedProjectId) throw new Error("Project id is required");
-    const window = await this.projectWorkspace.listProjectSessionSummaryWindow(
-      normalizedProjectId,
-      input,
-    );
-    return {
-      ...window,
-      items: window.items.flatMap((session): CodexThreadSummary[] => {
-        const thread = session.thread;
-        if (!thread || thread.parentThreadId) return [];
-        const cached = this.workspaceThreadProjectionById.get(thread.threadId);
-        return [
-          {
-            threadId: thread.threadId,
-            projectId: session.projectId,
-            forkedFromId: thread.forkedFromId ?? null,
-            source: null,
-            ephemeral: false,
-            threadSource: thread.threadSource ?? null,
-            serviceName: thread.serviceName ?? null,
-            agentNickname: thread.agentNickname ?? null,
-            agentRole: thread.agentRole ?? null,
-            agentPath: thread.agentPath ?? null,
-            threadName: thread.threadName ?? null,
-            threadPreview: thread.threadPreview,
-            modelProvider: cached?.modelProvider ?? "openai",
-            executionProfile: cached?.executionProfile ?? null,
-            cwd: thread.cwd ?? null,
-            managedWorktreePath: cached?.managedWorktreePath ?? null,
-            projectlessOutputDirectory: cached?.projectlessOutputDirectory ?? null,
-            projectlessWorkspaceBrowserRoot: cached?.projectlessWorkspaceBrowserRoot ?? null,
-            statusType: thread.statusType,
-            statusActiveFlags: [...thread.statusActiveFlags],
-            archived: session.archived || thread.archived,
-            pinned: session.pinned,
-            hasUnreadTurn: session.unread,
-            createdAt: thread.createdAt,
-            updatedAt: thread.updatedAt,
-            recencyAt: thread.recencyAt,
-            linkedAt: thread.linkedAt,
-          },
-        ];
-      }),
-    };
+  /** Effect Module projection operation; callers use CodexThreadCatalog. */
+  readThreadCatalogProjection(threadId: string): DesktopProjectWorkspaceThread | null {
+    return this.workspaceThreadProjectionById.get(threadId) ?? null;
   }
 
   /** Effect Module adapter operation; materializes the first app-server window. */
@@ -7658,75 +7601,6 @@ export class CodexService {
     });
   }
 
-  private async listCommandPaletteSidebarChats(): Promise<CommandPaletteThreadSummary[]> {
-    const projects = await this.projectWorkspace.listProjects();
-    const projectNameById = new Map(projects.map((project) => [project.id, project.name] as const));
-    const seenThreadIds = new Set<string>();
-    const summaries: CommandPaletteThreadSummary[] = [];
-    const addWindow = (window: ProjectSessionSummaryWindow): void => {
-      for (const session of window.items) {
-        if (summaries.length >= 100) return;
-        const thread = session.thread;
-        if (
-          !thread ||
-          thread.parentThreadId ||
-          session.archived ||
-          thread.archived ||
-          seenThreadIds.has(thread.threadId)
-        ) {
-          continue;
-        }
-        seenThreadIds.add(thread.threadId);
-        summaries.push({
-          threadId: thread.threadId,
-          sessionId: session.id,
-          projectId: session.projectId,
-          projectName: session.projectId ? (projectNameById.get(session.projectId) ?? null) : null,
-          title: session.displayTitle,
-          preview: thread.threadPreview,
-          cwd: thread.cwd ?? null,
-          gitBranch: null,
-          projectless: session.projectId === null,
-          pinned: session.pinned,
-          pinnedOrder: session.pinnedOrder,
-          statusType: thread.statusType,
-          statusActiveFlags: [...thread.statusActiveFlags],
-          createdAt: thread.createdAt,
-          updatedAt: thread.recencyAt ?? thread.updatedAt,
-        });
-      }
-    };
-    addWindow(
-      await this.projectWorkspace.readSidebarOverview(false, {
-        first: 100,
-      }),
-    );
-    if (summaries.length < 100) {
-      addWindow(
-        await this.projectWorkspace.listProjectSessionSummaryWindow(null, {
-          first: 100 - summaries.length,
-        }),
-      );
-    }
-    for (const project of projects) {
-      if (summaries.length >= 100) break;
-      addWindow(
-        await this.projectWorkspace.listProjectSessionSummaryWindow(project.id, {
-          first: 100 - summaries.length,
-        }),
-      );
-    }
-    summaries.sort((left, right) => right.updatedAt - left.updatedAt);
-    return summaries.slice(0, 100);
-  }
-
-  async listCommandPaletteThreads(
-    input: CommandPaletteThreadListInput,
-  ): Promise<CommandPaletteThreadSummary[]> {
-    if (input.scope !== "sidebar") return [];
-    return await this.listCommandPaletteSidebarChats();
-  }
-
   async searchCommandPaletteThreads(
     input: CommandPaletteThreadSearchInput,
   ): Promise<CommandPaletteThreadSearchResult[]> {
@@ -7736,7 +7610,7 @@ export class CodexService {
     const limit = normalizeCommandPaletteThreadSearchLimit(input.limit);
     await this.ensureClientReady();
     const [localThreads, projects] = await Promise.all([
-      this.listCommandPaletteSidebarChats(),
+      this.threadCatalog.listPalette({ scope: "sidebar" }),
       this.projectWorkspace.listProjects(),
     ]);
     const localByThreadId = new Map(

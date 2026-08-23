@@ -222,10 +222,14 @@ export const codexIpcLive = (
           .clientId;
 
       // Codex
-      registerHandle(
-        "codex:threads:list",
-        (_, projectId: string, opts?: { includeArchived?: boolean }) =>
-          codexService.listProjectThreads(projectId, opts),
+      registerEffectHandle("codex:threads:list", (_, projectId, input) =>
+        options.threadCatalog
+          .listProject(projectId, input)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:threads:list", cause }),
+            ),
+          ),
       );
 
       registerEffectHandle("codex:sidebar:snapshot", (_, input) => {
@@ -346,8 +350,13 @@ export const codexIpcLive = (
         codexService.ensureSidebarThreadSession(threadId),
       );
 
-      registerHandle("codex:threads:palette:list", (_, input) =>
-        codexService.listCommandPaletteThreads(input),
+      registerEffectHandle("codex:threads:palette:list", (_, input) =>
+        options.threadCatalog.listPalette(input).pipe(
+          Effect.map((threads) => [...threads]),
+          Effect.mapError(
+            (cause) => new CodexIpcError({ operation: "codex:threads:palette:list", cause }),
+          ),
+        ),
       );
 
       registerHandle("codex:threads:palette:search", (_, input) =>

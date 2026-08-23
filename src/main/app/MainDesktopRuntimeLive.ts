@@ -1414,11 +1414,22 @@ export const live: Layer.Layer<
             requireCodexService().recordSidebarNotificationScheduled(event),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const threadCatalog = yield* makeCodexThreadCatalog({
-          readSidebarOverview: (after) =>
+          readSidebarOverview: (input) =>
             Effect.tryPromise({
-              try: () => projectWorkspace.readSidebarOverview(false, { after, first: 200 }),
+              try: () => projectWorkspace.readSidebarOverview(false, input),
               catch: (cause) => new CodexThreadCatalogError({ operation: "list-pinned", cause }),
             }),
+          listProjectWindow: (projectId, input) =>
+            Effect.tryPromise({
+              try: () => projectWorkspace.listProjectSessionSummaryWindow(projectId, input),
+              catch: (cause) => new CodexThreadCatalogError({ operation: "list-project", cause }),
+            }),
+          listProjects: Effect.tryPromise({
+            try: () => projectWorkspace.listProjects(),
+            catch: (cause) => new CodexThreadCatalogError({ operation: "list-palette", cause }),
+          }),
+          readThreadProjection: (threadId) =>
+            requireCodexService().readThreadCatalogProjection(threadId),
           setThreadPinned: (threadId, pinned, beforeThreadId) =>
             Effect.tryPromise({
               try: () => projectWorkspace.setThreadPinned(threadId, pinned, beforeThreadId),
