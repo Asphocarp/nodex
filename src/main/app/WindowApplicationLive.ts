@@ -9,6 +9,7 @@ import { CodexConnection } from "../codex-application/CodexConnection";
 import { CodexRendererConversationCoordinator } from "../codex-application/CodexRendererConversationCoordinator";
 import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { CoreAuthority } from "../core-runtime/CoreAuthority";
 import {
   ComputerUseSettingsRuntime,
   live as computerUseSettingsRuntimeLive,
@@ -50,6 +51,11 @@ import {
 import { getCommandKeymapState } from "../local-store/config";
 import { getLogger } from "../logging/logger";
 import { LibraryModule } from "../library-application/LibraryModule";
+import {
+  NodexAgentAuthorizationRuntime,
+  live as nodexAgentAuthorizationRuntimeLive,
+} from "../codex-application/NodexAgentAuthorizationRuntime";
+import { NodexAgentResourceAccess } from "../nodex-agent-application/NodexAgentResourceAccess";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronPrivacy, live as electronPrivacyLive } from "../platform/electron/ElectronPrivacy";
@@ -70,6 +76,9 @@ import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
 const appUpdates = appUpdateRuntimeLive;
 const desktopNotifications = desktopNotificationRuntimeLive;
 const rendererClients = rendererClientRuntimeLive();
+const nodexAgentAuthorization = nodexAgentAuthorizationRuntimeLive.pipe(
+  Layer.provideMerge(rendererClients),
+);
 const privacy = electronPrivacyLive;
 const dictation = dictationRuntimeLive({
   preloadPath: `${__dirname}/../preload/global-dictation.js`,
@@ -196,6 +205,7 @@ export const live: Layer.Layer<
   | DictationRuntime
   | ElectronPrivacy
   | McpAppSandboxRuntime
+  | NodexAgentAuthorizationRuntime
   | RemoteHostedPipRuntime
   | RendererClientRuntime
   | WindowSessionCatalog.WindowSessionCatalog
@@ -208,6 +218,7 @@ export const live: Layer.Layer<
   | CodexConnection
   | CodexGateway
   | CodexRendererConversationCoordinator
+  | CoreAuthority
   | DesktopToolRuntime
   | ElectronApp
   | ElectronDesktop
@@ -216,6 +227,7 @@ export const live: Layer.Layer<
   | ElectronNet.ElectronNet
   | LibraryModule
   | MainConfig
+  | NodexAgentResourceAccess
   | ProjectWorkspace
   | ScopedCallbackRuntime
   | WindowRuntime
@@ -227,5 +239,6 @@ export const live: Layer.Layer<
   databaseNotifier,
   deepLinks,
   dictation,
+  nodexAgentAuthorization,
   windowSessions,
 );
