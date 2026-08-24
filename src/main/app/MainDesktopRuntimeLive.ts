@@ -76,7 +76,7 @@ import {
 import { CodexConnection } from "../codex-application/CodexConnection";
 import { make as makeCodexConnectionLifecycle } from "../codex-application/CodexConnectionLifecycle";
 import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
-import { ChatGptDesktop, live as chatGptDesktopLive } from "../codex-application/ChatGptDesktop";
+import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
 import {
   ComposerExternalSuggestions,
   live as composerExternalSuggestionsLive,
@@ -94,10 +94,6 @@ import {
   CodexBackgroundProcesses,
   make as makeCodexBackgroundProcesses,
 } from "../codex-application/CodexBackgroundProcesses";
-import {
-  CodexGitMessageGeneration,
-  live as codexGitMessageGenerationLive,
-} from "../codex-application/CodexGitMessageGeneration";
 import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
 import { CodexPendingServerRequestRuntime } from "../codex-application/CodexPendingServerRequestRuntime";
 import {
@@ -342,24 +338,13 @@ import {
   CodexPermissions,
   live as codexPermissionsLive,
 } from "../codex-application/CodexPermissions";
-import {
-  ExecutionHostRuntime,
-  live as executionHostRuntimeLive,
-} from "../codex-application/ExecutionHostRuntime";
-import {
-  ExecutionHostConfiguration,
-  ManagedWorktreeConfiguration,
-  live as executionHostConfigurationLive,
-} from "../codex-application/ExecutionHostConfiguration";
-import {
-  ManagedWorktreeRuntime,
-  live as managedWorktreeRuntimeLive,
-} from "../codex-application/ManagedWorktreeRuntime";
+import { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
+import { ManagedWorktreeConfiguration } from "../codex-application/ExecutionHostConfiguration";
+import { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
 import {
   ManagedWorktreeRetentionRuntime,
   live as managedWorktreeRetentionRuntimeLive,
 } from "../codex-application/ManagedWorktreeRetentionRuntime";
-import { CODEX_APP_LOCAL_HOST_ID } from "../codex/codex-app-meta-thread-tools";
 import { CodexAttachments } from "../codex-application/CodexAttachments";
 import { CodexToolRuntime } from "../codex-application/CodexToolRuntime";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
@@ -400,14 +385,7 @@ import * as WorktreeEnvironmentIpc from "../ipc/handlers/WorktreeEnvironmentIpc"
 import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
 import * as CodexWorkspaceIpc from "../ipc/handlers/CodexWorkspaceIpc";
 import * as DictationIpc from "../ipc/handlers/DictationIpc";
-import {
-  ComputerUseRuntime,
-  live as computerUseRuntimeLive,
-} from "../host-runtime/ComputerUseRuntime";
-import {
-  DesktopToolRuntime,
-  live as desktopToolRuntimeLive,
-} from "../host-runtime/DesktopToolRuntime";
+import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
 import {
   RemoteHostedPipRuntime,
   live as remoteHostedPipRuntimeLive,
@@ -416,16 +394,8 @@ import {
   ComputerUseSettingsRuntime,
   live as computerUseSettingsRuntimeLive,
 } from "../host-runtime/ComputerUseSettingsRuntime";
-import {
-  GitActionOperationRuntime,
-  live as gitActionOperationRuntimeLive,
-} from "../host-runtime/GitActionOperationRuntime";
-import { GitWorkerRuntime, live as gitWorkerRuntimeLive } from "../host-runtime/GitWorkerRuntime";
-import { GitActions, live as gitActionsLive } from "../git-application/GitActions";
-import {
-  localLive as localWorktreeWorkerRuntimeLive,
-  WorktreeWorkerRuntime,
-} from "../host-runtime/WorktreeWorkerRuntime";
+import { GitWorkerRuntime } from "../host-runtime/GitWorkerRuntime";
+import { GitActions } from "../git-application/GitActions";
 import {
   WorktreeEnvironmentRuntime,
   live as worktreeEnvironmentRuntimeLive,
@@ -441,26 +411,10 @@ import {
 } from "../project-application/ProjectLifecycleCommands";
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import { projectSessionIdFromTerminalSessionId } from "../browser/browser-local-server-runtime";
-import {
-  BrowserApplication,
-  live as browserApplicationLive,
-} from "../browser-application/BrowserApplication";
-import {
-  BrowserUseRuntime,
-  live as browserUseRuntimeLive,
-} from "../host-runtime/BrowserUseRuntime";
-import {
-  BrowserProfileRuntime,
-  live as browserProfileRuntimeLive,
-} from "../host-runtime/BrowserProfileRuntime";
-import {
-  BrowserPresentationRuntime,
-  live as browserPresentationRuntimeLive,
-} from "../host-runtime/BrowserPresentationRuntime";
-import {
-  BrowserSiteStatusRuntime,
-  live as browserSiteStatusRuntimeLive,
-} from "../host-runtime/BrowserSiteStatusRuntime";
+import { BrowserApplication } from "../browser-application/BrowserApplication";
+import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
+import { BrowserProfileRuntime } from "../host-runtime/BrowserProfileRuntime";
+import { BrowserPresentationRuntime } from "../host-runtime/BrowserPresentationRuntime";
 import { AppUpdateRuntime, live as appUpdateRuntimeLive } from "../host-runtime/AppUpdateRuntime";
 import * as AppProtocolRuntime from "../host-runtime/AppProtocolRuntime";
 import * as SessionPolicyRuntime from "../host-runtime/SessionPolicyRuntime";
@@ -526,7 +480,6 @@ import {
 import { makePersistedAtomStore } from "../local-store/persisted-atoms";
 import { requestsExplicitNewWindow } from "../main-runtime-startup-events";
 import { getLogger } from "../logging/logger";
-import { captureMainException } from "../observability/sentry-main";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronIpc, ElectronSyncIpc } from "../platform/electron/ElectronIpc";
@@ -552,6 +505,7 @@ import {
 import { live as windowShutdownLive } from "../window-runtime/WindowShutdown";
 import * as CodexApplicationLive from "./CodexApplicationLive";
 import * as CoreApplicationLive from "./CoreApplicationLive";
+import * as HostApplicationLive from "./HostApplicationLive";
 import * as WindowApplicationLive from "./WindowApplicationLive";
 
 const runtimeError = (operation: string, cause: unknown) =>
@@ -590,17 +544,19 @@ export const live: Layer.Layer<
     const callbacks = yield* ScopedCallbackRuntime;
     const terminals = yield* TerminalSessions;
     const fileSystem = yield* FileSystem.FileSystem;
-    const browserProfileHelper = yield* BrowserProfileHelperPlatform;
     const runtimeScope = yield* Scope.Scope;
-    const locale = yield* electron.locale;
     const userDataPath = yield* electron.userDataPath;
 
     return yield* Effect.interruptible(
       Effect.gen(function* () {
         const applicationKernelContext = yield* Layer.buildWithScope(
-          CodexApplicationLive.live.pipe(
+          HostApplicationLive.live.pipe(
             Layer.provideMerge(
-              CoreApplicationLive.live.pipe(Layer.provideMerge(WindowApplicationLive.live)),
+              CodexApplicationLive.live.pipe(
+                Layer.provideMerge(
+                  CoreApplicationLive.live.pipe(Layer.provideMerge(WindowApplicationLive.live)),
+                ),
+              ),
             ),
           ),
           runtimeScope,
@@ -671,38 +627,24 @@ export const live: Layer.Layer<
         const composerCatalogService = Context.get(applicationKernelContext, ComposerCatalog);
         const codexConnectionService = Context.get(applicationKernelContext, CodexConnection);
         const codexToolRuntimeService = Context.get(applicationKernelContext, CodexToolRuntime);
-        const electronNetContext = yield* Layer.buildWithScope(ElectronNet.live, runtimeScope);
-        const electronNet = Context.get(electronNetContext, ElectronNet.ElectronNet);
-        const chatGptContext = yield* Layer.buildWithScope(
-          chatGptDesktopLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(ElectronNet.ElectronNet, electronNet),
-              ),
-            ),
-          ),
-          runtimeScope,
+        const electronNet = Context.get(applicationKernelContext, ElectronNet.ElectronNet);
+        const chatGpt = Context.get(applicationKernelContext, ChatGptDesktop);
+        const browser = Context.get(applicationKernelContext, BrowserApplication);
+        const browserProfile = Context.get(applicationKernelContext, BrowserProfileRuntime);
+        const browserUse = Context.get(applicationKernelContext, BrowserUseRuntime);
+        const desktopToolRuntime = Context.get(applicationKernelContext, DesktopToolRuntime);
+        const gitWorker = Context.get(applicationKernelContext, GitWorkerRuntime);
+        const gitActions = Context.get(applicationKernelContext, GitActions);
+        const browserPresentation = Context.get(
+          applicationKernelContext,
+          BrowserPresentationRuntime,
         );
-        const chatGpt = Context.get(chatGptContext, ChatGptDesktop);
-        const browserSiteStatusContext = yield* Layer.buildWithScope(
-          browserSiteStatusRuntimeLive.pipe(Layer.provide(Layer.succeed(ChatGptDesktop, chatGpt))),
-          runtimeScope,
+        const managedWorktreeConfiguration = Context.get(
+          applicationKernelContext,
+          ManagedWorktreeConfiguration,
         );
-        const browserSiteStatus = Context.get(browserSiteStatusContext, BrowserSiteStatusRuntime);
-        const browserApplicationContext = yield* Layer.buildWithScope(
-          browserApplicationLive(userDataPath).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(FileSystem.FileSystem, fileSystem),
-                Layer.succeed(ElectronNet.ElectronNet, electronNet),
-                Layer.succeed(BrowserSiteStatusRuntime, browserSiteStatus),
-              ),
-            ),
-          ),
-          runtimeScope,
-        ).pipe(Effect.mapError((cause) => runtimeError("browser-application", cause)));
-        const browser = Context.get(browserApplicationContext, BrowserApplication);
+        const executionHosts = Context.get(applicationKernelContext, ExecutionHostRuntime);
+        const managedWorktrees = Context.get(applicationKernelContext, ManagedWorktreeRuntime);
         const appUpdateContext = yield* Layer.buildWithScope(
           appUpdateRuntimeLive.pipe(
             Layer.provide(
@@ -825,88 +767,11 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const computerUseContext = yield* Layer.buildWithScope(
-          computerUseRuntimeLive({
-            browserRuntime: codexRuntime.browserRuntime,
-            peerAuthorizationMode: codexRuntime.source === "bundled" ? "packaged" : "development",
-            platform: config.platform as NodeJS.Platform,
-            runtimeConfig: () => ({ locale }),
-            runtimeStateHome,
-          }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
-          runtimeScope,
-        );
-        const computerUse = Context.get(computerUseContext, ComputerUseRuntime);
-        const browserProfileContext = yield* Layer.buildWithScope(
-          browserProfileRuntimeLive({
-            environment: config.environment,
-            homeDirectory: config.homeDirectory,
-            isPackaged: config.isPackaged,
-            nodexHome: config.nodexHome,
-            projectRootPath: config.projectRootPath,
-            platform: config.platform,
-            resourcesPath: config.resourcesPath,
-            userDataPath,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(BrowserProfileHelperPlatform, browserProfileHelper),
-                Layer.succeed(BrowserApplication, browser),
-                Layer.succeed(ElectronApp, electron),
-                Layer.succeed(ElectronDesktop, desktop),
-                Layer.succeed(FileSystem.FileSystem, fileSystem),
-                Layer.succeed(ElectronNet.ElectronNet, electronNet),
-                Layer.succeed(ElectronSessionHost, sessionHost),
-                Layer.succeed(ElectronWindowHost, windowHost),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const browserProfile = Context.get(browserProfileContext, BrowserProfileRuntime);
-        const browserUseContext = yield* Layer.buildWithScope(
-          browserUseRuntimeLive({
-            appVersion: config.appVersion,
-            browserRuntime: codexRuntime.browserRuntime,
-            environment: config.environment,
-            isPackaged: config.isPackaged,
-            platform: config.platform as NodeJS.Platform,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(BrowserApplication, browser),
-                Layer.succeed(BrowserProfileRuntime, browserProfile),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
-              ),
-            ),
-          ),
-          runtimeScope,
-        ).pipe(Effect.mapError((cause) => runtimeError("browser-use-runtime", cause)));
-        const browserUse = Context.get(browserUseContext, BrowserUseRuntime);
-        const desktopToolContext = yield* Layer.buildWithScope(
-          desktopToolRuntimeLive({
-            browserRuntime: codexRuntime.browserRuntime,
-            runtimeStateHome,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(BrowserUseRuntime, browserUse),
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(ComputerUseRuntime, computerUse),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const desktopToolRuntime = Context.get(desktopToolContext, DesktopToolRuntime);
         const computerUseSettingsContext = yield* Layer.buildWithScope(
           computerUseSettingsRuntimeLive.pipe(
             Layer.provide(
               Layer.mergeAll(
-                Layer.succeed(
-                  DesktopToolRuntime,
-                  Context.get(desktopToolContext, DesktopToolRuntime),
-                ),
+                Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
                 Layer.succeed(
                   RemoteHostedPipRuntime,
                   Context.get(remoteHostedPipContext, RemoteHostedPipRuntime),
@@ -933,71 +798,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const localWorktreeWorkerContext = yield* Layer.buildWithScope(
-          localWorktreeWorkerRuntimeLive({
-            hostId: CODEX_APP_LOCAL_HOST_ID,
-            workerPath: `${__dirname}/worktree-worker.js`,
-            onInfrastructureError: (error) => {
-              applicationLogger.error("Worktree worker infrastructure failed", {
-                error: error.message,
-              });
-              captureMainException(error, { tags: { component: "worktree-worker" } });
-            },
-          }),
-          runtimeScope,
-        );
-        const localWorktreeWorker = Context.get(localWorktreeWorkerContext, WorktreeWorkerRuntime);
-        const gitWorkerContext = yield* Layer.buildWithScope(
-          gitWorkerRuntimeLive({
-            workerPath: `${__dirname}/git-worker.js`,
-            onInfrastructureError: (error, context) => {
-              applicationLogger.error("Git worker infrastructure failed", {
-                epoch: context.epoch,
-                error: error.message,
-                phase: context.phase,
-              });
-              captureMainException(error, {
-                tags: { component: "git-worker", phase: context.phase },
-                extra: { epoch: context.epoch },
-              });
-            },
-            onPerformanceOperation: (metric) =>
-              applicationLogger.debug("Git worker operation", metric),
-          }),
-          runtimeScope,
-        );
-        const gitWorker = Context.get(gitWorkerContext, GitWorkerRuntime);
-        const gitActionOperationContext = yield* Layer.buildWithScope(
-          gitActionOperationRuntimeLive,
-          runtimeScope,
-        );
-        const gitActionOperations = Context.get(
-          gitActionOperationContext,
-          GitActionOperationRuntime,
-        );
-        const codexGitMessageGenerationContext = yield* Layer.buildWithScope(
-          codexGitMessageGenerationLive.pipe(
-            Layer.provide(Layer.succeed(CodexGateway, codexGateway)),
-          ),
-          runtimeScope,
-        );
-        const codexGitMessageGeneration = Context.get(
-          codexGitMessageGenerationContext,
-          CodexGitMessageGeneration,
-        );
-        const gitActionsContext = yield* Layer.buildWithScope(
-          gitActionsLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexGitMessageGeneration, codexGitMessageGeneration),
-                Layer.succeed(GitActionOperationRuntime, gitActionOperations),
-                Layer.succeed(GitWorkerRuntime, gitWorker),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const gitActions = Context.get(gitActionsContext, GitActions);
         yield* Layer.buildWithScope(
           GitWorkerIpc.live.pipe(
             Layer.provide(
@@ -1009,23 +809,6 @@ export const live: Layer.Layer<
             ),
           ),
           runtimeScope,
-        );
-        const browserPresentationContext = yield* Layer.buildWithScope(
-          browserPresentationRuntimeLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(BrowserProfileRuntime, browserProfile),
-                Layer.succeed(BrowserApplication, browser),
-                Layer.succeed(BrowserSiteStatusRuntime, browserSiteStatus),
-                Layer.succeed(BrowserUseRuntime, browserUse),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const browserPresentation = Context.get(
-          browserPresentationContext,
-          BrowserPresentationRuntime,
         );
         const codexMediaContext = yield* Layer.buildWithScope(
           codexMediaLive.pipe(
@@ -1389,43 +1172,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const documentSync = Context.get(documentSessionContext, DesktopDocumentSessionRuntime);
-        const executionHostConfigurationContext = yield* Layer.buildWithScope(
-          executionHostConfigurationLive,
-          runtimeScope,
-        );
-        const executionHostConfiguration = Context.get(
-          executionHostConfigurationContext,
-          ExecutionHostConfiguration,
-        );
-        const managedWorktreeConfiguration = Context.get(
-          executionHostConfigurationContext,
-          ManagedWorktreeConfiguration,
-        );
-        const executionHostContext = yield* Layer.buildWithScope(
-          executionHostRuntimeLive({
-            runtimeStateHome,
-            nodexHome: config.nodexHome,
-            remoteWorktreeWorkerBundlePath: `${__dirname}/remote-worktree-worker.cjs`,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(ExecutionHostConfiguration, executionHostConfiguration),
-                Layer.succeed(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
-                Layer.succeed(WorktreeWorkerRuntime, localWorktreeWorker),
-              ),
-            ),
-          ),
-          runtimeScope,
-        ).pipe(Effect.mapError((cause) => runtimeError("construct-execution-hosts", cause)));
-        const executionHosts = Context.get(executionHostContext, ExecutionHostRuntime);
-        const managedWorktreeContext = yield* Layer.buildWithScope(
-          managedWorktreeRuntimeLive.pipe(
-            Layer.provide(Layer.succeed(ExecutionHostRuntime, executionHosts)),
-          ),
-          runtimeScope,
-        );
-        const managedWorktrees = Context.get(managedWorktreeContext, ManagedWorktreeRuntime);
         const nodexAgentResourceAccessContext = yield* Layer.buildWithScope(
           nodexAgentResourceAccessLive.pipe(
             Layer.provide(
