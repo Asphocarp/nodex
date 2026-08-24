@@ -51,6 +51,7 @@ import { CodexRendererConversationCoordinator } from "./CodexRendererConversatio
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { conversationIngressOverflow } from "./CodexConversationAggregate";
 import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
 import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
 import { NodexAgentProtocolTools } from "../nodex-agent-application/NodexAgentProtocolTools";
@@ -633,9 +634,14 @@ export const make: Effect.Effect<
                 deferThreadStart: false,
               }),
             ).pipe(
-              Effect.flatMap((buffered) =>
-                buffered ? Effect.succeed(ProtocolRequestBuffered) : handleRequest(request),
-              ),
+              Effect.flatMap((admission) => {
+                if (admission === "overflow") {
+                  return Effect.die(conversationIngressOverflow(threadId));
+                }
+                return admission === "buffered"
+                  ? Effect.succeed(ProtocolRequestBuffered)
+                  : handleRequest(request);
+              }),
             ),
           ),
         );
@@ -672,7 +678,7 @@ export const make: Effect.Effect<
         conversations.runExclusive(
           threadId,
           Effect.sync(() => {
-            const buffered = conversations.conversation(threadId).offerProtocolOccurrence({
+            return conversations.conversation(threadId).offerProtocolOccurrence({
               occurrence,
               bypassResume: false,
               startsThread: notification.method === "thread/started",
@@ -680,11 +686,15 @@ export const make: Effect.Effect<
                 notification.method === "thread/started" &&
                 threadStarts.defer(occurrence.hostId, threadId),
             });
-            return buffered;
           }).pipe(
-            Effect.flatMap((buffered) =>
-              buffered ? Effect.void : observeNotification(occurrence, notification),
-            ),
+            Effect.flatMap((admission) => {
+              if (admission === "overflow") {
+                return Effect.die(conversationIngressOverflow(threadId));
+              }
+              return admission === "buffered"
+                ? Effect.void
+                : observeNotification(occurrence, notification);
+            }),
           ),
         ),
       )

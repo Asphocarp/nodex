@@ -6,6 +6,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
+import type { CodexApplicationNotificationOccurrence } from "../codex-runtime/CodexApplicationRequestInbox";
 import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
@@ -99,6 +100,47 @@ it.effect("marks every loaded generation non-live after connection loss", () =>
       assert.isNull(aggregate.readStreamRole());
       assert.isFalse(aggregate.isStreaming());
     }
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("fails closed when resume buffering exceeds its occurrence budget", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const conversations = yield* build(scope);
+    const aggregate = conversations.conversation("thread-a");
+    assert.isTrue(aggregate.beginResumeEventBuffer());
+    const occurrence = (token: number): CodexApplicationNotificationOccurrence => ({
+      kind: "notification",
+      protocol: "generated",
+      hostId: "local",
+      generation: 1,
+      occurrenceId: `local:1:${token}`,
+      occurrenceToken: token,
+      method: "turn/started",
+      params: { threadId: "thread-a" },
+    });
+    for (let token = 1; token <= 1_024; token += 1) {
+      assert.strictEqual(
+        aggregate.offerProtocolOccurrence({
+          occurrence: occurrence(token),
+          bypassResume: false,
+          startsThread: false,
+          deferThreadStart: false,
+        }),
+        "buffered",
+      );
+    }
+    assert.strictEqual(
+      aggregate.offerProtocolOccurrence({
+        occurrence: occurrence(1_025),
+        bypassResume: false,
+        startsThread: false,
+        deferThreadStart: false,
+      }),
+      "overflow",
+    );
+    assert.strictEqual(aggregate.takeResumeEventBuffer()?.length, 1_024);
     yield* Scope.close(scope, Exit.void);
   }),
 );

@@ -457,7 +457,8 @@ export const make: Effect.Effect<
       return;
     }
     if (notification.method === "item/completed" || notification.method === "turn/completed") {
-      deltas.drainFrameText(threadId);
+      const observedAtMs = yield* Clock.currentTimeMillis;
+      deltas.drainFrameText(threadId, observedAtMs);
     }
 
     const observedAtMs = yield* Clock.currentTimeMillis;

@@ -56,7 +56,7 @@ it.effect("drains one Thread synchronously and keeps another Thread scheduled", 
     Effect.gen(function* () {
       runtime.enqueueFrameText(frame("a"));
       runtime.enqueueFrameText({ ...frame("b"), conversationId: "thread-2" });
-      runtime.drainFrameText("thread-1");
+      runtime.drainFrameText("thread-1", 1_000);
       assert.isFalse(conversations.conversation("thread-1").hasBufferedFrameTextDeltas());
       assert.isTrue(conversations.conversation("thread-2").hasBufferedFrameTextDeltas());
       yield* TestClock.adjust("20 millis");

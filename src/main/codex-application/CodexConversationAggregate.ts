@@ -12,6 +12,7 @@ import type {
   CodexQueuedFollowUp,
   CodexThreadStreamCheckpoint,
 } from "../../shared/types";
+import * as Data from "effect/Data";
 import {
   appendCodexCanonicalWorktreeInitItem,
   appendCodexCanonicalInProgressSyntheticItem,
@@ -153,7 +154,9 @@ interface MutableCodexConversationAggregate {
   bufferedFrameText: Map<string, CodexFrameTextDeltaUpdate>;
   bufferedCommandOutput: Map<string, CodexCommandOutputUpdate>;
   resumeEventBuffer: CodexApplicationProtocolOccurrence[] | null;
+  resumeEventBufferBytes: number;
   threadStartEventBuffer: CodexApplicationProtocolOccurrence[] | null;
+  threadStartEventBufferBytes: number;
   threadStartDeferred: boolean;
   queuedFollowUps: readonly CodexQueuedFollowUp[];
   queuedFollowUpGeneration: number;
@@ -163,6 +166,23 @@ export interface CodexQueuedFollowUpClaim {
   readonly generation: number;
   readonly followUp: CodexQueuedFollowUp;
 }
+
+export type CodexProtocolOccurrenceAdmission = "buffered" | "unbuffered" | "overflow";
+
+export class CodexConversationIngressOverflow extends Data.TaggedError(
+  "CodexConversationIngressOverflow",
+)<{
+  readonly threadId: string;
+  readonly maximumBytes: number;
+  readonly maximumOccurrences: number;
+}> {}
+
+export const conversationIngressOverflow = (threadId: string) =>
+  new CodexConversationIngressOverflow({
+    threadId,
+    maximumBytes: MAX_BUFFERED_PROTOCOL_BYTES,
+    maximumOccurrences: MAX_BUFFERED_PROTOCOL_OCCURRENCES,
+  });
 
 export interface CodexConversationAggregate {
   readonly threadId: string;
@@ -220,7 +240,7 @@ export interface CodexConversationAggregate {
     readonly bypassResume: boolean;
     readonly startsThread: boolean;
     readonly deferThreadStart: boolean;
-  }) => boolean;
+  }) => CodexProtocolOccurrenceAdmission;
   readonly takeResumeEventBuffer: () => readonly CodexApplicationProtocolOccurrence[] | null;
   readonly takeThreadStartEventBuffer: () => readonly CodexApplicationProtocolOccurrence[] | null;
   readonly discardResumeEventBuffer: () => readonly CodexApplicationProtocolOccurrence[];
@@ -419,6 +439,17 @@ const pendingManualCompaction: CodexCanonicalContextCompactionItem = {
   source: "manual",
 };
 
+const MAX_BUFFERED_PROTOCOL_OCCURRENCES = 1_024;
+const MAX_BUFFERED_PROTOCOL_BYTES = 16 * 1024 * 1024;
+
+const protocolOccurrenceBytes = (occurrence: CodexApplicationProtocolOccurrence): number => {
+  try {
+    return Buffer.byteLength(JSON.stringify(occurrence), "utf8");
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+};
+
 const initialAggregate = (generation: number): MutableCodexConversationAggregate => ({
   generation,
   canonicalState: null,
@@ -445,7 +476,9 @@ const initialAggregate = (generation: number): MutableCodexConversationAggregate
   bufferedFrameText: new Map(),
   bufferedCommandOutput: new Map(),
   resumeEventBuffer: null,
+  resumeEventBufferBytes: 0,
   threadStartEventBuffer: null,
+  threadStartEventBufferBytes: 0,
   threadStartDeferred: false,
   queuedFollowUps: [],
   queuedFollowUpGeneration: 0,
@@ -509,7 +542,9 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
     aggregate.bufferedFrameText.clear();
     aggregate.bufferedCommandOutput.clear();
     aggregate.resumeEventBuffer = null;
+    aggregate.resumeEventBufferBytes = 0;
     aggregate.threadStartEventBuffer = null;
+    aggregate.threadStartEventBufferBytes = 0;
     aggregate.threadStartDeferred = false;
     aggregate.queuedFollowUps = [];
     aggregate.queuedFollowUpGeneration += 1;
@@ -855,38 +890,59 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
       beginResumeEventBuffer: () => {
         if (aggregate.resumeEventBuffer !== null) return false;
         aggregate.resumeEventBuffer = [];
+        aggregate.resumeEventBufferBytes = 0;
         return true;
       },
       hasResumeEventBuffer: () => aggregate.resumeEventBuffer !== null,
       offerProtocolOccurrence: ({ occurrence, bypassResume, startsThread, deferThreadStart }) => {
+        const bytes = protocolOccurrenceBytes(occurrence);
         if (!bypassResume && aggregate.resumeEventBuffer !== null) {
+          if (
+            aggregate.resumeEventBuffer.length >= MAX_BUFFERED_PROTOCOL_OCCURRENCES ||
+            aggregate.resumeEventBufferBytes + bytes > MAX_BUFFERED_PROTOCOL_BYTES
+          ) {
+            return "overflow";
+          }
           aggregate.resumeEventBuffer.push(occurrence);
-          return true;
+          aggregate.resumeEventBufferBytes += bytes;
+          return "buffered";
         }
         if (aggregate.threadStartEventBuffer !== null) {
+          if (
+            aggregate.threadStartEventBuffer.length >= MAX_BUFFERED_PROTOCOL_OCCURRENCES ||
+            aggregate.threadStartEventBufferBytes + bytes > MAX_BUFFERED_PROTOCOL_BYTES
+          ) {
+            return "overflow";
+          }
           aggregate.threadStartEventBuffer.push(occurrence);
-          return true;
+          aggregate.threadStartEventBufferBytes += bytes;
+          return "buffered";
         }
-        if (!startsThread || !deferThreadStart) return false;
+        if (!startsThread || !deferThreadStart) return "unbuffered";
+        if (bytes > MAX_BUFFERED_PROTOCOL_BYTES) return "overflow";
         aggregate.threadStartDeferred = true;
         aggregate.threadStartEventBuffer = [occurrence];
-        return true;
+        aggregate.threadStartEventBufferBytes = bytes;
+        return "buffered";
       },
       takeResumeEventBuffer: () => {
         const buffered = aggregate.resumeEventBuffer;
         aggregate.resumeEventBuffer = null;
+        aggregate.resumeEventBufferBytes = 0;
         return buffered;
       },
       takeThreadStartEventBuffer: () => {
         if (!aggregate.threadStartDeferred) return null;
         const buffered = aggregate.threadStartEventBuffer;
         aggregate.threadStartEventBuffer = null;
+        aggregate.threadStartEventBufferBytes = 0;
         aggregate.threadStartDeferred = false;
         return buffered;
       },
       discardResumeEventBuffer: () => {
         const buffered = aggregate.resumeEventBuffer ?? [];
         aggregate.resumeEventBuffer = null;
+        aggregate.resumeEventBufferBytes = 0;
         return buffered;
       },
       clearBufferedEvents: () => {
@@ -895,7 +951,9 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           ...(aggregate.threadStartEventBuffer ?? []),
         ];
         aggregate.resumeEventBuffer = null;
+        aggregate.resumeEventBufferBytes = 0;
         aggregate.threadStartEventBuffer = null;
+        aggregate.threadStartEventBufferBytes = 0;
         aggregate.threadStartDeferred = false;
         return buffered;
       },
