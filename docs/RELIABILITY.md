@@ -232,6 +232,12 @@ interrupts its buffers and command fibers; recovery seeds durable Core facts, pe
 full-fidelity app-server read, and publishes one complete replacement generation. Sidebar summaries
 and persisted renderer artifacts are never treated as a second transcript.
 
+Endpoint loss also invalidates every loaded renderer stream role immediately: Main marks the exact
+Conversation Entities `needs_resume` and sends targeted transport resets before reconnect. A visible
+surface therefore either adopts the replacement generation from canonical history or reaches its
+terminal attachment failure state; it cannot remain attached to a dead generation behind a truthful
+global reconnect indicator.
+
 The canonical protocol ingress is a supervised application actor with explicit health. Physical
 reader/writer/decode failure, application occurrence or settlement overflow, deferred Thread-start
 release overflow, and canonical consequence failure all terminate the exact endpoint generation;

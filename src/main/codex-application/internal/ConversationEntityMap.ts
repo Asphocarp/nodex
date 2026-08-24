@@ -24,7 +24,7 @@ export class ConversationEntityMap extends Context.Service<
       operation: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E, R>;
     /** Marks every loaded Thread non-live after the app-server connection is lost. */
-    readonly markAllNeedsResume: () => void;
+    readonly markAllNeedsResume: () => readonly string[];
     /** Closes the exact live generation and interrupts its active or queued commands. */
     readonly retire: (threadId: string) => Effect.Effect<void>;
   }

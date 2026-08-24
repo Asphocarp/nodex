@@ -8,6 +8,7 @@ import { CodexConnection } from "./CodexConnection";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
 import { CodexProtocolNotificationEffects } from "./CodexProtocolNotificationEffects";
+import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import { ConversationEntityMap } from "./internal/ConversationEntityMap";
@@ -29,6 +30,7 @@ export const make: Effect.Effect<
   | CodexConnection
   | CodexPendingServerRequestRuntime
   | CodexProtocolNotificationEffects
+  | CodexRendererConversationCoordinator
   | CodexSidebarSyncRuntime
   | CodexUserInputAutoResolution
   | ConversationEntityMap
@@ -38,10 +40,14 @@ export const make: Effect.Effect<
   const events = yield* CodexApplicationEventHub;
   const pending = yield* CodexPendingServerRequestRuntime;
   const protocol = yield* CodexProtocolNotificationEffects;
+  const renderer = yield* CodexRendererConversationCoordinator;
   const sidebar = yield* CodexSidebarSyncRuntime;
   const autoResolution = yield* CodexUserInputAutoResolution;
   const conversations = yield* ConversationEntityMap;
-  let previousStatus: CodexConnectionState["status"] = "disconnected";
+  // The endpoint may already be ready before this dependent Layer subscribes. Seed the transition
+  // fence from the current stable-host state so its first observed disconnect cannot be mistaken
+  // for startup and leave loaded renderer roles attached to a dead generation.
+  let previousStatus: CodexConnectionState["status"] = (yield* connectionState.read).status;
 
   const settleDisconnectedRequests = Effect.fn(
     "CodexConnectionLifecycle.settleDisconnectedRequests",
@@ -99,8 +105,13 @@ export const make: Effect.Effect<
       },
     });
 
+    if (wasConnected && connection.status !== "connected") {
+      const affectedThreadIds = conversations.markAllNeedsResume();
+      renderer.resetTransport(affectedThreadIds);
+      return;
+    }
+
     if (connection.status !== "connected" || connection.retries <= 0 || wasConnected) return;
-    conversations.markAllNeedsResume();
     yield* sidebar
       .sync({ policy: "stale", reason: "app-server-reconnect" })
       .pipe(

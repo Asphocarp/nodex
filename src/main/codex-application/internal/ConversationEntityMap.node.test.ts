@@ -7,10 +7,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import type { CodexApplicationNotificationOccurrence } from "../../codex-runtime/CodexApplicationRequestInbox";
-import {
-  ConversationEntityMap,
-  live as conversationEntityMapLive,
-} from "./ConversationEntityMap";
+import { ConversationEntityMap, live as conversationEntityMapLive } from "./ConversationEntityMap";
 
 const build = Effect.fn("ConversationEntityMapTest.build")(function* (scope: Scope.Scope) {
   const context = yield* Layer.buildWithScope(conversationEntityMapLive, scope);
@@ -93,7 +90,7 @@ it.effect("marks every loaded generation non-live after connection loss", () =>
     second.setStreamRole("follower");
     second.setStreaming(true);
 
-    conversations.markAllNeedsResume();
+    assert.deepEqual(conversations.markAllNeedsResume(), ["thread-a", "thread-b"]);
 
     for (const aggregate of [first, second]) {
       assert.strictEqual(aggregate.readResumeState(), "needs_resume");

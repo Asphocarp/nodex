@@ -429,7 +429,7 @@ export interface ConversationEntityStateRegistry {
   /** Releases every generation at the process Scope boundary. */
   readonly releaseAll: () => void;
   /** Marks every loaded generation non-live after the app-server connection is lost. */
-  readonly markAllNeedsResume: () => void;
+  readonly markAllNeedsResume: () => readonly string[];
 }
 
 const pendingManualCompaction: CodexCanonicalContextCompactionItem = {
@@ -484,9 +484,7 @@ const initialAggregate = (generation: number): MutableConversationEntityState =>
   queuedFollowUpGeneration: 0,
 });
 
-const snapshot = (
-  aggregate: MutableConversationEntityState,
-): ConversationEntitySnapshot => ({
+const snapshot = (aggregate: MutableConversationEntityState): ConversationEntitySnapshot => ({
   generation: aggregate.generation,
   canonicalState: aggregate.canonicalState,
   preHydrationServerRequests: [...aggregate.preHydrationServerRequests],
@@ -1654,11 +1652,17 @@ export function makeConversationEntityStateRegistry(): ConversationEntityStateRe
       capabilities.clear();
     },
     markAllNeedsResume: () => {
+      const affectedThreadIds = [...capabilities.keys()];
       for (const conversation of capabilities.values()) {
+        // Renderer replicas are generation-bound recovery checkpoints. Renderers retain their
+        // visible document, but Main must seed the next accepted checkpoint from fresh canonical
+        // hydration instead of pairing a stale checkpoint with replacement-generation history.
+        conversation.clearReplica();
         conversation.setResumeState("needs_resume");
         conversation.setStreamRole(null);
         conversation.setStreaming(false);
       }
+      return affectedThreadIds;
     },
   };
 }

@@ -83,7 +83,7 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
         acceptedConversation: state?.acceptedReplica?.conversation ?? null,
         checkpoint: state?.acceptedReplica?.checkpoint ?? null,
         ownerClientId: registry.getOwnerClientId(id),
-        resumeState: state?.acceptedReplica?.conversation.resumeState ?? null,
+        resumeState: state?.resumeState ?? null,
         revision: state?.revision ?? 0,
       };
     },
@@ -240,5 +240,36 @@ it.effect("interrupts physical resume work when the owning Scope closes", () =>
     yield* Deferred.await(started);
     yield* Scope.close(scope, Exit.void);
     assert.strictEqual((yield* Fiber.await(fiber))._tag, "Failure");
+  }),
+);
+
+it.effect("seeds renderer adoption from replacement-generation hydration", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const stale = { ...conversation(), threadPreview: "stale" };
+    const fresh = { ...conversation(), threadPreview: "fresh" };
+    let installFreshSnapshot = () => {};
+    const harness = yield* build(scope, ({ fidelity }) => {
+      if (fidelity === "live") installFreshSnapshot();
+      return Effect.succeed(entry(fidelity === "live" ? fresh : stale, fidelity));
+    });
+    const aggregate = harness.conversations.entity(threadId);
+    installFreshSnapshot = () => aggregate.installSnapshot(fresh);
+    aggregate.installSnapshot(stale);
+    aggregate.acceptReplica({ conversation: stale, revision: 4, ownerEpoch: 1 });
+
+    const initial = yield* harness.runtime.resumeForRenderer(threadId, "owner-a");
+    assert.strictEqual(initial?.role, "owner");
+    assert.strictEqual(initial?.conversation.threadPreview, "stale");
+
+    harness.conversations.markAllNeedsResume();
+    const replacement = yield* harness.runtime.resumeForRenderer(threadId, "owner-a");
+    assert.strictEqual(replacement?.role, "owner");
+    assert.strictEqual(replacement?.conversation.threadPreview, "fresh");
+    assert.strictEqual(
+      harness.conversations.current(threadId)?.read().acceptedReplica?.conversation.threadPreview,
+      "fresh",
+    );
+    yield* Scope.close(scope, Exit.void);
   }),
 );

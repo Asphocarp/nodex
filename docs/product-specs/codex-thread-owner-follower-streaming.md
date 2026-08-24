@@ -109,6 +109,8 @@ Targeted delivery is fail-closed. `threadStreamStateChanged` and follower contro
 
 Owner disposal sends a targeted transport reset to ready followers, preserves main's accepted document/revision, and lets each follower reannounce or enter `needs_resume`. Accidental disposal and IPC reset do not immediately evict the accepted cache; deliberate inactive cleanup may evict it only after there are no followers/pending reconnects and the normal retention gate passes. App-server connection status is not renderer-client status and must not be used as a substitute for this control plane.
 
+App-server endpoint loss is a separate invalidation source. Main marks every loaded conversation `needs_resume` and targets a transport reset to each affected owner/follower surface before replacement. The visible attachment lifecycle then performs bounded resume/adoption or exposes its terminal failure with Retry; it never keeps a dead-generation role or an indefinite restore loader while the host reconnects.
+
 ## Prose Streaming
 
 Assistant, plan, and reasoning text stream as live owner patches, not as completed-message animation.

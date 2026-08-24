@@ -6,7 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { CodexConversationSnapshot } from "../../shared/types";
-import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
+import { CodexApplicationEventHub, type CodexApplicationEvent } from "./CodexApplicationEventHub";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
 import { make as makeCoordinator } from "./CodexRendererConversationCoordinator";
@@ -18,13 +18,13 @@ import { CodexRendererOwnerRetention } from "./CodexRendererOwnerRetention";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import {
   ConversationEntityMap,
-  live as conversationRuntimeMapLive,
+  live as conversationEntityMapLive,
 } from "./internal/ConversationEntityMap";
 
 it.effect("adopts a canonical snapshot as the first accepted renderer replica", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
-    const conversationContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversationContext = yield* Layer.buildWithScope(conversationEntityMapLive, scope);
     const conversations = Context.get(conversationContext, ConversationEntityMap);
     const registry = yield* makeRendererRegistry().pipe(Effect.provideService(Scope.Scope, scope));
     const snapshot = {
@@ -35,10 +35,14 @@ it.effect("adopts a canonical snapshot as the first accepted renderer replica", 
       queuedFollowUps: [],
     } as unknown as CodexConversationSnapshot;
     conversations.entity(snapshot.threadId).installSnapshot(snapshot);
+    const published: CodexApplicationEvent[] = [];
     const coordinator = yield* makeCoordinator.pipe(
       Effect.provideService(
         CodexApplicationEventHub,
-        CodexApplicationEventHub.of({ events: Stream.empty, publish: () => undefined }),
+        CodexApplicationEventHub.of({
+          events: Stream.empty,
+          publish: (event) => published.push(event),
+        }),
       ),
       Effect.provideService(
         CodexOwnerNotificationDrainRuntime,
@@ -72,6 +76,18 @@ it.effect("adopts a canonical snapshot as the first accepted renderer replica", 
       coordinator.readRendererState(snapshot.threadId).acceptedConversation,
       snapshot,
     );
+    coordinator.resetTransport([snapshot.threadId, snapshot.threadId]);
+    assert.deepEqual(published.at(-1), {
+      kind: "rendererThreadStreamControlRelay",
+      value: {
+        targetClientIds: ["renderer-fresh"],
+        message: {
+          type: "threadStreamTransportReset",
+          hostId: "default",
+          conversationIds: [snapshot.threadId],
+        },
+      },
+    });
     yield* Scope.close(scope, Exit.void);
   }),
 );

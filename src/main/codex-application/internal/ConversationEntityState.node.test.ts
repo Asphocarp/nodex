@@ -100,3 +100,22 @@ it("projects semantic canonical mutations into both the snapshot and dormant rep
   assert.strictEqual(aggregate.readSnapshot()?.turns.length, 1);
   assert.strictEqual(aggregate.read().acceptedReplica?.conversation.turns.length, 1);
 });
+
+it("invalidates generation-bound renderer checkpoints when the endpoint is lost", () => {
+  const registry = makeConversationEntityStateRegistry();
+  const aggregate = registry.acquire(threadId);
+  aggregate.installSnapshot(snapshot());
+  aggregate.acceptReplica({ conversation: snapshot(), revision: 4, ownerEpoch: 2 });
+  aggregate.setStreamRole("owner");
+  aggregate.setStreaming(true);
+
+  assert.deepEqual(registry.markAllNeedsResume(), [threadId]);
+  const state = aggregate.read();
+  assert.strictEqual(state.resumeState, "needs_resume");
+  assert.strictEqual(state.streamRole, null);
+  assert.isFalse(state.isStreaming);
+  assert.strictEqual(state.acceptedReplica, null);
+  assert.strictEqual(state.revision, 0);
+  assert.strictEqual(state.checkpoint, null);
+  assert.strictEqual(aggregate.readSnapshot()?.resumeState, "needs_resume");
+});

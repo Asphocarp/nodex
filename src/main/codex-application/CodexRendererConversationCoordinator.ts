@@ -113,6 +113,8 @@ export interface CodexRendererConversationCoordinatorService {
   readonly forwardServerRequest: (request: CodexThreadOwnerServerRequest) => boolean;
   readonly clearRequestDelivery: (conversationId: string, requestId: RequestId) => void;
   readonly reconcileOwnership: (conversationId: string) => void;
+  /** Invalidates renderer stream roles after the physical app-server generation is lost. */
+  readonly resetTransport: (conversationIds: readonly string[]) => void;
   readonly awaitOwnerNotificationDrain: (conversationId: string) => Effect.Effect<void>;
   readonly clearConversation: (conversationId: string) => Effect.Effect<void>;
 }
@@ -310,7 +312,7 @@ export const make: Effect.Effect<
         acceptedConversation: state?.acceptedReplica?.conversation ?? null,
         checkpoint: state?.acceptedReplica?.checkpoint ?? null,
         ownerClientId: registry.getOwnerClientId(conversationId),
-        resumeState: state?.acceptedReplica?.conversation.resumeState ?? null,
+        resumeState: state?.resumeState ?? null,
         revision: state?.revision ?? 0,
       };
     },
@@ -608,6 +610,30 @@ export const make: Effect.Effect<
       registry.clearRequestDelivery(conversationId, requestId),
     reconcileOwnership: (conversationId) =>
       runReconciliation(conversationId, retention.reconcile(conversationId)),
+    resetTransport: (conversationIds) => {
+      const normalizedConversationIds = [...new Set(conversationIds.filter(Boolean))];
+      if (normalizedConversationIds.length === 0) return;
+      const targetClientIds = new Set<string>();
+      for (const conversationId of normalizedConversationIds) {
+        const ownerClientId = registry.getOwnerClientId(conversationId);
+        if (ownerClientId) targetClientIds.add(ownerClientId);
+        for (const followerClientId of registry.getFollowerClientIds(conversationId) ?? []) {
+          targetClientIds.add(followerClientId);
+        }
+      }
+      if (targetClientIds.size === 0) return;
+      events.publish({
+        kind: "rendererThreadStreamControlRelay",
+        value: {
+          targetClientIds: [...targetClientIds],
+          message: {
+            type: "threadStreamTransportReset",
+            hostId: DEFAULT_CODEX_HOST_ID,
+            conversationIds: normalizedConversationIds,
+          },
+        },
+      });
+    },
     awaitOwnerNotificationDrain: (conversationId) =>
       registry.hasOwner(conversationId)
         ? ownerNotificationDrain.awaitCurrent(conversationId)
