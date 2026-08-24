@@ -39,6 +39,7 @@ const completed = (
   generation: 1,
   hostId,
   value: {
+    protocol: "generated",
     method: "turn/completed",
     params: { threadId, turn: turn(turnId, status) },
   },

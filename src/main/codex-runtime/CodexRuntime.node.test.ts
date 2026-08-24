@@ -373,6 +373,61 @@ it.effect("routes typed requests explicitly across local and thread execution ho
   }),
 );
 
+it.effect(
+  "keeps one stable host state cell and subscription across physical config generations",
+  () =>
+    Effect.gen(function* () {
+      const first = fakeEndpoint({ hostId: "local", accountEmail: "first@example.com" });
+      const replacement = fakeEndpoint({
+        hostId: "local",
+        accountEmail: "replacement@example.com",
+      });
+      const hub = eventHubLive;
+      const endpointMap = endpointMapLive(first.config).pipe(
+        Layer.provideMerge(Layer.mergeAll(hub, applicationRequestInboxLive, fakeTransport)),
+      );
+      const resolver = Layer.succeed(
+        CodexThreadHostResolver,
+        CodexThreadHostResolver.of({ resolve: () => Effect.succeed("local") }),
+      );
+      const scope = yield* Scope.make();
+      const context = yield* Layer.buildWithScope(
+        gatewayLive({ requestTimeout: "5 seconds" }).pipe(
+          Layer.provideMerge(Layer.mergeAll(endpointMap, hub, resolver)),
+        ),
+        scope,
+      );
+      const gateway = Context.get(context, CodexGateway);
+      const endpoints = Context.get(context, CodexEndpointMap);
+      yield* gateway.awaitReady("local");
+      const before = yield* endpoints.endpoint("local");
+      const replacementReady = yield* gateway.connectionChanges("local").pipe(
+        Stream.filter((connection) => connection.kind === "ready" && connection.generation === 2),
+        Stream.runHead,
+        Effect.forkIn(scope, { startImmediately: true }),
+      );
+
+      yield* gateway.reconcileHost(replacement.config);
+      const observed = yield* Fiber.join(replacementReady);
+      assert.strictEqual(observed._tag, "Some");
+      const after = yield* endpoints.endpoint("local");
+      assert.strictEqual(after, before);
+      assert.strictEqual(after.state, before.state);
+      assert.deepEqual(first.releases, [1]);
+      assert.deepEqual(
+        replacement.attempts.map(({ generation }) => generation),
+        [2],
+      );
+
+      const account = yield* gateway.requestLocal("account/read", {});
+      assert.strictEqual(account.account?.type, "chatgpt");
+      if (account.account?.type === "chatgpt") {
+        assert.strictEqual(account.account.email, "replacement@example.com");
+      }
+      yield* Scope.close(scope, Exit.void);
+    }),
+);
+
 it.effect("applies the only ordinary request deadline in the gateway", () =>
   Effect.gen(function* () {
     const local = fakeEndpoint({ hostId: "local", respond: false });

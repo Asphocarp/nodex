@@ -210,6 +210,7 @@ it.effect("replays thread/started only after its local materialization commits",
       yield* inbox.publishNotification({
         hostId: "local",
         generation: 8,
+        protocol: "generated",
         method: "thread/started",
         params: {
           thread: {
@@ -253,6 +254,7 @@ it.effect(
 
         yield* generation.admit({
           requestId: "blocked",
+          protocol: "generated",
           method: "item/tool/requestUserInput",
           params: userInputParams("thread-a"),
         });
@@ -275,6 +277,7 @@ it.effect("settles Nodex Agent calls directly from the protocol command lane", (
       const settled = yield* generation.settlements.pipe(Stream.runHead, Effect.forkChild);
       yield* generation.admit({
         requestId: "nodex-call",
+        protocol: "generated",
         method: "item/tool/call",
         params: {
           threadId: "thread-a",
@@ -322,6 +325,7 @@ it.effect("lets another Thread respond while the first Thread command lane is oc
       yield* Deferred.await(laneEntered);
       yield* generation.admit({
         requestId: "blocked",
+        protocol: "generated",
         method: "item/tool/requestUserInput",
         params: userInputParams("thread-a"),
       });
@@ -332,6 +336,7 @@ it.effect("lets another Thread respond while the first Thread command lane is oc
       );
       yield* generation.admit({
         requestId: "fast",
+        protocol: "generated",
         method: "item/tool/call",
         params: directCodexAppParams("thread-b"),
       });
@@ -376,6 +381,7 @@ it.effect("keeps one-shot requests outside a blocked Thread command lane", () =>
       const settled = yield* generation.settlements.pipe(Stream.runHead, Effect.forkChild);
       yield* generation.admit({
         requestId: "time",
+        protocol: "generated",
         method: "currentTime/read",
         params: { threadId: "thread-a" },
       });
@@ -402,12 +408,14 @@ it.effect("commits a request before the following resolution notification in the
       const settled = yield* generation.settlements.pipe(Stream.runHead, Effect.forkChild);
       const request = yield* generation.admit({
         requestId: 73,
+        protocol: "generated",
         method: "item/tool/requestUserInput",
         params: userInputParams("thread-a"),
       });
       yield* inbox.publishNotification({
         hostId: "local",
         generation: 3,
+        protocol: "generated",
         method: "serverRequest/resolved",
         params: { threadId: "thread-a", requestId: 73 },
       });

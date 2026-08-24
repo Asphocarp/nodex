@@ -87,6 +87,22 @@ const threadIdForRequest = (request: CodexServerRequest): string | null => {
 const parseRequest = (
   occurrence: CodexApplicationRequestOccurrence,
 ): Effect.Effect<CodexServerRequest, CodexAppServerRequestError> => {
+  if (occurrence.protocol === "generated") {
+    return Effect.succeed(
+      Object.assign(
+        {
+          id: occurrence.requestId,
+          method: occurrence.method,
+          params: occurrence.params,
+        } as CodexServerRequest,
+        {
+          [CODEX_SERVER_REQUEST_OCCURRENCE_ID]: occurrence.occurrenceId,
+          [CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN]: occurrence.occurrenceToken,
+        },
+      ),
+    );
+  }
+
   const parsed = parseCodexAppServerMessage({
     id: occurrence.requestId,
     method: occurrence.method,
@@ -108,6 +124,9 @@ const parseRequest = (
 const parseNotification = (
   occurrence: CodexApplicationNotificationOccurrence,
 ): CodexServerNotification | null => {
+  if (occurrence.protocol === "generated") {
+    return { method: occurrence.method, params: occurrence.params } as CodexServerNotification;
+  }
   const parsed = parseCodexAppServerMessage({
     method: occurrence.method,
     params: occurrence.params,

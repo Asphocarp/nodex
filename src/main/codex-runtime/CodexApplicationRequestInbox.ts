@@ -1,5 +1,8 @@
 import type { RequestId } from "@nodex/codex-app-server-protocol";
-import type { ServerNotificationMethod } from "@nodex/effect-codex-app-server/rpc";
+import type {
+  CodexAppServerNotification,
+  CodexAppServerRequest,
+} from "@nodex/effect-codex-app-server/client";
 import type { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import { randomUUID } from "node:crypto";
 import * as Cause from "effect/Cause";
@@ -15,6 +18,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 export interface CodexApplicationRequestOccurrence {
   readonly kind: "request";
+  readonly protocol: CodexAppServerRequest["protocol"];
   readonly hostId: string;
   readonly generation: number;
   readonly occurrenceId: string;
@@ -26,11 +30,12 @@ export interface CodexApplicationRequestOccurrence {
 
 export interface CodexApplicationNotificationOccurrence {
   readonly kind: "notification";
+  readonly protocol: CodexAppServerNotification["protocol"];
   readonly hostId: string;
   readonly generation: number;
   readonly occurrenceId: string;
   readonly occurrenceToken: number;
-  readonly method: ServerNotificationMethod;
+  readonly method: string;
   readonly params: unknown;
 }
 
@@ -66,6 +71,7 @@ export interface CodexApplicationRequestGeneration {
   readonly generation: number;
   readonly admit: (input: {
     readonly requestId: RequestId;
+    readonly protocol: CodexAppServerRequest["protocol"];
     readonly method: string;
     readonly params: unknown;
   }) => Effect.Effect<
@@ -82,7 +88,8 @@ export interface CodexApplicationRequestInboxService {
   readonly publishNotification: (input: {
     readonly hostId: string;
     readonly generation: number;
-    readonly method: ServerNotificationMethod;
+    readonly protocol: CodexAppServerNotification["protocol"];
+    readonly method: string;
     readonly params: unknown;
   }) => Effect.Effect<void>;
   readonly openGeneration: (
@@ -234,6 +241,7 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
             const occurrenceToken = current.nextOccurrenceToken;
             const occurrence: CodexApplicationRequestOccurrence = {
               kind: "request",
+              protocol: input.protocol,
               hostId,
               generation,
               occurrenceId: `${hostId}:${generation}:${inboxId}:${occurrenceToken}`,

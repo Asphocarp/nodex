@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
-import type { ServerNotificationMethod } from "@nodex/effect-codex-app-server/rpc";
+import type { CodexAppServerNotification } from "@nodex/effect-codex-app-server/client";
 import type { CodexRuntimeError } from "./CodexRuntimeError";
 
 export type CodexEndpointConnection =
@@ -30,10 +30,7 @@ export type CodexEndpointEvent =
       readonly kind: "notification";
       readonly hostId: string;
       readonly generation: number;
-      readonly value: {
-        readonly method: ServerNotificationMethod;
-        readonly params: unknown;
-      };
+      readonly value: CodexAppServerNotification;
     }
   | { readonly kind: "connection"; readonly value: CodexEndpointConnection };
 

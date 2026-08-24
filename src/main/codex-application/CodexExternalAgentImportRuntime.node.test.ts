@@ -19,7 +19,7 @@ const notification = (
   kind: "notification",
   generation: 1,
   hostId,
-  value: { method, params: { importId, itemTypeResults: [] } },
+  value: { protocol: "generated", method, params: { importId, itemTypeResults: [] } },
 });
 
 const makeGateway = (

@@ -487,4 +487,41 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
       assert.equal("cause" in error, false);
     }),
   );
+
+  it.effect("fails pending and future commands when the physical protocol terminates", () =>
+    Effect.gen(function* () {
+      const { stdio, input, output } = yield* makeInMemoryStdio();
+      const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({ stdio });
+      const pending = yield* transport
+        .request("thread/read", { threadId: "thread-1" })
+        .pipe(Effect.exit, Effect.forkScoped);
+      yield* Queue.take(output);
+
+      yield* Queue.end(input);
+      const pendingExit = yield* Fiber.join(pending);
+      assert.isTrue(pendingExit._tag === "Failure");
+      const terminationError = yield* transport.termination.pipe(Effect.flip);
+      assert.instanceOf(terminationError, CodexError.CodexAppServerInputStreamEndedError);
+
+      const laterError = yield* transport.notify("initialized").pipe(Effect.flip);
+      assert.strictEqual(laterError, terminationError);
+    }),
+  );
+
+  it.effect("terminates instead of blocking when raw incoming capacity is exhausted", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
+        stdio,
+        incomingCapacity: 1,
+      });
+
+      yield* Queue.offer(input, encodeJsonl({ method: "x/first", params: {} }));
+      yield* Queue.offer(input, encodeJsonl({ method: "x/second", params: {} }));
+
+      const error = yield* transport.termination.pipe(Effect.flip);
+      assert.instanceOf(error, CodexError.CodexAppServerTransportError);
+      assert.equal(error.operation, "incoming-capacity");
+    }),
+  );
 });
