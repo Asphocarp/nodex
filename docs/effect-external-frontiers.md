@@ -23,15 +23,15 @@ Rust Core remain Effect-free.
 
 ## Permitted frontiers
 
-| Frontier | External shape | Canonical Effect owner |
-| --- | --- | --- |
-| Electron bootstrap, app lifecycle, window/session, dialog, shell, and IPC | pre-ready callbacks, synchronous security decisions, Electron Promises | `MainApp`, Window/Profile capabilities, and scoped IPC Layers |
-| Native Core UDS and generated Module clients | HTTP/SSE Promises, callback streams, `AbortSignal` | `CoreTransport`, `CoreAuthority`, and the scoped live-delivery Modules |
-| Codex app-server and execution hosts | child stdio, JSON-RPC callbacks, SSH/git/process Promises | the companion session package, `CodexEndpoint`, and `ExecutionHostRuntime` |
-| Terminal and process telemetry | PTY callbacks, signals, native process handles | `TerminalRuntimeMap` and the Terminal platform Adapter |
-| Browser, CDP, Browser Use, Computer Use, and MCP App | Electron guest callbacks, debugger/native-pipe Promises, synchronous attachment admission | Browser Profile/Sidebar/session capabilities and their scoped platform Adapters |
-| Git/worktree workers and standalone process entries | worker messages, child stdio, process signals | worker request runtimes and their designated `NodeRuntime.runMain` entries |
-| Filesystem, logging, Sentry, updater, credentials, and native helpers | Node/Electron callbacks or Promises and synchronous native calls | the narrow filesystem, observability, updater, credential, or helper capability |
+| Frontier                                                                  | External shape                                                                            | Canonical Effect owner                                                          |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Electron bootstrap, app lifecycle, window/session, dialog, shell, and IPC | pre-ready callbacks, synchronous security decisions, Electron Promises                    | `MainApp`, Window/Profile capabilities, and scoped IPC Layers                   |
+| Native Core UDS and generated Module clients                              | HTTP/SSE Promises, callback streams, `AbortSignal`                                        | `CoreTransport`, `CoreAuthority`, and the scoped live-delivery Modules          |
+| Codex app-server and execution hosts                                      | child stdio, JSON-RPC callbacks, SSH/git/process Promises                                 | the companion session package, `CodexEndpoint`, and `ExecutionHostRuntime`      |
+| Terminal and process telemetry                                            | PTY callbacks, signals, native process handles                                            | `TerminalRuntimeMap` and the Terminal platform Adapter                          |
+| Browser, CDP, Browser Use, Computer Use, and MCP App                      | Electron guest callbacks, debugger/native-pipe Promises, synchronous attachment admission | Browser Profile/Sidebar/session capabilities and their scoped platform Adapters |
+| Git/worktree workers and standalone process entries                       | worker messages, child stdio, process signals                                             | worker request runtimes and their designated `NodeRuntime.runMain` entries      |
+| Filesystem, logging, Sentry, updater, credentials, and native helpers     | Node/Electron callbacks or Promises and synchronous native calls                          | the narrow filesystem, observability, updater, credential, or helper capability |
 
 ## Enforcement
 
