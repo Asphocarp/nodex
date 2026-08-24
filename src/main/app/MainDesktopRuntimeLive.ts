@@ -79,7 +79,10 @@ import {
   AgentProviderRuntime,
   live as agentProviderRuntimeLive,
 } from "../codex-application/AgentProviderRuntime";
-import { make as makeAgentImportRuntime } from "../codex-application/AgentImportRuntime";
+import {
+  AgentImportRuntime,
+  make as makeAgentImportRuntime,
+} from "../codex-application/AgentImportRuntime";
 import {
   NodexAgentAuthorizationRuntime,
   live as nodexAgentAuthorizationRuntimeLive,
@@ -129,7 +132,10 @@ import {
   CodexTurnCommands,
   make as makeCodexTurnCommands,
 } from "../codex-application/CodexTurnCommands";
-import { make as makeCodexSideChatCommands } from "../codex-application/CodexSideChatCommands";
+import {
+  CodexSideChatCommands,
+  make as makeCodexSideChatCommands,
+} from "../codex-application/CodexSideChatCommands";
 import {
   CodexSessionThreadLaunch,
   make as makeCodexSessionThreadLaunch,
@@ -162,7 +168,10 @@ import {
   CodexRendererConversationCoordinator,
   make as makeCodexRendererConversationCoordinator,
 } from "../codex-application/CodexRendererConversationCoordinator";
-import { make as makeCodexRendererOwnerCommands } from "../codex-application/CodexRendererOwnerCommands";
+import {
+  CodexRendererOwnerCommands,
+  make as makeCodexRendererOwnerCommands,
+} from "../codex-application/CodexRendererOwnerCommands";
 import {
   CodexSidebarSyncRuntime,
   make as makeCodexSidebarSyncRuntime,
@@ -186,6 +195,7 @@ import {
   make as makeCodexHeartbeatTurnCompletion,
 } from "../codex-application/CodexHeartbeatTurnCompletion";
 import {
+  CodexStructuredThreadTitle,
   CodexStructuredThreadTitleError,
   make as makeCodexStructuredThreadTitle,
 } from "../codex-application/CodexStructuredThreadTitle";
@@ -277,7 +287,10 @@ import {
   CodexConversationDeltaBufferRuntime,
   make as makeCodexConversationDeltaBufferRuntime,
 } from "../codex-application/CodexConversationDeltaBufferRuntime";
-import { make as makeCodexConversationResumeRuntime } from "../codex-application/CodexConversationResumeRuntime";
+import {
+  CodexConversationResumeRuntime,
+  make as makeCodexConversationResumeRuntime,
+} from "../codex-application/CodexConversationResumeRuntime";
 import {
   CodexFreshThreadLaunchRuntime,
   make as makeCodexFreshThreadLaunchRuntime,
@@ -358,7 +371,10 @@ import {
   CodexThreadDurableProjection,
   make as makeCodexThreadDurableProjection,
 } from "../codex-application/CodexThreadDurableProjection";
-import { make as makeManagedWorktreeCatalog } from "../codex-application/ManagedWorktreeCatalog";
+import {
+  ManagedWorktreeCatalog,
+  make as makeManagedWorktreeCatalog,
+} from "../codex-application/ManagedWorktreeCatalog";
 import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
 import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
 import {
@@ -440,7 +456,7 @@ import * as StoreAdministrationIpc from "../ipc/handlers/StoreAdministrationIpc"
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import * as WorktreeEnvironmentIpc from "../ipc/handlers/WorktreeEnvironmentIpc";
 import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
-import { codexIpcLive } from "../ipc-handlers";
+import * as CodexWorkspaceIpc from "../ipc/handlers/CodexWorkspaceIpc";
 import {
   ComputerUseRuntime,
   live as computerUseRuntimeLive,
@@ -2973,37 +2989,36 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         yield* Layer.buildWithScope(
-          codexIpcLive({
-            managedWorktreeCatalog,
-            manualCompaction,
-            threadGoals,
-            threadSettings: threadSettingsRuntime,
-            threadTitles: threadTitlePersistence,
-            conversationCommands,
-            threadCatalog,
-            sidebarSync,
-            threadReadState,
-            agentImport,
-            conversationHistory,
-            conversationResume,
-            queuedFollowUps,
-            queuedFollowUpDispatcher,
-            freshThreadLaunch,
-            structuredThreadTitle,
-            backgroundProcesses,
-            subagentCatalog,
-            serverRequestResponses,
-            turnCommands,
-            sideChatCommands,
-            sessionThreadLaunch,
-            rendererOwnerCommands,
-            rendererClientRouter: rendererClients,
-          }).pipe(
+          CodexWorkspaceIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
+                Layer.succeed(ManagedWorktreeCatalog, managedWorktreeCatalog),
+                Layer.succeed(CodexManualCompactionRuntime, manualCompaction),
+                Layer.succeed(CodexThreadGoalRuntime, threadGoals),
+                Layer.succeed(CodexThreadSettingsRuntime, threadSettingsRuntime),
+                Layer.succeed(CodexThreadCatalog, threadCatalog),
+                Layer.succeed(CodexThreadTitlePersistence, threadTitlePersistence),
+                Layer.succeed(ConversationCommands, conversationCommands),
+                Layer.succeed(CodexSidebarSyncRuntime, sidebarSync),
+                Layer.succeed(CodexThreadReadState, threadReadState),
+                Layer.succeed(AgentImportRuntime, agentImport),
+                Layer.succeed(CodexConversationHistoryRuntime, conversationHistory),
+                Layer.succeed(CodexConversationResumeRuntime, conversationResume),
+                Layer.succeed(CodexQueuedFollowUps, queuedFollowUps),
+                Layer.succeed(CodexQueuedFollowUpDispatcher, queuedFollowUpDispatcher),
+                Layer.succeed(CodexFreshThreadLaunchRuntime, freshThreadLaunch),
+                Layer.succeed(CodexStructuredThreadTitle, structuredThreadTitle),
+                Layer.succeed(CodexBackgroundProcesses, backgroundProcesses),
+                Layer.succeed(CodexSubagentCatalog, subagentCatalog),
+                Layer.succeed(CodexServerRequestResponses, serverRequestResponses),
+                Layer.succeed(CodexTurnCommands, turnCommands),
+                Layer.succeed(CodexSideChatCommands, sideChatCommands),
+                Layer.succeed(CodexSessionThreadLaunch, sessionThreadLaunch),
+                Layer.succeed(CodexRendererOwnerCommands, rendererOwnerCommands),
+                Layer.succeed(RendererClientRuntime, rendererClients),
               ),
             ),
           ),
