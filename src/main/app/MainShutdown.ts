@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import type { MainApplicationError } from "./MainApplication";
+import type { MainApplicationError } from "./MainExit";
 
 export const MainShutdownReason = Schema.Union([
   Schema.TaggedStruct("UserQuit", {}),
@@ -12,8 +12,11 @@ export const MainShutdownReason = Schema.Union([
   Schema.TaggedStruct("UpdateInstall", {}),
   Schema.TaggedStruct("AuthorityDriftRelaunch", {}),
   Schema.TaggedStruct("StoreRestoreRelaunch", {}),
-  Schema.TaggedStruct("StartupFailure", {}),
-  Schema.TaggedStruct("RuntimeFatal", {}),
+  Schema.TaggedStruct("StartupFailure", { cause: Schema.optional(Schema.Defect()) }),
+  Schema.TaggedStruct("RuntimeFatal", {
+    subsystem: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.Defect()),
+  }),
 ]);
 
 export type MainShutdownReason = typeof MainShutdownReason.Type;

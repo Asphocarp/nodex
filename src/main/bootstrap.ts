@@ -17,7 +17,8 @@ import * as MainApp from "./app/MainApp";
 import * as MainDesktopRuntimeLive from "./app/MainDesktopRuntimeLive";
 import * as MainEntry from "./app/MainEntry";
 import * as MainFoundationLive from "./app/MainFoundationLive";
-import { MainApplicationError } from "./app/MainApplication";
+import { MainApplicationError, type MainExit } from "./app/MainExit";
+import { MainObservability } from "./app/MainObservability";
 import { ScopedCallbackRuntime } from "./app/ScopedCallbackRuntime";
 import { assertRustDataAuthorityEnvironment } from "./data-authority";
 import { registerNodexPrivilegedSchemes } from "./privileged-schemes";
@@ -174,15 +175,22 @@ function createMacApplicationsInstallerEnvironment(): MacApplicationsInstallerEn
   };
 }
 
-async function handleStartupFailure(error: unknown): Promise<void> {
-  logBootstrap("error", "Nodex failed to start", { error });
-  captureMainException(error, {
-    tags: { phase: "startup" },
-  });
+async function handleApplicationFailure(exit: Extract<MainExit, { readonly _tag: "Failure" }>) {
+  const error = Cause.squash(exit.cause);
+  const isRuntimeFailure = exit.phase === "runtime";
+  const message = isRuntimeFailure
+    ? "Nodex encountered an unrecoverable error"
+    : "Nodex failed to start";
+  logBootstrap("error", message, { error, phase: exit.phase });
 
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
     window.destroy();
+  }
+
+  if (exit.phase === "closing") {
+    app.quit();
+    return;
   }
 
   await dialog.showMessageBox({
@@ -191,7 +199,7 @@ async function handleStartupFailure(error: unknown): Promise<void> {
     defaultId: 0,
     cancelId: 0,
     noLink: true,
-    message: "Nodex failed to start",
+    message,
     detail: formatStartupError(error),
   });
 
@@ -228,7 +236,8 @@ function launchMainApplication(): void {
   });
   const application = Effect.gen(function* () {
     const callbacks = yield* ScopedCallbackRuntime;
-    yield* MainApp.program({
+    const observability = yield* MainObservability;
+    const exit = yield* MainApp.program({
       initialEvents: startupEvents,
       applicationLayer: MainDesktopRuntimeLive.productionLive,
       runStartupGate: Effect.tryPromise({
@@ -269,13 +278,22 @@ function launchMainApplication(): void {
           ),
           Effect.asVoid,
         ),
-    });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.succeed({
+          _tag: "Failure",
+          phase: "startup",
+          cause: cause as Cause.Cause<MainApplicationError>,
+        } satisfies MainExit),
+      ),
+    );
+    yield* observability.reportExit(exit);
+    if (exit._tag === "Failure") {
+      yield* Effect.tryPromise(() => handleApplicationFailure(exit)).pipe(Effect.orDie);
+    }
   }).pipe(
     // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the unique process entry that owns the foundation Layer.
     Effect.provide(foundation),
-    Effect.catchCause((cause) =>
-      Effect.tryPromise(() => handleStartupFailure(Cause.squash(cause))).pipe(Effect.orDie),
-    ),
   );
   MainEntry.runMain(application);
 }

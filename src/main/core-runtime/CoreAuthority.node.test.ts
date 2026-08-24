@@ -255,7 +255,11 @@ it.effect("fences every later Core operation after canonical application failure
       kind: "unavailable",
       error: failure,
     });
-    assert.deepEqual(yield* shutdown.awaitRequest, { _tag: "RuntimeFatal" });
+    assert.deepEqual(yield* shutdown.awaitRequest, {
+      _tag: "RuntimeFatal",
+      subsystem: "core",
+      cause: failure,
+    });
     const later = yield* access
       .use("library.read", (current) => current.libraryRead({ kind: "metadata" }))
       .pipe(Effect.result);

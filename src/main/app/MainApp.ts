@@ -1,11 +1,13 @@
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 import { ElectronApp } from "../platform/electron/ElectronApp";
-import { MainApplication, type MainApplicationError } from "./MainApplication";
+import { MainApplication } from "./MainApplication";
 import { MainConfig } from "./MainConfig";
+import { emptyCleanupReport, MainApplicationError, type MainExit } from "./MainExit";
 import { MainShutdown } from "./MainShutdown";
 
 export type MainStartupGateResult = "continue" | "moved" | "quit";
@@ -69,10 +71,20 @@ export const program = <R>(options: MainAppOptions<R>) =>
     );
     yield* electron.whenReady;
     const gate = yield* options.runStartupGate;
-    if (gate === "moved") return;
+    if (gate === "moved") {
+      return {
+        _tag: "Shutdown",
+        reason: { _tag: "UserQuit" },
+        cleanup: emptyCleanupReport,
+      } satisfies MainExit;
+    }
     if (gate === "quit") {
       yield* electron.quit;
-      return;
+      return {
+        _tag: "Shutdown",
+        reason: { _tag: "UserQuit" },
+        cleanup: emptyCleanupReport,
+      } satisfies MainExit;
     }
 
     const applicationExit = yield* Effect.exit(
@@ -81,8 +93,28 @@ export const program = <R>(options: MainAppOptions<R>) =>
       }),
     );
     yield* shutdown.markRuntimeClosed(Exit.asVoid(applicationExit));
-    if (Exit.isFailure(applicationExit)) return yield* Effect.failCause(applicationExit.cause);
+    if (Exit.isFailure(applicationExit)) {
+      const typedFailure = Cause.findErrorOption(applicationExit.cause);
+      return {
+        _tag: "Failure",
+        phase: typedFailure._tag === "Some" ? typedFailure.value.phase : "closing",
+        cause: applicationExit.cause,
+      } satisfies MainExit;
+    }
     quitAllowed = true;
+    if (applicationExit.value._tag === "RuntimeFatal") {
+      return {
+        _tag: "Failure",
+        phase: "runtime",
+        cause: Cause.fail(
+          new MainApplicationError({
+            phase: "runtime",
+            operation: applicationExit.value.subsystem ?? "application-kernel",
+            cause: applicationExit.value.cause ?? new Error("Application truth became unavailable"),
+          }),
+        ),
+      } satisfies MainExit;
+    }
     if (
       applicationExit.value._tag === "AuthorityDriftRelaunch" ||
       applicationExit.value._tag === "StoreRestoreRelaunch"
@@ -90,4 +122,9 @@ export const program = <R>(options: MainAppOptions<R>) =>
       yield* electron.relaunch;
     }
     yield* electron.quit;
+    return {
+      _tag: "Shutdown",
+      reason: applicationExit.value,
+      cleanup: emptyCleanupReport,
+    } satisfies MainExit;
   }).pipe(Effect.scoped);

@@ -193,6 +193,13 @@ Window release stops new admission, requests renderer-aware graceful close in pa
 destroys only the still-live windows at the per-window deadline. Close and destroy outcomes are
 reported without allowing one damaged window to block the rest of the resource graph.
 
+The process boundary observes one `MainExit`. Normal shutdown retains its first-wins reason and
+cleanup report; failure retains the full Effect Cause and its `pre-ready`, `startup`, `runtime`, or
+`closing` phase. Fatal Core or Codex truth loss carries its subsystem and original cause into this
+boundary, closes application admission first, and is presented as a runtime failure rather than a
+misleading startup error. The root observability adapter preserves structured annotations, spans,
+fiber identity, and the Cause tree; only that root boundary reports defects to diagnostics.
+
 Process termination signals are lifecycle ingress, not a competing shutdown owner. Electron Main
 translates `SIGINT` and `SIGTERM` into the Main shutdown request and waits for Scope release before
 asking Electron to quit. The development isolated-run supervisor owns those signals in its own

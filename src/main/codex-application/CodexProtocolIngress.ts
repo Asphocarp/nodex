@@ -64,7 +64,13 @@ export const live: Layer.Layer<
       Effect.onExit((exit) => {
         if (Exit.isFailure(exit) && !interruptedOnly(exit.cause)) {
           return SubscriptionRef.set(health, { _tag: "Failed", cause: exit.cause }).pipe(
-            Effect.andThen(shutdown.request({ _tag: "RuntimeFatal" })),
+            Effect.andThen(
+              shutdown.request({
+                _tag: "RuntimeFatal",
+                subsystem: "codex-protocol-ingress",
+                cause: exit.cause,
+              }),
+            ),
             Effect.asVoid,
           );
         }

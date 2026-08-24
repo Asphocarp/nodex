@@ -257,7 +257,9 @@ export const live = (
               if (!claimed) return Effect.succeed(false);
               return Ref.set(fatalFailure, error).pipe(
                 Effect.andThen(SubscriptionRef.set(state, { kind: "unavailable", error })),
-                Effect.andThen(shutdown.request({ _tag: "RuntimeFatal" })),
+                Effect.andThen(
+                  shutdown.request({ _tag: "RuntimeFatal", subsystem: "core", cause: error }),
+                ),
                 Effect.as(true),
               );
             }),

@@ -52,7 +52,12 @@ it.effect("turns an unexpected canonical ingress exit into runtime-fatal health"
     );
     const ingress = Context.get(context, CodexProtocolIngress);
 
-    assert.deepEqual(yield* shutdown.awaitRequest, { _tag: "RuntimeFatal" });
+    const shutdownReason = yield* shutdown.awaitRequest;
+    assert.strictEqual(shutdownReason._tag, "RuntimeFatal");
+    if (shutdownReason._tag === "RuntimeFatal") {
+      assert.strictEqual(shutdownReason.subsystem, "codex-protocol-ingress");
+      assert.isDefined(shutdownReason.cause);
+    }
     const health = yield* SubscriptionRef.get(ingress.health);
     assert.strictEqual(health._tag, "Failed");
     yield* Scope.close(scope, Exit.void);

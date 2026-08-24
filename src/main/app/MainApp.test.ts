@@ -1,3 +1,4 @@
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -5,6 +6,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import type { BootstrapRuntimeEvent } from "../bootstrap-events";
@@ -107,14 +109,13 @@ it.effect("rolls back an acquired runtime and publishes the startup failure exit
       release: Effect.sync(() => events.push("release")),
     });
 
-    const result = yield* Effect.exit(
-      program({
-        initialEvents: [],
-        applicationLayer,
-        runStartupGate: Effect.succeed("continue" as const),
-      }).pipe(Effect.provide(context)),
-    );
-    assert.isTrue(Exit.isFailure(result));
+    const result = yield* program({
+      initialEvents: [],
+      applicationLayer,
+      runStartupGate: Effect.succeed("continue" as const),
+    }).pipe(Effect.provide(context));
+    assert.strictEqual(result._tag, "Failure");
+    if (result._tag === "Failure") assert.strictEqual(result.phase, "startup");
     assert.deepEqual(events, ["ready", "release"]);
     assert.isTrue(Exit.isFailure(yield* shutdown.awaitRuntimeClosed));
     yield* Scope.close(foundationScope, Exit.void);
@@ -170,6 +171,42 @@ it.effect("relaunches after a Store restore only once the Main Scope is released
     yield* Fiber.join(fiber);
 
     assert.deepEqual(events, ["ready", "release", "relaunch", "quit"]);
+    yield* Scope.close(foundationScope, Exit.void);
+  }),
+);
+
+it.effect("returns a typed runtime failure after fatal application truth loss", () =>
+  Effect.gen(function* () {
+    const events: string[] = [];
+    const ready = yield* Deferred.make<void>();
+    const foundation = Layer.mergeAll(shutdownLayer, fakeElectronLayer(events), configLayer());
+    const foundationScope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(foundation, foundationScope);
+    const shutdown = Context.get(context, MainShutdown);
+    const failure = new Error("canonical projection failed");
+    const applicationLayer = mainApplicationTestLayer({
+      acquire: Effect.void,
+      handleBootstrapEvent: () => Effect.void,
+      release: Effect.sync(() => events.push("release")),
+    });
+    const fiber = yield* program({
+      initialEvents: [],
+      applicationLayer,
+      runStartupGate: Effect.succeed("continue" as const),
+      onApplicationReady: () => Deferred.succeed(ready, undefined).pipe(Effect.asVoid),
+    }).pipe(Effect.provide(context), Effect.forkScoped);
+    yield* Deferred.await(ready);
+    yield* shutdown.request({ _tag: "RuntimeFatal", subsystem: "projection", cause: failure });
+    const exit = yield* Fiber.join(fiber);
+
+    assert.strictEqual(exit._tag, "Failure");
+    if (exit._tag === "Failure") {
+      assert.strictEqual(exit.phase, "runtime");
+      const error = Cause.squash(exit.cause);
+      assert.isTrue(Schema.is(MainApplicationError)(error));
+      if (Schema.is(MainApplicationError)(error)) assert.strictEqual(error.cause, failure);
+    }
+    assert.deepEqual(events, ["ready", "release"]);
     yield* Scope.close(foundationScope, Exit.void);
   }),
 );
