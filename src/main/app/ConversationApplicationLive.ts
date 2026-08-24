@@ -111,6 +111,45 @@ import {
 } from "../codex-application/CodexPostResumeGoalRuntime";
 import { live as codexThreadExecutionLive } from "../codex-application/CodexThreadExecution";
 import {
+  CodexThreadCatalog,
+  make as makeCodexThreadCatalog,
+} from "../codex-application/CodexThreadCatalog";
+import {
+  CodexClientThreadIdentity,
+  make as makeCodexClientThreadIdentity,
+} from "../codex-application/CodexClientThreadIdentity";
+import {
+  CodexForkSidePanelTransfer,
+  make as makeCodexForkSidePanelTransfer,
+} from "../codex-application/CodexForkSidePanelTransferRuntime";
+import {
+  CodexForkTitlePolicy,
+  make as makeCodexForkTitlePolicy,
+} from "../codex-application/CodexForkTitlePolicy";
+import {
+  CodexConversationFork,
+  make as makeCodexConversationFork,
+} from "../codex-application/CodexConversationFork";
+import {
+  CodexConversationCreation,
+  make as makeCodexConversationCreation,
+} from "../codex-application/CodexConversationCreation";
+import {
+  CodexPendingWorktreeRuntime,
+  make as makeCodexPendingWorktreeRuntime,
+} from "../codex-application/CodexPendingWorktreeRuntime";
+import { live as managedWorktreeRetentionLive } from "../codex-application/ManagedWorktreeRetentionRuntime";
+import { live as crossHostThreadHandoffLive } from "../codex-application/CrossHostThreadHandoff";
+import { live as managedWorktreeHandoffLive } from "../codex-application/ManagedWorktreeHandoff";
+import {
+  CodexThreadHandoffRuntime,
+  make as makeCodexThreadHandoffRuntime,
+} from "../codex-application/CodexThreadHandoffRuntime";
+import {
+  AgentImportRuntime,
+  make as makeAgentImportRuntime,
+} from "../codex-application/AgentImportRuntime";
+import {
   CodexThreadSettingsRuntime,
   make as makeCodexThreadSettingsRuntime,
 } from "../codex-application/CodexThreadSettingsRuntime";
@@ -119,6 +158,10 @@ import {
   make as makeCodexThreadStartNotificationGate,
 } from "../codex-application/CodexThreadStartNotificationGate";
 import { CodexGateway, CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
+import { makePersistedAtomStore } from "../local-store/persisted-atoms";
+import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
+import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
+import { CodexPlatform } from "./CodexApplicationLive";
 import { MainConfig } from "./MainConfig";
 
 const conversationContext = Layer.effect(CodexConversationContext, makeCodexConversationContext);
@@ -347,5 +390,76 @@ const postResumeGoals = Layer.effect(
 ).pipe(Layer.provideMerge(deltaBuffer));
 const threadExecution = codexThreadExecutionLive.pipe(Layer.provideMerge(postResumeGoals));
 
+const threadCatalog = Layer.unwrap(
+  Effect.gen(function* () {
+    const config = yield* MainConfig;
+    return Layer.effect(
+      CodexThreadCatalog,
+      makeCodexThreadCatalog({ foldPathCase: config.platform === "win32" }),
+    );
+  }),
+).pipe(Layer.provideMerge(threadExecution));
+const clientThreadIdentity = Layer.unwrap(
+  Effect.gen(function* () {
+    const config = yield* MainConfig;
+    return Layer.effect(
+      CodexClientThreadIdentity,
+      makeCodexClientThreadIdentity(makePersistedAtomStore(config.nodexHome)),
+    );
+  }),
+).pipe(Layer.provideMerge(threadCatalog));
+const forkSidePanelTransfer = Layer.effect(
+  CodexForkSidePanelTransfer,
+  makeCodexForkSidePanelTransfer,
+).pipe(Layer.provideMerge(clientThreadIdentity));
+const forkTitlePolicy = Layer.effect(CodexForkTitlePolicy, makeCodexForkTitlePolicy).pipe(
+  Layer.provideMerge(forkSidePanelTransfer),
+);
+const conversationFork = Layer.effect(CodexConversationFork, makeCodexConversationFork).pipe(
+  Layer.provideMerge(forkTitlePolicy),
+);
+const conversationCreation = Layer.effect(
+  CodexConversationCreation,
+  makeCodexConversationCreation,
+).pipe(Layer.provideMerge(conversationFork));
+const pendingWorktrees = Layer.effect(
+  CodexPendingWorktreeRuntime,
+  makeCodexPendingWorktreeRuntime,
+).pipe(Layer.provideMerge(conversationCreation));
+const managedWorktreeRetention = managedWorktreeRetentionLive({}).pipe(
+  Layer.provideMerge(pendingWorktrees),
+);
+const crossHostThreadHandoff = Layer.unwrap(
+  Effect.gen(function* () {
+    const platform = yield* CodexPlatform;
+    return crossHostThreadHandoffLive({ relayBaseRoot: `${platform.runtimeStateHome}/handoffs` });
+  }),
+).pipe(Layer.provideMerge(managedWorktreeRetention));
+const managedWorktreeHandoff = managedWorktreeHandoffLive.pipe(
+  Layer.provideMerge(crossHostThreadHandoff),
+);
+const threadHandoff = Layer.unwrap(
+  Effect.gen(function* () {
+    const platform = yield* CodexPlatform;
+    return Layer.effect(
+      CodexThreadHandoffRuntime,
+      makeCodexThreadHandoffRuntime({
+        storage: makeCodexThreadHandoffJournalStorage(
+          resolveCodexThreadHandoffJournalPath(platform.runtimeStateHome),
+        ),
+      }),
+    );
+  }),
+).pipe(Layer.provideMerge(managedWorktreeHandoff));
+const agentImport = Layer.unwrap(
+  Effect.gen(function* () {
+    const platform = yield* CodexPlatform;
+    return Layer.effect(
+      AgentImportRuntime,
+      makeAgentImportRuntime({ runtimeStateHome: platform.runtimeStateHome }),
+    );
+  }),
+).pipe(Layer.provideMerge(threadHandoff));
+
 /** Canonical Conversation projections and semantic command capabilities. */
-export const live = threadExecution;
+export const live = agentImport;

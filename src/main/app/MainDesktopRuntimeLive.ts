@@ -41,10 +41,7 @@ import {
 } from "../nodex-agent-application/NodexAgentProtocolTools";
 import { NodexAgentResourceAccess } from "../nodex-agent-application/NodexAgentResourceAccess";
 import { AgentProviderRuntime } from "../codex-application/AgentProviderRuntime";
-import {
-  AgentImportRuntime,
-  make as makeAgentImportRuntime,
-} from "../codex-application/AgentImportRuntime";
+import { AgentImportRuntime } from "../codex-application/AgentImportRuntime";
 import { NodexAgentAuthorizationRuntime } from "../codex-application/NodexAgentAuthorizationRuntime";
 import { CodexConnection } from "../codex-application/CodexConnection";
 import { make as makeCodexConnectionLifecycle } from "../codex-application/CodexConnectionLifecycle";
@@ -70,14 +67,8 @@ import {
   CodexSessionThreadLaunch,
   make as makeCodexSessionThreadLaunch,
 } from "../codex-application/CodexSessionThreadLaunch";
-import {
-  CodexConversationFork,
-  make as makeCodexConversationFork,
-} from "../codex-application/CodexConversationFork";
-import {
-  CodexForkTitlePolicy,
-  make as makeCodexForkTitlePolicy,
-} from "../codex-application/CodexForkTitlePolicy";
+import { CodexConversationFork } from "../codex-application/CodexConversationFork";
+import { CodexForkTitlePolicy } from "../codex-application/CodexForkTitlePolicy";
 import {
   CodexProjectSessionFork,
   make as makeCodexProjectSessionFork,
@@ -91,42 +82,15 @@ import {
   make as makeCodexRendererOwnerCommands,
 } from "../codex-application/CodexRendererOwnerCommands";
 import { CodexSidebarSyncRuntime } from "../codex-application/CodexSidebarSyncRuntime";
-import {
-  CodexThreadCatalog,
-  make as makeCodexThreadCatalog,
-} from "../codex-application/CodexThreadCatalog";
+import { CodexThreadCatalog } from "../codex-application/CodexThreadCatalog";
 import { CodexThreadReadState } from "../codex-application/CodexThreadReadState";
 import { CodexGitProbe } from "../codex-application/CodexGitProbe";
-import { CodexExternalAgentImportRuntime } from "../codex-application/CodexExternalAgentImportRuntime";
 import { CodexHeartbeatTurnCompletion } from "../codex-application/CodexHeartbeatTurnCompletion";
 import { CodexStructuredThreadTitle } from "../codex-application/CodexStructuredThreadTitle";
-import { CodexInternalThreadRegistry } from "../codex-application/CodexInternalThreadRegistry";
 import { CodexNotificationAdmission } from "../codex-application/CodexNotificationAdmission";
-import {
-  CodexThreadHandoffRuntime,
-  make as makeCodexThreadHandoffRuntime,
-} from "../codex-application/CodexThreadHandoffRuntime";
-import { CodexThreadExecution } from "../codex-application/CodexThreadExecution";
-import {
-  CrossHostThreadHandoff,
-  live as crossHostThreadHandoffLive,
-} from "../codex-application/CrossHostThreadHandoff";
-import {
-  ManagedWorktreeHandoff,
-  live as managedWorktreeHandoffLive,
-} from "../codex-application/ManagedWorktreeHandoff";
-import {
-  CodexPendingWorktreeRuntime,
-  make as makeCodexPendingWorktreeRuntime,
-} from "../codex-application/CodexPendingWorktreeRuntime";
-import {
-  CodexClientThreadIdentity,
-  make as makeCodexClientThreadIdentity,
-} from "../codex-application/CodexClientThreadIdentity";
-import {
-  CodexConversationCreation,
-  make as makeCodexConversationCreation,
-} from "../codex-application/CodexConversationCreation";
+import { CodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
+import { CodexPendingWorktreeRuntime } from "../codex-application/CodexPendingWorktreeRuntime";
+import { CodexClientThreadIdentity } from "../codex-application/CodexClientThreadIdentity";
 import { CodexConversationHistoryRuntime } from "../codex-application/CodexConversationHistoryRuntime";
 import { CodexConversationRelationships } from "../codex-application/CodexConversationRelationships";
 import { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
@@ -144,10 +108,7 @@ import {
 } from "../codex-application/CodexConversationResumeRuntime";
 import { CodexFreshThreadLaunchRuntime } from "../codex-application/CodexFreshThreadLaunchRuntime";
 import { CodexThreadLaunchCompletion } from "../codex-application/CodexThreadLaunchCompletion";
-import {
-  CodexForkSidePanelTransfer,
-  make as makeCodexForkSidePanelTransferRuntime,
-} from "../codex-application/CodexForkSidePanelTransferRuntime";
+import { CodexForkSidePanelTransfer } from "../codex-application/CodexForkSidePanelTransferRuntime";
 import { CodexPostResumeGoalRuntime } from "../codex-application/CodexPostResumeGoalRuntime";
 import { CodexThreadGoalRuntime } from "../codex-application/CodexThreadGoalRuntime";
 import {
@@ -200,16 +161,11 @@ import {
   ManagedWorktreeCatalog,
   make as makeManagedWorktreeCatalog,
 } from "../codex-application/ManagedWorktreeCatalog";
-import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
-import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
 import { CodexPermissions } from "../codex-application/CodexPermissions";
 import { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
 import { ManagedWorktreeConfiguration } from "../codex-application/ExecutionHostConfiguration";
 import { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
-import {
-  ManagedWorktreeRetentionRuntime,
-  live as managedWorktreeRetentionRuntimeLive,
-} from "../codex-application/ManagedWorktreeRetentionRuntime";
+import { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
 import { CodexAttachments } from "../codex-application/CodexAttachments";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
@@ -342,7 +298,6 @@ export const live: Layer.Layer<
     const shutdown = yield* MainShutdown;
     const callbacks = yield* ScopedCallbackRuntime;
     const terminals = yield* TerminalSessions;
-    const fileSystem = yield* FileSystem.FileSystem;
     const runtimeScope = yield* Scope.Scope;
 
     return yield* Effect.interruptible(
@@ -497,20 +452,12 @@ export const live: Layer.Layer<
           applicationKernelContext,
           CodexConversationRelationships,
         );
-        const internalThreadRegistry = Context.get(
-          applicationKernelContext,
-          CodexInternalThreadRegistry,
-        );
         const threadStartNotifications = Context.get(
           applicationKernelContext,
           CodexThreadStartNotificationGate,
         );
         const sidebarSync = Context.get(applicationKernelContext, CodexSidebarSyncRuntime);
         const gitProbe = Context.get(applicationKernelContext, CodexGitProbe);
-        const externalAgentImport = Context.get(
-          applicationKernelContext,
-          CodexExternalAgentImportRuntime,
-        );
         const heartbeatTurnCompletion = Context.get(
           applicationKernelContext,
           CodexHeartbeatTurnCompletion,
@@ -563,7 +510,27 @@ export const live: Layer.Layer<
           CodexConversationDeltaBufferRuntime,
         );
         const postResumeGoals = Context.get(applicationKernelContext, CodexPostResumeGoalRuntime);
-        const threadExecution = Context.get(applicationKernelContext, CodexThreadExecution);
+        const threadCatalog = Context.get(applicationKernelContext, CodexThreadCatalog);
+        const clientThreadIdentity = Context.get(
+          applicationKernelContext,
+          CodexClientThreadIdentity,
+        );
+        const forkSidePanelTransfers = Context.get(
+          applicationKernelContext,
+          CodexForkSidePanelTransfer,
+        );
+        const forkTitlePolicy = Context.get(applicationKernelContext, CodexForkTitlePolicy);
+        const conversationFork = Context.get(applicationKernelContext, CodexConversationFork);
+        const pendingWorktrees = Context.get(applicationKernelContext, CodexPendingWorktreeRuntime);
+        const managedWorktreeRetention = Context.get(
+          applicationKernelContext,
+          ManagedWorktreeRetentionRuntime,
+        );
+        const threadHandoffRuntime = Context.get(
+          applicationKernelContext,
+          CodexThreadHandoffRuntime,
+        );
+        const agentImport = Context.get(applicationKernelContext, AgentImportRuntime);
         yield* terminals.events.pipe(
           Stream.runForEach((event) => {
             if (event.channel !== "terminal-data") return Effect.void;
@@ -599,150 +566,6 @@ export const live: Layer.Layer<
         yield* deepLinks.extractFromArgv(config.argv);
         applicationWindows.openStartup(getWindowRestoreSettings().policy);
         const persistedAtoms = makePersistedAtomStore(config.nodexHome);
-        const threadCatalog = yield* makeCodexThreadCatalog({
-          foldPathCase: config.platform === "win32",
-        }).pipe(
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(CodexInternalThreadRegistry, internalThreadRegistry),
-          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
-          Effect.provideService(CodexThreadDirectory, threadDirectory),
-          Effect.provideService(CodexThreadExecution, threadExecution),
-          Effect.provideService(CoreModules, coreModules),
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
-        const clientThreadIdentity = yield* makeCodexClientThreadIdentity(persistedAtoms).pipe(
-          Effect.provideService(ProjectWorkspace, projectWorkspace),
-        );
-        const forkSidePanelTransfers = yield* makeCodexForkSidePanelTransferRuntime.pipe(
-          Effect.provideService(BrowserApplication, browser),
-          Effect.provideService(CodexClientThreadIdentity, clientThreadIdentity),
-          Effect.provideService(ProjectWorkspace, projectWorkspace),
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
-        const forkTitlePolicy = yield* makeCodexForkTitlePolicy.pipe(
-          Effect.provideService(CoreModules, coreModules),
-        );
-        const conversationFork = yield* makeCodexConversationFork.pipe(
-          Effect.provideService(CoreModules, coreModules),
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(CodexConversationProjection, conversationProjection),
-          Effect.provideService(CodexForkTitlePolicy, forkTitlePolicy),
-          Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerNotificationDrain),
-          Effect.provideService(
-            CodexRendererConversationCoordinator,
-            rendererConversationCoordinator,
-          ),
-          Effect.provideService(CodexForkSidePanelTransfer, forkSidePanelTransfers),
-          Effect.provideService(CodexThreadCatalog, threadCatalog),
-          Effect.provideService(CodexThreadDirectory, threadDirectory),
-          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
-          Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
-          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
-        );
-        const conversationCreation = yield* makeCodexConversationCreation.pipe(
-          Effect.provideService(CodexAttachments, attachments),
-          Effect.provideService(CodexClientThreadIdentity, clientThreadIdentity),
-          Effect.provideService(CodexConversationFork, conversationFork),
-          Effect.provideService(CodexForkSidePanelTransfer, forkSidePanelTransfers),
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(CodexThreadDirectory, threadDirectory),
-          Effect.provideService(CodexThreadGoalRuntime, threadGoals),
-          Effect.provideService(CodexThreadLaunchCompletion, threadLaunchCompletion),
-          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
-          Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
-          Effect.provideService(CodexTurnCommands, turnCommands),
-          Effect.provideService(BrowserUseRuntime, browserUse),
-          Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
-          Effect.provideService(ProjectWorkspace, projectWorkspace),
-        );
-        const pendingWorktrees = yield* makeCodexPendingWorktreeRuntime.pipe(
-          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
-          Effect.provideService(CodexAttachments, attachments),
-          Effect.provideService(CodexConversationCreation, conversationCreation),
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(CodexGitProbe, gitProbe),
-          Effect.provideService(ExecutionHostRuntime, executionHosts),
-          Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
-          Effect.provideService(ProjectWorkspace, projectWorkspace),
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
-        const managedWorktreeRetentionContext = yield* Layer.buildWithScope(
-          managedWorktreeRetentionRuntimeLive({}).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
-                Layer.succeed(AutomationApplication, automationApplication),
-                Layer.succeed(CodexPendingWorktreeRuntime, pendingWorktrees),
-                Layer.succeed(ExecutionHostRuntime, executionHosts),
-                Layer.succeed(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
-                Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
-                Layer.succeed(ProjectWorkspace, projectWorkspace),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const managedWorktreeRetention = Context.get(
-          managedWorktreeRetentionContext,
-          ManagedWorktreeRetentionRuntime,
-        );
-        const crossHostThreadHandoffContext = yield* Layer.buildWithScope(
-          crossHostThreadHandoffLive({
-            relayBaseRoot: `${runtimeStateHome}/handoffs`,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ExecutionHostRuntime, executionHosts),
-                Layer.succeed(FileSystem.FileSystem, fileSystem),
-                Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const crossHostThreadHandoff = Context.get(
-          crossHostThreadHandoffContext,
-          CrossHostThreadHandoff,
-        );
-        const managedWorktreeHandoffContext = yield* Layer.buildWithScope(
-          managedWorktreeHandoffLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(CoreModules, coreModules),
-                Layer.succeed(CrossHostThreadHandoff, crossHostThreadHandoff),
-                Layer.succeed(ExecutionHostRuntime, executionHosts),
-                Layer.succeed(ManagedWorktreeRetentionRuntime, managedWorktreeRetention),
-                Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const managedWorktreeHandoff = Context.get(
-          managedWorktreeHandoffContext,
-          ManagedWorktreeHandoff,
-        );
-        const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
-          storage: makeCodexThreadHandoffJournalStorage(
-            resolveCodexThreadHandoffJournalPath(runtimeStateHome),
-          ),
-        }).pipe(
-          Effect.provideService(CodexThreadExecution, threadExecution),
-          Effect.provideService(ExecutionHostRuntime, executionHosts),
-          Effect.provideService(ManagedWorktreeHandoff, managedWorktreeHandoff),
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
-        const agentImport = yield* makeAgentImportRuntime({ runtimeStateHome }).pipe(
-          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
-          Effect.provideService(CodexExternalAgentImportRuntime, externalAgentImport),
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
-          Effect.provideService(CodexThreadDirectory, threadDirectory),
-          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
-          Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
         const manualCompactionContext = yield* Layer.buildWithScope(
           codexManualCompactionRuntimeLive.pipe(
             Layer.provide(
