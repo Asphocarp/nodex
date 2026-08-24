@@ -51,16 +51,24 @@ export const make: Effect.Effect<
       ({ threadId, requestId }) =>
         conversations.runExclusive(
           threadId,
-          protocol.apply({
-            hostId: DEFAULT_CODEX_HOST_ID,
-            generation: 0,
-            notification: {
-              method: "serverRequest/resolved",
-              params: { threadId, requestId },
-            },
-            occurrenceId: `synthetic:connection:${threadId}:${String(requestId)}`,
-            occurrenceToken: 0,
-          }),
+          protocol
+            .apply({
+              hostId: DEFAULT_CODEX_HOST_ID,
+              generation: 0,
+              notification: {
+                method: "serverRequest/resolved",
+                params: { threadId, requestId },
+              },
+              occurrenceId: `synthetic:connection:${threadId}:${String(requestId)}`,
+              occurrenceToken: 0,
+            })
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Failed to reconcile a disconnected Codex request").pipe(
+                  Effect.annotateLogs({ threadId, requestId: String(requestId), error }),
+                ),
+              ),
+            ),
         ),
       { concurrency: "unbounded", discard: true },
     );

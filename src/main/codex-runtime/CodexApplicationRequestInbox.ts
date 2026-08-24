@@ -7,6 +7,7 @@ import type { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/
 import { randomUUID } from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -66,6 +67,16 @@ export class CodexApplicationRequestGenerationUnavailable extends Schema.TaggedE
   },
 ) {}
 
+export class CodexApplicationConsequenceFailure extends Schema.TaggedError<CodexApplicationConsequenceFailure>()(
+  "CodexApplicationConsequenceFailure",
+  {
+    hostId: Schema.String,
+    generation: Schema.Int,
+    occurrenceId: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
 export interface CodexApplicationRequestGeneration {
   readonly hostId: string;
   readonly generation: number;
@@ -79,6 +90,8 @@ export interface CodexApplicationRequestGeneration {
     CodexApplicationRequestGenerationUnavailable
   >;
   readonly settlements: Stream.Stream<CodexApplicationRequestSettlement>;
+  /** Fails when canonical application interpretation can no longer preserve this generation. */
+  readonly termination: Effect.Effect<never, CodexApplicationConsequenceFailure>;
   readonly rejectOutstanding: (error: CodexAppServerRequestError) => Effect.Effect<number>;
 }
 
@@ -109,6 +122,11 @@ export interface CodexApplicationRequestInboxService {
     occurrenceToken: number,
     outcome: CodexApplicationRequestOutcome,
   ) => Effect.Effect<boolean>;
+  /** Fails only the exact physical generation that admitted the bad occurrence. */
+  readonly failGeneration: (
+    occurrence: CodexApplicationProtocolOccurrence,
+    cause: unknown,
+  ) => Effect.Effect<boolean>;
   /** Runs semantic interpretation only while the exact Endpoint generation remains alive. */
   readonly interpret: <A, E, R>(
     occurrence: CodexApplicationRequestOccurrence,
@@ -131,6 +149,7 @@ interface GenerationState {
   readonly pending: ReadonlyMap<number, CodexApplicationRequestOccurrence>;
   readonly processingScope: Scope.Scope;
   readonly settlements: Queue.Queue<CodexApplicationRequestSettlement>;
+  readonly termination: Deferred.Deferred<never, CodexApplicationConsequenceFailure>;
 }
 
 interface InboxState {
@@ -214,6 +233,7 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
         }
         const key = generationKey(hostId, generation);
         const settlements = yield* Queue.unbounded<CodexApplicationRequestSettlement>();
+        const termination = yield* Deferred.make<never, CodexApplicationConsequenceFailure>();
         const processingScope = yield* Effect.scope;
         const lease = {};
         const registered = yield* SynchronizedRef.modifyEffect(state, (current) => {
@@ -224,7 +244,13 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
             return Effect.succeed([unavailable(hostId, generation, "conflict"), current] as const);
           }
           const generations = new Map(current.generations);
-          generations.set(key, { lease, pending: new Map(), processingScope, settlements });
+          generations.set(key, {
+            lease,
+            pending: new Map(),
+            processingScope,
+            settlements,
+            termination,
+          });
           return Effect.succeed([null, { ...current, generations }] as const);
         });
         if (registered) {
@@ -291,6 +317,7 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
           generation,
           admit,
           settlements: Stream.fromQueue(settlements),
+          termination: Deferred.await(termination),
           rejectOutstanding,
           [generationLease]: lease,
         } satisfies OwnedGeneration;
@@ -341,6 +368,28 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
         if (isInterruptedOnly(exit.cause)) return { kind: "withdrawn" } as const;
         return yield* Effect.failCause(exit.cause);
       });
+
+    const failGeneration: CodexApplicationRequestInboxService["failGeneration"] = (
+      occurrence,
+      cause,
+    ) =>
+      SynchronizedRef.get(state).pipe(
+        Effect.flatMap((current) => {
+          const active = current.generations.get(
+            generationKey(occurrence.hostId, occurrence.generation),
+          );
+          if (!active) return Effect.succeed(false);
+          return Deferred.fail(
+            active.termination,
+            new CodexApplicationConsequenceFailure({
+              hostId: occurrence.hostId,
+              generation: occurrence.generation,
+              occurrenceId: occurrence.occurrenceId,
+              cause,
+            }),
+          );
+        }),
+      );
 
     const interpretNotification: CodexApplicationRequestInboxService["interpretNotification"] = (
       occurrence,
@@ -402,6 +451,7 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
       openGeneration,
       settle,
       settleOccurrenceToken,
+      failGeneration,
       interpret,
       interpretNotification,
     });

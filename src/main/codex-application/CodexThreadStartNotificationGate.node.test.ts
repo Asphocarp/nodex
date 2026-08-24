@@ -55,3 +55,33 @@ it.effect("drains an unknown started Thread when its request fails", () =>
     yield* Scope.close(scope, Exit.void);
   }),
 );
+
+it.effect("keeps the physical materialization alive after its renderer waiter is interrupted", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const gate = yield* make.pipe(Effect.provideService(Scope.Scope, scope));
+    const response = yield* Deferred.make<string>();
+    const committed = yield* Deferred.make<string>();
+    const waiter = yield* gate
+      .materialize(
+        "local",
+        Deferred.await(response).pipe(
+          Effect.tap((threadId) => Deferred.succeed(committed, threadId)),
+        ),
+        (threadId) => threadId,
+      )
+      .pipe(Effect.forkChild);
+
+    yield* Effect.yieldNow;
+    assert.isTrue(gate.defer("local", "thread-detached"));
+    yield* Fiber.interrupt(waiter);
+    yield* Deferred.succeed(response, "thread-detached");
+    assert.strictEqual(yield* Deferred.await(committed), "thread-detached");
+    assert.deepEqual(Option.getOrThrow(yield* Stream.runHead(gate.releases)), {
+      hostId: "local",
+      threadId: "thread-detached",
+    });
+
+    yield* Scope.close(scope, Exit.void);
+  }),
+);

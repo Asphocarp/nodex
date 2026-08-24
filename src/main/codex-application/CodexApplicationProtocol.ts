@@ -548,13 +548,33 @@ export const make: Effect.Effect<
     return notificationAdmission.decide({ notification, threadId }).pipe(
       Effect.flatMap((decision) =>
         decision._tag === "Admit"
-          ? notificationEffects.apply({
-              hostId: occurrence.hostId,
-              generation: occurrence.generation,
-              notification,
-              occurrenceId: occurrence.occurrenceId,
-              occurrenceToken: occurrence.occurrenceToken,
-            })
+          ? notificationEffects
+              .apply({
+                hostId: occurrence.hostId,
+                generation: occurrence.generation,
+                notification,
+                occurrenceId: occurrence.occurrenceId,
+                occurrenceToken: occurrence.occurrenceToken,
+              })
+              .pipe(
+                Effect.catch((error) =>
+                  inbox.failGeneration(occurrence, error).pipe(
+                    Effect.flatMap((failed) =>
+                      failed
+                        ? Effect.void
+                        : Effect.logWarning(
+                            "Codex consequence failed after generation retirement",
+                          ).pipe(
+                            Effect.annotateLogs({
+                              hostId: occurrence.hostId,
+                              generation: occurrence.generation,
+                              method: notification.method,
+                            }),
+                          ),
+                    ),
+                  ),
+                ),
+              )
           : Effect.void,
       ),
     );

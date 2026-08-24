@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { RequestId } from "@nodex/codex-app-server-protocol";
 import type { Thread } from "@nodex/codex-app-server-protocol/v2";
 import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
@@ -71,8 +73,23 @@ export interface CodexProtocolNotificationInput {
 
 export class CodexProtocolNotificationEffects extends Context.Service<
   CodexProtocolNotificationEffects,
-  { readonly apply: (input: CodexProtocolNotificationInput) => Effect.Effect<void> }
+  {
+    readonly apply: (
+      input: CodexProtocolNotificationInput,
+    ) => Effect.Effect<void, CodexNotificationConsequenceError>;
+  }
 >()("nodex/main/codex-application/CodexProtocolNotificationEffects") {}
+
+export class CodexNotificationConsequenceError extends Data.TaggedError(
+  "CodexNotificationConsequenceError",
+)<{
+  readonly method: string;
+  readonly threadId: string;
+  readonly cause: Cause.Cause<unknown>;
+}> {}
+
+const isInterruptedOnly = (cause: Cause.Cause<unknown>): boolean =>
+  cause.reasons.length > 0 && cause.reasons.every(Cause.isInterruptReason);
 
 const paramsRecord = (
   notification: CodexServerNotification,
@@ -564,12 +581,17 @@ export const make: Effect.Effect<
     apply: (input) =>
       apply(input).pipe(
         Effect.catchCause((cause) =>
-          logFailure(
-            input.notification.method,
-            codexProtocolNotificationThreadId(input.notification) ?? "unknown",
-            cause,
-          ),
+          isInterruptedOnly(cause)
+            ? Effect.interrupt
+            : Effect.fail(
+                new CodexNotificationConsequenceError({
+                  method: input.notification.method,
+                  threadId: codexProtocolNotificationThreadId(input.notification) ?? "unknown",
+                  cause,
+                }),
+              ),
         ),
+        Effect.asVoid,
       ),
   });
 });

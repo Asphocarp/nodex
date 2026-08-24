@@ -221,9 +221,25 @@ export const live = (
                 const settlementIngress = requestGeneration.settlements.pipe(
                   Stream.runForEach(writeSettlement),
                 );
+                const consequenceTermination = requestGeneration.termination.pipe(
+                  Effect.mapError((cause) =>
+                    codexRuntimeError({
+                      operation: "endpoint.application-consequence",
+                      reason: "session-lost",
+                      retryable: true,
+                      hostId,
+                      generation: currentGeneration,
+                      pid: session.pid,
+                      cause,
+                    }),
+                  ),
+                );
                 const ingressTermination = Effect.raceFirst(
-                  requestIngress,
-                  Effect.raceFirst(notificationIngress, settlementIngress),
+                  consequenceTermination,
+                  Effect.raceFirst(
+                    requestIngress,
+                    Effect.raceFirst(notificationIngress, settlementIngress),
+                  ),
                 ).pipe(
                   Effect.flatMap(() =>
                     Effect.fail(

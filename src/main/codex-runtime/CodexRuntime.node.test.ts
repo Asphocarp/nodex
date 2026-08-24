@@ -229,6 +229,42 @@ it.effect("retries one owned session at a time and interrupts backoff on scope c
   }),
 );
 
+it.effect("rotates the physical generation when canonical application consequences fail", () =>
+  Effect.gen(function* () {
+    const fake = fakeEndpoint({ hostId: "local" });
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(
+      endpointLive(fake.config).pipe(Layer.provideMerge(endpointDependencies)),
+      scope,
+    );
+    const endpoint = Context.get(context, CodexEndpoint);
+    const inbox = Context.get(context, CodexApplicationRequestInbox);
+    yield* endpoint.session;
+
+    assert.isTrue(
+      yield* inbox.failGeneration(
+        {
+          kind: "notification",
+          protocol: "extension",
+          hostId: "local",
+          generation: 1,
+          occurrenceId: "test:consequence:1",
+          occurrenceToken: 1,
+          method: "test/failure",
+          params: {},
+        },
+        new Error("canonical projection failed"),
+      ),
+    );
+    yield* waitForConnection(endpoint, "backing-off");
+    assert.deepEqual(fake.releases, [1]);
+    yield* TestClock.adjust("1 second");
+    assert.strictEqual((yield* endpoint.session).generation, 2);
+
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect(
   "admits server requests without blocking later notifications and settles on the same session",
   () =>

@@ -197,3 +197,33 @@ it.effect("withdraws queued and in-flight interpretation when its Endpoint gener
     yield* Scope.close(rootScope, Exit.void);
   }),
 );
+
+it.effect("fails only the exact generation after a canonical consequence failure", () =>
+  Effect.gen(function* () {
+    const rootScope = yield* Scope.make();
+    const generationScope = yield* Scope.make();
+    const inbox = yield* make.pipe(Effect.provideService(Scope.Scope, rootScope));
+    const generation = yield* inbox
+      .openGeneration("local", 3)
+      .pipe(Effect.provideService(Scope.Scope, generationScope));
+    const occurrence = yield* generation.admit({
+      requestId: "bad-consequence",
+      protocol: "extension",
+      method: "test/fail",
+      params: {},
+    });
+    const termination = yield* generation.termination.pipe(Effect.flip, Effect.forkChild);
+
+    const cause = new Error("projection failed");
+    assert.isTrue(yield* inbox.failGeneration(occurrence, cause));
+    assert.isFalse(yield* inbox.failGeneration(occurrence, cause));
+    const error = yield* Fiber.join(termination);
+    assert.strictEqual(error.hostId, "local");
+    assert.strictEqual(error.generation, 3);
+    assert.strictEqual(error.occurrenceId, occurrence.occurrenceId);
+    assert.strictEqual(error.cause, cause);
+
+    yield* Scope.close(generationScope, Exit.void);
+    yield* Scope.close(rootScope, Exit.void);
+  }),
+);

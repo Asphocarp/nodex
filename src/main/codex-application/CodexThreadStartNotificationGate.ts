@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -40,6 +41,7 @@ export class CodexThreadStartNotificationGate extends Context.Service<
 export const make: Effect.Effect<CodexThreadStartNotificationGateService, never, Scope.Scope> =
   Effect.gen(function* () {
     const releases = yield* Queue.unbounded<CodexThreadStartNotificationRelease>();
+    const ownerScope = yield* Effect.scope;
     const hosts = new Map<
       string,
       {
@@ -93,16 +95,20 @@ export const make: Effect.Effect<CodexThreadStartNotificationGateService, never,
 
     return CodexThreadStartNotificationGate.of({
       materialize: (hostId, operation, threadId) =>
-        Effect.suspend(() => {
+        Effect.uninterruptibleMask((restore) => {
           const normalizedHostId = normalizeHostId(hostId);
-          if (!normalizedHostId) return operation;
+          if (!normalizedHostId) return restore(operation);
           hostState(normalizedHostId).active += 1;
-          return operation.pipe(
+          const physical = operation.pipe(
             Effect.tap((value) => {
               const identified = threadId(value);
               return identified === null ? Effect.void : release(normalizedHostId, identified);
             }),
             Effect.ensuring(end(normalizedHostId)),
+          );
+          return physical.pipe(
+            Effect.forkIn(ownerScope, { startImmediately: true }),
+            Effect.flatMap((fiber) => restore(Fiber.join(fiber))),
           );
         }),
       defer: (hostId, threadId) => {
