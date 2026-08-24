@@ -31,7 +31,15 @@ const conversation = (): CodexConversationSnapshot =>
     threadId,
     resumeState: "resumed",
     requests: [],
-    queuedFollowUps: [],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 0,
+      projectionRevision: 0,
+      entries: [],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
   }) as unknown as CodexConversationSnapshot;
 
 const makeConversations = (revision = 1) => {

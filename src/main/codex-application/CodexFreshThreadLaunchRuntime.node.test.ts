@@ -57,7 +57,15 @@ const makeHarness = (options: HarnessOptions = {}) => {
     threadId: identity.threadId,
     resumeState: "resumed",
     requests: [],
-    queuedFollowUps: [],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 0,
+      projectionRevision: 0,
+      entries: [],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
   } as unknown as CodexConversationSnapshot;
   aggregates.acquire(identity.threadId).installSnapshot(snapshot);
   let adoptionCalls = 0;

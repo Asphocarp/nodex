@@ -469,17 +469,37 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onRemoveQueuedFollowUp: async (threadId, followUpId) => {
       await input.codexControl.removeQueuedFollowUp(threadId, followUpId);
     },
+    onReplaceQueuedFollowUp: async (threadId, followUpId, expectedLedgerRevision, prompt, opts) =>
+      await input.codexControl.replaceQueuedFollowUp(
+        threadId,
+        followUpId,
+        expectedLedgerRevision,
+        prompt,
+        {
+          collaborationMode: opts?.collaborationMode ?? undefined,
+          promptInput: opts?.promptInput,
+        },
+      ),
     onReorderQueuedFollowUps: async (threadId, orderedFollowUpIds) => {
       await input.codexControl.reorderQueuedFollowUps(threadId, orderedFollowUpIds);
     },
+    onResumeQueuedFollowUps: async (threadId) => {
+      await input.codexControl.resumeQueuedFollowUps(threadId);
+    },
+    onResolveQueuedFollowUpsAfterFreshStart: async (threadId, expectedLedgerRevision, resolution) =>
+      await input.codexControl.resolveQueuedFollowUpsAfterFreshStart(
+        threadId,
+        expectedLedgerRevision,
+        resolution,
+      ),
     onSendQueuedFollowUpNow: async (threadId, followUpId) => {
       await input.codexControl.sendQueuedFollowUpNow(threadId, followUpId);
     },
-    onEditQueuedFollowUp: async ({ threadId, followUpId, prompt, promptInput }) => {
-      await input.codexControl.removeQueuedFollowUp(threadId, followUpId);
+    onEditQueuedFollowUp: async ({ threadId, followUpId, prompt, promptInput, ledgerRevision }) => {
       input.codexControl.setComposerIntent(threadId, {
         prompt,
         ...(promptInput ? { promptInput } : {}),
+        queuedFollowUpEdit: { followUpId, ledgerRevision: ledgerRevision ?? 0 },
         focusNonce: Date.now(),
       });
     },

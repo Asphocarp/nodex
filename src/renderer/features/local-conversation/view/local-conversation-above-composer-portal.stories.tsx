@@ -56,7 +56,9 @@ function buildActions(): ThreadStageActions {
     onResolvePlanImplementationRequest: async () => {},
     onEnqueueQueuedFollowUp: async () => {},
     onRemoveQueuedFollowUp: async () => {},
+    onReplaceQueuedFollowUp: async () => true,
     onReorderQueuedFollowUps: async () => {},
+    onResumeQueuedFollowUps: async () => {},
     onSendQueuedFollowUpNow: async () => {},
     onEditQueuedFollowUp: async () => {},
     onEditLastUserTurn: async () => {},
@@ -307,7 +309,15 @@ function buildPortalContentModel({
         items: portalItems,
       }),
     ],
-    queuedFollowUps: [],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 0,
+      projectionRevision: 0,
+      entries: [],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
     pendingSteers: [],
     backgroundTerminalRows: [],
     requests: [],
@@ -437,7 +447,15 @@ function buildLiveDraftedEditDiffModel({
         ],
       }),
     ],
-    queuedFollowUps: [],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 0,
+      projectionRevision: 0,
+      entries: [],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
     pendingSteers: [],
     backgroundTerminalRows: [],
     requests: [],
@@ -500,7 +518,15 @@ function buildProjectlessScopedDiffModel() {
         ],
       }),
     ],
-    queuedFollowUps: [],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 0,
+      projectionRevision: 0,
+      entries: [],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
     pendingSteers: [],
     backgroundTerminalRows: [],
     requests: [],
@@ -633,6 +659,59 @@ function QueueRowsOnlyStory() {
   );
 }
 
+type QueueStateStory = "paused" | "failed" | "in-flight" | "loading" | "error" | "attachment";
+
+function buildQueueStateModel(state: QueueStateStory) {
+  return buildShellModel((current) => {
+    const row = current.footerModel.composerShell.queuedFollowUpRows[0];
+    if (!row) return current;
+    const queuedFollowUpRows: typeof current.footerModel.composerShell.queuedFollowUpRows =
+      state === "loading" || state === "error"
+        ? []
+        : [
+            {
+              ...row,
+              prompt: state === "attachment" ? "" : row.prompt,
+              displayText: state === "attachment" ? "1 image · 2 files" : row.displayText,
+              pauseKind: state === "paused" ? "interrupted" : state === "failed" ? "failed" : null,
+              pausedReason:
+                state === "paused"
+                  ? "Interrupted before the queued message was accepted."
+                  : state === "failed"
+                    ? "The queued message could not be delivered."
+                    : null,
+              isInFlight: state === "in-flight",
+              imagePreviewSource:
+                state === "attachment"
+                  ? "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Crect width='24' height='24' rx='4' fill='%2395a4b8'/%3E%3Cpath d='m4 17 5-5 3 3 2-2 6 6H4z' fill='white'/%3E%3C/svg%3E"
+                  : row.imagePreviewSource,
+            },
+          ];
+    const queuedFollowUpStatus: "loading" | "error" | "ready" =
+      state === "loading" ? "loading" : state === "error" ? "error" : "ready";
+
+    return {
+      ...current,
+      footerModel: {
+        ...current.footerModel,
+        composerShell: {
+          ...current.footerModel.composerShell,
+          activeRequest: null,
+          backgroundRequest: null,
+          backgroundAgentRows: [],
+          backgroundTerminalRows: [],
+          showRequestCards: false,
+          pendingSteerRows: [],
+          queuedFollowUpStatus,
+          queuedFollowUpError: state === "error" ? "Queued messages could not be restored" : null,
+          queuedFollowUpRows,
+          hasInterruptedQueuedFollowUps: state === "paused",
+        },
+      },
+    };
+  });
+}
+
 function NarrowRequestCardsStory() {
   return (
     <div className="max-w-[390px]">
@@ -726,6 +805,64 @@ export const QueueRowsOnly: Story = {
       "Focused parity story for the Codex Electron queue lane row primitives: pending steer, queued message actions, and the narrowed above-composer shell width without background panels.",
   },
   render: () => <QueueRowsOnlyStory />,
+};
+
+export const QueuePausedAfterInterruption: Story = {
+  args: {
+    model: buildQueueStateModel("paused"),
+    title: "Queue Paused After Interruption",
+    description:
+      "Interrupted queue state with the exact pause banner, durable row, and queue-only Resume action.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const QueueDeliveryFailed: Story = {
+  args: {
+    model: buildQueueStateModel("failed"),
+    title: "Queue Delivery Failed",
+    description:
+      "Failed delivery remains in place with warning treatment and an explicit Retry action.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const QueueDeliveryInFlight: Story = {
+  args: {
+    model: buildQueueStateModel("in-flight"),
+    title: "Queue Delivery In Flight",
+    description:
+      "The selected row stays visible while delivery is pending, with editing, deletion, reordering, and duplicate send disabled.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const QueueHydrating: Story = {
+  args: {
+    model: buildQueueStateModel("loading"),
+    title: "Queue Hydrating",
+    description: "Startup hydration state before the durable queue ledger is ready.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const QueueHydrationError: Story = {
+  args: {
+    model: buildQueueStateModel("error"),
+    title: "Queue Hydration Error",
+    description: "Durable queue restoration failure shown inline without inventing queue rows.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const QueueAttachmentOnlyRow: Story = {
+  args: {
+    model: buildQueueStateModel("attachment"),
+    title: "Queue Attachment-only Row",
+    description:
+      "Attachment-only queued input keeps a compact semantic summary and a 24px image preview.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
 };
 
 export const FileChangesOnlyInPortal: Story = {

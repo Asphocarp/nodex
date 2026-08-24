@@ -98,7 +98,15 @@ it.effect("shares one page load and prepends it onto the latest canonical revisi
         },
       ],
       turnPagination: pagination,
-      queuedFollowUps: [],
+      queuedFollowUps: {
+        status: "ready",
+        ledgerRevision: 0,
+        projectionRevision: 0,
+        entries: [],
+        inFlightFollowUpId: null,
+        editingFollowUpId: null,
+        error: null,
+      },
     } as unknown as CodexConversationSnapshot);
     aggregate.initializeHistory(pagination, 1);
     const conversations = ConversationEntityMap.of({

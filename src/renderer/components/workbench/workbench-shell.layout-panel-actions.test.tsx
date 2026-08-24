@@ -2734,7 +2734,15 @@ describe("workbench session shell / layout-panel-actions", () => {
       turns: [],
       requests: [],
       pendingSteers: [],
-      queuedFollowUps: [],
+      queuedFollowUps: {
+        status: "ready",
+        ledgerRevision: 0,
+        projectionRevision: 0,
+        entries: [],
+        inFlightFollowUpId: null,
+        editingFollowUpId: null,
+        error: null,
+      },
       backgroundTerminalRows: [],
       capabilityFlags: {
         canEditLastUserTurn: false,

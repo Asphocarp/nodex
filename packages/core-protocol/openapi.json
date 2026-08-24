@@ -22662,6 +22662,36 @@
               {
                 "type": "object",
                 "required": [
+                  "thread_id",
+                  "expected_revision",
+                  "entries",
+                  "kind"
+                ],
+                "properties": {
+                  "entries": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/ProjectWorkspaceQueuedFollowUpEntry"
+                    }
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "commit_queued_follow_up_ledger"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "sweep_id",
                   "thread_ids",
                   "kind"
@@ -26092,6 +26122,24 @@
               {
                 "type": "object",
                 "required": [
+                  "thread_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "queued_follow_up_ledger"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "parent_thread_id",
                   "window",
                   "kind"
@@ -27814,6 +27862,158 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "ProjectWorkspaceQueuedFollowUpEntry": {
+        "type": "object",
+        "required": [
+          "follow_up_id",
+          "client_user_message_id",
+          "created_at_ms",
+          "payload"
+        ],
+        "properties": {
+          "client_user_message_id": {
+            "type": "string"
+          },
+          "created_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "follow_up_id": {
+            "type": "string"
+          },
+          "pause": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectWorkspaceQueuedFollowUpPause"
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "#/components/schemas/ProjectWorkspaceQueuedFollowUpPayloadRef"
+          }
+        }
+      },
+      "ProjectWorkspaceQueuedFollowUpLedger": {
+        "type": "object",
+        "required": [
+          "thread_id",
+          "revision",
+          "ledger_hash",
+          "entries"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectWorkspaceQueuedFollowUpEntry"
+            }
+          },
+          "ledger_hash": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "thread_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectWorkspaceQueuedFollowUpLedgerCommit": {
+        "type": "object",
+        "required": [
+          "thread_id",
+          "revision",
+          "ledger_hash",
+          "changed"
+        ],
+        "properties": {
+          "changed": {
+            "type": "boolean"
+          },
+          "ledger_hash": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "thread_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectWorkspaceQueuedFollowUpPause": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "reason",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "interrupted"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reason",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "ProjectWorkspaceQueuedFollowUpPayloadRef": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "asset_uri",
+          "sha256",
+          "byte_length"
+        ],
+        "properties": {
+          "asset_uri": {
+            "type": "string"
+          },
+          "byte_length": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string"
           }
         }
       },
@@ -31059,6 +31259,16 @@
                             "items": {
                               "type": "string"
                             }
+                          },
+                          "queued_follow_up_ledger": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/ProjectWorkspaceQueuedFollowUpLedgerCommit"
+                              }
+                            ]
                           }
                         }
                       },
@@ -31135,6 +31345,16 @@
                             "items": {
                               "type": "string"
                             }
+                          },
+                          "queued_follow_up_ledger": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/ProjectWorkspaceQueuedFollowUpLedgerCommit"
+                              }
+                            ]
                           }
                         }
                       },
@@ -33564,6 +33784,24 @@
                           },
                           "thread": {
                             "$ref": "#/components/schemas/ProjectWorkspaceThread"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "ledger",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "queued_follow_up_ledger"
+                            ]
+                          },
+                          "ledger": {
+                            "$ref": "#/components/schemas/ProjectWorkspaceQueuedFollowUpLedger"
                           }
                         }
                       },

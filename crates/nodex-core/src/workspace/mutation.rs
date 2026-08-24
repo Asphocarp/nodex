@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use nodex_core_contracts::workspace::{
     ProjectAppearance, ProjectCatalogChangeKind, ProjectLifecycle, ProjectMarker,
     ProjectSessionInvalidationScope, ProjectWorkspaceCommitValue, ProjectWorkspaceIntent,
-    ProjectWorkspaceReceipt, ProjectWorkspaceStarterPage,
-    ProjectWorkspaceThreadMoveProjectAccessGrant,
+    ProjectWorkspaceQueuedFollowUpLedgerCommit, ProjectWorkspaceReceipt,
+    ProjectWorkspaceStarterPage, ProjectWorkspaceThreadMoveProjectAccessGrant,
 };
 use nodex_core_contracts::{
     BoundModuleContext, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
@@ -41,7 +41,8 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_t
 use crate::infrastructure::writer::StoreWriter;
 
 use super::{
-    ProjectWorkspaceApplyOutcome, execution, session_lifecycle, session_mutation, sidebar, thread,
+    ProjectWorkspaceApplyOutcome, execution, queued_follow_up, session_lifecycle, session_mutation,
+    sidebar, thread,
 };
 
 const MODULE_NAME: &str = "project_workspace";
@@ -91,6 +92,7 @@ pub(super) struct WorkspaceMutationEffects {
     pub(super) view_ids: Vec<String>,
     pub(super) document_heads: Vec<PageDocumentHeadImpact>,
     pub(super) committed_at: String,
+    pub(super) queued_follow_up_ledger: Option<ProjectWorkspaceQueuedFollowUpLedgerCommit>,
 }
 
 pub(super) fn project_session_scope(project_id: Option<&str>) -> ProjectSessionInvalidationScope {
@@ -505,6 +507,22 @@ pub(super) fn apply(
                     &request_hash,
                     thread_id,
                 ),
+                ProjectWorkspaceIntent::CommitQueuedFollowUpLedger {
+                    thread_id,
+                    expected_revision,
+                    entries,
+                } => queued_follow_up::commit_ledger(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    *expected_revision,
+                    entries,
+                    &assets_root,
+                ),
                 ProjectWorkspaceIntent::ObserveAppServerThreadWindow {
                     sweep_id,
                     thread_ids,
@@ -866,6 +884,7 @@ fn create_project(
                     view_ids,
                     document_heads,
                     committed_at: committed_at.clone(),
+                    queued_follow_up_ledger: None,
                 },
             )
         },
@@ -933,6 +952,33 @@ pub(super) fn finish_no_op(
     session_ids: Vec<String>,
     committed_at: &str,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    finish_no_op_with_queued_follow_up(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        operation_kind,
+        project_ids,
+        session_ids,
+        committed_at,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn finish_no_op_with_queued_follow_up(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    operation_kind: &'static str,
+    project_ids: Vec<String>,
+    session_ids: Vec<String>,
+    committed_at: &str,
+    queued_follow_up_ledger: Option<ProjectWorkspaceQueuedFollowUpLedgerCommit>,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     let result = durable_mutation::run(
         connection,
         OperationIdentity {
@@ -956,6 +1002,7 @@ pub(super) fn finish_no_op(
                     affected_project_ids: project_ids.clone(),
                     affected_session_ids: session_ids.clone(),
                     affected_thread_ids: Vec::new(),
+                    queued_follow_up_ledger: queued_follow_up_ledger.clone(),
                 },
                 receipt: ProjectWorkspaceReceipt {
                     mutation: ModuleMutationReceipt {
@@ -1081,6 +1128,7 @@ fn seal_mutation(
             affected_project_ids: effects.project_ids.clone(),
             affected_session_ids: effects.session_ids.clone(),
             affected_thread_ids: effects.thread_ids.clone(),
+            queued_follow_up_ledger: effects.queued_follow_up_ledger.clone(),
         },
         receipt: ProjectWorkspaceReceipt {
             mutation: ModuleMutationReceipt {
@@ -1370,6 +1418,7 @@ fn reorder_projects(
             view_ids: Vec::new(),
             document_heads: Vec::new(),
             committed_at: now,
+            queued_follow_up_ledger: None,
         },
     )
 }
@@ -1502,6 +1551,7 @@ fn reorder_pinned_projects(
             view_ids: Vec::new(),
             document_heads: Vec::new(),
             committed_at: now,
+            queued_follow_up_ledger: None,
         },
     )
 }
@@ -1562,6 +1612,7 @@ fn project_mutation_effects(
         view_ids: Vec::new(),
         document_heads: Vec::new(),
         committed_at,
+        queued_follow_up_ledger: None,
     }
 }
 

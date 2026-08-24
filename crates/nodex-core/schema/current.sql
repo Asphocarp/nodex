@@ -4086,4 +4086,58 @@ BEFORE UPDATE ON structural_retention_members
 BEGIN
   SELECT RAISE(ABORT, 'Structural retention members are immutable');
 END;
-PRAGMA user_version = 133;
+CREATE TABLE codex_queued_follow_up_ledgers (
+  thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL CHECK (revision >= 0),
+  ledger_hash TEXT NOT NULL CHECK (length(ledger_hash) = 64),
+  updated_at TEXT NOT NULL CHECK (length(updated_at) > 0)
+) WITHOUT ROWID, STRICT;
+CREATE TABLE codex_queued_follow_up_payload_manifests (
+  payload_sha256 TEXT PRIMARY KEY CHECK (length(payload_sha256) = 64),
+  schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+  asset_uri TEXT NOT NULL UNIQUE CHECK (
+    asset_uri LIKE 'nodex://assets/queued-follow-up-v1-%.json'
+  ),
+  byte_length INTEGER NOT NULL CHECK (byte_length >= 2)
+) WITHOUT ROWID, STRICT;
+CREATE TABLE codex_queued_follow_up_payload_asset_refs (
+  payload_sha256 TEXT NOT NULL REFERENCES codex_queued_follow_up_payload_manifests(payload_sha256) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  asset_uri TEXT NOT NULL CHECK (asset_uri LIKE 'nodex://assets/%'),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
+  PRIMARY KEY (payload_sha256, ordinal),
+  UNIQUE (payload_sha256, asset_uri)
+) WITHOUT ROWID, STRICT;
+CREATE TABLE codex_queued_follow_up_entries (
+  thread_id TEXT NOT NULL REFERENCES codex_queued_follow_up_ledgers(thread_id) ON DELETE CASCADE,
+  follow_up_id TEXT NOT NULL,
+  position INTEGER NOT NULL CHECK (position >= 0),
+  client_user_message_id TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0),
+  pause_kind TEXT CHECK (pause_kind IN ('interrupted', 'failed')),
+  pause_reason TEXT,
+  payload_sha256 TEXT NOT NULL REFERENCES codex_queued_follow_up_payload_manifests(payload_sha256),
+  PRIMARY KEY (thread_id, follow_up_id),
+  UNIQUE (thread_id, position),
+  UNIQUE (thread_id, client_user_message_id),
+  CHECK (length(trim(follow_up_id)) BETWEEN 1 AND 512),
+  CHECK (length(trim(client_user_message_id)) BETWEEN 1 AND 512),
+  CHECK (
+    (pause_kind IS NULL AND pause_reason IS NULL)
+    OR (pause_kind IS NOT NULL AND length(trim(pause_reason)) BETWEEN 1 AND 4096)
+  )
+) WITHOUT ROWID, STRICT;
+CREATE INDEX idx_codex_queued_follow_up_entries_payload
+  ON codex_queued_follow_up_entries(payload_sha256);
+CREATE TABLE codex_queued_follow_up_manifest_gc (
+  asset_uri TEXT PRIMARY KEY CHECK (
+    asset_uri LIKE 'nodex://assets/queued-follow-up-v1-%.json'
+  ),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  enqueued_at TEXT NOT NULL CHECK (length(enqueued_at) > 0),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  last_attempt_at TEXT CHECK (last_attempt_at IS NULL OR length(last_attempt_at) > 0),
+  last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 4096)
+) WITHOUT ROWID, STRICT;
+PRAGMA user_version = 134;

@@ -1,23 +1,34 @@
 import { describe, expect, test } from "vite-plus/test";
 import { render } from "@/test/dom";
 import {
+  AutomationMoreIcon,
   BoardIcon,
   CalendarIcon,
   CalendarOverdueIcon,
   CanvasIcon,
   ClockIcon,
   CodeBracketsIcon,
+  ComposerResumeIcon,
   DatabaseIcon,
   FileIcon,
   FolderIcon,
   FolderOpenIcon,
+  GoalEditIcon,
+  GoalTrashIcon,
   NewChatIcon,
   PageIcon,
+  QueueFailureIcon,
+  QueuePauseIcon,
+  QueuePendingInfoIcon,
+  QueueSteerIcon,
+  QueuedFollowUpIcon,
   SettingsBrowserIcon,
   SettingsComputerUseIcon,
   SettingsGitIcon,
   SettingsImportIcon,
   SettingsPasswordsIcon,
+  SidePanelSideChatIcon,
+  SidebarManualOrderIcon,
   WorktreeSetupStatusIcon,
 } from "./app-icons";
 
@@ -75,5 +86,38 @@ describe("settings identity icons", () => {
     expect(svg?.getAttribute("viewBox")).toBe(viewBox);
     expect(svg?.getAttribute("aria-hidden")).toBe("true");
     expect(svg?.querySelectorAll("path, circle").length).toBeGreaterThan(0);
+  });
+});
+
+describe("queued follow-up icon geometry", () => {
+  test.each([
+    ["follow-up lane", QueuedFollowUpIcon, "0 0 20 20", 1, "M2.66797 11V3.33301"],
+    ["steer", QueueSteerIcon, "0 0 21 21", 1, "M13.1293 7.34753"],
+    ["pause", QueuePauseIcon, "0 0 20 20", 2, "M6.875 5.83333"],
+    ["delivery failure", QueueFailureIcon, "0 0 20 20", 2, "M9.995 12.315"],
+    ["pending steer information", QueuePendingInfoIcon, "0 0 21 21", 3, "M10.6 9.70459"],
+    ["resume", ComposerResumeIcon, "0 0 20 20", 1, "M6 14.7227"],
+    ["edit", GoalEditIcon, "0 0 21 21", 1, "M11.7313 4.20472"],
+    ["delete", GoalTrashIcon, "0 0 20 20", 1, "M10.6299 1.33496"],
+    ["more", AutomationMoreIcon, "0 0 21 21", 3, "M15.6981 9.04712"],
+    ["side chat", SidePanelSideChatIcon, "0 0 20 20", 2, "M3.165 10"],
+  ])("preserves the fill-only %s glyph", (_label, Icon, viewBox, pathCount, firstPathPrefix) => {
+    const view = render(<Icon />);
+    const svg = view.container.querySelector("svg");
+    const paths = svg?.querySelectorAll("path") ?? [];
+
+    expect(svg?.getAttribute("viewBox")).toBe(viewBox);
+    expect(paths).toHaveLength(pathCount);
+    expect(paths[0]?.getAttribute("d")?.startsWith(firstPathPrefix)).toBe(true);
+    expect(svg?.querySelector("[stroke]")).toBeNull();
+  });
+
+  test("preserves the six-dot queued-message reorder grip", () => {
+    const view = render(<SidebarManualOrderIcon />);
+    const svg = view.container.querySelector("svg");
+
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(svg?.querySelectorAll("circle")).toHaveLength(6);
+    expect(svg?.querySelector("[stroke]")).toBeNull();
   });
 });

@@ -55,6 +55,10 @@ pub(crate) fn validate_store_semantics(connection: &Connection) -> Result<(), St
     validate_block_transfer_undo(connection)?;
     validate_structural_edit_evidence(connection)?;
     validate_document_materialization_derivation(connection)?;
+    crate::workspace::queued_follow_up::validate_all_stored_ledgers(
+        connection,
+        crate::workspace::queued_follow_up::QueuedAssetEvidenceMode::DatabaseOnly,
+    )?;
     tracing::info!(
         durationMs = duration_millis(started_at.elapsed()),
         "Semantic Store validation completed"

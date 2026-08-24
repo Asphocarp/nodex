@@ -38,7 +38,9 @@ describe("getCodexThemeVariantStyle", () => {
     expect(styles["--color-icon-error"]).toBe("#ff6764");
     expect(styles["--color-text-error"]).toBe("#ff6764");
     expect(styles["--color-text-warning"]).toBe("#fb6a22");
-    expect(styles["--color-text-foreground"]).toBe("#ffffff");
+    expect(styles["--color-text-foreground"]).toBe("#dfdfdf");
+    expect(styles["--color-text-foreground-secondary"]).toBe("rgba(255, 255, 255, 0.71)");
+    expect(styles["--color-text-foreground-tertiary"]).toBe("rgba(255, 255, 255, 0.498)");
     expect(styles["--color-border"]).toBe("rgba(255, 255, 255, 0.084)");
     expect(styles["--cursor-interaction"]).toBe("pointer");
   });

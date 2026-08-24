@@ -340,7 +340,15 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
       resumeState: "resumed",
       turns: [],
       requests: [],
-      queuedFollowUps: [],
+      queuedFollowUps: {
+        status: "ready",
+        ledgerRevision: 0,
+        projectionRevision: 0,
+        entries: [],
+        inFlightFollowUpId: null,
+        editingFollowUpId: null,
+        error: null,
+      },
       pendingSteers: [],
       backgroundTerminalRows: [],
       capabilityFlags: {
@@ -456,6 +464,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onResolvePlanImplementationRequest: async () => {},
     onEnqueueQueuedFollowUp: async () => {},
     onRemoveQueuedFollowUp: async () => {},
+    onReplaceQueuedFollowUp: async () => true,
     onReorderQueuedFollowUps: async () => {},
     onSendQueuedFollowUpNow: async () => {},
     onEditQueuedFollowUp: async () => {},
@@ -1415,6 +1424,107 @@ describe("ThreadComposer speed menu", () => {
     expect(queuedPrompts[0]).toBe("Follow up");
     expect(steeredPrompts.length).toBe(0);
     await waitFor(() => expect(readComposerText(view)).toBe(""));
+  });
+
+  test("edits a queued follow-up in place at its captured ledger revision", async () => {
+    resetStorage();
+    const replacements: Array<{
+      threadId: string;
+      followUpId: string;
+      expectedLedgerRevision: number;
+      prompt: string;
+    }> = [];
+    const removed: string[] = [];
+    const view = await renderComposer(
+      buildRunningComposerModel({
+        isQueueingEnabled: true,
+        composerIntent: {
+          prompt: "Edited follow-up",
+          queuedFollowUpEdit: { followUpId: "follow-up-edit", ledgerRevision: 7 },
+          focusNonce: 2,
+        },
+      }),
+      {
+        onReplaceQueuedFollowUp: async (threadId, followUpId, expectedLedgerRevision, prompt) => {
+          replacements.push({ threadId, followUpId, expectedLedgerRevision, prompt });
+          return true;
+        },
+        onRemoveQueuedFollowUp: async (_threadId, followUpId) => {
+          removed.push(followUpId);
+        },
+      },
+    );
+
+    await keyDownComposer(view, { key: "Enter" });
+
+    await waitFor(() => expect(replacements).toHaveLength(1));
+    expect(replacements[0]).toEqual({
+      threadId: "thread_1",
+      followUpId: "follow-up-edit",
+      expectedLedgerRevision: 7,
+      prompt: "Edited follow-up",
+    });
+    expect(removed).toEqual([]);
+    await waitFor(() => expect(readComposerText(view)).toBe(""));
+  });
+
+  test("keeps the original queued row and draft when an edit loses its revision race", async () => {
+    resetStorage();
+    const removed: string[] = [];
+    const errors: Array<string | null> = [];
+    const view = await renderComposer(
+      buildRunningComposerModel({
+        isQueueingEnabled: true,
+        composerIntent: {
+          prompt: "Stale queued edit",
+          queuedFollowUpEdit: { followUpId: "follow-up-stale", ledgerRevision: 3 },
+          focusNonce: 3,
+        },
+      }),
+      {
+        onReplaceQueuedFollowUp: async () => false,
+        onRemoveQueuedFollowUp: async (_threadId, followUpId) => {
+          removed.push(followUpId);
+        },
+      },
+      undefined,
+      (message) => errors.push(message),
+    );
+
+    await keyDownComposer(view, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(errors.at(-1)).toBe("The queued message changed before it could be edited"),
+    );
+    expect(removed).toEqual([]);
+    expect(readComposerText(view)).toBe("Stale queued edit");
+  });
+
+  test("removes an edited queued row only after its replacement steer is accepted", async () => {
+    resetStorage();
+    const events: string[] = [];
+    const view = await renderComposer(
+      buildRunningComposerModel({
+        isQueueingEnabled: true,
+        composerIntent: {
+          prompt: "Steer with edited row",
+          queuedFollowUpEdit: { followUpId: "follow-up-steer", ledgerRevision: 5 },
+          focusNonce: 4,
+        },
+      }),
+      {
+        onSteerPrompt: async () => {
+          events.push("steer");
+        },
+        onRemoveQueuedFollowUp: async (_threadId, followUpId) => {
+          events.push(`remove:${followUpId}`);
+        },
+      },
+    );
+
+    await keyDownComposer(view, { key: "Enter", metaKey: true });
+
+    await waitFor(() => expect(events).toEqual(["steer", "remove:follow-up-steer"]));
   });
 
   test("enter queues and cmd-enter steers while running in enter mode with queueing enabled", async () => {
@@ -4779,5 +4889,109 @@ describe("ThreadComposer speed menu", () => {
     });
 
     expect(selectedModes[0]).toBe("default");
+  });
+
+  test("keeps an interrupted queue intact until a fresh idle message succeeds", async () => {
+    resetStorage();
+    let releaseStart!: () => void;
+    const heldStart = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    let startCalls = 0;
+    const resolutions: Array<{ revision: number; resolution: "resume" | "clear" }> = [];
+    const view = await renderComposer(
+      {
+        composerIntent: { prompt: "Fresh message", focusNonce: 1 },
+        composerShell: {
+          ...buildModel().composerShell,
+          queuedFollowUpStatus: "ready",
+          queuedFollowUpLedgerRevision: 9,
+          hasInterruptedQueuedFollowUps: true,
+          queuedFollowUpRows: [
+            {
+              followUpId: "follow-up-paused",
+              threadId: "thread_1",
+              prompt: "Old queued message",
+              promptInput: { text: "Old queued message" },
+              displayText: "Old queued message",
+              pauseKind: "interrupted",
+              pausedReason: "Interrupted before the steer was accepted.",
+            },
+          ],
+        },
+      },
+      {
+        onSendPrompt: async () => {
+          startCalls += 1;
+          await heldStart;
+        },
+        onResolveQueuedFollowUpsAfterFreshStart: async (_threadId, revision, resolution) => {
+          resolutions.push({ revision, resolution });
+          return true;
+        },
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+    expect(view.getByRole("heading", { name: "Send message?" })).not.toBeNull();
+    expect(startCalls).toBe(0);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Send message" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(startCalls).toBe(1));
+    expect(resolutions).toEqual([]);
+
+    await act(async () => {
+      releaseStart();
+      await heldStart;
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(resolutions).toEqual([{ revision: 9, resolution: "resume" }]));
+  });
+
+  test("does not clear a paused queue when the fresh idle request fails", async () => {
+    resetStorage();
+    const resolutions: string[] = [];
+    const view = await renderComposer(
+      {
+        composerIntent: { prompt: "Fresh message", focusNonce: 1 },
+        composerShell: {
+          ...buildModel().composerShell,
+          queuedFollowUpStatus: "ready",
+          queuedFollowUpLedgerRevision: 4,
+          hasInterruptedQueuedFollowUps: true,
+          queuedFollowUpRows: [
+            {
+              followUpId: "follow-up-paused",
+              threadId: "thread_1",
+              prompt: "Old queued message",
+              promptInput: { text: "Old queued message" },
+              displayText: "Old queued message",
+              pauseKind: "interrupted",
+              pausedReason: "Interrupted before the steer was accepted.",
+            },
+          ],
+        },
+      },
+      {
+        onSendPrompt: async () => {
+          throw new Error("start rejected");
+        },
+        onResolveQueuedFollowUpsAfterFreshStart: async (_threadId, _revision, resolution) => {
+          resolutions.push(resolution);
+          return true;
+        },
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Clear queue" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(readComposerText(view)).toBe("Fresh message"));
+    expect(resolutions).toEqual([]);
   });
 });

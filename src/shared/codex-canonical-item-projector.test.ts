@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2";
+import { createCodexQueuedFollowUp } from "./codex-queued-follow-up-state";
 import {
   agentActivityV2DynamicGenericActiveItem,
   agentActivityV2DynamicGenericFailedItem,
@@ -342,7 +343,16 @@ describe("projectCodexCanonicalTurnItemViews", () => {
         clientUserMessageId: null,
         input: [{ type: "text", text: "Steer", text_elements: [] }],
         attachments: [],
-        restoreMessage: { context: { commentAttachments: [] } },
+        restoreMessage: {
+          queueRow: createCodexQueuedFollowUp({
+            followUpId: "follow-up-steering",
+            clientUserMessageId: "client-steering",
+            threadId: THREAD_ID,
+            prompt: "Steer",
+            createdAtMs: 900,
+          }),
+          context: { commentAttachments: [] },
+        },
         compareKey: { rawText: "Steer", imageCount: 0 },
       },
       { type: "steered", id: "steered" },

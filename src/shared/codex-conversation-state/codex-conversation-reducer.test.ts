@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import type { ServerNotification } from "@nodex/codex-app-server-protocol";
 import type { Thread, ThreadItem } from "@nodex/codex-app-server-protocol/v2";
+import { createCodexQueuedFollowUp } from "../codex-queued-follow-up-state";
 import {
   createCodexCanonicalConversationState,
   type CodexCanonicalConversationState,
@@ -16,6 +17,16 @@ import {
 
 const THREAD_ID = "thread_c03";
 const TURN_ID = "turn_c03";
+
+function restoreQueueRow(id: string, prompt: string) {
+  return createCodexQueuedFollowUp({
+    followUpId: `follow-up-${id}`,
+    clientUserMessageId: `client-${id}`,
+    threadId: THREAD_ID,
+    prompt,
+    createdAtMs: 1,
+  });
+}
 
 function buildTurnParams(threadId = THREAD_ID): CodexCanonicalTurnParams {
   return {
@@ -993,6 +1004,7 @@ describe("canonical item lifecycle reducer", () => {
       input: content,
       attachments: [],
       restoreMessage: {
+        queueRow: restoreQueueRow("pending-steer", "steer fixture"),
         context: {
           commentAttachments: [],
         },
@@ -1059,7 +1071,10 @@ describe("canonical item lifecycle reducer", () => {
       clientUserMessageId: id,
       input: content,
       attachments: [],
-      restoreMessage: { context: { commentAttachments: [] } },
+      restoreMessage: {
+        queueRow: restoreQueueRow(id, "same text"),
+        context: { commentAttachments: [] },
+      },
       compareKey: { rawText: "same text", imageCount: 0 },
     });
     const state = {
@@ -1143,6 +1158,7 @@ describe("canonical item lifecycle reducer", () => {
       input: content,
       attachments: [],
       restoreMessage: {
+        queueRow: restoreQueueRow("pending-attachment-steer", "steer fixture"),
         context: {
           commentAttachments: [commentAttachment],
         },

@@ -35,7 +35,15 @@ function buildConversationSnapshot(
     resumeState: "resumed",
     turns: [],
     requests: [],
-    queuedFollowUps: [],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 0,
+      projectionRevision: 0,
+      entries: [],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
     pendingSteers: [],
     backgroundTerminalRows: [],
     capabilityFlags: {
@@ -185,16 +193,29 @@ describe("buildComposerShellModel", () => {
             createdAt: 20,
           },
         ],
-        queuedFollowUps: [
-          {
-            followUpId: "follow_up_1",
-            threadId: "thread_1",
-            prompt: "Run validation next.",
-            createdAt: 30,
-            collaborationMode: "default",
-            serviceTier: null,
-          },
-        ],
+        queuedFollowUps: {
+          status: "ready",
+          ledgerRevision: 0,
+          projectionRevision: 0,
+          entries: [
+            {
+              followUpId: "follow_up_1",
+              clientUserMessageId: "client_follow_up_1",
+              threadId: "thread_1",
+              prompt: "Run validation next.",
+              promptInput: { text: "Run validation next." },
+              createdAtMs: 30,
+              collaborationMode: "default",
+              serviceTier: null,
+              summary: null,
+              pause: null,
+              payloadRef: null,
+            },
+          ],
+          inFlightFollowUpId: null,
+          editingFollowUpId: null,
+          error: null,
+        },
         backgroundTerminalRows: [
           {
             id: "row_1",
@@ -255,6 +276,61 @@ describe("buildComposerShellModel", () => {
     expect(model.backgroundAgentRows[0]?.status).toBe("active");
     expect(model.showRequestCards).toBe(true);
     expect(model.showComposer).toBe(false);
+  });
+
+  test("preserves full queue projection state and summarizes attachment-only rows", () => {
+    const model = buildComposerShellModel({
+      conversation: buildConversationSnapshot({
+        queuedFollowUps: {
+          status: "ready",
+          ledgerRevision: 7,
+          projectionRevision: 11,
+          entries: [
+            {
+              followUpId: "follow_up_attachment",
+              clientUserMessageId: "client_attachment",
+              threadId: "thread_1",
+              prompt: "",
+              promptInput: {
+                text: "",
+                images: [{ source: "data:image/png;base64,AA==" }],
+                commentAttachments: [
+                  {
+                    id: "comment_1",
+                    type: "comment",
+                    content: [{ content_type: "text", text: "Check this" }],
+                    position: { side: "right", path: "src/app.ts", line: 3 },
+                    createdAt: 1,
+                  },
+                ],
+              },
+              createdAtMs: 30,
+              collaborationMode: "default",
+              serviceTier: null,
+              summary: null,
+              pause: {
+                kind: "interrupted",
+                reason: "Interrupted before the steer was accepted.",
+              },
+              payloadRef: null,
+            },
+          ],
+          inFlightFollowUpId: "follow_up_attachment",
+          editingFollowUpId: null,
+          error: null,
+        },
+      }),
+      knownConversationsById: {},
+    });
+
+    expect(model.queuedFollowUpLedgerRevision).toBe(7);
+    expect(model.hasInterruptedQueuedFollowUps).toBe(true);
+    expect(model.queuedFollowUpRows[0]).toMatchObject({
+      displayText: "1 image · 1 review comment",
+      pauseKind: "interrupted",
+      isInFlight: true,
+      imagePreviewSource: "data:image/png;base64,AA==",
+    });
   });
 
   test("stacks child permission before a canonical active option request", () => {

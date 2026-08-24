@@ -46,6 +46,7 @@ export interface CodexRendererConversationCoordinatorService {
     readonly ownerClientId: string | null;
     readonly resumeState: CodexConversationResumeState | null;
     readonly revision: number;
+    readonly threadGeneration: number | null;
   };
   readonly adoptRendererOwner: (input: {
     readonly conversationId: string;
@@ -54,6 +55,7 @@ export interface CodexRendererConversationCoordinatorService {
     readonly checkpoint: CodexThreadStreamCheckpoint | null;
     readonly ownerClientId: string | null;
     readonly revision: number;
+    readonly threadGeneration: number | null;
   }>;
   readonly setOwner: (conversationId: string, clientId: string) => Effect.Effect<boolean>;
   readonly setFollowing: (
@@ -314,6 +316,7 @@ export const make: Effect.Effect<
         ownerClientId: registry.getOwnerClientId(conversationId),
         resumeState: state?.resumeState ?? null,
         revision: state?.revision ?? 0,
+        threadGeneration: aggregate(conversationId)?.generation ?? null,
       };
     },
     adoptRendererOwner: (input) =>
@@ -323,6 +326,7 @@ export const make: Effect.Effect<
             checkpoint: null,
             ownerClientId: null,
             revision: aggregate(input.conversationId)?.read().revision ?? 0,
+            threadGeneration: aggregate(input.conversationId)?.generation ?? null,
           };
         }
         const currentOwner = registry.getOwnerClientId(input.conversationId);
@@ -332,6 +336,7 @@ export const make: Effect.Effect<
             checkpoint: current?.acceptedReplica?.checkpoint ?? null,
             ownerClientId: currentOwner,
             revision: current?.revision ?? 0,
+            threadGeneration: aggregate(input.conversationId)?.generation ?? null,
           };
         }
         const conversation = aggregate(input.conversationId);
@@ -343,10 +348,16 @@ export const make: Effect.Effect<
             checkpoint: null,
             ownerClientId: null,
             revision: conversation?.read().revision ?? 0,
+            threadGeneration: conversation?.generation ?? null,
           };
         }
         if (!setOwnerState(input.conversationId, input.ownerClientId)) {
-          return { checkpoint: null, ownerClientId: null, revision: conversation.read().revision };
+          return {
+            checkpoint: null,
+            ownerClientId: null,
+            revision: conversation.read().revision,
+            threadGeneration: conversation.generation,
+          };
         }
         conversation.setStreamRole("owner");
         if (!before.acceptedReplica) {
@@ -362,6 +373,7 @@ export const make: Effect.Effect<
           checkpoint: after.acceptedReplica?.checkpoint ?? null,
           ownerClientId: registry.getOwnerClientId(input.conversationId),
           revision: after.revision,
+          threadGeneration: conversation.generation,
         };
       }).pipe(Effect.tap(() => retention.reconcile(input.conversationId))),
     setOwner,

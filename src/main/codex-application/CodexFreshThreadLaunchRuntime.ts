@@ -161,9 +161,13 @@ export const make: Effect.Effect<
         if (!state.checkpoint) {
           throw new Error(`Fresh thread '${launch.threadId}' has no accepted owner replica`);
         }
+        if (state.threadGeneration === null) {
+          throw new Error(`Fresh thread '${launch.threadId}' has no live Thread generation`);
+        }
         return {
           role: "owner",
           conversation: state.acceptedConversation,
+          threadGeneration: state.threadGeneration,
           revision: state.revision,
           checkpoint: state.checkpoint,
         };

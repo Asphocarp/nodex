@@ -4,6 +4,7 @@ use nodex_core_contracts::workspace::{
     ProjectWorkspaceReadValue, ProjectWorkspaceSessionSummary,
 };
 use rusqlite::{Connection, OptionalExtension, params};
+use std::path::Path;
 
 use crate::domain::project_appearance::project_appearance_from_storage;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -51,6 +52,7 @@ pub(super) fn read(
     connection: &Connection,
     library_id: &str,
     commit_head: i64,
+    assets_root: &Path,
     request: ProjectWorkspaceRead,
 ) -> Result<ProjectWorkspaceReadValue, StoreError> {
     match request {
@@ -180,6 +182,17 @@ pub(super) fn read(
                     read_thread(connection, library_id, &thread_id)?
                         .ok_or_else(|| not_found("Codex Thread is unavailable in this Library"))?,
                 ),
+            })
+        }
+        ProjectWorkspaceRead::QueuedFollowUpLedger { thread_id } => {
+            validate_id("thread_id", &thread_id)?;
+            Ok(ProjectWorkspaceReadValue::QueuedFollowUpLedger {
+                ledger: super::queued_follow_up::read_ledger(
+                    connection,
+                    library_id,
+                    &thread_id,
+                    assets_root,
+                )?,
             })
         }
         ProjectWorkspaceRead::ChildThreadWindow {

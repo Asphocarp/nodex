@@ -225,7 +225,15 @@ export const projectCodexThreadDirectorySnapshot = (input: {
         canonicalRequests: [...(input.before?.requests ?? [])],
         hasUnreadTurn: input.after.sidecar.hasUnreadTurn,
         requests: [],
-        queuedFollowUps: [],
+        queuedFollowUps: {
+          status: "ready",
+          ledgerRevision: 0,
+          projectionRevision: 0,
+          entries: [],
+          inFlightFollowUpId: null,
+          editingFollowUpId: null,
+          error: null,
+        },
         pendingSteers: [],
         backgroundTerminalRows: [],
         capabilityFlags: {

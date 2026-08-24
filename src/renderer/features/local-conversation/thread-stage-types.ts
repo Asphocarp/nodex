@@ -405,13 +405,30 @@ export interface ThreadStageActions {
     },
   ) => Promise<void>;
   onRemoveQueuedFollowUp: (threadId: string, followUpId: string) => Promise<void>;
+  onReplaceQueuedFollowUp?: (
+    threadId: string,
+    followUpId: string,
+    expectedLedgerRevision: number,
+    prompt: string,
+    opts?: {
+      collaborationMode?: CodexCollaborationModeKind | null;
+      promptInput?: CodexPromptInput;
+    },
+  ) => Promise<boolean>;
   onReorderQueuedFollowUps: (threadId: string, orderedFollowUpIds: string[]) => Promise<void>;
+  onResumeQueuedFollowUps?: (threadId: string) => Promise<void>;
+  onResolveQueuedFollowUpsAfterFreshStart?: (
+    threadId: string,
+    expectedLedgerRevision: number,
+    resolution: import("../../../shared/types").CodexQueuedFollowUpFreshStartResolution,
+  ) => Promise<boolean>;
   onSendQueuedFollowUpNow: (threadId: string, followUpId: string) => Promise<void>;
   onEditQueuedFollowUp: (input: {
     threadId: string;
     followUpId: string;
     prompt: string;
     promptInput?: CodexPromptInput;
+    ledgerRevision?: number;
   }) => Promise<void>;
   onEditLastUserTurn: (input: {
     threadId: string;
@@ -993,6 +1010,10 @@ export interface ThreadComposerShellQueuedFollowUpRowModel {
   displayText: string;
   collaborationMode?: CodexCollaborationModeKind | null;
   pausedReason?: string | null;
+  pauseKind?: "interrupted" | "failed" | null;
+  isInFlight?: boolean;
+  imagePreviewSource?: string | null;
+  ledgerRevision?: number;
 }
 
 export interface ThreadComposerShellBackgroundAgentRowModel {
@@ -1018,6 +1039,10 @@ export interface ThreadComposerShellModel {
   backgroundRequest: ThreadComposerShellPendingRequestModel | null;
   pendingSteerRows: ThreadComposerShellPendingSteerRowModel[];
   queuedFollowUpRows: ThreadComposerShellQueuedFollowUpRowModel[];
+  queuedFollowUpStatus?: "loading" | "ready" | "error";
+  queuedFollowUpLedgerRevision?: number;
+  queuedFollowUpError?: string | null;
+  hasInterruptedQueuedFollowUps?: boolean;
   backgroundAgentRows: ThreadComposerShellBackgroundAgentRowModel[];
   backgroundTerminalRows: CodexBackgroundTerminalRow[];
   showRequestCards: boolean;

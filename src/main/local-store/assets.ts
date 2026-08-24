@@ -205,7 +205,7 @@ const assertContentAddressedAsset = (absolutePath: string, expectedHash: string)
 const isAlreadyExistsError = (error: unknown): error is NodeJS.ErrnoException =>
   error instanceof Error && "code" in error && error.code === "EEXIST";
 
-const publishContentAddressedAsset = (
+export const publishContentAddressedAsset = (
   assetsRootPath: string,
   fileName: string,
   bytes: Buffer,

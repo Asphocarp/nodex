@@ -2016,9 +2016,27 @@ export interface IpcApi {
     args: [threadId: string, followUpId: string];
     result: void;
   };
+  "codex:thread:follow-up:replace": {
+    args: [
+      threadId: string,
+      followUpId: string,
+      expectedLedgerRevision: number,
+      prompt: string,
+      opts?: CodexTurnStartOptions,
+    ];
+    result: boolean;
+  };
   "codex:thread:follow-up:reorder": {
     args: [threadId: string, orderedFollowUpIds: string[]];
     result: void;
+  };
+  "codex:thread:follow-up:resume": {
+    args: [threadId: string];
+    result: boolean;
+  };
+  "codex:thread:follow-up:resolve-after-fresh-start": {
+    args: [threadId: string, expectedLedgerRevision: number, resolution: "resume" | "clear"];
+    result: boolean;
   };
   "codex:thread:follow-up:send-now": {
     args: [threadId: string, followUpId: string];

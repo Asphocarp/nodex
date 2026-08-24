@@ -92,6 +92,20 @@ describe("semantic theme contract in the renderer build", () => {
     ).toBe("56px");
   });
 
+  test("uses the dark primary foreground without weakening secondary text roles", () => {
+    setWindowTheme("electron", "dark");
+    const rootStyle = getComputedStyle(document.documentElement);
+
+    expect(rootStyle.getPropertyValue("--color-text-foreground").trim()).toBe("#dfdfdf");
+    expect(getComputedStyle(mountRole("text-token-foreground")).color).toBe("rgb(223, 223, 223)");
+    expect(rootStyle.getPropertyValue("--color-text-foreground-secondary").trim()).toBe(
+      "color-mix(in oklab, #ffffff 70%, transparent)",
+    );
+    expect(rootStyle.getPropertyValue("--color-text-foreground-tertiary").trim()).toBe(
+      "color-mix(in oklab, #ffffff 50%, transparent)",
+    );
+  });
+
   test("resolves production shimmer and sidebar surfaces in both electron schemes", () => {
     for (const scheme of ["light", "dark"] as const) {
       setWindowTheme("electron", scheme);

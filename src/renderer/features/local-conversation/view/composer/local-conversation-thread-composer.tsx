@@ -22,6 +22,7 @@ import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type {
   CodexComposerAppshotContext,
   CodexComposerAppshotTarget,
+  CodexComposerIntent,
   CodexPermissionState,
   CodexPromptDocumentInput,
   CodexPromptInput,
@@ -101,6 +102,7 @@ import {
 } from "@/components/ui/dialog";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import { ComposerActionTooltipContent } from "./composer-submit-tooltip";
+import { QueuedFollowUpSendDialog } from "./queued-follow-up-send-dialog";
 import {
   formatComposerDictationDuration,
   isComposerDictationShortcut,
@@ -1966,6 +1968,8 @@ interface HydratedThreadComposerProps extends ThreadComposerProps {
   readonly setPrompt: (prompt: string) => void;
   readonly clearSubmittedDraft: () => void;
   readonly intelligenceController: ComposerIntelligenceController;
+  readonly queuedFollowUpEdit: CodexComposerIntent["queuedFollowUpEdit"] | null;
+  readonly clearQueuedFollowUpEdit: () => void;
 }
 
 export function ThreadComposer(props: ThreadComposerProps) {
@@ -2013,6 +2017,9 @@ function ControlledThreadComposer(
   );
   const [transfer, setTransfer] = useScopedAtom(transferDefinition);
   const consumedIntentNonceRef = useRef(consumedIntentNonce);
+  const [queuedFollowUpEdit, setQueuedFollowUpEdit] = useState<
+    CodexComposerIntent["queuedFollowUpEdit"] | null
+  >(null);
   const consumedTransferIdRef = useRef<string | null>(null);
   const intent = model.composerIntent ?? model.newThreadComposerIntent ?? null;
 
@@ -2044,6 +2051,7 @@ function ControlledThreadComposer(
 
     if (intent && consumedIntentNonceRef.current !== intent.focusNonce) {
       consumedIntentNonceRef.current = intent.focusNonce;
+      if (intent.queuedFollowUpEdit) setQueuedFollowUpEdit(intent.queuedFollowUpEdit);
       const restored = buildComposerAttachmentStateFromPromptInput(intent.promptInput);
       const mentionPrompt = buildPersistedMentionPrompt(intent.promptInput);
       const documentPrompt = buildPersistedPromptDocument(intent.promptInput);
@@ -2196,6 +2204,8 @@ function ControlledThreadComposer(
       prompt={promptDraft.prompt}
       setPrompt={setPrompt}
       clearSubmittedDraft={clearSubmittedDraft}
+      queuedFollowUpEdit={queuedFollowUpEdit}
+      clearQueuedFollowUpEdit={() => setQueuedFollowUpEdit(null)}
     />
   );
 }
@@ -2209,6 +2219,8 @@ function HydratedThreadComposer({
   prompt,
   setPrompt,
   clearSubmittedDraft,
+  queuedFollowUpEdit,
+  clearQueuedFollowUpEdit,
   intelligenceController,
 }: HydratedThreadComposerProps) {
   const { floating: isFloatingComposer } = useRightPanelComposerPresentation();
@@ -2243,9 +2255,23 @@ function HydratedThreadComposer({
   const [goalModeActive, setGoalModeActive] = useScopedAtom(composerGoalModeActiveAtom);
   const [goalReplacementConfirmation, setGoalReplacementConfirmation] =
     useState<ThreadGoalReplacementConfirmationState | null>(null);
+  const [pausedQueueSendDialogOpen, setPausedQueueSendDialogOpen] = useState(false);
   const [promptIntrinsicWidthPx, setPromptIntrinsicWidthPx] = useState<number | null>(null);
   const [compactInputWidthPx, setCompactInputWidthPx] = useState<number | null>(null);
   const [isFileDragActive, setFileDragActive] = useState(false);
+  useEffect(() => {
+    if (
+      pausedQueueSendDialogOpen &&
+      model.composerShell.queuedFollowUpStatus === "ready" &&
+      model.composerShell.hasInterruptedQueuedFollowUps !== true
+    ) {
+      setPausedQueueSendDialogOpen(false);
+    }
+  }, [
+    model.composerShell.hasInterruptedQueuedFollowUps,
+    model.composerShell.queuedFollowUpStatus,
+    pausedQueueSendDialogOpen,
+  ]);
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const addContextMenuRef = useRef<ComposerAddContextMenuHandle>(null);
   const appendPromptToHistoryRef = useRef<(text: string) => void>(() => {});
@@ -2787,11 +2813,28 @@ function HydratedThreadComposer({
     ],
   );
 
+  const finalizeEditedQueuedFollowUp = useCallback(async () => {
+    if (!queuedFollowUpEdit || !model.conversation) return;
+    try {
+      await actions.onRemoveQueuedFollowUp(
+        model.conversation.threadId,
+        queuedFollowUpEdit.followUpId,
+      );
+    } catch {
+      toast.danger("The message was sent, but its original queued copy could not be removed", {
+        id: "queued-follow-up-edit-finalize-failed",
+      });
+    } finally {
+      clearQueuedFollowUpEdit();
+    }
+  }, [actions, clearQueuedFollowUpEdit, model.conversation, queuedFollowUpEdit]);
+
   const submitPrompt = useCallback(
     async (input: {
       prompt: string;
       submitAction: StageThreadsComposerSubmitAction | null;
       imageEditIntent?: ImageEditSubmissionIntent;
+      pausedQueueResolution?: "resume" | "clear";
     }): Promise<boolean> => {
       if (hasPendingPastedTextAttachments) return false;
       if (!imageInputSupported && (imageAttachments.length > 0 || input.imageEditIntent)) {
@@ -2872,7 +2915,9 @@ function HydratedThreadComposer({
           return false;
         }
 
-        return submitThreadGoalDraft(submissionDraft);
+        const submitted = await submitThreadGoalDraft(submissionDraft);
+        if (submitted) await finalizeEditedQueuedFollowUp();
+        return submitted;
       }
 
       if (!trimmedPrompt && !hasPromptAttachments) {
@@ -2906,6 +2951,7 @@ function HydratedThreadComposer({
             prompt: sideChatPrompt,
             promptInput: sideChatPromptInput,
           });
+          await finalizeEditedQueuedFollowUp();
           await cleanupSubmittedPastedTextAttachments();
           completeSuccessfulSubmission(sideChatPrompt);
           return true;
@@ -2917,6 +2963,17 @@ function HydratedThreadComposer({
         } finally {
           setBusyAction(null);
         }
+      }
+
+      if (
+        model.conversation &&
+        !model.isThreadRunning &&
+        model.composerShell.hasInterruptedQueuedFollowUps === true &&
+        actions.onResolveQueuedFollowUpsAfterFreshStart &&
+        input.pausedQueueResolution === undefined
+      ) {
+        setPausedQueueSendDialogOpen(true);
+        return false;
       }
 
       setBusyAction("send");
@@ -2956,10 +3013,27 @@ function HydratedThreadComposer({
           }
         } else if (model.isThreadRunning) {
           if (isImageEditFollowUp || input.submitAction === "queue") {
-            await actions.onEnqueueQueuedFollowUp(model.conversation.threadId, nextPrompt, {
-              collaborationMode: model.selectedCollaborationMode,
-              promptInput,
-            });
+            if (queuedFollowUpEdit && actions.onReplaceQueuedFollowUp) {
+              const replaced = await actions.onReplaceQueuedFollowUp(
+                model.conversation.threadId,
+                queuedFollowUpEdit.followUpId,
+                queuedFollowUpEdit.ledgerRevision,
+                nextPrompt,
+                {
+                  collaborationMode: model.selectedCollaborationMode,
+                  promptInput,
+                },
+              );
+              if (!replaced)
+                throw new Error("The queued message changed before it could be edited");
+              clearQueuedFollowUpEdit();
+            } else {
+              await actions.onEnqueueQueuedFollowUp(model.conversation.threadId, nextPrompt, {
+                collaborationMode: model.selectedCollaborationMode,
+                promptInput,
+              });
+              await finalizeEditedQueuedFollowUp();
+            }
           } else if (input.submitAction === "steer") {
             if (!model.activeTurn || model.activeTurn.turnId === null) {
               onErrorMessage(
@@ -2973,6 +3047,7 @@ function HydratedThreadComposer({
               promptInput,
               collaborationMode: model.selectedCollaborationMode,
             });
+            await finalizeEditedQueuedFollowUp();
           } else {
             onErrorMessage(
               "Nodex is already running. Choose Queue or Steer before submitting a follow-up.",
@@ -2980,12 +3055,36 @@ function HydratedThreadComposer({
             return false;
           }
         } else {
+          const queuedFollowUpResolution =
+            input.pausedQueueResolution &&
+            model.composerShell.hasInterruptedQueuedFollowUps === true &&
+            actions.onResolveQueuedFollowUpsAfterFreshStart
+              ? {
+                  resolution: input.pausedQueueResolution,
+                  ledgerRevision: model.composerShell.queuedFollowUpLedgerRevision ?? 0,
+                  resolve: actions.onResolveQueuedFollowUpsAfterFreshStart,
+                }
+              : null;
           await intelligenceController.flush();
           await actions.onSendPrompt(nextPrompt, {
             collaborationMode: model.selectedCollaborationMode,
             promptInput,
             ...intelligenceController.turnOverrides,
           });
+          if (queuedFollowUpResolution) {
+            try {
+              await queuedFollowUpResolution.resolve(
+                model.conversation.threadId,
+                queuedFollowUpResolution.ledgerRevision,
+                queuedFollowUpResolution.resolution,
+              );
+            } catch {
+              toast.danger("The message was sent, but the paused queue could not be updated", {
+                id: "queued-follow-up-fresh-start-resolution-failed",
+              });
+            }
+          }
+          await finalizeEditedQueuedFollowUp();
         }
         if (target?.runInTarget !== "newWorktree") {
           await cleanupSubmittedPastedTextAttachments();
@@ -3033,6 +3132,8 @@ function HydratedThreadComposer({
       attachmentState,
       canStartNewThread,
       completeSuccessfulSubmission,
+      clearQueuedFollowUpEdit,
+      finalizeEditedQueuedFollowUp,
       goalModeActive,
       hasPendingPastedTextAttachments,
       imageAttachments,
@@ -3040,12 +3141,14 @@ function HydratedThreadComposer({
       imageInputSupported,
       intelligenceController,
       model.activeTurn,
+      model.composerShell,
       model.conversation,
       model.hostId,
       model.isCloudNewThreadTarget,
       model.isThreadRunning,
       model.newThreadTarget,
       model.selectedCollaborationMode,
+      queuedFollowUpEdit,
       onErrorMessage,
       cleanupSubmittedPastedTextAttachments,
       setGoalModeActive,
@@ -4149,10 +4252,28 @@ function HydratedThreadComposer({
     void (async () => {
       const succeeded = await submitThreadGoalDraft(confirmation.draft);
       if (succeeded) {
+        await finalizeEditedQueuedFollowUp();
         setGoalReplacementConfirmation(null);
       }
     })();
-  }, [busyAction, goalReplacementConfirmation, submitThreadGoalDraft]);
+  }, [
+    busyAction,
+    finalizeEditedQueuedFollowUp,
+    goalReplacementConfirmation,
+    submitThreadGoalDraft,
+  ]);
+  const handlePausedQueueSendDecision = useCallback(
+    (resolution: "resume" | "clear") => {
+      if (busyAction !== null) return;
+      setPausedQueueSendDialogOpen(false);
+      void submitPrompt({
+        prompt,
+        submitAction: composerActionState.primarySubmitAction,
+        pausedQueueResolution: resolution,
+      });
+    },
+    [busyAction, composerActionState.primarySubmitAction, prompt, submitPrompt],
+  );
   const newThreadPromptPlaceholder = model.newThreadTarget
     ? model.isCloudNewThreadTarget
       ? "Cloud run target is currently mock-only"
@@ -4839,6 +4960,16 @@ function HydratedThreadComposer({
         pending={busyAction !== null}
         onCancel={handleCancelGoalReplacement}
         onConfirm={handleConfirmGoalReplacement}
+      />
+      <QueuedFollowUpSendDialog
+        open={pausedQueueSendDialogOpen}
+        queuedMessageCount={model.composerShell.queuedFollowUpRows.length}
+        pending={busyAction !== null}
+        onOpenChange={(open) => {
+          if (!open && busyAction === null) setPausedQueueSendDialogOpen(false);
+        }}
+        onClearQueue={() => handlePausedQueueSendDecision("clear")}
+        onSendMessage={() => handlePausedQueueSendDecision("resume")}
       />
       {desktopPetVisible ? (
         <NodexTooltip tooltipContent="Hide desktop pet">

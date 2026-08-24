@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
+import { createCodexQueuedFollowUp } from "../codex-queued-follow-up-state";
 import type {
   CodexCanonicalConversationState,
   CodexCanonicalSteeringUserMessageItem,
@@ -74,7 +75,16 @@ function buildSteer(id = "steer-a"): CodexCanonicalSteeringUserMessageItem {
     clientUserMessageId: id,
     input: [{ type: "text", text: "continue", text_elements: [] }],
     attachments: [{ path: "/workspace/file.ts" }],
-    restoreMessage: { context: { commentAttachments: [] }, prompt: "continue" },
+    restoreMessage: {
+      queueRow: createCodexQueuedFollowUp({
+        followUpId: `follow-up-${id}`,
+        clientUserMessageId: `client-${id}`,
+        threadId: "thread-a",
+        prompt: "continue",
+        createdAtMs: 10,
+      }),
+      context: { commentAttachments: [] },
+    },
     compareKey: { rawText: "continue", imageCount: 0 },
   };
 }

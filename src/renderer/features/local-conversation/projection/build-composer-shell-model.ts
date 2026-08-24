@@ -8,6 +8,7 @@ import type {
   CodexConversationTurn,
   CodexPendingSteer,
   CodexQueuedFollowUp,
+  CodexQueuedFollowUpProjection,
   CodexThreadActiveFlag,
   CodexThreadStatusType,
 } from "../../../lib/types";
@@ -32,6 +33,7 @@ interface ExplicitBuildComposerShellModelInput {
   canonicalRequests?: CodexCanonicalServerRequest[];
   pendingSteers: CodexPendingSteer[];
   queuedFollowUps: CodexQueuedFollowUp[];
+  queuedFollowUpProjection?: CodexQueuedFollowUpProjection;
   backgroundTerminalRows: CodexBackgroundTerminalRow[];
   childMemberships: CodexConversationChildMembership[];
   statusType: CodexThreadStatusType | null;
@@ -61,7 +63,8 @@ function normalizeBuildComposerShellModelInput(
       requests: input.conversation.requests,
       canonicalRequests: input.conversation.canonicalRequests,
       pendingSteers: input.conversation.pendingSteers,
-      queuedFollowUps: input.conversation.queuedFollowUps,
+      queuedFollowUps: [...input.conversation.queuedFollowUps.entries],
+      queuedFollowUpProjection: input.conversation.queuedFollowUps,
       backgroundTerminalRows: input.conversation.backgroundTerminalRows,
       childMemberships: input.childMemberships ?? [],
       statusType: input.conversation.statusType,
@@ -111,6 +114,15 @@ export function buildComposerShellModel(
   input: BuildComposerShellModelInput,
 ): ThreadComposerShellModel {
   const normalized = normalizeBuildComposerShellModelInput(input);
+  const queuedFollowUpProjection = normalized.queuedFollowUpProjection ?? {
+    status: "ready",
+    ledgerRevision: 0,
+    projectionRevision: 0,
+    entries: normalized.queuedFollowUps,
+    inFlightFollowUpId: null,
+    editingFollowUpId: null,
+    error: null,
+  };
 
   if (!normalized.threadId) {
     return {
@@ -147,7 +159,15 @@ export function buildComposerShellModel(
       turns: normalized.turns,
       canonicalRequests: normalized.canonicalRequests,
       requests: normalized.requests,
-      queuedFollowUps: normalized.queuedFollowUps,
+      queuedFollowUps: {
+        status: "ready",
+        ledgerRevision: 0,
+        projectionRevision: 0,
+        entries: normalized.queuedFollowUps,
+        inFlightFollowUpId: null,
+        editingFollowUpId: null,
+        error: null,
+      },
       pendingSteers: normalized.pendingSteers,
       backgroundTerminalRows: normalized.backgroundTerminalRows,
       capabilityFlags: {
@@ -176,7 +196,13 @@ export function buildComposerShellModel(
       : null,
     backgroundRequest,
     pendingSteerRows: buildComposerPendingSteerRows(normalized.pendingSteers),
-    queuedFollowUpRows: buildComposerQueuedFollowUpRows(normalized.queuedFollowUps),
+    queuedFollowUpRows: buildComposerQueuedFollowUpRows(queuedFollowUpProjection),
+    queuedFollowUpStatus: queuedFollowUpProjection.status,
+    queuedFollowUpLedgerRevision: queuedFollowUpProjection.ledgerRevision,
+    queuedFollowUpError: queuedFollowUpProjection.error,
+    hasInterruptedQueuedFollowUps: queuedFollowUpProjection.entries.some(
+      (entry) => entry.pause?.kind === "interrupted",
+    ),
     backgroundAgentRows: buildBackgroundSubagentRows({
       childMemberships: normalized.childMemberships,
       knownConversationsById: normalized.knownConversationsById,
