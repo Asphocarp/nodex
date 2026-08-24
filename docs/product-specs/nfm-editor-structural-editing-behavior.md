@@ -1,7 +1,7 @@
 # NFM Editor Structural Editing Behavior
 
 Status: Active
-Last updated: 2026-08-23
+Last updated: 2026-08-25
 
 ## Purpose
 
@@ -29,7 +29,9 @@ Backspace, Delete, the block side menu, and a block selection may remove any sup
 
 After Backspace, the cursor prefers the previous surviving editable Block at its end. After Delete, it prefers the next surviving editable Block at its start. If the host Document would become empty, the same operation creates an empty paragraph and places the cursor there. A user interaction in another surface while Core is committing always wins; a late completion does not steal focus.
 
-Backspace at the start of an ordinary text Block does not implicitly delete or merge a preceding non-text Block. It crosses a consecutive run of Page, Canvas, Database, image, divider, or other atomic Blocks and places the cursor at the end of the nearest preceding editable text Block. If none exists at that sibling level, the cursor stays in place. Deleting an atomic Block remains an explicit Block-selection action.
+Backspace at the start of a paragraph after a consecutive run of Page, Canvas, Database, image, divider, or other atomic Blocks merges that paragraph's inline content into the nearest preceding editable sibling. The atomic run remains in place. The cursor rests at the join between the target's original content and the appended content. The removed paragraph's direct children are promoted one level in their original order at the paragraph's former position, so they remain after the atomic run; nested owners keep their identities and owned Documents. The complete content merge, child promotion, and shell deletion is one structural history entry.
+
+Non-paragraph Blocks keep their ordinary first-Backspace normalization, such as resetting a list, toggle, quote, callout, code, or heading to a paragraph; a later Backspace may then perform the atomic-boundary merge. If no preceding editable sibling exists at that level, Backspace leaves the Document and cursor unchanged. Deleting an atomic Block remains an explicit Block-selection action.
 
 ## Copy, cut, paste, and duplicate
 

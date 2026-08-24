@@ -84,6 +84,31 @@ pub enum DocumentBlockOperation {
         #[serde(skip_serializing_if = "Option::is_none")]
         before_block_id: Option<String>,
     },
+    /// One semantic editor gesture: append an ordinary source Block's inline
+    /// content to an earlier target, promote the source's direct children, and
+    /// remove only the now-empty source shell.
+    MergeBlockBackward {
+        target_block_id: String,
+        source_block_id: String,
+        merged_content: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        promoted_parent_block_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        promoted_before_block_id: Option<String>,
+        promoted_child_ids: Vec<String>,
+    },
+    /// Inverse of `MergeBlockBackward`. The source shell is reactivated by the
+    /// Library placement boundary; this operation restores its tree topology.
+    RestoreBackwardMerge {
+        target_block_id: String,
+        target_content: Value,
+        source_block: MaterializedBlockNode,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_parent_block_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_before_block_id: Option<String>,
+        promoted_child_ids: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1267,6 +1292,132 @@ fn apply_operation(
             *canonical_tree = dematerialize_block_tree(semantic_blocks)?;
             Ok(())
         }
+        DocumentBlockOperation::MergeBlockBackward {
+            target_block_id,
+            source_block_id,
+            merged_content,
+            promoted_parent_block_id,
+            promoted_before_block_id,
+            promoted_child_ids,
+        } => {
+            let source = find_semantic_block(semantic_blocks, source_block_id)
+                .cloned()
+                .ok_or_else(|| block_not_found(operation_index, source_block_id))?;
+            let actual_child_ids = source
+                .children
+                .iter()
+                .map(|child| child.id.clone())
+                .collect::<Vec<_>>();
+            if actual_child_ids != *promoted_child_ids {
+                return Err(operation_error(
+                    DocumentOperationErrorCode::InvalidOperation,
+                    "Backward merge source children changed before promotion",
+                    Some(operation_index),
+                    Some(source_block_id),
+                ));
+            }
+            let mut nested = Vec::with_capacity(promoted_child_ids.len() + 2);
+            nested.push(DocumentBlockOperation::UpdateBlock {
+                block_id: target_block_id.clone(),
+                patch: DocumentBlockUpdatePatch {
+                    block_type: None,
+                    props: None,
+                    content: Some(merged_content.clone()),
+                    unset_content: false,
+                },
+            });
+            nested.extend(promoted_child_ids.iter().map(|child_id| {
+                DocumentBlockOperation::MoveBlock {
+                    block_id: child_id.clone(),
+                    parent_block_id: promoted_parent_block_id.clone(),
+                    before_block_id: promoted_before_block_id.clone(),
+                }
+            }));
+            nested.push(DocumentBlockOperation::DeleteBlock {
+                block_id: source_block_id.clone(),
+            });
+            for operation in &nested {
+                apply_operation(
+                    operation,
+                    operation_index,
+                    schema,
+                    body,
+                    title,
+                    transaction,
+                    semantic_blocks,
+                    canonical_tree,
+                    write_fences,
+                    title_write_fence_required,
+                )?;
+            }
+            Ok(())
+        }
+        DocumentBlockOperation::RestoreBackwardMerge {
+            target_block_id,
+            target_content,
+            source_block,
+            source_parent_block_id,
+            source_before_block_id,
+            promoted_child_ids,
+        } => {
+            if !source_block.children.is_empty() {
+                return Err(operation_error(
+                    DocumentOperationErrorCode::InvalidOperation,
+                    "Backward merge restoration requires a shallow source shell",
+                    Some(operation_index),
+                    Some(&source_block.id),
+                ));
+            }
+            if find_semantic_block(semantic_blocks, &source_block.id).is_some() {
+                return Err(operation_error(
+                    DocumentOperationErrorCode::InvalidOperation,
+                    "Backward merge source shell is already present",
+                    Some(operation_index),
+                    Some(&source_block.id),
+                ));
+            }
+            let insertion_anchor = promoted_child_ids
+                .first()
+                .cloned()
+                .or_else(|| source_before_block_id.clone());
+            let mut nested = Vec::with_capacity(promoted_child_ids.len() + 2);
+            nested.push(DocumentBlockOperation::UpdateBlock {
+                block_id: target_block_id.clone(),
+                patch: DocumentBlockUpdatePatch {
+                    block_type: None,
+                    props: None,
+                    content: Some(target_content.clone()),
+                    unset_content: false,
+                },
+            });
+            nested.push(DocumentBlockOperation::InsertBlock {
+                block: source_block.clone(),
+                parent_block_id: source_parent_block_id.clone(),
+                before_block_id: insertion_anchor,
+            });
+            nested.extend(promoted_child_ids.iter().map(|child_id| {
+                DocumentBlockOperation::MoveBlock {
+                    block_id: child_id.clone(),
+                    parent_block_id: Some(source_block.id.clone()),
+                    before_block_id: None,
+                }
+            }));
+            for operation in &nested {
+                apply_operation(
+                    operation,
+                    operation_index,
+                    schema,
+                    body,
+                    title,
+                    transaction,
+                    semantic_blocks,
+                    canonical_tree,
+                    write_fences,
+                    title_write_fence_required,
+                )?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -2074,6 +2225,77 @@ mod tests {
                 "paragraph"
             );
         }
+    }
+
+    #[test]
+    fn backward_merge_preserves_the_atomic_gap_and_promotes_source_children() {
+        let (state, vector) = matrix_state();
+        let target = paragraph("merge-target", "ABC");
+        let atomic: MaterializedBlockNode = serde_json::from_value(serde_json::json!({
+            "id": "merge-image",
+            "type": "image",
+            "props": { "url": "https://example.test/image.png", "name": "", "caption": "" },
+            "children": []
+        }))
+        .expect("image");
+        let mut source = paragraph("merge-source", "123");
+        source.children.push(paragraph("merge-child", "child"));
+        let merged_content = serde_json::json!([
+            { "type": "text", "text": "ABC", "styles": {} },
+            { "type": "text", "text": "123", "styles": {} }
+        ]);
+        let prepared = prepare_document_operation_update(
+            "operations-matrix",
+            BlockDocumentSchema::PageV2,
+            &state,
+            &vector,
+            &[
+                DocumentBlockOperation::InsertBlock {
+                    block: target,
+                    parent_block_id: None,
+                    before_block_id: Some("matrix-heading".to_owned()),
+                },
+                DocumentBlockOperation::InsertBlock {
+                    block: atomic,
+                    parent_block_id: None,
+                    before_block_id: Some("matrix-heading".to_owned()),
+                },
+                DocumentBlockOperation::InsertBlock {
+                    block: source,
+                    parent_block_id: None,
+                    before_block_id: Some("matrix-heading".to_owned()),
+                },
+                DocumentBlockOperation::MergeBlockBackward {
+                    target_block_id: "merge-target".to_owned(),
+                    source_block_id: "merge-source".to_owned(),
+                    merged_content: merged_content.clone(),
+                    promoted_parent_block_id: None,
+                    promoted_before_block_id: Some("matrix-heading".to_owned()),
+                    promoted_child_ids: vec!["merge-child".to_owned()],
+                },
+            ],
+            false,
+        )
+        .expect("backward merge update");
+
+        let roots = &prepared.materialization.block_tree;
+        let target = find_semantic_block(roots, "merge-target").expect("target");
+        assert_eq!(target.content.as_ref(), Some(&merged_content));
+        assert!(find_semantic_block(roots, "merge-source").is_none());
+        let order = roots
+            .iter()
+            .map(|block| block.id.as_str())
+            .collect::<Vec<_>>();
+        let target_index = order.iter().position(|id| *id == "merge-target").unwrap();
+        assert_eq!(
+            &order[target_index..target_index + 4],
+            &[
+                "merge-target",
+                "merge-image",
+                "merge-child",
+                "matrix-heading"
+            ]
+        );
     }
 
     #[test]

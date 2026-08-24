@@ -609,6 +609,11 @@ export type LibraryStructuralEditCommand =
       readonly target: LibraryStructuralTurnIntoTarget;
     }
   | {
+      readonly kind: "merge_block_backward";
+      readonly selection: LibraryStructuralSelection;
+      readonly targetBlockId: string;
+    }
+  | {
       readonly kind: "release_history";
       readonly tokens: readonly LibraryStructuralHistoryToken[];
     };

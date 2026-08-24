@@ -24,40 +24,52 @@ interface AtomicBackspaceEditor {
     readonly prevBlock?: AtomicBackspaceBlock;
   };
   getParentBlock(blockId: string): AtomicBackspaceBlock | undefined;
-  setTextCursorPosition(blockId: string, placement: "end"): void;
-  focus(): void;
 }
+
+export type AtomicBlockBackspacePlan =
+  | { readonly kind: "protect_boundary" }
+  | {
+      readonly kind: "merge";
+      readonly sourceBlockId: string;
+      readonly targetBlockId: string;
+    };
 
 const hasInlineContent = (editor: AtomicBackspaceEditor, block: AtomicBackspaceBlock): boolean =>
   editor.schema.blockSchema[block.type]?.content === "inline";
 
 /**
- * Treats non-inline sibling Blocks as atomic cursor boundaries. Backspace from
- * the following text Block crosses the atomic run without deleting or merging
- * it, matching the editor's explicit Block-selection model.
+ * Plans the semantic merge behind Backspace at an atomic boundary.
+ *
+ * Non-paragraph Blocks deliberately fall through so BlockNote can first run
+ * its normal type reset/list-exit command. Adjacent text Blocks also fall
+ * through to BlockNote's mature local merge implementation.
  */
-export function handleBackspaceAcrossAtomicBlocks(editor: AtomicBackspaceEditor): boolean {
+export function planBackspaceAcrossAtomicBlocks(
+  editor: AtomicBackspaceEditor,
+): AtomicBlockBackspacePlan | null {
   const view = editor.prosemirrorView;
-  if (!view?.state.selection.empty || view.state.selection.$from.parentOffset !== 0) return false;
+  if (!view?.state.selection.empty || view.state.selection.$from.parentOffset !== 0) return null;
 
   const cursor = editor.getTextCursorPosition();
-  if (!hasInlineContent(editor, cursor.block)) return false;
-  if (!cursor.prevBlock || hasInlineContent(editor, cursor.prevBlock)) return false;
+  if (cursor.block.type !== "paragraph") return null;
+  if (!cursor.prevBlock || hasInlineContent(editor, cursor.prevBlock)) return null;
 
   const parent = editor.getParentBlock(cursor.block.id);
   const siblings = parent?.children ?? editor.document;
   const currentIndex = siblings.findIndex((block) => block.id === cursor.block.id);
-  if (currentIndex < 0) return false;
+  if (currentIndex < 0) return null;
 
   for (let index = currentIndex - 1; index >= 0; index -= 1) {
     const candidate = siblings[index];
     if (!candidate || !hasInlineContent(editor, candidate)) continue;
-    editor.setTextCursorPosition(candidate.id, "end");
-    editor.focus();
-    return true;
+    return {
+      kind: "merge",
+      sourceBlockId: cursor.block.id,
+      targetBlockId: candidate.id,
+    };
   }
 
-  // There is no text leaf to move into. Still claim Backspace so the atomic
-  // siblings cannot become an accidental merge/delete target.
-  return true;
+  // Claim the key so the default joinBackward path cannot delete the atomic
+  // boundary when there is no editable target in this sibling group.
+  return { kind: "protect_boundary" };
 }

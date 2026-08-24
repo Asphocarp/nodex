@@ -984,6 +984,37 @@ describe("Library Module transport", () => {
       },
     });
 
+    expect(
+      bindLibraryModuleApply({
+        operationId: uuidV7(9),
+        storeEpoch: "epoch-1",
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "merge_block_backward",
+            selection: {
+              sourceDocumentId: "document:source",
+              rootBlockIds: ["block:source"],
+              sourceHead: {
+                documentId: "document:source",
+                generation: 1,
+                expectedHeadSeq: 7,
+              },
+            },
+            targetBlockId: "block:target",
+          },
+        },
+      }),
+    ).toMatchObject({
+      operation: {
+        command: {
+          kind: "merge_block_backward",
+          selection: { rootBlockIds: ["block:source"] },
+          targetBlockId: "block:target",
+        },
+      },
+    });
+
     expect(() =>
       bindLibraryModuleApply({
         operationId: uuidV7(6),

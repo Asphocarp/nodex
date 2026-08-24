@@ -19305,6 +19305,28 @@
           {
             "type": "object",
             "required": [
+              "selection",
+              "target_block_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "merge_block_backward"
+                ]
+              },
+              "selection": {
+                "$ref": "#/components/schemas/LibraryStructuralSelection"
+              },
+              "target_block_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "tokens",
               "kind"
             ],

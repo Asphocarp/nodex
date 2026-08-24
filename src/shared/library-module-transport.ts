@@ -1172,6 +1172,31 @@ export const bindLibraryModuleApply = (value: unknown): LibraryModuleApplyReques
         },
       };
     }
+    if (command.kind === "merge_block_backward") {
+      exactKeys(command, "libraryModuleApply.operation.command", [
+        "kind",
+        "selection",
+        "targetBlockId",
+      ]);
+      return {
+        operationId,
+        storeEpoch,
+        operation: {
+          kind: operation.kind,
+          command: {
+            kind: command.kind,
+            selection: parseStructuralSelection(
+              command.selection,
+              "libraryModuleApply.operation.command.selection",
+            ),
+            targetBlockId: string(
+              command.targetBlockId,
+              "libraryModuleApply.operation.command.targetBlockId",
+            ),
+          },
+        },
+      };
+    }
     if (command.kind === "release_history") {
       exactKeys(command, "libraryModuleApply.operation.command", ["kind", "tokens"]);
       if (!Array.isArray(command.tokens)) {

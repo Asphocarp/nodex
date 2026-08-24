@@ -665,6 +665,10 @@ pub enum LibraryStructuralEditCommand {
         selection: LibraryStructuralSelection,
         target: LibraryStructuralTurnIntoTarget,
     },
+    MergeBlockBackward {
+        selection: LibraryStructuralSelection,
+        target_block_id: String,
+    },
     ReleaseHistory {
         tokens: Vec<LibraryStructuralHistoryToken>,
     },

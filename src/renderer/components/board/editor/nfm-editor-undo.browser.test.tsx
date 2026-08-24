@@ -1,4 +1,4 @@
-import { BlockNoteEditor } from "@blocknote/core";
+import { BlockNoteEditor, getBlockInfo, getNodeById } from "@blocknote/core";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { BlockNoteViewRaw, useCreateBlockNote } from "@blocknote/react";
@@ -9,8 +9,10 @@ import * as Y from "yjs";
 
 import { createPageDocumentGenesis } from "../../../../shared/block-documents/block-document-codec";
 import type { BlockDocumentSurfaceRuntime } from "../../../lib/block-document-surface-runtime";
+import type { applyLibraryModule } from "../../../lib/api";
 import { EditorSurfaceLease } from "../../../lib/document-session-registry";
 import { createNfmEditorModeOptions } from "./nfm-editor-source";
+import { NfmStructuralEditingSession } from "./nfm-structural-editing-extension";
 
 const settleEditor = async () => {
   await new Promise<void>((resolve) => {
@@ -33,6 +35,167 @@ function ExternalEditorHookOwner({ editor }: { readonly editor: BlockNoteEditor 
 }
 
 describe("collaborative NFM undo in Chromium", () => {
+  test("merges a paragraph across an atomic Block and restores the caret at the join", async () => {
+    const genesis = createPageDocumentGenesis({
+      documentId: "document:backward-merge",
+      title: "Backward merge",
+      nfm: "ABC\n\n123",
+      allocateBlockId: (() => {
+        const ids = ["block-target", "block-source"];
+        return () => ids.shift() ?? "block-extra";
+      })(),
+    });
+    const document = genesis.document;
+    const editor = BlockNoteEditor.create(
+      createNfmEditorModeOptions({
+        kind: "collaborative-document",
+        documentId: document.guid,
+        storeEpoch: "epoch:backward-merge",
+        generation: 1,
+        clientSessionId: "surface:backward-merge",
+        fragment: document.getXmlFragment("body"),
+        user: { name: "Merge", color: "#2563eb" },
+      }),
+    );
+    const host = globalThis.document.createElement("div");
+    globalThis.document.body.append(host);
+    editor.mount(host);
+    editor.insertBlocks(
+      [
+        {
+          id: "block-image",
+          type: "image",
+          props: { url: "https://example.test/image.png", name: "", caption: "" },
+        },
+      ],
+      "block-source",
+      "before",
+    );
+    const commands: unknown[] = [];
+    const apply: typeof applyLibraryModule = async (_access, request) => {
+      commands.push(request.operation);
+      const target = editor.getBlock("block-target");
+      const source = editor.getBlock("block-source");
+      if (!target || !source || !Array.isArray(target.content) || !Array.isArray(source.content)) {
+        throw new Error("Expected merge Blocks");
+      }
+      editor.updateBlock(target, { content: [...target.content, ...source.content] });
+      editor.removeBlocks([source.id]);
+      return {
+        ok: true,
+        localCommit: {
+          status: "no_op",
+          observed: { store_epoch: "epoch:backward-merge", commit_head: 2 },
+        },
+        value: {
+          operationId: "operation:backward-merge",
+          profileId: "profile:test",
+          storeEpoch: "epoch:backward-merge",
+          libraryId: "library:test",
+          operationKind: "apply_structural_edit",
+          duplicate: false,
+          didMutate: true,
+          createdTarget: null,
+          canvasMutation: null,
+          structuralEdit: {
+            operationKind: "merge_block_backward",
+            sourceRootBlockIds: ["block-source"],
+            resultRootBlockIds: ["block-target"],
+            copiedBlockIds: {},
+            copiedDocumentIds: {},
+            documentCommits: [],
+            affectedPageIds: [],
+            affectedDatabaseIds: [],
+            clipboard: null,
+            history: {
+              recipeOperationId: "operation:backward-merge",
+              recipeHash: "c".repeat(64),
+              storeEpoch: "epoch:backward-merge",
+            },
+            supersededHistoryRecipeOperationIds: [],
+            resume: {
+              blockId: "block-target",
+              edge: "end",
+              fallbackBeforeBlockId: null,
+              fallbackAfterBlockId: null,
+            },
+          },
+          affectedParentKeys: [],
+          affectedPageIds: [],
+          affectedDatabaseIds: [],
+          affectedViewIds: [],
+          committedRevisions: {},
+          commitSeq: 2,
+          committedAt: "2026-08-25T00:00:00.000Z",
+        },
+      };
+    };
+    const session = new NfmStructuralEditingSession({
+      editor,
+      apply,
+      runtime: {
+        accessContext: { kind: "project", projectId: "project:test" },
+        libraryId: "library:test",
+        source: {
+          documentId: document.guid,
+          storeEpoch: "epoch:backward-merge",
+          generation: 1,
+        },
+        participant: {
+          prepareAndFence: async () => ({
+            documentId: document.guid,
+            storeEpoch: "epoch:backward-merge",
+            generation: 1,
+            expectedHeadSeq: 1,
+          }),
+        },
+        getContainer: () => host,
+      },
+    });
+
+    try {
+      await act(settleEditor);
+      editor.setTextCursorPosition("block-source", "start");
+      await act(async () => {
+        expect(session.handleKeyDown(new KeyboardEvent("keydown", { key: "Backspace" }))).toBe(
+          true,
+        );
+        await session.whenIdle();
+        await settleEditor();
+      });
+      expect(commands).toMatchObject([
+        {
+          command: {
+            kind: "merge_block_backward",
+            selection: { rootBlockIds: ["block-source"] },
+            targetBlockId: "block-target",
+          },
+        },
+      ]);
+      expect(editor.getBlock("block-source")).toBeUndefined();
+      expect(editor.getBlock("block-image")).toBeDefined();
+      const mergedTarget = editor.getBlock("block-target");
+      if (!mergedTarget || !Array.isArray(mergedTarget.content)) {
+        throw new Error("Expected merged target inline content");
+      }
+      expect(
+        mergedTarget.content.map((item) => (item.type === "text" ? item.text : "")).join(""),
+      ).toBe("ABC123");
+      const view = requireMountedEditorView(editor);
+      const position = getNodeById("block-target", view.state.doc);
+      if (!position) throw new Error("Expected target position");
+      const info = getBlockInfo(position);
+      if (!info.isBlockContainer) throw new Error("Expected target Block container");
+      expect(view.state.selection.from).toBe(info.blockContent.beforePos + 1 + 3);
+    } finally {
+      session.dispose();
+      editor.unmount();
+      host.remove();
+      editor._tiptapEditor.destroy();
+      document.destroy();
+    }
+  });
+
   test("keeps a valid selection when a remote structural update removes the selected Block", async () => {
     let nextBlockId = 0;
     const genesis = createPageDocumentGenesis({

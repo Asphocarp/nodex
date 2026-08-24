@@ -2282,6 +2282,86 @@ describe("Core Library Module Adapter", () => {
     ]);
   });
 
+  test("maps backward Block merge through the structural authority", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: ["block:source", "block:target"],
+        structural_edit: {
+          operation_kind: "merge_block_backward",
+          source_root_block_ids: ["block:source"],
+          result_root_block_ids: ["block:target"],
+          copied_block_ids: {},
+          copied_document_ids: {},
+          document_commits: [],
+          affected_page_ids: ["page:host"],
+          affected_database_ids: [],
+          clipboard: null,
+          history: null,
+          superseded_history_recipe_operation_ids: [],
+          resume: null,
+        },
+      },
+      receipt: {
+        operation_id: "operation:backward-merge",
+        duplicate: false,
+        operation_kind: "apply_structural_edit",
+        did_mutate: true,
+        created_target: null,
+        affected_parent_keys: ["page:page:host"],
+        affected_page_ids: ["page:host"],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: {},
+        commit_seq: 11,
+        committed_at: "2026-08-25T00:00:00.000Z",
+      },
+      event_sequence: 11,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(
+      adapter.apply({
+        operationId: "operation:backward-merge",
+        storeEpoch: identity.storeEpoch,
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "merge_block_backward",
+            selection: {
+              sourceDocumentId: "document:source",
+              rootBlockIds: ["block:source"],
+              sourceHead: {
+                documentId: "document:source",
+                generation: 2,
+                expectedHeadSeq: 10,
+              },
+            },
+            targetBlockId: "block:target",
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(client.applies).toEqual([
+      {
+        operationId: "operation:backward-merge",
+        intent: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "merge_block_backward",
+            selection: {
+              source_document_id: "document:source",
+              root_block_ids: ["block:source"],
+              source_head: { document_id: "document:source", generation: 2, head_seq: 10 },
+            },
+            target_block_id: "block:target",
+          },
+        },
+      },
+    ]);
+  });
+
   test("routes trusted Library writes through the root Core client", async () => {
     const rootClient = new FakeCoreClient();
     rootClient.enqueueApply({
