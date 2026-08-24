@@ -126,6 +126,47 @@ describe("buildThreadBodyModel", () => {
     }
   });
 
+  test("projects a settled attachment failure instead of an endless restore loader", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: null,
+      attachmentState: {
+        status: "failed",
+        message: "Codex connection timed out",
+      },
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: null,
+    });
+
+    expect(model.emptyState).toEqual({
+      type: "threadAttachmentFailed",
+      title: "Thread could not be restored",
+      description: "Codex connection timed out",
+    });
+  });
+
+  test("keeps cached transcript visible when attachment activation fails", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: buildConversation({ resumeState: "needs_resume" }),
+      attachmentState: {
+        status: "failed",
+        message: "Owner publication failed",
+      },
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: null,
+    });
+
+    expect(model.turnCount).toBe(1);
+    expect(model.emptyState.type).toBe("none");
+  });
+
   test("fails closed when the loaded snapshot belongs to another selected thread", () => {
     const model = buildThreadBodyModel({
       activeThreadId: "thread_2",

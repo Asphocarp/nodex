@@ -33,6 +33,7 @@ import type {
   ThreadPlanSidePanelState,
   ThreadStageActions,
 } from "../thread-stage-types";
+import type { LocalConversationAttachmentState } from "../conversation-attachment-state";
 import { buildThreadUserMessageNavigationItems } from "../projection/thread-user-message-navigation-items";
 import type { ProjectlessOutputScope } from "../projection/projectless-output-scope";
 import {
@@ -126,6 +127,46 @@ function resolvePhaseIndex(
   if (phase === "runningSetup") return 1;
   if (phase === "startingThread" || phase === "ready") return 2;
   return -1;
+}
+
+function ThreadAttachmentFailureNotice({
+  failure,
+  onRetry,
+  fillParent = false,
+}: {
+  failure: Extract<LocalConversationAttachmentState, { status: "failed" }>;
+  onRetry: () => void;
+  fillParent?: boolean;
+}) {
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex min-w-0 items-center justify-between gap-3 bg-(--destructive)/6 px-3 py-2 text-sm",
+        fillParent && "h-full flex-col justify-center bg-transparent px-4 text-center",
+      )}
+    >
+      <div className={cn("min-w-0", fillParent && "max-w-sm")}>
+        <div className="font-medium text-(--destructive)">Thread could not be restored</div>
+        <div
+          className={cn(
+            "mt-0.5 text-xs text-token-text-secondary",
+            fillParent ? "wrap-break-word" : "truncate",
+          )}
+        >
+          {failure.message}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg bg-token-foreground/5 px-2.5 text-xs font-medium text-token-text-primary hover:bg-token-foreground/10"
+      >
+        <RefreshIcon className="icon-2xs shrink-0" />
+        Retry
+      </button>
+    </div>
+  );
 }
 
 export function ThreadStartProgressPanel({
@@ -269,6 +310,7 @@ interface LocalConversationThreadBodyOwnerProps {
   requests: CodexConversationServerRequest[];
   canonicalRequests: CodexCanonicalServerRequest[];
   resumeState: CodexConversationResumeState | null;
+  attachmentState?: LocalConversationAttachmentState;
   capabilityFlags: CodexConversationCapabilityFlags;
   statusType: CodexThreadStatusType | null;
   parentTurns: readonly CodexConversationTurn[];
@@ -321,6 +363,7 @@ export function LocalConversationThreadBodyOwner({
   requests,
   canonicalRequests,
   resumeState,
+  attachmentState,
   capabilityFlags,
   statusType,
   parentTurns,
@@ -352,6 +395,11 @@ export function LocalConversationThreadBodyOwner({
   const forkSubmissionInFlightRef = useRef(false);
   const [isForkSubmitting, setIsForkSubmitting] = useState(false);
   const [isRestoringArchivedThread, setIsRestoringArchivedThread] = useState(false);
+  const attachmentFailure = attachmentState?.status === "failed" ? attachmentState : null;
+  const retryAttachment = useCallback(() => {
+    if (!threadId || !actions.onRetryThreadAttachment) return;
+    void actions.onRetryThreadAttachment(threadId);
+  }, [actions, threadId]);
   const [isOlderHistoryLoading, setIsOlderHistoryLoading] = useState(false);
   const conversation = useMemo(
     () =>
@@ -820,12 +868,24 @@ export function LocalConversationThreadBodyOwner({
             description={body.emptyState.description}
             fillParent
           />
+        ) : body.emptyState.type === "threadAttachmentFailed" && attachmentFailure ? (
+          <ThreadAttachmentFailureNotice
+            failure={attachmentFailure}
+            onRetry={retryAttachment}
+            fillParent
+          />
         ) : (
           <div
             ref={contentRootRef}
             data-thread-find-target="conversation"
             className={LOCAL_CONVERSATION_CONTENT_CLASS_NAME}
           >
+            {attachmentFailure ? (
+              <ThreadAttachmentFailureNotice
+                failure={attachmentFailure}
+                onRetry={retryAttachment}
+              />
+            ) : null}
             <LocalConversationVirtualizedTurnList
               key={conversation?.threadId ?? body.threadId ?? "unattached"}
               entries={virtualizedEntries}

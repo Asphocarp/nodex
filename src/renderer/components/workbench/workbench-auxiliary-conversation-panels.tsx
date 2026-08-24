@@ -29,7 +29,11 @@ import type {
   SubagentsPanelTab,
 } from "@/lib/workbench-panel-tab-model";
 import { projectWorkspaceRootOrNull } from "@/lib/workbench-workspace-context";
-import { SideChatExpiredPanel, SideChatLoadingPanel } from "./workbench-side-chat-panels";
+import {
+  SideChatExpiredPanel,
+  SideChatFailedPanel,
+  SideChatLoadingPanel,
+} from "./workbench-side-chat-panels";
 
 export function BackgroundAgentSessionTab({
   tab,
@@ -407,6 +411,15 @@ export function SideChatSessionTab({
 
   if (tab.status === "loading") {
     return <SideChatLoadingPanel title={tab.title} />;
+  }
+
+  if (tab.status === "failed") {
+    return (
+      <SideChatFailedPanel
+        errorMessage={tab.errorMessage ?? "The side chat could not be opened."}
+        onRetry={onRecreateSideChat}
+      />
+    );
   }
 
   if (tab.status === "expired" || !tab.threadId || !conversation) {

@@ -98,6 +98,7 @@ function LocalConversationThreadBodyLayout({
               requests={model.requests}
               canonicalRequests={model.canonicalRequests ?? []}
               resumeState={model.resumeState}
+              attachmentState={model.attachmentState}
               capabilityFlags={model.capabilityFlags}
               statusType={model.statusType}
               parentTurns={model.parentTurns}

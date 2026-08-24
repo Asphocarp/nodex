@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed chats and Side chats sometimes remaining on a loading screen after restoration completed or failed; renderer attachment now updates atomically, failures are explicit and retryable, and cached transcript content remains visible during recovery.
 - Fixed retained Page editors crashing the renderer when table handles or another floating editor control survived a tab switch; mounted DOM capabilities and transient UI state now follow each EditorView attachment while document and undo state remain retained.
 - Fixed backup history and retention failing after an upgrade when a Profile contains cleanup receipts written by an earlier durable outcome format.
 - Fixed large, clean Profiles reopening slowly by reusing one single-use validation receipt after a graceful Core shutdown; interrupted, migrated, restored, or otherwise changed Stores still receive complete integrity validation before opening.

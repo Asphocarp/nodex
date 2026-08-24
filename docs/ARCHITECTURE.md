@@ -519,6 +519,12 @@ each request or notification once, routes it to its semantic family, and enters 
 causal lane. Different Threads may progress concurrently; events for one Thread cannot overtake its
 own accepted command or projection consequence.
 
+A Thread causal lane is intentionally non-reentrant. Admission capabilities that can materialize
+or resolve a Thread—and therefore may enter that lane themselves—run before a command acquires the
+lane; the admitted directory/projection value is then passed into the command. A command must not
+call such a capability while already holding the same Thread lane. Creating an ephemeral child such
+as Side Chat does not acquire the parent's lane because it reads but does not mutate the parent.
+
 Every app-server operation that materializes a new Thread (`thread/start` or `thread/fork`) enters
 one host-scoped start-notification gate. Because `thread/started` may arrive before the response
 continuation reveals its Thread id, the gate holds that Thread's protocol lane until the owning
@@ -583,8 +589,14 @@ conversation registry records presence and role without owning projection policy
 coordinator atomically owns adoption, owner replacement, following, targeted request delivery, and
 client disposal consequences. First-owner adoption converts the aggregate's already-hydrated
 canonical snapshot into the initial accepted renderer replica; it never requires that replica to
-exist before adoption and fails closed when no canonical snapshot exists. A follower acknowledges
-an exact owner snapshot barrier and then
+exist before adoption and fails closed when no canonical snapshot exists. One observable renderer
+attachment lifecycle spans resume, fresh launch, background-detail materialization, and ephemeral
+side chat. Role and accepted checkpoint install before the matching conversation snapshot notifies
+subscribers; post-adoption activation completes buffer release, owner publication, and pending-request
+replay. A settled failure exits the loading phase and may retain a truthful cached transcript, but
+it never retains a visible loading state or an unusable owner role. An explicit retry or a
+subsequently accepted owner snapshot may attach the surface again. A follower
+acknowledges an exact owner snapshot barrier and then
 accepts only contiguous patches from the same owner epoch. A gap, hash mismatch, owner replacement,
 or transport reset requests a fresh barrier instead of merging competing documents. The event hub
 fans accepted application changes to renderer projection and native notification consumers; those

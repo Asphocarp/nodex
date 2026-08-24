@@ -38,6 +38,7 @@ import {
   useConversationCapabilityFlags,
   useConversationChildMemberships,
   useConversation,
+  useConversationAttachmentState,
   useConversationCollaborationMode,
   useConversationThreadSettings,
   useConversationCwd,
@@ -281,6 +282,7 @@ function ConnectedThreadStageBody({
   const requests = useConversationRequests(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
   const resumeState = useConversationResumeState(activeThreadId);
+  const attachmentState = useConversationAttachmentState(activeThreadId);
   const statusType = useConversationStatusType(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
   const archived = input.activeThreadSummary?.archived === true || summaryFields.archived;
@@ -302,12 +304,23 @@ function ConnectedThreadStageBody({
       }),
     [childMemberships, knownConversationsById, turns],
   );
+  const actionsWithAttachmentRetry = useMemo<ThreadStageActions>(
+    () => ({
+      ...actions,
+      onRetryThreadAttachment: async (threadId) => {
+        onErrorMessage(null);
+        await requestLocalConversationResume(threadId).catch(() => null);
+      },
+    }),
+    [actions, onErrorMessage],
+  );
 
   const body = useMemo(
     () =>
       buildThreadBodyModel({
         activeThreadId,
         conversation: conversationSnapshot,
+        attachmentState,
         activeThreadArchived: archived,
         parentTurns,
         isNewThreadTab: input.isNewThreadTab,
@@ -319,6 +332,7 @@ function ConnectedThreadStageBody({
       }),
     [
       activeThreadId,
+      attachmentState,
       archived,
       conversationSnapshot,
       input.isNewThreadTab,
@@ -342,6 +356,7 @@ function ConnectedThreadStageBody({
       requests,
       canonicalRequests: conversationSnapshot?.canonicalRequests ?? [],
       resumeState,
+      attachmentState,
       statusType,
       capabilityFlags,
       body,
@@ -374,6 +389,7 @@ function ConnectedThreadStageBody({
       parentTurns,
       requests,
       resumeState,
+      attachmentState,
       statusType,
       turns,
     ],
@@ -382,7 +398,7 @@ function ConnectedThreadStageBody({
   return (
     <LocalConversationThreadBody
       model={model}
-      actions={actions}
+      actions={actionsWithAttachmentRetry}
       isWorktreeThread={isWorktreeThread}
       onForkFromTurnIntoWorktree={onForkFromTurnIntoWorktree}
       onErrorMessage={onErrorMessage}
@@ -438,6 +454,7 @@ export function ConnectedThreadStageFooter({
   const requests = useConversationRequests(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
   const resumeState = useConversationResumeState(activeThreadId);
+  const attachmentState = useConversationAttachmentState(activeThreadId);
   const statusType = useConversationStatusType(activeThreadId);
   const statusActiveFlags = useConversationStatusActiveFlags(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
@@ -569,6 +586,7 @@ export function ConnectedThreadStageFooter({
       buildThreadBodyModel({
         activeThreadId,
         conversation: conversationSnapshot,
+        attachmentState,
         activeThreadArchived: archived,
         parentTurns: [],
         isNewThreadTab: input.isNewThreadTab,
@@ -580,6 +598,7 @@ export function ConnectedThreadStageFooter({
       }),
     [
       activeThreadId,
+      attachmentState,
       archived,
       conversationSnapshot,
       input.isNewThreadTab,
@@ -630,6 +649,7 @@ export function ConnectedThreadStageFooter({
           }
         : null,
       resumeState,
+      attachmentState,
       activeTurn,
       isThreadRunning: Boolean(activeTurn || statusType === "active"),
       isNewThreadTab: input.isNewThreadTab,
@@ -738,6 +758,7 @@ export function ConnectedThreadStageFooter({
       selectedModel,
       selectedReasoningEffort,
       resumeState,
+      attachmentState,
       statusActiveFlags,
       statusType,
       turns,
@@ -794,6 +815,7 @@ export function ConnectedThreadComposerDock({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const activeThreadId = resolveConnectedStageActiveThreadId(input);
   const resumeState = useConversationResumeState(activeThreadId);
+  const attachmentState = useConversationAttachmentState(activeThreadId);
   const streamRole = useConversationStreamRole(activeThreadId);
   const statusType = useConversationStatusType(activeThreadId);
   const statusActiveFlags = useConversationStatusActiveFlags(activeThreadId);
@@ -843,13 +865,15 @@ export function ConnectedThreadComposerDock({
 
   useEffect(() => {
     if (!input.activeThreadId || input.isNewThreadTab || archived) return;
-    if (!lifecycleActive || resumeState === "resuming") return;
+    if (!lifecycleActive || attachmentState.status === "attaching") return;
+    if (attachmentState.status === "failed") return;
     if (resumeState === "resumed" && (streamRole === "owner" || streamRole === "follower")) {
       return;
     }
     void requestLocalConversationResume(input.activeThreadId).catch(() => {});
   }, [
     archived,
+    attachmentState,
     input.activeThreadId,
     input.isNewThreadTab,
     lifecycleActive,
@@ -905,6 +929,7 @@ export function ConnectedThreadStage({
     resolveThreadStartProgressPresentation(input.threadStartProgress) === "panel",
   );
   const resumeState = useConversationResumeState(activeThreadId);
+  const attachmentState = useConversationAttachmentState(activeThreadId);
   const streamRole = useConversationStreamRole(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
   const requests = useConversationRequests(activeThreadId);
@@ -1073,7 +1098,7 @@ export function ConnectedThreadStage({
   ]);
 
   useEffect(() => {
-    if (!input.activeThreadId || input.isNewThreadTab || isSideChat) {
+    if (!input.activeThreadId || input.isNewThreadTab) {
       return;
     }
     if (isActiveThreadArchived) {
@@ -1085,7 +1110,7 @@ export function ConnectedThreadStage({
     if (!worktreeRuntimeAvailable) return;
 
     const nextResumeState = resumeState ?? "needs_resume";
-    if (nextResumeState === "resuming") {
+    if (attachmentState.status === "attaching" || attachmentState.status === "failed") {
       return;
     }
     if (nextResumeState === "resumed" && (streamRole === "owner" || streamRole === "follower")) {
@@ -1095,7 +1120,7 @@ export function ConnectedThreadStage({
     void requestLocalConversationResume(input.activeThreadId).catch(() => {});
   }, [
     isActiveThreadArchived,
-    isSideChat,
+    attachmentState,
     resumeState,
     streamRole,
     input.activeThreadId,

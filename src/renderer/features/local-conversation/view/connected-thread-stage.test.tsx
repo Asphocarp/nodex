@@ -387,7 +387,23 @@ async function renderPrimaryAndAuxiliaryThread(auxiliaryMode: "background-detail
       </ThreadStageScope>
     </ConnectedThreadStageQueryProvider>,
   );
-  await settleAsyncRender();
+  const { dispatchCodexAppServerMessage } = await import("../app-server-message-bus");
+  await act(async () => {
+    for (const threadId of [rootSummary.threadId, childSummary.threadId]) {
+      dispatchTestThreadStreamSnapshot(dispatchCodexAppServerMessage, {
+        hostId: "default",
+        conversationId: threadId,
+        version: 1,
+        sourceClientId: "test-owner",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: buildConversation(threadId),
+        },
+      });
+    }
+    await settleAsyncRender();
+  });
   return view;
 }
 
@@ -926,6 +942,38 @@ describe("ConnectedThreadStage archived resume behavior", () => {
           call.channel === "codex:thread:resume:request" && call.threadId === "thread_active",
       ),
     ).toBe(true);
+  });
+
+  test("settles a failed resume visibly without retrying in a render loop", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+
+    const view = await renderStage(buildThreadSummary(false));
+    await act(async () => {
+      await settleAsyncRender();
+      await settleAsyncRender();
+    });
+
+    const resumeCount = () =>
+      invokeCalls.filter(
+        (call) =>
+          call.channel === "codex:thread:resume:request" && call.threadId === "thread_active",
+      ).length;
+    expect(resumeCount()).toBe(1);
+    expect(textContent(await view.findByRole("alert"))).toContain("Thread could not be restored");
+
+    await act(async () => {
+      await settleAsyncRender();
+      await settleAsyncRender();
+    });
+    expect(resumeCount()).toBe(1);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Retry" }));
+      await settleAsyncRender();
+    });
+    expect(resumeCount()).toBe(2);
   });
 
   test("does not mark or resume hidden idle thread viewports", async () => {

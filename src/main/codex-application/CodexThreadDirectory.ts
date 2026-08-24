@@ -64,6 +64,10 @@ export class CodexThreadDirectoryError extends Schema.TaggedError<CodexThreadDir
 export class CodexThreadDirectory extends Context.Service<
   CodexThreadDirectory,
   {
+    /**
+     * Resolves and, when necessary, materializes inside the Thread's causal lane.
+     * Callers must run this admission boundary before acquiring that same non-reentrant lane.
+     */
     readonly resolve: (input: {
       readonly threadId: string;
       readonly fidelity: CodexThreadDirectoryFidelity;

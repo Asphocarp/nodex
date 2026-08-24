@@ -59,9 +59,43 @@ import {
   setInvokeCalls,
   setRequestThreadStreamSnapshotImpl,
   setSideChatConversationProjectId,
+  setStartSideChatError,
 } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / layout-panel-actions", () => {
+  test("settles a failed side chat open into a closable retry surface", async () => {
+    setStartSideChatError(new Error("Side chat fork timed out"));
+    const session = makeAttachedSession({
+      id: "session:alpha:side-chat-failure",
+      projectId: "alpha",
+      title: "Side chat failure",
+      threadId: "thread-alpha",
+      tabs: [],
+      rightCollapsed: false,
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+      initialSelectedSessionId: session.id,
+    });
+    await settleAsyncRender();
+
+    const menu = await openPanelMenu(screen, "Open side panel tab");
+    await clickMenuItem(menu, "Side chat");
+
+    expect(textContent(await screen.findByRole("alert"))).toContain(
+      "Side chat could not be opened",
+    );
+    expect(screen.getByText("Side chat fork timed out")).toBeTruthy();
+    setStartSideChatError(null);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(startSideChatCalls).toHaveLength(2));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Close Side chat tab" })).toBeTruthy();
+  });
+
   test("collapsed right panel opens from the global side-panel toggle", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
