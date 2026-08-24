@@ -1,10 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-  EMPTY_BRANCH_SELECTOR_STATE,
-  parseBranchSelectorState,
-  type BranchSelectorState,
-} from "@/features/local-conversation/view/shared/branch-selector-state";
-import { getGitWorkerClient, invoke } from "@/lib/api";
 import { formatPageStageCollapsedPropertyCountLabel } from "@/lib/page-stage-collapsed-properties";
 import {
   readPageStageContentWidthPreference,
@@ -18,7 +12,7 @@ import {
   saveScrollPosition,
 } from "@/lib/page-stage-scroll";
 import { SCROLL_SAVE_DEBOUNCE_MS } from "@/lib/timing";
-import type { PageInput, PageRunInTarget, WorktreeEnvironmentOption } from "@/lib/types";
+import type { PageInput } from "@/lib/types";
 import type { PageStagePageModel, PageStageCorePage } from "@/lib/page-stage-page";
 import {
   hasPageStageScheduleCapability,
@@ -30,7 +24,6 @@ import {
   contentAccessContextKey,
   projectIdFromContentAccessContext,
 } from "../../../../shared/content-access-context";
-import { normalizeRunInTarget, resolveDefaultRunInBaseBranch } from "./options";
 import type {
   PageStageMetadataMutationResult,
   PageStageProps,
@@ -45,25 +38,20 @@ interface UsePageStageControllerResult {
   page: PageStageCorePage | null;
   hasDatabaseProperties: boolean;
   propertyControls: PageStagePropertyControls;
-  projectWorkspacePath?: string | null;
   title: string;
-  runInTarget: PageRunInTarget;
-  runInLocalPathDisplay: string;
-  runInBaseBranch: string;
-  runInWorktreePathDisplay: string;
-  runInEnvironmentPath: string;
-  runInBranchState: BranchSelectorState;
-  runInBranchBusy: boolean;
-  runInEnvironmentOptions: WorktreeEnvironmentOption[];
-  runInEnvironmentBusy: boolean;
   saving: boolean;
   propertiesExpanded: boolean;
   limitMainContentWidth: boolean;
   showRawContent: boolean;
   historyPanelActive: boolean;
-  linkedCodexThreads: NonNullable<PageStageProps["linkedCodexThreads"]>;
-  hasThreadsRow: boolean;
-  selectedRunInBaseBranch: string;
+  relatedChats: NonNullable<PageStageProps["relatedChats"]>;
+  relatedChatsLoading: boolean;
+  relatedChatsError: string | null;
+  relatedChatsHasMore: boolean;
+  relatedChatsLoadingMore: boolean;
+  relatedChatCandidates: NonNullable<PageStageProps["relatedChatCandidates"]>;
+  hasRelatedChatsRow: boolean;
+  currentSessionId: string | null;
   collapseTagsByDefault: boolean;
   collapseAssigneeByDefault: boolean;
   collapseThreadsByDefault: boolean;
@@ -76,8 +64,12 @@ interface UsePageStageControllerResult {
   setScrollContainerRef: (node: HTMLDivElement | null) => void;
   schedule: ReturnType<typeof useScheduleState>;
   schedulePage: PageScheduleSource | null;
-  onOpenNewCodexThread?: () => void;
-  onOpenCodexThread?: (threadId: string) => Promise<void>;
+  onCreateRelatedChat?: () => Promise<void> | void;
+  onLinkRelatedChat?: (sessionId: string) => Promise<void>;
+  onOpenRelatedChat?: (sessionId: string) => Promise<void> | void;
+  onRemoveRelatedChat?: (sessionId: string) => Promise<void>;
+  onRetryRelatedChats?: () => Promise<void> | void;
+  onLoadMoreRelatedChats?: () => Promise<void> | void;
   setPropertiesExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   handleClose: () => Promise<void>;
   handleDelete: () => Promise<void>;
@@ -85,16 +77,8 @@ interface UsePageStageControllerResult {
   handleToggleShowRawContent: () => void;
   handleScroll: () => void;
   handleDocumentTitleChange: (value: string) => void;
-  handleRunInTargetChange: (nextTarget: PageRunInTarget) => Promise<void>;
-  handlePickRunInLocalPath: () => Promise<void>;
-  handleClearRunInLocalPath: () => void;
-  handleResetRunInWorktreePath: () => void;
-  handleSelectRunInBaseBranch: (branch: string) => Promise<boolean>;
-  refreshRunInBranchState: () => Promise<BranchSelectorState>;
-  refreshRunInEnvironmentOptions: () => Promise<WorktreeEnvironmentOption[]>;
-  handleSelectRunInEnvironmentPath: (environmentPath: string | null) => Promise<boolean>;
-  handleOpenEnvironmentSettings: () => Promise<void>;
-  handleOpenCodexThread: (threadId: string) => Promise<void>;
+  handleOpenRelatedChat: (sessionId: string) => Promise<void>;
+  handleRemoveRelatedChat: (sessionId: string) => Promise<void>;
   collapsedPropertyLabel: string;
 }
 
@@ -146,25 +130,6 @@ function arePageStageMetadataSourceVersionsEqual(
   );
 }
 
-function parseRunInEnvironmentOptions(value: unknown): WorktreeEnvironmentOption[] {
-  if (!Array.isArray(value)) return [];
-
-  return value.flatMap((entry) => {
-    if (!entry || typeof entry !== "object") return [];
-    const candidate = entry as Record<string, unknown>;
-    if (typeof candidate.path !== "string" || typeof candidate.name !== "string") return [];
-    return [
-      {
-        path: candidate.path,
-        name: candidate.name,
-        hasSetupScript: Boolean(candidate.hasSetupScript),
-        hasCleanupScript: Boolean(candidate.hasCleanupScript),
-        actionCount: typeof candidate.actionCount === "number" ? candidate.actionCount : 0,
-      },
-    ];
-  });
-}
-
 function buildPageStageSessionSnapshot(
   projectId: string | null,
   page: PageStageCorePage | null,
@@ -197,17 +162,25 @@ export function usePageStageController(
     sessionSnapshotRef,
     page: pageModel,
     contentAccessContext,
-    projectWorkspacePath,
     onUpdate,
     onDelete,
     onMove,
     onCompleteOccurrence,
     onSkipOccurrence,
     onColumnIdChange,
-    linkedCodexThreads = [],
-    onOpenCodexThread,
-    onOpenNewCodexThread,
-    onOpenLocalEnvironmentSettings,
+    relatedChats = [],
+    relatedChatsLoading = false,
+    relatedChatsError = null,
+    relatedChatsHasMore = false,
+    relatedChatsLoadingMore = false,
+    relatedChatCandidates = [],
+    sessionId = null,
+    onOpenRelatedChat,
+    onCreateRelatedChat,
+    onLinkRelatedChat,
+    onRemoveRelatedChat,
+    onRetryRelatedChats,
+    onLoadMoreRelatedChats,
     historyPanelActive = false,
     isActivePanelTab = true,
   } = props;
@@ -225,19 +198,6 @@ export function usePageStageController(
   const persistDocument = dependencies.persistDocument;
 
   const [title, setTitle] = useState(page?.title ?? "");
-  const [runInTarget, setRunInTarget] = useState<PageRunInTarget>("localProject");
-  const [runInLocalPath, setRunInLocalPath] = useState("");
-  const [runInBaseBranch, setRunInBaseBranch] = useState("");
-  const [runInWorktreePath, setRunInWorktreePath] = useState("");
-  const [runInEnvironmentPath, setRunInEnvironmentPath] = useState("");
-  const [runInBranchState, setRunInBranchState] = useState<BranchSelectorState>(
-    EMPTY_BRANCH_SELECTOR_STATE,
-  );
-  const [runInBranchBusy, setRunInBranchBusy] = useState(false);
-  const [runInEnvironmentOptions, setRunInEnvironmentOptions] = useState<
-    WorktreeEnvironmentOption[]
-  >([]);
-  const [runInEnvironmentBusy, setRunInEnvironmentBusy] = useState(false);
   const [savingCount, setSavingCount] = useState(0);
   const saving = savingCount > 0;
   const [propertiesExpanded, setPropertiesExpanded] = useState(false);
@@ -433,21 +393,8 @@ export function usePageStageController(
         applyScheduleState(schedulePage);
         applyRecurrenceState(schedulePage);
       }
-      setRunInTarget(normalizeRunInTarget(page.runInTarget));
-      setRunInLocalPath(page.runInLocalPath || "");
-      setRunInBaseBranch(page.runInBaseBranch || "");
-      setRunInWorktreePath(page.runInWorktreePath || "");
-      setRunInEnvironmentPath(page.runInEnvironmentPath || "");
       return;
     }
-
-    setRunInTarget("localProject");
-    setRunInLocalPath("");
-    setRunInBaseBranch("");
-    setRunInWorktreePath("");
-    setRunInEnvironmentPath("");
-    setRunInBranchState(EMPTY_BRANCH_SELECTOR_STATE);
-    setRunInEnvironmentOptions([]);
   }, [
     page,
     pageModel,
@@ -559,17 +506,30 @@ export function usePageStageController(
     }
   }, [beginSaving, page, onDelete, onClose]);
 
-  const handleOpenCodexThread = useCallback(
-    async (threadId: string) => {
-      if (!onOpenCodexThread) return;
+  const handleOpenRelatedChat = useCallback(
+    async (sessionId: string) => {
+      if (!onOpenRelatedChat) return;
       const endSaving = beginSaving();
       try {
-        await onOpenCodexThread(threadId);
+        await onOpenRelatedChat(sessionId);
       } finally {
         endSaving();
       }
     },
-    [beginSaving, onOpenCodexThread],
+    [beginSaving, onOpenRelatedChat],
+  );
+
+  const handleRemoveRelatedChat = useCallback(
+    async (sessionId: string) => {
+      if (!onRemoveRelatedChat) return;
+      const endSaving = beginSaving();
+      try {
+        await onRemoveRelatedChat(sessionId);
+      } finally {
+        endSaving();
+      }
+    },
+    [beginSaving, onRemoveRelatedChat],
   );
 
   const handleToggleContentWidth = useCallback(() => {
@@ -588,134 +548,12 @@ export function usePageStageController(
     });
   }, []);
 
-  const refreshRunInBranchState = useCallback(async () => {
-    const requestedCwd = projectWorkspacePath?.trim();
-    if (!requestedCwd) {
-      setRunInBranchState(EMPTY_BRANCH_SELECTOR_STATE);
-      return EMPTY_BRANCH_SELECTOR_STATE;
-    }
-
-    setRunInBranchBusy(true);
-    try {
-      const result = await getGitWorkerClient().request({
-        method: "branch-metadata",
-        params: { cwd: requestedCwd },
-      });
-      const parsed = parseBranchSelectorState(result);
-      setRunInBranchState(parsed);
-      return parsed;
-    } catch {
-      setRunInBranchState(EMPTY_BRANCH_SELECTOR_STATE);
-      return EMPTY_BRANCH_SELECTOR_STATE;
-    } finally {
-      setRunInBranchBusy(false);
-    }
-  }, [projectWorkspacePath]);
-
-  const refreshRunInEnvironmentOptions = useCallback(async () => {
-    if (executionProjectId === null) {
-      setRunInEnvironmentOptions([]);
-      return [];
-    }
-
-    setRunInEnvironmentBusy(true);
-    try {
-      const result = await invoke("worktrees:environments:list", executionProjectId);
-      const parsed = parseRunInEnvironmentOptions(result);
-      setRunInEnvironmentOptions(parsed);
-      return parsed;
-    } catch {
-      setRunInEnvironmentOptions([]);
-      return [];
-    } finally {
-      setRunInEnvironmentBusy(false);
-    }
-  }, [executionProjectId]);
-
-  useEffect(() => {
-    if (runInTarget !== "newWorktree") return;
-    void refreshRunInBranchState();
-  }, [runInTarget, refreshRunInBranchState]);
-
-  useEffect(() => {
-    if (runInTarget !== "newWorktree" || runInWorktreePath.trim().length > 0) return;
-    void refreshRunInEnvironmentOptions();
-  }, [runInTarget, runInWorktreePath, refreshRunInEnvironmentOptions]);
-
-  const handleRunInTargetChange = useCallback(
-    async (nextTarget: PageRunInTarget) => {
-      setRunInTarget(nextTarget);
-      saveProperty({ runInTarget: nextTarget });
-
-      if (nextTarget !== "newWorktree" || runInBaseBranch.trim().length > 0) return;
-      const branchState = await refreshRunInBranchState();
-      const defaultBranch = resolveDefaultRunInBaseBranch(branchState);
-      if (!defaultBranch) return;
-      setRunInBaseBranch(defaultBranch);
-      saveProperty({ runInBaseBranch: defaultBranch });
-    },
-    [runInBaseBranch, refreshRunInBranchState, saveProperty],
-  );
-
-  const handlePickRunInLocalPath = useCallback(async () => {
-    const selected = (await invoke("workspace:pick-directory", {
-      title: "Choose local run folder",
-    })) as string | null;
-    if (!selected) return;
-    setRunInLocalPath(selected);
-    saveProperty({ runInLocalPath: selected });
-  }, [saveProperty]);
-
-  const handleClearRunInLocalPath = useCallback(() => {
-    setRunInLocalPath("");
-    saveProperty({ runInLocalPath: null });
-  }, [saveProperty]);
-
-  const handleResetRunInWorktreePath = useCallback(() => {
-    setRunInWorktreePath("");
-    saveProperty({ runInWorktreePath: null });
-  }, [saveProperty]);
-
-  const handleSelectRunInBaseBranch = useCallback(
-    async (branch: string) => {
-      const normalized = branch.trim();
-      if (!normalized) return false;
-      setRunInBaseBranch(normalized);
-      saveProperty({ runInBaseBranch: normalized });
-      return true;
-    },
-    [saveProperty],
-  );
-
-  const handleSelectRunInEnvironmentPath = useCallback(
-    async (environmentPath: string | null) => {
-      const normalized = environmentPath?.trim() || "";
-      setRunInEnvironmentPath(normalized);
-      saveProperty({ runInEnvironmentPath: normalized || null });
-      return true;
-    },
-    [saveProperty],
-  );
-
-  const handleOpenEnvironmentSettings = useCallback(async () => {
-    if (executionProjectId === null || !projectWorkspacePath?.trim()) return;
-    onOpenLocalEnvironmentSettings?.({
-      projectId: executionProjectId,
-      configPath: runInEnvironmentPath.trim() || null,
-    });
-  }, [
-    executionProjectId,
-    onOpenLocalEnvironmentSettings,
-    projectWorkspacePath,
-    runInEnvironmentPath,
-  ]);
-
-  const hasThreadsRow = linkedCodexThreads.length > 0 || Boolean(onOpenNewCodexThread);
-  const selectedRunInBaseBranch =
-    runInBaseBranch.trim() || resolveDefaultRunInBaseBranch(runInBranchState);
-  const runInLocalPathDisplay = runInLocalPath.trim();
-  const runInWorktreePathDisplay = runInWorktreePath.trim();
-  const runInEnvironmentPathDisplay = runInEnvironmentPath.trim();
+  const hasRelatedChatsRow =
+    relatedChats.length > 0 ||
+    relatedChatsLoading ||
+    Boolean(relatedChatsError) ||
+    Boolean(onCreateRelatedChat) ||
+    Boolean(onLinkRelatedChat);
 
   const collapseTagsByDefault =
     databaseSemantic?.tags !== null &&
@@ -725,7 +563,7 @@ export function usePageStageController(
     databaseSemantic?.assignee !== null &&
     databaseSemantic?.assignee !== undefined &&
     collapsedProperties.includes("assignee");
-  const collapseThreadsByDefault = hasThreadsRow && collapsedProperties.includes("threads");
+  const collapseThreadsByDefault = hasRelatedChatsRow && collapsedProperties.includes("threads");
   const collapseScheduleByDefault = scheduleCapability && collapsedProperties.includes("schedule");
 
   const collapsedPropertyCount = [
@@ -754,25 +592,20 @@ export function usePageStageController(
     page,
     hasDatabaseProperties: propertyControls.properties.length > 0,
     propertyControls,
-    projectWorkspacePath,
     title,
-    runInTarget,
-    runInLocalPathDisplay,
-    runInBaseBranch,
-    runInWorktreePathDisplay,
-    runInEnvironmentPath: runInEnvironmentPathDisplay,
-    runInBranchState,
-    runInBranchBusy,
-    runInEnvironmentOptions,
-    runInEnvironmentBusy,
     saving,
     propertiesExpanded,
     limitMainContentWidth,
     showRawContent,
     historyPanelActive,
-    linkedCodexThreads,
-    hasThreadsRow,
-    selectedRunInBaseBranch,
+    relatedChats,
+    relatedChatsLoading,
+    relatedChatsError,
+    relatedChatsHasMore,
+    relatedChatsLoadingMore,
+    relatedChatCandidates,
+    hasRelatedChatsRow,
+    currentSessionId: sessionId,
     collapseTagsByDefault,
     collapseAssigneeByDefault,
     collapseThreadsByDefault,
@@ -785,8 +618,12 @@ export function usePageStageController(
     setScrollContainerRef,
     schedule,
     schedulePage,
-    onOpenNewCodexThread,
-    onOpenCodexThread,
+    onCreateRelatedChat,
+    onLinkRelatedChat,
+    onOpenRelatedChat,
+    onRemoveRelatedChat,
+    onRetryRelatedChats,
+    onLoadMoreRelatedChats,
     setPropertiesExpanded,
     handleClose,
     handleDelete,
@@ -794,16 +631,8 @@ export function usePageStageController(
     handleToggleShowRawContent,
     handleScroll,
     handleDocumentTitleChange,
-    handleRunInTargetChange,
-    handlePickRunInLocalPath,
-    handleClearRunInLocalPath,
-    handleResetRunInWorktreePath,
-    handleSelectRunInBaseBranch,
-    refreshRunInBranchState,
-    refreshRunInEnvironmentOptions,
-    handleSelectRunInEnvironmentPath,
-    handleOpenEnvironmentSettings,
-    handleOpenCodexThread,
+    handleOpenRelatedChat,
+    handleRemoveRelatedChat,
     collapsedPropertyLabel,
   };
 }

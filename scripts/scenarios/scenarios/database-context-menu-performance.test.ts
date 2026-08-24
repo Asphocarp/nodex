@@ -57,6 +57,18 @@ class PerformanceSeedPort implements ScenarioSeedPort {
       groups: { triage: 32, plan: 32, build: 32, review: 32, ship: 32 },
     };
   }
+
+  async createRelatedChat(): Promise<never> {
+    throw new Error("Related Chat seeding is not part of this scenario");
+  }
+
+  async readPageChatActivity(): Promise<never> {
+    throw new Error("Page Chat inspection is not part of this scenario");
+  }
+
+  async readPageChats(): Promise<never> {
+    throw new Error("Page Chat inspection is not part of this scenario");
+  }
 }
 
 describe("database/context-menu-performance scenario", () => {

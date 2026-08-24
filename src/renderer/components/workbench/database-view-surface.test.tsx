@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { createEvent, fireEvent, waitFor, within } from "@testing-library/react";
-import { act, useRef, useState } from "react";
+import { act, useRef, useState, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import {
   commitDatabaseViewOperations,
@@ -15,7 +16,7 @@ import {
 } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { upgradeDatabaseViewConfigV2 } from "../../../shared/database-view-presentation";
-import { render, settleAsyncRender } from "../../test/dom";
+import { render as renderDom, settleAsyncRender } from "../../test/dom";
 import { databaseViewMutationErrorMessage, DatabaseViewSurface } from "./database-view-surface";
 import { DatabaseViewTabSurface } from "./workbench-db-view-panel";
 import { handleWorkbenchShortcut } from "@/lib/use-workbench-shortcuts";
@@ -30,11 +31,47 @@ import {
   endLocalBlockDragSession,
 } from "./block-transfer/cross-surface-drag";
 
+const render: typeof renderDom = (element, options) => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const withClient = (children: ReactNode) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+  const result = renderDom(withClient(element), options);
+  return {
+    ...result,
+    rerender: (nextElement) => result.rerender(withClient(nextElement)),
+  };
+};
+
 const optionRuntime = vi.hoisted(() => ({ read: vi.fn() }));
+const pageChatRuntime = vi.hoisted(() => ({
+  summaries: [] as Array<{
+    pageId: string;
+    relatedCount: number;
+    workingCount: number;
+    waitingOnApprovalCount: number;
+    waitingOnUserInputCount: number;
+    errorCount: number;
+    unreadCount: number;
+    soleSessionId: string | null;
+  }>,
+}));
 vi.mock("@/lib/database-property-options-runtime", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/database-property-options-runtime")>()),
   readPropertyOptionWindow: optionRuntime.read,
 }));
+vi.mock("@/lib/api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...original,
+    invoke: async (...args: Parameters<typeof original.invoke>) => {
+      if (args[0] === "page-chats:activity-summaries") {
+        return { summaries: pageChatRuntime.summaries, projectionRevision: 1 };
+      }
+      return await original.invoke(...args);
+    },
+  };
+});
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const dataSourceId = parseDataSourceId("source-1");
@@ -667,6 +704,7 @@ const databaseViewPageDataTransfer = (): DataTransfer => {
 describe("DatabaseViewSurface", () => {
   beforeEach(() => {
     resetContextualKeyboardActionRegistryForTests();
+    pageChatRuntime.summaries = [];
     optionRuntime.read.mockReset().mockImplementation(async (_context, property) => ({
       options:
         property.propertyId === statusPropertyId
@@ -688,6 +726,45 @@ describe("DatabaseViewSurface", () => {
       nextCursor: null,
       projectionRevision: 1,
     }));
+  });
+
+  test("opens related Chat activity without activating or opening the List Page", async () => {
+    pageChatRuntime.summaries = [
+      {
+        pageId: "page-focused",
+        relatedCount: 1,
+        workingCount: 1,
+        waitingOnApprovalCount: 0,
+        waitingOnUserInputCount: 0,
+        errorCount: 0,
+        unreadCount: 1,
+        soleSessionId: "session-related",
+      },
+    ];
+    const onOpenPage = vi.fn();
+    const onOpenRelatedChat = vi.fn(async () => undefined);
+    const onSelectedPageIdsChange = vi.fn();
+    const screen = render(
+      <DatabaseViewSurface
+        model={model}
+        searchQuery=""
+        onOpenPage={onOpenPage}
+        pageActionPort={{ openRelatedChat: onOpenRelatedChat }}
+        onSelectedPageIdsChange={onSelectedPageIdsChange}
+      />,
+    );
+    const activity = await screen.findByRole("button", {
+      name: "1 linked chat, 1 working chat, 1 unread chat",
+    });
+    onSelectedPageIdsChange.mockClear();
+    await act(async () => {
+      fireEvent.pointerDown(activity);
+      fireEvent.click(activity);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(onOpenRelatedChat).toHaveBeenCalledWith("session-related"));
+    expect(onOpenPage).not.toHaveBeenCalled();
+    expect(onSelectedPageIdsChange).not.toHaveBeenCalled();
   });
 
   test("accepts Block promotion during protected dragover payload access", async () => {
@@ -1354,7 +1431,7 @@ describe("DatabaseViewSurface", () => {
   });
 
   test("routes List Page session and delete commands through the shared action port", async () => {
-    const openInNewSession = vi.fn();
+    const openInNewChat = vi.fn();
     const deletePage = vi.fn(async () => undefined);
     const screen = render(
       <DatabaseViewSurface
@@ -1362,7 +1439,7 @@ describe("DatabaseViewSurface", () => {
         presentationLayout="list"
         searchQuery=""
         onOpenPage={() => undefined}
-        pageActionPort={{ openInNewSession, deletePage }}
+        pageActionPort={{ openInNewChat, deletePage }}
       />,
     );
     const row = screen.container.querySelector<HTMLElement>(
@@ -1388,21 +1465,21 @@ describe("DatabaseViewSurface", () => {
       });
       await Promise.resolve();
     });
-    const openInNewSessionItem = await screen.findByRole("menuitem", {
-      name: "Open in new session",
+    const openInNewChatItem = await screen.findByRole("menuitem", {
+      name: "Open in new chat",
     });
     await waitFor(() => {
       expect(
-        openInNewSessionItem
+        openInNewChatItem
           .closest('[data-slot="context-menu-subcontent"]')
           ?.getAttribute("data-state"),
       ).toBe("open");
     });
     await act(async () => {
-      fireEvent.click(openInNewSessionItem);
+      fireEvent.click(openInNewChatItem);
       await Promise.resolve();
     });
-    expect(openInNewSession).toHaveBeenCalledWith({
+    expect(openInNewChat).toHaveBeenCalledWith({
       projectId: "project-1",
       pageId: "page-focused",
       titleSnapshot: "Focused Page",

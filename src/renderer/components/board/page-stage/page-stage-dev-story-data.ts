@@ -1,22 +1,16 @@
 import type { PageStageCollapsibleProperty } from "../../../lib/page-stage-collapsed-properties";
-import type { DatabasePage, PageRunInTarget } from "../../../lib/types";
+import type { DatabasePage } from "../../../lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
-import type { PageStageLinkedThread } from "./types";
+import type { PageStageRelatedChat } from "./types";
 
-export type PageStageStoryThreadDensity = "none" | "few" | "many";
-export type PageStageStoryPreviewMode = "none" | "mixed" | "all";
-export const PAGE_STAGE_STORY_RUN_TARGETS = ["localProject", "newWorktree", "cloud"] as const;
-export const PAGE_STAGE_STORY_THREAD_DENSITIES = ["none", "few", "many"] as const;
-export const PAGE_STAGE_STORY_PREVIEW_MODES = ["none", "mixed", "all"] as const;
+export type PageStageStoryChatDensity = "none" | "few" | "many";
+export const PAGE_STAGE_STORY_CHAT_DENSITIES = ["none", "few", "many"] as const;
 
 export interface PageStageStoryControls {
-  runInTarget: PageRunInTarget;
-  threadDensity: PageStageStoryThreadDensity;
-  previewMode: PageStageStoryPreviewMode;
-  existingWorktree: boolean;
-  showNewThreadAction: boolean;
-  enableOpenThread: boolean;
-  collapseThreadsByDefault: boolean;
+  chatDensity: PageStageStoryChatDensity;
+  showNewChatAction: boolean;
+  enableOpenChat: boolean;
+  collapseChatsByDefault: boolean;
   collapseSecondaryProperties: boolean;
   historyPanelActive: boolean;
 }
@@ -32,89 +26,57 @@ export const PAGE_STAGE_STORY_PROJECT_ID = "nodex";
 export const PAGE_STAGE_STORY_COLUMN_ID = "6-in-progress";
 export const PAGE_STAGE_STORY_COLUMN_NAME = "Build";
 export const PAGE_STAGE_STORY_WORKSPACE_PATH = "/workspace/nodex";
-export const PAGE_STAGE_STORY_WORKTREE_PATH = "/workspace/.codex/worktrees/8153/nodex-page-stage";
 
 export const PAGE_STAGE_STORY_PRESETS: PageStageStoryPreset[] = [
   {
     id: "overview",
     name: "Overview",
     description:
-      "Balanced page stage with linked threads, tags, schedule, and all major chrome visible.",
+      "Balanced page stage with related Chats, tags, schedule, and all major chrome visible.",
     controls: {
-      runInTarget: "localProject",
-      threadDensity: "few",
-      previewMode: "mixed",
-      existingWorktree: false,
-      showNewThreadAction: true,
-      enableOpenThread: true,
-      collapseThreadsByDefault: false,
+      chatDensity: "few",
+      showNewChatAction: true,
+      enableOpenChat: true,
+      collapseChatsByDefault: false,
       collapseSecondaryProperties: false,
       historyPanelActive: false,
     },
   },
   {
-    id: "dense-threads",
-    name: "Dense Threads",
-    description: "Long linked-thread stack to refine scrolling, truncation, and spacing.",
+    id: "dense-chats",
+    name: "Dense Chats",
+    description: "Long related-Chat stack to refine truncation, spacing, and activity states.",
     controls: {
-      runInTarget: "localProject",
-      threadDensity: "many",
-      previewMode: "mixed",
-      existingWorktree: false,
-      showNewThreadAction: true,
-      enableOpenThread: true,
-      collapseThreadsByDefault: false,
+      chatDensity: "many",
+      showNewChatAction: true,
+      enableOpenChat: true,
+      collapseChatsByDefault: false,
       collapseSecondaryProperties: true,
       historyPanelActive: false,
     },
   },
   {
-    id: "new-worktree-setup",
-    name: "New Worktree",
-    description:
-      "Fresh worktree state with branch and environment selectors visible before a thread starts.",
+    id: "empty-chats",
+    name: "Empty Chats",
+    description: "Empty relation state with the compact Add chat value action.",
     controls: {
-      runInTarget: "newWorktree",
-      threadDensity: "none",
-      previewMode: "mixed",
-      existingWorktree: false,
-      showNewThreadAction: true,
-      enableOpenThread: true,
-      collapseThreadsByDefault: false,
+      chatDensity: "none",
+      showNewChatAction: true,
+      enableOpenChat: true,
+      collapseChatsByDefault: false,
       collapseSecondaryProperties: false,
       historyPanelActive: false,
     },
   },
   {
-    id: "existing-worktree",
-    name: "Existing Worktree",
-    description:
-      "Existing managed worktree plus a couple linked threads so the reset affordance can be tuned.",
+    id: "collapsed-chats",
+    name: "Collapsed Chats",
+    description: "Collapsed relation state for inspecting the hidden-property affordance.",
     controls: {
-      runInTarget: "newWorktree",
-      threadDensity: "few",
-      previewMode: "all",
-      existingWorktree: true,
-      showNewThreadAction: true,
-      enableOpenThread: true,
-      collapseThreadsByDefault: false,
-      collapseSecondaryProperties: true,
-      historyPanelActive: false,
-    },
-  },
-  {
-    id: "cloud-collapsed",
-    name: "Cloud Collapsed",
-    description:
-      "Cloud target copy plus collapsed threads defaults to inspect hidden-property affordances.",
-    controls: {
-      runInTarget: "cloud",
-      threadDensity: "few",
-      previewMode: "none",
-      existingWorktree: false,
-      showNewThreadAction: true,
-      enableOpenThread: false,
-      collapseThreadsByDefault: true,
+      chatDensity: "few",
+      showNewChatAction: true,
+      enableOpenChat: false,
+      collapseChatsByDefault: true,
       collapseSecondaryProperties: true,
       historyPanelActive: true,
     },
@@ -123,99 +85,75 @@ export const PAGE_STAGE_STORY_PRESETS: PageStageStoryPreset[] = [
 
 export const PAGE_STAGE_STORY_DEFAULT_PRESET = PAGE_STAGE_STORY_PRESETS[0];
 
-function countForDensity(density: PageStageStoryThreadDensity): number {
+function countForDensity(density: PageStageStoryChatDensity): number {
   if (density === "few") return 3;
   if (density === "many") return 10;
   return 0;
 }
 
-function buildThreadPreview(index: number, mode: PageStageStoryPreviewMode): string | undefined {
-  if (mode === "none") return undefined;
-  if (mode === "mixed" && index % 2 === 1) return undefined;
-
-  const previews = [
-    "Tighten the linked thread row spacing so previews align with long titles.",
-    "Validate hover, disabled, and keyboard focus states before shipping the new chrome.",
-    "Compare scroll density when thread previews wrap versus staying single-line.",
-    "Re-check the new worktree and cloud copy after the page stage layout pass.",
-  ];
-
-  return previews[index % previews.length];
-}
-
-export function buildPageStageStoryThreads(
-  controls: Pick<PageStageStoryControls, "threadDensity" | "previewMode">,
-  extraThreadCount = 0,
-): PageStageLinkedThread[] {
-  const total = Math.max(
-    0,
-    countForDensity(controls.threadDensity) + Math.max(0, extraThreadCount),
-  );
+export function buildPageStageStoryChats(
+  controls: Pick<PageStageStoryControls, "chatDensity">,
+  extraChatCount = 0,
+): PageStageRelatedChat[] {
+  const total = Math.max(0, countForDensity(controls.chatDensity) + Math.max(0, extraChatCount));
 
   return Array.from({ length: total }, (_, index) => ({
-    threadId: `story-thread-${index + 1}`,
-    title:
+    sessionId: `story-session-${index + 1}`,
+    projectId: PAGE_STAGE_STORY_PROJECT_ID,
+    projectName: "Nodex",
+    threadId: index === total - 1 ? null : `story-thread-${index + 1}`,
+    displayTitle:
       index === 0
-        ? "Polish page stage thread affordances"
+        ? "Polish related Chat affordances"
         : `Page detail iteration ${String(index + 1).padStart(2, "0")}`,
-    preview: buildThreadPreview(index, controls.previewMode),
-    statusType: index === 0 ? "active" : "idle",
-    statusActiveFlags: [],
-    archived: false,
-    updatedAt: Date.now() - (index + 1) * 60_000,
+    threadPreview: "",
+    threadStatus:
+      index === total - 1 ? null : { statusType: index === 0 ? "active" : "idle", activeFlags: [] },
+    threadArchived: false,
+    unread: index === 0,
+    sessionArchived: false,
+    conversationRecencyAt: Date.now() - (index + 1) * 60_000,
+    linkedAt: new Date(Date.now() - (index + 1) * 60_000).toISOString(),
   }));
 }
 
-export function buildPageStageStoryPage(
-  controls: Pick<PageStageStoryControls, "runInTarget" | "existingWorktree">,
-): DatabasePage {
-  const isLocalProject = controls.runInTarget === "localProject";
-  const isNewWorktree = controls.runInTarget === "newWorktree";
-
+export function buildPageStageStoryPage(): DatabasePage {
   return {
     id: "story-page-stage-1",
     pageKey: "LAB-13",
     status: "build",
     archived: false,
-    title: "Refine page stage thread property UI",
-    richTitle: plainTextToPortableRichText("Refine page stage thread property UI"),
+    title: "Refine related Chat property UI",
+    richTitle: plainTextToPortableRichText("Refine related Chat property UI"),
     description: [
       "## Story intent",
       "",
       "Use this development-only surface to iterate on the page stage without opening a real project page.",
-      "Focus on the **Threads** property row: thread count badge, linked thread list density, CTA placement, and copy.",
+      "Focus on the **Linked chats** Property: wrapping chips, activity states, and its trailing add action.",
       "",
-      "- Verify truncation for long thread titles",
-      "- Compare empty, sparse, and dense linked-thread stacks",
-      "- Tune run target labels while switching between local, new worktree, and cloud",
+      "- Verify truncation for long Chat titles",
+      "- Compare empty, sparse, and dense related-Chat stacks",
+      "- Verify New chat and Link to chat stay available without consuming another row",
       "",
       "### Notes",
       "The save handlers are mocked, so this story is safe to edit locally while refining layout.",
     ].join("\n"),
     priority: "p1-high",
     estimate: "m",
-    tags: ["ui", "threads", "page-stage"],
+    tags: ["ui", "chats", "page-stage"],
     dueDate: new Date("2026-03-08T09:00:00.000Z"),
     scheduledStart: new Date("2026-03-05T14:00:00.000Z"),
     scheduledEnd: new Date("2026-03-05T15:00:00.000Z"),
     reminders: [{ offsetMinutes: 30 }],
     assignee: "asc",
-    runInTarget: controls.runInTarget,
-    runInLocalPath: isLocalProject ? "src/renderer/components/board" : undefined,
-    runInBaseBranch: isNewWorktree ? "main" : undefined,
-    runInWorktreePath:
-      isNewWorktree && controls.existingWorktree ? PAGE_STAGE_STORY_WORKTREE_PATH : undefined,
-    runInEnvironmentPath: isNewWorktree ? ".codex/environments/ui-polish.toml" : undefined,
+    runInTarget: "localProject",
     created: new Date("2026-03-04T09:30:00.000Z"),
     order: 0,
   };
 }
 
 export function buildPageStageStoryCollapsedProperties(
-  controls: Pick<
-    PageStageStoryControls,
-    "collapseThreadsByDefault" | "collapseSecondaryProperties"
-  >,
+  controls: Pick<PageStageStoryControls, "collapseChatsByDefault" | "collapseSecondaryProperties">,
 ): PageStageCollapsibleProperty[] {
   const properties: PageStageCollapsibleProperty[] = [];
 
@@ -223,7 +161,7 @@ export function buildPageStageStoryCollapsedProperties(
     properties.unshift("tags", "assignee");
   }
 
-  if (controls.collapseThreadsByDefault) {
+  if (controls.collapseChatsByDefault) {
     properties.push("threads");
   }
 

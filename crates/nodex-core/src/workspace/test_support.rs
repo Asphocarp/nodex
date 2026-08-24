@@ -1,12 +1,15 @@
 use std::fs;
 
+use nodex_core_contracts::library::{
+    LibraryAccess, LibraryIntent, LibraryResourceTarget, LibraryWriteParent,
+};
 use nodex_core_contracts::workspace::{
     ProjectSessionIntent, ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
     ProjectWorkspaceThreadPatch,
 };
 use nodex_core_contracts::{
-    AdapterKind, BoundModuleContext, LibraryId, ModuleApplyRequest, ModuleReadRequest,
-    PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId, StoreEpoch,
+    AdapterKind, BoundModuleContext, LIBRARY_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
+    ModuleReadRequest, PROJECT_WORKSPACE_CONTRACT_VERSION, ProfileId, ProjectId, StoreEpoch,
 };
 use tempfile::{TempDir, tempdir};
 
@@ -14,6 +17,7 @@ use crate::infrastructure::sqlite::with_immediate_transaction;
 use crate::infrastructure::store::SqliteStoreKernel;
 
 use super::ProjectWorkspaceModule;
+use crate::library::LibraryModule;
 
 pub(super) const NOW: &str = "2026-07-19T06:00:00.000Z";
 
@@ -128,6 +132,49 @@ pub(super) fn create_project(
     );
 }
 
+pub(super) fn create_page_with_project_access(
+    workspace: &TestWorkspace,
+    page_id: &str,
+    project_id: &str,
+) {
+    let library = LibraryModule::new("profile-1", "library-1", &workspace.kernel);
+    let mut library_context = context();
+    library_context.project_id = None;
+    library
+        .apply(
+            &library_context,
+            ModuleApplyRequest {
+                contract_version: LIBRARY_CONTRACT_VERSION,
+                operation_id: format!("create-{page_id}"),
+                store_epoch: StoreEpoch("epoch-1".to_owned()),
+                intent: LibraryIntent::CreatePage {
+                    page_id: page_id.to_owned(),
+                    document_id: format!("document:{page_id}"),
+                    title: page_id.to_owned(),
+                    parent: LibraryWriteParent::Library { before: None },
+                },
+            },
+        )
+        .expect("create Page");
+    library
+        .apply(
+            &library_context,
+            ModuleApplyRequest {
+                contract_version: LIBRARY_CONTRACT_VERSION,
+                operation_id: format!("grant-{project_id}-{page_id}"),
+                store_epoch: StoreEpoch("epoch-1".to_owned()),
+                intent: LibraryIntent::GrantProjectAccess {
+                    project_id: project_id.to_owned(),
+                    target: LibraryResourceTarget::Page {
+                        page_id: page_id.to_owned(),
+                    },
+                    access: LibraryAccess::ReadWrite,
+                },
+            },
+        )
+        .expect("grant Project Page access");
+}
+
 pub(super) fn create_session_thread(
     module: &ProjectWorkspaceModule,
     prefix: &str,
@@ -143,6 +190,7 @@ pub(super) fn create_session_thread(
             session_id: session_id.to_owned(),
             project_id: project_id.map(str::to_owned),
             title: thread_id.to_owned(),
+            initial_page_ids: Vec::new(),
         },
     );
     apply(

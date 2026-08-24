@@ -223,24 +223,24 @@ describe("DatabaseViewPageContextMenu", () => {
     );
   });
 
-  test("reports failure when opening a Page in a new session fails", async () => {
-    const openInNewSession = vi.fn().mockRejectedValue(new Error("session unavailable"));
-    const screen = renderMenu({ openInNewSession });
+  test("reports failure when opening a Page in a new chat fails", async () => {
+    const openInNewChat = vi.fn().mockRejectedValue(new Error("chat unavailable"));
+    const screen = renderMenu({ openInNewChat });
 
     await openMenu(screen);
     await openSubmenu(screen, "Open in");
-    const openInNewSessionItem = await screen.findByRole("menuitem", {
-      name: "Open in new session",
+    const openInNewChatItem = await screen.findByRole("menuitem", {
+      name: "Open in new chat",
     });
     await act(async () => {
-      fireEvent.click(openInNewSessionItem);
+      fireEvent.click(openInNewChatItem);
       await Promise.resolve();
     });
 
     await waitFor(() =>
       expect(
         __getNodexToastSnapshotForTests().some(
-          (item) => item.kind === "plain" && item.title === "Failed to open Page in a new session",
+          (item) => item.kind === "plain" && item.title === "Failed to open Page in a new chat",
         ),
       ).toBe(true),
     );

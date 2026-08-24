@@ -6,10 +6,14 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { OwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
 import { PageStageContentSkeleton } from "@/components/board/page-stage/content-skeleton";
 import { PageStageToolbar } from "@/components/board/page-stage/toolbar";
-import type { PageStageSessionSnapshot } from "@/components/board/page-stage/types";
+import type {
+  PageStageRelatedChatCandidate,
+  PageStageSessionSnapshot,
+} from "@/components/board/page-stage/types";
 import { NodexButton } from "@/components/ui/button";
 import { useCodexAppServerControl } from "@/features/local-conversation";
 import { usePageOwnershipPathReadModel } from "@/lib/block-reference-queries";
@@ -37,10 +41,14 @@ import type {
 import { useBoard } from "@/lib/use-board";
 import { cn } from "@/lib/utils";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
+import type { OpenPageInNewChatInput } from "@/lib/page-chat-actions";
 import { projectWorkspaceRootOrNull } from "@/lib/workbench-workspace-context";
 import type { OpenCanvasStageHandler } from "@/lib/use-workbench-panel-openers";
 import type { WorkbenchProjectionPageStageTabConfig } from "../../../shared/types";
 import { PageStage } from "./workbench-page-stage";
+import { pageChatWindowQueryOptions } from "@/lib/query-options";
+import { queryKeys } from "@/lib/query-keys";
+import { invoke } from "@/lib/api";
 
 export interface OpenPageTabOptions {
   sourceTabId?: string;
@@ -140,6 +148,11 @@ export function PageStageSessionTab({
   onOpenPageTab,
   onOpenCanvasStage,
   onOpenThread,
+  onOpenRelatedChat,
+  onOpenPageInNewChat,
+  onLinkPageToChat,
+  relatedChatCandidates,
+  onResolveChatSessionForThread,
   historyPanelActive,
   onToggleHistoryPanel,
   isActivePanelTab,
@@ -166,11 +179,43 @@ export function PageStageSessionTab({
   onOpenPageTab: OpenPageTabHandler;
   onOpenCanvasStage: OpenCanvasStageHandler;
   onOpenThread: (threadId: string) => Promise<void>;
+  onOpenRelatedChat?: (sessionId: string) => Promise<void> | void;
+  onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  onLinkPageToChat: (input: {
+    readonly pageAccessProjectId: string;
+    readonly pageId: string;
+    readonly sessionId: string;
+  }) => Promise<void>;
+  relatedChatCandidates: readonly PageStageRelatedChatCandidate[];
+  onResolveChatSessionForThread: (
+    threadId: string,
+  ) => Promise<{ readonly id: string; readonly projectId: string | null }>;
   historyPanelActive: boolean;
   onToggleHistoryPanel: (context: PageStageHistoryModalContext) => void;
   isActivePanelTab: boolean;
 }) {
   const codexControl = useCodexAppServerControl(tab.config.projectId);
+  const queryClient = useQueryClient();
+  const relatedChatsQuery = useInfiniteQuery({
+    ...pageChatWindowQueryOptions({
+      pageAccessProjectId: tab.config.projectId,
+      pageId: tab.config.pageId,
+      includeArchived: false,
+      first: 20,
+    }),
+    enabled: project !== null,
+  });
+  const relatedChats = relatedChatsQuery.data?.pages.flatMap((window) => window.items) ?? [];
+  const removeRelatedChat = useCallback(
+    async (relatedSessionId: string): Promise<void> => {
+      await invoke("page-chats:unlink", relatedSessionId, {
+        pageAccessProjectId: tab.config.projectId,
+        pageId: tab.config.pageId,
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.pageChats.all() });
+    },
+    [queryClient, tab.config.pageId, tab.config.projectId],
+  );
   const editorSessionKey = makeEditorSurfaceKey(sessionId, tab.id);
 
   const detailSnapshot = usePageDetail(
@@ -244,6 +289,11 @@ export function PageStageSessionTab({
       const targetSessionId =
         input.targetSessionId?.trim() ||
         (await onEnsureDefaultDraftSessionForProject(input.projectId, { select: false })).id;
+      await onLinkPageToChat({
+        pageAccessProjectId: tab.config.projectId,
+        pageId: tab.config.pageId,
+        sessionId: targetSessionId,
+      });
       const result = await codexControl.startThreadForSession({
         projectId: input.projectId,
         sessionId: targetSessionId,
@@ -264,7 +314,14 @@ export function PageStageSessionTab({
         sessionId: targetSessionId,
       };
     },
-    [codexControl, onEnsureDefaultDraftSessionForProject, onRefreshSessions],
+    [
+      codexControl,
+      onEnsureDefaultDraftSessionForProject,
+      onLinkPageToChat,
+      onRefreshSessions,
+      tab.config.pageId,
+      tab.config.projectId,
+    ],
   );
 
   if (!project) {
@@ -451,7 +508,38 @@ export function PageStageSessionTab({
             sessionId={sessionId}
             sessionThread={sessionThread}
             canStartThreadInSession={canStartThreadInSession}
-            linkedCodexThreads={[]}
+            relatedChats={relatedChats}
+            relatedChatsLoading={relatedChatsQuery.isPending}
+            relatedChatsError={relatedChatsQuery.error ? "Couldn’t load linked chats" : null}
+            relatedChatsHasMore={relatedChatsQuery.hasNextPage}
+            relatedChatsLoadingMore={relatedChatsQuery.isFetchingNextPage}
+            relatedChatCandidates={relatedChatCandidates}
+            onOpenRelatedChat={onOpenRelatedChat}
+            onCreateRelatedChat={
+              onOpenPageInNewChat
+                ? async () => {
+                    await onOpenPageInNewChat({
+                      projectId: tab.config.projectId,
+                      pageId: tab.config.pageId,
+                      titleSnapshot: page.page.title,
+                    });
+                  }
+                : undefined
+            }
+            onLinkRelatedChat={async (relatedSessionId) => {
+              await onLinkPageToChat({
+                pageAccessProjectId: tab.config.projectId,
+                pageId: tab.config.pageId,
+                sessionId: relatedSessionId,
+              });
+            }}
+            onRemoveRelatedChat={removeRelatedChat}
+            onRetryRelatedChats={async () => {
+              await relatedChatsQuery.refetch();
+            }}
+            onLoadMoreRelatedChats={async () => {
+              await relatedChatsQuery.fetchNextPage();
+            }}
             onOpenCodexThread={onOpenThread}
             onOpenPage={async ({ accessContext, pageId, titleSnapshot, sourceBlockId }) => {
               if (accessContext.kind !== "project") return;
@@ -470,9 +558,18 @@ export function PageStageSessionTab({
               void onOpenCanvasStage(accessContext.projectId, canvasBlockId, titleSnapshot);
             }}
             onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
-            onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {
+            onSendThreadSectionPrompt={async ({ threadId, prompt, promptInput }) => {
+              const targetSession = await onResolveChatSessionForThread(threadId);
+              if (!targetSession.projectId) {
+                throw new Error("Page content can only be sent to a Project chat");
+              }
+              await onLinkPageToChat({
+                pageAccessProjectId: tab.config.projectId,
+                pageId: tab.config.pageId,
+                sessionId: targetSession.id,
+              });
               await codexControl.startTurn(threadId, prompt, {
-                projectId,
+                projectId: targetSession.projectId,
                 promptInput,
               });
             }}

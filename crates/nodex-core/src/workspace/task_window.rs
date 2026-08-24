@@ -269,27 +269,13 @@ fn task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ProjectWorkspaceTaskSu
         )
         .transpose()?;
     let fallback_title = row.get::<_, String>(2)?;
-    let display_title = thread
-        .as_ref()
-        .and_then(|thread| {
-            [
-                thread.thread_name.as_deref(),
-                Some(thread.thread_preview.as_str()),
-            ]
-            .into_iter()
-            .flatten()
-            .map(str::trim)
-            .find(|value| !value.is_empty())
-        })
-        .unwrap_or_else(|| {
-            let value = fallback_title.trim();
-            if value.is_empty() {
-                "New thread"
-            } else {
-                value
-            }
-        })
-        .to_owned();
+    let display_title = super::read::project_session_display_title(
+        thread
+            .as_ref()
+            .and_then(|thread| thread.thread_name.as_deref()),
+        thread.as_ref().map(|thread| thread.thread_preview.as_str()),
+        &fallback_title,
+    );
     let task = ProjectWorkspaceTaskSummary {
         session: ProjectWorkspaceSessionSummary {
             id: row.get(0)?,

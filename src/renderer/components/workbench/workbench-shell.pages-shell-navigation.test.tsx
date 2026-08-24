@@ -26,7 +26,9 @@ import {
   pointerDownAndSettle,
   renderWorkbench,
   startThreadForSessionCalls,
+  startTurnCalls,
   setInvokeCalls,
+  setPageChatItems,
 } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / pages-shell-navigation", () => {
@@ -93,14 +95,14 @@ describe("workbench session shell / pages-shell-navigation", () => {
     ).__lastDatabaseViewSurfaceProps;
     const pageActionPort = databaseViewSurfaceProps?.pageActionPort as
       | {
-          readonly openInNewSession?: (input: {
+          readonly openInNewChat?: (input: {
             projectId: string;
             pageId: string;
             titleSnapshot?: string;
           }) => Promise<void> | void;
         }
       | undefined;
-    const openPageInNewChat = pageActionPort?.openInNewSession as
+    const openPageInNewChat = pageActionPort?.openInNewChat as
       | ((input: {
           projectId: string;
           pageId: string;
@@ -124,6 +126,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     expect(invokeCalls.find((call) => call[0] === "project-sessions:create")?.[1]).toEqual({
       projectId: "alpha",
       noThreadFallbackTitle: "Card One",
+      initialPageIds: ["card-1"],
     });
     expect(invokeCalls.some((call) => call[0] === "project-sessions:ensure-default-draft")).toBe(
       false,
@@ -670,6 +673,15 @@ describe("workbench session shell / pages-shell-navigation", () => {
       }),
     );
     expect(startThreadForSessionCalls.length).toBe(1);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "page-chats:link" &&
+          call[1] === "session:alpha:card-empty" &&
+          JSON.stringify(call[2]) ===
+            JSON.stringify({ pageAccessProjectId: "alpha", pageId: "card-1" }),
+      ),
+    ).toBe(true);
     expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(
       JSON.stringify({
         projectId: "alpha",
@@ -682,6 +694,132 @@ describe("workbench session shell / pages-shell-navigation", () => {
       }),
     );
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
+  });
+
+  test("projects Session-anchored Linked chats into Page Stage and unlinks explicitly", async () => {
+    const session = makeBlankSession({
+      id: "session:alpha:page-related-chats",
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "session:alpha:page-related-chats",
+          projectId: "alpha",
+          kind: "page_stage",
+          title: "Card One",
+          panelId: "right",
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+      panels: makePanels({ rightTabIds: ["card-tab"], rightActiveTabId: "card-tab" }),
+    });
+    setPageChatItems([
+      {
+        sessionId: "session:alpha:related-threadless",
+        projectId: "alpha",
+        projectName: "Alpha",
+        displayTitle: "Research follow-up",
+        threadId: null,
+        threadPreview: "",
+        threadStatus: null,
+        threadArchived: false,
+        unread: false,
+        sessionArchived: false,
+        conversationRecencyAt: null,
+        linkedAt: "2026-08-24T00:00:00Z",
+      },
+    ]);
+    renderWorkbench({
+      sessionsByProject: {
+        alpha: [session, makeBlankSession({ id: "session:alpha:related-threadless" })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> })
+      .__lastPageStageProps;
+    await waitFor(() => {
+      expect(pageStageProps?.relatedChats).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sessionId: "session:alpha:related-threadless",
+            threadId: null,
+          }),
+        ]),
+      );
+    });
+    const remove = pageStageProps?.onRemoveRelatedChat as
+      | ((sessionId: string) => Promise<void>)
+      | undefined;
+    if (!remove) throw new Error("missing Page Stage unlink callback");
+    setInvokeCalls([]);
+    await act(async () => {
+      await remove("session:alpha:related-threadless");
+      await Promise.resolve();
+    });
+    expect(invokeCalls[0]).toEqual([
+      "page-chats:unlink",
+      "session:alpha:related-threadless",
+      { pageAccessProjectId: "alpha", pageId: "card-1" },
+    ]);
+  });
+
+  test("page-stage thread sections durably relate their target Chat before sending", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:card-thread-section",
+      threadId: "thread-section-target",
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "session:alpha:card-thread-section",
+          projectId: "alpha",
+          kind: "page_stage",
+          title: "Card One",
+          panelId: "right",
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+      panels: makePanels({ rightTabIds: ["card-tab"], rightActiveTabId: "card-tab" }),
+    });
+    renderWorkbench({ sessionsByProject: { alpha: [session] } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> })
+      .__lastPageStageProps;
+    const sendSection = pageStageProps?.onSendThreadSectionPrompt as
+      | ((input: {
+          projectId: string;
+          threadId: string;
+          prompt: string;
+          promptInput?: { text: string };
+        }) => Promise<void>)
+      | undefined;
+    if (!sendSection) throw new Error("missing page-stage section send callback");
+    setInvokeCalls([]);
+
+    await act(async () => {
+      await sendSection({
+        projectId: "alpha",
+        threadId: "thread-section-target",
+        prompt: "Run this section",
+        promptInput: { text: "Run this section" },
+      });
+      await Promise.resolve();
+    });
+
+    expect(invokeCalls[0]).toEqual([
+      "page-chats:link",
+      "session:alpha:card-thread-section",
+      { pageAccessProjectId: "alpha", pageId: "card-1" },
+    ]);
+    expect(startTurnCalls).toEqual([
+      [
+        "thread-section-target",
+        "Run this section",
+        { projectId: "alpha", promptInput: { text: "Run this section" } },
+      ],
+    ]);
   });
 
   test("page-stage editor can open a mentioned thread session", async () => {

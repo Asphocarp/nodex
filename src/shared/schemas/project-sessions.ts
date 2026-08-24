@@ -4,6 +4,9 @@ import type {
   WorkbenchProjectionCanvasStageTabConfig,
   WorkbenchProjectionPageStageTabConfig,
   ProjectSessionCreateInput,
+  PageChatActivitySummaryInput,
+  PageChatLinkInput,
+  PageChatWindowInput,
   WorkbenchProjectionDbViewTabConfig,
   WorkbenchProjectionFilesTabConfig,
   WorkbenchProjectionTabConfig,
@@ -29,8 +32,16 @@ import {
 } from "./codex";
 
 export const MAX_PROJECT_SESSION_TITLE_LENGTH = 2_000;
+export const MAX_INITIAL_PAGE_CHAT_IDS = 16;
+export const MAX_PAGE_CHAT_ACTIVITY_IDS = 200;
+export const MAX_PAGE_CHAT_WINDOW_SIZE = 200;
 
 const titleSchema = z.string().trim().min(1).max(MAX_PROJECT_SESSION_TITLE_LENGTH);
+const boundedUniqueIds = (maximum: number) =>
+  z
+    .array(z.string().trim().min(1))
+    .max(maximum)
+    .refine((ids) => new Set(ids).size === ids.length, "IDs must be unique");
 
 export const WorkbenchProjectionDbViewTabConfigSchema = z
   .object({
@@ -116,10 +127,45 @@ export function parseWorkbenchProjectionTabConfig<Kind extends WorkbenchTabKind>
   return parsed as WorkbenchProjectionTabConfigByKind[Kind];
 }
 
-export const ProjectSessionCreateInputSchema = z.object({
-  projectId: z.string().min(1).nullable(),
-  noThreadFallbackTitle: titleSchema,
-}) satisfies z.ZodType<ProjectSessionCreateInput>;
+export const ProjectSessionCreateInputSchema = z
+  .object({
+    projectId: z.string().trim().min(1).nullable(),
+    noThreadFallbackTitle: titleSchema,
+    initialPageIds: boundedUniqueIds(MAX_INITIAL_PAGE_CHAT_IDS),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.initialPageIds.length === 0 || input.projectId !== null) return;
+    context.addIssue({
+      code: "custom",
+      path: ["initialPageIds"],
+      message: "Initial Linked chat Pages require a Project-owned Chat",
+    });
+  }) satisfies z.ZodType<ProjectSessionCreateInput>;
+
+export const PageChatActivitySummaryInputSchema = z
+  .object({
+    pageAccessProjectId: z.string().trim().min(1),
+    pageIds: boundedUniqueIds(MAX_PAGE_CHAT_ACTIVITY_IDS),
+  })
+  .strict() satisfies z.ZodType<PageChatActivitySummaryInput>;
+
+export const PageChatWindowInputSchema = z
+  .object({
+    pageAccessProjectId: z.string().trim().min(1),
+    pageId: z.string().trim().min(1),
+    includeArchived: z.boolean().optional(),
+    after: z.string().trim().min(1).nullable().optional(),
+    first: z.number().int().min(1).max(MAX_PAGE_CHAT_WINDOW_SIZE).optional(),
+  })
+  .strict() satisfies z.ZodType<PageChatWindowInput>;
+
+export const PageChatLinkInputSchema = z
+  .object({
+    pageAccessProjectId: z.string().trim().min(1),
+    pageId: z.string().trim().min(1),
+  })
+  .strict() satisfies z.ZodType<PageChatLinkInput>;
 
 export const ProjectSessionListOptionsSchema = z
   .object({

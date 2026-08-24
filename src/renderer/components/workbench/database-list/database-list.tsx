@@ -160,6 +160,7 @@ import {
   type DatabaseListBlockDropPreview,
 } from "./database-list-block-drop";
 import type { DatabaseViewPageOpenHandler } from "../database-view-page-open";
+import type { PageChatActivitySummary } from "@/lib/types";
 
 const INITIAL_OVERSCAN = 100;
 const EMPTY_DATABASE_LIST_PAGE_IDENTITY: DatabaseListPageIdentity = {
@@ -192,6 +193,8 @@ interface DatabaseListProps {
   readonly pageCreateSurfaceId?: string;
   readonly onRequestCreatePage?: (groupKey: string) => void;
   readonly mutationHistory?: DatabaseViewMutationHistory;
+  readonly pageChatActivityByPageId: ReadonlyMap<string, PageChatActivitySummary>;
+  readonly onRemovePageChatRelation: (pageId: string, sessionId: string) => Promise<void>;
 }
 
 interface DatabaseListCommitOptions {
@@ -428,6 +431,8 @@ export function DatabaseList({
   pageCreateSurfaceId,
   onRequestCreatePage,
   mutationHistory: providedMutationHistory,
+  pageChatActivityByPageId,
+  onRemovePageChatRelation,
 }: DatabaseListProps) {
   const localMutationHistory = useDatabaseViewMutationHistory(
     `${model.storeEpoch}:${model.databaseViewId}`,
@@ -1754,6 +1759,12 @@ export function DatabaseList({
                 instanceId: pageDragInstanceId,
               })
         }
+        pageAccessProjectId={
+          model.accessContext.kind === "project" ? model.accessContext.projectId : null
+        }
+        pageChatActivity={pageChatActivityByPageId.get(item.pageId)}
+        onOpenRelatedChat={pageActionPort?.openRelatedChat}
+        onRemovePageChatRelation={(sessionId) => onRemovePageChatRelation(item.pageId, sessionId)}
       />
     );
     return row;

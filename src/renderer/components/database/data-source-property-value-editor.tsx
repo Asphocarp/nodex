@@ -120,9 +120,7 @@ function ScalarPropertyEditor({
       className={cn(
         valueInputClass,
         presentation === "page"
-          ? // The 1px input border plus 3px padding matches the 4px inset of
-            // borderless Page Property triggers such as Tags and Due date.
-            "w-full max-w-72 px-[3px] text-sm"
+          ? "w-full max-w-72 px-[3px] text-sm"
           : presentation === "list"
             ? "h-full min-w-0 max-w-40 flex-1 border-0 bg-transparent p-0 text-xs text-[var(--database-property-chip-current-text,var(--database-property-chip-text))] hover:bg-transparent focus:bg-transparent focus:ring-0"
             : presentation === "board"

@@ -206,10 +206,7 @@ const databaseViewEvent = (page: PageDetail, commitSeq: number): ProjectionStrea
 };
 
 const memberDetail = (pageId: string, title: string, commitSeq: number): PageDetail => {
-  const page = buildPageStageStoryPage({
-    runInTarget: "localProject",
-    existingWorktree: false,
-  });
+  const page = buildPageStageStoryPage();
   const result = buildPageDetailStoryResult(
     "project-1",
     {

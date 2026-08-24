@@ -14,10 +14,7 @@ import { PageStageInlinePropertyStrip } from "./inline-property-strip";
 import type { PageStagePropertyControls } from "./use-page-stage-properties";
 
 const detail = (): PageDetail => {
-  const result = buildPageDetailStoryResult(
-    "project-1",
-    buildPageStageStoryPage({ runInTarget: "localProject", existingWorktree: false }),
-  );
+  const result = buildPageDetailStoryResult("project-1", buildPageStageStoryPage());
   if (!result.ok) throw new Error("Expected Page Detail fixture");
   return result.value;
 };

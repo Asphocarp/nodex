@@ -99,6 +99,34 @@ pub(super) fn read(
                 projection_revision: commit_head,
             })
         }
+        ProjectWorkspaceRead::PageChatActivitySummaries {
+            page_access_project_id,
+            page_ids,
+        } => Ok(ProjectWorkspaceReadValue::PageChatActivitySummaries {
+            summaries: super::page_chat::read_page_chat_activity_summaries(
+                connection,
+                library_id,
+                &page_access_project_id,
+                &page_ids,
+            )?,
+            projection_revision: commit_head,
+        }),
+        ProjectWorkspaceRead::PageChatWindow {
+            page_access_project_id,
+            page_id,
+            include_archived,
+            window,
+        } => Ok(ProjectWorkspaceReadValue::PageChatWindow {
+            chats: super::page_chat::read_page_chat_window(
+                connection,
+                library_id,
+                commit_head,
+                &page_access_project_id,
+                &page_id,
+                include_archived.unwrap_or(false),
+                &window,
+            )?,
+        }),
         ProjectWorkspaceRead::ProjectPermissionMode { project_id } => {
             validate_id("project_id", &project_id)?;
             require_project(connection, library_id, &project_id)?;
@@ -387,17 +415,11 @@ fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
 }
 
 fn session_summary(row: SessionRow) -> ProjectWorkspaceSessionSummary {
-    let display_title = [
+    let display_title = project_session_display_title(
         row.thread_name.as_deref(),
         row.thread_preview.as_deref(),
-        Some(row.fallback_title.as_str()),
-    ]
-    .into_iter()
-    .flatten()
-    .map(str::trim)
-    .find(|title| !title.is_empty())
-    .unwrap_or("New thread")
-    .to_owned();
+        &row.fallback_title,
+    );
     ProjectWorkspaceSessionSummary {
         id: row.id,
         project_id: row.project_id,
@@ -413,6 +435,20 @@ fn session_summary(row: SessionRow) -> ProjectWorkspaceSessionSummary {
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
+}
+
+pub(super) fn project_session_display_title(
+    thread_name: Option<&str>,
+    thread_preview: Option<&str>,
+    fallback_title: &str,
+) -> String {
+    [thread_name, thread_preview, Some(fallback_title)]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|title| !title.is_empty())
+        .unwrap_or("New thread")
+        .to_owned()
 }
 
 fn require_project(

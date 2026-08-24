@@ -87,6 +87,11 @@ const MIGRATION_STEPS: &[MigrationStep] = &[
         to_revision: 132,
         apply: migrate_v131_to_v132,
     },
+    MigrationStep {
+        from_revision: 132,
+        to_revision: 133,
+        apply: migrate_v132_to_v133,
+    },
 ];
 
 fn resolve_migration_path(
@@ -527,6 +532,41 @@ fn migrate_v131_to_v132(
     Ok(())
 }
 
+fn migrate_v132_to_v133(
+    connection: &Connection,
+    context: &MigrationContext,
+) -> Result<(), StoreError> {
+    connection.execute_batch(
+        "CREATE TABLE project_session_pages ( \
+           session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE, \
+           page_id TEXT NOT NULL REFERENCES pages(block_id) ON DELETE CASCADE, \
+           linked_at TEXT NOT NULL, \
+           PRIMARY KEY (session_id, page_id), \
+           CHECK (length(session_id) BETWEEN 1 AND 512), \
+           CHECK (length(page_id) BETWEEN 1 AND 512), \
+           CHECK (length(linked_at) > 0) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE INDEX idx_project_session_pages_page \
+           ON project_session_pages(page_id, session_id);",
+    )?;
+    connection.execute(
+        "INSERT INTO core_store_migration_history( \
+           source_revision, target_revision, source_schema_fingerprint, \
+           target_schema_fingerprint, backup_name, completed_at_unix_ms \
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            context.source_revision,
+            context.target_revision,
+            context.source_schema_fingerprint,
+            context.target_schema_fingerprint,
+            context.backup_name,
+            context.completed_at_unix_ms,
+        ],
+    )?;
+    connection.pragma_update(None, "user_version", context.target_revision)?;
+    Ok(())
+}
+
 fn install_fresh_profile(connection: &mut Connection, now: u64) -> Result<(), StoreError> {
     install_fresh_profile_with(connection, |transaction| {
         initialize_fresh_profile(transaction, now)
@@ -902,6 +942,14 @@ mod tests {
         .expect("published v131 fixture");
     }
 
+    fn install_v132_fixture(home: &Path) {
+        fs::write(
+            home.join("nodex.db"),
+            include_bytes!("../../tests/fixtures/store-v132.db"),
+        )
+        .expect("frozen v132 Store");
+    }
+
     fn profile_secrets(connection: &Connection) -> (Vec<u8>, String) {
         let token = connection
             .query_row(
@@ -1013,13 +1061,21 @@ mod tests {
                     from_version: 131,
                     to_version: 132,
                 },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 132,
+                    to_version: 133,
+                },
                 StorePreparationEvent::MigrationProgress {
                     completed: 1,
-                    total: 2,
+                    total: 3,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 2,
-                    total: 2,
+                    total: 3,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 3,
+                    total: 3,
                 },
             ]
         );
@@ -1043,9 +1099,10 @@ mod tests {
             .expect("migration history")
             .collect::<rusqlite::Result<Vec<_>>>()
             .expect("migration history rows");
-        assert_eq!(history.len(), 2);
+        assert_eq!(history.len(), 3);
         assert_eq!((history[0].0, history[0].1), (130, 131));
         assert_eq!((history[1].0, history[1].1), (131, 132));
+        assert_eq!((history[2].0, history[2].1), (132, 133));
         assert_eq!(
             history[0].2,
             published_format(130)
@@ -1070,8 +1127,20 @@ mod tests {
                 .expect("v132 format")
                 .schema_fingerprint
         );
-        assert_eq!(history[0].4, history[1].4);
-        assert!(history[0].4.starts_with("v130-to-v132-"));
+        assert_eq!(
+            history[2].2,
+            published_format(132)
+                .expect("v132 format")
+                .schema_fingerprint
+        );
+        assert_eq!(
+            history[2].3,
+            published_format(133)
+                .expect("v133 format")
+                .schema_fingerprint
+        );
+        assert!(history.iter().all(|row| row.4 == history[0].4));
+        assert!(history[0].4.starts_with("v130-to-v133-"));
         assert!(history[0].4.ends_with(".db"));
         assert!(history.iter().all(|row| row.5 > 0));
         let backup_path = directory
@@ -1103,7 +1172,7 @@ mod tests {
                     |row| { row.get::<_, i64>(0) }
                 )
                 .expect("stable history"),
-            2
+            3
         );
         assert_eq!(
             fs::read_dir(directory.path().join("backups/core-migrations"))
@@ -1127,13 +1196,63 @@ mod tests {
             .expect("migrate v131");
 
         assert_eq!(preparation.migrated_from_version, Some(131));
-        assert_eq!(preparation.schema_version, 132);
+        assert_eq!(preparation.schema_version, 133);
         assert_eq!(
             events,
             vec![
                 StorePreparationEvent::MigrationStarted {
                     from_version: 131,
                     to_version: 132,
+                },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 132,
+                    to_version: 133,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 1,
+                    total: 2,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 2,
+                    total: 2,
+                },
+            ]
+        );
+        validate_current_store(&connection).expect("current Store");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM core_store_migration_history",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("migration history"),
+            3
+        );
+    }
+
+    #[test]
+    fn frozen_v132_store_migrates_directly_to_current_once() {
+        let directory = tempdir().expect("Profile");
+        install_v132_fixture(directory.path());
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        validate_schema_identity(&connection, 132).expect("exact frozen v132 Store");
+        let mut events = Vec::new();
+
+        let preparation =
+            prepare_profile_store_with_observer(&mut connection, directory.path(), &mut |event| {
+                events.push(event)
+            })
+            .expect("migrate v132");
+
+        assert_eq!(preparation.migrated_from_version, Some(132));
+        assert_eq!(preparation.schema_version, 133);
+        assert_eq!(
+            events,
+            vec![
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 132,
+                    to_version: 133,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 1,
@@ -1150,7 +1269,28 @@ mod tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .expect("migration history"),
-            2
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM project_session_pages", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .expect("Page–Session relation table"),
+            0
+        );
+        drop(connection);
+
+        let mut reopened = open_writer(&directory.path().join("nodex.db")).expect("reopen");
+        let reopened_preparation =
+            prepare_profile_store(&mut reopened, directory.path()).expect("current reopen");
+        assert_eq!(reopened_preparation.migrated_from_version, None);
+        assert_eq!(
+            fs::read_dir(directory.path().join("backups/core-migrations"))
+                .expect("backups")
+                .count(),
+            1
         );
     }
 
@@ -1384,7 +1524,7 @@ mod tests {
         install_baseline_fixture(non_file.path());
         let backup_directory = non_file.path().join("backups/core-migrations");
         fs::create_dir_all(&backup_directory).expect("backup directory");
-        fs::create_dir(backup_directory.join(".v130-to-v132.pending.db"))
+        fs::create_dir(backup_directory.join(".v130-to-v133.pending.db"))
             .expect("non-file pending candidate");
         let mut connection = open_writer(&non_file.path().join("nodex.db")).expect("writer");
         let error = prepare_profile_store(&mut connection, non_file.path())
@@ -1394,7 +1534,7 @@ mod tests {
 
     #[test]
     fn migration_registry_is_contiguous_and_forward_only() {
-        assert_eq!(MIGRATION_STEPS.len(), 2);
+        assert_eq!(MIGRATION_STEPS.len(), 3);
         for (index, step) in MIGRATION_STEPS.iter().enumerate() {
             assert!(step.from_revision < step.to_revision);
             if let Some(next) = MIGRATION_STEPS.get(index + 1) {

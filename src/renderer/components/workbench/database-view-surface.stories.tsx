@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fireEvent, getByRole, waitFor } from "@testing-library/dom";
 import { useEffect, useRef, useState } from "react";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
@@ -28,6 +29,7 @@ import {
 import { databaseListNestingContinuations } from "./database-list/database-list-nesting-lines";
 import { DatabaseListRow } from "./database-list/database-list-row";
 import { DATABASE_LIST_THEME_CLASS_NAME } from "./database-list/database-list-theme";
+import { queryKeys } from "@/lib/query-keys";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const libraryId = "library:nodex";
@@ -44,6 +46,9 @@ const relationPropertyId = parseDataSourcePropertyId("p_RELATE01");
 const notesPropertyId = parseDataSourcePropertyId("p_NOTES001");
 const pointsPropertyId = parseDataSourcePropertyId("p_POINTS01");
 const approvedPropertyId = parseDataSourcePropertyId("p_APPROVE1");
+const databaseStoryQueryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
 
 const model: DatabaseViewRenderModel = {
   libraryId,
@@ -248,9 +253,11 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="h-[640px]">
-        <Story />
-      </div>
+      <QueryClientProvider client={databaseStoryQueryClient}>
+        <div className="h-[640px]">
+          <Story />
+        </div>
+      </QueryClientProvider>
     ),
   ],
 } satisfies Meta<typeof DatabaseViewSurface>;
@@ -525,6 +532,43 @@ const withNestedGroupedList = (): DatabaseViewRenderModel => {
 };
 
 export const ListView: Story = { args: { model: withLayout("list") } };
+
+function RelatedChatActivityDatabaseView({ layout }: { readonly layout: "board" | "list" }) {
+  const queryClient = useQueryClient();
+  const viewModel = withLayout(layout);
+  const pageIds = viewModel.query.rows.map((row) => row.page.pageId);
+  queryClient.setQueryData(queryKeys.pageChats.activity("nodex", pageIds), {
+    summaries: pageIds.map((pageId, index) => ({
+      pageId,
+      relatedCount: index === 0 ? 2 : 1,
+      workingCount: index === 0 ? 1 : 0,
+      waitingOnApprovalCount: 0,
+      waitingOnUserInputCount: 0,
+      errorCount: 0,
+      unreadCount: 1,
+      soleSessionId: index === 0 ? null : `session-${pageId}`,
+    })),
+    projectionRevision: 4,
+  });
+  return (
+    <DatabaseViewSurface
+      model={viewModel}
+      searchQuery=""
+      onOpenPage={() => undefined}
+      pageActionPort={{ openRelatedChat: () => undefined }}
+      onSelectedPageIdsChange={() => undefined}
+      commitOperations={async () => null}
+    />
+  );
+}
+
+export const BoardRelatedChatActivity: Story = {
+  render: () => <RelatedChatActivityDatabaseView layout="board" />,
+};
+
+export const ListRelatedChatActivity: Story = {
+  render: () => <RelatedChatActivityDatabaseView layout="list" />,
+};
 export const ListIdentityRhythm: Story = {
   parameters: {
     docs: {

@@ -29,14 +29,22 @@ pub(super) fn create_session(
     session_id: &str,
     project_id: Option<&str>,
     title: &str,
+    initial_page_ids: &[String],
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_id("session_id", session_id)?;
     if let Some(project_id) = project_id {
         validate_id("project_id", project_id)?;
         require_project(connection, library_id, project_id, true)?;
     }
+    super::page_chat::validate_initial_page_ids(
+        connection,
+        library_id,
+        project_id,
+        initial_page_ids,
+    )?;
     let title = normalize_session_title(title)?;
     let now = insert_session_records(connection, session_id, project_id, &title, false)?;
+    super::page_chat::insert_initial_page_links(connection, session_id, initial_page_ids, &now)?;
     finish_lifecycle_mutation(
         connection,
         library_id,

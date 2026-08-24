@@ -7,6 +7,7 @@ import type {
   WorkspaceFileSearchInput,
   WorkspaceFileTextReadInput,
 } from "./types";
+import { normalizePageChatPageIds } from "./page-chat-queries";
 
 function normalizeHostId(hostId: string | undefined): string {
   return hostId ?? "local";
@@ -136,6 +137,13 @@ export const queryKeys = {
     all: () => ["projectActivity"] as const,
     summaries: (projectIds: readonly string[]) =>
       ["projectActivity", "summaries", ...[...projectIds].sort()] as const,
+  },
+  pageChats: {
+    all: () => ["pageChats"] as const,
+    activity: (pageAccessProjectId: string, pageIds: readonly string[]) =>
+      ["pageChats", "activity", pageAccessProjectId, ...normalizePageChatPageIds(pageIds)] as const,
+    detail: (pageAccessProjectId: string, pageId: string, includeArchived = false, first = 50) =>
+      ["pageChats", "detail", pageAccessProjectId, pageId, includeArchived, first] as const,
   },
   settings: {
     all: () => ["settings"] as const,

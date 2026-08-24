@@ -136,6 +136,7 @@ export interface WorkbenchSessionCatalog {
   readonly createOrdinarySession: (
     projectId: string | null,
     noThreadFallbackTitle?: string,
+    initialPageIds?: readonly string[],
   ) => Promise<WorkbenchSessionPresentation>;
   readonly fork: (
     session: ProjectSession,
@@ -545,10 +546,12 @@ export function useWorkbenchSessionCatalog({
     async (
       projectId: string | null,
       noThreadFallbackTitle = "New chat",
+      initialPageIds: readonly string[] = [],
     ): Promise<WorkbenchSessionPresentation> => {
       const domain = (await invoke("project-sessions:create", {
         projectId,
         noThreadFallbackTitle,
+        initialPageIds: [...initialPageIds],
       })) as ProjectSession;
       seedProjectSessionDetail(queryClient, domain);
       await refresh(projectId);

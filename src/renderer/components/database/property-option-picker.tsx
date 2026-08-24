@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import { PROPERTY_EMPTY_VALUE_LABEL, PropertyEmptyValue } from "./property-empty-value";
 import {
+  DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
   DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME,
   DATABASE_PROPERTY_VALUE_ICON_CHIP_CLASS_NAME,
   databasePropertyOptionDotColor,
@@ -89,7 +90,8 @@ export function PropertyOptionToken({
   return (
     <span
       className={cn(
-        "inline-flex h-5.5 min-w-0 max-w-full items-center rounded-md px-1.5 text-sm/5",
+        DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
+        "max-w-full",
         option.missing
           ? "bg-token-error-background/25 text-token-error-foreground"
           : propertyOptionColorClassName(option.color),
@@ -456,7 +458,7 @@ export function PropertyOptionPicker({
         "inline-flex min-h-6 min-w-0 max-w-full items-center text-left outline-hidden",
         "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
         presentation === "page"
-          ? "rounded-md px-1 text-sm"
+          ? "rounded-md text-sm pr-1"
           : presentation === "chip"
             ? cn(
                 "h-6 gap-1 rounded-full border-[0.5px] pl-1.5 pr-2 text-xs/4 font-medium [&_svg]:size-4 [&_svg]:shrink-0",

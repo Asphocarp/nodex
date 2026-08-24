@@ -11,6 +11,10 @@ import * as Semaphore from "effect/Semaphore";
 
 import type { AgentExecutionProfile } from "../../shared/agent-runtime";
 import {
+  PageChatActivitySummaryInputSchema,
+  PageChatLinkInputSchema,
+  PageChatWindowInputSchema,
+  ProjectSessionCreateInputSchema,
   ProjectSessionRenameInputSchema,
   ProjectSessionThreadLinkInputSchema,
   ProjectSessionUpdateInputSchema,
@@ -20,6 +24,11 @@ import type {
   CodexPermissionMode,
   Project,
   ProjectActivitySummaryResult,
+  PageChatActivitySummaryInput,
+  PageChatActivitySummaryResult,
+  PageChatLinkInput,
+  PageChatWindow,
+  PageChatWindowInput,
   ProjectCreateInput,
   ProjectOrderInput,
   ProjectPinnedInput,
@@ -45,6 +54,8 @@ import {
   projectWorkspaceBackgroundProcessFromCore,
   projectWorkspaceExecutionProfilePatchToCore,
   projectWorkspaceProjectFromCore,
+  projectWorkspacePageChatActivitySummaryFromCore,
+  projectWorkspacePageChatItemFromCore,
   projectWorkspaceSessionFromCore,
   projectWorkspaceSessionThreadFromCore,
   projectWorkspaceTaskFromCore,
@@ -109,6 +120,20 @@ export interface ProjectWorkspaceService {
   readonly readProjectActivitySummaries: (
     projectIds: readonly string[],
   ) => ProjectWorkspaceEffect<ProjectActivitySummaryResult>;
+  readonly readPageChatActivitySummaries: (
+    input: PageChatActivitySummaryInput,
+  ) => ProjectWorkspaceEffect<PageChatActivitySummaryResult>;
+  readonly listPageChatWindow: (
+    input: PageChatWindowInput,
+  ) => ProjectWorkspaceEffect<PageChatWindow>;
+  readonly linkPageToProjectSession: (
+    sessionId: string,
+    input: PageChatLinkInput,
+  ) => ProjectWorkspaceEffect<void>;
+  readonly unlinkPageFromProjectSession: (
+    sessionId: string,
+    input: PageChatLinkInput,
+  ) => ProjectWorkspaceEffect<void>;
   readonly getProject: (projectId: string) => ProjectWorkspaceEffect<Project | null>;
   readonly readProjectPermissionMode: (
     projectId: string,
@@ -535,6 +560,53 @@ export const make: Effect.Effect<ProjectWorkspaceService, never, CoreModules | S
       },
     );
 
+    const readPageChatActivitySummaries = Effect.fn(
+      "ProjectWorkspace.readPageChatActivitySummaries",
+    )(function* (input: PageChatActivitySummaryInput) {
+      const parsed = yield* evaluate("page-chat.activity.read", () =>
+        PageChatActivitySummaryInputSchema.parse(input),
+      );
+      const snapshot = yield* read("page-chat.activity.read", {
+        kind: "page_chat_activity_summaries",
+        page_access_project_id: parsed.pageAccessProjectId,
+        page_ids: parsed.pageIds,
+      });
+      return yield* evaluate("page-chat.activity.read", () => {
+        const value = expectVariant(snapshot, "page_chat_activity_summaries");
+        return {
+          summaries: value.summaries.map(projectWorkspacePageChatActivitySummaryFromCore),
+          projectionRevision: value.projection_revision,
+        } satisfies PageChatActivitySummaryResult;
+      });
+    });
+
+    const listPageChatWindow = Effect.fn("ProjectWorkspace.listPageChatWindow")(function* (
+      input: PageChatWindowInput,
+    ) {
+      const parsed = yield* evaluate("page-chat.window.read", () =>
+        PageChatWindowInputSchema.parse(input),
+      );
+      const snapshot = yield* read("page-chat.window.read", {
+        kind: "page_chat_window",
+        page_access_project_id: parsed.pageAccessProjectId,
+        page_id: parsed.pageId,
+        include_archived: parsed.includeArchived ?? false,
+        window: {
+          after: parsed.after ?? null,
+          first: parsed.first ?? 50,
+        },
+      });
+      return yield* evaluate("page-chat.window.read", () => {
+        const chats = expectVariant(snapshot, "page_chat_window").chats;
+        return {
+          items: chats.items.map(projectWorkspacePageChatItemFromCore),
+          nextCursor: chats.next_cursor ?? null,
+          hasMore: chats.next_cursor !== null && chats.next_cursor !== undefined,
+          projectionRevision: chats.authority.projection_revision,
+        } satisfies PageChatWindow;
+      });
+    });
+
     const readProjectPermissionMode = Effect.fn("ProjectWorkspace.readProjectPermissionMode")(
       function* (projectId: string) {
         const snapshot = yield* read("project.permission.read", {
@@ -671,6 +743,8 @@ export const make: Effect.Effect<ProjectWorkspaceService, never, CoreModules | S
       listProjects,
       listProjectWindow,
       readProjectActivitySummaries,
+      readPageChatActivitySummaries,
+      listPageChatWindow,
       getProject,
       readProjectPermissionMode,
       readProjectlessPermissionMode,
@@ -854,12 +928,16 @@ export const make: Effect.Effect<ProjectWorkspaceService, never, CoreModules | S
         );
       }),
       createProjectSession: Effect.fn("ProjectWorkspace.createProjectSession")(function* (input) {
+        const parsed = yield* evaluate("session.create", () =>
+          ProjectSessionCreateInputSchema.parse(input),
+        );
         const sessionId = randomUUID();
         yield* apply("session.create", {
           kind: "create_session",
           session_id: sessionId,
-          project_id: input.projectId,
-          title: input.noThreadFallbackTitle,
+          project_id: parsed.projectId,
+          title: parsed.noThreadFallbackTitle,
+          initial_page_ids: parsed.initialPageIds,
         });
         const session = yield* readSession(sessionId);
         if (session) return session;
@@ -868,6 +946,40 @@ export const make: Effect.Effect<ProjectWorkspaceService, never, CoreModules | S
           new Error(`Created Project Session not found: ${sessionId}`),
         );
       }),
+      linkPageToProjectSession: Effect.fn("ProjectWorkspace.linkPageToProjectSession")(
+        function* (sessionId, input) {
+          const parsed = yield* evaluate("page-chat.link", () => {
+            if (sessionId.trim().length === 0) throw new Error("Project Session ID is required");
+            return PageChatLinkInputSchema.parse(input);
+          });
+          yield* apply("page-chat.link", {
+            kind: "mutate_session",
+            session_id: sessionId,
+            intent: {
+              kind: "link_page",
+              page_id: parsed.pageId,
+              page_access_project_id: parsed.pageAccessProjectId,
+            },
+          });
+        },
+      ),
+      unlinkPageFromProjectSession: Effect.fn("ProjectWorkspace.unlinkPageFromProjectSession")(
+        function* (sessionId, input) {
+          const parsed = yield* evaluate("page-chat.unlink", () => {
+            if (sessionId.trim().length === 0) throw new Error("Project Session ID is required");
+            return PageChatLinkInputSchema.parse(input);
+          });
+          yield* apply("page-chat.unlink", {
+            kind: "mutate_session",
+            session_id: sessionId,
+            intent: {
+              kind: "unlink_page",
+              page_id: parsed.pageId,
+              page_access_project_id: parsed.pageAccessProjectId,
+            },
+          });
+        },
+      ),
       deleteProjectSession: Effect.fn("ProjectWorkspace.deleteProjectSession")(
         function* (sessionId) {
           if (!(yield* readSession(sessionId))) return false;

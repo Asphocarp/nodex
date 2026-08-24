@@ -37,10 +37,7 @@ const OPTIONS: Readonly<Record<string, readonly DatabasePropertyOption[]>> = {
 };
 
 const buildProperties = (): readonly PageStageDataSourceProperty[] => {
-  const page = buildPageStageStoryPage({
-    runInTarget: "localProject",
-    existingWorktree: true,
-  });
+  const page = buildPageStageStoryPage();
   const detail = buildPageDetailStoryResult(PAGE_STAGE_STORY_PROJECT_ID, page);
   if (!detail.ok) throw new Error(detail.error.message);
   const model = projectPageDetailToStageModel(detail.value);

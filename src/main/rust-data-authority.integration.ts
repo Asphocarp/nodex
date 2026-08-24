@@ -1560,6 +1560,7 @@ describe("Electron native data authority", () => {
             const session = yield* workspace.createProjectSession({
               projectId: project.id,
               noThreadFallbackTitle: "Electron Session",
+              initialPageIds: [],
             });
             const threadTimestamp = Date.now();
             yield* workspace.upsertProjectSessionThreadLink({

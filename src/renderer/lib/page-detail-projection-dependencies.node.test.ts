@@ -8,13 +8,7 @@ import {
 } from "./page-detail-projection-dependencies";
 
 const detail = () => {
-  const result = buildPageDetailStoryResult(
-    "project-1",
-    buildPageStageStoryPage({
-      runInTarget: "localProject",
-      existingWorktree: false,
-    }),
-  );
+  const result = buildPageDetailStoryResult("project-1", buildPageStageStoryPage());
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
 };

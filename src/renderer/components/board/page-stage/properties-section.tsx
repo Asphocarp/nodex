@@ -1,200 +1,275 @@
-import { BranchSelectorPopover } from "@/features/local-conversation/view/shared/branch-selector-popover";
-import { EnvironmentSelectorPopover } from "@/features/local-conversation/view/shared/environment-selector-popover";
+import { useMemo, useState } from "react";
+
 import { ThreadsIcon } from "@/components/workbench/threads-icon";
-import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
-import { NodexTooltip } from "@/components/ui/tooltip";
+import { NodexDropdown } from "@/components/ui/dropdown";
+import { toast } from "@/components/ui/toast";
 import { SchedulePopover } from "@/components/board/schedule-popover";
 import { dataSourcePropertyIcon } from "@/components/database/data-source-property-presentation";
-import { ChevronDownIcon } from "@/components/shared/icons";
-import { cn } from "@/lib/utils";
-import type { PageRunInTarget } from "@/lib/types";
-import { PageStageDataSourcePropertyControl } from "./data-source-property-control";
+import { DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME } from "@/components/database/property-value-chip";
 import {
-  pageStagePropertyTriggerChrome,
-  pageStagePropertyValueHoverSurface,
-} from "./property-value-styles";
+  ActivitySpinnerIcon,
+  ChevronDownIcon,
+  PageMenuOpenNewChatIcon,
+  PlusIcon,
+  ThreadIcon,
+} from "@/components/shared/icons";
+import { PageChatActivityGlyph } from "@/components/shared/page-chat-activity-glyph";
+import { XIcon } from "@/components/shared/icons/generic-icons";
+import { presentPageChatItemActivity } from "@/lib/page-chat-activity-presentation";
+import { cn } from "@/lib/utils";
+import { PageStageDataSourcePropertyControl } from "./data-source-property-control";
 import type { PageStageController } from "./use-page-stage-controller";
 
 interface PageStagePropertiesSectionProps {
   readonly controller: PageStageController;
 }
 
-function ThreadsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
-  const {
-    runInTarget,
-    runInLocalPathDisplay,
-    runInWorktreePathDisplay,
-    runInEnvironmentPath,
-    runInBranchState,
-    runInBranchBusy,
-    runInEnvironmentOptions,
-    runInEnvironmentBusy,
-    selectedRunInBaseBranch,
-    linkedCodexThreads,
-    onOpenCodexThread,
-    onOpenNewCodexThread,
-    saving,
-    handleRunInTargetChange,
-    handlePickRunInLocalPath,
-    handleClearRunInLocalPath,
-    handleResetRunInWorktreePath,
-    refreshRunInBranchState,
-    handleSelectRunInBaseBranch,
-    refreshRunInEnvironmentOptions,
-    handleSelectRunInEnvironmentPath,
-    handleOpenEnvironmentSettings,
-    handleOpenCodexThread,
-  } = controller;
+function RelatedChatAddControl({
+  controller,
+  empty,
+}: PageStagePropertiesSectionProps & { readonly empty: boolean }) {
+  const { relatedChats, relatedChatCandidates, onCreateRelatedChat, onLinkRelatedChat, saving } =
+    controller;
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [linkingSessionId, setLinkingSessionId] = useState<string | null>(null);
+  const linkedSessionIds = useMemo(
+    () => new Set(relatedChats.map((chat) => chat.sessionId)),
+    [relatedChats],
+  );
+  const availableCandidates = useMemo(
+    () => relatedChatCandidates.filter((chat) => !linkedSessionIds.has(chat.sessionId)),
+    [linkedSessionIds, relatedChatCandidates],
+  );
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredCandidates = normalizedQuery
+    ? availableCandidates.filter((candidate) =>
+        [candidate.displayTitle, candidate.projectName]
+          .filter(Boolean)
+          .some((value) => value?.toLocaleLowerCase().includes(normalizedQuery)),
+      )
+    : availableCandidates;
+  if (!onCreateRelatedChat && !onLinkRelatedChat) return null;
+
+  const triggerButton = empty ? (
+    <button
+      type="button"
+      aria-label="Add chat"
+      disabled={saving}
+      className="flex h-7 min-w-0 items-center rounded-sm px-1.5 text-sm text-(--foreground-tertiary) hover:bg-(--background-tertiary) hover:text-(--foreground-secondary) focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-token-focus disabled:opacity-40"
+    >
+      <span className="truncate">Add chat…</span>
+    </button>
+  ) : (
+    <button
+      type="button"
+      aria-label="Add chat"
+      disabled={saving}
+      className="flex size-5 shrink-0 items-center justify-center rounded-sm text-(--foreground-tertiary) opacity-60 hover:bg-(--background-tertiary) hover:text-(--foreground-secondary) hover:opacity-100 focus-visible:outline-2 focus-visible:outline-token-focus focus-visible:opacity-100 disabled:opacity-40"
+    >
+      <PlusIcon className="icon-2xs shrink-0" />
+    </button>
+  );
+
   return (
-    <div className="space-y-1.5">
-      <div className="flex min-h-7.5 items-center">
-        <div className="flex w-40 shrink-0 items-center gap-1.5 pl-1.5">
-          <div className="flex w-5 items-center justify-center text-(--foreground-secondary)">
-            <ThreadsIcon />
-          </div>
-          <span className="text-sm/5 text-(--foreground-secondary)">Threads</span>
-        </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
-          <NodexOptionPicker
-            value={runInTarget}
-            onValueChange={(value) => {
-              void handleRunInTargetChange(value as PageRunInTarget);
-            }}
-            options={[
-              { value: "localProject", label: "Local project" },
-              {
-                value: "newWorktree",
-                label: runInWorktreePathDisplay ? "Worktree" : "New worktree",
-              },
-              { value: "cloud", label: "Cloud (mock)" },
-            ]}
-            triggerButton={
-              <NodexDropdownButtonTrigger
-                className={cn(
-                  pageStagePropertyTriggerChrome,
-                  pageStagePropertyValueHoverSurface,
-                  "gap-1 px-0",
-                )}
-              >
-                <span className="inline-flex h-5 items-center rounded-sm bg-(--gray-bg) px-1.5 text-xs text-(--foreground-secondary)">
-                  {runInTarget === "localProject"
-                    ? "Local project"
-                    : runInTarget === "newWorktree"
-                      ? runInWorktreePathDisplay
-                        ? "Worktree"
-                        : "New worktree"
-                      : "Cloud (mock)"}
-                </span>
-              </NodexDropdownButtonTrigger>
-            }
+    <NodexDropdown.Menu
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setQuery("");
+      }}
+      triggerButton={triggerButton}
+      triggerTooltipContent={empty ? undefined : "Add chat"}
+      contentWidth="menuFixed"
+      align="start"
+    >
+      {onCreateRelatedChat ? (
+        <NodexDropdown.Item
+          leftSlot={<PageMenuOpenNewChatIcon />}
+          onSelect={() => {
+            void Promise.resolve(onCreateRelatedChat()).catch(() => {
+              toast.danger("Couldn’t create chat");
+            });
+          }}
+        >
+          New chat
+        </NodexDropdown.Item>
+      ) : null}
+      {onCreateRelatedChat && onLinkRelatedChat ? <NodexDropdown.Separator /> : null}
+      {onLinkRelatedChat ? (
+        <NodexDropdown.FlyoutSubmenuItem
+          label="Link to chat…"
+          leftSlot={<ThreadIcon className="icon-xs shrink-0" />}
+          disabled={availableCandidates.length === 0}
+          contentClassName="w-[280px] p-1"
+        >
+          <NodexDropdown.SearchInput
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Find a chat…"
+            aria-label="Find a chat to link"
           />
-
-          {runInTarget === "localProject" ? (
-            <>
-              <NodexTooltip
-                tooltipContent={runInLocalPathDisplay || "Use project workspace path"}
-                side="top"
-              >
-                <button
-                  type="button"
-                  onClick={() => void handlePickRunInLocalPath()}
-                  className="inline-flex h-5 max-w-full items-center rounded-xs border-[0.5px] border-(--border) px-1.5 text-xs text-(--foreground-secondary) hover:bg-(--background-tertiary)"
+          <NodexDropdown.ScrollList className="mt-1">
+            {filteredCandidates.length === 0 ? (
+              <NodexDropdown.Message compact>
+                {normalizedQuery ? "No matching chats" : "No chats available"}
+              </NodexDropdown.Message>
+            ) : (
+              filteredCandidates.map((candidate) => (
+                <NodexDropdown.ActionRow
+                  key={candidate.sessionId}
+                  disabled={linkingSessionId !== null}
+                  className="items-center gap-1.5"
+                  onClick={() => {
+                    setLinkingSessionId(candidate.sessionId);
+                    void onLinkRelatedChat(candidate.sessionId)
+                      .then(() => setOpen(false))
+                      .catch(() => toast.danger("Couldn’t link chat"))
+                      .finally(() => setLinkingSessionId(null));
+                  }}
                 >
-                  <span className="truncate">{runInLocalPathDisplay || "Project cwd"}</span>
-                </button>
-              </NodexTooltip>
-              {runInLocalPathDisplay ? (
-                <button
-                  type="button"
-                  onClick={handleClearRunInLocalPath}
-                  className="text-xs text-(--foreground-tertiary) hover:text-(--foreground-secondary)"
-                >
-                  Clear
-                </button>
-              ) : null}
-            </>
-          ) : null}
+                  <ThreadIcon className="icon-xs shrink-0 text-token-text-secondary" />
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    {candidate.displayTitle}
+                  </span>
+                  {candidate.projectName ? (
+                    <span className="max-w-24 shrink truncate text-xs text-token-description-foreground">
+                      {candidate.projectName}
+                    </span>
+                  ) : null}
+                  {linkingSessionId === candidate.sessionId ? (
+                    <ActivitySpinnerIcon className="size-3 shrink-0" />
+                  ) : null}
+                </NodexDropdown.ActionRow>
+              ))
+            )}
+          </NodexDropdown.ScrollList>
+        </NodexDropdown.FlyoutSubmenuItem>
+      ) : null}
+    </NodexDropdown.Menu>
+  );
+}
 
-          {runInTarget === "newWorktree" && !runInWorktreePathDisplay ? (
-            <>
-              <BranchSelectorPopover
-                cwd={controller.projectWorkspacePath?.trim() || null}
-                state={runInBranchState}
-                busy={runInBranchBusy}
-                selectedBranch={selectedRunInBaseBranch}
-                onRefresh={async () => {
-                  await refreshRunInBranchState();
-                }}
-                onCheckout={handleSelectRunInBaseBranch}
-                triggerClassName="h-6"
-              />
-              <EnvironmentSelectorPopover
-                options={runInEnvironmentOptions}
-                selectedPath={runInEnvironmentPath}
-                busy={runInEnvironmentBusy}
-                onRefresh={refreshRunInEnvironmentOptions}
-                onSelect={handleSelectRunInEnvironmentPath}
-                onOpenSettings={handleOpenEnvironmentSettings}
-                triggerClassName="h-6"
-              />
-            </>
-          ) : null}
+function RelatedChatsPropertyRow({ controller }: PageStagePropertiesSectionProps) {
+  const {
+    relatedChats,
+    relatedChatsLoading,
+    relatedChatsError,
+    relatedChatsHasMore,
+    relatedChatsLoadingMore,
+    onOpenRelatedChat,
+    onRemoveRelatedChat,
+    onRetryRelatedChats,
+    onLoadMoreRelatedChats,
+    saving,
+    currentSessionId,
+    handleOpenRelatedChat,
+    handleRemoveRelatedChat,
+  } = controller;
+  const empty = relatedChats.length === 0;
 
-          {runInTarget === "newWorktree" && runInWorktreePathDisplay ? (
-            <NodexTooltip tooltipContent={runInWorktreePathDisplay} side="top">
-              <button
-                type="button"
-                onClick={handleResetRunInWorktreePath}
-                className="inline-flex h-5 items-center rounded-xs border-[0.5px] border-(--border) px-1.5 text-xs text-(--foreground-secondary) hover:bg-(--background-tertiary)"
-              >
-                Reset worktree
-              </button>
-            </NodexTooltip>
-          ) : null}
-
-          {linkedCodexThreads.length > 0 ? (
-            <span className="inline-flex h-5 items-center rounded-xs bg-(--blue-bg) px-1.5 text-xs text-(--blue-text)">
-              {linkedCodexThreads.length} linked
-            </span>
-          ) : null}
-          {onOpenNewCodexThread ? (
-            <button
-              type="button"
-              onClick={onOpenNewCodexThread}
-              disabled={saving}
-              className="inline-flex h-5 items-center rounded-xs border-[0.5px] border-(--border) px-1.5 text-xs text-(--foreground-secondary) hover:bg-(--background-tertiary) disabled:opacity-40"
-            >
-              New
-            </button>
-          ) : null}
+  return (
+    <div className="grid min-h-7.5 grid-cols-[10rem_minmax(0,1fr)] items-start">
+      <div className="flex min-h-7.5 min-w-0 items-center gap-1.5 pl-1.5">
+        <div className="flex w-5 shrink-0 items-center justify-center text-(--foreground-secondary)">
+          <ThreadsIcon />
         </div>
+        <span className="min-w-0 truncate text-sm/5 text-(--foreground-secondary)">
+          Linked chats
+        </span>
       </div>
 
-      {runInTarget === "cloud" ? (
-        <p className="ml-40 px-2 text-xs text-(--foreground-tertiary)">
-          Mock UI only. Starting new threads is blocked for Cloud.
-        </p>
-      ) : null}
-      {linkedCodexThreads.length > 0 ? (
-        <div className="ml-40 max-h-33 space-y-1 overflow-y-auto px-2 pr-0.5">
-          {linkedCodexThreads.map((thread) => (
-            <button
-              key={thread.threadId}
-              type="button"
-              disabled={!onOpenCodexThread}
-              onClick={() => void handleOpenCodexThread(thread.threadId)}
-              className="w-full rounded-sm bg-(--background-tertiary) px-2 py-1.5 text-left disabled:opacity-60"
-            >
-              <div className="truncate text-xs/4 text-(--foreground)">{thread.title}</div>
-              {thread.preview ? (
-                <div className="truncate text-xs/4 text-(--foreground-tertiary)">
-                  {thread.preview}
-                </div>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <div className="min-w-0 px-2">
+        {relatedChatsError ? (
+          <div className="flex min-h-7 items-center gap-2 text-xs text-(--red-text)">
+            <span className="min-w-0 flex-1 truncate">{relatedChatsError}</span>
+            {onRetryRelatedChats ? (
+              <button
+                type="button"
+                className="shrink-0 text-(--foreground-secondary) hover:text-(--foreground)"
+                onClick={() => void onRetryRelatedChats()}
+              >
+                Retry
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {relatedChatsLoading && relatedChats.length === 0 ? (
+          <div
+            role="status"
+            aria-label="Loading linked chats"
+            className="flex h-7 items-center px-1.5 text-(--foreground-tertiary)"
+          >
+            <ActivitySpinnerIcon className="size-3.5" />
+          </div>
+        ) : null}
+        {relatedChats.length > 0 ? (
+          <div className="flex min-h-7 flex-wrap items-center gap-1 py-0.5">
+            {relatedChats.map((chat) => {
+              const activity = presentPageChatItemActivity(chat);
+              const current = currentSessionId === chat.sessionId;
+              return (
+                <span
+                  key={chat.sessionId}
+                  data-page-stage-related-chat-session-id={chat.sessionId}
+                  data-page-stage-related-chat-chip="true"
+                  className={cn(
+                    DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
+                    "group/related-chat relative max-w-64 gap-0 p-0",
+                    current
+                      ? "bg-token-foreground/12 text-token-text-primary hover:bg-token-foreground/12"
+                      : "bg-token-foreground/8 text-token-text-secondary hover:bg-token-foreground/10",
+                  )}
+                >
+                  <button
+                    type="button"
+                    aria-current={current ? "true" : undefined}
+                    disabled={!onOpenRelatedChat}
+                    onClick={() => void handleOpenRelatedChat(chat.sessionId)}
+                    className={cn(
+                      "flex h-full min-w-0 flex-1 items-center gap-1 pl-1.5 text-left outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-60",
+                      onRemoveRelatedChat ? "pr-6" : "pr-1.5",
+                    )}
+                  >
+                    <PageChatActivityGlyph
+                      activity={activity}
+                      className={cn("size-4", activity.execution === "idle" && "text-inherit")}
+                      unreadRingClassName="ring-token-main-surface-primary"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{chat.displayTitle}</span>
+                  </button>
+                  {onRemoveRelatedChat ? (
+                    <button
+                      type="button"
+                      aria-label={`Remove relation to ${chat.displayTitle}`}
+                      disabled={saving}
+                      className="absolute right-0.5 top-1/2 flex size-5 -translate-y-1/2 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 hover:bg-token-foreground/10 hover:text-token-text-primary group-hover/related-chat:opacity-100 group-focus-within/related-chat:opacity-100 disabled:opacity-40"
+                      onClick={() => void handleRemoveRelatedChat(chat.sessionId)}
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  ) : null}
+                </span>
+              );
+            })}
+            {relatedChatsHasMore && onLoadMoreRelatedChats ? (
+              <button
+                type="button"
+                disabled={relatedChatsLoadingMore}
+                className="flex h-5.5 items-center gap-1 rounded-md px-1.5 text-xs text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-text-secondary disabled:opacity-50"
+                onClick={() => void onLoadMoreRelatedChats()}
+              >
+                {relatedChatsLoadingMore ? <ActivitySpinnerIcon className="size-3" /> : null}
+                Load more
+              </button>
+            ) : null}
+            <RelatedChatAddControl controller={controller} empty={false} />
+          </div>
+        ) : null}
+        {empty && !relatedChatsLoading ? (
+          <RelatedChatAddControl controller={controller} empty={true} />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -204,7 +279,7 @@ export function PageStagePropertiesSection({ controller }: PageStagePropertiesSe
   const { propertyControls } = controller;
   const hasSectionRows =
     propertyControls.sectionProperties.length > 0 ||
-    controller.hasThreadsRow ||
+    controller.hasRelatedChatsRow ||
     propertyControls.hasScheduleCapability;
   if (!hasSectionRows) return null;
 
@@ -245,9 +320,9 @@ export function PageStagePropertiesSection({ controller }: PageStagePropertiesSe
           );
         })}
 
-        {controller.hasThreadsRow &&
+        {controller.hasRelatedChatsRow &&
         (controller.showCollapsedProperties || !controller.collapseThreadsByDefault) ? (
-          <ThreadsPropertyRow controller={controller} />
+          <RelatedChatsPropertyRow controller={controller} />
         ) : null}
 
         {propertyControls.hasScheduleCapability &&

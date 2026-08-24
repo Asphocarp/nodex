@@ -22,6 +22,7 @@ pub(super) struct SessionAuthority {
     pub(super) pinned_order: Option<i64>,
     pub(super) thread_id: Option<String>,
     pub(super) is_default_draft: bool,
+    pub(super) archived: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -128,6 +129,36 @@ pub(super) fn mutate_session(
             session_id,
             &authority,
             thread_id,
+        ),
+        ProjectSessionIntent::LinkPage {
+            page_id,
+            page_access_project_id,
+        } => super::page_chat::link_page(
+            connection,
+            library_id,
+            context,
+            store_epoch,
+            operation_id,
+            request_hash,
+            session_id,
+            &authority,
+            page_id,
+            page_access_project_id,
+        ),
+        ProjectSessionIntent::UnlinkPage {
+            page_id,
+            page_access_project_id,
+        } => super::page_chat::unlink_page(
+            connection,
+            library_id,
+            context,
+            store_epoch,
+            operation_id,
+            request_hash,
+            session_id,
+            &authority,
+            page_id,
+            page_access_project_id,
         ),
     }
 }
@@ -619,7 +650,7 @@ pub(super) fn require_session(
     connection
         .query_row(
             "SELECT session.project_id, session.pinned, session.pinned_order, link.thread_id, \
-               session.is_default_draft \
+               session.is_default_draft, session.archived \
              FROM project_sessions session \
              LEFT JOIN project_session_threads link ON link.session_id = session.id \
              WHERE session.id = ?1 AND (session.project_id IS NULL OR EXISTS(\
@@ -635,6 +666,7 @@ pub(super) fn require_session(
                     pinned_order: row.get(2)?,
                     thread_id: row.get(3)?,
                     is_default_draft: row.get::<_, i64>(4)? == 1,
+                    archived: row.get::<_, i64>(5)? == 1,
                 })
             },
         )

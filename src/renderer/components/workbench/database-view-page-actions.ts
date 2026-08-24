@@ -12,7 +12,8 @@ export interface DatabaseViewPageTarget {
 
 /** Session-owned Page commands shared by every Database View presentation. */
 export interface DatabaseViewPageActionPort {
-  readonly openInNewSession?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  readonly openInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
   readonly sendToChat?: (input: SendPageToChatInput) => Promise<void> | void;
+  readonly openRelatedChat?: (sessionId: string) => Promise<void> | void;
   readonly deletePage?: (input: DatabaseViewPageTarget) => Promise<void> | void;
 }

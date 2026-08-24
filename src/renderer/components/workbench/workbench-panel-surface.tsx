@@ -1,4 +1,4 @@
-import type { MutableRefObject, RefObject } from "react";
+import type { ComponentProps, MutableRefObject, RefObject } from "react";
 import type { MotionValue } from "motion/react";
 import type { PageStageSessionSnapshot } from "@/components/board/page-stage/types";
 import { WorkspaceFilesPanel, type WorkspaceFilesTab } from "@/features/workspace-files";
@@ -33,6 +33,7 @@ export function WorkbenchTabProjectionPanel({
   windowSessionId,
   browserViewScopeId,
   projects,
+  relatedChatCandidates,
   activeSearchQuery,
   searchByProject,
   presentedPageIds,
@@ -44,6 +45,9 @@ export function WorkbenchTabProjectionPanel({
   onLeavePageStage,
   onOpenPageTab,
   onOpenPageInNewChat,
+  onOpenRelatedChat,
+  onLinkPageToChat,
+  onResolveChatSessionForThread,
   onSendPageToChat,
   onOpenCanvasStage,
   onOpenFileTab,
@@ -65,6 +69,7 @@ export function WorkbenchTabProjectionPanel({
   windowSessionId: string;
   browserViewScopeId: string;
   projects: Project[];
+  relatedChatCandidates: ComponentProps<typeof PageStageSessionTab>["relatedChatCandidates"];
   activeSearchQuery: string;
   searchByProject: Record<string, string>;
   presentedPageIds: ReadonlySet<string>;
@@ -76,6 +81,15 @@ export function WorkbenchTabProjectionPanel({
   onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onOpenPageTab: OpenPageTabHandler;
   onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  onOpenRelatedChat?: (sessionId: string) => Promise<void> | void;
+  onLinkPageToChat: (input: {
+    readonly pageAccessProjectId: string;
+    readonly pageId: string;
+    readonly sessionId: string;
+  }) => Promise<void>;
+  onResolveChatSessionForThread: (
+    threadId: string,
+  ) => Promise<{ readonly id: string; readonly projectId: string | null }>;
   onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
   onOpenCanvasStage: OpenCanvasStageHandler;
   onOpenFileTab: (input: {
@@ -114,6 +128,7 @@ export function WorkbenchTabProjectionPanel({
         setSearchQuery={setSearchQuery}
         onOpenPageTab={onOpenPageTab}
         onOpenPageInNewChat={onOpenPageInNewChat}
+        onOpenRelatedChat={onOpenRelatedChat}
         onSendPageToChat={onSendPageToChat}
         onOpenCanvasStage={onOpenCanvasStage}
         targetLeafId={resolveLeafIdForPanelTab(activeSession, tab.panelId, tab.id)}
@@ -183,6 +198,11 @@ export function WorkbenchTabProjectionPanel({
         onOpenPageTab={onOpenPageTab}
         onOpenCanvasStage={onOpenCanvasStage}
         onOpenThread={onOpenThread}
+        onOpenRelatedChat={onOpenRelatedChat}
+        onOpenPageInNewChat={onOpenPageInNewChat}
+        onLinkPageToChat={onLinkPageToChat}
+        relatedChatCandidates={relatedChatCandidates}
+        onResolveChatSessionForThread={onResolveChatSessionForThread}
         historyPanelActive={Boolean(
           pageStageHistoryModal &&
           pageStageHistoryModal.sessionId === activeSession.id &&

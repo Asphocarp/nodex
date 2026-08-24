@@ -31,6 +31,7 @@ import type {
   CodexThreadDetail,
   CodexThreadStartForSessionResult,
   GitReviewSource,
+  PageChatItem,
   Project,
   WorkbenchTabProjection,
   WorkbenchTabCreateInput,
@@ -120,6 +121,8 @@ export let invokeCalls: unknown[][] = [];
 export let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null =
   null;
 export let startThreadForSessionCalls: unknown[] = [];
+export let startTurnCalls: unknown[][] = [];
+export let pageChatItems: PageChatItem[] = [];
 export let startThreadForSessionResult: CodexThreadStartForSessionResult = {
   kind: "started",
   detail: { threadId: "thread-started" } as CodexThreadDetail,
@@ -222,7 +225,9 @@ export const mockCodexControl = {
     delete sideChatConversations[threadId];
     return true;
   },
-  startTurn: async () => undefined,
+  startTurn: async (...args: unknown[]) => {
+    startTurnCalls.push(args);
+  },
   steerTurn: async () => undefined,
   interruptTurn: async () => undefined,
   respondApproval: async () => undefined,
@@ -2603,6 +2608,28 @@ export function renderWorkbench({
           .find((session) => session.id === sessionId) ?? null
       );
     }
+    if (channel === "page-chats:activity-summaries") {
+      const input = (args[1] ?? args[0] ?? {}) as { pageIds?: string[] };
+      return {
+        summaries: (input.pageIds ?? []).map((pageId) => ({
+          pageId,
+          relatedCount: 0,
+          workingCount: 0,
+          waitingOnApprovalCount: 0,
+          waitingOnUserInputCount: 0,
+          errorCount: 0,
+          unreadCount: 0,
+          soleSessionId: null,
+        })),
+        projectionRevision: 1,
+      };
+    }
+    if (channel === "page-chats:list") {
+      return { items: pageChatItems, nextCursor: null, hasMore: false, projectionRevision: 1 };
+    }
+    if (channel === "page-chats:link" || channel === "page-chats:unlink") {
+      return undefined;
+    }
     if (channel === "project-sessions:reorder") {
       const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);
       const orderedSessionIds = (args[1] as readonly string[]) ?? [];
@@ -3289,7 +3316,11 @@ export function renderWorkbench({
       return updated;
     }
     if (channel === "project-sessions:create") {
-      const input = (args[0] ?? {}) as { projectId: string | null; noThreadFallbackTitle?: string };
+      const input = (args[0] ?? {}) as {
+        projectId: string | null;
+        noThreadFallbackTitle?: string;
+        initialPageIds?: string[];
+      };
       return createMockSession(input);
     }
     if (channel === "project-sessions:ensure-default-draft") {
@@ -3812,6 +3843,8 @@ beforeEach(() => {
   installRendererApiMock();
   invokeCalls = [];
   startThreadForSessionCalls = [];
+  startTurnCalls = [];
+  pageChatItems = [];
   startThreadForSessionResult = {
     kind: "started",
     detail: { threadId: "thread-started" } as CodexThreadDetail,
@@ -4191,6 +4224,10 @@ export type WorkbenchShellTestScope =
 
 export function setInvokeCalls(value: typeof invokeCalls): void {
   invokeCalls = value;
+}
+
+export function setPageChatItems(value: PageChatItem[]): void {
+  pageChatItems = value;
 }
 
 export function setMockInvokeImpl(value: typeof mockInvokeImpl): void {

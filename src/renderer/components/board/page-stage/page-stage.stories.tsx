@@ -2,9 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { PageStageDevStoryPage } from "./page-stage-dev-story";
 import {
   PAGE_STAGE_STORY_DEFAULT_PRESET,
-  PAGE_STAGE_STORY_PREVIEW_MODES,
-  PAGE_STAGE_STORY_RUN_TARGETS,
-  PAGE_STAGE_STORY_THREAD_DENSITIES,
+  PAGE_STAGE_STORY_CHAT_DENSITIES,
   resolvePageStageStoryPreset,
 } from "./page-stage-dev-story-data";
 
@@ -24,28 +22,17 @@ const meta = {
     ...PAGE_STAGE_STORY_DEFAULT_PRESET.controls,
   },
   argTypes: {
-    runInTarget: {
+    chatDensity: {
       control: "inline-radio",
-      options: [...PAGE_STAGE_STORY_RUN_TARGETS],
+      options: [...PAGE_STAGE_STORY_CHAT_DENSITIES],
     },
-    threadDensity: {
-      control: "inline-radio",
-      options: [...PAGE_STAGE_STORY_THREAD_DENSITIES],
-    },
-    previewMode: {
-      control: "inline-radio",
-      options: [...PAGE_STAGE_STORY_PREVIEW_MODES],
-    },
-    existingWorktree: {
+    showNewChatAction: {
       control: "boolean",
     },
-    showNewThreadAction: {
+    enableOpenChat: {
       control: "boolean",
     },
-    enableOpenThread: {
-      control: "boolean",
-    },
-    collapseThreadsByDefault: {
+    collapseChatsByDefault: {
       control: "boolean",
     },
     collapseSecondaryProperties: {
@@ -89,27 +76,21 @@ type Story = StoryObj<typeof meta>;
 
 export const Overview: Story = {};
 
-export const DenseThreads: Story = {
+export const DenseChats: Story = {
   args: {
-    ...resolvePageStageStoryPreset("dense-threads").controls,
+    ...resolvePageStageStoryPreset("dense-chats").controls,
   },
 };
 
-export const NewWorktreeSetup: Story = {
+export const EmptyChats: Story = {
   args: {
-    ...resolvePageStageStoryPreset("new-worktree-setup").controls,
+    ...resolvePageStageStoryPreset("empty-chats").controls,
   },
 };
 
-export const ExistingWorktree: Story = {
+export const CollapsedChats: Story = {
   args: {
-    ...resolvePageStageStoryPreset("existing-worktree").controls,
-  },
-};
-
-export const CloudCollapsed: Story = {
-  args: {
-    ...resolvePageStageStoryPreset("cloud-collapsed").controls,
+    ...resolvePageStageStoryPreset("collapsed-chats").controls,
   },
 };
 
@@ -117,11 +98,10 @@ export const NestedPageWithoutProperties: Story = {
   args: {
     ...resolvePageStageStoryPreset("overview").controls,
     standalone: true,
-    threadDensity: "none",
-    previewMode: "none",
-    showNewThreadAction: false,
-    enableOpenThread: false,
-    collapseThreadsByDefault: false,
+    chatDensity: "none",
+    showNewChatAction: false,
+    enableOpenChat: false,
+    collapseChatsByDefault: false,
     collapseSecondaryProperties: false,
   },
   parameters: {
@@ -138,8 +118,7 @@ export const SparseCustomProperties: Story = {
   args: {
     ...resolvePageStageStoryPreset("overview").controls,
     schemaVariant: "sparse-custom",
-    threadDensity: "none",
-    previewMode: "none",
+    chatDensity: "none",
   },
   parameters: {
     docs: {
@@ -190,8 +169,7 @@ export const EmptyPropertyValues: Story = {
   args: {
     ...resolvePageStageStoryPreset("overview").controls,
     schemaVariant: "empty-values",
-    threadDensity: "none",
-    previewMode: "none",
+    chatDensity: "none",
   },
   parameters: {
     docs: {
@@ -241,14 +219,14 @@ export const HeadingRailFewHeadingsHidden: Story = {
 
 export const HeadingRailFullWidth: Story = {
   args: {
-    ...resolvePageStageStoryPreset("existing-worktree").controls,
+    ...resolvePageStageStoryPreset("overview").controls,
     descriptionVariant: "heading-rail",
   },
 };
 
 export const HeadingRailDark: Story = {
   args: {
-    ...resolvePageStageStoryPreset("cloud-collapsed").controls,
+    ...resolvePageStageStoryPreset("collapsed-chats").controls,
     descriptionVariant: "heading-rail",
   },
   parameters: {

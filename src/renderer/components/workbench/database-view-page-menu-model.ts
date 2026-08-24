@@ -9,7 +9,7 @@ export type DatabaseViewPageMenuActionId =
   | "copy-title"
   | "copy-markdown"
   | "open-in"
-  | "open-in-new-session"
+  | "open-in-new-chat"
   | "send-to-chat"
   | "delete";
 
@@ -26,7 +26,7 @@ export interface DatabaseViewPageMenuCapabilities {
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
   readonly canCopyMarkdown: boolean;
-  readonly canOpenInNewSession: boolean;
+  readonly canOpenInNewChat: boolean;
   readonly canSendToChat: boolean;
   readonly canDelete: boolean;
 }
@@ -52,7 +52,7 @@ export function buildDatabaseViewPageMenuEntries({
   canMoveUp,
   canMoveDown,
   canCopyMarkdown,
-  canOpenInNewSession,
+  canOpenInNewChat,
   canSendToChat,
   canDelete,
 }: DatabaseViewPageMenuCapabilities): readonly DatabaseViewPageMenuEntry[] {
@@ -68,8 +68,8 @@ export function buildDatabaseViewPageMenuEntries({
   return [
     entry("open-in", "Open in", ["session", "chat"], {
       children: [
-        entry("open-in-new-session", "Open in new session", ["chat", "thread"], {
-          disabled: !canOpenInNewSession,
+        entry("open-in-new-chat", "Open in new chat", ["session", "thread"], {
+          disabled: !canOpenInNewChat,
         }),
         entry("send-to-chat", "Send to chat…", ["thread", "agent", "attach"], {
           disabled: !canSendToChat,

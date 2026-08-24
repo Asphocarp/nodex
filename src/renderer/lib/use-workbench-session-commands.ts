@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/toast";
 import type {
   ThreadStageActions,
@@ -52,7 +53,13 @@ import type {
 } from "@/features/content-search/content-search-context";
 import type { CodexBackgroundTerminalProcessRow } from "./codex-background-terminal-processes";
 import { loadPagePromptContext } from "./page-prompt-context";
-import type { OpenPageInNewChatInput, SendPageToChatInput } from "./page-chat-actions";
+import {
+  sendPageToChatWithRelation,
+  type OpenPageInNewChatInput,
+  type SendPageToChatInput,
+} from "./page-chat-actions";
+import { invoke } from "./api";
+import { queryKeys } from "./query-keys";
 import type { WorkbenchSceneNavigator } from "./workbench-scene-navigator";
 import type {
   CodexCollaborationModeKind,
@@ -169,6 +176,7 @@ export function useWorkbenchSessionCommands({
   setNewThreadComposerIntentsBySessionId,
   setProcessManagerOpen,
 }: WorkbenchSessionCommandsInput) {
+  const queryClient = useQueryClient();
   const panelControllerRef = useRef(controller);
   panelControllerRef.current = controller;
   const { pendingProcessOutputOpen } = controller;
@@ -188,6 +196,67 @@ export function useWorkbenchSessionCommands({
     [selectSession, sessionCatalog],
   );
 
+  const openProjectSessionById = useCallback(
+    async (sessionId: string): Promise<void> => {
+      const normalizedSessionId = sessionId.trim();
+      if (!normalizedSessionId) throw new Error("Chat ID is required");
+      const known = knownSessions.find((session) => session.id === normalizedSessionId);
+      if (known) {
+        selectSession(known);
+        return;
+      }
+      const session = await sessionCatalog.prefetch(normalizedSessionId);
+      if (!session || session.archived) throw new Error("This linked chat is no longer available");
+      selectSession(session);
+    },
+    [knownSessions, selectSession, sessionCatalog],
+  );
+
+  const resolveChatSessionById = useCallback(
+    async (sessionId: string): Promise<ProjectSessionDomain | ProjectSession> => {
+      const normalizedSessionId = sessionId.trim();
+      if (!normalizedSessionId) throw new Error("Chat ID is required");
+      const known = knownSessions.find((session) => session.id === normalizedSessionId);
+      if (known && !known.archived) return known;
+      const loaded = await sessionCatalog.prefetch(normalizedSessionId);
+      if (!loaded || loaded.archived) throw new Error("This chat is no longer available");
+      return loaded;
+    },
+    [knownSessions, sessionCatalog],
+  );
+
+  const resolveChatSessionForThread = useCallback(
+    async (threadId: string): Promise<ProjectSessionDomain | ProjectSession> => {
+      const normalizedThreadId = threadId.trim();
+      if (!normalizedThreadId) throw new Error("Chat thread ID is required");
+      const known = knownSessions.find(
+        (session) => session.thread?.threadId === normalizedThreadId && !session.archived,
+      );
+      if (known) return known;
+      const materialized = await sessionCatalog.ensureThreadSession(normalizedThreadId);
+      if (!materialized || materialized.archived) {
+        throw new Error("This chat is no longer available");
+      }
+      return materialized;
+    },
+    [knownSessions, sessionCatalog],
+  );
+
+  const linkPageToChat = useCallback(
+    async (input: {
+      readonly pageAccessProjectId: string;
+      readonly pageId: string;
+      readonly sessionId: string;
+    }): Promise<void> => {
+      await invoke("page-chats:link", input.sessionId, {
+        pageAccessProjectId: input.pageAccessProjectId,
+        pageId: input.pageId,
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.pageChats.all() });
+    },
+    [queryClient],
+  );
+
   const openPageInNewChat = useCallback(
     async (input: OpenPageInNewChatInput): Promise<void> => {
       const operationKey = `${input.projectId}:${input.pageId}`;
@@ -198,12 +267,23 @@ export function useWorkbenchSessionCommands({
       }
 
       const operation = (async () => {
+        const fallbackTitle = input.titleSnapshot?.trim() || "New chat";
+        let presentation: Awaited<ReturnType<typeof sessionCatalog.createOrdinarySession>>;
         try {
-          const fallbackTitle = input.titleSnapshot?.trim() || "New chat";
-          const presentation = await sessionCatalog.createOrdinarySession(
+          presentation = await sessionCatalog.createOrdinarySession(
             input.projectId,
             fallbackTitle,
+            [input.pageId],
           );
+        } catch (error) {
+          toast.danger(
+            error instanceof Error ? error.message : "Page could not be opened in a new chat",
+            { id: `open-page-in-new-chat:${operationKey}` },
+          );
+          return;
+        }
+
+        try {
           const result = await sceneNavigator.presentPanelSurface({
             owner: { kind: "session", sessionId: presentation.domain.id },
             request: {
@@ -236,7 +316,9 @@ export function useWorkbenchSessionCommands({
           });
         } catch (error) {
           toast.danger(
-            error instanceof Error ? error.message : "Page could not be opened in a new chat",
+            error instanceof Error
+              ? `Chat was created, but the Page could not be presented: ${error.message}`
+              : "Chat was created, but the Page could not be presented",
             { id: `open-page-in-new-chat:${operationKey}` },
           );
         }
@@ -265,34 +347,31 @@ export function useWorkbenchSessionCommands({
       }
 
       const operation = (async () => {
-        const context = await loadPagePromptContext({
-          projectId: input.projectId,
-          pageId: input.pageId,
-          pageKey: input.pageKey,
-          titleSnapshot: input.titleSnapshot,
+        await sendPageToChatWithRelation(input, {
+          loadPageContext: loadPagePromptContext,
+          resolveSessionById: resolveChatSessionById,
+          resolveSessionForThread: resolveChatSessionForThread,
+          ensureDefaultSession: async (projectId) =>
+            (await sessionCatalog.ensureDefaultDraft(projectId)).domain,
+          linkPage: linkPageToChat,
+          startTurn: async ({ projectId, threadId, context }) => {
+            await workbenchCodexControl.startTurn(threadId, context.promptInput.text, {
+              projectId,
+              promptInput: context.promptInput,
+            });
+          },
+          startThread: async ({ projectId, sessionId, context }) =>
+            await workbenchCodexControl.startThreadForSession({
+              projectId,
+              sessionId,
+              prompt: context.promptInput.text,
+              promptInput: context.promptInput,
+              runInTarget: "localProject",
+            }),
+          refreshSessions: async (projectId) => {
+            await refreshProjectSessions(projectId);
+          },
         });
-
-        if (input.target.kind === "thread") {
-          await workbenchCodexControl.startTurn(input.target.threadId, context.promptInput.text, {
-            projectId: input.projectId,
-            promptInput: context.promptInput,
-          });
-        } else {
-          const targetSessionId =
-            input.target.sessionId?.trim() ||
-            (await sessionCatalog.ensureDefaultDraft(input.projectId)).domain.id;
-          const result = await workbenchCodexControl.startThreadForSession({
-            projectId: input.projectId,
-            sessionId: targetSessionId,
-            prompt: context.promptInput.text,
-            promptInput: context.promptInput,
-            runInTarget: "localProject",
-          });
-          if (result.kind !== "started") {
-            throw new Error("Page chat unexpectedly started in a worktree");
-          }
-          await refreshProjectSessions(input.projectId);
-        }
 
         toast.success(
           input.target.kind === "thread" ? "Sent Page to chat" : "Sent Page to new chat",
@@ -306,7 +385,14 @@ export function useWorkbenchSessionCommands({
       pageSendInFlightRef.current.set(operationKey, operation);
       await operation;
     },
-    [refreshProjectSessions, sessionCatalog, workbenchCodexControl],
+    [
+      linkPageToChat,
+      refreshProjectSessions,
+      resolveChatSessionById,
+      resolveChatSessionForThread,
+      sessionCatalog,
+      workbenchCodexControl,
+    ],
   );
 
   const startNewChatInProject = useCallback(
@@ -981,6 +1067,9 @@ export function useWorkbenchSessionCommands({
 
   return {
     ensureDefaultDraftSessionForProject,
+    linkPageToChat,
+    resolveChatSessionForThread,
+    openProjectSessionById,
     openPageInNewChat,
     sendPageToChat,
     startNewChatInProject,

@@ -3,12 +3,19 @@ import type { Page } from "playwright";
 import type { CoreResult } from "../../../src/shared/core-result";
 import type { IpcApi } from "../../../src/shared/ipc-api";
 import { compilePageLifecycleRequestV2 } from "../../../src/shared/page-lifecycle-v2-runtime";
-import type { Project, ProjectCreateInput } from "../../../src/shared/types";
+import type {
+  PageChatActivitySummaryResult,
+  PageChatWindow,
+  Project,
+  ProjectCreateInput,
+} from "../../../src/shared/types";
 import type {
   ScenarioBoardObservation,
   ScenarioDocumentReplacement,
   ScenarioPageObservation,
   ScenarioPageSeed,
+  ScenarioRelatedChatSeed,
+  ScenarioRelatedChatSeedResult,
   ScenarioSeedPort,
 } from "../contracts";
 import { normalizeScenarioBoardGroups } from "./normalize-board-groups";
@@ -166,5 +173,52 @@ export class RendererIpcSeedAdapter implements ScenarioSeedPort {
     );
     const groups = normalizeScenarioBoardGroups(snapshot);
     return { totalRows: snapshot.totalRows, commitSeq: snapshot.commitSeq, groups };
+  }
+
+  async createRelatedChat(input: ScenarioRelatedChatSeed): Promise<ScenarioRelatedChatSeedResult> {
+    const session = await this.#invoke("project-sessions:create", {
+      projectId: input.projectId,
+      noThreadFallbackTitle: input.noThreadFallbackTitle,
+      initialPageIds: [...input.initialPageIds],
+    });
+    if (!input.thread) return { sessionId: session.id, threadId: null };
+    const observedAt = Date.now();
+    await this.#invoke("project-session-threads:attach", {
+      sessionId: session.id,
+      projectId: input.projectId,
+      threadId: input.thread.threadId,
+      threadSource: "user",
+      threadName: input.thread.threadName,
+      threadPreview: input.thread.threadPreview,
+      modelProvider: "openai",
+      statusType: input.thread.statusType,
+      statusActiveFlags: [...input.thread.statusActiveFlags],
+      createdAt: observedAt,
+      updatedAt: observedAt,
+      recencyAt: observedAt,
+    });
+    if (input.thread.unread) {
+      await this.#invoke("project-sessions:mark-unread", session.id, { unread: true });
+    }
+    return { sessionId: session.id, threadId: input.thread.threadId };
+  }
+
+  async readPageChatActivity(
+    projectId: string,
+    pageIds: readonly string[],
+  ): Promise<PageChatActivitySummaryResult> {
+    return await this.#invoke("page-chats:activity-summaries", {
+      pageAccessProjectId: projectId,
+      pageIds: [...pageIds],
+    });
+  }
+
+  async readPageChats(projectId: string, pageId: string): Promise<PageChatWindow> {
+    return await this.#invoke("page-chats:list", {
+      pageAccessProjectId: projectId,
+      pageId,
+      includeArchived: false,
+      first: 50,
+    });
   }
 }

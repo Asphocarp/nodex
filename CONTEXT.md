@@ -352,6 +352,26 @@ current implicit access after current lifecycle/revisions are checked; it never
 revives an expired approval or archived Session automatically. Project archive
 or deletion never deletes Library resources.
 
+### Linked chat
+
+A Linked chat is a normalized, non-owning, non-authorizing edge between one
+Page and one durable Project Session. It records that the user explicitly put
+the Page into that Chat's work context. It does not move the Page, grant the
+Session's Project or Agent access, embed a transcript, or assert that a Turn is
+editing the Page.
+
+The edge targets Project Session rather than Codex Thread because a Chat may be
+threadless and Thread attachment may change independently. It also never
+targets a Window Session, Scene, or surface. Open in new chat can create a
+Session and its initial Page edges atomically; explicit Send to chat and Page
+Run Section actions may add the same idempotent edge. Page navigation, Scenes,
+mentions, references, links, and prompt text do not infer one.
+
+Workspace owns the relation and derives bounded Page Chat activity from it,
+Project Sessions, and optional Threads. Execution and unread are orthogonal
+signals. Database Page rows do not store or project Chat state; renderer
+surfaces join the independent bounded projections for presentation.
+
 ### Conversation recency
 
 Conversation recency is the time of a Thread's latest meaningful conversation
@@ -535,7 +555,7 @@ state is rejected rather than replayed.
 | NFM, preview, search, schedule, asset, and Page summary                    | rebuildable projections                                                  |
 | Restorable Document states                                                 | immutable semantic Document revisions                                    |
 | Presence, cursor, selection, leases                                        | ephemeral collaboration state                                            |
-| Project Sessions and Thread links                                          | Project execution domain                                                 |
+| Project Sessions, Thread links, and Linked chats                           | Project execution domain                                                 |
 | Per-window Project/Session Scene surfaces, panels, selection, and geometry | Window Session view                                                      |
 | Browser guests and Terminal PTYs                                           | Main-process runtime Modules                                             |
 
@@ -580,6 +600,8 @@ state is rejected rather than replayed.
     and immutable. Committed numbers are never reclaimed.
 24. A Page has at most one current Page key, determined by its current Database,
     while historical assignments and retired-prefix ranges remain resolvable.
+25. A Linked chat never changes Page ownership, Database membership, Project
+    resource grants, Agent authority, Session ownership, or Thread attachment.
 
 ## Operation semantics
 
@@ -714,6 +736,9 @@ idempotency, projections, and post-commit events behind `read` and `apply`.
 - `docs/adr/0043-database-scoped-page-keys.md`: Database-owned Page-key
   namespaces, Library-unique prefix history, monotonic allocation, UUID
   identity boundary, authorized resolution, and presentation projection.
+- `docs/adr/0049-page-project-session-links.md`: durable Page–Project Session
+  relationships, atomic establishment, access and lifecycle boundaries, and
+  bounded Page Chat activity projection.
 - `docs/adr/0042-dedicated-git-read-worker.md`: one rebuildable,
   generation-bound Git repository read plane in a dedicated worker, with Main
   and renderer Adapters and mutation-driven invalidation.

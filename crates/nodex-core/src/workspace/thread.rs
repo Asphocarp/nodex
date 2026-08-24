@@ -2441,6 +2441,7 @@ mod tests {
                         session_id: session_id.to_owned(),
                         project_id: Some("project:default".to_owned()),
                         title: "New chat".to_owned(),
+                        initial_page_ids: Vec::new(),
                     },
                 ),
             )

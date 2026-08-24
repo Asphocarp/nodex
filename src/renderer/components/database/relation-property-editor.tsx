@@ -12,6 +12,7 @@ import { foldDataSourceRelationSearchText } from "@/lib/data-source-relation-run
 import { cn } from "@/lib/utils";
 import { PropertyEmptyValue } from "./property-empty-value";
 import {
+  DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
   DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME,
   type DatabasePropertyValuePresentation,
 } from "./property-value-chip";
@@ -421,13 +422,13 @@ export function RelationPropertyEditor({
             type="button"
             aria-label={`Edit ${label} relation`}
             className={cn(
-              "inline-flex min-h-6 min-w-0 max-w-full flex-wrap items-center gap-1 rounded-md px-1 text-left outline-hidden",
+              "inline-flex min-h-6 min-w-0 max-w-full flex-wrap items-center gap-1 rounded-md text-left outline-hidden",
               "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
               presentation === "page"
                 ? "text-sm"
                 : presentation === "list" || presentation === "board"
                   ? DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME
-                  : "text-[11px]",
+                  : "px-1 text-[11px]",
             )}
           >
             {(presentation === "list" || presentation === "board") && preview.totalCount > 0
@@ -443,7 +444,10 @@ export function RelationPropertyEditor({
                     : "text-token-text-secondary",
                   presentation !== "list" &&
                     presentation !== "board" &&
-                    "h-5.5 rounded-md bg-token-foreground/8 px-1.5",
+                    cn(
+                      DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
+                      "gap-1 bg-token-foreground/8",
+                    ),
                 )}
               >
                 {presentation !== "list" && presentation !== "board" ? (
@@ -468,7 +472,7 @@ export function RelationPropertyEditor({
               <PropertyEmptyValue />
             ) : null}
             {preview.totalCount > 0 && presentation !== "list" && presentation !== "board" ? (
-              <PlusIcon className="icon-2xs shrink-0 text-token-description-foreground" />
+              <PlusIcon className="icon-2xs shrink-0 text-token-description-foreground mr-1" />
             ) : null}
           </button>
         </NodexPopoverTrigger>

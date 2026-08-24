@@ -213,6 +213,7 @@ If the section has no bound thread, clicking `Send` or pressing `Cmd/Ctrl+Enter`
 - selecting `New chat / This session` starts a session-owned thread in the current empty session; selecting the bottom `New chat / This project` atomically ensures the Project's Core-owned default-draft Chat
 - selecting an existing thread sends the section prompt to that thread
 - uses the section prompt body as the initial prompt
+- resolves the selected thread or new-chat target to a durable Project Session and idempotently links the Page before starting the Thread or Turn
 - writes the selected or returned thread id into the section marker's `thread` attribute after a successful send
 - keeps focus in the editor
 
@@ -222,9 +223,12 @@ If the section already has a bound thread and that thread is available:
 
 - the shared picker opens with that thread available as the natural existing-thread destination
 - selecting that thread starts a new turn or steers the active turn using the same control-layer behavior as the thread composer
+- the Page–Session Linked chat edge is established before Codex work starts; a send failure keeps that explicit relationship for retry and never deletes the Chat
 - selecting another existing thread or `New chat` rebinds the marker after a successful send
 
 This mirrors the thread composer’s follow-up behavior instead of inventing a separate send model.
+The section marker still stores only its Thread binding. Removing or converting one marker does not
+unlink a Page–Session relationship, because other Page actions or sections may still use that Chat.
 
 ### Missing or archived thread
 
@@ -536,9 +540,9 @@ On successful section send:
 
 - editor focus is restored back to the Page description
 - the Page Stage does not auto-switch to the Threads stage
-- the bound thread continues to update through the existing linked-thread state
+- the bound thread continues to update through the Thread state derived from the Page's related Chat projection
 
-Opening the bound thread remains an explicit action through the section row or the Page's Threads property row.
+Opening the bound thread remains an explicit action through the section row or the Page's `Linked chats` property row.
 
 ## Failure Behavior
 
@@ -548,7 +552,7 @@ Current editor-side failure cases:
 - empty section -> show hint
 - Codex start/send failure -> show inline error hint and keep editor focus
 
-The failure hint is local to the editor surface and does not replace the Threads stage’s own runtime error handling.
+The failure hint is local to the editor surface and does not replace the Chat runtime’s own error handling.
 
 ## Examples
 

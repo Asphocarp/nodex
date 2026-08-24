@@ -388,6 +388,7 @@ export const make = (
           session_id: sessionId,
           project_id: thread.projectId,
           title: normalizeSidebarSessionFallbackTitle(summary),
+          initial_page_ids: [],
         },
       });
       const linked = yield* core.workspace
