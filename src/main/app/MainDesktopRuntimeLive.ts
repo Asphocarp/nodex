@@ -15,18 +15,8 @@ import {
   live as coreEventHubLive,
 } from "../core-runtime/CoreEventHub";
 import { CoreModules } from "../core-runtime/CoreModules";
-import {
-  AutomationRoutingIndex,
-  live as automationRoutingIndexLive,
-} from "../core-runtime/AutomationRoutingIndex";
-import {
-  StoreAdministration,
-  live as storeAdministrationLive,
-} from "../core-runtime/StoreAdministration";
-import {
-  DocumentLiveRuntime,
-  live as documentLiveRuntimeLive,
-} from "../core-runtime/DocumentLiveRuntime";
+import { AutomationRoutingIndex } from "../core-runtime/AutomationRoutingIndex";
+import { StoreAdministration } from "../core-runtime/StoreAdministration";
 import {
   ProjectionDeliveryRuntime,
   live as projectionDeliveryRuntimeLive,
@@ -35,34 +25,21 @@ import {
   CoreApplicationProjectionRuntime,
   live as coreApplicationProjectionRuntimeLive,
 } from "../core-runtime/CoreApplicationProjectionRuntime";
-import { DesktopDocumentSessionRuntime, desktopDocumentSessionRuntimeLive } from "../core-client";
+import { DesktopDocumentSessionRuntime } from "../core-client";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
-import {
-  AutomationApplication,
-  live as automationApplicationLive,
-} from "../automation-application/AutomationApplication";
+import { AutomationApplication } from "../automation-application/AutomationApplication";
 import {
   AutomationExecution,
   live as automationExecutionLive,
 } from "../automation-application/AutomationExecution";
-import { DatabaseModule, live as databaseModuleLive } from "../database-application/DatabaseModule";
-import { LibraryModule, live as libraryModuleLive } from "../library-application/LibraryModule";
-import {
-  NodexAgentApplication,
-  live as nodexAgentApplicationLive,
-} from "../nodex-agent-application/NodexAgentApplication";
-import {
-  NodexAgentDynamicTools,
-  live as nodexAgentDynamicToolsLive,
-} from "../nodex-agent-application/NodexAgentDynamicTools";
+import { DatabaseModule } from "../database-application/DatabaseModule";
+import { LibraryModule } from "../library-application/LibraryModule";
+import { NodexAgentDynamicTools } from "../nodex-agent-application/NodexAgentDynamicTools";
 import {
   NodexAgentProtocolTools,
   live as nodexAgentProtocolToolsLive,
 } from "../nodex-agent-application/NodexAgentProtocolTools";
-import {
-  NodexAgentResourceAccess,
-  live as nodexAgentResourceAccessLive,
-} from "../nodex-agent-application/NodexAgentResourceAccess";
+import { NodexAgentResourceAccess } from "../nodex-agent-application/NodexAgentResourceAccess";
 import { CodexAccount } from "../codex-application/CodexAccount";
 import { AgentProviderRuntime } from "../codex-application/AgentProviderRuntime";
 import {
@@ -390,10 +367,7 @@ import { RemoteHostedPipRuntime } from "../host-runtime/RemoteHostedPipRuntime";
 import { ComputerUseSettingsRuntime } from "../host-runtime/ComputerUseSettingsRuntime";
 import { GitWorkerRuntime } from "../host-runtime/GitWorkerRuntime";
 import { GitActions } from "../git-application/GitActions";
-import {
-  WorktreeEnvironmentRuntime,
-  live as worktreeEnvironmentRuntimeLive,
-} from "../host-runtime/WorktreeEnvironmentRuntime";
+import { WorktreeEnvironmentRuntime } from "../host-runtime/WorktreeEnvironmentRuntime";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import {
   ProjectArchiveBlockers,
@@ -417,10 +391,6 @@ import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 import { DictationRuntime } from "../host-runtime/DictationRuntime";
 import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntime";
-import {
-  CanvasPresenceRuntime,
-  live as canvasPresenceRuntimeLive,
-} from "../host-runtime/CanvasPresenceRuntime";
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
 import { live as codexRendererProjectionRuntimeLive } from "../host-runtime/CodexRendererProjectionRuntime";
 import {
@@ -540,6 +510,24 @@ export const live: Layer.Layer<
         const authority = Context.get(applicationKernelContext, CoreAuthority);
         const access = Context.get(applicationKernelContext, CoreSessionAccess);
         const coreModules = Context.get(applicationKernelContext, CoreModules);
+        const automationRouting = Context.get(applicationKernelContext, AutomationRoutingIndex);
+        const automationApplication = Context.get(applicationKernelContext, AutomationApplication);
+        const libraryModule = Context.get(applicationKernelContext, LibraryModule);
+        const databaseModule = Context.get(applicationKernelContext, DatabaseModule);
+        const storeAdministration = Context.get(applicationKernelContext, StoreAdministration);
+        const worktreeEnvironments = Context.get(
+          applicationKernelContext,
+          WorktreeEnvironmentRuntime,
+        );
+        const documentSync = Context.get(applicationKernelContext, DesktopDocumentSessionRuntime);
+        const nodexAgentDynamicTools = Context.get(
+          applicationKernelContext,
+          NodexAgentDynamicTools,
+        );
+        const nodexAgentResourceAccess = Context.get(
+          applicationKernelContext,
+          NodexAgentResourceAccess,
+        );
         const projectWorkspace = Context.get(applicationKernelContext, ProjectWorkspace);
         const projectRuntimeLifecycle = Context.get(
           applicationKernelContext,
@@ -889,39 +877,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const automationRoutingContext = yield* Layer.buildWithScope(
-          automationRoutingIndexLive.pipe(Layer.provide(Layer.succeed(CoreModules, coreModules))),
-          runtimeScope,
-        );
-        const automationRouting = Context.get(automationRoutingContext, AutomationRoutingIndex);
-        const automationApplicationContext = yield* Layer.buildWithScope(
-          automationApplicationLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(AutomationRoutingIndex, automationRouting),
-                Layer.succeed(CoreModules, coreModules),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const automationApplication = Context.get(
-          automationApplicationContext,
-          AutomationApplication,
-        );
-        const applicationDataModulesContext = yield* Layer.buildWithScope(
-          Layer.merge(libraryModuleLive, databaseModuleLive).pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(CoreSessionAccess, access),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const libraryModule = Context.get(applicationDataModulesContext, LibraryModule);
-        const databaseModule = Context.get(applicationDataModulesContext, DatabaseModule);
         const deepLinkContext = yield* Layer.buildWithScope(
           deepLinkRuntimeLive({
             focusWindow: applicationWindows.focusLast,
@@ -948,89 +903,6 @@ export const live: Layer.Layer<
         );
         yield* deepLinks.extractFromArgv(config.argv);
         applicationWindows.openStartup(getWindowRestoreSettings().policy);
-        const nodexAgentApplicationContext = yield* Layer.buildWithScope(
-          nodexAgentApplicationLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(CoreModules, coreModules),
-                Layer.succeed(CoreSessionAccess, access),
-                Layer.succeed(DatabaseModule, databaseModule),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const nodexAgentApplication = Context.get(
-          nodexAgentApplicationContext,
-          NodexAgentApplication,
-        );
-        const nodexAgentDynamicToolsContext = yield* Layer.buildWithScope(
-          nodexAgentDynamicToolsLive.pipe(
-            Layer.provide(Layer.succeed(NodexAgentApplication, nodexAgentApplication)),
-          ),
-          runtimeScope,
-        );
-        const nodexAgentDynamicTools = Context.get(
-          nodexAgentDynamicToolsContext,
-          NodexAgentDynamicTools,
-        );
-        const storeAdministrationContext = yield* Layer.buildWithScope(
-          storeAdministrationLive.pipe(Layer.provide(Layer.succeed(CoreModules, coreModules))),
-          runtimeScope,
-        );
-        const storeAdministration = Context.get(storeAdministrationContext, StoreAdministration);
-        const worktreeEnvironmentContext = yield* Layer.buildWithScope(
-          worktreeEnvironmentRuntimeLive.pipe(
-            Layer.provide(Layer.succeed(CoreModules, coreModules)),
-          ),
-          runtimeScope,
-        );
-        const worktreeEnvironments = Context.get(
-          worktreeEnvironmentContext,
-          WorktreeEnvironmentRuntime,
-        );
-        const canvasPresenceContext = yield* Layer.buildWithScope(
-          canvasPresenceRuntimeLive(),
-          runtimeScope,
-        );
-        const canvasPresence = Context.get(canvasPresenceContext, CanvasPresenceRuntime);
-        const documentLiveContext = yield* Layer.buildWithScope(
-          documentLiveRuntimeLive,
-          runtimeScope,
-        );
-        const documentLive = Context.get(documentLiveContext, DocumentLiveRuntime);
-        const documentSessionContext = yield* Layer.buildWithScope(
-          desktopDocumentSessionRuntimeLive({
-            canvasPresenceHub: canvasPresence.hub,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(CoreModules, coreModules),
-                Layer.succeed(CoreSessionAccess, access),
-                Layer.succeed(DocumentLiveRuntime, documentLive),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const documentSync = Context.get(documentSessionContext, DesktopDocumentSessionRuntime);
-        const nodexAgentResourceAccessContext = yield* Layer.buildWithScope(
-          nodexAgentResourceAccessLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(CoreModules, coreModules),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const nodexAgentResourceAccess = Context.get(
-          nodexAgentResourceAccessContext,
-          NodexAgentResourceAccess,
-        );
         const nodexAgentAuthorizationContext = yield* Layer.buildWithScope(
           nodexAgentAuthorizationRuntimeLive.pipe(
             Layer.provide(
