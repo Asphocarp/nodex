@@ -8,6 +8,10 @@ import {
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import { ChatGptDesktop, live as chatGptDesktopLive } from "../codex-application/ChatGptDesktop";
 import {
+  ComposerExternalSuggestions,
+  live as composerExternalSuggestionsLive,
+} from "../codex-application/ComposerExternalSuggestions";
+import {
   CodexGitMessageGeneration,
   live as codexGitMessageGenerationLive,
 } from "../codex-application/CodexGitMessageGeneration";
@@ -111,6 +115,7 @@ const browserUse = Layer.unwrap(
   }),
 ).pipe(Layer.provideMerge(browserProfile));
 const browserPresentation = browserPresentationRuntimeLive.pipe(Layer.provideMerge(browserUse));
+const externalSuggestions = composerExternalSuggestionsLive.pipe(Layer.provideMerge(chatGpt));
 
 const computerUse = Layer.unwrap(
   Effect.gen(function* () {
@@ -179,6 +184,7 @@ const gitActions = gitActionsLive.pipe(
 export const live: Layer.Layer<
   | ElectronNet.ElectronNet
   | ChatGptDesktop
+  | ComposerExternalSuggestions
   | BrowserSiteStatusRuntime
   | BrowserApplication
   | BrowserProfileRuntime
@@ -206,4 +212,4 @@ export const live: Layer.Layer<
   | ElectronWindowHost
   | FileSystem.FileSystem
   | BrowserProfileHelperPlatform
-> = Layer.mergeAll(desktopTools, managedWorktrees, gitActions);
+> = Layer.mergeAll(desktopTools, managedWorktrees, gitActions, externalSuggestions);

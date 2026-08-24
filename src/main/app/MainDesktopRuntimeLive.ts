@@ -52,12 +52,8 @@ import {
 } from "../codex-application/NodexAgentAuthorizationRuntime";
 import { CodexConnection } from "../codex-application/CodexConnection";
 import { make as makeCodexConnectionLifecycle } from "../codex-application/CodexConnectionLifecycle";
-import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
-import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
-import {
-  ComposerExternalSuggestions,
-  live as composerExternalSuggestionsLive,
-} from "../codex-application/ComposerExternalSuggestions";
+import { CodexMedia } from "../codex-application/CodexMedia";
+import { ComposerExternalSuggestions } from "../codex-application/ComposerExternalSuggestions";
 import { ComposerCatalog } from "../codex-application/ComposerCatalog";
 import {
   ConversationCommands,
@@ -328,44 +324,27 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import { CodexEphemeralThreadRouting } from "../codex-runtime/CodexEphemeralThreadRouting";
 import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationRequestInbox";
-import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
-import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIpc";
 import * as ApplicationLocalStateIpc from "../ipc/handlers/ApplicationLocalStateIpc";
 import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc";
-import * as ApplicationSyncIpc from "../ipc/handlers/ApplicationSyncIpc";
-import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
 import * as AutomationIpc from "../ipc/handlers/AutomationIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as CodexPendingWorktreeIpc from "../ipc/handlers/CodexPendingWorktreeIpc";
 import * as CodexPermissionsIpc from "../ipc/handlers/CodexPermissionsIpc";
 import * as CodexRendererIpc from "../ipc/handlers/CodexRendererIpc";
-import * as ExecutionHostIpc from "../ipc/handlers/ExecutionHostIpc";
-import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
-import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
-import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
-import * as ComposerAppshotIpc from "../ipc/handlers/ComposerAppshotIpc";
-import * as CoreAuthorityIpc from "../ipc/handlers/CoreAuthorityIpc";
 import * as CoreDocumentIpc from "../ipc/handlers/CoreDocumentIpc";
 import * as CoreMutationIpc from "../ipc/handlers/CoreMutationIpc";
 import * as DatabaseProjectionIpc from "../ipc/handlers/DatabaseProjectionIpc";
-import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as GitApplicationIpc from "../ipc/handlers/GitApplicationIpc";
 import * as NativeShellIpc from "../ipc/handlers/NativeShellIpc";
 import * as ManagedMediaIpc from "../ipc/handlers/ManagedMediaIpc";
 import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
 import * as PageSearchIpc from "../ipc/handlers/PageSearchIpc";
 import * as ProjectWorkspaceIpc from "../ipc/handlers/ProjectWorkspaceIpc";
-import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
 import * as StoreAdministrationIpc from "../ipc/handlers/StoreAdministrationIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import * as WorktreeEnvironmentIpc from "../ipc/handlers/WorktreeEnvironmentIpc";
-import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
 import * as CodexWorkspaceIpc from "../ipc/handlers/CodexWorkspaceIpc";
-import * as DictationIpc from "../ipc/handlers/DictationIpc";
 import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
-import { RemoteHostedPipRuntime } from "../host-runtime/RemoteHostedPipRuntime";
-import { ComputerUseSettingsRuntime } from "../host-runtime/ComputerUseSettingsRuntime";
-import { GitWorkerRuntime } from "../host-runtime/GitWorkerRuntime";
 import { GitActions } from "../git-application/GitActions";
 import { WorktreeEnvironmentRuntime } from "../host-runtime/WorktreeEnvironmentRuntime";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
@@ -381,15 +360,10 @@ import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-
 import { projectSessionIdFromTerminalSessionId } from "../browser/browser-local-server-runtime";
 import { BrowserApplication } from "../browser-application/BrowserApplication";
 import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
-import { BrowserProfileRuntime } from "../host-runtime/BrowserProfileRuntime";
-import { BrowserPresentationRuntime } from "../host-runtime/BrowserPresentationRuntime";
 import { AppUpdateRuntime } from "../host-runtime/AppUpdateRuntime";
-import * as AppProtocolRuntime from "../host-runtime/AppProtocolRuntime";
-import * as SessionPolicyRuntime from "../host-runtime/SessionPolicyRuntime";
 import { DesktopNotificationRuntime } from "../host-runtime/DesktopNotificationRuntime";
 import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 import { DictationRuntime } from "../host-runtime/DictationRuntime";
-import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntime";
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
 import { live as codexRendererProjectionRuntimeLive } from "../host-runtime/CodexRendererProjectionRuntime";
@@ -408,7 +382,6 @@ import {
 import { DeepLinkRuntime, live as deepLinkRuntimeLive } from "../host-runtime/DeepLinkRuntime";
 import { ApplicationInitializationRuntime } from "../host-runtime/ApplicationInitializationRuntime";
 import { ApplicationMenuRuntime } from "../host-runtime/ApplicationMenuRuntime";
-import { ApplicationHostRuntime } from "../host-runtime/ApplicationHostRuntime";
 import {
   InitialProjectBootstrapRuntime,
   live as initialProjectBootstrapRuntimeLive,
@@ -427,7 +400,6 @@ import { getLogger } from "../logging/logger";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronIpc, ElectronSyncIpc } from "../platform/electron/ElectronIpc";
-import * as ElectronNet from "../platform/electron/ElectronNet";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
@@ -445,6 +417,7 @@ import * as CodexApplicationLive from "./CodexApplicationLive";
 import * as CoreApplicationLive from "./CoreApplicationLive";
 import * as HostApplicationLive from "./HostApplicationLive";
 import * as ApplicationStateLive from "./ApplicationStateLive";
+import * as RendererIngressLive from "./RendererIngressLive";
 import * as WindowApplicationLive from "./WindowApplicationLive";
 
 const runtimeError = (operation: string, cause: unknown) =>
@@ -474,8 +447,6 @@ export const live: Layer.Layer<
   Effect.gen(function* () {
     const desktop = yield* ElectronDesktop;
     const ipc = yield* ElectronIpc;
-    const syncIpc = yield* ElectronSyncIpc;
-    const sessionHost = yield* ElectronSessionHost;
     const windowHost = yield* ElectronWindowHost;
     const config = yield* MainConfig;
     const shutdown = yield* MainShutdown;
@@ -487,13 +458,19 @@ export const live: Layer.Layer<
     return yield* Effect.interruptible(
       Effect.gen(function* () {
         const applicationKernelContext = yield* Layer.buildWithScope(
-          WindowApplicationLive.live.pipe(
+          RendererIngressLive.live.pipe(
             Layer.provideMerge(
-              HostApplicationLive.live.pipe(
+              WindowApplicationLive.live.pipe(
                 Layer.provideMerge(
-                  CodexApplicationLive.live.pipe(
+                  HostApplicationLive.live.pipe(
                     Layer.provideMerge(
-                      CoreApplicationLive.live.pipe(Layer.provideMerge(ApplicationStateLive.live)),
+                      CodexApplicationLive.live.pipe(
+                        Layer.provideMerge(
+                          CoreApplicationLive.live.pipe(
+                            Layer.provideMerge(ApplicationStateLive.live),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -586,17 +563,13 @@ export const live: Layer.Layer<
         const composerCatalogService = Context.get(applicationKernelContext, ComposerCatalog);
         const codexConnectionService = Context.get(applicationKernelContext, CodexConnection);
         const codexToolRuntimeService = Context.get(applicationKernelContext, CodexToolRuntime);
-        const electronNet = Context.get(applicationKernelContext, ElectronNet.ElectronNet);
-        const chatGpt = Context.get(applicationKernelContext, ChatGptDesktop);
         const browser = Context.get(applicationKernelContext, BrowserApplication);
-        const browserProfile = Context.get(applicationKernelContext, BrowserProfileRuntime);
         const browserUse = Context.get(applicationKernelContext, BrowserUseRuntime);
         const desktopToolRuntime = Context.get(applicationKernelContext, DesktopToolRuntime);
-        const gitWorker = Context.get(applicationKernelContext, GitWorkerRuntime);
         const gitActions = Context.get(applicationKernelContext, GitActions);
-        const browserPresentation = Context.get(
+        const externalSuggestions = Context.get(
           applicationKernelContext,
-          BrowserPresentationRuntime,
+          ComposerExternalSuggestions,
         );
         const managedWorktreeConfiguration = Context.get(
           applicationKernelContext,
@@ -611,140 +584,16 @@ export const live: Layer.Layer<
         );
         const rendererClients = Context.get(applicationKernelContext, RendererClientRuntime);
         const dictation = Context.get(applicationKernelContext, DictationRuntime);
+        const codexMedia = Context.get(applicationKernelContext, CodexMedia);
         const databaseNotifications = Context.get(
           applicationKernelContext,
           DatabaseNotifierRuntime.DatabaseNotifierRuntime,
         );
-        const remoteHostedPip = Context.get(applicationKernelContext, RemoteHostedPipRuntime);
-        const computerUseSettings = Context.get(
-          applicationKernelContext,
-          ComputerUseSettingsRuntime,
-        );
-        const applicationHost = Context.get(applicationKernelContext, ApplicationHostRuntime);
-        const composerAppshots = Context.get(applicationKernelContext, ComposerAppshotRuntime);
         const applicationWindows = Context.get(applicationKernelContext, ApplicationWindowRuntime);
         const applicationMenus = Context.get(applicationKernelContext, ApplicationMenuRuntime);
         const windowSessions = Context.get(
           applicationKernelContext,
           WindowSessionCatalog.WindowSessionCatalog,
-        );
-        yield* Layer.buildWithScope(
-          AppUpdateIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(AppUpdateRuntime, appUpdates),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          AppProtocolRuntime.live.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(ElectronSessionHost, sessionHost),
-                Layer.succeed(MainConfig, config),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          SessionPolicyRuntime.live.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(ElectronSessionHost, sessionHost),
-                Layer.succeed(MainConfig, config),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          RemoteHostedPipIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(RemoteHostedPipRuntime, remoteHostedPip),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          ComputerUseSettingsIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(ComputerUseSettingsRuntime, computerUseSettings),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          GitWorkerIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(GitWorkerRuntime, gitWorker),
-                Layer.succeed(MainConfig, config),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const codexMediaContext = yield* Layer.buildWithScope(
-          codexMediaLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(ChatGptDesktop, chatGpt),
-                Layer.succeed(CodexAccount, codexAccountService),
-                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
-                Layer.succeed(CodexConnection, codexConnectionService),
-                Layer.succeed(DictationRuntime, dictation),
-                Layer.succeed(ElectronNet.ElectronNet, electronNet),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const codexMedia = Context.get(codexMediaContext, CodexMedia);
-        yield* Layer.buildWithScope(
-          DictationIpc.live().pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexMedia, codexMedia),
-                Layer.succeed(DictationRuntime, dictation),
-                Layer.succeed(ElectronDesktop, desktop),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const externalSuggestionsContext = yield* Layer.buildWithScope(
-          composerExternalSuggestionsLive.pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(ChatGptDesktop, chatGpt),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const externalSuggestions = Context.get(
-          externalSuggestionsContext,
-          ComposerExternalSuggestions,
         );
         yield* terminals.events.pipe(
           Stream.runForEach((event) => {
@@ -768,114 +617,6 @@ export const live: Layer.Layer<
             );
           }),
           Effect.forkIn(runtimeScope),
-        );
-        yield* Layer.buildWithScope(
-          ApplicationSyncIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronSyncIpc, syncIpc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          WorkspaceFileIpc.live().pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          ApplicationLifecycleIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ApplicationHostRuntime, applicationHost),
-                Layer.succeed(ApplicationInitializationRuntime, initialization),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          ComposerAppshotIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ComposerAppshotRuntime, composerAppshots),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          ApplicationWindowIpc.live().pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ApplicationWindowRuntime, applicationWindows),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          BrowserProfileIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(BrowserProfileRuntime, browserProfile),
-                Layer.succeed(BrowserApplication, browser),
-                Layer.succeed(ElectronDesktop, desktop),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(ElectronWindowHost, windowHost),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowSessionCatalog.WindowSessionCatalog, windowSessions),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          BrowserSidebarIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(BrowserApplication, browser),
-                Layer.succeed(BrowserPresentationRuntime, browserPresentation),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(ElectronWindowHost, windowHost),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowSessionCatalog.WindowSessionCatalog, windowSessions),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          CoreAuthorityIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
         );
         const deepLinkContext = yield* Layer.buildWithScope(
           deepLinkRuntimeLive({
@@ -918,19 +659,6 @@ export const live: Layer.Layer<
         const nodexAgentAuthorization = Context.get(
           nodexAgentAuthorizationContext,
           NodexAgentAuthorizationRuntime,
-        );
-        yield* Layer.buildWithScope(
-          ExecutionHostIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(ExecutionHostRuntime, executionHosts),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
         );
         const codexPermissionsContext = yield* Layer.buildWithScope(
           codexPermissionsLive({ runtimeStateHome }).pipe(

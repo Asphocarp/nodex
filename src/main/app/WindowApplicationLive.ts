@@ -2,7 +2,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { APP_RENDERER_URL } from "../../shared/app-renderer-policy";
 import { BrowserApplication } from "../browser-application/BrowserApplication";
+import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
+import { CodexAccount } from "../codex-application/CodexAccount";
+import { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
+import { CodexConnection } from "../codex-application/CodexConnection";
 import { CodexRendererConversationCoordinator } from "../codex-application/CodexRendererConversationCoordinator";
+import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import {
   ComputerUseSettingsRuntime,
@@ -12,6 +17,7 @@ import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
 import { AppUpdateRuntime, live as appUpdateRuntimeLive } from "../host-runtime/AppUpdateRuntime";
 import {
   ApplicationHostRuntime,
+  ApplicationHostRuntimeError,
   live as applicationHostRuntimeLive,
 } from "../host-runtime/ApplicationHostRuntime";
 import {
@@ -46,6 +52,7 @@ import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronPrivacy, live as electronPrivacyLive } from "../platform/electron/ElectronPrivacy";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
+import * as ElectronNet from "../platform/electron/ElectronNet";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import {
   ApplicationWindowRuntime,
@@ -76,6 +83,7 @@ const mcpAppSandbox = Layer.unwrap(
     });
   }),
 );
+const codexMedia = codexMediaLive.pipe(Layer.provideMerge(dictation));
 const remoteHostedPip = Layer.unwrap(
   Effect.gen(function* () {
     const browser = yield* BrowserApplication;
@@ -171,6 +179,7 @@ export const live: Layer.Layer<
   | ApplicationWindowRuntime
   | ComposerAppshotRuntime
   | ComputerUseSettingsRuntime
+  | CodexMedia
   | DatabaseNotifierRuntime.DatabaseNotifierRuntime
   | DesktopNotificationRuntime
   | DictationRuntime
@@ -180,8 +189,12 @@ export const live: Layer.Layer<
   | RendererClientRuntime
   | WindowSessionCatalog.WindowSessionCatalog
   | WindowShutdown,
-  unknown,
+  ApplicationHostRuntimeError,
   | BrowserApplication
+  | ChatGptDesktop
+  | CodexAccount
+  | CodexApplicationEventHub
+  | CodexConnection
   | CodexGateway
   | CodexRendererConversationCoordinator
   | DesktopToolRuntime
@@ -189,6 +202,7 @@ export const live: Layer.Layer<
   | ElectronDesktop
   | ElectronSessionHost
   | ElectronWindowHost
+  | ElectronNet.ElectronNet
   | MainConfig
   | ScopedCallbackRuntime
   | WindowRuntime
@@ -196,6 +210,7 @@ export const live: Layer.Layer<
   applicationHostRuntimeLive(),
   applicationMenu,
   computerUseSettings,
+  codexMedia,
   databaseNotifier,
   dictation,
   windowSessions,
