@@ -11,7 +11,7 @@ const capabilities = {
   canMoveUp: false,
   canMoveDown: true,
   canCopyMarkdown: true,
-  canOpenInNewSession: true,
+  canOpenInNewChat: true,
   canSendToChat: true,
   canDelete: true,
 };
@@ -36,7 +36,7 @@ describe("Database View Page menu model", () => {
     ).toEqual(["Copy ID", "Copy deeplink", "Copy title", "Copy content as Markdown"]);
     expect(
       actions.find((action) => action.id === "open-in")?.children?.map((action) => action.label),
-    ).toEqual(["Open in new session", "Send to chat…"]);
+    ).toEqual(["Open in new chat", "Send to chat…"]);
   });
 
   test("does not invent an ID when a Page has no current key", () => {

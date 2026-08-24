@@ -109,6 +109,9 @@ type SessionCommands = Pick<
   | "createManualTab"
   | "ensureDefaultDraftSessionForProject"
   | "openPageInNewChat"
+  | "openProjectSessionById"
+  | "linkPageToChat"
+  | "resolveChatSessionForThread"
   | "openAttachedThreadSession"
   | "openAttachedThreadSessionById"
   | "sendPageToChat"
@@ -132,6 +135,7 @@ interface WorkbenchPanelProjectionInput {
   readonly activeRenderSession: ProjectSession | null;
   readonly activeSessionPanelModel: SessionPanelRenderModel | null;
   readonly projects: Project[];
+  readonly pageStageRelatedChatCandidates: SurfaceProps["relatedChatCandidates"];
   readonly pageTitleStore: PageTitleProjectionStore;
   readonly panelTabPresentationRegistry: PanelTabPresentationRegistry;
   readonly panelTabPresentationControllerKeysRef: MutableRefObject<Set<string>>;
@@ -262,6 +266,7 @@ export function useWorkbenchPanelProjection({
   activeRenderSession,
   activeSessionPanelModel,
   projects,
+  pageStageRelatedChatCandidates,
   pageTitleStore,
   panelTabPresentationRegistry,
   panelTabPresentationControllerKeysRef,
@@ -296,6 +301,9 @@ export function useWorkbenchPanelProjection({
     createManualTab,
     ensureDefaultDraftSessionForProject,
     openPageInNewChat,
+    openProjectSessionById,
+    linkPageToChat,
+    resolveChatSessionForThread,
     openAttachedThreadSession,
     openAttachedThreadSessionById,
     sendPageToChat,
@@ -703,10 +711,14 @@ export function useWorkbenchPanelProjection({
                 tab={tab}
                 activeSession={session}
                 projects={projects}
+                relatedChatCandidates={pageStageRelatedChatCandidates}
                 presentedPageIds={presentedPageIds}
                 onOpenCanvasStage={openCanvasStage}
                 onOpenPageTab={openPageTab}
                 onOpenPageInNewChat={openPageInNewChat}
+                onOpenRelatedChat={openProjectSessionById}
+                onLinkPageToChat={linkPageToChat}
+                onResolveChatSessionForThread={resolveChatSessionForThread}
                 onSendPageToChat={sendPageToChat}
                 onOpenFileTab={openWorkspaceFileTab}
                 onEnsureDefaultDraftSessionForProject={ensureDefaultDraftSessionForProject}
@@ -794,10 +806,14 @@ export function useWorkbenchPanelProjection({
       openMcpAppSidePanel,
       openPageTab,
       openPageInNewChat,
+      openProjectSessionById,
+      linkPageToChat,
+      resolveChatSessionForThread,
       sendPageToChat,
       openSubagentsPanelTab,
       openTurnDiffFileInSidePanel,
       openWorkspaceFileTab,
+      pageStageRelatedChatCandidates,
       pageTitleStore,
       panelTabPresentationRegistry,
       projects,

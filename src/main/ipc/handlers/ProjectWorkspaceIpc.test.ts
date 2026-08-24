@@ -3,6 +3,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
+import type { IpcMainInvokeEvent } from "electron";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { CodexProjectSessionFork } from "../../codex-application/CodexProjectSessionFork";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
@@ -18,25 +19,28 @@ import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./ProjectWorkspaceIpc";
 
+type Handler = (event: IpcMainInvokeEvent, ...args: readonly unknown[]) => Effect.Effect<unknown>;
+
 it.effect("owns Project and Project Session ingress with the Main Scope", () =>
   Effect.gen(function* () {
-    const channels = new Set<string>();
+    const handlers = new Map<string, Handler>();
     const ipc = ElectronIpc.of({
-      handle: (channel: string) =>
+      handle: (channel: string, handler: Handler) =>
         Effect.acquireRelease(
           Effect.sync(() => {
-            channels.add(channel);
+            handlers.set(channel, handler);
           }),
-          () => Effect.sync(() => channels.delete(channel)),
+          () => Effect.sync(() => handlers.delete(channel)),
         ),
       on: () => Effect.die("unused"),
     } as unknown as ElectronIpc["Service"]);
+    const workspace = ProjectWorkspace.of({} as ProjectWorkspaceService);
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live.pipe(
         Layer.provide(
           Layer.mergeAll(
-            Layer.succeed(ProjectWorkspace, ProjectWorkspace.of({} as ProjectWorkspaceService)),
+            Layer.succeed(ProjectWorkspace, workspace),
             Layer.succeed(
               CodexThreadTitlePersistence,
               CodexThreadTitlePersistence.of({
@@ -84,12 +88,16 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
       scope,
     );
 
-    assert.strictEqual(channels.size, 27);
-    assert.isTrue(channels.has("projects:create"));
-    assert.isTrue(channels.has("project-sessions:fork"));
-    assert.isTrue(channels.has("project-session-threads:detach"));
+    assert.strictEqual(handlers.size, 31);
+    assert.isTrue(handlers.has("projects:create"));
+    assert.isTrue(handlers.has("project-sessions:fork"));
+    assert.isTrue(handlers.has("project-session-threads:detach"));
+    assert.isTrue(handlers.has("page-chats:activity-summaries"));
+    assert.isTrue(handlers.has("page-chats:list"));
+    assert.isTrue(handlers.has("page-chats:link"));
+    assert.isTrue(handlers.has("page-chats:unlink"));
 
     yield* Scope.close(scope, Exit.void);
-    assert.strictEqual(channels.size, 0);
+    assert.strictEqual(handlers.size, 0);
   }),
 );

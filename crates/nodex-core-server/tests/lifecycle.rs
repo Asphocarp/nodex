@@ -1293,7 +1293,8 @@ fn workspace_contract_mismatch_is_replaced_before_a_projectless_session_request(
             "kind": "create_session",
             "session_id": "session:projectless-regression",
             "project_id": null,
-            "title": "Projectless"
+            "title": "Projectless",
+            "initial_page_ids": []
         }
     })
     .to_string();

@@ -1,4 +1,11 @@
-import type { Project, ProjectCreateInput } from "../../src/shared/types";
+import type {
+  CodexThreadActiveFlag,
+  CodexThreadStatusType,
+  PageChatActivitySummaryResult,
+  PageChatWindow,
+  Project,
+  ProjectCreateInput,
+} from "../../src/shared/types";
 import type { WorkflowStatus } from "../../src/shared/workflow-status";
 
 export const SCENARIO_MANIFEST_VERSION = 1 as const;
@@ -36,6 +43,26 @@ export interface ScenarioBoardObservation {
   readonly groups: Readonly<Record<WorkflowStatus, number>>;
 }
 
+/** A production-shaped Chat seed. Page links are committed with Session creation. */
+export interface ScenarioRelatedChatSeed {
+  readonly projectId: string;
+  readonly initialPageIds: readonly string[];
+  readonly noThreadFallbackTitle: string;
+  readonly thread?: {
+    readonly threadId: string;
+    readonly threadName: string;
+    readonly threadPreview: string;
+    readonly statusType: CodexThreadStatusType;
+    readonly statusActiveFlags: readonly CodexThreadActiveFlag[];
+    readonly unread: boolean;
+  };
+}
+
+export interface ScenarioRelatedChatSeedResult {
+  readonly sessionId: string;
+  readonly threadId: string | null;
+}
+
 export interface ScenarioSeedPort {
   createProject(input: ProjectCreateInput): Promise<Project>;
   createPage(input: ScenarioPageSeed): Promise<{ readonly documentId: string }>;
@@ -55,6 +82,12 @@ export interface ScenarioSeedPort {
     databaseViewId: string,
     minimumCommitSeq?: number,
   ): Promise<ScenarioBoardObservation>;
+  createRelatedChat(input: ScenarioRelatedChatSeed): Promise<ScenarioRelatedChatSeedResult>;
+  readPageChatActivity(
+    projectId: string,
+    pageIds: readonly string[],
+  ): Promise<PageChatActivitySummaryResult>;
+  readPageChats(projectId: string, pageId: string): Promise<PageChatWindow>;
 }
 
 export interface ScenarioManifest {
@@ -64,6 +97,8 @@ export interface ScenarioManifest {
   readonly projectId: string;
   readonly databaseViewId: string;
   readonly pageIdsByKey: Readonly<Record<string, string>>;
+  /** Stable identities for non-Page entities needed by inspection and UI acceptance. */
+  readonly entityIdsByKey?: Readonly<Record<string, string>>;
   readonly minimumCommitSeq: number;
   readonly materializedAt: string;
 }
@@ -100,7 +135,10 @@ export const parseScenarioManifest = (value: unknown): ScenarioManifest => {
     value.minimumCommitSeq < 0 ||
     !isNonEmptyString(value.materializedAt) ||
     !isRecord(value.pageIdsByKey) ||
-    !Object.values(value.pageIdsByKey).every(isNonEmptyString)
+    !Object.values(value.pageIdsByKey).every(isNonEmptyString) ||
+    (value.entityIdsByKey !== undefined &&
+      (!isRecord(value.entityIdsByKey) ||
+        !Object.values(value.entityIdsByKey).every(isNonEmptyString)))
   ) {
     throw new Error("Scenario manifest is invalid or unsupported");
   }

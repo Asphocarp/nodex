@@ -188,6 +188,11 @@ export async function invalidateProjectSessionScope(
       queryKey: queryKeys.projectActivity.all(),
     }),
   );
+  invalidations.push(
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.pageChats.all(),
+    }),
+  );
 
   for (const scope of event.summaryScopes) {
     if (scope.kind === "all") {

@@ -35,6 +35,8 @@ import type { DatabaseViewPageActionPort } from "../database-view-page-actions";
 import type { DatabaseViewPageOpenHandler } from "../database-view-page-open";
 import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
 import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
+import { PageChatActivityControl } from "../page-chat-activity-control";
+import type { PageChatActivitySummary } from "@/lib/types";
 import {
   formatDatabaseBoardMetadataTimestamp,
   projectDatabaseBoardCardFooter,
@@ -69,6 +71,8 @@ export interface DatabaseBoardCardProps {
   readonly mutationErrors: ReadonlyMap<string, string>;
   readonly onOpenPage: DatabaseViewPageOpenHandler;
   readonly pageActionPort?: DatabaseViewPageActionPort;
+  readonly pageChatActivity?: PageChatActivitySummary;
+  readonly onRemovePageChatRelation?: (sessionId: string) => Promise<void> | void;
   readonly onSetValue: (pageId: string, propertyId: string, value: DatabaseJsonValue) => void;
   readonly onSetStructuralValue: (
     pageId: string,
@@ -404,6 +408,19 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
         >
           <span>{title}</span>
         </button>
+        {!previewRect &&
+        props.pageChatActivity &&
+        props.pageActionPort?.openRelatedChat &&
+        model.accessContext.kind === "project" ? (
+          <PageChatActivityControl
+            pageAccessProjectId={model.accessContext.projectId}
+            pageId={row.pageId}
+            summary={props.pageChatActivity}
+            onOpenChat={props.pageActionPort.openRelatedChat}
+            onRemoveRelation={props.onRemovePageChatRelation}
+            idleVisibilityClassName="group-hover/card:opacity-100 group-focus-within/card:opacity-100"
+          />
+        ) : null}
       </div>
       {showDescription && description ? (
         <p

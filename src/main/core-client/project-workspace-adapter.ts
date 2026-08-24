@@ -5,6 +5,8 @@ import type {
   CodexThreadStatusType,
   CodexThreadSummary,
   Project,
+  PageChatActivitySummary,
+  PageChatItem,
   ProjectCreateInput,
   ProjectSession,
   ProjectSessionSummary,
@@ -33,6 +35,14 @@ type CoreBackgroundProcess = Extract<
   ProjectWorkspaceReadSnapshot["value"],
   { kind: "background_process_window" }
 >["processes"]["items"][number];
+type CorePageChatActivitySummary = Extract<
+  ProjectWorkspaceReadSnapshot["value"],
+  { kind: "page_chat_activity_summaries" }
+>["summaries"][number];
+type CorePageChatItem = Extract<
+  ProjectWorkspaceReadSnapshot["value"],
+  { kind: "page_chat_window" }
+>["chats"]["items"][number];
 export interface DesktopProjectWorkspaceThread {
   readonly threadId: string;
   readonly projectId: string | null;
@@ -63,6 +73,39 @@ export interface DesktopProjectWorkspaceThread {
   readonly recencyAt: number;
   readonly linkedAt: string;
 }
+
+export const projectWorkspacePageChatActivitySummaryFromCore = (
+  summary: CorePageChatActivitySummary,
+): PageChatActivitySummary => ({
+  pageId: summary.page_id,
+  relatedCount: summary.related_count,
+  workingCount: summary.working_count,
+  waitingOnApprovalCount: summary.waiting_on_approval_count,
+  waitingOnUserInputCount: summary.waiting_on_user_input_count,
+  errorCount: summary.error_count,
+  unreadCount: summary.unread_count,
+  soleSessionId: summary.sole_session_id ?? null,
+});
+
+export const projectWorkspacePageChatItemFromCore = (item: CorePageChatItem): PageChatItem => ({
+  sessionId: item.session_id,
+  projectId: item.project_id ?? null,
+  projectName: item.project_name ?? null,
+  displayTitle: item.display_title,
+  threadId: item.thread_id ?? null,
+  threadPreview: item.thread_preview,
+  threadStatus: item.status
+    ? {
+        statusType: item.status.status_type,
+        activeFlags: [...item.status.active_flags],
+      }
+    : null,
+  threadArchived: item.thread_archived,
+  unread: item.unread,
+  sessionArchived: item.session_archived,
+  conversationRecencyAt: item.conversation_recency_at ?? null,
+  linkedAt: item.linked_at,
+});
 
 export interface DesktopProjectWorkspaceThreadPatch {
   readonly projectId?: string | null;

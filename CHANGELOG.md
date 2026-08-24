@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Pages can now keep durable relationships to one or more chats, show working and unread activity directly in Board and List, and manage those chats from Page Stage across restarts.
 - Added reliable Composer and macOS global dictation with microphone selection, streaming-to-buffered recovery, recoverable recent recordings, Voice settings, configurable hold/toggle shortcuts, and clipboard-safe cross-application paste.
 - Added atomic mixed selection editing for Page, Canvas, and Database owners, including complete copy/cut/paste across consecutive commands and nested editors, race-safe native clipboard handoff, identity-preserving first cut paste, structural Duplicate/Move/drag, atomic-block cursor navigation, and chronological Undo/Redo with ordinary text edits.
 - Subpages can now be turned into text, headings, toggles, lists, quotes, callouts, or code without losing their title or body; Undo restores the original Page and its identity.

@@ -22,8 +22,8 @@ import {
   PageMenuMoveTopIcon,
   PageMenuMoveUpIcon,
   PageMenuOpenInIcon,
-  PageMenuOpenNewSessionIcon,
-  SidePanelSideChatIcon,
+  PageMenuOpenNewChatIcon,
+  ThreadIcon,
 } from "@/components/shared/icons";
 import {
   DataSourcePagePropertyContextMenuItems,
@@ -109,10 +109,10 @@ function DatabaseViewPageMenuActionIcon({
       return <PageMenuCopyMarkdownIcon />;
     case "open-in":
       return <PageMenuOpenInIcon />;
-    case "open-in-new-session":
-      return <PageMenuOpenNewSessionIcon />;
+    case "open-in-new-chat":
+      return <PageMenuOpenNewChatIcon />;
     case "send-to-chat":
-      return <SidePanelSideChatIcon />;
+      return <ThreadIcon className="icon-xs shrink-0" />;
     case "delete":
       return <PageMenuDeleteIcon />;
   }
@@ -258,7 +258,7 @@ export function DatabaseViewPageContextMenuOverlay({
       canMoveUp,
       canMoveDown,
       canCopyMarkdown: true,
-      canOpenInNewSession: Boolean(page.projectId && actionPort.openInNewSession),
+      canOpenInNewChat: Boolean(page.projectId && actionPort.openInNewChat),
       canSendToChat: Boolean(page.projectId && actionPort.sendToChat),
       canDelete: Boolean(actionPort.deletePage) && !deleteDisabled,
     }),
@@ -330,11 +330,11 @@ export function DatabaseViewPageContextMenuOverlay({
           titleSnapshot: presentedTitle,
         }
       : null;
-    if (actionId === "open-in-new-session" && pageChatInput) {
+    if (actionId === "open-in-new-chat" && pageChatInput) {
       void Promise.resolve()
-        .then(() => actionPort.openInNewSession?.(pageChatInput))
+        .then(() => actionPort.openInNewChat?.(pageChatInput))
         .catch(() => {
-          toast.danger("Failed to open Page in a new session");
+          toast.danger("Failed to open Page in a new chat");
         });
       return;
     }

@@ -2,6 +2,10 @@ import { useSyncExternalStore } from "react";
 
 export type DatabasePropertyValuePresentation = "compact" | "page" | "list" | "board";
 
+/** Shared geometry for tokenized values in the Page Property value lane. */
+export const DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME =
+  "inline-flex h-5.5 min-w-0 items-center rounded-md px-1.5 text-sm/5";
+
 /** Dense chips keep their host surface opaque and strengthen on direct hover. */
 export const DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME = [
   "inline-flex h-6 min-h-6 max-w-[290px] items-center gap-1.5 overflow-hidden rounded-[48px] border-[0.5px]",

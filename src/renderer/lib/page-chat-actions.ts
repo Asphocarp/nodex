@@ -23,3 +23,81 @@ export interface PagePromptContext {
   readonly source: string;
   readonly promptInput: CodexPromptInput;
 }
+
+export interface ResolvedPageChatSession {
+  readonly id: string;
+  readonly projectId: string | null;
+}
+
+interface SendPageToChatDependencies {
+  readonly loadPageContext: (input: OpenPageInNewChatInput) => Promise<PagePromptContext>;
+  readonly resolveSessionById: (sessionId: string) => Promise<ResolvedPageChatSession>;
+  readonly resolveSessionForThread: (threadId: string) => Promise<ResolvedPageChatSession>;
+  readonly ensureDefaultSession: (projectId: string) => Promise<ResolvedPageChatSession>;
+  readonly linkPage: (input: {
+    readonly pageAccessProjectId: string;
+    readonly pageId: string;
+    readonly sessionId: string;
+  }) => Promise<void>;
+  readonly startTurn: (input: {
+    readonly projectId: string;
+    readonly threadId: string;
+    readonly context: PagePromptContext;
+  }) => Promise<void>;
+  readonly startThread: (input: {
+    readonly projectId: string;
+    readonly sessionId: string;
+    readonly context: PagePromptContext;
+  }) => Promise<{ readonly kind: string }>;
+  readonly refreshSessions: (projectId: string) => Promise<void>;
+}
+
+/**
+ * Executes the cross-runtime Page send protocol in its durable order.
+ * A successful relation intentionally survives a later app-server failure.
+ */
+export async function sendPageToChatWithRelation(
+  input: SendPageToChatInput,
+  dependencies: SendPageToChatDependencies,
+): Promise<void> {
+  const context = await dependencies.loadPageContext(input);
+
+  if (input.target.kind === "thread") {
+    const targetSession = await dependencies.resolveSessionForThread(input.target.threadId);
+    if (!targetSession.projectId) {
+      throw new Error("Page content can only be sent to a Project chat");
+    }
+    await dependencies.linkPage({
+      pageAccessProjectId: input.projectId,
+      pageId: input.pageId,
+      sessionId: targetSession.id,
+    });
+    await dependencies.startTurn({
+      projectId: targetSession.projectId,
+      threadId: input.target.threadId,
+      context,
+    });
+    return;
+  }
+
+  const targetSession = input.target.sessionId?.trim()
+    ? await dependencies.resolveSessionById(input.target.sessionId)
+    : await dependencies.ensureDefaultSession(input.projectId);
+  if (!targetSession.projectId) {
+    throw new Error("Page content can only be sent to a Project chat");
+  }
+  await dependencies.linkPage({
+    pageAccessProjectId: input.projectId,
+    pageId: input.pageId,
+    sessionId: targetSession.id,
+  });
+  const result = await dependencies.startThread({
+    projectId: targetSession.projectId,
+    sessionId: targetSession.id,
+    context,
+  });
+  if (result.kind !== "started") {
+    throw new Error("Page chat unexpectedly started in a worktree");
+  }
+  await dependencies.refreshSessions(targetSession.projectId);
+}

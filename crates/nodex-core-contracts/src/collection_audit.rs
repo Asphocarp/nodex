@@ -35,8 +35,10 @@ fn workspace_policy(read: &ProjectWorkspaceRead) -> ReadBudgetPolicy {
         | ProjectWorkspaceRead::SidebarOverview { .. }
         | ProjectWorkspaceRead::ChildThreadWindow { .. }
         | ProjectWorkspaceRead::BackgroundProcessWindow { .. }
-        | ProjectWorkspaceRead::ManagedWorktreeWindow { .. } => ReadBudgetPolicy::CollectionWindow,
-        ProjectWorkspaceRead::ProjectActivitySummaries { .. } => ReadBudgetPolicy::BoundedBatch,
+        | ProjectWorkspaceRead::ManagedWorktreeWindow { .. }
+        | ProjectWorkspaceRead::PageChatWindow { .. } => ReadBudgetPolicy::CollectionWindow,
+        ProjectWorkspaceRead::ProjectActivitySummaries { .. }
+        | ProjectWorkspaceRead::PageChatActivitySummaries { .. } => ReadBudgetPolicy::BoundedBatch,
         ProjectWorkspaceRead::ManagedWorktreeLifecycleSnapshot => ReadBudgetPolicy::FixedDomain,
         ProjectWorkspaceRead::ProjectBootstrap
         | ProjectWorkspaceRead::Project { .. }

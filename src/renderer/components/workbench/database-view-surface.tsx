@@ -119,6 +119,11 @@ import type { DatabaseViewBoardPageDropIntent } from "@/lib/use-board";
 import { databaseViewGesturePresentationOverride } from "../../../shared/database-view-presentation";
 import type { DatabaseViewPageActionPort } from "./database-view-page-actions";
 import type { DatabaseViewPageOpenHandler } from "./database-view-page-open";
+import type { PageChatActivitySummary } from "@/lib/types";
+import {
+  DatabasePageChatActivityBoundary,
+  useDatabasePageChatActivityRuntime,
+} from "./database-page-chat-activity-runtime";
 
 const DATABASE_VIEW_PAGE_DRAG_MIME = "application/vnd.nodex.database-view-pages.v1+json";
 const DATABASE_BOARD_COLUMN_GUTTER = 12;
@@ -228,7 +233,16 @@ export const databaseViewMutationErrorMessage = (error: unknown, pageMutation: b
 };
 
 export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
+  return (
+    <DatabasePageChatActivityBoundary model={props.model}>
+      <DatabaseViewSurfaceContent {...props} />
+    </DatabasePageChatActivityBoundary>
+  );
+}
+
+function DatabaseViewSurfaceContent(props: DatabaseViewSurfaceProps) {
   const { onSelectedPageIdsChange } = props;
+  const pageChatRuntime = useDatabasePageChatActivityRuntime();
   const localMutationHistory = useDatabaseViewMutationHistory(
     `${props.model.storeEpoch}:${props.model.databaseViewId}`,
   );
@@ -270,6 +284,8 @@ export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
         pageCreateSurfaceId={props.pageCreateSurfaceId}
         onRequestCreatePage={props.onRequestCreatePage}
         mutationHistory={mutationHistory}
+        pageChatActivityByPageId={pageChatRuntime.activityByPageId}
+        onRemovePageChatRelation={pageChatRuntime.removeRelation}
       />
     );
   }
@@ -279,6 +295,8 @@ export function DatabaseViewSurface(props: DatabaseViewSurfaceProps) {
       effectivePresentation={effectivePresentation}
       initialSelectedPageIds={selectedPageIds}
       onSelectedPageIdsChange={handleSelectedPageIdsChange}
+      pageChatActivityByPageId={pageChatRuntime.activityByPageId}
+      onRemovePageChatRelation={pageChatRuntime.removeRelation}
     />
   );
 }
@@ -301,8 +319,12 @@ function BoardDatabaseViewSurface({
   pageCreateSurfaceId,
   onRequestCreatePage,
   mutationHistory: providedMutationHistory,
+  pageChatActivityByPageId,
+  onRemovePageChatRelation,
 }: Omit<DatabaseViewSurfaceProps, "effectivePresentation"> & {
   readonly effectivePresentation: EffectiveDatabaseViewPresentation;
+  readonly pageChatActivityByPageId: ReadonlyMap<string, PageChatActivitySummary>;
+  readonly onRemovePageChatRelation: (pageId: string, sessionId: string) => Promise<void>;
 }) {
   const localMutationHistory = useDatabaseViewMutationHistory(
     `${model.storeEpoch}:${model.databaseViewId}`,
@@ -1229,6 +1251,9 @@ function BoardDatabaseViewSurface({
       mutationErrors,
       onOpenPage,
       pageActionPort,
+      pageChatActivity: pageChatActivityByPageId.get(row.pageId),
+      onRemovePageChatRelation: (sessionId: string) =>
+        onRemovePageChatRelation(row.pageId, sessionId),
       onSetValue: setValue,
       onSetStructuralValue: setStructuralValue,
       onPatchOptions: patchOptions,

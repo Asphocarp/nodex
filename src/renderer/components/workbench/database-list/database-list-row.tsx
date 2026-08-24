@@ -23,6 +23,8 @@ import {
 import type { BoardCardDragData } from "@/components/board/pragmatic-drag-data";
 import { useDatabaseViewPageDragSource } from "../database-view-page-drag";
 import type { DatabaseViewPageOpenMode } from "../database-view-page-open";
+import { PageChatActivityControl } from "../page-chat-activity-control";
+import type { PageChatActivitySummary } from "@/lib/types";
 
 export const DATABASE_LIST_INTERACTIVE_SELECTOR = DATABASE_LIST_DND_INTERACTIVE_SELECTOR;
 
@@ -52,6 +54,10 @@ export function DatabaseListRow({
   ariaRowIndex,
   externalDropEdge = null,
   pragmaticDragData = null,
+  pageAccessProjectId,
+  pageChatActivity,
+  onOpenRelatedChat,
+  onRemovePageChatRelation,
 }: {
   readonly item: DatabaseListPageRow;
   readonly libraryId: string;
@@ -78,6 +84,10 @@ export function DatabaseListRow({
   readonly ariaRowIndex: number;
   readonly externalDropEdge?: "before" | "after" | null;
   readonly pragmaticDragData?: BoardCardDragData | null;
+  readonly pageAccessProjectId?: string | null;
+  readonly pageChatActivity?: PageChatActivitySummary;
+  readonly onOpenRelatedChat?: (sessionId: string) => Promise<void> | void;
+  readonly onRemovePageChatRelation?: (sessionId: string) => Promise<void> | void;
 }) {
   const dnd = useDatabaseListPageDnd(item);
   const setListDndNodeRef = dnd.setNodeRef;
@@ -351,6 +361,16 @@ export function DatabaseListRow({
           >
             {presentedTitle}
           </button>
+          {pageAccessProjectId && pageChatActivity && onOpenRelatedChat ? (
+            <PageChatActivityControl
+              pageAccessProjectId={pageAccessProjectId}
+              pageId={item.pageId}
+              summary={pageChatActivity}
+              onOpenChat={onOpenRelatedChat}
+              onRemoveRelation={onRemovePageChatRelation}
+              idleVisibilityClassName="group-hover/list-row:opacity-100 group-focus-within/list-row:opacity-100"
+            />
+          ) : null}
           {inlineProperties}
         </div>
       </div>

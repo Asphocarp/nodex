@@ -148,10 +148,19 @@ import {
   ThreadMentionRuntimeProvider,
   type ThreadMentionRuntimeValue,
 } from "./thread-mention-chip";
-import type { PageStageLinkedThread } from "@/components/board/page-stage/types";
 import { invoke, prepareOwnedBlockDocument, transferBlocks } from "@/lib/api";
 import { serializeNfm, blockNoteToNfm, applyToggleStatesFromDom } from "@/lib/nfm";
 import type { CodexThreadSummary } from "@/lib/types";
+
+interface PageStageLinkedThread {
+  readonly threadId: string;
+  readonly title: string;
+  readonly preview?: string;
+  readonly statusType: CodexThreadSummary["statusType"];
+  readonly statusActiveFlags: CodexThreadSummary["statusActiveFlags"];
+  readonly archived: boolean;
+  readonly updatedAt: number;
+}
 import {
   materializeLocalResourceAsset,
   resolveAssetSourceToDisplayUrl,

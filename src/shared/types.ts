@@ -655,6 +655,65 @@ export interface ProjectActivitySummaryResult {
   projectionRevision: number;
 }
 
+export interface PageChatActivitySummary {
+  pageId: string;
+  relatedCount: number;
+  workingCount: number;
+  waitingOnApprovalCount: number;
+  waitingOnUserInputCount: number;
+  errorCount: number;
+  unreadCount: number;
+  soleSessionId: string | null;
+}
+
+export interface PageChatActivitySummaryInput {
+  pageAccessProjectId: string;
+  pageIds: string[];
+}
+
+export interface PageChatActivitySummaryResult {
+  summaries: PageChatActivitySummary[];
+  projectionRevision: number;
+}
+
+export interface PageChatItem {
+  sessionId: string;
+  projectId: string | null;
+  projectName: string | null;
+  displayTitle: string;
+  threadId: string | null;
+  threadPreview: string;
+  threadStatus: {
+    statusType: CodexThreadStatusType;
+    activeFlags: CodexThreadActiveFlag[];
+  } | null;
+  threadArchived: boolean;
+  unread: boolean;
+  sessionArchived: boolean;
+  conversationRecencyAt: number | null;
+  linkedAt: string;
+}
+
+export interface PageChatWindowInput {
+  pageAccessProjectId: string;
+  pageId: string;
+  includeArchived?: boolean;
+  after?: string | null;
+  first?: number;
+}
+
+export interface PageChatWindow {
+  items: PageChatItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  projectionRevision: number;
+}
+
+export interface PageChatLinkInput {
+  pageAccessProjectId: string;
+  pageId: string;
+}
+
 export type ProjectArchiveBlocker =
   | { kind: "active-turn"; threadId: string; label: string | null }
   | { kind: "pending-request"; threadId: string; label: string | null }
@@ -1107,6 +1166,7 @@ export interface ProjectSessionSummary {
 export interface ProjectSessionCreateInput {
   projectId: string | null;
   noThreadFallbackTitle: string;
+  initialPageIds: string[];
 }
 
 export interface ProjectSessionListOptions {

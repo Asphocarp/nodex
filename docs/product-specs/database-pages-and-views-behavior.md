@@ -63,7 +63,9 @@ key exists, plus `Copy deeplink`, `Copy title`, and `Copy content as Markdown`.
 `Copy deeplink` remains the distinct UUID-based action. Markdown copy reads the
 canonical owned Page Document through the View's current Library or Project
 access context rather than a visible View projection. `Open in` contains `Open
-in new session` and `Send to chat…`.
+in new chat` and `Send to chat…`. Open in new chat atomically creates an
+ordinary Project Session and its Linked chat edge before Window Scene
+presentation; a presentation failure preserves that durable Chat and relation.
 
 Each Board or List surface owns one short-lived Page menu session. Right-click
 resolves only the Page under the pointer; unopened Property editors and
@@ -72,6 +74,29 @@ entry animation, and moving across enabled submenu rows activates the target
 submenu in the same or next display frame while preserving the pointer-safe
 path into an already open submenu. Switching menus does not commit or rerender
 the Page card/row subtree.
+
+Board and List join their loaded Page window with one bounded Workspace Page
+Chat activity projection; they never issue a query per Page and never store
+Thread state in the Database row model. A shared activity control sits at the
+end of the Board title lane and after the List title, without changing Card
+height, List density, selection, drag, or title truncation. Working uses the
+shared spinner, waiting for approval or user input uses an attention glyph,
+system error uses an error glyph, and unread uses an independent 6px blue dot,
+so execution and unread can appear together. Error, waiting, working, and
+unread controls remain visible. An idle/read relationship is quiet at rest and
+reveals a muted Chat glyph on Page hover or focus. The control has a complete
+pluralized accessible label and tooltip; color alone never carries state.
+
+If exactly one available unarchived Chat is related, activating the control
+opens that durable Project Session directly. Otherwise it opens a Related
+chats popover with a bounded initial window, explicit loading/retry/load-more
+states, Chat title, Project or Chats scope, preview, execution state, and
+independent unread state. Opening the popover does not mark a Chat read;
+selecting and focusing the Chat reuses ordinary Chat read semantics. The
+popover can remove a relationship without deleting, archiving, or detaching
+the Page, Session, or Thread. A failed removal preserves the row and reports
+the failure; removing the final relationship closes the empty popover and
+removes the control.
 
 The Page context menu also exposes a bounded, schema-driven Property section.
 The current writable Board grouping Property appears first, followed by exact

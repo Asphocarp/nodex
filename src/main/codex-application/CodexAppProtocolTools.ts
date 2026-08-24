@@ -807,6 +807,7 @@ export const make: Effect.Effect<
               session_id: sessionId,
               project_id: projectId,
               title: "New chat",
+              initial_page_ids: [],
             },
           },
           undefined,

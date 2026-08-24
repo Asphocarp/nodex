@@ -5111,6 +5111,97 @@
           }
         }
       },
+      "CollectionWindow_ProjectWorkspacePageChatItem": {
+        "type": "object",
+        "required": [
+          "items",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/CollectionWindowAuthority"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "session_id",
+                "display_title",
+                "thread_preview",
+                "thread_archived",
+                "unread",
+                "session_archived",
+                "linked_at"
+              ],
+              "properties": {
+                "conversation_recency_at": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "display_title": {
+                  "type": "string"
+                },
+                "linked_at": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "project_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "session_archived": {
+                  "type": "boolean"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ProjectWorkspaceThreadStatus"
+                    }
+                  ]
+                },
+                "thread_archived": {
+                  "type": "boolean"
+                },
+                "thread_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "thread_preview": {
+                  "type": "string"
+                },
+                "unread": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "CollectionWindow_ProjectWorkspaceProject": {
         "type": "object",
         "required": [
@@ -22308,9 +22399,16 @@
                 "required": [
                   "session_id",
                   "title",
+                  "initial_page_ids",
                   "kind"
                 ],
                 "properties": {
+                  "initial_page_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
                   "kind": {
                     "type": "string",
                     "enum": [
@@ -25793,6 +25891,63 @@
               {
                 "type": "object",
                 "required": [
+                  "page_access_project_id",
+                  "page_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_chat_activity_summaries"
+                    ]
+                  },
+                  "page_access_project_id": {
+                    "type": "string"
+                  },
+                  "page_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_access_project_id",
+                  "page_id",
+                  "window",
+                  "kind"
+                ],
+                "properties": {
+                  "include_archived": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_chat_window"
+                    ]
+                  },
+                  "page_access_project_id": {
+                    "type": "string"
+                  },
+                  "page_id": {
+                    "type": "string"
+                  },
+                  "window": {
+                    "$ref": "#/components/schemas/CollectionWindowRequest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "project_id",
                   "kind"
                 ],
@@ -27019,6 +27174,50 @@
                 "type": "string"
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "page_access_project_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "link_page"
+                ]
+              },
+              "page_access_project_id": {
+                "type": "string"
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "page_access_project_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "unlink_page"
+                ]
+              },
+              "page_access_project_id": {
+                "type": "string"
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
           }
         ]
       },
@@ -27426,6 +27625,59 @@
             "items": {
               "$ref": "#/components/schemas/ProjectSource"
             }
+          }
+        }
+      },
+      "ProjectWorkspacePageChatActivitySummary": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "related_count",
+          "working_count",
+          "waiting_on_approval_count",
+          "waiting_on_user_input_count",
+          "error_count",
+          "unread_count"
+        ],
+        "properties": {
+          "error_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "related_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sole_session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unread_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "waiting_on_approval_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "waiting_on_user_input_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "working_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -33126,6 +33378,50 @@
                             "items": {
                               "$ref": "#/components/schemas/ProjectWorkspaceProjectActivitySummary"
                             }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "summaries",
+                          "projection_revision",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_chat_activity_summaries"
+                            ]
+                          },
+                          "projection_revision": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "summaries": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspacePageChatActivitySummary"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "chats",
+                          "kind"
+                        ],
+                        "properties": {
+                          "chats": {
+                            "$ref": "#/components/schemas/CollectionWindow_ProjectWorkspacePageChatItem"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_chat_window"
+                            ]
                           }
                         }
                       },

@@ -17,6 +17,9 @@ import type {
   ProjectListOptions,
   Project,
   ProjectActivitySummaryResult,
+  PageChatActivitySummaryResult,
+  PageChatWindow,
+  PageChatWindowInput,
   ProjectWindow,
   ProjectSession,
   ProjectSessionSummaryWindow,
@@ -47,6 +50,7 @@ import {
   admitResourceAuthorityQuery,
   resourceAuthorityQueryMeta,
 } from "./resource-authority-query-cache";
+import { normalizePageChatPageIds, readPageChatActivitySummaryBatches } from "./page-chat-queries";
 
 const MCP_CATALOG_STALE_TIME_MS = 5 * 60_000;
 
@@ -86,6 +90,45 @@ export function projectActivitySummariesQueryOptions(projectIds: readonly string
         ...projectIds,
       ]) as Promise<ProjectActivitySummaryResult>,
     enabled: projectIds.length > 0,
+    staleTime: 30_000,
+  });
+}
+
+export function pageChatActivitySummariesQueryOptions(
+  pageAccessProjectId: string,
+  pageIds: readonly string[],
+) {
+  const normalizedPageIds = normalizePageChatPageIds(pageIds);
+  return queryOptions({
+    queryKey: queryKeys.pageChats.activity(pageAccessProjectId, normalizedPageIds),
+    queryFn: (): Promise<PageChatActivitySummaryResult> =>
+      readPageChatActivitySummaryBatches(
+        { pageAccessProjectId, pageIds: normalizedPageIds },
+        (input) =>
+          invoke("page-chats:activity-summaries", input) as Promise<PageChatActivitySummaryResult>,
+      ),
+    enabled: pageAccessProjectId.trim().length > 0 && normalizedPageIds.length > 0,
+    staleTime: 30_000,
+  });
+}
+
+export function pageChatWindowQueryOptions(input: Omit<PageChatWindowInput, "after">) {
+  const pageAccessProjectId = input.pageAccessProjectId;
+  const pageId = input.pageId;
+  const includeArchived = input.includeArchived === true;
+  const first = input.first ?? 50;
+  return infiniteQueryOptions({
+    queryKey: queryKeys.pageChats.detail(pageAccessProjectId, pageId, includeArchived, first),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }): Promise<PageChatWindow> =>
+      invoke("page-chats:list", {
+        pageAccessProjectId,
+        pageId,
+        includeArchived,
+        after: pageParam,
+        first,
+      }) as Promise<PageChatWindow>,
+    getNextPageParam: (window) => window.nextCursor ?? undefined,
     staleTime: 30_000,
   });
 }

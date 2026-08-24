@@ -239,12 +239,12 @@ it.effect("hydrates a Session and its linked Thread into one product aggregate",
       if (input.kind === "session") {
         return Effect.succeed({
           value: { kind: "session", session: session() },
-        } as ProjectWorkspaceReadSnapshot);
+        } as unknown as ProjectWorkspaceReadSnapshot);
       }
       if (input.kind === "thread") {
         return Effect.succeed({
           value: { kind: "thread", thread: thread() },
-        } as ProjectWorkspaceReadSnapshot);
+        } as unknown as ProjectWorkspaceReadSnapshot);
       }
       return Effect.die(new Error("Unexpected Core read"));
     };
@@ -369,5 +369,229 @@ it.effect("interrupts an in-flight serialized update when its owner Scope closes
     yield* Deferred.await(interrupted);
 
     assert.isTrue(Exit.isFailure(yield* Fiber.await(update)));
+  }),
+);
+
+it.effect("maps bounded Page Chat activity and threadless related Chat windows", () =>
+  Effect.gen(function* () {
+    const reads: CoreModuleClients["workspace"]["read"] = (input) => {
+      if (input.kind === "page_chat_activity_summaries") {
+        assert.deepEqual(input, {
+          kind: "page_chat_activity_summaries",
+          page_access_project_id: "project:one",
+          page_ids: ["page:one"],
+        });
+        return Effect.succeed({
+          value: {
+            kind: "page_chat_activity_summaries",
+            summaries: [
+              {
+                page_id: "page:one",
+                related_count: 2,
+                working_count: 1,
+                waiting_on_approval_count: 1,
+                waiting_on_user_input_count: 0,
+                error_count: 0,
+                unread_count: 1,
+                sole_session_id: null,
+              },
+            ],
+            projection_revision: 41,
+          },
+        } as unknown as ProjectWorkspaceReadSnapshot);
+      }
+      if (input.kind === "page_chat_window") {
+        assert.deepEqual(input, {
+          kind: "page_chat_window",
+          page_access_project_id: "project:one",
+          page_id: "page:one",
+          include_archived: false,
+          window: { after: null, first: 20 },
+        });
+        return Effect.succeed({
+          value: {
+            kind: "page_chat_window",
+            chats: {
+              items: [
+                {
+                  session_id: "session:threadless",
+                  project_id: null,
+                  project_name: null,
+                  display_title: "Threadless chat",
+                  thread_id: null,
+                  thread_preview: "",
+                  status: null,
+                  thread_archived: false,
+                  unread: true,
+                  session_archived: false,
+                  conversation_recency_at: null,
+                  linked_at: "2026-08-24T08:00:00.000Z",
+                },
+              ],
+              next_cursor: null,
+              authority: { projection_revision: 42 },
+            },
+          },
+        } as unknown as ProjectWorkspaceReadSnapshot);
+      }
+      return Effect.die(new Error("Unexpected Core read"));
+    };
+    const { scope, workspace } = yield* open(core(reads));
+
+    const activity = yield* workspace.readPageChatActivitySummaries({
+      pageAccessProjectId: "project:one",
+      pageIds: ["page:one"],
+    });
+    assert.deepEqual(activity, {
+      summaries: [
+        {
+          pageId: "page:one",
+          relatedCount: 2,
+          workingCount: 1,
+          waitingOnApprovalCount: 1,
+          waitingOnUserInputCount: 0,
+          errorCount: 0,
+          unreadCount: 1,
+          soleSessionId: null,
+        },
+      ],
+      projectionRevision: 41,
+    });
+    const window = yield* workspace.listPageChatWindow({
+      pageAccessProjectId: "project:one",
+      pageId: "page:one",
+      first: 20,
+    });
+    assert.deepEqual(window, {
+      items: [
+        {
+          sessionId: "session:threadless",
+          projectId: null,
+          projectName: null,
+          displayTitle: "Threadless chat",
+          threadId: null,
+          threadPreview: "",
+          threadStatus: null,
+          threadArchived: false,
+          unread: true,
+          sessionArchived: false,
+          conversationRecencyAt: null,
+          linkedAt: "2026-08-24T08:00:00.000Z",
+        },
+      ],
+      nextCursor: null,
+      hasMore: false,
+      projectionRevision: 42,
+    });
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("creates and mutates Page Chat relations through typed Core intents", () =>
+  Effect.gen(function* () {
+    const applies: ProjectWorkspaceApplyInput[] = [];
+    let createdSessionId = "";
+    const apply: CoreModuleClients["workspace"]["apply"] = (input) =>
+      Effect.sync(() => {
+        applies.push(input);
+        if (input.intent.kind === "create_session") createdSessionId = input.intent.session_id;
+        return committed();
+      });
+    const reads: CoreModuleClients["workspace"]["read"] = (input) => {
+      if (input.kind !== "session") return Effect.die(new Error("Unexpected Core read"));
+      return Effect.succeed({
+        value: {
+          kind: "session",
+          session: session({ id: input.session_id, project_id: "project:one", thread_id: null }),
+        },
+      } as ProjectWorkspaceReadSnapshot);
+    };
+    const { scope, workspace } = yield* open(core(reads, apply));
+
+    const created = yield* workspace.createProjectSession({
+      projectId: "project:one",
+      noThreadFallbackTitle: "Page chat",
+      initialPageIds: ["page:one"],
+    });
+    yield* workspace.linkPageToProjectSession(created.id, {
+      pageAccessProjectId: "project:one",
+      pageId: "page:two",
+    });
+    yield* workspace.unlinkPageFromProjectSession(created.id, {
+      pageAccessProjectId: "project:one",
+      pageId: "page:one",
+    });
+
+    assert.strictEqual(created.id, createdSessionId);
+    assert.deepEqual(
+      applies.map((input) => input.intent),
+      [
+        {
+          kind: "create_session",
+          session_id: createdSessionId,
+          project_id: "project:one",
+          title: "Page chat",
+          initial_page_ids: ["page:one"],
+        },
+        {
+          kind: "mutate_session",
+          session_id: createdSessionId,
+          intent: {
+            kind: "link_page",
+            page_id: "page:two",
+            page_access_project_id: "project:one",
+          },
+        },
+        {
+          kind: "mutate_session",
+          session_id: createdSessionId,
+          intent: {
+            kind: "unlink_page",
+            page_id: "page:one",
+            page_access_project_id: "project:one",
+          },
+        },
+      ],
+    );
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("fails invalid Page Chat input before I/O and propagates caller interruption", () =>
+  Effect.gen(function* () {
+    let readCount = 0;
+    const entered = yield* Deferred.make<void>();
+    const interrupted = yield* Deferred.make<void>();
+    const reads: CoreModuleClients["workspace"]["read"] = () => {
+      readCount += 1;
+      return Deferred.succeed(entered, undefined).pipe(
+        Effect.andThen(Effect.never),
+        Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
+      );
+    };
+    const { scope, workspace } = yield* open(core(reads));
+    const readsBeforeInvalidInput = readCount;
+
+    const invalid = yield* Effect.result(
+      workspace.readPageChatActivitySummaries({
+        pageAccessProjectId: "project:one",
+        pageIds: ["page:one", "page:one"],
+      }),
+    );
+    assert.strictEqual(invalid._tag, "Failure");
+    assert.strictEqual(readCount, readsBeforeInvalidInput);
+
+    const pending = yield* workspace
+      .readPageChatActivitySummaries({
+        pageAccessProjectId: "project:one",
+        pageIds: ["page:one"],
+      })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(entered);
+    yield* Fiber.interrupt(pending);
+    yield* Deferred.await(interrupted);
+
+    assert.isTrue(Exit.isFailure(yield* Fiber.await(pending)));
+    yield* Scope.close(scope, Exit.void);
   }),
 );

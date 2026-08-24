@@ -59,7 +59,7 @@ function DenseContextMenuStory() {
             <ActionSubmenu
               label="Open in"
               icon={<PageMenuOpenInIcon />}
-              actions={["Open in new session", "Send to chat…"]}
+              actions={["Open in new chat", "Send to chat…"]}
             />
             <ActionSubmenu
               label="Copy"

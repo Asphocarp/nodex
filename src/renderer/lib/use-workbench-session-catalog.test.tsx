@@ -856,6 +856,7 @@ describe("useWorkbenchSessionCatalog", () => {
           {
             projectId: "alpha",
             noThreadFallbackTitle: "Roadmap",
+            initialPageIds: [],
           },
         ]);
         return Promise.resolve(created);

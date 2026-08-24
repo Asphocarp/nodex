@@ -43,6 +43,7 @@ pub(crate) fn validate_store_semantics(connection: &Connection) -> Result<(), St
     );
     validate_thread_execution_hosts(connection)?;
     validate_default_draft_sessions(connection)?;
+    validate_page_chat_links(connection)?;
     validate_thread_recency(connection)?;
     validate_page_key_invariants(connection)?;
     validate_database_relation_invariants(connection)?;
@@ -312,6 +313,29 @@ fn validate_default_draft_sessions(connection: &Connection) -> Result<(), StoreE
         |row| row.get(0),
     )?;
     expect_zero(invalid, "invalid default-draft Project Sessions")
+}
+
+fn validate_page_chat_links(connection: &Connection) -> Result<(), StoreError> {
+    let relation_table_exists = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema \
+         WHERE type = 'table' AND name = 'project_session_pages')",
+        [],
+        |row| row.get::<_, i64>(0),
+    )? == 1;
+    if !relation_table_exists {
+        return Ok(());
+    }
+    let invalid: i64 = connection.query_row(
+        "SELECT count(*) FROM project_session_pages relation \
+         JOIN pages page ON page.block_id = relation.page_id \
+         JOIN project_sessions session ON session.id = relation.session_id \
+         LEFT JOIN projects project ON project.id = session.project_id \
+         WHERE session.project_id IS NOT NULL \
+           AND (project.id IS NULL OR project.library_id <> page.library_id)",
+        [],
+        |row| row.get(0),
+    )?;
+    expect_zero(invalid, "cross-Library Page Linked chat edges")
 }
 
 fn validate_thread_recency(connection: &Connection) -> Result<(), StoreError> {

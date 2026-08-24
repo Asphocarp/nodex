@@ -311,4 +311,22 @@ describe("project session query cache", () => {
     expect(queryClient.getQueryState(activityKey)?.isInvalidated).toBe(true);
     queryClient.clear();
   });
+
+  test("session changes invalidate Page Chat projections without touching Database rows", async () => {
+    const queryClient = createQueryClient();
+    const pageChatKey = queryKeys.pageChats.activity("project-1", ["page-1"]);
+    const databaseKey = queryKeys.boards.byProject("project-1");
+    queryClient.setQueryData(pageChatKey, { summaries: [], projectionRevision: 1 });
+    queryClient.setQueryData(databaseKey, { rows: [] });
+
+    await invalidateProjectSessionScope(queryClient, {
+      summaryScopes: [{ kind: "project", projectId: "project-1" }],
+      detailInvalidation: { kind: "sessions", sessionIds: ["session-1"] },
+      changeType: "update",
+    });
+
+    expect(queryClient.getQueryState(pageChatKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(databaseKey)?.isInvalidated).toBe(false);
+    queryClient.clear();
+  });
 });

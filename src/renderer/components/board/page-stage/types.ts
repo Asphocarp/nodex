@@ -1,5 +1,11 @@
 import type { MutableRefObject, ReactNode } from "react";
-import type { PageInput, WorkflowStatus, CodexPromptInput, CodexThreadSummary } from "@/lib/types";
+import type {
+  PageInput,
+  WorkflowStatus,
+  CodexPromptInput,
+  CodexThreadSummary,
+  PageChatItem,
+} from "@/lib/types";
 import type { ReadyPageBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import type { BlockDocumentSurfaceDependencies } from "@/components/block-documents/block-document-surface";
 import type { PageTitleResourceIdentity } from "@/lib/page-title-projection-context";
@@ -15,14 +21,12 @@ import type { PageStagePropertyEdit } from "@/lib/page-stage-properties";
 
 export type { PageStageMetadataMutationResult } from "@/lib/page-stage-page";
 
-export interface PageStageLinkedThread {
-  threadId: string;
-  title: string;
-  preview?: string;
-  statusType: CodexThreadSummary["statusType"];
-  statusActiveFlags: CodexThreadSummary["statusActiveFlags"];
-  archived: boolean;
-  updatedAt: number;
+export type PageStageRelatedChat = PageChatItem;
+
+export interface PageStageRelatedChatCandidate {
+  readonly sessionId: string;
+  readonly displayTitle: string;
+  readonly projectName: string | null;
 }
 
 export interface PageStageSessionSnapshot {
@@ -77,6 +81,7 @@ export interface PageStageProps {
   /** Content authority selected by the mounted Project or Resource surface. */
   contentAccessContext: ContentAccessContext;
   projectName?: string | null;
+  /** Workspace context for editor-owned local execution surfaces. */
   projectWorkspacePath?: string | null;
   onUpdate: (
     pageId: string,
@@ -99,17 +104,24 @@ export interface PageStageProps {
   sessionId?: string | null;
   sessionThread?: CodexThreadSummary | null;
   canStartThreadInSession?: boolean;
-  linkedCodexThreads?: PageStageLinkedThread[];
+  relatedChats?: readonly PageStageRelatedChat[];
+  relatedChatsLoading?: boolean;
+  relatedChatsError?: string | null;
+  relatedChatsHasMore?: boolean;
+  relatedChatsLoadingMore?: boolean;
+  relatedChatCandidates?: readonly PageStageRelatedChatCandidate[];
+  onOpenRelatedChat?: (sessionId: string) => Promise<void> | void;
+  onCreateRelatedChat?: () => Promise<void> | void;
+  onLinkRelatedChat?: (sessionId: string) => Promise<void>;
+  onRemoveRelatedChat?: (sessionId: string) => Promise<void>;
+  onRetryRelatedChats?: () => Promise<void> | void;
+  onLoadMoreRelatedChats?: () => Promise<void> | void;
+  /** Opens an attached Thread referenced inside the Page editor. */
   onOpenCodexThread?: (threadId: string) => Promise<void>;
   onOpenPage?: (input: ContentPageNavigationTarget) => void | Promise<void>;
   onOpenDatabase?: (databaseId: DatabaseId) => void | Promise<void>;
   onOpenCanvas?: (input: ContentCanvasNavigationTarget) => void | Promise<void>;
   breadcrumb?: Omit<PageStageBreadcrumbProps, "currentTitle" | "disabled">;
-  onOpenNewCodexThread?: () => void;
-  onOpenLocalEnvironmentSettings?: (input: {
-    projectId: string;
-    configPath?: string | null;
-  }) => void;
   onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
     targetSessionId?: string;

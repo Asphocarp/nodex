@@ -182,6 +182,7 @@ export function WorkbenchDatabaseViewSurface({
   keyboardSurface,
   presentedPageIds,
   onOpenPageInNewChat,
+  onOpenRelatedChat,
   onSendPageToChat,
 }: {
   readonly accessContext: ContentAccessContext;
@@ -199,6 +200,7 @@ export function WorkbenchDatabaseViewSurface({
   readonly projects?: Project[];
   readonly pageStageCloseRef?: RefObject<(() => Promise<void>) | null>;
   readonly onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  readonly onOpenRelatedChat?: (sessionId: string) => Promise<void> | void;
   readonly onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
 }) {
   const queryClient = useQueryClient();
@@ -452,7 +454,8 @@ export function WorkbenchDatabaseViewSurface({
 
   const pageActionPort: DatabaseViewPageActionPort | undefined = accessProjectId
     ? {
-        ...(onOpenPageInNewChat ? { openInNewSession: onOpenPageInNewChat } : {}),
+        ...(onOpenPageInNewChat ? { openInNewChat: onOpenPageInNewChat } : {}),
+        ...(onOpenRelatedChat ? { openRelatedChat: onOpenRelatedChat } : {}),
         ...(onSendPageToChat ? { sendToChat: onSendPageToChat } : {}),
         deletePage: async ({ pageId }) => {
           const committed = await commitPageLifecycleIntent({

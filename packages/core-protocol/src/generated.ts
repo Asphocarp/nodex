@@ -1244,6 +1244,25 @@ export interface components {
             }[];
             readonly next_cursor?: string | null;
         };
+        readonly CollectionWindow_ProjectWorkspacePageChatItem: {
+            readonly authority: components["schemas"]["CollectionWindowAuthority"];
+            readonly items: readonly {
+                /** Format: int64 */
+                readonly conversation_recency_at?: number | null;
+                readonly display_title: string;
+                readonly linked_at: string;
+                readonly project_id?: string | null;
+                readonly project_name?: string | null;
+                readonly session_archived: boolean;
+                readonly session_id: string;
+                readonly status?: null | components["schemas"]["ProjectWorkspaceThreadStatus"];
+                readonly thread_archived: boolean;
+                readonly thread_id?: string | null;
+                readonly thread_preview: string;
+                readonly unread: boolean;
+            }[];
+            readonly next_cursor?: string | null;
+        };
         readonly CollectionWindow_ProjectWorkspaceProject: {
             readonly authority: components["schemas"]["CollectionWindowAuthority"];
             readonly items: readonly {
@@ -5420,6 +5439,7 @@ export interface components {
                 readonly pinned: boolean;
                 readonly project_id: string;
             } | {
+                readonly initial_page_ids: readonly string[];
                 /** @enum {string} */
                 readonly kind: "create_session";
                 readonly project_id?: string | null;
@@ -6191,6 +6211,18 @@ export interface components {
                 readonly project_ids: readonly string[];
             } | {
                 /** @enum {string} */
+                readonly kind: "page_chat_activity_summaries";
+                readonly page_access_project_id: string;
+                readonly page_ids: readonly string[];
+            } | {
+                readonly include_archived?: boolean | null;
+                /** @enum {string} */
+                readonly kind: "page_chat_window";
+                readonly page_access_project_id: string;
+                readonly page_id: string;
+                readonly window: components["schemas"]["CollectionWindowRequest"];
+            } | {
+                /** @enum {string} */
                 readonly kind: "project_permission_mode";
                 readonly project_id: string;
             } | {
@@ -6588,6 +6620,16 @@ export interface components {
             /** @enum {string} */
             readonly kind: "unlink_thread";
             readonly thread_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "link_page";
+            readonly page_access_project_id: string;
+            readonly page_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "unlink_page";
+            readonly page_access_project_id: string;
+            readonly page_id: string;
         };
         readonly ProjectSessionInvalidationScope: {
             /** @enum {string} */
@@ -6682,6 +6724,22 @@ export interface components {
             readonly primary_workspace_root?: string | null;
             readonly project_id: string;
             readonly sources: readonly components["schemas"]["ProjectSource"][];
+        };
+        readonly ProjectWorkspacePageChatActivitySummary: {
+            /** Format: int32 */
+            readonly error_count: number;
+            readonly page_id: string;
+            /** Format: int32 */
+            readonly related_count: number;
+            readonly sole_session_id?: string | null;
+            /** Format: int32 */
+            readonly unread_count: number;
+            /** Format: int32 */
+            readonly waiting_on_approval_count: number;
+            /** Format: int32 */
+            readonly waiting_on_user_input_count: number;
+            /** Format: int32 */
+            readonly working_count: number;
         };
         readonly ProjectWorkspaceProject: {
             readonly appearance: components["schemas"]["ProjectAppearance"];
@@ -7795,6 +7853,16 @@ export interface components {
                     /** Format: int64 */
                     readonly projection_revision: number;
                     readonly summaries: readonly components["schemas"]["ProjectWorkspaceProjectActivitySummary"][];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_chat_activity_summaries";
+                    /** Format: int64 */
+                    readonly projection_revision: number;
+                    readonly summaries: readonly components["schemas"]["ProjectWorkspacePageChatActivitySummary"][];
+                } | {
+                    readonly chats: components["schemas"]["CollectionWindow_ProjectWorkspacePageChatItem"];
+                    /** @enum {string} */
+                    readonly kind: "page_chat_window";
                 } | {
                     /** @enum {string} */
                     readonly kind: "project_permission_mode";

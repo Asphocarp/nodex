@@ -40,14 +40,9 @@ vi.mock("@/lib/content-page-detail", () => ({
 }));
 
 const pageDetail = (): PageDetail => {
-  const result = buildPageDetailStoryResult(
-    "project-1",
-    buildPageStageStoryPage({
-      runInTarget: "localProject",
-      existingWorktree: false,
-    }),
-    { libraryId: "library-1" },
-  );
+  const result = buildPageDetailStoryResult("project-1", buildPageStageStoryPage(), {
+    libraryId: "library-1",
+  });
   if (!result.ok) throw new Error("Expected Page Detail fixture");
   return result.value;
 };

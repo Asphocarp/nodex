@@ -195,6 +195,7 @@ import {
   type WorkbenchSessionRenderProjection,
 } from "@/lib/workbench-session-presentation";
 import { projectSessionToSummary } from "@/lib/project-session-query-cache";
+import { presentPageStageRelatedChatCandidates } from "@/lib/page-stage-related-chat-candidates";
 import {
   buildProjectAgentDockPendingWorktreeModel,
   buildProjectAgentDockModel,
@@ -1322,6 +1323,10 @@ export function WorkbenchRuntime({
     () => [...Object.values(sessionsByProject).flat(), ...projectlessSessions],
     [projectlessSessions, sessionsByProject],
   );
+  const pageStageRelatedChatCandidates = useMemo(
+    () => presentPageStageRelatedChatCandidates(knownSessions, projects),
+    [knownSessions, projects],
+  );
   const processManagerThreads = useMemo<CodexBackgroundTerminalProcessThreadRef[]>(() => {
     const seen = new Set<string>();
     const refs: CodexBackgroundTerminalProcessThreadRef[] = [];
@@ -2377,6 +2382,7 @@ export function WorkbenchRuntime({
       activeRenderSession,
       activeSessionPanelModel,
       projects,
+      pageStageRelatedChatCandidates,
       pageTitleStore,
       panelTabPresentationRegistry,
       panelTabPresentationControllerKeysRef,
@@ -3267,6 +3273,7 @@ export function WorkbenchRuntime({
             setSearchQuery={setSearchQuery}
             onOpenPageTab={openProjectScenePage}
             onOpenPageInNewChat={sessionCommands.openPageInNewChat}
+            onOpenRelatedChat={sessionCommands.openProjectSessionById}
             onSendPageToChat={sessionCommands.sendPageToChat}
             onOpenCanvasStage={openProjectSceneCanvas}
             targetLeafId={leafId}
@@ -3341,6 +3348,11 @@ export function WorkbenchRuntime({
             onOpenThread={async (threadId) => {
               await openAttachedThreadSessionById(threadId);
             }}
+            onOpenRelatedChat={sessionCommands.openProjectSessionById}
+            onOpenPageInNewChat={sessionCommands.openPageInNewChat}
+            onLinkPageToChat={sessionCommands.linkPageToChat}
+            relatedChatCandidates={pageStageRelatedChatCandidates}
+            onResolveChatSessionForThread={sessionCommands.resolveChatSessionForThread}
             historyPanelActive={Boolean(
               pageStageHistoryModal &&
               pageStageHistoryModal.sessionId === projectSceneKey &&
@@ -3524,9 +3536,13 @@ export function WorkbenchRuntime({
       openProjectSceneManualSurface,
       openProjectScenePage,
       sessionCommands.openPageInNewChat,
+      sessionCommands.openProjectSessionById,
+      sessionCommands.linkPageToChat,
+      sessionCommands.resolveChatSessionForThread,
       sessionCommands.sendPageToChat,
       pageStageCloseRef,
       pageStageHistoryModal,
+      pageStageRelatedChatCandidates,
       pageStagePersistRef,
       pageStageSessionSnapshotRef,
       projectSceneKey,
@@ -3619,6 +3635,7 @@ export function WorkbenchRuntime({
             projects={projects}
             pageStageCloseRef={pageStageCloseRef}
             onOpenPageInNewChat={sessionCommands.openPageInNewChat}
+            onOpenRelatedChat={sessionCommands.openProjectSessionById}
             onSendPageToChat={sessionCommands.sendPageToChat}
             onPresentationChange={({ databaseName, viewName }) => {
               publishTitle(
@@ -3705,6 +3722,7 @@ export function WorkbenchRuntime({
       projects,
       sceneNavigator,
       sessionCommands.openPageInNewChat,
+      sessionCommands.openProjectSessionById,
       sessionCommands.sendPageToChat,
       updateSceneSurfacePresentation,
       windowSessionId,

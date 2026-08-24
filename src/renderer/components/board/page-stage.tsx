@@ -76,7 +76,7 @@ interface PageStageDescriptionEditorProps {
   readonly sessionId?: string | null;
   readonly sessionThread: PageStageProps["sessionThread"];
   readonly canStartThreadInSession: PageStageProps["canStartThreadInSession"];
-  readonly linkedCodexThreads: PageStageProps["linkedCodexThreads"];
+  readonly relatedChats: PageStageProps["relatedChats"];
   readonly onOpenCodexThread: PageStageProps["onOpenCodexThread"];
   readonly onOpenPage: PageStageProps["onOpenPage"];
   readonly onOpenDatabase: PageStageProps["onOpenDatabase"];
@@ -121,7 +121,7 @@ const PageStageDescriptionEditor = memo(function PageStageDescriptionEditor({
   sessionId,
   sessionThread,
   canStartThreadInSession,
-  linkedCodexThreads,
+  relatedChats,
   onOpenCodexThread,
   onOpenPage,
   onOpenDatabase,
@@ -144,6 +144,21 @@ const PageStageDescriptionEditor = memo(function PageStageDescriptionEditor({
   if (showRawContent) {
     return <CollaborativePageStageRawContent document={document} />;
   }
+
+  const linkedCodexThreads = relatedChats?.flatMap((chat) => {
+    if (!chat.threadId) return [];
+    return [
+      {
+        threadId: chat.threadId,
+        title: chat.displayTitle,
+        preview: chat.threadPreview || undefined,
+        statusType: chat.threadStatus?.statusType ?? "idle",
+        statusActiveFlags: chat.threadStatus?.activeFlags ?? [],
+        archived: chat.threadArchived,
+        updatedAt: chat.conversationRecencyAt ?? Date.parse(chat.linkedAt),
+      },
+    ];
+  });
 
   return (
     <NfmEditor
@@ -320,7 +335,7 @@ export function PageStage(props: PageStageProps) {
           sessionId={props.sessionId}
           sessionThread={props.sessionThread}
           canStartThreadInSession={props.canStartThreadInSession}
-          linkedCodexThreads={props.linkedCodexThreads}
+          relatedChats={props.relatedChats}
           onOpenCodexThread={props.onOpenCodexThread}
           onOpenPage={props.onOpenPage}
           onOpenDatabase={props.onOpenDatabase}

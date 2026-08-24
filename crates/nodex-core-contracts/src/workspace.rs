@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 15;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 16;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -19,6 +19,16 @@ pub enum ProjectWorkspaceRead {
     },
     ProjectActivitySummaries {
         project_ids: Vec<String>,
+    },
+    PageChatActivitySummaries {
+        page_access_project_id: String,
+        page_ids: Vec<String>,
+    },
+    PageChatWindow {
+        page_access_project_id: String,
+        page_id: String,
+        include_archived: Option<bool>,
+        window: CollectionWindowRequest,
     },
     ProjectPermissionMode {
         project_id: String,
@@ -79,6 +89,13 @@ pub enum ProjectWorkspaceReadValue {
     ProjectActivitySummaries {
         summaries: Vec<ProjectWorkspaceProjectActivitySummary>,
         projection_revision: i64,
+    },
+    PageChatActivitySummaries {
+        summaries: Vec<ProjectWorkspacePageChatActivitySummary>,
+        projection_revision: i64,
+    },
+    PageChatWindow {
+        chats: CollectionWindow<ProjectWorkspacePageChatItem>,
     },
     ProjectPermissionMode {
         mode: Option<CodexPermissionMode>,
@@ -599,6 +616,34 @@ pub struct ProjectWorkspaceProjectActivitySummary {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspacePageChatActivitySummary {
+    pub page_id: String,
+    pub related_count: u32,
+    pub working_count: u32,
+    pub waiting_on_approval_count: u32,
+    pub waiting_on_user_input_count: u32,
+    pub error_count: u32,
+    pub unread_count: u32,
+    pub sole_session_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspacePageChatItem {
+    pub session_id: String,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub display_title: String,
+    pub thread_id: Option<String>,
+    pub thread_preview: String,
+    pub status: Option<ProjectWorkspaceThreadStatus>,
+    pub thread_archived: bool,
+    pub unread: bool,
+    pub session_archived: bool,
+    pub conversation_recency_at: Option<i64>,
+    pub linked_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ProjectSource {
     pub root: String,
     pub order: i64,
@@ -755,6 +800,7 @@ pub enum ProjectWorkspaceIntent {
         session_id: String,
         project_id: Option<String>,
         title: String,
+        initial_page_ids: Vec<String>,
     },
     EnsureDefaultDraftSession {
         session_id: String,
@@ -892,6 +938,14 @@ pub enum ProjectSessionIntent {
     },
     UnlinkThread {
         thread_id: String,
+    },
+    LinkPage {
+        page_id: String,
+        page_access_project_id: String,
+    },
+    UnlinkPage {
+        page_id: String,
+        page_access_project_id: String,
     },
 }
 
@@ -1096,5 +1150,35 @@ mod tests {
         })
         .expect("after placement");
         assert_eq!(after, json!({ "kind": "after", "thread_id": "thread-2" }));
+    }
+
+    #[test]
+    fn page_backed_session_contract_requires_explicit_initial_page_ids() {
+        assert!(
+            serde_json::from_value::<ProjectWorkspaceIntent>(json!({
+                "kind": "create_session",
+                "session_id": "session-1",
+                "project_id": "project-1",
+                "title": "Page chat"
+            }))
+            .is_err()
+        );
+        let intent = serde_json::from_value::<ProjectWorkspaceIntent>(json!({
+            "kind": "create_session",
+            "session_id": "session-1",
+            "project_id": "project-1",
+            "title": "Page chat",
+            "initial_page_ids": ["page-1"]
+        }))
+        .expect("Page-backed Session contract");
+        assert_eq!(
+            intent,
+            ProjectWorkspaceIntent::CreateSession {
+                session_id: "session-1".to_owned(),
+                project_id: Some("project-1".to_owned()),
+                title: "Page chat".to_owned(),
+                initial_page_ids: vec!["page-1".to_owned()],
+            }
+        );
     }
 }

@@ -383,6 +383,7 @@ pub(super) fn apply(
                     session_id,
                     project_id,
                     title,
+                    initial_page_ids,
                 } => session_lifecycle::create_session(
                     transaction,
                     &library_id,
@@ -393,6 +394,7 @@ pub(super) fn apply(
                     session_id,
                     project_id.as_deref(),
                     title,
+                    initial_page_ids,
                 ),
                 ProjectWorkspaceIntent::EnsureDefaultDraftSession {
                     session_id,
@@ -2342,6 +2344,7 @@ mod tests {
                         session_id: "session:projectless".to_owned(),
                         project_id: None,
                         title: "Projectless".to_owned(),
+                        initial_page_ids: Vec::new(),
                     },
                 ),
             )
@@ -3138,6 +3141,7 @@ mod tests {
                         session_id: native_session_id.clone(),
                         project_id: Some("project-native".to_owned()),
                         title: "Native Session".to_owned(),
+                        initial_page_ids: Vec::new(),
                     },
                 ),
             )
@@ -3380,6 +3384,7 @@ mod tests {
                         session_id: "session-archived".to_owned(),
                         project_id: Some("project-native".to_owned()),
                         title: "Must not exist".to_owned(),
+                        initial_page_ids: Vec::new(),
                     },
                 ),
             )
@@ -3572,6 +3577,7 @@ mod tests {
                         session_id: session_id.clone(),
                         project_id: Some("project-native".to_owned()),
                         title: "New chat".to_owned(),
+                        initial_page_ids: Vec::new(),
                     },
                 ),
             )
@@ -3792,6 +3798,7 @@ mod tests {
                         session_id: "session:ordinary-threadless".to_owned(),
                         project_id: Some("project-alpha".to_owned()),
                         title: "Page workspace".to_owned(),
+                        initial_page_ids: Vec::new(),
                     },
                 ),
             )
@@ -4115,6 +4122,7 @@ mod tests {
                 session_id: "session-a".to_owned(),
                 project_id: Some("project-native".to_owned()),
                 title: "  Lifecycle A  ".to_owned(),
+                initial_page_ids: Vec::new(),
             },
         );
         let created_a = module
@@ -4138,6 +4146,7 @@ mod tests {
                         session_id: "session-b".to_owned(),
                         project_id: Some("project-native".to_owned()),
                         title: "Lifecycle B".to_owned(),
+                        initial_page_ids: Vec::new(),
                     },
                 ),
             )
@@ -4227,6 +4236,7 @@ mod tests {
                         session_id: "session-projectless".to_owned(),
                         project_id: None,
                         title: "Projectless browser".to_owned(),
+                        initial_page_ids: Vec::new(),
                     },
                 ),
             )

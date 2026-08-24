@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vite-plus/test";
+import { act, fireEvent } from "@testing-library/react";
 
 import type { PageStageCorePage } from "@/lib/page-stage-page";
 import { render } from "@/test/dom";
@@ -58,7 +59,7 @@ const buildController = (overrides: Partial<PageStageController> = {}): PageStag
   ({
     page,
     hasDatabaseProperties: false,
-    hasThreadsRow: false,
+    hasRelatedChatsRow: false,
     propertyControls: emptyPropertyControls,
     ...overrides,
   }) as PageStageController;
@@ -71,16 +72,15 @@ describe("PageStagePropertiesSection", () => {
     expect(view.queryByText("Properties")).toBeNull();
   });
 
-  test("keeps the section when a standalone Page has a Threads row", () => {
+  test("uses the empty value lane to add a related Chat without execution controls", async () => {
+    const onCreateRelatedChat = vi.fn(async () => undefined);
     const view = render(
       <PageStagePropertiesSection
         controller={buildController({
-          hasThreadsRow: true,
-          linkedCodexThreads: [],
-          onOpenNewCodexThread: vi.fn(),
-          runInTarget: "localProject",
-          runInLocalPathDisplay: "",
-          runInWorktreePathDisplay: "",
+          hasRelatedChatsRow: true,
+          relatedChats: [],
+          relatedChatCandidates: [],
+          onCreateRelatedChat,
           propertiesExpanded: false,
           showCollapsedProperties: true,
           collapseThreadsByDefault: false,
@@ -91,6 +91,107 @@ describe("PageStagePropertiesSection", () => {
     );
 
     expect(view.getByText("Properties")).toBeTruthy();
-    expect(view.getByRole("button", { name: "New" })).toBeTruthy();
+    expect(view.getByText("Linked chats")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Add chat" }).textContent).toBe("Add chat…");
+    expect(view.queryByText("Local project")).toBeNull();
+    expect(view.queryByText("Project cwd")).toBeNull();
+
+    await act(async () => {
+      fireEvent.pointerDown(view.getByRole("button", { name: "Add chat" }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: "New chat" }));
+      await Promise.resolve();
+    });
+    expect(onCreateRelatedChat).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows Chat relation chips and links an existing Chat from the trailing action", async () => {
+    const handleOpenRelatedChat = vi.fn(async () => undefined);
+    const handleRemoveRelatedChat = vi.fn(async () => undefined);
+    const onLinkRelatedChat = vi.fn(async () => undefined);
+    const view = render(
+      <PageStagePropertiesSection
+        controller={buildController({
+          hasRelatedChatsRow: true,
+          relatedChats: [
+            {
+              sessionId: "session-threadless",
+              projectId: "project-1",
+              projectName: "Nodex",
+              displayTitle: "Research follow-up",
+              threadId: null,
+              threadPreview: "",
+              threadStatus: null,
+              threadArchived: false,
+              unread: false,
+              sessionArchived: false,
+              conversationRecencyAt: null,
+              linkedAt: "2026-08-24T00:00:00Z",
+            },
+          ],
+          relatedChatsLoading: false,
+          relatedChatsError: null,
+          relatedChatsHasMore: false,
+          relatedChatsLoadingMore: false,
+          relatedChatCandidates: [
+            {
+              sessionId: "session-candidate",
+              displayTitle: "Implementation plan",
+              projectName: "Nodex",
+            },
+          ],
+          onCreateRelatedChat: vi.fn(async () => undefined),
+          onLinkRelatedChat,
+          onOpenRelatedChat: handleOpenRelatedChat,
+          onRemoveRelatedChat: handleRemoveRelatedChat,
+          handleOpenRelatedChat,
+          handleRemoveRelatedChat,
+          currentSessionId: "session-threadless",
+          propertiesExpanded: false,
+          showCollapsedProperties: true,
+          collapseThreadsByDefault: false,
+          collapsedPropertyCount: 0,
+          saving: false,
+        })}
+      />,
+    );
+
+    expect(view.queryByText("Nodex")).toBeNull();
+    expect(view.queryByText("No thread yet")).toBeNull();
+    expect(view.queryByText("1 linked")).toBeNull();
+    expect(
+      view.getByRole("button", { name: /^Research follow-up/ }).getAttribute("aria-current"),
+    ).toBe("true");
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: /^Research follow-up/ }));
+      fireEvent.click(view.getByRole("button", { name: "Remove relation to Research follow-up" }));
+      await Promise.resolve();
+    });
+    expect(handleOpenRelatedChat).toHaveBeenCalledWith("session-threadless");
+    expect(handleRemoveRelatedChat).toHaveBeenCalledWith("session-threadless");
+
+    await act(async () => {
+      fireEvent.pointerDown(view.getByRole("button", { name: "Add chat" }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await Promise.resolve();
+    });
+    const linkExisting = view.getByRole("menuitem", { name: "Link to chat…" });
+    await act(async () => {
+      fireEvent.click(linkExisting);
+      await Promise.resolve();
+    });
+    const candidate = await view.findByRole("button", { name: /Implementation plan/ });
+    await act(async () => {
+      fireEvent.click(candidate);
+      await Promise.resolve();
+    });
+    expect(onLinkRelatedChat).toHaveBeenCalledWith("session-candidate");
   });
 });

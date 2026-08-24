@@ -5,13 +5,20 @@ import {
 } from "../../../src/main/core-client";
 import * as Effect from "effect/Effect";
 import { compilePageLifecycleRequestV2 } from "../../../src/shared/page-lifecycle-v2-runtime";
-import type { Project, ProjectCreateInput } from "../../../src/shared/types";
+import type {
+  PageChatActivitySummaryResult,
+  PageChatWindow,
+  Project,
+  ProjectCreateInput,
+} from "../../../src/shared/types";
 import { createUuidV7 } from "../../../src/shared/uuid-v7";
 import type {
   ScenarioBoardObservation,
   ScenarioDocumentReplacement,
   ScenarioPageObservation,
   ScenarioPageSeed,
+  ScenarioRelatedChatSeed,
+  ScenarioRelatedChatSeedResult,
   ScenarioSeedPort,
 } from "../contracts";
 import { normalizeScenarioBoardGroups } from "./normalize-board-groups";
@@ -160,6 +167,76 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     );
     const groups = normalizeScenarioBoardGroups(snapshot);
     return { totalRows: snapshot.totalRows, commitSeq: snapshot.commitSeq, groups };
+  }
+
+  async createRelatedChat(input: ScenarioRelatedChatSeed): Promise<ScenarioRelatedChatSeedResult> {
+    return await runScenarioProjectWorkspace(
+      this.#runtime,
+      Effect.fn("CoreClientSeedAdapter.createRelatedChat")(function* (workspace) {
+        const session = yield* workspace.createProjectSession({
+          projectId: input.projectId,
+          noThreadFallbackTitle: input.noThreadFallbackTitle,
+          initialPageIds: [...input.initialPageIds],
+        });
+        if (!input.thread) return { sessionId: session.id, threadId: null };
+        const observedAt = Date.now();
+        yield* workspace.upsertThread(input.thread.threadId, {
+          projectId: input.projectId,
+          threadSource: "user",
+          threadName: input.thread.threadName,
+          threadPreview: input.thread.threadPreview,
+          modelProvider: "openai",
+          status: {
+            statusType: input.thread.statusType,
+            activeFlags: [...input.thread.statusActiveFlags],
+          },
+          createdAt: observedAt,
+          updatedAt: observedAt,
+          recencyAt: observedAt,
+        });
+        yield* workspace.upsertProjectSessionThreadLink({
+          sessionId: session.id,
+          projectId: input.projectId,
+          threadId: input.thread.threadId,
+          threadSource: "user",
+          threadName: input.thread.threadName,
+          threadPreview: input.thread.threadPreview,
+          modelProvider: "openai",
+          statusType: input.thread.statusType,
+          statusActiveFlags: [...input.thread.statusActiveFlags],
+          createdAt: observedAt,
+          updatedAt: observedAt,
+          recencyAt: observedAt,
+        });
+        if (input.thread.unread) {
+          yield* workspace.markProjectSessionUnread(session.id, { unread: true });
+        }
+        return { sessionId: session.id, threadId: input.thread.threadId };
+      }),
+    );
+  }
+
+  async readPageChatActivity(
+    projectId: string,
+    pageIds: readonly string[],
+  ): Promise<PageChatActivitySummaryResult> {
+    return await runScenarioProjectWorkspace(this.#runtime, (workspace) =>
+      workspace.readPageChatActivitySummaries({
+        pageAccessProjectId: projectId,
+        pageIds: [...pageIds],
+      }),
+    );
+  }
+
+  async readPageChats(projectId: string, pageId: string): Promise<PageChatWindow> {
+    return await runScenarioProjectWorkspace(this.#runtime, (workspace) =>
+      workspace.listPageChatWindow({
+        pageAccessProjectId: projectId,
+        pageId,
+        includeArchived: false,
+        first: 50,
+      }),
+    );
   }
 
   #library(projectId: string) {

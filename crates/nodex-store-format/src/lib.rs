@@ -22,6 +22,10 @@ pub const PUBLISHED_STORE_FORMATS: &[PublishedStoreFormat] = &[
         132,
         "4d8a73cef28f743faea9c5718ca7eaae90c4f6473895a3fd872a7cb75e870e90",
     ),
+    format(
+        133,
+        "7d89150ec4cc75dc5c9b91ae1eb79457e08cd2045a04f4f4e06d8b4be4e78373",
+    ),
 ];
 
 pub const CURRENT_STORE_FORMAT: PublishedStoreFormat =

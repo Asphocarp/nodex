@@ -195,11 +195,11 @@ describe("WorkbenchDatabaseViewSurface", () => {
     await waitFor(() => expect(presenter.props?.model).toBeTruthy());
     expect(presenter.props).not.toHaveProperty("boardSurface");
     const pageActionPort = presenter.props?.pageActionPort as {
-      readonly openInNewSession: typeof onOpenPageInNewChat;
+      readonly openInNewChat: typeof onOpenPageInNewChat;
       readonly sendToChat: typeof onSendPageToChat;
       readonly deletePage: (input: { readonly pageId: string }) => Promise<void>;
     };
-    expect(pageActionPort.openInNewSession).toBe(onOpenPageInNewChat);
+    expect(pageActionPort.openInNewChat).toBe(onOpenPageInNewChat);
     expect(pageActionPort.sendToChat).toBe(onSendPageToChat);
     expect(pageActionPort.deletePage).toEqual(expect.any(Function));
   });

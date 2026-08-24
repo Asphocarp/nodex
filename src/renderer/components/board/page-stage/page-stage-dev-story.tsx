@@ -12,7 +12,7 @@ import {
 import {
   buildPageStageStoryPage,
   buildPageStageStoryCollapsedProperties,
-  buildPageStageStoryThreads,
+  buildPageStageStoryChats,
   PAGE_STAGE_STORY_PROJECT_ID,
   PAGE_STAGE_STORY_WORKSPACE_PATH,
   type PageStageStoryControls,
@@ -75,13 +75,10 @@ const fewHeadingsDescription = [
 ].join("\n");
 
 export function PageStageDevStoryPage({
-  runInTarget,
-  threadDensity,
-  previewMode,
-  existingWorktree,
-  showNewThreadAction,
-  enableOpenThread,
-  collapseThreadsByDefault,
+  chatDensity,
+  showNewChatAction,
+  enableOpenChat,
+  collapseChatsByDefault,
   collapseSecondaryProperties,
   historyPanelActive: initialHistoryPanelActive,
   renderPreview = true,
@@ -89,45 +86,35 @@ export function PageStageDevStoryPage({
   standalone = false,
   schemaVariant = "default",
 }: PageStageDevStoryPageProps) {
-  const [extraThreadCount, setExtraThreadCount] = useState(0);
+  const [extraChatCount, setExtraChatCount] = useState(0);
   const [historyPanelActive, setHistoryPanelActive] = useState(initialHistoryPanelActive);
   const { setCollapsedProperties } = usePageStageCollapsedProperties();
 
   useEffect(() => {
-    setExtraThreadCount(0);
+    setExtraChatCount(0);
     setHistoryPanelActive(initialHistoryPanelActive);
   }, [
     collapseSecondaryProperties,
-    collapseThreadsByDefault,
-    enableOpenThread,
-    existingWorktree,
+    collapseChatsByDefault,
+    enableOpenChat,
     initialHistoryPanelActive,
     descriptionVariant,
-    previewMode,
-    runInTarget,
-    showNewThreadAction,
+    showNewChatAction,
     standalone,
     schemaVariant,
-    threadDensity,
+    chatDensity,
   ]);
 
   useEffect(() => {
     setCollapsedProperties(
       buildPageStageStoryCollapsedProperties({
-        collapseThreadsByDefault,
+        collapseChatsByDefault,
         collapseSecondaryProperties,
       }),
     );
-  }, [collapseSecondaryProperties, collapseThreadsByDefault, setCollapsedProperties]);
+  }, [collapseChatsByDefault, collapseSecondaryProperties, setCollapsedProperties]);
 
-  const page = useMemo(
-    () =>
-      buildPageStageStoryPage({
-        runInTarget,
-        existingWorktree,
-      }),
-    [existingWorktree, runInTarget],
-  );
+  const page = useMemo(() => buildPageStageStoryPage(), []);
   const displayPage = useMemo(() => {
     const description =
       descriptionVariant === "heading-rail"
@@ -215,9 +202,9 @@ export function PageStageDevStoryPage({
     [displayPage.description, displayPage.id, displayPage.title],
   );
   useEffect(() => storyDocument.destroy, [storyDocument]);
-  const linkedThreads = useMemo(
-    () => buildPageStageStoryThreads({ threadDensity, previewMode }, extraThreadCount),
-    [extraThreadCount, previewMode, threadDensity],
+  const relatedChats = useMemo(
+    () => buildPageStageStoryChats({ chatDensity }, extraChatCount),
+    [chatDensity, extraChatCount],
   );
   const historySnapshotDescription = useMemo(
     () =>
@@ -236,8 +223,8 @@ export function PageStageDevStoryPage({
     [displayPage.description],
   );
 
-  const handleOpenNewThread = useCallback(() => {
-    setExtraThreadCount((current) => current + 1);
+  const handleOpenNewChat = useCallback(() => {
+    setExtraChatCount((current) => current + 1);
   }, []);
 
   const handleToggleHistoryPanel = useCallback(() => {
@@ -256,7 +243,7 @@ export function PageStageDevStoryPage({
   }, []);
 
   const threadCountLabel =
-    linkedThreads.length === 1 ? "1 linked thread" : `${linkedThreads.length} linked threads`;
+    relatedChats.length === 1 ? "1 linked chat" : `${relatedChats.length} linked chats`;
 
   return (
     <div className="min-h-[calc(100vh-3rem)] bg-[linear-gradient(180deg,var(--background),color-mix(in_srgb,var(--background),var(--background-secondary)_42%))] text-(--foreground)">
@@ -266,20 +253,17 @@ export function PageStageDevStoryPage({
             <div className="max-w-3xl">
               <div className="text-sm font-semibold">Page Detail</div>
               <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-                Production-backed scene for the full page stage and the linked-thread property row.
+                Production-backed scene for the full page stage and the related-Chat property row.
                 Presets and controls now live in Storybook stories and the Controls panel, not
                 inside the canvas.
               </div>
             </div>
             <div className="flex max-w-sm flex-wrap justify-end gap-2">
               <span className="rounded-full border border-(--border) bg-(--background) px-2.5 py-1 text-xs text-(--foreground-secondary)">
-                {runInTarget}
-              </span>
-              <span className="rounded-full border border-(--border) bg-(--background) px-2.5 py-1 text-xs text-(--foreground-secondary)">
                 {threadCountLabel}
               </span>
               <span className="rounded-full border border-(--border) bg-(--background) px-2.5 py-1 text-xs text-(--foreground-secondary)">
-                {collapseThreadsByDefault ? "threads collapsed" : "threads expanded"}
+                {collapseChatsByDefault ? "chats collapsed" : "chats expanded"}
               </span>
               <span className="rounded-full border border-(--border) bg-(--background) px-2.5 py-1 text-xs text-(--foreground-secondary)">
                 {historyPanelActive ? "history active" : "history idle"}
@@ -295,8 +279,8 @@ export function PageStageDevStoryPage({
               key={descriptionVariant}
               onClose={() => undefined}
               page={stagePage}
-              documentAuthority={storyDocument.authority}
               projectWorkspacePath={PAGE_STAGE_STORY_WORKSPACE_PATH}
+              documentAuthority={storyDocument.authority}
               onUpdate={handleUpdate}
               onUpdateProperty={async () => ({
                 status: "updated",
@@ -309,9 +293,19 @@ export function PageStageDevStoryPage({
                   }
                 : {})}
               onToggleHistoryPanel={handleToggleHistoryPanel}
-              linkedCodexThreads={linkedThreads}
-              onOpenCodexThread={enableOpenThread ? async () => {} : undefined}
-              onOpenNewCodexThread={showNewThreadAction ? handleOpenNewThread : undefined}
+              relatedChats={relatedChats}
+              relatedChatCandidates={[
+                {
+                  sessionId: "story-candidate",
+                  displayTitle: "Review compact relation UI",
+                  projectName: "Nodex",
+                },
+              ]}
+              onOpenRelatedChat={enableOpenChat ? async () => {} : undefined}
+              onLinkRelatedChat={async () => handleOpenNewChat()}
+              onRemoveRelatedChat={async () => undefined}
+              onOpenCodexThread={enableOpenChat ? async () => {} : undefined}
+              onCreateRelatedChat={showNewChatAction ? handleOpenNewChat : undefined}
               historyPanelActive={historyPanelActive}
             />
           ) : (
@@ -357,7 +351,7 @@ export function PageStageDevStoryPage({
                     </div>
                     <div className="contents">
                       <div className="truncate text-token-description-foreground">Tags</div>
-                      <div className="text-token-text-secondary">ui, threads, page-stage</div>
+                      <div className="text-token-text-secondary">ui, chats, page-stage</div>
                     </div>
                     <div className="contents">
                       <div className="truncate text-token-description-foreground">Priority</div>

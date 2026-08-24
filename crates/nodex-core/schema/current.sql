@@ -880,6 +880,15 @@ CREATE TABLE project_session_threads (
   thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
   linked_at TEXT NOT NULL
 ) WITHOUT ROWID;
+CREATE TABLE project_session_pages (
+  session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+  page_id TEXT NOT NULL REFERENCES pages(block_id) ON DELETE CASCADE,
+  linked_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, page_id),
+  CHECK (length(session_id) BETWEEN 1 AND 512),
+  CHECK (length(page_id) BETWEEN 1 AND 512),
+  CHECK (length(linked_at) > 0)
+) WITHOUT ROWID, STRICT;
 CREATE TABLE codex_projectless_permission_mode_selection (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   mode TEXT NOT NULL,
@@ -1996,6 +2005,8 @@ CREATE INDEX idx_project_sessions_project_sidebar
   ON project_sessions(project_id, archived, pinned, pinned_order, "order");
 CREATE UNIQUE INDEX idx_project_session_threads_thread
   ON project_session_threads(thread_id);
+CREATE INDEX idx_project_session_pages_page
+  ON project_session_pages(page_id, session_id);
 CREATE INDEX idx_local_commits_epoch_seq
   ON local_commits(store_epoch, commit_seq);
 CREATE INDEX idx_local_commit_effects_change_log
@@ -4075,4 +4086,4 @@ BEFORE UPDATE ON structural_retention_members
 BEGIN
   SELECT RAISE(ABORT, 'Structural retention members are immutable');
 END;
-PRAGMA user_version = 132;
+PRAGMA user_version = 133;

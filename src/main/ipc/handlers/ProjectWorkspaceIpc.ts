@@ -169,6 +169,16 @@ export const live: Layer.Layer<
     yield* invokeEffect("projects:activity-summaries", (_, projectIds) =>
       projects.readProjectActivitySummaries(projectIds),
     );
+    yield* invokeEffect("page-chats:activity-summaries", (_, input) =>
+      projects.readPageChatActivitySummaries(input),
+    );
+    yield* invokeEffect("page-chats:list", (_, input) => projects.listPageChatWindow(input));
+    yield* invokeEffect("page-chats:link", (_, sessionId, input) =>
+      projects.linkPageToProjectSession(sessionId, input),
+    );
+    yield* invokeEffect("page-chats:unlink", (_, sessionId, input) =>
+      projects.unlinkPageFromProjectSession(sessionId, input),
+    );
     yield* core("projects:create", (_, input) =>
       createProjectWithDefaultSource(input, {
         projectsDirectory: resolveNodexProjectsDirectory(config.documentsPath),

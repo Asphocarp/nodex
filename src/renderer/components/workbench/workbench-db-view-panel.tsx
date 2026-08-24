@@ -58,6 +58,10 @@ import {
 } from "./database-view-mutation-history";
 import type { DatabaseViewPageActionPort } from "./database-view-page-actions";
 import type { DatabaseViewPageOpenHandler } from "./database-view-page-open";
+import {
+  DatabasePageChatActivityBoundary,
+  useDatabasePageChatActivityRuntime,
+} from "./database-page-chat-activity-runtime";
 
 const DB_VIEW_TABS: Array<{
   id: "board" | "list";
@@ -86,6 +90,16 @@ const durableDatabaseToolbarItem = (
 };
 
 export function DatabaseViewTabSurface({
+  ...props
+}: Parameters<typeof DatabaseViewTabSurfaceContent>[0]) {
+  return (
+    <DatabasePageChatActivityBoundary model={props.model}>
+      <DatabaseViewTabSurfaceContent {...props} />
+    </DatabasePageChatActivityBoundary>
+  );
+}
+
+function DatabaseViewTabSurfaceContent({
   model,
   presentationLayout = model.query.view.defaultLayout,
   effectivePresentation,
@@ -158,6 +172,7 @@ export function DatabaseViewTabSurface({
   readonly onRequestCreatePage?: (groupKey: string) => void;
   readonly mutationHistory?: DatabaseViewMutationHistory;
 }) {
+  const pageChatRuntime = useDatabasePageChatActivityRuntime();
   const localMutationHistory = useDatabaseViewMutationHistory(
     `${model.storeEpoch}:${model.databaseViewId}`,
   );
@@ -208,6 +223,8 @@ export function DatabaseViewTabSurface({
             onRequestCreatePage={onRequestCreatePage}
             scrollStateKey={`database-view:${model.databaseViewId}:list`}
             mutationHistory={mutationHistory}
+            pageChatActivityByPageId={pageChatRuntime.activityByPageId}
+            onRemovePageChatRelation={pageChatRuntime.removeRelation}
           />
         ) : (
           <DatabaseViewSurface
@@ -245,6 +262,7 @@ export function DbViewSessionTab({
   setSearchQuery,
   onOpenPageTab,
   onOpenPageInNewChat,
+  onOpenRelatedChat,
   onSendPageToChat,
   onOpenCanvasStage,
   targetLeafId,
@@ -260,6 +278,7 @@ export function DbViewSessionTab({
   readonly setSearchQuery: (projectId: string, value: string) => void;
   readonly onOpenPageTab: OpenPageTabHandler;
   readonly onOpenPageInNewChat?: (input: OpenPageInNewChatInput) => Promise<void> | void;
+  readonly onOpenRelatedChat?: (sessionId: string) => Promise<void> | void;
   readonly onSendPageToChat?: (input: SendPageToChatInput) => Promise<void> | void;
   readonly onOpenCanvasStage: OpenCanvasStageHandler;
   readonly targetLeafId: string;
@@ -536,7 +555,8 @@ export function DbViewSessionTab({
       ? "⌘F"
       : "Ctrl+F";
   const pageActionPort: DatabaseViewPageActionPort = {
-    ...(onOpenPageInNewChat ? { openInNewSession: onOpenPageInNewChat } : {}),
+    ...(onOpenPageInNewChat ? { openInNewChat: onOpenPageInNewChat } : {}),
+    ...(onOpenRelatedChat ? { openRelatedChat: onOpenRelatedChat } : {}),
     ...(onSendPageToChat ? { sendToChat: onSendPageToChat } : {}),
     deletePage: async ({ pageId }) => {
       const deleted = await runtime.deletePage(undefined, pageId);

@@ -333,6 +333,11 @@ import type {
   CreateBackupInput,
   Project,
   ProjectActivitySummaryResult,
+  PageChatActivitySummaryInput,
+  PageChatActivitySummaryResult,
+  PageChatLinkInput,
+  PageChatWindow,
+  PageChatWindowInput,
   ProjectCreateInput,
   ProjectLifecycleInput,
   ProjectLifecycleMutationResult,
@@ -813,6 +818,22 @@ export interface IpcApi {
   "projects:activity-summaries": {
     args: [projectIds: string[]];
     result: ProjectActivitySummaryResult;
+  };
+  "page-chats:activity-summaries": {
+    args: [input: PageChatActivitySummaryInput];
+    result: PageChatActivitySummaryResult;
+  };
+  "page-chats:list": {
+    args: [input: PageChatWindowInput];
+    result: PageChatWindow;
+  };
+  "page-chats:link": {
+    args: [sessionId: string, input: PageChatLinkInput];
+    result: void;
+  };
+  "page-chats:unlink": {
+    args: [sessionId: string, input: PageChatLinkInput];
+    result: void;
   };
   "projects:create": {
     args: [input: ProjectCreateInput];
