@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState, type ReactNode } from "react";
-import { SideChatExpiredPanel, SideChatLoadingPanel } from "./workbench-side-chat-panels";
+import {
+  SideChatExpiredPanel,
+  SideChatFailedPanel,
+  SideChatLoadingPanel,
+} from "./workbench-side-chat-panels";
 
 function SideChatStoryFrame({
   children,
@@ -72,6 +76,17 @@ export const Expired: Story = {
   render: () => (
     <SideChatStoryFrame width={420} height={560}>
       <ExpiredHarness />
+    </SideChatStoryFrame>
+  ),
+};
+
+export const Failed: Story = {
+  render: () => (
+    <SideChatStoryFrame width={420} height={560}>
+      <SideChatFailedPanel
+        errorMessage="The Codex connection timed out while creating this side chat."
+        onRetry={() => undefined}
+      />
     </SideChatStoryFrame>
   ),
 };

@@ -123,7 +123,10 @@ function LocalConversationFooterComponent({
     readonly turnKey: string;
   } | null>(null);
   const isResumingActiveThread =
-    !model.isNewThreadTab && model.resumeState !== null && model.resumeState !== "resumed";
+    !model.isNewThreadTab &&
+    (model.attachmentState?.status === "attaching" ||
+      model.attachmentState?.status === "failed" ||
+      (model.resumeState !== null && model.resumeState !== "resumed"));
   const controlledOverlay = rightPanelComposerOverlay?.visibility?.kind === "controlled";
   const rightPanelOverlayEnabled =
     rightPanelComposerOverlay?.enabled === true && (!isResumingActiveThread || controlledOverlay);

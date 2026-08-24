@@ -303,11 +303,12 @@ export const make: Effect.Effect<
   const observe = (
     operation: CodexBackgroundProcessesError["operation"],
     threadId: string,
+    thread: CodexThreadDirectoryEntry,
     observed: readonly ThreadBackgroundTerminal[],
   ): Effect.Effect<void, CodexBackgroundProcessesError> => {
     if (observed.length === 0) return Effect.void;
     return Effect.gen(function* () {
-      const projection = projectConversation(yield* readThread(operation, threadId));
+      const projection = projectConversation(thread);
       const itemByTerminalKey = new Map<
         string,
         CodexBackgroundProcessConversationProjection["terminalItems"][number]
@@ -394,25 +395,28 @@ export const make: Effect.Effect<
   }): Effect.Effect<CodexBackgroundProcessRow[], CodexBackgroundProcessesError> => {
     const threadId = input.threadId.trim();
     if (!threadId) return Effect.succeed([]);
-    return runThreadOwned(
-      threadId,
-      Effect.gen(function* () {
-        const observed = input.observedTerminals ?? (yield* listLiveTerminals(threadId));
-        yield* observe("list", threadId, observed);
-        return yield* buildRows("list", threadId, observed);
-      }),
+    return readThread("list", threadId).pipe(
+      Effect.flatMap((thread) =>
+        runThreadOwned(
+          threadId,
+          Effect.gen(function* () {
+            const observed = input.observedTerminals ?? (yield* listLiveTerminals(threadId));
+            yield* observe("list", threadId, thread, observed);
+            return yield* buildRows("list", threadId, observed);
+          }),
+        ),
+      ),
     );
   };
 
-  const readAdmission = (
+  const verifyAdmission = (
     operation: CodexBackgroundProcessesError["operation"],
-    threadId: string,
+    thread: CodexThreadDirectoryEntry,
   ): Effect.Effect<
     { readonly projectId: string | null; readonly thread: CodexThreadDirectoryEntry },
     CodexBackgroundProcessesError
   > =>
     Effect.gen(function* () {
-      const thread = yield* readThread(operation, threadId);
       const projectId = thread.durable.projectId;
       if (!projectId) return { projectId: null, thread };
       const project = yield* core.workspace
@@ -425,6 +429,17 @@ export const make: Effect.Effect<
         fail(operation, new Error("Terminals require an active Project owner")),
       );
     });
+
+  const readAdmission = (
+    operation: CodexBackgroundProcessesError["operation"],
+    threadId: string,
+  ): Effect.Effect<
+    { readonly projectId: string | null; readonly thread: CodexThreadDirectoryEntry },
+    CodexBackgroundProcessesError
+  > =>
+    readThread(operation, threadId).pipe(
+      Effect.flatMap((thread) => verifyAdmission(operation, thread)),
+    );
 
   const register = (
     action: NormalizedRunAction,
@@ -466,30 +481,25 @@ export const make: Effect.Effect<
         catch: (cause) => fail("run-action", cause),
       }).pipe(
         Effect.flatMap((action) =>
-          runThreadOwned(
-            action.threadId,
-            Effect.gen(function* () {
-              const initial = yield* readAdmission("run-action", action.threadId);
-              yield* projectLifecycle.runExclusive(
-                initial.projectId,
+          readAdmission("run-action", action.threadId).pipe(
+            Effect.flatMap((initial) =>
+              runThreadOwned(
+                action.threadId,
                 Effect.gen(function* () {
-                  const admitted = yield* readAdmission("run-action", action.threadId);
-                  if (admitted.projectId !== initial.projectId) {
-                    return yield* Effect.fail(
-                      fail(
-                        "run-action",
-                        new Error("Thread Project owner changed during admission"),
-                      ),
-                    );
-                  }
-                  yield* register(action, admitted.thread);
-                  yield* terminals
-                    .runAction(owner, terminalRequest(action))
-                    .pipe(Effect.mapError((cause) => fail("run-action", cause)));
+                  yield* projectLifecycle.runExclusive(
+                    initial.projectId,
+                    Effect.gen(function* () {
+                      const admitted = yield* verifyAdmission("run-action", initial.thread);
+                      yield* register(action, admitted.thread);
+                      yield* terminals
+                        .runAction(owner, terminalRequest(action))
+                        .pipe(Effect.mapError((cause) => fail("run-action", cause)));
+                    }),
+                  );
+                  return yield* buildRows("run-action", action.threadId, []);
                 }),
-              );
-              return yield* buildRows("run-action", action.threadId, []);
-            }),
+              ),
+            ),
           ),
         ),
       ),

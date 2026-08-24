@@ -31,7 +31,7 @@ export type WorkbenchTabProjectionPanelTab =
   | DurableProjectSessionRenderableTab
   | ProjectSessionFilesPreviewTab;
 
-export type SideChatPanelTabStatus = "loading" | "ready" | "expired";
+export type SideChatPanelTabStatus = "loading" | "ready" | "expired" | "failed";
 
 export interface SideChatPanelTab {
   sideChat: true;
@@ -44,6 +44,7 @@ export interface SideChatPanelTab {
   threadId: string | null;
   title: string;
   status: SideChatPanelTabStatus;
+  errorMessage?: string;
   stateKey: number;
 }
 

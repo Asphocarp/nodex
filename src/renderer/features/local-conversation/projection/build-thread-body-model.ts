@@ -4,11 +4,13 @@ import type {
   PageRunInTarget,
 } from "../../../lib/types";
 import type { ThreadBodyModel } from "../thread-stage-types";
+import type { LocalConversationAttachmentState } from "../conversation-attachment-state";
 import { selectVisibleConversationTurnEntries } from "../selectors";
 
 export interface ThreadBodyModelInput {
   activeThreadId: string | null;
   conversation: CodexConversationSnapshot | null;
+  attachmentState?: LocalConversationAttachmentState;
   activeThreadArchived: boolean;
   parentTurns: readonly CodexConversationTurn[];
   isNewThreadTab: boolean;
@@ -63,6 +65,9 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
   const conversation =
     input.conversation?.threadId === input.activeThreadId ? input.conversation : null;
   const resumeState = conversation?.resumeState ?? (input.activeThreadId ? "needs_resume" : null);
+  const attachmentState: LocalConversationAttachmentState =
+    input.attachmentState ??
+    (resumeState === "resuming" ? { status: "attaching" } : { status: "idle" });
   const isArchivedThread = Boolean(
     input.activeThreadId && (input.activeThreadArchived || conversation?.archived),
   );
@@ -94,6 +99,21 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
 
   if (!conversation) {
     if (input.activeThreadId && resumeState) {
+      if (attachmentState.status === "failed") {
+        return {
+          threadId: input.activeThreadId,
+          turnCount: 0,
+          isThreadRunning: false,
+          activeTurnId: null,
+          latestTurnId: null,
+          showThreadStartProgressPanel: false,
+          emptyState: {
+            type: "threadAttachmentFailed",
+            title: "Thread could not be restored",
+            description: attachmentState.message,
+          },
+        };
+      }
       if (hasThreadStartProgress) {
         return {
           threadId: input.activeThreadId,
@@ -190,7 +210,7 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
     };
   }
 
-  if (conversation.resumeState !== "resumed") {
+  if (conversation.resumeState !== "resumed" && attachmentState.status !== "failed") {
     if (hasThreadStartProgress) {
       return {
         threadId: conversation.threadId,
@@ -232,6 +252,22 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
   const latestTurnId = visibleEntries[visibleEntries.length - 1]?.turnId ?? null;
   const visibleTurnCount = visibleEntries.length;
   const isThreadRunning = conversation.statusType === "active" || activeTurnId !== null;
+
+  if (visibleTurnCount === 0 && attachmentState.status === "failed") {
+    return {
+      threadId: conversation.threadId,
+      turnCount: 0,
+      isThreadRunning,
+      activeTurnId,
+      latestTurnId,
+      showThreadStartProgressPanel: false,
+      emptyState: {
+        type: "threadAttachmentFailed",
+        title: "Thread could not be restored",
+        description: attachmentState.message,
+      },
+    };
+  }
 
   if (visibleTurnCount === 0) {
     if (hasThreadStartProgress) {
