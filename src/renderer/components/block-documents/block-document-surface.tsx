@@ -604,11 +604,8 @@ export function BlockDocumentSurface(props: BlockDocumentSurfaceProps) {
           <PageTitleProjectionPublisher
             identity={props.pageTitleIdentity}
             publisherId={surface.clientSessionId}
-            authorityVersion={{
-              generation: props.descriptor.generation,
-              headSeq: props.descriptor.headSeq,
-            }}
             title={surface.title}
+            runtime={surface.runtime}
           >
             {content}
           </PageTitleProjectionPublisher>

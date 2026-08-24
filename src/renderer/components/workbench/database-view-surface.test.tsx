@@ -1059,7 +1059,7 @@ describe("DatabaseViewSurface", () => {
           makePageTitleResourceKey("library-1", "page-focused"),
           "page-stage",
           "Live editor title",
-          { generation: 1, headSeq: 1 },
+          1,
         );
         await Promise.resolve();
       });

@@ -11,7 +11,8 @@ export interface PageTitleAuthorityVersion {
 interface LivePageTitle {
   readonly title: string;
   readonly revision: number;
-  readonly baselineVersion: PageTitleAuthorityVersion;
+  readonly authorityGeneration: number;
+  readonly durableVersion?: PageTitleAuthorityVersion;
 }
 
 interface CanonicalPageTitle {
@@ -38,7 +39,14 @@ export interface PageTitleProjectionStore {
     resourceKey: string,
     publisherId: string,
     title: string,
-    baselineVersion: PageTitleAuthorityVersion,
+    authorityGeneration: number,
+  ) => void;
+  /** Records the exact durable head only after the publisher runtime has no pending updates. */
+  acknowledgeLive: (
+    resourceKey: string,
+    publisherId: string,
+    title: string,
+    version: PageTitleAuthorityVersion,
   ) => void;
   releasePublisher: (resourceKey: string, publisherId: string) => void;
 }
@@ -57,20 +65,37 @@ const compareAuthorityVersions = (
   return left.headSeq - right.headSeq;
 };
 
-const latestLiveTitle = (entry: PageTitleEntry): LivePageTitle | undefined => {
-  let latest: LivePageTitle | undefined;
-  for (const candidate of entry.liveTitlesByPublisher.values()) {
-    if (!latest || candidate.revision > latest.revision) latest = candidate;
+const compareLiveTitles = (left: LivePageTitle, right: LivePageTitle): number => {
+  if (left.authorityGeneration !== right.authorityGeneration) {
+    return left.authorityGeneration - right.authorityGeneration;
   }
-  return latest;
+  if (!left.durableVersion || !right.durableVersion) return left.revision - right.revision;
+  const authorityComparison = compareAuthorityVersions(left.durableVersion, right.durableVersion);
+  return authorityComparison === 0 ? left.revision - right.revision : authorityComparison;
 };
 
-const readEntryTitle = (entry: PageTitleEntry | undefined): string | undefined =>
-  entry
-    ? (latestLiveTitle(entry)?.title ??
-      entry.retainedLiveTitle?.title ??
-      entry.canonicalTitle?.title)
-    : undefined;
+const preferredLiveTitle = (entry: PageTitleEntry): LivePageTitle | undefined => {
+  let preferred = entry.retainedLiveTitle;
+  for (const candidate of entry.liveTitlesByPublisher.values()) {
+    if (!preferred || compareLiveTitles(candidate, preferred) > 0) preferred = candidate;
+  }
+  return preferred;
+};
+
+const readEntryTitle = (entry: PageTitleEntry | undefined): string | undefined => {
+  if (!entry) return undefined;
+  const liveTitle = preferredLiveTitle(entry);
+  const canonicalTitle = entry.canonicalTitle;
+  if (!liveTitle) return canonicalTitle?.title;
+  if (!canonicalTitle) return liveTitle.title;
+  if (canonicalTitle.version.generation > liveTitle.authorityGeneration) {
+    return canonicalTitle.title;
+  }
+  if (!liveTitle.durableVersion) return liveTitle.title;
+  return compareAuthorityVersions(canonicalTitle.version, liveTitle.durableVersion) > 0
+    ? canonicalTitle.title
+    : liveTitle.title;
+};
 
 const canonicalMaterializesLiveTitle = (
   canonicalTitle: CanonicalPageTitle | undefined,
@@ -78,7 +103,9 @@ const canonicalMaterializesLiveTitle = (
 ): boolean => {
   if (!canonicalTitle) return false;
   if (presentPageTitle(canonicalTitle.title) === presentPageTitle(liveTitle.title)) return true;
-  return compareAuthorityVersions(canonicalTitle.version, liveTitle.baselineVersion) > 0;
+  if (canonicalTitle.version.generation > liveTitle.authorityGeneration) return true;
+  if (!liveTitle.durableVersion) return false;
+  return compareAuthorityVersions(canonicalTitle.version, liveTitle.durableVersion) > 0;
 };
 
 /**
@@ -87,8 +114,9 @@ const canonicalMaterializesLiveTitle = (
  * The Page resource, rather than a particular tab occurrence, is the identity.
  * Y.Text publishers remain isolated by editor surface so one unmount cannot
  * clear another still-mounted editor's live title. After the final publisher
- * unmounts, its last observed title remains as an overlay until a matching or
- * newer canonical Document head materializes it.
+ * retires, its last observed title remains as an overlay until canonical state
+ * either presents the same title or causally follows the exact durable head
+ * that acknowledged it. An unrelated head advance is never settlement proof.
  */
 export function createPageTitleProjectionStore(
   options: { readonly maxRetainedTitles?: number } = {},
@@ -159,10 +187,11 @@ export function createPageTitleProjectionStore(
     const previousTitle = readEntryTitle(entry);
     touch(entry);
     entry.liveTitlesByPublisher.delete(publisherId);
-    if (entry.liveTitlesByPublisher.size === 0) {
-      entry.retainedLiveTitle = !canonicalMaterializesLiveTitle(entry.canonicalTitle, releasedTitle)
-        ? releasedTitle
-        : undefined;
+    if (!canonicalMaterializesLiveTitle(entry.canonicalTitle, releasedTitle)) {
+      const retained = entry.retainedLiveTitle;
+      if (!retained || compareLiveTitles(releasedTitle, retained) > 0) {
+        entry.retainedLiveTitle = releasedTitle;
+      }
     }
     notifyIfChanged(entry, previousTitle);
     deleteIfUnused(resourceKey, entry);
@@ -186,26 +215,14 @@ export function createPageTitleProjectionStore(
       const entry = getOrCreateEntry(resourceKey);
       touch(entry);
       const current = entry.canonicalTitle;
-      let versionAdvancedWithoutTitleChange = false;
       if (current) {
         const comparison = compareAuthorityVersions(version, current.version);
         if (comparison < 0) return;
         if (comparison === 0 && current.title === title) return;
-        versionAdvancedWithoutTitleChange =
-          comparison > 0 && presentPageTitle(current.title) === presentPageTitle(title);
       }
 
       const previousTitle = readEntryTitle(entry);
       entry.canonicalTitle = { title, version };
-      if (versionAdvancedWithoutTitleChange) {
-        for (const [publisherId, liveTitle] of entry.liveTitlesByPublisher) {
-          if (compareAuthorityVersions(version, liveTitle.baselineVersion) <= 0) continue;
-          entry.liveTitlesByPublisher.set(publisherId, {
-            ...liveTitle,
-            baselineVersion: version,
-          });
-        }
-      }
       if (
         entry.retainedLiveTitle &&
         canonicalMaterializesLiveTitle(entry.canonicalTitle, entry.retainedLiveTitle)
@@ -214,21 +231,34 @@ export function createPageTitleProjectionStore(
       }
       notifyIfChanged(entry, previousTitle);
     },
-    publishLive: (resourceKey, publisherId, title, baselineVersion) => {
+    publishLive: (resourceKey, publisherId, title, authorityGeneration) => {
       const entry = getOrCreateEntry(resourceKey);
       touch(entry);
       const current = entry.liveTitlesByPublisher.get(publisherId);
-      if (
-        current?.title === title &&
-        compareAuthorityVersions(current.baselineVersion, baselineVersion) === 0
-      )
-        return;
+      if (current?.title === title && current.authorityGeneration === authorityGeneration) return;
 
       const previousTitle = readEntryTitle(entry);
       revision += 1;
-      const liveTitle = { title, revision, baselineVersion };
+      const liveTitle = { title, revision, authorityGeneration };
       entry.liveTitlesByPublisher.set(publisherId, liveTitle);
-      entry.retainedLiveTitle = undefined;
+      notifyIfChanged(entry, previousTitle);
+    },
+    acknowledgeLive: (resourceKey, publisherId, title, version) => {
+      const entry = entries.get(resourceKey);
+      const current = entry?.liveTitlesByPublisher.get(publisherId);
+      if (!entry || !current) return;
+      if (current.title !== title || current.authorityGeneration !== version.generation) return;
+      if (
+        current.durableVersion &&
+        compareAuthorityVersions(version, current.durableVersion) <= 0
+      ) {
+        return;
+      }
+      const previousTitle = readEntryTitle(entry);
+      entry.liveTitlesByPublisher.set(publisherId, {
+        ...current,
+        durableVersion: version,
+      });
       notifyIfChanged(entry, previousTitle);
     },
     releasePublisher,

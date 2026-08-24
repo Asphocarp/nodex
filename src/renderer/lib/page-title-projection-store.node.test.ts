@@ -17,7 +17,7 @@ describe("page title projection store", () => {
     firstSource.subscribe(firstListener);
     secondSource.subscribe(secondListener);
 
-    store.publishLive(key, "editor-a", "Live title", version(1));
+    store.publishLive(key, "editor-a", "Live title", 1);
 
     expect(firstSource.getSnapshot()).toBe("Live title");
     expect(secondSource.getSnapshot()).toBe("Live title");
@@ -32,28 +32,46 @@ describe("page title projection store", () => {
     const firstSource = store.createSource(firstKey, "First snapshot");
     const secondSource = store.createSource(secondKey, "Second snapshot");
 
-    store.publishLive(firstKey, "editor-a", "   ", version(1));
+    store.publishLive(firstKey, "editor-a", "   ", 1);
 
     expect(firstSource.getSnapshot()).toBe("Untitled");
     expect(secondSource.getSnapshot()).toBe("Second snapshot");
   });
 
-  it("keeps another editor live when one publisher retires", () => {
+  it("keeps the latest title while independent publishers converge", () => {
     const store = createPageTitleProjectionStore();
     const key = makePageTitleResourceKey("library-a", "page-a");
     const source = store.createSource(key, "Snapshot");
     const listener = vi.fn();
     source.subscribe(listener);
 
-    store.publishLive(key, "editor-a", "First live title", version(1));
-    store.publishLive(key, "editor-b", "Second live title", version(1));
+    store.publishLive(key, "editor-a", "Initial title", 1);
+    store.acknowledgeLive(key, "editor-a", "Initial title", version(4));
+    store.publishLive(key, "editor-b", "Renamed title", 1);
+    store.acknowledgeLive(key, "editor-b", "Renamed title", version(5));
     store.releasePublisher(key, "editor-b");
 
-    expect(source.getSnapshot()).toBe("First live title");
+    expect(source.getSnapshot()).toBe("Renamed title");
+
+    store.publishCanonical(key, "Renamed title", version(5));
+    expect(source.getSnapshot()).toBe("Renamed title");
 
     store.releasePublisher(key, "editor-a");
-    expect(source.getSnapshot()).toBe("First live title");
-    expect(listener).toHaveBeenCalledTimes(3);
+    expect(source.getSnapshot()).toBe("Renamed title");
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a stale active publisher mask a newer canonical title", () => {
+    const store = createPageTitleProjectionStore();
+    const key = makePageTitleResourceKey("library-a", "page-a");
+    const source = store.createSource(key, "Snapshot");
+    source.subscribe(() => undefined);
+
+    store.publishLive(key, "slow-editor", "Initial title", 1);
+    store.acknowledgeLive(key, "slow-editor", "Initial title", version(4));
+    store.publishCanonical(key, "Remote title", version(5));
+
+    expect(source.getSnapshot()).toBe("Remote title");
   });
 
   it("retains the last live title until a canonical Document head materializes it", () => {
@@ -64,7 +82,7 @@ describe("page title projection store", () => {
     source.subscribe(listener);
 
     store.publishCanonical(key, "Initial title", version(4));
-    store.publishLive(key, "editor-a", "Renamed title", version(4));
+    store.publishLive(key, "editor-a", "Renamed title", 1);
     store.publishCanonical(key, "Initial title", version(5));
     store.releasePublisher(key, "editor-a");
 
@@ -76,6 +94,23 @@ describe("page title projection store", () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
+  it("does not treat a later stale-title head as proof that a detached rename materialized", () => {
+    const store = createPageTitleProjectionStore();
+    const key = makePageTitleResourceKey("library-a", "page-a");
+    const source = store.createSource(key, "Cold tab snapshot");
+    source.subscribe(() => undefined);
+
+    store.publishCanonical(key, "123", version(4));
+    store.publishLive(key, "editor-a", "ABC", 1);
+    store.releasePublisher(key, "editor-a");
+
+    // The Page projection can commit after the editor body detaches. A newer
+    // Document head alone does not prove that this projection contains ABC.
+    store.publishCanonical(key, "123", version(5));
+
+    expect(source.getSnapshot()).toBe("ABC");
+  });
+
   it("lets a newer canonical Document head supersede a retained live title", () => {
     const store = createPageTitleProjectionStore();
     const key = makePageTitleResourceKey("library-a", "page-a");
@@ -83,7 +118,8 @@ describe("page title projection store", () => {
     source.subscribe(() => undefined);
 
     store.publishCanonical(key, "Initial title", version(7));
-    store.publishLive(key, "editor-a", "Local title", version(7));
+    store.publishLive(key, "editor-a", "Local title", 1);
+    store.acknowledgeLive(key, "editor-a", "Local title", version(7));
     store.releasePublisher(key, "editor-a");
     store.publishCanonical(key, "Stale projection", version(6));
 
@@ -101,7 +137,7 @@ describe("page title projection store", () => {
     const unsubscribeRetiredSource = retiredSource.subscribe(() => undefined);
 
     unsubscribeRetiredSource();
-    store.publishLive(key, "editor-a", "Remounted live title", version(1));
+    store.publishLive(key, "editor-a", "Remounted live title", 1);
     unsubscribeRetiredSource();
 
     const remountedSource = store.createSource(key, "New snapshot");
@@ -119,7 +155,7 @@ describe("page title projection store", () => {
     ] as const) {
       const source = store.createSource(key, "Snapshot");
       const unsubscribe = source.subscribe(() => undefined);
-      store.publishLive(key, "editor", title, version(1));
+      store.publishLive(key, "editor", title, 1);
       store.releasePublisher(key, "editor");
       unsubscribe();
     }
