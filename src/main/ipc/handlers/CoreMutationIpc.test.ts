@@ -11,7 +11,11 @@ import type { DocumentMutationRequest } from "../../../shared/block-documents/do
 import { documentMutationFailure } from "../../../shared/block-documents/document-operation-transport";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
-import type { DesktopDocumentSessionService } from "../../core-client";
+import {
+  DesktopDocumentSessionRuntime,
+  type DesktopDocumentSessionService,
+} from "../../core-client";
+import { RendererClientRuntime } from "../../host-runtime/RendererClientRuntime";
 import { DatabaseModule } from "../../database-application/DatabaseModule";
 import { LibraryModule } from "../../library-application/LibraryModule";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -106,11 +110,13 @@ it.effect("owns typed Core mutation ingress and binds exact renderer and Project
     } as unknown as RendererClientRuntimeService;
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      live({ documents, rendererClients }).pipe(
+      live.pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(DatabaseModule, DatabaseModule.of({} as DatabaseModule["Service"])),
             Layer.succeed(ElectronIpc, ipc),
+            Layer.succeed(DesktopDocumentSessionRuntime, documents),
+            Layer.succeed(RendererClientRuntime, rendererClients),
             Layer.succeed(LibraryModule, LibraryModule.of({} as LibraryModule["Service"])),
             mainConfigLayer(),
             Layer.succeed(WindowRuntime, {

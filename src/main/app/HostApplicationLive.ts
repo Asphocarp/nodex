@@ -3,6 +3,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import {
   BrowserApplication,
+  BrowserApplicationError,
   live as browserApplicationLive,
 } from "../browser-application/BrowserApplication";
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
@@ -22,6 +23,7 @@ import {
 } from "../codex-application/ExecutionHostConfiguration";
 import {
   ExecutionHostRuntime,
+  ExecutionHostRuntimeError,
   live as executionHostRuntimeLive,
 } from "../codex-application/ExecutionHostRuntime";
 import {
@@ -36,6 +38,7 @@ import {
 } from "../host-runtime/BrowserPresentationRuntime";
 import {
   BrowserProfileRuntime,
+  BrowserProfileRuntimeError,
   live as browserProfileRuntimeLive,
 } from "../host-runtime/BrowserProfileRuntime";
 import {
@@ -44,6 +47,7 @@ import {
 } from "../host-runtime/BrowserSiteStatusRuntime";
 import {
   BrowserUseRuntime,
+  BrowserUseRuntimeError,
   live as browserUseRuntimeLive,
 } from "../host-runtime/BrowserUseRuntime";
 import {
@@ -201,7 +205,10 @@ export const live: Layer.Layer<
   | GitActionOperationRuntime
   | CodexGitMessageGeneration
   | GitActions,
-  unknown,
+  | BrowserApplicationError
+  | BrowserProfileRuntimeError
+  | BrowserUseRuntimeError
+  | ExecutionHostRuntimeError,
   | CodexGateway
   | CodexPlatform
   | MainConfig
