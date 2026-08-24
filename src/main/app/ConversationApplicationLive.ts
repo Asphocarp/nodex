@@ -41,6 +41,76 @@ import {
 } from "../codex-application/CodexThreadDirectory";
 import { live as codexThreadGoalRuntimeLive } from "../codex-application/CodexThreadGoalRuntime";
 import {
+  CodexThreadTitlePersistence,
+  make as makeCodexThreadTitlePersistence,
+} from "../codex-application/CodexThreadTitlePersistence";
+import {
+  CodexConversationHistoryRuntime,
+  make as makeCodexConversationHistoryRuntime,
+} from "../codex-application/CodexConversationHistoryRuntime";
+import {
+  CodexSubagentCatalog,
+  make as makeCodexSubagentCatalog,
+} from "../codex-application/CodexSubagentCatalog";
+import {
+  CodexConversationMaterialization,
+  make as makeCodexConversationMaterialization,
+} from "../codex-application/CodexConversationMaterialization";
+import {
+  CodexAutomationRunAcceptance,
+  make as makeCodexAutomationRunAcceptance,
+} from "../codex-application/CodexAutomationRunAcceptance";
+import {
+  CodexTurnAuthority,
+  make as makeCodexTurnAuthority,
+} from "../codex-application/CodexTurnAuthority";
+import {
+  CodexNotificationAdmission,
+  make as makeCodexNotificationAdmission,
+} from "../codex-application/CodexNotificationAdmission";
+import {
+  CodexTurnPreparation,
+  make as makeCodexTurnPreparation,
+} from "../codex-application/CodexTurnPreparation";
+import {
+  CodexQueuedFollowUps,
+  make as makeCodexQueuedFollowUps,
+} from "../codex-application/CodexQueuedFollowUps";
+import {
+  CodexTurnCommands,
+  make as makeCodexTurnCommands,
+} from "../codex-application/CodexTurnCommands";
+import {
+  CodexActiveGoalContinuation,
+  make as makeCodexActiveGoalContinuation,
+} from "../codex-application/CodexActiveGoalContinuation";
+import {
+  CodexThreadLaunchCompletion,
+  make as makeCodexThreadLaunchCompletion,
+} from "../codex-application/CodexThreadLaunchCompletion";
+import {
+  CodexFreshThreadLaunchRuntime,
+  make as makeCodexFreshThreadLaunchRuntime,
+} from "../codex-application/CodexFreshThreadLaunchRuntime";
+import {
+  CodexQueuedFollowUpDispatcher,
+  make as makeCodexQueuedFollowUpDispatcher,
+} from "../codex-application/CodexQueuedFollowUpDispatcher";
+import {
+  CodexConversationArchive,
+  make as makeCodexConversationArchive,
+} from "../codex-application/CodexConversationArchive";
+import { live as conversationCommandsLive } from "../codex-application/ConversationCommands";
+import {
+  CodexConversationDeltaBufferRuntime,
+  make as makeCodexConversationDeltaBufferRuntime,
+} from "../codex-application/CodexConversationDeltaBufferRuntime";
+import {
+  CodexPostResumeGoalRuntime,
+  make as makeCodexPostResumeGoalRuntime,
+} from "../codex-application/CodexPostResumeGoalRuntime";
+import { live as codexThreadExecutionLive } from "../codex-application/CodexThreadExecution";
+import {
   CodexThreadSettingsRuntime,
   make as makeCodexThreadSettingsRuntime,
 } from "../codex-application/CodexThreadSettingsRuntime";
@@ -199,8 +269,7 @@ const threadGoals = codexThreadGoalRuntimeLive.pipe(
   Layer.provideMerge(Layer.merge(conversationProjection, threadSettings)),
 );
 
-/** Canonical Conversation projections and catalog foundations shared by all semantic commands. */
-export const live = Layer.mergeAll(
+const foundations = Layer.mergeAll(
   conversationContext,
   conversationRelationships,
   externalAgentImport,
@@ -211,3 +280,72 @@ export const live = Layer.mergeAll(
   threadGoals,
   threadStartNotifications,
 );
+
+const titlePersistence = Layer.effect(
+  CodexThreadTitlePersistence,
+  makeCodexThreadTitlePersistence,
+).pipe(Layer.provideMerge(foundations));
+const history = Layer.effect(
+  CodexConversationHistoryRuntime,
+  makeCodexConversationHistoryRuntime,
+).pipe(Layer.provideMerge(titlePersistence));
+const subagents = Layer.effect(CodexSubagentCatalog, makeCodexSubagentCatalog).pipe(
+  Layer.provideMerge(history),
+);
+const materialization = Layer.effect(
+  CodexConversationMaterialization,
+  makeCodexConversationMaterialization,
+).pipe(Layer.provideMerge(subagents));
+const automationAcceptance = Layer.effect(
+  CodexAutomationRunAcceptance,
+  makeCodexAutomationRunAcceptance,
+).pipe(Layer.provideMerge(materialization));
+const turnAuthority = Layer.effect(CodexTurnAuthority, makeCodexTurnAuthority).pipe(
+  Layer.provideMerge(automationAcceptance),
+);
+const notificationAdmission = Layer.effect(
+  CodexNotificationAdmission,
+  makeCodexNotificationAdmission,
+).pipe(Layer.provideMerge(turnAuthority));
+const turnPreparation = Layer.effect(CodexTurnPreparation, makeCodexTurnPreparation).pipe(
+  Layer.provideMerge(notificationAdmission),
+);
+const queuedFollowUps = Layer.effect(CodexQueuedFollowUps, makeCodexQueuedFollowUps).pipe(
+  Layer.provideMerge(turnPreparation),
+);
+const turnCommands = Layer.effect(CodexTurnCommands, makeCodexTurnCommands).pipe(
+  Layer.provideMerge(queuedFollowUps),
+);
+const activeGoalContinuation = Layer.effect(
+  CodexActiveGoalContinuation,
+  makeCodexActiveGoalContinuation,
+).pipe(Layer.provideMerge(turnCommands));
+const launchCompletion = Layer.effect(
+  CodexThreadLaunchCompletion,
+  makeCodexThreadLaunchCompletion,
+).pipe(Layer.provideMerge(activeGoalContinuation));
+const freshThreadLaunch = Layer.effect(
+  CodexFreshThreadLaunchRuntime,
+  makeCodexFreshThreadLaunchRuntime,
+).pipe(Layer.provideMerge(launchCompletion));
+const queuedFollowUpDispatcher = Layer.effect(
+  CodexQueuedFollowUpDispatcher,
+  makeCodexQueuedFollowUpDispatcher,
+).pipe(Layer.provideMerge(freshThreadLaunch));
+const conversationArchive = Layer.effect(
+  CodexConversationArchive,
+  makeCodexConversationArchive,
+).pipe(Layer.provideMerge(queuedFollowUpDispatcher));
+const commands = conversationCommandsLive.pipe(Layer.provideMerge(conversationArchive));
+const deltaBuffer = Layer.effect(
+  CodexConversationDeltaBufferRuntime,
+  makeCodexConversationDeltaBufferRuntime(),
+).pipe(Layer.provideMerge(commands));
+const postResumeGoals = Layer.effect(
+  CodexPostResumeGoalRuntime,
+  makeCodexPostResumeGoalRuntime,
+).pipe(Layer.provideMerge(deltaBuffer));
+const threadExecution = codexThreadExecutionLive.pipe(Layer.provideMerge(postResumeGoals));
+
+/** Canonical Conversation projections and semantic command capabilities. */
+export const live = threadExecution;
