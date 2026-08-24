@@ -27,6 +27,10 @@ import {
   make as makeCodexPendingServerRequestRuntime,
 } from "../codex-application/CodexPendingServerRequestRuntime";
 import {
+  CodexPermissions,
+  live as codexPermissionsLive,
+} from "../codex-application/CodexPermissions";
+import {
   CodexPreferences,
   live as codexPreferencesLive,
 } from "../codex-application/CodexPreferences";
@@ -79,6 +83,7 @@ import * as ProviderCredentials from "../platform/electron/ProviderCredentials";
 import * as CodexSessionTransport from "../platform/node/CodexSessionTransport";
 import { resolveCodexProcessEnvironment } from "../platform/node/CodexProcessEnvironment";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
+import { CoreModules } from "../core-runtime/CoreModules";
 import { getThreadGoalAttachmentsRoot } from "../thread-goal-attachments";
 import { MainConfig } from "./MainConfig";
 import { MainApplicationError } from "./MainExit";
@@ -210,6 +215,12 @@ const attachments = Layer.unwrap(
     return codexAttachmentsLive(getThreadGoalAttachmentsRoot(codex.runtimeStateHome));
   }),
 ).pipe(Layer.provideMerge(platform));
+const permissions = Layer.unwrap(
+  Effect.gen(function* () {
+    const codex = yield* CodexPlatform;
+    return codexPermissionsLive({ runtimeStateHome: codex.runtimeStateHome });
+  }),
+).pipe(Layer.provideMerge(kernel));
 
 const events = Layer.effect(CodexApplicationEventHub, makeCodexApplicationEventHub);
 const notificationDrain = Layer.effect(
@@ -270,6 +281,7 @@ const applicationServices = Layer.mergeAll(
   tools,
   codexPreferencesLive,
   attachments,
+  permissions,
   events,
   notificationDrain,
   rendererRegistry,
@@ -297,6 +309,7 @@ export const live: Layer.Layer<
   | CodexToolRuntime
   | CodexPreferences
   | CodexAttachments
+  | CodexPermissions
   | CodexApplicationEventHub
   | CodexOwnerNotificationDrainRuntime
   | CodexRendererConversationRegistry
@@ -306,5 +319,5 @@ export const live: Layer.Layer<
   | CodexRendererConversationCoordinator
   | CodexServerRequestResponses,
   MainApplicationError,
-  MainConfig | CodexThreadHostResolver | ProjectWorkspace
+  MainConfig | CodexThreadHostResolver | ProjectWorkspace | CoreModules
 > = applicationServices;

@@ -33,6 +33,7 @@ import {
   DesktopNotificationRuntime,
   live as desktopNotificationRuntimeLive,
 } from "../host-runtime/DesktopNotificationRuntime";
+import { DeepLinkRuntime, live as deepLinkRuntimeLive } from "../host-runtime/DeepLinkRuntime";
 import { DictationRuntime, live as dictationRuntimeLive } from "../host-runtime/DictationRuntime";
 import {
   McpAppSandboxRuntime,
@@ -48,12 +49,14 @@ import {
 } from "../host-runtime/RendererClientRuntime";
 import { getCommandKeymapState } from "../local-store/config";
 import { getLogger } from "../logging/logger";
+import { LibraryModule } from "../library-application/LibraryModule";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronPrivacy, live as electronPrivacyLive } from "../platform/electron/ElectronPrivacy";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import * as ElectronNet from "../platform/electron/ElectronNet";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
+import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import {
   ApplicationWindowRuntime,
   live as applicationWindowRuntimeLive,
@@ -170,6 +173,13 @@ const windowSessions = Layer.unwrap(
     );
   }),
 );
+const deepLinks = Layer.unwrap(
+  Effect.gen(function* () {
+    const applicationWindows = yield* ApplicationWindowRuntime;
+    const windows = yield* WindowRuntime;
+    return deepLinkRuntimeLive({ focusWindow: applicationWindows.focusLast, windows });
+  }),
+).pipe(Layer.provideMerge(applicationWindows));
 
 /** Physical Window resources and their bounded, scope-owned shutdown policy. */
 export const live: Layer.Layer<
@@ -182,6 +192,7 @@ export const live: Layer.Layer<
   | CodexMedia
   | DatabaseNotifierRuntime.DatabaseNotifierRuntime
   | DesktopNotificationRuntime
+  | DeepLinkRuntime
   | DictationRuntime
   | ElectronPrivacy
   | McpAppSandboxRuntime
@@ -203,7 +214,9 @@ export const live: Layer.Layer<
   | ElectronSessionHost
   | ElectronWindowHost
   | ElectronNet.ElectronNet
+  | LibraryModule
   | MainConfig
+  | ProjectWorkspace
   | ScopedCallbackRuntime
   | WindowRuntime
 > = Layer.mergeAll(
@@ -212,6 +225,7 @@ export const live: Layer.Layer<
   computerUseSettings,
   codexMedia,
   databaseNotifier,
+  deepLinks,
   dictation,
   windowSessions,
 );

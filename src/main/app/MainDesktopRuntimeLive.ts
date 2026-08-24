@@ -307,10 +307,7 @@ import {
 import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
 import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
 import { CodexPreferences } from "../codex-application/CodexPreferences";
-import {
-  CodexPermissions,
-  live as codexPermissionsLive,
-} from "../codex-application/CodexPermissions";
+import { CodexPermissions } from "../codex-application/CodexPermissions";
 import { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
 import { ManagedWorktreeConfiguration } from "../codex-application/ExecutionHostConfiguration";
 import { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
@@ -329,7 +326,6 @@ import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc"
 import * as AutomationIpc from "../ipc/handlers/AutomationIpc";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as CodexPendingWorktreeIpc from "../ipc/handlers/CodexPendingWorktreeIpc";
-import * as CodexPermissionsIpc from "../ipc/handlers/CodexPermissionsIpc";
 import * as CodexRendererIpc from "../ipc/handlers/CodexRendererIpc";
 import * as CoreDocumentIpc from "../ipc/handlers/CoreDocumentIpc";
 import * as CoreMutationIpc from "../ipc/handlers/CoreMutationIpc";
@@ -379,7 +375,7 @@ import {
   StoreAdministrationSchedulerRuntime,
   live as storeAdministrationSchedulerRuntimeLive,
 } from "../host-runtime/StoreAdministrationSchedulerRuntime";
-import { DeepLinkRuntime, live as deepLinkRuntimeLive } from "../host-runtime/DeepLinkRuntime";
+import { DeepLinkRuntime } from "../host-runtime/DeepLinkRuntime";
 import { ApplicationInitializationRuntime } from "../host-runtime/ApplicationInitializationRuntime";
 import { ApplicationMenuRuntime } from "../host-runtime/ApplicationMenuRuntime";
 import {
@@ -558,6 +554,7 @@ export const live: Layer.Layer<
         );
         const preferences = Context.get(applicationKernelContext, CodexPreferences);
         const attachments = Context.get(applicationKernelContext, CodexAttachments);
+        const codexPermissions = Context.get(applicationKernelContext, CodexPermissions);
         const agentProviders = Context.get(applicationKernelContext, AgentProviderRuntime);
         const codexAccountService = Context.get(applicationKernelContext, CodexAccount);
         const composerCatalogService = Context.get(applicationKernelContext, ComposerCatalog);
@@ -595,6 +592,7 @@ export const live: Layer.Layer<
           applicationKernelContext,
           WindowSessionCatalog.WindowSessionCatalog,
         );
+        const deepLinks = Context.get(applicationKernelContext, DeepLinkRuntime);
         yield* terminals.events.pipe(
           Stream.runForEach((event) => {
             if (event.channel !== "terminal-data") return Effect.void;
@@ -618,21 +616,6 @@ export const live: Layer.Layer<
           }),
           Effect.forkIn(runtimeScope),
         );
-        const deepLinkContext = yield* Layer.buildWithScope(
-          deepLinkRuntimeLive({
-            focusWindow: applicationWindows.focusLast,
-            windows,
-          }).pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(LibraryModule, libraryModule),
-                Layer.succeed(ProjectWorkspace, projectWorkspace),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const deepLinks = Context.get(deepLinkContext, DeepLinkRuntime);
         yield* applicationWindows.rendererLoaded.pipe(
           Stream.runForEach(() =>
             Effect.all([deepLinks.flush, appUpdates.startAutomaticChecks], {
@@ -659,31 +642,6 @@ export const live: Layer.Layer<
         const nodexAgentAuthorization = Context.get(
           nodexAgentAuthorizationContext,
           NodexAgentAuthorizationRuntime,
-        );
-        const codexPermissionsContext = yield* Layer.buildWithScope(
-          codexPermissionsLive({ runtimeStateHome }).pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(CoreModules, coreModules),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const codexPermissions = Context.get(codexPermissionsContext, CodexPermissions);
-        yield* Layer.buildWithScope(
-          CodexPermissionsIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexPermissions, codexPermissions),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
         );
         const persistedAtoms = makePersistedAtomStore(config.nodexHome);
         const conversationContext = yield* makeCodexConversationContext.pipe(
