@@ -375,10 +375,6 @@ it.effect(
           Effect.andThen(Effect.never),
           Effect.onInterrupt(() => Deferred.succeed(startInterrupted, undefined)),
         ),
-        prepareQuit: Effect.sync(() => {
-          events.push("unexpected-prepare-quit");
-          return "continue" as const;
-        }),
         handleBootstrapEvent: () => Effect.void,
         release: Effect.sync(() => events.push("release")),
       });
@@ -403,7 +399,7 @@ it.effect(
     }),
 );
 
-it.effect("defers a system-owned quit without closing the Main runtime", () =>
+it.effect("turns the first ready-state before-quit into the same scoped shutdown", () =>
   Effect.gen(function* () {
     const events: string[] = [];
     const started = yield* Deferred.make<void>();
@@ -435,10 +431,6 @@ it.effect("defers a system-owned quit without closing the Main runtime", () =>
     const shutdown = Context.get(context, MainShutdown);
     const runtimeLayer = mainRuntimeTestLayer({
       start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
-      prepareQuit: Effect.sync(() => {
-        events.push("defer");
-        return "defer" as const;
-      }),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
     });
@@ -455,11 +447,9 @@ it.effect("defers a system-owned quit without closing the Main runtime", () =>
     const decision = handler?.();
     assert.isTrue(decision?.preventDefault);
     if (decision) yield* decision.task;
-    assert.deepEqual(events, ["defer"]);
-
-    yield* shutdown.request({ _tag: "UserQuit" });
     yield* Fiber.join(fiber);
-    assert.deepEqual(events, ["defer", "release", "quit"]);
+    assert.deepEqual(events, ["release", "quit"]);
+    assert.deepEqual(yield* shutdown.awaitRequest, { _tag: "UserQuit" });
     yield* Scope.close(foundationScope, Exit.void);
   }),
 );

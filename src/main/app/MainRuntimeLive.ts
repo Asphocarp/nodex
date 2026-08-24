@@ -13,7 +13,6 @@ export class MainRuntime extends Context.Service<
   {
     readonly activate: Effect.Effect<void, MainRuntimeError>;
     readonly start: Effect.Effect<void, MainRuntimeError>;
-    readonly prepareQuit: Effect.Effect<"continue" | "defer", MainRuntimeError>;
     readonly handleBootstrapEvent: (
       event: BootstrapRuntimeEvent,
     ) => Effect.Effect<void, MainRuntimeError>;

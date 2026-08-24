@@ -184,6 +184,8 @@ while continuing the remaining finalizers. Any physical release that can hang ow
 deadline or escalation policy at the platform adapter rather than in a global shutdown coordinator.
 The same first-wins decision races application acquisition and readiness, so a signal or first
 `before-quit` during startup interrupts in-flight work and rolls back everything already acquired.
+`before-quit` never consults a partially published runtime or performs window cleanup itself; it
+only submits that decision, while Window and other Layers release their own resources.
 Window release stops new admission, requests renderer-aware graceful close in parallel, and then
 destroys only the still-live windows at the per-window deadline. Close and destroy outcomes are
 reported without allowing one damaged window to block the rest of the resource graph.

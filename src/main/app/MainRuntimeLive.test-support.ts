@@ -6,7 +6,6 @@ import { MainRuntime, type MainRuntimeError } from "./MainRuntimeLive";
 export interface MainRuntimeTestHooks {
   readonly activate?: Effect.Effect<void, MainRuntimeError>;
   readonly start: Effect.Effect<void, MainRuntimeError>;
-  readonly prepareQuit?: Effect.Effect<"continue" | "defer", MainRuntimeError>;
   readonly handleBootstrapEvent: (
     event: BootstrapRuntimeEvent,
   ) => Effect.Effect<void, MainRuntimeError>;
@@ -21,7 +20,6 @@ export const mainRuntimeTestLayer = (hooks: MainRuntimeTestHooks): Layer.Layer<M
       return MainRuntime.of({
         activate: hooks.activate ?? Effect.void,
         start: hooks.start,
-        prepareQuit: hooks.prepareQuit ?? Effect.succeed("continue"),
         handleBootstrapEvent: hooks.handleBootstrapEvent,
       });
     }),

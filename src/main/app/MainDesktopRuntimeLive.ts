@@ -666,7 +666,6 @@ export const live: Layer.Layer<
     const locale = yield* electron.locale;
     const userDataPath = yield* electron.userDataPath;
     let controller: MainDesktopController | null = null;
-    let isPrivacySettingsTerminationRequest: (() => boolean) | null = null;
     let started = false;
 
     const requireController = (
@@ -1031,7 +1030,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const remoteHostedPip = Context.get(remoteHostedPipContext, RemoteHostedPipRuntime);
-        isPrivacySettingsTerminationRequest = remoteHostedPip.isPrivacySettingsTerminationRequest;
         yield* Layer.buildWithScope(
           RemoteHostedPipIpc.live.pipe(
             Layer.provide(
@@ -3115,7 +3113,6 @@ export const live: Layer.Layer<
 
         controller = {
           activate: Effect.sync(applicationWindows.focusLast),
-          prepareQuit: applicationWindows.prepareQuit.pipe(Effect.as("continue" as const)),
           handleBootstrapEvent: (event) => {
             if (event.type === "open-url") {
               return deepLinks.handle(event.url).pipe(
@@ -3195,13 +3192,6 @@ export const live: Layer.Layer<
     return MainRuntime.of({
       activate: requireController("activate").pipe(Effect.flatMap((runtime) => runtime.activate)),
       start,
-      prepareQuit: requireController("prepare-quit").pipe(
-        Effect.flatMap((runtime) =>
-          isPrivacySettingsTerminationRequest?.() === true
-            ? Effect.succeed("defer" as const)
-            : runtime.prepareQuit,
-        ),
-      ),
       handleBootstrapEvent: (event) =>
         requireController("bootstrap-event").pipe(
           Effect.flatMap((runtime) => runtime.handleBootstrapEvent(event)),
