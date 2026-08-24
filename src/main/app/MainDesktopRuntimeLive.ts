@@ -2763,6 +2763,8 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const applicationMenus = Context.get(applicationMenuContext, ApplicationMenuRuntime);
+        yield* deepLinks.extractFromArgv(config.argv);
+        applicationWindows.openStartup(getWindowRestoreSettings().policy);
         const coreApplicationProjectionContext = yield* Layer.buildWithScope(
           coreApplicationProjectionRuntimeLive.pipe(
             Layer.provide(
@@ -2879,7 +2881,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
 
-        yield* deepLinks.extractFromArgv(config.argv);
         const initializationStartedAt = performance.now();
         const initialize = Effect.gen(function* () {
           applicationLogger.info("Native Core authority ready", {
@@ -2959,11 +2960,6 @@ export const live: Layer.Layer<
             ],
             { concurrency: "unbounded", discard: true },
           );
-          yield* initialization.markDone;
-          applicationLogger.info("Desktop app initialization finished", {
-            durationMs: Math.round(performance.now() - initializationStartedAt),
-          });
-          yield* appUpdates.markApplicationReady;
         });
         const initializationFiber = yield* initialize.pipe(Effect.forkIn(runtimeScope));
 
@@ -3026,8 +3022,12 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        applicationWindows.openStartup(getWindowRestoreSettings().policy);
         yield* Fiber.join(initializationFiber);
+        yield* initialization.markDone;
+        applicationLogger.info("Desktop app initialization finished", {
+          durationMs: Math.round(performance.now() - initializationStartedAt),
+        });
+        yield* appUpdates.markApplicationReady;
 
         controller = {
           activate: Effect.sync(applicationWindows.focusLast),
