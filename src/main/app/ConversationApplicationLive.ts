@@ -149,6 +149,31 @@ import {
   AgentImportRuntime,
   make as makeAgentImportRuntime,
 } from "../codex-application/AgentImportRuntime";
+import { live as codexManualCompactionLive } from "../codex-application/CodexManualCompactionRuntime";
+import {
+  CodexThreadRollbackCommands,
+  make as makeCodexThreadRollbackCommands,
+} from "../codex-application/CodexThreadRollbackCommands";
+import {
+  CodexProjectSessionFork,
+  make as makeCodexProjectSessionFork,
+} from "../codex-application/CodexProjectSessionFork";
+import {
+  CodexRendererOwnerCommands,
+  make as makeCodexRendererOwnerCommands,
+} from "../codex-application/CodexRendererOwnerCommands";
+import {
+  CodexSideChatCommands,
+  make as makeCodexSideChatCommands,
+} from "../codex-application/CodexSideChatCommands";
+import {
+  CodexSessionThreadLaunch,
+  make as makeCodexSessionThreadLaunch,
+} from "../codex-application/CodexSessionThreadLaunch";
+import {
+  CodexAppProtocolTools,
+  make as makeCodexAppProtocolTools,
+} from "../codex-application/CodexAppProtocolTools";
 import {
   CodexThreadSettingsRuntime,
   make as makeCodexThreadSettingsRuntime,
@@ -460,6 +485,28 @@ const agentImport = Layer.unwrap(
     );
   }),
 ).pipe(Layer.provideMerge(threadHandoff));
+const manualCompaction = codexManualCompactionLive.pipe(Layer.provideMerge(agentImport));
+const threadRollback = Layer.effect(
+  CodexThreadRollbackCommands,
+  makeCodexThreadRollbackCommands,
+).pipe(Layer.provideMerge(manualCompaction));
+const projectSessionFork = Layer.effect(CodexProjectSessionFork, makeCodexProjectSessionFork).pipe(
+  Layer.provideMerge(threadRollback),
+);
+const rendererOwnerCommands = Layer.effect(
+  CodexRendererOwnerCommands,
+  makeCodexRendererOwnerCommands,
+).pipe(Layer.provideMerge(projectSessionFork));
+const sideChatCommands = Layer.effect(CodexSideChatCommands, makeCodexSideChatCommands).pipe(
+  Layer.provideMerge(rendererOwnerCommands),
+);
+const sessionThreadLaunch = Layer.effect(
+  CodexSessionThreadLaunch,
+  makeCodexSessionThreadLaunch,
+).pipe(Layer.provideMerge(sideChatCommands));
+const protocolTools = Layer.effect(CodexAppProtocolTools, makeCodexAppProtocolTools).pipe(
+  Layer.provideMerge(sessionThreadLaunch),
+);
 
 /** Canonical Conversation projections and semantic command capabilities. */
-export const live = agentImport;
+export const live = protocolTools;
