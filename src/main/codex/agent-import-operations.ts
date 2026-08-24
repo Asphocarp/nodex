@@ -38,7 +38,7 @@ import { CodexApplicationEventHub } from "../codex-application/CodexApplicationE
 import { CodexExternalAgentImportRuntime } from "../codex-application/CodexExternalAgentImportRuntime";
 import { CodexSidebarSyncRuntime } from "../codex-application/CodexSidebarSyncRuntime";
 import { CodexThreadDirectory } from "../codex-application/CodexThreadDirectory";
-import { CodexThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "../codex-application/ThreadCreationRuntime";
 import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTitlePersistence";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { getLogger } from "../logging/logger";
@@ -172,7 +172,7 @@ interface AgentImportEffectServices {
   readonly gateway: CodexGateway["Service"];
   readonly sidebarSync: CodexSidebarSyncRuntime["Service"];
   readonly threadDirectory: CodexThreadDirectory["Service"];
-  readonly threadStarts: CodexThreadStartNotificationGate["Service"];
+  readonly threadStarts: ThreadCreationRuntime["Service"];
   readonly threadTitles: CodexThreadTitlePersistence["Service"];
 }
 

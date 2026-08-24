@@ -26,7 +26,7 @@ import { CodexForkSidePanelTransfer } from "./CodexForkSidePanelTransferRuntime"
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadLaunchCompletion } from "./CodexThreadLaunchCompletion";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 import { CodexTurnCommands } from "./CodexTurnCommands";
 import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
@@ -94,7 +94,7 @@ export const make: Effect.Effect<
   | CodexThreadDirectory
   | CodexThreadGoalRuntime
   | CodexThreadLaunchCompletion
-  | CodexThreadStartNotificationGate
+  | ThreadCreationRuntime
   | CodexThreadTitlePersistence
   | CodexTurnCommands
   | BrowserUseRuntime
@@ -109,7 +109,7 @@ export const make: Effect.Effect<
   const directory = yield* CodexThreadDirectory;
   const goals = yield* CodexThreadGoalRuntime;
   const completion = yield* CodexThreadLaunchCompletion;
-  const threadStarts = yield* CodexThreadStartNotificationGate;
+  const threadStarts = yield* ThreadCreationRuntime;
   const titles = yield* CodexThreadTitlePersistence;
   const turns = yield* CodexTurnCommands;
   const browserUse = yield* BrowserUseRuntime;

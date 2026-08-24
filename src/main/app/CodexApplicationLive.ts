@@ -64,9 +64,13 @@ import {
 } from "../codex-application/CodexUserInputAutoResolution";
 import { ComposerCatalog, live as composerCatalogLive } from "../codex-application/ComposerCatalog";
 import {
-  ConversationRuntimeMap,
-  live as conversationRuntimeMapLive,
-} from "../codex-application/ConversationRuntimeMap";
+  CodexConversations,
+  live as codexConversationsLive,
+} from "../codex-application/CodexConversations";
+import {
+  ConversationEntityMap,
+  live as conversationEntityMapLive,
+} from "../codex-application/internal/ConversationEntityMap";
 import {
   CodexApplicationRequestInbox,
   make as makeCodexApplicationRequestInbox,
@@ -184,10 +188,12 @@ const runtime = Layer.unwrap(
   }),
 );
 
+const conversationEntities = conversationEntityMapLive;
+const conversations = codexConversationsLive.pipe(Layer.provideMerge(conversationEntities));
 const foundations = Layer.mergeAll(
   platform,
   requestInbox,
-  conversationRuntimeMapLive,
+  conversations,
   CodexSessionTransport.nodeLive,
 );
 const transport = runtime.pipe(Layer.provideMerge(foundations));
@@ -297,7 +303,8 @@ export const live: Layer.Layer<
   | CodexPlatform
   | CodexApplicationRequestInbox
   | CodexPendingServerRequestRuntime
-  | ConversationRuntimeMap
+  | CodexConversations
+  | ConversationEntityMap
   | CodexGateway
   | CodexEndpointMap
   | CodexEventHub

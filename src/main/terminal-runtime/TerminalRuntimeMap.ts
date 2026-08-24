@@ -15,6 +15,7 @@ import {
   type TerminalPtyConfig,
   type TerminalPtyExit,
 } from "../platform/node/TerminalPty";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 export const TERMINAL_RUNTIME_BUFFER_LIMIT = 16_000;
 
@@ -107,7 +108,7 @@ const runtimeLayer = (
         exitCode: null,
         viewLease: null,
       });
-      const events = yield* PubSub.unbounded<TerminalRuntimeEvent>();
+      const events = yield* PubSub.sliding<TerminalRuntimeEvent>(MAIN_OBSERVATION_EVENT_CAPACITY);
       const outputFiber = handle.output.pipe(
         Stream.runForEach((data) =>
           SubscriptionRef.update(snapshot, (current) => {

@@ -22,7 +22,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import { make } from "./CodexBackgroundProcesses";
 import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 const terminalSessions = (
   overrides: Partial<TerminalSessions["Service"]> = {},
@@ -119,15 +119,15 @@ const directory = (
   } as unknown as CodexThreadDirectory["Service"]);
 };
 
-const conversationRuntimeMap = (events: string[] = []): ConversationRuntimeMap["Service"] => {
-  const runExclusive: ConversationRuntimeMap["Service"]["runExclusive"] = (threadId, operation) =>
+const conversationRuntimeMap = (events: string[] = []): ConversationEntityMap["Service"] => {
+  const runCommand: ConversationEntityMap["Service"]["runCommand"] = (threadId, operation) =>
     Effect.sync(() => events.push(`lane:${threadId}:open`)).pipe(
       Effect.andThen(operation),
       Effect.ensuring(Effect.sync(() => events.push(`lane:${threadId}:close`))),
     );
-  return ConversationRuntimeMap.of({
-    runExclusive,
-  } as unknown as ConversationRuntimeMap["Service"]);
+  return ConversationEntityMap.of({
+    runCommand,
+  } as unknown as ConversationEntityMap["Service"]);
 };
 
 const fromCoreRecord = (
@@ -237,7 +237,7 @@ const makeService = (
     readonly core: CoreModules["Service"];
     readonly directory: CodexThreadDirectory["Service"];
     readonly gateway: CodexGateway["Service"];
-    readonly conversations?: ConversationRuntimeMap["Service"];
+    readonly conversations?: ConversationEntityMap["Service"];
     readonly terminals?: TerminalSessions["Service"];
     readonly lifecycle?: ProjectRuntimeLifecycleRuntime["Service"];
   },
@@ -246,7 +246,7 @@ const makeService = (
     Effect.provideService(CodexGateway, services.gateway),
     Effect.provideService(CodexThreadDirectory, services.directory),
     Effect.provideService(
-      ConversationRuntimeMap,
+      ConversationEntityMap,
       services.conversations ?? conversationRuntimeMap(),
     ),
     Effect.provideService(CoreModules, services.core),

@@ -2,6 +2,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { MainCleanup } from "./MainCleanup";
@@ -12,17 +13,17 @@ import { MainShutdown } from "./MainShutdown";
 
 export type MainStartupGateResult = "continue" | "moved" | "quit";
 
-export interface MainAppOptions<R> {
+export interface MainAppOptions<R, E = MainApplicationError> {
   readonly initialEvents: readonly import("../bootstrap-events").BootstrapRuntimeEvent[];
-  readonly applicationLayer: Layer.Layer<MainApplication, MainApplicationError, R>;
+  readonly applicationLayer: Layer.Layer<MainApplication, E, R>;
   readonly runStartupGate: Effect.Effect<MainStartupGateResult, MainApplicationError, R>;
   readonly onApplicationReady?: (
     application: MainApplication["Service"],
   ) => Effect.Effect<void, MainApplicationError, R | Scope.Scope>;
 }
 
-const runApplication = <R>(
-  options: MainAppOptions<R>,
+const runApplication = <R, E>(
+  options: MainAppOptions<R, E>,
   onAcquired: (application: MainApplication["Service"] | null) => void,
 ) =>
   Effect.scoped(
@@ -39,13 +40,25 @@ const runApplication = <R>(
         for (const event of options.initialEvents) yield* application.handleBootstrapEvent(event);
         if (options.onApplicationReady) yield* options.onApplicationReady(application);
         return yield* shutdown.awaitRequest;
-      }).pipe(Effect.provide(options.applicationLayer));
+      }).pipe(
+        // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the application acquisition boundary inside the process Scope.
+        Effect.provide(options.applicationLayer),
+        Effect.mapError((cause) =>
+          Schema.is(MainApplicationError)(cause)
+            ? cause
+            : new MainApplicationError({
+                phase: "startup",
+                operation: "application-graph",
+                cause,
+              }),
+        ),
+      );
 
       return yield* Effect.raceFirst(acquireApplication, shutdown.awaitRequest);
     }),
   );
 
-export const program = <R>(options: MainAppOptions<R>) =>
+export const program = <R, E>(options: MainAppOptions<R, E>) =>
   Effect.gen(function* () {
     const electron = yield* ElectronApp;
     const cleanup = yield* MainCleanup;

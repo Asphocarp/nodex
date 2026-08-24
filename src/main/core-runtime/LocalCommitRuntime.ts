@@ -726,7 +726,9 @@ export const make = (
             for (const task of planned.tasks) {
               let lane = lanes[task.kind].get(task.laneKey);
               if (!lane) {
-                const queue = yield* Queue.unbounded<QueuedDelivery>();
+                // Global admission already fences total pending deliveries; the per-lane queue
+                // uses the same hard bound so a future admission regression still fails closed.
+                const queue = yield* Queue.bounded<QueuedDelivery>(maxPendingDeliveries);
                 lane = { pending: 0, queue, token: nextLaneToken };
                 nextLaneToken += 1;
                 created.push(lane);

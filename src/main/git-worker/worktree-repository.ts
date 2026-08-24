@@ -30,6 +30,7 @@ import {
   type GitCommandRunner,
 } from "./git-command-runner";
 import { UntrackedPathCache } from "./untracked-cache";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 export interface GitReadQueryMeta extends QueryMeta {
   gitReadDomains?: readonly (
@@ -125,7 +126,9 @@ export const makeWorktreeRepository = (
   Effect.gen(function* () {
     let generation = 1;
     const recovery = yield* Ref.make(false);
-    const watchEvents = yield* PubSub.unbounded<GitRepositoryWatchEvent>();
+    const watchEvents = yield* PubSub.sliding<GitRepositoryWatchEvent>(
+      MAIN_OBSERVATION_EVENT_CAPACITY,
+    );
     const activeQueries = new Set<string>();
     const queryCache = yield* RcMap.make<
       GitQueryRequest<unknown>,

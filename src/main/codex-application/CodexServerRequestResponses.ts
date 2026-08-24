@@ -48,7 +48,7 @@ import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRun
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexThreadReadState } from "./CodexThreadReadState";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export class CodexServerRequestResponseProjectionError extends Data.TaggedError(
   "CodexServerRequestResponseProjectionError",
@@ -173,10 +173,10 @@ export const make: Effect.Effect<
   | CodexRendererConversationRegistry
   | CodexThreadReadState
   | CodexUserInputAutoResolution
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | Scope.Scope
 > = Effect.gen(function* () {
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const gateway = yield* CodexGateway;
   const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
   const inbox = yield* CodexPendingServerRequestRuntime;
@@ -185,7 +185,7 @@ export const make: Effect.Effect<
   const autoResolution = yield* CodexUserInputAutoResolution;
   const events = yield* CodexApplicationEventHub;
   const runSerial = <A, E>(threadId: string, operation: Effect.Effect<A, E>) =>
-    conversations.runExclusive(threadId, operation);
+    conversations.runCommand(threadId, operation);
   const sync = <A>(
     evaluate: () => A,
   ): Effect.Effect<A, CodexServerRequestResponseProjectionError> =>
@@ -196,7 +196,7 @@ export const make: Effect.Effect<
     Clock.currentTimeMillis.pipe(
       Effect.flatMap((observedAtMs) => sync(() => evaluate(observedAtMs))),
     );
-  const aggregate = (threadId: string) => conversations.currentConversation(threadId);
+  const aggregate = (threadId: string) => conversations.current(threadId);
   const commit = (
     threadId: string,
     input:

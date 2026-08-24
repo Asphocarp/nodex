@@ -200,9 +200,9 @@ import {
   make as makeCodexThreadSettingsRuntime,
 } from "../codex-application/CodexThreadSettingsRuntime";
 import {
-  CodexThreadStartNotificationGate,
-  make as makeCodexThreadStartNotificationGate,
-} from "../codex-application/CodexThreadStartNotificationGate";
+  ThreadCreationRuntime,
+  make as makeThreadCreationRuntime,
+} from "../codex-application/ThreadCreationRuntime";
 import { CodexGateway, CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import { makePersistedAtomStore } from "../local-store/persisted-atoms";
 import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
@@ -220,10 +220,7 @@ const internalThreadRegistry = Layer.effect(
   CodexInternalThreadRegistry,
   makeCodexInternalThreadRegistry,
 );
-const threadStartNotifications = Layer.effect(
-  CodexThreadStartNotificationGate,
-  makeCodexThreadStartNotificationGate,
-);
+const threadStartNotifications = Layer.effect(ThreadCreationRuntime, makeThreadCreationRuntime);
 
 const threadDirectory = Layer.effect(CodexThreadDirectory, makeCodexThreadDirectory).pipe(
   Layer.provideMerge(conversationProjection),

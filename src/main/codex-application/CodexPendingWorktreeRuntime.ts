@@ -41,6 +41,7 @@ import {
 import type { CodexWorktreeWorkerEvent } from "../codex/codex-worktree-worker-protocol";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexAttachments } from "./CodexAttachments";
 import { CodexConversationCreation } from "./CodexConversationCreation";
@@ -180,7 +181,9 @@ export const make: Effect.Effect<
   let accepting = true;
   let state: CodexPendingWorktreeState = createCodexPendingWorktreeState();
   let snapshot: readonly CodexPendingWorktreeEntry[] = [];
-  const changes = yield* PubSub.unbounded<readonly CodexPendingWorktreeEntry[]>();
+  const changes = yield* PubSub.sliding<readonly CodexPendingWorktreeEntry[]>(
+    MAIN_OBSERVATION_EVENT_CAPACITY,
+  );
   const attemptFibers = yield* FiberMap.make<string, void>();
   const launchFibers = yield* FiberMap.make<string, void>();
   const runBackground = yield* FiberSet.makeRuntime<never, void, never>();

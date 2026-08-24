@@ -22,7 +22,7 @@ import {
   projectCodexThreadDirectoryMaterialization,
   projectCoreWorkspaceThread,
 } from "./CodexThreadDirectoryProjection";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export type CodexThreadDurableProjectionNotification = Extract<
   CodexServerNotification,
@@ -113,13 +113,13 @@ export const make: Effect.Effect<
   | CodexApplicationEventHub
   | CodexConversationProjection
   | CodexSidebarSyncRuntime
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | CoreModules
 > = Effect.gen(function* () {
   const events = yield* CodexApplicationEventHub;
   const conversationsProjection = yield* CodexConversationProjection;
   const sidebar = yield* CodexSidebarSyncRuntime;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const core = yield* CoreModules;
 
   const error = (operation: string, id: string, cause: unknown) =>
@@ -196,7 +196,7 @@ export const make: Effect.Effect<
           sandboxPolicy: permissions.sandboxPolicy,
           activePermissionProfile: permissions.activePermissionProfile,
           runtimeWorkspaceRoots: [...permissions.runtimeWorkspaceRoots],
-          pendingRequests: conversations.currentConversation(id)?.readServerRequests() ?? [],
+          pendingRequests: conversations.current(id)?.readServerRequests() ?? [],
           hasUnreadTurn: persisted.has_unread_turn,
         }),
       catch: (cause) => error("hydrate", id, cause),

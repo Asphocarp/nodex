@@ -45,14 +45,15 @@ import {
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
 import {
   codexProtocolNotificationThreadId,
+  type CodexConversationDisposition,
   CodexProtocolNotificationEffects,
 } from "./CodexProtocolNotificationEffects";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
-import { conversationIngressOverflow } from "./CodexConversationAggregate";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
+import { conversationIngressOverflow } from "./internal/ConversationEntityState";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
 import { NodexAgentProtocolTools } from "../nodex-agent-application/NodexAgentProtocolTools";
 
@@ -136,15 +137,15 @@ const parseNotification = (
 };
 
 const projectId = (
-  conversations: ConversationRuntimeMap["Service"],
+  conversations: ConversationEntityMap["Service"],
   threadId: string,
-): string | null => conversations.currentConversation(threadId)?.readSnapshot()?.projectId ?? null;
+): string | null => conversations.current(threadId)?.readSnapshot()?.projectId ?? null;
 
 const conversationFacts = (
-  conversations: ConversationRuntimeMap["Service"],
+  conversations: ConversationEntityMap["Service"],
   threadId: string,
 ): CodexNotificationConversationFacts => {
-  const snapshot = conversations.currentConversation(threadId)?.readSnapshot();
+  const snapshot = conversations.current(threadId)?.readSnapshot();
   const parentThreadId = extractCodexThreadSpawnMetadata(snapshot?.source).parentThreadId ?? null;
   return {
     conversationId: threadId,
@@ -163,7 +164,7 @@ const conversationFacts = (
 };
 
 const approvalPayload = (
-  conversations: ConversationRuntimeMap["Service"],
+  conversations: ConversationEntityMap["Service"],
   request: Extract<
     CodexServerRequest,
     {
@@ -224,7 +225,7 @@ const approvalPayload = (
 };
 
 const userInputPayload = (
-  conversations: ConversationRuntimeMap["Service"],
+  conversations: ConversationEntityMap["Service"],
   request: Extract<CodexServerRequest, { method: "item/tool/requestUserInput" }>,
   observedAtMs: number,
 ): CodexUserInputRequest => ({
@@ -251,7 +252,7 @@ const userInputPayload = (
 });
 
 const permissionPayload = (
-  conversations: ConversationRuntimeMap["Service"],
+  conversations: ConversationEntityMap["Service"],
   request: Extract<CodexServerRequest, { method: "item/permissions/requestApproval" }>,
 ): CodexPermissionRequest => ({
   type: "permissionRequest",
@@ -269,7 +270,7 @@ const permissionPayload = (
 });
 
 const mcpPayload = (
-  conversations: ConversationRuntimeMap["Service"],
+  conversations: ConversationEntityMap["Service"],
   request: Extract<CodexServerRequest, { method: "mcpServer/elicitation/request" }>,
   observedAtMs: number,
 ): CodexMcpServerElicitationRequest => ({
@@ -310,9 +311,9 @@ export const make: Effect.Effect<
   | CodexProtocolNotificationEffects
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
-  | CodexThreadStartNotificationGate
+  | ThreadCreationRuntime
   | CodexUserInputAutoResolution
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | NodexAgentProtocolTools
 > = Effect.gen(function* () {
   const applicationEvents = yield* CodexApplicationEventHub;
@@ -325,9 +326,9 @@ export const make: Effect.Effect<
   const notificationEffects = yield* CodexProtocolNotificationEffects;
   const renderer = yield* CodexRendererConversationCoordinator;
   const rendererRegistry = yield* CodexRendererConversationRegistry;
-  const threadStarts = yield* CodexThreadStartNotificationGate;
+  const threadStarts = yield* ThreadCreationRuntime;
   const autoResolution = yield* CodexUserInputAutoResolution;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const nodexAgentTools = yield* NodexAgentProtocolTools;
 
   const reduceRequest = (
@@ -335,7 +336,7 @@ export const make: Effect.Effect<
     request: CodexCanonicalServerRequest,
     observedAtMs: number,
   ): Lifecycle => {
-    const aggregate = conversations.conversation(threadId);
+    const aggregate = conversations.entity(threadId);
     const state = aggregate.readServerRequestState();
     const context = { now: () => observedAtMs, isOpenAIFormElicitationsEnabled: true };
     if (state.canonicalState) {
@@ -543,7 +544,7 @@ export const make: Effect.Effect<
   const observeNotification = (
     occurrence: CodexApplicationNotificationOccurrence,
     notification: CodexServerNotification,
-  ): Effect.Effect<void> => {
+  ): Effect.Effect<CodexConversationDisposition> => {
     const threadId = codexProtocolNotificationThreadId(notification);
     return notificationAdmission.decide({ notification, threadId }).pipe(
       Effect.flatMap((decision) =>
@@ -572,10 +573,11 @@ export const make: Effect.Effect<
                             }),
                           ),
                     ),
+                    Effect.as("retain" as const),
                   ),
                 ),
               )
-          : Effect.void,
+          : Effect.succeed("retain" as const),
       ),
     );
   };
@@ -624,10 +626,10 @@ export const make: Effect.Effect<
         if (!threadId) return interpretOperation(occurrence, handleRequest(request));
         return interpretOperation(
           occurrence,
-          conversations.runExclusive(
+          conversations.runCommand(
             threadId,
             Effect.sync(() =>
-              conversations.conversation(threadId).offerProtocolOccurrence({
+              conversations.entity(threadId).offerProtocolOccurrence({
                 occurrence,
                 bypassResume: false,
                 startsThread: false,
@@ -675,10 +677,10 @@ export const make: Effect.Effect<
     return inbox
       .interpretNotification(
         occurrence,
-        conversations.runExclusive(
+        conversations.runCommand(
           threadId,
           Effect.sync(() => {
-            return conversations.conversation(threadId).offerProtocolOccurrence({
+            return conversations.entity(threadId).offerProtocolOccurrence({
               occurrence,
               bypassResume: false,
               startsThread: notification.method === "thread/started",
@@ -692,18 +694,24 @@ export const make: Effect.Effect<
                 return Effect.die(conversationIngressOverflow(threadId));
               }
               return admission === "buffered"
-                ? Effect.void
+                ? Effect.succeed("retain" as const)
                 : observeNotification(occurrence, notification);
             }),
           ),
         ),
       )
-      .pipe(Effect.asVoid);
+      .pipe(
+        Effect.flatMap((interpretation) =>
+          interpretation.kind === "completed" && interpretation.value === "retire"
+            ? conversations.retire(threadId)
+            : Effect.void,
+        ),
+      );
   };
 
   const replayOccurrence = (
     occurrence: CodexApplicationRequestOccurrence | CodexApplicationNotificationOccurrence,
-  ): Effect.Effect<void> => {
+  ): Effect.Effect<boolean> => {
     if (occurrence.kind === "request") {
       return parseRequest(occurrence).pipe(
         Effect.flatMap((request) => interpretOperation(occurrence, handleRequest(request))),
@@ -722,13 +730,19 @@ export const make: Effect.Effect<
             })
             .pipe(Effect.asVoid),
         ),
+        Effect.as(false),
       );
     }
     const notification = parseNotification(occurrence);
-    if (!notification) return Effect.void;
+    if (!notification) return Effect.succeed(false);
     return inbox
       .interpretNotification(occurrence, observeNotification(occurrence, notification))
-      .pipe(Effect.asVoid);
+      .pipe(
+        Effect.map(
+          (interpretation) =>
+            interpretation.kind === "completed" && interpretation.value === "retire",
+        ),
+      );
   };
 
   const replayBuffered = (
@@ -736,7 +750,10 @@ export const make: Effect.Effect<
       | CodexApplicationRequestOccurrence
       | CodexApplicationNotificationOccurrence
     )[],
-  ): Effect.Effect<void> => Effect.forEach(buffered, replayOccurrence, { discard: true });
+  ): Effect.Effect<boolean> =>
+    Effect.forEach(buffered, replayOccurrence).pipe(
+      Effect.map((retirements) => retirements.some(Boolean)),
+    );
 
   const rejectBuffered = (
     buffered: readonly (
@@ -767,55 +784,66 @@ export const make: Effect.Effect<
     );
 
   const releaseResume = (threadId: string): Effect.Effect<void> => {
-    const aggregate = conversations.currentConversation(threadId);
+    const aggregate = conversations.current(threadId);
     if (!aggregate) return Effect.void;
-    return conversations.runExclusive(
-      threadId,
-      Effect.sync(() => {
-        const buffered = aggregate.takeResumeEventBuffer();
-        return buffered
-          ? compactCodexApplicationProtocolOccurrences({
-              threadId,
-              canonicalState: aggregate.readCanonicalState(),
-              events: buffered,
-            })
-          : null;
-      }).pipe(Effect.flatMap((buffered) => (buffered ? replayBuffered(buffered) : Effect.void))),
-    );
+    return conversations
+      .runCommand(
+        threadId,
+        Effect.sync(() => {
+          const buffered = aggregate.takeResumeEventBuffer();
+          return buffered
+            ? compactCodexApplicationProtocolOccurrences({
+                threadId,
+                canonicalState: aggregate.readCanonicalState(),
+                events: buffered,
+              })
+            : null;
+        }).pipe(
+          Effect.flatMap((buffered) =>
+            buffered ? replayBuffered(buffered) : Effect.succeed(false),
+          ),
+        ),
+      )
+      .pipe(Effect.flatMap((retire) => (retire ? conversations.retire(threadId) : Effect.void)));
   };
 
   const releaseThreadStart = (threadId: string): Effect.Effect<void> => {
-    const aggregate = conversations.currentConversation(threadId);
+    const aggregate = conversations.current(threadId);
     if (!aggregate) return Effect.void;
-    return conversations.runExclusive(
-      threadId,
-      Effect.sync(() => {
-        const buffered = aggregate.takeThreadStartEventBuffer();
-        return buffered
-          ? compactCodexApplicationProtocolOccurrences({
-              threadId,
-              canonicalState: aggregate.readCanonicalState(),
-              events: buffered,
-            })
-          : null;
-      }).pipe(Effect.flatMap((buffered) => (buffered ? replayBuffered(buffered) : Effect.void))),
-    );
+    return conversations
+      .runCommand(
+        threadId,
+        Effect.sync(() => {
+          const buffered = aggregate.takeThreadStartEventBuffer();
+          return buffered
+            ? compactCodexApplicationProtocolOccurrences({
+                threadId,
+                canonicalState: aggregate.readCanonicalState(),
+                events: buffered,
+              })
+            : null;
+        }).pipe(
+          Effect.flatMap((buffered) =>
+            buffered ? replayBuffered(buffered) : Effect.succeed(false),
+          ),
+        ),
+      )
+      .pipe(Effect.flatMap((retire) => (retire ? conversations.retire(threadId) : Effect.void)));
   };
 
   const service = CodexApplicationProtocol.of({
     interpret,
     observe,
-    beginResume: (threadId) => conversations.conversation(threadId).beginResumeEventBuffer(),
-    hasResume: (threadId) =>
-      conversations.currentConversation(threadId)?.hasResumeEventBuffer() ?? false,
+    beginResume: (threadId) => conversations.entity(threadId).beginResumeEventBuffer(),
+    hasResume: (threadId) => conversations.current(threadId)?.hasResumeEventBuffer() ?? false,
     releaseResume,
     discardResume: (threadId, reason) => {
-      const aggregate = conversations.currentConversation(threadId);
+      const aggregate = conversations.current(threadId);
       return aggregate ? rejectBuffered(aggregate.discardResumeEventBuffer(), reason) : Effect.void;
     },
     clearConversationBuffer: (threadId, reason) => {
       threadStarts.clear(threadId);
-      const aggregate = conversations.currentConversation(threadId);
+      const aggregate = conversations.current(threadId);
       return aggregate ? rejectBuffered(aggregate.clearBufferedEvents(), reason) : Effect.void;
     },
     releaseThreadStart,
@@ -836,8 +864,8 @@ export const live: Layer.Layer<
   | CodexProtocolNotificationEffects
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
-  | CodexThreadStartNotificationGate
+  | ThreadCreationRuntime
   | CodexUserInputAutoResolution
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | NodexAgentProtocolTools
 > = Layer.effect(CodexApplicationProtocol, make);

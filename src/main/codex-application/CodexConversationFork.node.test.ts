@@ -16,10 +16,10 @@ import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrai
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexThreadCatalog } from "./CodexThreadCatalog";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
-import { transparentThreadStartNotificationGate } from "./CodexThreadStartNotificationGate.test-support";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
+import { transparentThreadCreationRuntime } from "./ThreadCreationRuntime.test-support";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 const sourceThreadId = "thread-source";
 const childThreadId = "thread-child";
@@ -237,7 +237,7 @@ const makeHarness = (responseTurnId = "turn-a") => {
       } as never),
     ),
     Effect.provideService(CodexThreadDirectory, directory),
-    Effect.provideService(CodexThreadStartNotificationGate, transparentThreadStartNotificationGate),
+    Effect.provideService(ThreadCreationRuntime, transparentThreadCreationRuntime),
     Effect.provideService(
       CodexThreadTitlePersistence,
       CodexThreadTitlePersistence.of({
@@ -250,9 +250,9 @@ const makeHarness = (responseTurnId = "turn-a") => {
       }),
     ),
     Effect.provideService(
-      ConversationRuntimeMap,
-      ConversationRuntimeMap.of({
-        runExclusive: <A, E, R>(_threadId: string, operation: Effect.Effect<A, E, R>) =>
+      ConversationEntityMap,
+      ConversationEntityMap.of({
+        runCommand: <A, E, R>(_threadId: string, operation: Effect.Effect<A, E, R>) =>
           Effect.sync(() => order.push("lane:open")).pipe(Effect.andThen(operation)),
       } as never),
     ),

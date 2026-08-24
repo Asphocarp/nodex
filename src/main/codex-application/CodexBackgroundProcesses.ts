@@ -22,7 +22,7 @@ import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLi
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { TerminalSessions, type TerminalOwner } from "../terminal-runtime/TerminalSessions";
 import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 interface CodexBackgroundProcessConversationProjection {
   readonly threadTitle: string | null;
@@ -168,7 +168,7 @@ export const make: Effect.Effect<
   never,
   | CodexGateway
   | CodexThreadDirectory
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | CoreModules
   | ProjectRuntimeLifecycleRuntime
   | Scope.Scope
@@ -176,7 +176,7 @@ export const make: Effect.Effect<
 > = Effect.gen(function* () {
   const gateway = yield* CodexGateway;
   const directory = yield* CodexThreadDirectory;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const core = yield* CoreModules;
   const projectLifecycle = yield* ProjectRuntimeLifecycleRuntime;
   const terminals = yield* TerminalSessions;
@@ -195,7 +195,7 @@ export const make: Effect.Effect<
   const runThreadOwned = <A, E>(
     threadId: string,
     operation: Effect.Effect<A, E>,
-  ): Effect.Effect<A, E> => runOwned(conversations.runExclusive(threadId, operation));
+  ): Effect.Effect<A, E> => runOwned(conversations.runCommand(threadId, operation));
   const readThread = (
     operation: CodexBackgroundProcessesError["operation"],
     threadId: string,

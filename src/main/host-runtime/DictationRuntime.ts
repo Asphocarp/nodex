@@ -39,6 +39,7 @@ import { getCommandKeymapState } from "../local-store/config";
 import { ElectronPrivacy } from "../platform/electron/ElectronPrivacy";
 import { RendererClientRuntime } from "./RendererClientRuntime";
 import { WindowRuntime } from "../window-runtime/WindowRuntime";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 export class DictationRuntimeError extends Schema.TaggedError<DictationRuntimeError>()(
   "DictationRuntimeError",
@@ -142,7 +143,7 @@ export const live = (options: {
       const privacy = yield* ElectronPrivacy;
       const rendererClients = yield* RendererClientRuntime;
       const windows = yield* WindowRuntime;
-      const events = yield* PubSub.unbounded<void>();
+      const events = yield* PubSub.sliding<void>(MAIN_OBSERVATION_EVENT_CAPACITY);
       const settings = new DictationSettingsStore(config.nodexHome);
       const recordings = new FileDictationRecordingStore({ profileRoot: config.nodexHome });
       const microphone = new DictationMicrophoneLease();

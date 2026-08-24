@@ -10,9 +10,10 @@ import type {
   CodexQueuedFollowUp,
   CodexServiceTier,
 } from "../../shared/types";
-import type { CodexQueuedFollowUpClaim } from "./CodexConversationAggregate";
+import type { CodexQueuedFollowUpClaim } from "./internal/ConversationEntityState";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
+import { MAIN_RELIABLE_COMMAND_CAPACITY } from "../runtime-limits";
 
 export class CodexQueuedFollowUpsError extends Schema.TaggedError<CodexQueuedFollowUpsError>()(
   "CodexQueuedFollowUpsError",
@@ -79,11 +80,13 @@ const normalizeServiceTier = (value: CodexServiceTier | undefined): CodexService
 export const make: Effect.Effect<
   CodexQueuedFollowUps["Service"],
   never,
-  ConversationRuntimeMap | CodexRendererConversationRegistry | Scope.Scope
+  ConversationEntityMap | CodexRendererConversationRegistry | Scope.Scope
 > = Effect.gen(function* () {
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const rendererConversations = yield* CodexRendererConversationRegistry;
-  const dispatchIntents = yield* Queue.unbounded<CodexQueuedFollowUpDispatchIntent>();
+  const dispatchIntents = yield* Queue.bounded<CodexQueuedFollowUpDispatchIntent>(
+    MAIN_RELIABLE_COMMAND_CAPACITY,
+  );
   let nextId = 0;
   let closed = false;
 
@@ -94,7 +97,7 @@ export const make: Effect.Effect<
   );
 
   const projectReplica = (threadId: string): boolean => !rendererConversations.hasOwner(threadId);
-  const current = (threadId: string) => conversations.currentConversation(threadId);
+  const current = (threadId: string) => conversations.current(threadId);
 
   return CodexQueuedFollowUps.of({
     list: (threadId) => current(threadId)?.listQueuedFollowUps() ?? [],
@@ -114,7 +117,7 @@ export const make: Effect.Effect<
           }),
         );
       }
-      return conversations.runExclusive(
+      return conversations.runCommand(
         threadId,
         Effect.gen(function* () {
           const aggregate = current(threadId);
@@ -147,7 +150,7 @@ export const make: Effect.Effect<
       );
     },
     remove: (threadId, followUpId) =>
-      conversations.runExclusive(
+      conversations.runCommand(
         threadId,
         Effect.sync(
           () =>
@@ -158,28 +161,28 @@ export const make: Effect.Effect<
         ),
       ),
     reorder: (threadId, orderedFollowUpIds) =>
-      conversations.runExclusive(
+      conversations.runCommand(
         threadId,
         Effect.sync(() => {
           current(threadId)?.reorderQueuedFollowUps(orderedFollowUpIds, projectReplica(threadId));
         }),
       ),
     clearPaused: (threadId) =>
-      conversations.runExclusive(
+      conversations.runCommand(
         threadId,
         Effect.sync(
           () => current(threadId)?.clearPausedQueuedFollowUps(projectReplica(threadId)) ?? false,
         ),
       ),
     reset: (threadId) =>
-      conversations.runExclusive(
+      conversations.runCommand(
         threadId,
         Effect.sync(() => {
           current(threadId)?.resetQueuedFollowUps(projectReplica(threadId));
         }),
       ),
     clear: (threadId) =>
-      conversations.runExclusive(
+      conversations.runCommand(
         threadId,
         Effect.sync(() => {
           current(threadId)?.clearQueuedFollowUps();
@@ -194,7 +197,7 @@ export const make: Effect.Effect<
     takeDispatchIntent: Queue.take(dispatchIntents),
     claim: (threadId, followUpId) =>
       conversations
-        .runExclusive(
+        .runCommand(
           threadId,
           Effect.sync(
             () =>
@@ -211,7 +214,7 @@ export const make: Effect.Effect<
         ),
     restore: (threadId, claim, reason) =>
       conversations
-        .runExclusive(
+        .runCommand(
           threadId,
           Effect.sync(
             () =>

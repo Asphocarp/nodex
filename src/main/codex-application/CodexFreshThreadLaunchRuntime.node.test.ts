@@ -6,7 +6,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import type { CodexConversationSnapshot } from "../../shared/types";
-import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
+import { makeConversationEntityStateRegistry } from "./internal/ConversationEntityState";
 import {
   make,
   type CodexFreshThreadLaunch,
@@ -51,7 +51,7 @@ interface HarnessOptions {
 }
 
 const makeHarness = (options: HarnessOptions = {}) => {
-  const aggregates = makeCodexConversationAggregateRegistry();
+  const aggregates = makeConversationEntityStateRegistry();
   const registry = makeCodexRendererConversationRegistryState();
   const snapshot = {
     threadId: identity.threadId,

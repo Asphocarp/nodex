@@ -8,7 +8,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { MainShutdown } from "../app/MainShutdown";
 import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationRequestInbox";
 import { CodexApplicationProtocol } from "./CodexApplicationProtocol";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 
 const MAX_CONCURRENT_CONVERSATIONS = 64;
 
@@ -30,16 +30,13 @@ const interruptedOnly = (cause: Cause.Cause<unknown>): boolean => Cause.hasInter
 export const live: Layer.Layer<
   CodexProtocolIngress,
   never,
-  | CodexApplicationProtocol
-  | CodexApplicationRequestInbox
-  | CodexThreadStartNotificationGate
-  | MainShutdown
+  CodexApplicationProtocol | CodexApplicationRequestInbox | ThreadCreationRuntime | MainShutdown
 > = Layer.effect(
   CodexProtocolIngress,
   Effect.gen(function* () {
     const protocol = yield* CodexApplicationProtocol;
     const inbox = yield* CodexApplicationRequestInbox;
-    const threadStarts = yield* CodexThreadStartNotificationGate;
+    const threadStarts = yield* ThreadCreationRuntime;
     const shutdown = yield* MainShutdown;
     const health = yield* SubscriptionRef.make<CodexProtocolIngressHealth>({ _tag: "Starting" });
 

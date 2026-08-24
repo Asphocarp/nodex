@@ -1,9 +1,9 @@
 import type { Thread, ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import { assert, it } from "@effect/vitest";
-import type { CodexConversationSnapshot } from "../../shared/types";
-import { CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID } from "../../shared/codex-conversation-state/codex-conversation-reducer";
-import { createCodexCanonicalConversationState } from "../../shared/codex-conversation-state/codex-conversation-state";
-import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
+import type { CodexConversationSnapshot } from "../../../shared/types";
+import { CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID } from "../../../shared/codex-conversation-state/codex-conversation-reducer";
+import { createCodexCanonicalConversationState } from "../../../shared/codex-conversation-state/codex-conversation-state";
+import { makeConversationEntityStateRegistry } from "./ConversationEntityState";
 
 const threadId = "thread-canonical-projection";
 
@@ -62,7 +62,7 @@ const goal: ThreadGoal = {
 };
 
 it("projects semantic canonical mutations into both the snapshot and dormant replica", () => {
-  const aggregate = makeCodexConversationAggregateRegistry().acquire(threadId);
+  const aggregate = makeConversationEntityStateRegistry().acquire(threadId);
   aggregate.acceptCanonicalState(
     createCodexCanonicalConversationState(thread, { turnParamsById: {} }),
   );

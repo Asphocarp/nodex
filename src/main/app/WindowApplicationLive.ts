@@ -71,6 +71,7 @@ import * as WindowSessionCatalog from "../window-runtime/WindowSessionCatalog";
 import { WindowRuntime } from "../window-runtime/WindowRuntime";
 import { live as windowShutdownLive, WindowShutdown } from "../window-runtime/WindowShutdown";
 import { MainConfig } from "./MainConfig";
+import { MainCleanup } from "./MainCleanup";
 import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
 
 const appUpdates = appUpdateRuntimeLive;
@@ -226,6 +227,7 @@ export const live: Layer.Layer<
   | ElectronWindowHost
   | ElectronNet.ElectronNet
   | LibraryModule
+  | MainCleanup
   | MainConfig
   | NodexAgentResourceAccess
   | ProjectWorkspace

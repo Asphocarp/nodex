@@ -7,12 +7,12 @@ import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
-export interface CodexThreadStartNotificationRelease {
+export interface ThreadCreationRelease {
   readonly hostId: string;
   readonly threadId: string;
 }
 
-export interface CodexThreadStartNotificationGateService {
+export interface ThreadCreationRuntimeService {
   /**
    * Fences one app-server operation until its returned Thread has been materialized locally, then
    * releases any notification that won the response race without delaying the committed caller.
@@ -25,19 +25,19 @@ export interface CodexThreadStartNotificationGateService {
   /** Claims an arriving `thread/started` for an open materialization on the same host. */
   readonly defer: (hostId: string, threadId: string) => boolean;
   /** Internal protocol-consumer stream. */
-  readonly releases: Stream.Stream<CodexThreadStartNotificationRelease>;
+  readonly releases: Stream.Stream<ThreadCreationRelease>;
   /** Fails if release admission can no longer preserve canonical notification delivery. */
-  readonly termination: Effect.Effect<never, CodexThreadStartNotificationOverflow>;
+  readonly termination: Effect.Effect<never, ThreadCreationOverflow>;
   readonly clear: (threadId: string) => void;
 }
 
-export class CodexThreadStartNotificationGate extends Context.Service<
-  CodexThreadStartNotificationGate,
-  CodexThreadStartNotificationGateService
->()("nodex/main/codex-application/CodexThreadStartNotificationGate") {}
+export class ThreadCreationRuntime extends Context.Service<
+  ThreadCreationRuntime,
+  ThreadCreationRuntimeService
+>()("nodex/main/codex-application/ThreadCreationRuntime") {}
 
-export class CodexThreadStartNotificationOverflow extends Schema.TaggedError<CodexThreadStartNotificationOverflow>()(
-  "CodexThreadStartNotificationOverflow",
+export class ThreadCreationOverflow extends Schema.TaggedError<ThreadCreationOverflow>()(
+  "ThreadCreationOverflow",
   {
     capacity: Schema.Int,
     hostId: Schema.String,
@@ -46,23 +46,26 @@ export class CodexThreadStartNotificationOverflow extends Schema.TaggedError<Cod
 ) {}
 
 /**
- * Owns the response/notification race shared by every app-server Thread materializer. The gate is
- * host-scoped because `thread/started` can arrive before the response continuation reveals which
- * concurrent request created it; exact Thread ids become ready as soon as their local transaction
- * commits. Release is intentionally one-way: application commits never wait on the protocol actor.
+ * Application-scoped owner of physical Thread creation. Each admitted operation receives a local
+ * launch intent and continues in this runtime's Scope if its renderer waiter disappears. The
+ * app-server does not echo a client launch id in `thread/started`, so notifications that beat the
+ * response are held in a host cohort; the response's exact Thread id is the commit correlation.
+ * Release is one-way: a local commit never waits on the protocol actor.
  */
 export const makeWithCapacity = (
   capacity: number,
-): Effect.Effect<CodexThreadStartNotificationGateService, never, Scope.Scope> =>
+): Effect.Effect<ThreadCreationRuntimeService, never, Scope.Scope> =>
   Effect.gen(function* () {
     const normalizedCapacity = Math.max(1, Math.floor(capacity));
-    const releases = yield* Queue.dropping<CodexThreadStartNotificationRelease>(normalizedCapacity);
-    const termination = yield* Deferred.make<never, CodexThreadStartNotificationOverflow>();
+    const releases = yield* Queue.dropping<ThreadCreationRelease>(normalizedCapacity);
+    const termination = yield* Deferred.make<never, ThreadCreationOverflow>();
     const ownerScope = yield* Effect.scope;
+    let nextLaunchId = 0;
+    const intents = new Map<number, string>();
     const hosts = new Map<
       string,
       {
-        active: number;
+        readonly launchIds: Set<number>;
         readonly deferredThreadIds: Set<string>;
         readonly readyThreadIds: Set<string>;
       }
@@ -75,7 +78,7 @@ export const makeWithCapacity = (
       const existing = hosts.get(hostId);
       if (existing) return existing;
       const created = {
-        active: 0,
+        launchIds: new Set<number>(),
         deferredThreadIds: new Set<string>(),
         readyThreadIds: new Set<string>(),
       };
@@ -90,7 +93,7 @@ export const makeWithCapacity = (
             ? Effect.void
             : Deferred.fail(
                 termination,
-                new CodexThreadStartNotificationOverflow({
+                new ThreadCreationOverflow({
                   capacity: normalizedCapacity,
                   hostId,
                   threadId,
@@ -110,12 +113,22 @@ export const makeWithCapacity = (
         return offerRelease(normalizedHostId, normalizedThreadId);
       });
 
-    const end = (hostId: string): Effect.Effect<void> =>
+    const begin = (hostId: string): number => {
+      nextLaunchId += 1;
+      intents.set(nextLaunchId, hostId);
+      hostState(hostId).launchIds.add(nextLaunchId);
+      return nextLaunchId;
+    };
+
+    const end = (launchId: number): Effect.Effect<void> =>
       Effect.suspend(() => {
+        const hostId = intents.get(launchId);
+        if (!hostId) return Effect.void;
+        intents.delete(launchId);
         const state = hosts.get(hostId);
-        if (!state || state.active <= 0) return Effect.void;
-        state.active -= 1;
-        if (state.active > 0) return Effect.void;
+        if (!state) return Effect.void;
+        state.launchIds.delete(launchId);
+        if (state.launchIds.size > 0) return Effect.void;
         const pending = [...state.deferredThreadIds];
         hosts.delete(hostId);
         return Effect.forEach(pending, (threadId) => offerRelease(hostId, threadId), {
@@ -123,18 +136,18 @@ export const makeWithCapacity = (
         });
       });
 
-    return CodexThreadStartNotificationGate.of({
+    return ThreadCreationRuntime.of({
       materialize: (hostId, operation, threadId) =>
         Effect.uninterruptibleMask((restore) => {
           const normalizedHostId = normalizeHostId(hostId);
           if (!normalizedHostId) return restore(operation);
-          hostState(normalizedHostId).active += 1;
+          const launchId = begin(normalizedHostId);
           const physical = operation.pipe(
             Effect.tap((value) => {
               const identified = threadId(value);
               return identified === null ? Effect.void : release(normalizedHostId, identified);
             }),
-            Effect.ensuring(end(normalizedHostId)),
+            Effect.ensuring(end(launchId)),
           );
           return physical.pipe(
             Effect.forkIn(ownerScope, { startImmediately: true }),
@@ -149,7 +162,7 @@ export const makeWithCapacity = (
           !normalizedHostId ||
           !normalizedThreadId ||
           !state ||
-          state.active === 0 ||
+          state.launchIds.size === 0 ||
           state.readyThreadIds.has(normalizedThreadId)
         ) {
           return false;

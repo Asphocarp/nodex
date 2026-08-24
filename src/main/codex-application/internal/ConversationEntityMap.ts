@@ -6,29 +6,29 @@ import * as Layer from "effect/Layer";
 import * as LayerMap from "effect/LayerMap";
 import * as Semaphore from "effect/Semaphore";
 import {
-  makeCodexConversationAggregateRegistry,
-  type CodexConversationAggregate,
-  type CodexConversationAggregateRegistry,
-} from "./CodexConversationAggregate";
+  makeConversationEntityStateRegistry,
+  type ConversationEntityState,
+  type ConversationEntityStateRegistry,
+} from "./ConversationEntityState";
 
-export class ConversationRuntimeMap extends Context.Service<
-  ConversationRuntimeMap,
+export class ConversationEntityMap extends Context.Service<
+  ConversationEntityMap,
   {
     /** Acquires the canonical semantic capability for one Thread generation. */
-    readonly conversation: (threadId: string) => CodexConversationAggregate;
+    readonly entity: (threadId: string) => ConversationEntityState;
     /** Pure query that never creates or resurrects a Thread generation. */
-    readonly currentConversation: (threadId: string) => CodexConversationAggregate | null;
+    readonly current: (threadId: string) => ConversationEntityState | null;
     /** Serializes complete application commands within the current Thread generation. */
-    readonly runExclusive: <A, E, R>(
+    readonly runCommand: <A, E, R>(
       threadId: string,
       operation: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E, R>;
     /** Marks every loaded Thread non-live after the app-server connection is lost. */
     readonly markAllNeedsResume: () => void;
     /** Closes the exact live generation and interrupts its active or queued commands. */
-    readonly close: (threadId: string) => Effect.Effect<void>;
+    readonly retire: (threadId: string) => Effect.Effect<void>;
   }
->()("nodex/main/codex-application/ConversationRuntimeMap") {}
+>()("nodex/main/codex-application/internal/ConversationEntityMap") {}
 
 class ConversationCausalLane extends Context.Service<
   ConversationCausalLane,
@@ -39,7 +39,7 @@ class ConversationCausalLane extends Context.Service<
 
 const causalLaneLayer = (
   threadId: string,
-  aggregates: CodexConversationAggregateRegistry,
+  aggregates: ConversationEntityStateRegistry,
 ): Layer.Layer<ConversationCausalLane> =>
   Layer.effect(
     ConversationCausalLane,
@@ -66,14 +66,14 @@ const causalLaneLayer = (
   );
 
 /**
- * Profile-scoped owner of canonical Thread generations and their single causal command lanes.
+ * Profile-scoped owner of private Thread entities and their single causal command lanes.
  * A lane is cached until explicit Thread close or Main Scope close; no consumer can observe its
  * semaphore, Scope, or lifecycle bookkeeping.
  */
-export const live: Layer.Layer<ConversationRuntimeMap> = Layer.effect(
-  ConversationRuntimeMap,
+export const live: Layer.Layer<ConversationEntityMap> = Layer.effect(
+  ConversationEntityMap,
   Effect.gen(function* () {
-    const aggregates = makeCodexConversationAggregateRegistry();
+    const aggregates = makeConversationEntityStateRegistry();
     yield* Effect.addFinalizer(() => Effect.sync(aggregates.releaseAll));
     const lanes = yield* LayerMap.make(
       (threadId: string) => causalLaneLayer(threadId, aggregates),
@@ -89,13 +89,13 @@ export const live: Layer.Layer<ConversationRuntimeMap> = Layer.effect(
           .pipe(Effect.map((context) => Context.get(context, ConversationCausalLane))),
       );
 
-    return ConversationRuntimeMap.of({
-      conversation: aggregates.acquire,
-      currentConversation: aggregates.current,
-      runExclusive: (threadId, operation) =>
+    return ConversationEntityMap.of({
+      entity: aggregates.acquire,
+      current: aggregates.current,
+      runCommand: (threadId, operation) =>
         lane(threadId).pipe(Effect.flatMap((current) => current.runExclusive(operation))),
       markAllNeedsResume: aggregates.markAllNeedsResume,
-      close: (threadId) => {
+      retire: (threadId) => {
         const generation = aggregates.current(threadId)?.generation;
         return lanes
           .invalidate(threadId)

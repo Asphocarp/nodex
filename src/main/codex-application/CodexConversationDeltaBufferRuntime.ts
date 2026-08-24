@@ -14,7 +14,7 @@ import {
   type CodexFrameTextDeltaUpdate,
 } from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export interface CodexConversationDeltaBufferRuntimeOptions {
   readonly frameFlushInterval?: Duration.Input;
@@ -37,10 +37,10 @@ export const make = (
 ): Effect.Effect<
   CodexConversationDeltaBufferRuntime["Service"],
   never,
-  ConversationRuntimeMap | CodexRendererConversationRegistry | Scope.Scope
+  ConversationEntityMap | CodexRendererConversationRegistry | Scope.Scope
 > =>
   Effect.gen(function* () {
-    const conversations = yield* ConversationRuntimeMap;
+    const conversations = yield* ConversationEntityMap;
     const rendererRegistry = yield* CodexRendererConversationRegistry;
     const frameFlush = yield* FiberHandle.make<void, never>();
     const outputFlush = yield* FiberHandle.make<void, never>();
@@ -53,7 +53,7 @@ export const make = (
 
     const flushFrameThread = (threadId: string, observedAtMs: number): void => {
       pendingFrameThreads.delete(threadId);
-      const aggregate = conversations.currentConversation(threadId);
+      const aggregate = conversations.current(threadId);
       if (!aggregate) return;
       const updates = aggregate.takeBufferedFrameTextDeltas();
       if (updates.length === 0) return;
@@ -94,7 +94,7 @@ export const make = (
           const threadIds = [...pendingOutputThreads];
           pendingOutputThreads.clear();
           for (const threadId of threadIds) {
-            const aggregate = conversations.currentConversation(threadId);
+            const aggregate = conversations.current(threadId);
             if (!aggregate) continue;
             const updates = aggregate.takeBufferedCommandOutputDeltas();
             if (updates.length === 0) continue;
@@ -127,10 +127,10 @@ export const make = (
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         for (const threadId of pendingFrameThreads) {
-          conversations.currentConversation(threadId)?.clearBufferedDeltas();
+          conversations.current(threadId)?.clearBufferedDeltas();
         }
         for (const threadId of pendingOutputThreads) {
-          conversations.currentConversation(threadId)?.clearBufferedDeltas();
+          conversations.current(threadId)?.clearBufferedDeltas();
         }
         pendingFrameThreads.clear();
         pendingOutputThreads.clear();
@@ -139,14 +139,14 @@ export const make = (
 
     return CodexConversationDeltaBufferRuntime.of({
       enqueueFrameText: (update) => {
-        const aggregate = conversations.conversation(update.conversationId);
+        const aggregate = conversations.entity(update.conversationId);
         aggregate.bufferFrameTextDelta(update);
         const shouldSchedule = pendingFrameThreads.size === 0;
         pendingFrameThreads.add(update.conversationId);
         if (shouldSchedule) scheduleFrameFlush();
       },
       enqueueCommandOutput: (update) => {
-        const aggregate = conversations.conversation(update.conversationId);
+        const aggregate = conversations.entity(update.conversationId);
         aggregate.bufferCommandOutputDelta(update, maxBufferedOutputChars);
         const shouldSchedule = pendingOutputThreads.size === 0;
         pendingOutputThreads.add(update.conversationId);
@@ -157,7 +157,7 @@ export const make = (
         if (pendingFrameThreads.size === 0) runFrameFlush(Effect.void);
       },
       clear: (conversationId) => {
-        conversations.currentConversation(conversationId)?.clearBufferedDeltas();
+        conversations.current(conversationId)?.clearBufferedDeltas();
         pendingFrameThreads.delete(conversationId);
         pendingOutputThreads.delete(conversationId);
         if (pendingFrameThreads.size === 0) runFrameFlush(Effect.void);

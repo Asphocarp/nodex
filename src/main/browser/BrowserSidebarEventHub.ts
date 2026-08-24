@@ -17,6 +17,7 @@ import type {
   BrowserUsePageClosedEvent,
   BrowserUsePresentationRequest,
 } from "../../shared/browser-sidebar";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 export type BrowserSidebarEvent =
   | { readonly kind: "state"; readonly value: BrowserSidebarStateSnapshot }
@@ -69,7 +70,7 @@ export interface BrowserSidebarEventHubService extends BrowserSidebarEventPublis
 export const make: Effect.Effect<BrowserSidebarEventHubService, never, Scope.Scope> = Effect.gen(
   function* () {
     let accepting = true;
-    const events = yield* PubSub.unbounded<BrowserSidebarEvent>();
+    const events = yield* PubSub.sliding<BrowserSidebarEvent>(MAIN_OBSERVATION_EVENT_CAPACITY);
     const webviewAttachedSubscribers = new Set<(value: BrowserSidebarWebviewAttached) => void>();
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {

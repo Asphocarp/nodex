@@ -9,17 +9,27 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { performance } from "node:perf_hooks";
 import { CoreAuthority } from "../core-runtime/CoreAuthority";
 import { CoreEventHub } from "../core-runtime/CoreEventHub";
+import { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { AutomationRoutingIndex } from "../core-runtime/AutomationRoutingIndex";
 import { ProjectionDeliveryRuntime } from "../core-runtime/ProjectionDeliveryRuntime";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import { CodexSidebarSyncRuntime } from "../codex-application/CodexSidebarSyncRuntime";
 import { CodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
-import { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
+import {
+  ExecutionHostRuntime,
+  ExecutionHostRuntimeError,
+} from "../codex-application/ExecutionHostRuntime";
 import { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import { projectSessionIdFromTerminalSessionId } from "../browser/browser-local-server-runtime";
-import { BrowserApplication } from "../browser-application/BrowserApplication";
+import {
+  BrowserApplication,
+  BrowserApplicationError,
+} from "../browser-application/BrowserApplication";
 import { AppUpdateRuntime } from "../host-runtime/AppUpdateRuntime";
+import { ApplicationHostRuntimeError } from "../host-runtime/ApplicationHostRuntime";
+import { BrowserProfileRuntimeError } from "../host-runtime/BrowserProfileRuntime";
+import { BrowserUseRuntimeError } from "../host-runtime/BrowserUseRuntime";
 import { ReminderSchedulerRuntime } from "../host-runtime/ReminderSchedulerRuntime";
 import { ScheduledAutomationRuntime } from "../host-runtime/ScheduledAutomationRuntime";
 import { StoreAdministrationSchedulerRuntime } from "../host-runtime/StoreAdministrationSchedulerRuntime";
@@ -37,6 +47,7 @@ import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import * as TerminalRuntimeLive from "../terminal-runtime/TerminalRuntimeLive";
 import { MainApplication, MainApplicationError } from "./MainApplication";
+import { MainCleanup } from "./MainCleanup";
 import { MainConfig } from "./MainConfig";
 import { MainShutdown } from "./MainShutdown";
 import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
@@ -86,7 +97,13 @@ const applicationGraph = RendererIngressLive.live.pipe(
 /** Fully acquired production desktop application graph. */
 export const live: Layer.Layer<
   MainApplication,
-  MainApplicationError,
+  | ApplicationHostRuntimeError
+  | BrowserApplicationError
+  | BrowserProfileRuntimeError
+  | BrowserUseRuntimeError
+  | CoreRuntimeError
+  | ExecutionHostRuntimeError
+  | MainApplicationError,
   | ElectronApp
   | ElectronDesktop
   | ElectronIpc
@@ -96,6 +113,7 @@ export const live: Layer.Layer<
   | FileSystem.FileSystem
   | BrowserProfileHelperPlatform
   | MainConfig
+  | MainCleanup
   | MainShutdown
   | ScopedCallbackRuntime
   | TerminalSessions

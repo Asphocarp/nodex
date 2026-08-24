@@ -10,7 +10,7 @@ import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export interface CodexThreadReadStateSnapshot {
   readonly exists: boolean;
@@ -156,11 +156,11 @@ export const make: Effect.Effect<
   never,
   | CodexApplicationEventHub
   | CodexRendererConversationRegistry
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | ProjectWorkspace
   | Scope.Scope
 > = Effect.gen(function* () {
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const events = yield* CodexApplicationEventHub;
   const rendererConversations = yield* CodexRendererConversationRegistry;
   const workspace = yield* ProjectWorkspace;
@@ -169,7 +169,7 @@ export const make: Effect.Effect<
       workspace.getThread(threadId).pipe(
         Effect.mapError((cause) => new CodexThreadReadStateError({ operation: "inspect", cause })),
         Effect.map((thread) => {
-          const aggregate = conversations.currentConversation(threadId);
+          const aggregate = conversations.current(threadId);
           const accepted = aggregate?.read().acceptedReplica?.conversation ?? null;
           return {
             exists: aggregate !== null || thread !== null,
@@ -187,7 +187,7 @@ export const make: Effect.Effect<
     project: ({ threadId, hasUnreadTurn }) =>
       Effect.sync(() => {
         conversations
-          .currentConversation(threadId)
+          .current(threadId)
           ?.setHasUnreadTurn(hasUnreadTurn, !rendererConversations.hasOwner(threadId));
         events.publish({
           kind: "hostMessage",

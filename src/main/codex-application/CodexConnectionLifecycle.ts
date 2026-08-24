@@ -10,7 +10,7 @@ import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRun
 import { CodexProtocolNotificationEffects } from "./CodexProtocolNotificationEffects";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export class CodexConnectionLifecycle extends Context.Service<
   CodexConnectionLifecycle,
@@ -31,7 +31,7 @@ export const make: Effect.Effect<
   | CodexProtocolNotificationEffects
   | CodexSidebarSyncRuntime
   | CodexUserInputAutoResolution
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | Scope.Scope
 > = Effect.gen(function* () {
   const connectionState = yield* CodexConnection;
@@ -40,7 +40,7 @@ export const make: Effect.Effect<
   const protocol = yield* CodexProtocolNotificationEffects;
   const sidebar = yield* CodexSidebarSyncRuntime;
   const autoResolution = yield* CodexUserInputAutoResolution;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   let previousStatus: CodexConnectionState["status"] = "disconnected";
 
   const settleDisconnectedRequests = Effect.fn(
@@ -49,7 +49,7 @@ export const make: Effect.Effect<
     yield* Effect.forEach(
       pending.disconnectIdentities(),
       ({ threadId, requestId }) =>
-        conversations.runExclusive(
+        conversations.runCommand(
           threadId,
           protocol
             .apply({

@@ -524,4 +524,43 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
       assert.equal(error.operation, "incoming-capacity");
     }),
   );
+
+  it.effect("bounds retained incoming payload bytes independently of message count", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const first = encodeJsonl({ method: "x/first", params: { value: "a".repeat(32) } });
+      const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
+        stdio,
+        incomingCapacity: 16,
+        incomingByteCapacity: first.byteLength + 8,
+      });
+
+      yield* Queue.offer(input, first);
+      yield* Queue.offer(input, encodeJsonl({ method: "x/second", params: { value: "b" } }));
+
+      const error = yield* transport.termination.pipe(Effect.flip);
+      assert.instanceOf(error, CodexError.CodexAppServerTransportError);
+      assert.equal(error.operation, "incoming-capacity");
+      assert.match(String(error.cause), /bytes/);
+    }),
+  );
+
+  it.effect("terminates the protocol when one outgoing frame exceeds its physical budget", () =>
+    Effect.gen(function* () {
+      const { stdio } = yield* makeInMemoryStdio();
+      const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
+        stdio,
+        maximumFrameBytes: 64,
+      });
+
+      const notifyError = yield* transport
+        .notify("x/oversized", { value: "a".repeat(128) })
+        .pipe(Effect.flip);
+      const terminationError = yield* transport.termination.pipe(Effect.flip);
+
+      assert.instanceOf(notifyError, CodexError.CodexAppServerTransportError);
+      assert.equal(notifyError.operation, "outgoing-capacity");
+      assert.strictEqual(terminationError, notifyError);
+    }),
+  );
 });

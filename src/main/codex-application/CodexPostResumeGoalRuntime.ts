@@ -7,7 +7,7 @@ import type * as Scope from "effect/Scope";
 import { CodexActiveGoalContinuation } from "./CodexActiveGoalContinuation";
 import { CodexConversationHistoryRuntime } from "./CodexConversationHistoryRuntime";
 import { CodexThreadGoalRuntime, type CodexThreadGoalLoadResult } from "./CodexThreadGoalRuntime";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export class CodexPostResumeGoalRuntime extends Context.Service<
   CodexPostResumeGoalRuntime,
@@ -26,13 +26,13 @@ export const make: Effect.Effect<
   | CodexActiveGoalContinuation
   | CodexConversationHistoryRuntime
   | CodexThreadGoalRuntime
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | Scope.Scope
 > = Effect.gen(function* () {
   const activeGoalContinuation = yield* CodexActiveGoalContinuation;
   const conversationHistory = yield* CodexConversationHistoryRuntime;
   const threadGoals = yield* CodexThreadGoalRuntime;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const loads = yield* FiberMap.make<string, CodexThreadGoalLoadResult, never>();
   const requests = yield* FiberMap.make<string, void, never>();
   const runLoad = yield* FiberMap.runtime(loads)();
@@ -55,7 +55,7 @@ export const make: Effect.Effect<
   const commit = (threadId: string, expectedRevision: number, result: CodexThreadGoalLoadResult) =>
     result.ok &&
     conversations
-      .currentConversation(threadId)
+      .current(threadId)
       ?.commitPostResumeGoalHydration({ expectedRevision, goal: result.goal }) === true;
 
   const hydrate = Effect.fn("CodexPostResumeGoalRuntime.hydrate")(function* (

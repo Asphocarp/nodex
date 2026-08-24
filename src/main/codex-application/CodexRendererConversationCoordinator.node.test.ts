@@ -17,15 +17,15 @@ import {
 import { CodexRendererOwnerRetention } from "./CodexRendererOwnerRetention";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 
 it.effect("adopts a canonical snapshot as the first accepted renderer replica", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
     const conversationContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(conversationContext, ConversationRuntimeMap);
+    const conversations = Context.get(conversationContext, ConversationEntityMap);
     const registry = yield* makeRendererRegistry().pipe(Effect.provideService(Scope.Scope, scope));
     const snapshot = {
       threadId: "thread-fresh",
@@ -34,7 +34,7 @@ it.effect("adopts a canonical snapshot as the first accepted renderer replica", 
       requests: [],
       queuedFollowUps: [],
     } as unknown as CodexConversationSnapshot;
-    conversations.conversation(snapshot.threadId).installSnapshot(snapshot);
+    conversations.entity(snapshot.threadId).installSnapshot(snapshot);
     const coordinator = yield* makeCoordinator.pipe(
       Effect.provideService(
         CodexApplicationEventHub,
@@ -57,7 +57,7 @@ it.effect("adopts a canonical snapshot as the first accepted renderer replica", 
         CodexUserInputAutoResolution,
         CodexUserInputAutoResolution.of({} as CodexUserInputAutoResolution["Service"]),
       ),
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
       Effect.provideService(Scope.Scope, scope),
     );
 

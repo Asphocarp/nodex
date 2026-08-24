@@ -6,7 +6,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import { make, makeWithCapacity } from "./CodexThreadStartNotificationGate";
+import { make, makeWithCapacity } from "./ThreadCreationRuntime";
 
 it.effect("releases notification-first starts only after local materialization", () =>
   Effect.gen(function* () {

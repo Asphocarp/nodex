@@ -11,7 +11,7 @@ import type {
   CodexConversationSnapshot,
   CodexQueuedFollowUp,
   CodexThreadStreamCheckpoint,
-} from "../../shared/types";
+} from "../../../shared/types";
 import * as Data from "effect/Data";
 import {
   appendCodexCanonicalWorktreeInitItem,
@@ -19,70 +19,70 @@ import {
   removeCodexCanonicalLocalSyntheticItem,
   type CodexCanonicalContextCompactionItem,
   type CodexCanonicalSteeringUserMessageItem,
-} from "../../shared/codex-conversation-state/codex-conversation-state";
+} from "../../../shared/codex-conversation-state/codex-conversation-state";
 import type { ThreadGoal, Turn } from "@nodex/codex-app-server-protocol/v2";
 import {
   CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID,
   reduceCodexConversationEventWithEffects,
   type CodexConversationReducerContext,
   type CodexConversationReducerEffect,
-} from "../../shared/codex-conversation-state/codex-conversation-reducer";
+} from "../../../shared/codex-conversation-state/codex-conversation-reducer";
 import {
   appendCodexCanonicalOptimisticTurn,
   bindCodexCanonicalOptimisticTurn,
   failCodexCanonicalOptimisticTurn,
-} from "../../shared/codex-conversation-state/codex-optimistic-turn";
+} from "../../../shared/codex-conversation-state/codex-optimistic-turn";
 import {
   removeCodexCanonicalSteeringItem,
   upsertCodexCanonicalSteeringItem,
-} from "../../shared/codex-conversation-state/codex-steering-state";
+} from "../../../shared/codex-conversation-state/codex-steering-state";
 import {
   listCodexBackgroundTerminalTurnIds,
   reduceCodexBackgroundTerminalCleanup,
-} from "../../shared/codex-conversation-state/codex-background-terminal-cleanup";
+} from "../../../shared/codex-conversation-state/codex-background-terminal-cleanup";
 import type {
   CodexServerRequestLifecycleResult,
   CodexServerRequestRawLifecycleResult,
   CodexServerRequestRawState,
-} from "../../shared/codex-conversation-state/codex-server-request-lifecycle";
-import { completeCodexCanonicalPlanImplementationState } from "../../shared/codex-conversation-state/codex-server-request-lifecycle";
+} from "../../../shared/codex-conversation-state/codex-server-request-lifecycle";
+import { completeCodexCanonicalPlanImplementationState } from "../../../shared/codex-conversation-state/codex-server-request-lifecycle";
 import {
   reduceCodexConversationFrameTextDeltas,
   type CodexFrameTextDeltaOutcome,
-} from "../../shared/codex-conversation-state/codex-frame-text-delta";
+} from "../../../shared/codex-conversation-state/codex-frame-text-delta";
 import {
   buildCodexFrameTextDeltaKey,
   type CodexFrameTextDeltaUpdate,
-} from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
+} from "../../../shared/codex-conversation-state/codex-frame-text-delta-queue";
 import {
   reduceCodexConversationCommandOutput,
   reduceCodexConversationTerminalCommands,
   type CodexCommandExecutionMutationDisposition,
   type CodexTerminalCommandUpdate,
-} from "../../shared/codex-conversation-state/codex-command-execution-stream";
+} from "../../../shared/codex-conversation-state/codex-command-execution-stream";
 import {
   appendCodexCommandOutputTail,
   buildCodexCommandOutputKey,
   type CodexCommandOutputUpdate,
-} from "../../shared/codex-conversation-state/codex-command-output-queue";
+} from "../../../shared/codex-conversation-state/codex-command-output-queue";
 import {
   buildCodexThreadStreamCheckpoint,
   type CodexThreadStreamReplica,
-} from "../../shared/codex-owner-follower-replication";
+} from "../../../shared/codex-owner-follower-replication";
 import {
   reduceCodexConversationThreadGoalResumeConfirmationDismissed,
   reduceCodexConversationThreadGoalUpdated,
   reduceCodexConversationThreadName,
-} from "../../shared/codex-conversation-state/codex-thread-metadata";
-import { appendCodexCanonicalThreadGoalTranscriptTurn } from "../../shared/codex-conversation-state/codex-thread-goal-transcript";
+} from "../../../shared/codex-conversation-state/codex-thread-metadata";
+import { appendCodexCanonicalThreadGoalTranscriptTurn } from "../../../shared/codex-conversation-state/codex-thread-goal-transcript";
 import {
   projectCodexConversationRawServerRequestLifecycle,
   projectCodexConversationPlanImplementationCompleted,
   projectCodexConversationServerRequestLifecycle,
-} from "./CodexConversationServerRequestProjection";
-import { projectCodexConversationSnapshot } from "./CodexConversationSnapshotProjection";
-import type { CodexServerNotification } from "../codex-runtime/CodexApplicationProtocol";
-import type { CodexApplicationProtocolOccurrence } from "../codex-runtime/CodexApplicationRequestInbox";
+} from "../CodexConversationServerRequestProjection";
+import { projectCodexConversationSnapshot } from "../CodexConversationSnapshotProjection";
+import type { CodexServerNotification } from "../../codex-runtime/CodexApplicationProtocol";
+import type { CodexApplicationProtocolOccurrence } from "../../codex-runtime/CodexApplicationRequestInbox";
 
 export type CodexConversationStreamRole = "follower" | "owner" | null;
 
@@ -114,7 +114,7 @@ export interface CodexConversationProtocolEventCommitResult {
   readonly stateChanged: boolean;
 }
 
-export interface CodexConversationAggregateSnapshot {
+export interface ConversationEntitySnapshot {
   readonly generation: number;
   readonly canonicalState: CodexCanonicalConversationState | null;
   readonly preHydrationServerRequests: readonly CodexCanonicalServerRequest[];
@@ -136,7 +136,7 @@ export interface CodexConversationHistoryFence {
   readonly oldestLoadedTurnId: string | null;
 }
 
-interface MutableCodexConversationAggregate {
+interface MutableConversationEntityState {
   readonly generation: number;
   canonicalState: CodexCanonicalConversationState | null;
   preHydrationServerRequests: readonly CodexCanonicalServerRequest[];
@@ -184,10 +184,10 @@ export const conversationIngressOverflow = (threadId: string) =>
     maximumOccurrences: MAX_BUFFERED_PROTOCOL_OCCURRENCES,
   });
 
-export interface CodexConversationAggregate {
+export interface ConversationEntityState {
   readonly threadId: string;
   readonly generation: number;
-  readonly read: () => CodexConversationAggregateSnapshot;
+  readonly read: () => ConversationEntitySnapshot;
   readonly readCanonicalState: () => CodexCanonicalConversationState | null;
   readonly readServerRequests: () => readonly CodexCanonicalServerRequest[];
   readonly readServerRequestState: () => CodexConversationServerRequestState;
@@ -419,11 +419,11 @@ export interface CodexConversationAggregate {
   readonly reset: () => void;
 }
 
-export interface CodexConversationAggregateRegistry {
+export interface ConversationEntityStateRegistry {
   /** Pure query: an unknown or released Thread never creates a new generation. */
-  readonly current: (threadId: string) => CodexConversationAggregate | null;
+  readonly current: (threadId: string) => ConversationEntityState | null;
   /** Binds a semantic aggregate generation to a caller or keyed runtime Scope. */
-  readonly acquire: (threadId: string) => CodexConversationAggregate;
+  readonly acquire: (threadId: string) => ConversationEntityState;
   /** Releases only the generation owned by the closing keyed runtime. */
   readonly releaseGeneration: (threadId: string, generation: number) => void;
   /** Releases every generation at the process Scope boundary. */
@@ -450,7 +450,7 @@ const protocolOccurrenceBytes = (occurrence: CodexApplicationProtocolOccurrence)
   }
 };
 
-const initialAggregate = (generation: number): MutableCodexConversationAggregate => ({
+const initialAggregate = (generation: number): MutableConversationEntityState => ({
   generation,
   canonicalState: null,
   preHydrationServerRequests: [],
@@ -485,8 +485,8 @@ const initialAggregate = (generation: number): MutableCodexConversationAggregate
 });
 
 const snapshot = (
-  aggregate: MutableCodexConversationAggregate,
-): CodexConversationAggregateSnapshot => ({
+  aggregate: MutableConversationEntityState,
+): ConversationEntitySnapshot => ({
   generation: aggregate.generation,
   canonicalState: aggregate.canonicalState,
   preHydrationServerRequests: [...aggregate.preHydrationServerRequests],
@@ -509,15 +509,15 @@ const snapshot = (
 });
 
 /**
- * Creates the single per-Thread canonical authority used by ConversationRuntimeMap.
+ * Creates the private per-Thread canonical state owned by ConversationEntityMap.
  * Its interface exposes semantic state transitions rather than mutable records or generic reducers.
  */
-export function makeCodexConversationAggregateRegistry(): CodexConversationAggregateRegistry {
-  const aggregates = new Map<string, MutableCodexConversationAggregate>();
-  const capabilities = new Map<string, CodexConversationAggregate>();
+export function makeConversationEntityStateRegistry(): ConversationEntityStateRegistry {
+  const aggregates = new Map<string, MutableConversationEntityState>();
+  const capabilities = new Map<string, ConversationEntityState>();
   let nextGeneration = 1;
 
-  const ensureState = (threadId: string): MutableCodexConversationAggregate => {
+  const ensureState = (threadId: string): MutableConversationEntityState => {
     const existing = aggregates.get(threadId);
     if (existing) return existing;
     const created = initialAggregate(nextGeneration++);
@@ -525,7 +525,7 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
     return created;
   };
 
-  const resetAggregate = (aggregate: MutableCodexConversationAggregate): void => {
+  const resetAggregate = (aggregate: MutableConversationEntityState): void => {
     aggregate.canonicalState = null;
     aggregate.preHydrationServerRequests = [];
     aggregate.preHydrationHasUnreadTurn = false;
@@ -552,8 +552,8 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
 
   const makeCapability = (
     threadId: string,
-    aggregate: MutableCodexConversationAggregate,
-  ): CodexConversationAggregate => {
+    aggregate: MutableConversationEntityState,
+  ): ConversationEntityState => {
     const acceptReplica = (input: {
       readonly conversation: CodexConversationSnapshot;
       readonly revision: number;
@@ -1632,7 +1632,7 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
     };
   };
 
-  const acquire = (threadId: string): CodexConversationAggregate => {
+  const acquire = (threadId: string): ConversationEntityState => {
     const existing = capabilities.get(threadId);
     if (existing) return existing;
     const capability = makeCapability(threadId, ensureState(threadId));

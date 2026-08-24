@@ -14,14 +14,14 @@ import { CodexHeartbeatTurnCompletion } from "../codex-application/CodexHeartbea
 import { CodexPermissions } from "../codex-application/CodexPermissions";
 import { CodexRendererConversationRegistry } from "../codex-application/CodexRendererConversationRegistry";
 import { CodexThreadDirectory } from "../codex-application/CodexThreadDirectory";
-import { CodexThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate";
-import { transparentThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate.test-support";
+import { ThreadCreationRuntime } from "../codex-application/ThreadCreationRuntime";
+import { transparentThreadCreationRuntime } from "../codex-application/ThreadCreationRuntime.test-support";
 import { CodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
 import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTitlePersistence";
 import { CodexTurnAuthority } from "../codex-application/CodexTurnAuthority";
 import { CodexTurnCommands } from "../codex-application/CodexTurnCommands";
 import { ComposerCatalog } from "../codex-application/ComposerCatalog";
-import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
+import { CodexConversations } from "../codex-application/CodexConversations";
 import { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
 import { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
 import { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
@@ -135,7 +135,7 @@ it.effect("run-now enters the scoped execution capability after runtime readines
               {} as CodexRendererConversationRegistry["Service"],
             ),
             Layer.succeed(CodexThreadDirectory, {} as CodexThreadDirectory["Service"]),
-            Layer.succeed(CodexThreadStartNotificationGate, transparentThreadStartNotificationGate),
+            Layer.succeed(ThreadCreationRuntime, transparentThreadCreationRuntime),
             Layer.succeed(CodexThreadSettingsRuntime, {} as CodexThreadSettingsRuntime["Service"]),
             Layer.succeed(
               CodexThreadTitlePersistence,
@@ -144,7 +144,7 @@ it.effect("run-now enters the scoped execution capability after runtime readines
             Layer.succeed(CodexTurnAuthority, {} as CodexTurnAuthority["Service"]),
             Layer.succeed(CodexTurnCommands, {} as CodexTurnCommands["Service"]),
             Layer.succeed(ComposerCatalog, {} as ComposerCatalog["Service"]),
-            Layer.succeed(ConversationRuntimeMap, {} as ConversationRuntimeMap["Service"]),
+            Layer.succeed(CodexConversations, {} as CodexConversations["Service"]),
             Layer.succeed(DesktopToolRuntime, {} as DesktopToolRuntime["Service"]),
             Layer.succeed(ExecutionHostRuntime, {} as ExecutionHostRuntime["Service"]),
             mainConfigLayer(),

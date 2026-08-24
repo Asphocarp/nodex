@@ -9,7 +9,7 @@ import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRun
 import { CodexProtocolNotificationEffects } from "./CodexProtocolNotificationEffects";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 it.effect("settles a lost generation and marks loaded conversations before reconnect sync", () =>
   Effect.gen(function* () {
@@ -41,7 +41,7 @@ it.effect("settles a lost generation and marks loaded conversations before recon
               assert.strictEqual(notification.method, "serverRequest/resolved");
               if (notification.method !== "serverRequest/resolved") return;
               trace.push(`${notification.method}:${notification.params.requestId}`);
-            }),
+            }).pipe(Effect.as("retain" as const)),
         }),
       ),
       Effect.provideService(
@@ -57,15 +57,14 @@ it.effect("settles a lost generation and marks loaded conversations before recon
         } as unknown as CodexUserInputAutoResolution["Service"]),
       ),
       Effect.provideService(
-        ConversationRuntimeMap,
-        ConversationRuntimeMap.of({
-          runExclusive: (<A, E, R>(
+        ConversationEntityMap,
+        ConversationEntityMap.of({
+          runCommand: (<A, E, R>(
             _threadId: string,
             operation: Effect.Effect<A, E, R>,
-          ): Effect.Effect<A, E, R> =>
-            operation) as ConversationRuntimeMap["Service"]["runExclusive"],
+          ): Effect.Effect<A, E, R> => operation) as ConversationEntityMap["Service"]["runCommand"],
           markAllNeedsResume: () => trace.push("mark-needs-resume"),
-        } as unknown as ConversationRuntimeMap["Service"]),
+        } as unknown as ConversationEntityMap["Service"]),
       ),
     );
 

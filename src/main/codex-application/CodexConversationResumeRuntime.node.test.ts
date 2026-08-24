@@ -25,9 +25,9 @@ import {
   type CodexThreadDirectoryFidelity,
 } from "./CodexThreadDirectory";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 
 const threadId = "thread-resume";
 const conversation = (): CodexConversationSnapshot =>
@@ -58,7 +58,7 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
   }),
 ) {
   const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-  const conversations = Context.get(context, ConversationRuntimeMap);
+  const conversations = Context.get(context, ConversationEntityMap);
   const registry = makeCodexRendererConversationRegistryState();
   const buffers = new Set<string>();
   const directory = CodexThreadDirectory.of({ resolve } as CodexThreadDirectory["Service"]);
@@ -78,7 +78,7 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
   });
   const coordinator = CodexRendererConversationCoordinator.of({
     readRendererState: (id: string) => {
-      const state = conversations.currentConversation(id)?.read();
+      const state = conversations.current(id)?.read();
       return {
         acceptedConversation: state?.acceptedReplica?.conversation ?? null,
         checkpoint: state?.acceptedReplica?.checkpoint ?? null,
@@ -93,7 +93,7 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
       Effect.sync(() => {
         const owner = registry.setOwner(input.conversationId, input.ownerClientId);
         if (!owner) return { checkpoint: null, ownerClientId: null, revision: 0 };
-        const aggregate = conversations.conversation(input.conversationId);
+        const aggregate = conversations.entity(input.conversationId);
         aggregate.setStreamRole("owner");
         if (!aggregate.read().acceptedReplica) {
           const conversation = aggregate.readSnapshot();
@@ -160,7 +160,7 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
     Effect.provideService(CodexRendererConversationCoordinator, coordinator),
     Effect.provideService(CodexRendererConversationRegistry, registry),
     Effect.provideService(CodexThreadDirectory, directory),
-    Effect.provideService(ConversationRuntimeMap, conversations),
+    Effect.provideService(ConversationEntityMap, conversations),
     Effect.provideService(Scope.Scope, scope),
   );
   return { conversations, runtime };
@@ -195,7 +195,7 @@ it.effect("serializes renderer adoption so a racing client becomes a follower", 
       Effect.succeed(entry(snapshot, fidelity)),
     );
     harness.conversations
-      .conversation(threadId)
+      .entity(threadId)
       .acceptReplica({ conversation: snapshot, revision: 1, ownerEpoch: 0 });
     const first = yield* harness.runtime
       .resumeForRenderer(threadId, "owner-a")

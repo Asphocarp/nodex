@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { createCodexCanonicalHydratedConversationState } from "../../shared/codex-conversation-state/codex-conversation-state";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export class CodexConversationMaterializationError extends Schema.TaggedError<CodexConversationMaterializationError>()(
   "CodexConversationMaterializationError",
@@ -46,14 +46,14 @@ const normalizeTurn = (turn: unknown): Turn => {
 export const make: Effect.Effect<
   CodexConversationMaterialization["Service"],
   never,
-  CodexGateway | ConversationRuntimeMap
+  CodexGateway | ConversationEntityMap
 > = Effect.gen(function* () {
   const gateway = yield* CodexGateway;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
 
   const reload = (threadId: string) =>
     Effect.gen(function* () {
-      const aggregate = conversations.conversation(threadId);
+      const aggregate = conversations.entity(threadId);
       const response = yield* gateway.requestForThread(threadId, "thread/resume", {
         threadId,
         initialTurnsPage: {
@@ -117,7 +117,7 @@ export const make: Effect.Effect<
 
   return CodexConversationMaterialization.of({
     ensure: (threadId) =>
-      conversations.currentConversation(threadId)?.readCanonicalState()?.sidecar.hydrationContext
+      conversations.current(threadId)?.readCanonicalState()?.sidecar.hydrationContext
         ? Effect.void
         : reload(threadId),
     reload,

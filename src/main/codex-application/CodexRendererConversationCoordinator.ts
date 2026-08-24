@@ -37,7 +37,7 @@ import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRun
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexRendererOwnerRetention } from "./CodexRendererOwnerRetention";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export interface CodexRendererConversationCoordinatorService {
   readonly readRendererState: (conversationId: string) => {
@@ -148,10 +148,10 @@ export const make: Effect.Effect<
   | CodexRendererConversationRegistry
   | CodexRendererOwnerRetention
   | CodexUserInputAutoResolution
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | Scope.Scope
 > = Effect.gen(function* () {
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const events = yield* CodexApplicationEventHub;
   const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
   const pendingRequests = yield* CodexPendingServerRequestRuntime;
@@ -161,7 +161,7 @@ export const make: Effect.Effect<
   const reconciliations = yield* FiberMap.make<string, void>();
   const runReconciliation = yield* FiberMap.runtime(reconciliations)();
 
-  const aggregate = (conversationId: string) => conversations.currentConversation(conversationId);
+  const aggregate = (conversationId: string) => conversations.current(conversationId);
   const acceptedReplica = (conversationId: string) =>
     aggregate(conversationId)?.read().acceptedReplica ?? null;
   const emitOwnerMessage = (conversationId: string, message: CodexHostMessage): boolean => {

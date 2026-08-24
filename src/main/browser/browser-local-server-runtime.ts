@@ -16,6 +16,7 @@ import type {
 } from "../../shared/browser-sidebar";
 import { normalizeBrowserNavigationUrl } from "../../shared/browser-url";
 import type { ElectronNetError } from "../platform/electron/ElectronNet";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 const LOCAL_SERVER_URL_PATTERN =
   /(?:https?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::\d+)?(?:\/[^\s"'<>]*)?|(?:localhost|127(?:\.\d{1,3}){3})(?::\d+)(?:\/[^\s"'<>]*)?)/giu;
@@ -121,7 +122,9 @@ export const makeBrowserLocalServerRuntime = (
   Effect.gen(function* () {
     const projects = yield* Ref.make(HashMap.empty<string, LocalServerProjectState>());
     const mutations = yield* Semaphore.make(1);
-    const updates = yield* PubSub.unbounded<BrowserSidebarLocalServersSnapshot>();
+    const updates = yield* PubSub.sliding<BrowserSidebarLocalServersSnapshot>(
+      MAIN_OBSERVATION_EVENT_CAPACITY,
+    );
     yield* Effect.addFinalizer(() => PubSub.shutdown(updates));
 
     const publish = (state: LocalServerProjectState) =>

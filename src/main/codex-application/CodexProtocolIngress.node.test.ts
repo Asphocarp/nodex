@@ -10,7 +10,7 @@ import { MainShutdown, layer as mainShutdownLive } from "../app/MainShutdown";
 import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationRequestInbox";
 import { CodexApplicationProtocol } from "./CodexApplicationProtocol";
 import { CodexProtocolIngress, live } from "./CodexProtocolIngress";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 
 it.effect("turns an unexpected canonical ingress exit into runtime-fatal health", () =>
   Effect.gen(function* () {
@@ -30,7 +30,7 @@ it.effect("turns an unexpected canonical ingress exit into runtime-fatal health"
     const inbox = CodexApplicationRequestInbox.of({
       occurrences: Stream.die("canonical ingress defect"),
     } as unknown as CodexApplicationRequestInbox["Service"]);
-    const threadStarts = CodexThreadStartNotificationGate.of({
+    const threadStarts = ThreadCreationRuntime.of({
       materialize: (_hostId, operation) => operation,
       defer: () => false,
       releases: Stream.never,
@@ -43,7 +43,7 @@ it.effect("turns an unexpected canonical ingress exit into runtime-fatal health"
           Layer.mergeAll(
             Layer.succeed(CodexApplicationProtocol, protocol),
             Layer.succeed(CodexApplicationRequestInbox, inbox),
-            Layer.succeed(CodexThreadStartNotificationGate, threadStarts),
+            Layer.succeed(ThreadCreationRuntime, threadStarts),
             Layer.succeed(MainShutdown, shutdown),
           ),
         ),

@@ -7,11 +7,11 @@ import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
 import type { CodexConversationSnapshot } from "../../shared/types";
 import { CodexActiveGoalContinuation } from "./CodexActiveGoalContinuation";
-import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
+import { makeConversationEntityStateRegistry } from "./internal/ConversationEntityState";
 import { CodexConversationHistoryRuntime } from "./CodexConversationHistoryRuntime";
 import { make } from "./CodexPostResumeGoalRuntime";
 import { CodexThreadGoalRuntime, type CodexThreadGoalLoadResult } from "./CodexThreadGoalRuntime";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 const threadId = "thread-goal";
 
@@ -35,20 +35,20 @@ const conversation = (): CodexConversationSnapshot =>
   }) as unknown as CodexConversationSnapshot;
 
 const makeConversations = (revision = 1) => {
-  const aggregates = makeCodexConversationAggregateRegistry();
+  const aggregates = makeConversationEntityStateRegistry();
   const aggregate = aggregates.acquire(threadId);
   aggregate.acceptReplica({ conversation: conversation(), revision, ownerEpoch: 0 });
   return {
     aggregate,
-    service: ConversationRuntimeMap.of({
-      conversation: aggregates.acquire,
-      currentConversation: aggregates.current,
-    } as unknown as ConversationRuntimeMap["Service"]),
+    service: ConversationEntityMap.of({
+      entity: aggregates.acquire,
+      current: aggregates.current,
+    } as unknown as ConversationEntityMap["Service"]),
   };
 };
 
 const makeRuntime = (input: {
-  readonly conversations: ConversationRuntimeMap["Service"];
+  readonly conversations: ConversationEntityMap["Service"];
   readonly load: (threadId: string) => Effect.Effect<CodexThreadGoalLoadResult>;
   readonly onContinuation?: (threadId: string) => void;
   readonly onContinuationClear?: (threadId: string) => void;
@@ -78,7 +78,7 @@ const makeRuntime = (input: {
         clear: (id) => input.onHistoryClear?.(id),
       }),
     ),
-    Effect.provideService(ConversationRuntimeMap, input.conversations),
+    Effect.provideService(ConversationEntityMap, input.conversations),
   );
 
 const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void> =>

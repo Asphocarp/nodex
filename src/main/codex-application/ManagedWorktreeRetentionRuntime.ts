@@ -29,6 +29,7 @@ import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { ManagedWorktreeConfiguration } from "./ExecutionHostConfiguration";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 import { ManagedWorktreeRuntime } from "./ManagedWorktreeRuntime";
+import { MAIN_RELIABLE_COMMAND_CAPACITY } from "../runtime-limits";
 
 export class ManagedWorktreeRetentionRuntimeError extends Schema.TaggedError<ManagedWorktreeRetentionRuntimeError>()(
   "ManagedWorktreeRetentionRuntimeError",
@@ -87,7 +88,7 @@ export const live = (
       const managed = yield* ManagedWorktreeRuntime;
       const pending = yield* CodexPendingWorktreeRuntime;
       const workspace = yield* ProjectWorkspace;
-      const commands = yield* Queue.unbounded<RetentionCommand>();
+      const commands = yield* Queue.bounded<RetentionCommand>(MAIN_RELIABLE_COMMAND_CAPACITY);
       yield* Effect.addFinalizer(() => Queue.shutdown(commands).pipe(Effect.asVoid));
 
       const error = (operation: string, cause: unknown) =>

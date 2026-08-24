@@ -99,4 +99,24 @@ describe("Effect architecture boundaries", () => {
       codes("src/main/core-runtime/ProjectionLiveRuntime.ts", "callback-unsafe-ingress.ts"),
     ).toEqual([]);
   });
+
+  test("keeps the final application graph bounded and conversation internals private", () => {
+    expect(codes("src/main/app/MainApplicationLive.ts", "final-kernel-violations.ts")).toEqual([
+      "conversation-internal-import",
+      "application-static-layer-build",
+      "application-root-uninterruptible",
+      "production-unbounded-channel",
+      "production-unbounded-channel",
+    ]);
+    expect(codes("src/main/app/CodexApplicationLive.ts", "final-kernel-violations.ts")).toEqual([
+      "application-static-layer-build",
+      "production-unbounded-channel",
+      "production-unbounded-channel",
+    ]);
+    expect(codes("src/main/codex-runtime/CodexEndpoint.ts", "final-kernel-violations.ts")).toEqual([
+      "conversation-internal-import",
+      "production-unbounded-channel",
+      "production-unbounded-channel",
+    ]);
+  });
 });

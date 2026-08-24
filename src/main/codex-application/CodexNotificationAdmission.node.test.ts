@@ -13,7 +13,7 @@ import {
 import { make } from "./CodexNotificationAdmission";
 import { CodexSubagentCatalog } from "./CodexSubagentCatalog";
 import { CodexTurnAuthority } from "./CodexTurnAuthority";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 const thread = (input: {
   readonly id: string;
@@ -103,22 +103,22 @@ const makeHarness = (trace: string[]) =>
         ),
       abort: () => undefined,
     });
-    const conversations = ConversationRuntimeMap.of({
-      currentConversation: (threadId: string) =>
+    const conversations = ConversationEntityMap.of({
+      current: (threadId: string) =>
         threadId === "parent"
           ? ({
               readCanonicalState: () =>
                 ({
                   turns: [{ protocol: { id: "parent-turn", status: "inProgress" } }],
                 }) as unknown as CodexCanonicalConversationState,
-            } as unknown as ReturnType<ConversationRuntimeMap["Service"]["conversation"]>)
+            } as unknown as ReturnType<ConversationEntityMap["Service"]["entity"]>)
           : null,
-    } as unknown as ConversationRuntimeMap["Service"]);
+    } as unknown as ConversationEntityMap["Service"]);
     const admission = yield* make.pipe(
       Effect.provideService(CodexInternalThreadRegistry, internalThreads),
       Effect.provideService(CodexSubagentCatalog, subagents),
       Effect.provideService(CodexTurnAuthority, authority),
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
     );
     return { admission, internalThreads, subagents };
   });

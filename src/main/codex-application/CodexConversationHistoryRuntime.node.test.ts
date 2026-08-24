@@ -6,13 +6,13 @@ import type { Thread, Turn } from "@nodex/codex-app-server-protocol/v2";
 import { createCodexCanonicalHydratedConversationState } from "../../shared/codex-conversation-state/codex-conversation-state";
 import type { CodexConversationSnapshot } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
-import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
+import { makeConversationEntityStateRegistry } from "./internal/ConversationEntityState";
 import { make } from "./CodexConversationHistoryRuntime";
 import {
   CodexRendererConversationRegistry,
   makeCodexRendererConversationRegistryState,
 } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 const historyTurn = (id: string): Turn => ({
   id,
@@ -73,7 +73,7 @@ it.effect("shares one page load and prepends it onto the latest canonical revisi
       historyThread([currentTurn]),
       hydration,
     );
-    const aggregates = makeCodexConversationAggregateRegistry();
+    const aggregates = makeConversationEntityStateRegistry();
     const aggregate = aggregates.acquire("thread-history");
     aggregate.acceptCanonicalState(canonical);
     const pagination = {
@@ -101,10 +101,10 @@ it.effect("shares one page load and prepends it onto the latest canonical revisi
       queuedFollowUps: [],
     } as unknown as CodexConversationSnapshot);
     aggregate.initializeHistory(pagination, 1);
-    const conversations = ConversationRuntimeMap.of({
-      conversation: aggregates.acquire,
-      currentConversation: aggregates.current,
-    } as unknown as ConversationRuntimeMap["Service"]);
+    const conversations = ConversationEntityMap.of({
+      entity: aggregates.acquire,
+      current: aggregates.current,
+    } as unknown as ConversationEntityMap["Service"]);
     const started = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
     let requests = 0;
@@ -120,7 +120,7 @@ it.effect("shares one page load and prepends it onto the latest canonical revisi
     } as unknown as CodexGateway["Service"]);
     const runtime = yield* make.pipe(
       Effect.provideService(CodexGateway, gateway),
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
       Effect.provideService(
         CodexRendererConversationRegistry,
         makeCodexRendererConversationRegistryState(),

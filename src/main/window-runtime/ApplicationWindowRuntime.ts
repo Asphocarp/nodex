@@ -33,6 +33,7 @@ import { resolveCodexTitleBarOptions } from "../window-navigation-chrome";
 import { isWindowSessionBoundsVisible } from "../window-session-state";
 import type { WindowRuntimeService } from "./WindowRuntime";
 import { safeSendToWindow } from "../ipc-safe-send";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 import { WindowShutdown } from "./WindowShutdown";
 import {
   createApplicationWindowCoordinator,
@@ -83,7 +84,7 @@ export const live = (
       const callbacks = yield* ScopedCallbackRuntime;
       const cleanup = yield* MainCleanup;
       const windowShutdown = yield* WindowShutdown;
-      const rendererLoaded = yield* PubSub.unbounded<number>();
+      const rendererLoaded = yield* PubSub.sliding<number>(MAIN_OBSERVATION_EVENT_CAPACITY);
       yield* Effect.addFinalizer(() => PubSub.shutdown(rendererLoaded));
       const logger = getLogger({ component: "application-window-runtime" });
       const icon = nativeImage.createFromPath(options.iconPath);

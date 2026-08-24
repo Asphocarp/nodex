@@ -225,8 +225,8 @@ external cleanup fails closed and preserves recoverable state rather than claimi
 ### Codex conversations
 
 The app-server endpoint generation is the wire authority, Core Workspace is the durable Thread and
-execution-metadata authority, and one Main aggregate plus causal lane owns each live Thread
-generation. Protocol occurrences are generation-fenced before they enter that lane. Endpoint
+execution-metadata authority, and one private Main Conversation Entity plus causal lane owns each
+live Thread generation. Protocol occurrences are generation-fenced before they enter that lane. Endpoint
 replacement, failed hydration, or Thread removal settles the old generation's pending requests and
 interrupts its buffers and command fibers; recovery seeds durable Core facts, performs a fresh
 full-fidelity app-server read, and publishes one complete replacement generation. Sidebar summaries
@@ -238,6 +238,13 @@ release overflow, and canonical consequence failure all terminate the exact endp
 an actor defect requests typed runtime shutdown instead of leaving a ready-looking queue without a
 consumer. Generated protocol payloads are decoded once at the connection boundary. Internal
 extensions remain explicitly tagged and cannot weaken generated-message validation.
+
+The physical JSONL transport limits incoming and outgoing retained message counts, retained bytes,
+and single-frame bytes independently. Exceeding any reliable transport budget terminates that exact
+endpoint generation so replacement can hydrate from canonical state; it never blocks forever or
+continues after silently dropping a command. Main observation hubs use bounded sliding publication
+only where subscribers can reread the canonical owner. Variable terminal output is truncated before
+publication, while reliable command queues use bounded backpressure and surface admission failure.
 
 One renderer owner is the sole visible conversation writer. Main validates and retains its accepted
 document as a relay/recovery replica; followers first acknowledge an exact snapshot barrier and then
@@ -257,7 +264,7 @@ a relationship journal or parallel parent map.
 Core Workspace remains the cold-restart authority for a managed Thread's execution host, cwd,
 worktree path, and writable roots. Resume projects that location into the new app-server generation
 instead of adopting a stale `thread/read` cwd. App-local worktree initialization activity survives
-renderer replacement in the live Main aggregate but intentionally disappears with Main and is not
+renderer replacement in the live Main entity but intentionally disappears with Main and is not
 fabricated into durable protocol history.
 
 A retained worktree removal leaves either the physical worktree or a complete snapshot reference.
