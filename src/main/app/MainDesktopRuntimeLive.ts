@@ -8,7 +8,6 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { performance } from "node:perf_hooks";
-import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import { CoreAuthority, CoreSessionAccess } from "../core-runtime/CoreAuthority";
 import {
   CoreEventDelivery,
@@ -64,8 +63,6 @@ import {
   NodexAgentResourceAccess,
   live as nodexAgentResourceAccessLive,
 } from "../nodex-agent-application/NodexAgentResourceAccess";
-import { resolveCodexRuntime } from "../codex/codex-runtime";
-import { createElectronProviderCredentialStore } from "../platform/electron/ProviderCredentialStore";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import {
   AgentProviderRuntime,
@@ -104,14 +101,8 @@ import {
   CodexGitMessageGeneration,
   live as codexGitMessageGenerationLive,
 } from "../codex-application/CodexGitMessageGeneration";
-import {
-  ConversationRuntimeMap,
-  live as conversationRuntimeMapLive,
-} from "../codex-application/ConversationRuntimeMap";
-import {
-  CodexPendingServerRequestRuntime,
-  make as makeCodexPendingServerRequestRuntime,
-} from "../codex-application/CodexPendingServerRequestRuntime";
+import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
+import { CodexPendingServerRequestRuntime } from "../codex-application/CodexPendingServerRequestRuntime";
 import {
   CodexAppProtocolTools,
   make as makeCodexAppProtocolTools,
@@ -412,11 +403,7 @@ import {
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import { CodexEphemeralThreadRouting } from "../codex-runtime/CodexEphemeralThreadRouting";
-import {
-  CodexApplicationRequestInbox,
-  make as makeCodexApplicationRequestInbox,
-} from "../codex-runtime/CodexApplicationRequestInbox";
-import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
+import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationRequestInbox";
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
 import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIpc";
 import * as ApplicationLocalStateIpc from "../ipc/handlers/ApplicationLocalStateIpc";
@@ -587,8 +574,6 @@ import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import { ElectronPrivacy, live as electronPrivacyLive } from "../platform/electron/ElectronPrivacy";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
-import * as CodexSessionTransport from "../platform/node/CodexSessionTransport";
-import { resolveCodexProcessEnvironment } from "../platform/node/CodexProcessEnvironment";
 import * as TerminalProjectAdmission from "../terminal-runtime/TerminalProjectAdmission";
 import * as TerminalRuntimeLive from "../terminal-runtime/TerminalRuntimeLive";
 import * as WindowSessionCatalog from "../window-runtime/WindowSessionCatalog";
@@ -604,6 +589,7 @@ import {
   live as applicationWindowRuntimeLive,
 } from "../window-runtime/ApplicationWindowRuntime";
 import { live as windowShutdownLive } from "../window-runtime/WindowShutdown";
+import * as CodexApplicationLive from "./CodexApplicationLive";
 import * as CoreApplicationLive from "./CoreApplicationLive";
 import * as WindowApplicationLive from "./WindowApplicationLive";
 
@@ -650,100 +636,49 @@ export const live: Layer.Layer<
 
     return yield* Effect.interruptible(
       Effect.gen(function* () {
-        const runtimeStateHome = `${config.nodexHome}/agent`;
-        const coreContext = yield* Layer.buildWithScope(
-          CoreApplicationLive.live.pipe(Layer.provideMerge(WindowApplicationLive.live)),
+        const applicationKernelContext = yield* Layer.buildWithScope(
+          CodexApplicationLive.live.pipe(
+            Layer.provideMerge(
+              CoreApplicationLive.live.pipe(Layer.provideMerge(WindowApplicationLive.live)),
+            ),
+          ),
           runtimeScope,
-        ).pipe(Effect.mapError((cause) => runtimeError("core-application", cause)));
-        const windows = Context.get(coreContext, WindowRuntime);
-        const initialization = Context.get(coreContext, ApplicationInitializationRuntime);
-        const authority = Context.get(coreContext, CoreAuthority);
-        const access = Context.get(coreContext, CoreSessionAccess);
-        const coreModules = Context.get(coreContext, CoreModules);
-        const projectWorkspace = Context.get(coreContext, ProjectWorkspace);
-        const projectRuntimeLifecycle = Context.get(coreContext, ProjectRuntimeLifecycleRuntime);
-        const ephemeralThreadRouting = Context.get(coreContext, CodexEphemeralThreadRouting);
-        const threadHostResolver = Context.get(coreContext, CodexThreadHostResolver);
-        const codexRuntime = yield* Effect.try({
-          try: () =>
-            resolveCodexRuntime({
-              isPackaged: config.isPackaged,
-              projectRootPath: config.projectRootPath,
-              resourcesPath: config.resourcesPath,
-            }),
-          catch: (cause) => runtimeError("resolve-codex-runtime", cause),
-        });
-        const providerCredentialStore = yield* Effect.try({
-          try: createElectronProviderCredentialStore,
-          catch: (cause) => runtimeError("provider-credential-store", cause),
-        });
-        const applicationRequestInbox = yield* makeCodexApplicationRequestInbox.pipe(
-          Effect.provideService(Scope.Scope, runtimeScope),
+        ).pipe(Effect.mapError((cause) => runtimeError("application-kernel", cause)));
+        const windows = Context.get(applicationKernelContext, WindowRuntime);
+        const initialization = Context.get(
+          applicationKernelContext,
+          ApplicationInitializationRuntime,
         );
-        const conversationRuntimeContext = yield* Layer.buildWithScope(
-          conversationRuntimeMapLive,
-          runtimeScope,
+        const authority = Context.get(applicationKernelContext, CoreAuthority);
+        const access = Context.get(applicationKernelContext, CoreSessionAccess);
+        const coreModules = Context.get(applicationKernelContext, CoreModules);
+        const projectWorkspace = Context.get(applicationKernelContext, ProjectWorkspace);
+        const projectRuntimeLifecycle = Context.get(
+          applicationKernelContext,
+          ProjectRuntimeLifecycleRuntime,
         );
-        const conversationRuntimes = Context.get(
-          conversationRuntimeContext,
-          ConversationRuntimeMap,
+        const ephemeralThreadRouting = Context.get(
+          applicationKernelContext,
+          CodexEphemeralThreadRouting,
         );
-        const pendingServerRequests = yield* makeCodexPendingServerRequestRuntime({
-          respond: (_threadId, _requestId, occurrenceToken, response) =>
-            applicationRequestInbox.settleOccurrenceToken(occurrenceToken, {
-              kind: "result",
-              value: response,
-            }),
-          reject: (_threadId, requestId, occurrenceToken, reason) =>
-            applicationRequestInbox.settleOccurrenceToken(occurrenceToken, {
-              kind: "error",
-              error: CodexAppServerRequestError.internalError(
-                "Codex application request failed",
-                undefined,
-                {
-                  operation: "handle-request",
-                  requestId: String(requestId),
-                  cause: reason,
-                },
-              ),
-            }),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const codexDependencies = Layer.mergeAll(
-          CodexSessionTransport.nodeLive,
-          Layer.succeed(CodexApplicationRequestInbox, applicationRequestInbox),
-          Layer.succeed(CodexThreadHostResolver, threadHostResolver),
+        const threadHostResolver = Context.get(applicationKernelContext, CodexThreadHostResolver);
+        const conversationRuntimes = Context.get(applicationKernelContext, ConversationRuntimeMap);
+        const applicationRequestInbox = Context.get(
+          applicationKernelContext,
+          CodexApplicationRequestInbox,
         );
-        const codexContext = yield* Layer.buildWithScope(
-          CodexRuntimeLive.live({
-            local: {
-              hostId: "local",
-              command: codexRuntime.binaryPath,
-              args: ["app-server", "--listen", "stdio://"],
-              env: {},
-              resolveEnv: () =>
-                resolveCodexProcessEnvironment({
-                  additionalSearchPaths: codexRuntime.additionalSearchPaths,
-                  pathDelimiter: config.platform === "win32" ? ";" : ":",
-                  providerCredentialStore,
-                  runtimeStateHome,
-                }),
-              forceTermination: "2 seconds",
-              initializeParams: {
-                clientInfo: { name: "nodex", title: "Nodex", version: "0.5.0" },
-                capabilities: {
-                  experimentalApi: true,
-                  extensions: { "openai/form": {} },
-                  requestAttestation: false,
-                },
-              },
-              initializeTimeout: "20 seconds",
-              expectedCodexHome: runtimeStateHome,
-            },
-            requestTimeout: "180 seconds",
-          }).pipe(Layer.provide(codexDependencies)),
-          runtimeScope,
-        ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
-        const codexGateway = Context.get(codexContext, CodexGateway);
+        const pendingServerRequests = Context.get(
+          applicationKernelContext,
+          CodexPendingServerRequestRuntime,
+        );
+        const codexGateway = Context.get(applicationKernelContext, CodexGateway);
+        const codexPlatform = Context.get(
+          applicationKernelContext,
+          CodexApplicationLive.CodexPlatform,
+        );
+        const codexRuntime = codexPlatform.runtime;
+        const providerCredentialStore = codexPlatform.providerCredentialStore;
+        const runtimeStateHome = codexPlatform.runtimeStateHome;
         const codexApplicationEvents = yield* makeCodexApplicationEventHub.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
