@@ -2150,9 +2150,20 @@ fn persist_parent_operations_detailed(
     };
     let exact_moved_block_ids = operations
         .iter()
-        .filter_map(|operation| match operation {
-            DocumentBlockOperation::MoveBlock { block_id, .. } => Some(block_id.clone()),
-            _ => None,
+        .flat_map(|operation| {
+            let block_ids: &[String] = match operation {
+                DocumentBlockOperation::MoveBlock { block_id, .. } => {
+                    std::slice::from_ref(block_id)
+                }
+                DocumentBlockOperation::MergeBlockBackward {
+                    promoted_child_ids, ..
+                }
+                | DocumentBlockOperation::RestoreBackwardMerge {
+                    promoted_child_ids, ..
+                } => promoted_child_ids,
+                _ => &[],
+            };
+            block_ids.iter().cloned()
         })
         .collect::<Vec<_>>();
     let persisted = persist_yjs_commit_with_local_commit(

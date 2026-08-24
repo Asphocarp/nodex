@@ -4707,6 +4707,11 @@ export interface components {
             readonly target: components["schemas"]["LibraryStructuralTurnIntoTarget"];
         } | {
             /** @enum {string} */
+            readonly kind: "merge_block_backward";
+            readonly selection: components["schemas"]["LibraryStructuralSelection"];
+            readonly target_block_id: string;
+        } | {
+            /** @enum {string} */
             readonly kind: "release_history";
             readonly tokens: readonly components["schemas"]["LibraryStructuralHistoryToken"][];
         };

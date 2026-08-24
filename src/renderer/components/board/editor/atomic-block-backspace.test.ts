@@ -1,16 +1,21 @@
-import { describe, expect, test, vi } from "vite-plus/test";
+import { describe, expect, test } from "vite-plus/test";
 
-import { handleBackspaceAcrossAtomicBlocks } from "./atomic-block-backspace";
+import { planBackspaceAcrossAtomicBlocks } from "./atomic-block-backspace";
 
-const block = (id: string, type = "paragraph") => ({ id, type, children: [] });
+interface TestBlock {
+  readonly id: string;
+  readonly type: string;
+  readonly children: TestBlock[];
+}
+
+const block = (id: string, type = "paragraph"): TestBlock => ({ id, type, children: [] });
 
 function editorFor(input: {
-  readonly blocks: ReturnType<typeof block>[];
+  readonly blocks: TestBlock[];
   readonly cursorIndex: number;
   readonly atStart?: boolean;
+  readonly parent?: TestBlock;
 }) {
-  const setTextCursorPosition = vi.fn();
-  const focus = vi.fn();
   const current = input.blocks[input.cursorIndex]!;
   return {
     editor: {
@@ -36,17 +41,13 @@ function editorFor(input: {
         block: current,
         prevBlock: input.blocks[input.cursorIndex - 1],
       }),
-      getParentBlock: () => undefined,
-      setTextCursorPosition,
-      focus,
+      getParentBlock: () => input.parent,
     },
-    setTextCursorPosition,
-    focus,
   };
 }
 
 describe("atomic Block Backspace", () => {
-  test("crosses a run of owner, divider, and image Blocks without deleting them", () => {
+  test("plans a semantic merge across an owner, divider, and image run", () => {
     const input = editorFor({
       blocks: [
         block("before"),
@@ -58,16 +59,11 @@ describe("atomic Block Backspace", () => {
       cursorIndex: 4,
     });
 
-    expect(handleBackspaceAcrossAtomicBlocks(input.editor)).toBe(true);
-    expect(input.setTextCursorPosition).toHaveBeenCalledWith("before", "end");
-    expect(input.focus).toHaveBeenCalledOnce();
-    expect(input.editor.document.map((item) => item.id)).toEqual([
-      "before",
-      "page",
-      "divider",
-      "image",
-      "after",
-    ]);
+    expect(planBackspaceAcrossAtomicBlocks(input.editor)).toEqual({
+      kind: "merge",
+      sourceBlockId: "after",
+      targetBlockId: "before",
+    });
   });
 
   test("claims the boundary when no earlier inline Block exists", () => {
@@ -76,9 +72,7 @@ describe("atomic Block Backspace", () => {
       cursorIndex: 1,
     });
 
-    expect(handleBackspaceAcrossAtomicBlocks(input.editor)).toBe(true);
-    expect(input.setTextCursorPosition).not.toHaveBeenCalled();
-    expect(input.focus).not.toHaveBeenCalled();
+    expect(planBackspaceAcrossAtomicBlocks(input.editor)).toEqual({ kind: "protect_boundary" });
   });
 
   test("leaves ordinary merges and non-boundary Backspace to BlockNote", () => {
@@ -92,7 +86,34 @@ describe("atomic Block Backspace", () => {
       atStart: false,
     });
 
-    expect(handleBackspaceAcrossAtomicBlocks(ordinary.editor)).toBe(false);
-    expect(handleBackspaceAcrossAtomicBlocks(middle.editor)).toBe(false);
+    expect(planBackspaceAcrossAtomicBlocks(ordinary.editor)).toBeNull();
+    expect(planBackspaceAcrossAtomicBlocks(middle.editor)).toBeNull();
+  });
+
+  test.each(["heading", "bulletListItem", "toggleListItem", "quote", "callout", "codeBlock"])(
+    "leaves %s to the editor's first Backspace normalization",
+    (type) => {
+      const input = editorFor({
+        blocks: [block("before"), block("image", "image"), block("after", type)],
+        cursorIndex: 2,
+      });
+
+      expect(planBackspaceAcrossAtomicBlocks(input.editor)).toBeNull();
+    },
+  );
+
+  test("plans within the source Block's own sibling group", () => {
+    const before = block("before");
+    const image = block("image", "image");
+    const after = block("after");
+    const parent = { id: "parent", type: "paragraph", children: [before, image, after] };
+    const input = editorFor({ blocks: [parent], cursorIndex: 0, parent });
+    input.editor.getTextCursorPosition = () => ({ block: after, prevBlock: image });
+
+    expect(planBackspaceAcrossAtomicBlocks(input.editor)).toEqual({
+      kind: "merge",
+      sourceBlockId: "after",
+      targetBlockId: "before",
+    });
   });
 });

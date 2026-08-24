@@ -4810,6 +4810,12 @@ fn assert_generic_document_operations_preserve_typed_owners(
                     )));
                 }
             }
+            EngineDocumentBlockOperation::MergeBlockBackward { .. }
+            | EngineDocumentBlockOperation::RestoreBackwardMerge { .. } => {
+                return Err(invalid_store(
+                    "Backward merge operations require the Library structural authority".to_owned(),
+                ));
+            }
         }
     }
     Ok(())

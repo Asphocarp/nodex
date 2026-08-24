@@ -1,4 +1,5 @@
-import type { BlockNoteEditor } from "@blocknote/core";
+import { getBlockInfo, getNodeById, type BlockNoteEditor } from "@blocknote/core";
+import { TextSelection } from "@tiptap/pm/state";
 
 import type { ContentAccessContext } from "../../../../shared/content-access-context";
 import type { NodexClipboardEnvelopeV1 } from "../../../../shared/clipboard-paste";
@@ -15,7 +16,7 @@ import { hasTypedOwnerBlock, type TypedOwnerBlockLike } from "../../../lib/typed
 import type { BlockDocumentStructuralMutationParticipant } from "../../../lib/block-document-mutation-registry";
 import { applyLibraryModule, writeStructuralClipboard } from "../../../lib/api";
 import { NfmHistoryLane, resolveNfmUndoManager } from "./nfm-editor-history";
-import { handleBackspaceAcrossAtomicBlocks } from "./atomic-block-backspace";
+import { planBackspaceAcrossAtomicBlocks } from "./atomic-block-backspace";
 import { getNfmBlockSelectionIds } from "./nfm-block-selection";
 import {
   nfmStructuralClipboardCoordinator,
@@ -191,6 +192,7 @@ export class NfmStructuralEditingSession {
   private currentOperation: Promise<void> = Promise.resolve();
   private historyReplayFocusChanged = false;
   private operationFocusChanged = false;
+  private backwardMergePending = false;
   private runtime: NfmStructuralEditingRuntime | null;
 
   constructor(options: NfmStructuralEditingSessionOptions) {
@@ -252,8 +254,10 @@ export class NfmStructuralEditingSession {
     ) {
       return false;
     }
-    if (event.key === "Backspace" && handleBackspaceAcrossAtomicBlocks(this.editor)) {
-      return true;
+    if (event.key === "Backspace") {
+      const plan = planBackspaceAcrossAtomicBlocks(this.editor);
+      if (plan?.kind === "protect_boundary") return true;
+      if (plan?.kind === "merge") return this.mergeBlockBackward(plan);
     }
     const roots = structuralRoots(this.editor);
     if (!hasTypedOwnerBlock(roots)) return false;
@@ -612,6 +616,78 @@ export class NfmStructuralEditingSession {
       await this.restoreSelection(result);
     });
     return true;
+  }
+
+  private mergeBlockBackward(plan: {
+    readonly sourceBlockId: string;
+    readonly targetBlockId: string;
+  }): boolean {
+    if (this.disposed || this.backwardMergePending) return true;
+    const source = this.editor.getBlock(plan.sourceBlockId) as StructuralEditorBlock | undefined;
+    const joinOffset = this.inlineContentSize(plan.targetBlockId);
+    if (!source || joinOffset === null) return false;
+
+    this.backwardMergePending = true;
+    this.start(async () => {
+      try {
+        const selection = await this.prepareSelection([source]);
+        const result = applyResult(
+          await this.apply(this.boundRuntime.accessContext, {
+            operationId: createUuidV7(),
+            storeEpoch: this.boundRuntime.source.storeEpoch,
+            operation: {
+              kind: "apply_structural_edit",
+              command: {
+                kind: "merge_block_backward",
+                selection,
+                targetBlockId: plan.targetBlockId,
+              },
+            },
+          }),
+        );
+        this.history.recordStructural(result);
+        await this.restoreBackwardMergeSelection(plan, joinOffset, result);
+      } finally {
+        this.backwardMergePending = false;
+      }
+    });
+    return true;
+  }
+
+  private inlineContentSize(blockId: string): number | null {
+    const view = this.editor.prosemirrorView;
+    if (!view) return null;
+    const position = getNodeById(blockId, view.state.doc);
+    if (!position) return null;
+    const info = getBlockInfo(position);
+    if (!info.isBlockContainer) return null;
+    return info.blockContent.node.content.size;
+  }
+
+  private async restoreBackwardMergeSelection(
+    plan: { readonly sourceBlockId: string; readonly targetBlockId: string },
+    joinOffset: number,
+    result: LibraryStructuralEditResult,
+  ): Promise<void> {
+    if (this.operationFocusChanged || this.historyReplayFocusChanged) return;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      if (this.operationFocusChanged || this.historyReplayFocusChanged) return;
+      const view = this.editor.prosemirrorView;
+      if (view && !this.editor.getBlock(plan.sourceBlockId)) {
+        const position = getNodeById(plan.targetBlockId, view.state.doc);
+        if (position) {
+          const info = getBlockInfo(position);
+          if (info.isBlockContainer) {
+            const offset = Math.min(joinOffset, info.blockContent.node.content.size);
+            const cursor = info.blockContent.beforePos + 1 + offset;
+            view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
+            return;
+          }
+        }
+      }
+      await nextAnimationFrame();
+    }
+    await this.restoreSelection(result, plan.targetBlockId);
   }
 
   private start(operation: () => Promise<void>): boolean {

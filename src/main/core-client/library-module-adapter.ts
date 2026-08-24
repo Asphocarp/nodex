@@ -412,6 +412,12 @@ const toCoreStructuralCommand = (command: StructuralEditCommand) => {
         selection: toCoreStructuralSelection(command.selection),
         target: command.target,
       } as const;
+    case "merge_block_backward":
+      return {
+        kind: command.kind,
+        selection: toCoreStructuralSelection(command.selection),
+        target_block_id: command.targetBlockId,
+      } as const;
     case "release_history":
       return {
         kind: command.kind,

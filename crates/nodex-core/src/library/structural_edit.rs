@@ -264,6 +264,16 @@ struct TurnedSelectionState {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BackwardMergeState {
+    /// The pre-merge Block tree and placement, with authority revisions
+    /// refreshed to the state expected by the next history transition.
+    snapshot: OwnershipClosureSnapshot,
+    target_block_id: String,
+    source_block_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum StructuralRecipeAction {
     RestoreDeleted {
@@ -292,6 +302,12 @@ enum StructuralRecipeAction {
     TurnActiveSelection {
         snapshot: OwnershipClosureSnapshot,
         target: LibraryStructuralTurnIntoTarget,
+    },
+    RestoreBackwardMerge {
+        state: BackwardMergeState,
+    },
+    ApplyBackwardMerge {
+        state: BackwardMergeState,
     },
 }
 
@@ -444,6 +460,19 @@ pub(super) fn apply(
                 target,
             )
         }
+        LibraryStructuralEditCommand::MergeBlockBackward {
+            selection,
+            target_block_id,
+        } => merge_block_backward(
+            connection,
+            context,
+            library_id,
+            operation_id,
+            store_epoch,
+            request_hash,
+            selection,
+            target_block_id,
+        ),
         LibraryStructuralEditCommand::ReleaseHistory { tokens } => release_history(
             connection,
             context,
@@ -1559,6 +1588,134 @@ fn turn_selection_into(
     library_commit_result(connection, commit_result)
 }
 
+#[allow(clippy::too_many_arguments)]
+fn merge_block_backward(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    request_hash: &str,
+    selection: &LibraryStructuralSelection,
+    target_block_id: &str,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    let [source_block_id] = selection.root_block_ids.as_slice() else {
+        return Err(invalid("Backward merge requires exactly one source Block"));
+    };
+    if source_block_id == target_block_id {
+        return Err(invalid("Backward merge source and target must differ"));
+    }
+    let project_id = bound_project_id(context)?;
+    let parent = load_and_authorize_source(connection, context, library_id, selection, true)?;
+    plan_backward_merge(
+        &parent.base_materialization.block_tree,
+        source_block_id,
+        target_block_id,
+    )?;
+    let snapshot = capture_backward_merge_snapshot(
+        connection,
+        library_id,
+        &parent,
+        &LibraryStructuralSelection {
+            source_document_id: selection.source_document_id.clone(),
+            root_block_ids: vec![target_block_id.to_owned(), source_block_id.clone()],
+            source_head: selection.source_head.clone(),
+        },
+    )?;
+    let state = BackwardMergeState {
+        snapshot,
+        target_block_id: target_block_id.to_owned(),
+        source_block_id: source_block_id.clone(),
+    };
+    let now = sqlite_now(connection)?;
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: "library",
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let applied = apply_backward_merge(
+                StructuralWriteContext {
+                    connection,
+                    context,
+                    operation_id,
+                    store_epoch,
+                    commit: scope.evidence(),
+                },
+                state.clone(),
+            )?;
+            let inverse_recipe = StructuralHistoryRecipe {
+                version: RECIPE_VERSION,
+                action: applied.inverse.clone(),
+            };
+            let (history, recipe_json) = history_token(operation_id, store_epoch, &inverse_recipe)?;
+            let snapshots = transition_snapshot_refs(&applied);
+            let result = structural_result(
+                "merge_block_backward",
+                vec![source_block_id.clone()],
+                vec![target_block_id.to_owned()],
+                BTreeMap::new(),
+                BTreeMap::new(),
+                &snapshots,
+                applied.document_commits.clone(),
+                None,
+                Some(history.clone()),
+                Vec::new(),
+                applied.resume.clone(),
+            );
+            let effects = structural_effects(
+                project_id,
+                "merge_block_backward",
+                &snapshots,
+                &result,
+                &now,
+            );
+            seal_mutation_with(
+                scope,
+                context,
+                operation_id,
+                effects,
+                |_, event_sequence| {
+                    persist_structural_mutation_ledger(
+                        connection,
+                        operation_id,
+                        project_id,
+                        store_epoch,
+                        request_hash,
+                        &serde_json::json!({
+                            "kind": "merge_block_backward",
+                            "selection": selection,
+                            "targetBlockId": target_block_id,
+                        }),
+                        &result,
+                        &snapshots,
+                        event_sequence,
+                        &now,
+                    )?;
+                    insert_history_recipe(
+                        connection,
+                        operation_id,
+                        library_id,
+                        project_id,
+                        store_epoch,
+                        &history.recipe_hash,
+                        &recipe_json,
+                        &snapshots,
+                        &now,
+                    )
+                },
+            )
+        },
+    )?;
+    library_commit_result(connection, commit_result)
+}
+
 fn validate_turn_selection(
     connection: &Connection,
     snapshot: &OwnershipClosureSnapshot,
@@ -2094,6 +2251,319 @@ fn restore_turned_selection(
     })
 }
 
+#[derive(Clone)]
+struct BackwardMergePlan {
+    target: MaterializedBlockNode,
+    source: MaterializedBlockNode,
+    merged_content: serde_json::Value,
+    source_parent_block_id: Option<String>,
+    source_before_block_id: Option<String>,
+    promoted_child_ids: Vec<String>,
+}
+
+fn find_sibling_context<'a>(
+    blocks: &'a [MaterializedBlockNode],
+    block_id: &str,
+    parent_block_id: Option<&str>,
+) -> Option<(Option<String>, usize, &'a [MaterializedBlockNode])> {
+    if let Some(index) = blocks.iter().position(|block| block.id == block_id) {
+        return Some((parent_block_id.map(str::to_owned), index, blocks));
+    }
+    blocks
+        .iter()
+        .find_map(|block| find_sibling_context(&block.children, block_id, Some(&block.id)))
+}
+
+fn inline_content(block: &MaterializedBlockNode) -> Option<&Vec<serde_json::Value>> {
+    block.content.as_ref()?.as_array()
+}
+
+fn plan_backward_merge(
+    tree: &[MaterializedBlockNode],
+    source_block_id: &str,
+    target_block_id: &str,
+) -> Result<BackwardMergePlan, StoreError> {
+    let (source_parent_block_id, source_index, siblings) =
+        find_sibling_context(tree, source_block_id, None).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::NotFound,
+                "Backward merge source Block no longer exists",
+                false,
+            )
+        })?;
+    let target_index = siblings
+        .iter()
+        .position(|block| block.id == target_block_id)
+        .ok_or_else(|| invalid("Backward merge target must be a sibling of the source"))?;
+    if target_index >= source_index {
+        return Err(invalid("Backward merge target must precede the source"));
+    }
+    let source = siblings[source_index].clone();
+    if source.block_type != "paragraph" {
+        return Err(invalid(
+            "Backward merge source must first normalize to a paragraph",
+        ));
+    }
+    let target = siblings[target_index].clone();
+    let target_content = inline_content(&target)
+        .ok_or_else(|| invalid("Backward merge target must own inline content"))?;
+    let source_content = inline_content(&source)
+        .ok_or_else(|| invalid("Backward merge source must own inline content"))?;
+    let skipped = &siblings[target_index + 1..source_index];
+    if skipped.is_empty() || skipped.iter().any(|block| inline_content(block).is_some()) {
+        return Err(invalid(
+            "Backward merge target must be the nearest inline Block before an atomic run",
+        ));
+    }
+    let mut merged = Vec::with_capacity(target_content.len() + source_content.len());
+    merged.extend(target_content.iter().cloned());
+    merged.extend(source_content.iter().cloned());
+    Ok(BackwardMergePlan {
+        merged_content: serde_json::Value::Array(merged),
+        source_before_block_id: siblings.get(source_index + 1).map(|block| block.id.clone()),
+        promoted_child_ids: source
+            .children
+            .iter()
+            .map(|child| child.id.clone())
+            .collect(),
+        source_parent_block_id,
+        source,
+        target,
+    })
+}
+
+fn apply_backward_merge(
+    write: StructuralWriteContext<'_>,
+    mut state: BackwardMergeState,
+) -> Result<AppliedTransition, StoreError> {
+    let StructuralWriteContext {
+        connection,
+        context,
+        operation_id,
+        store_epoch,
+        commit,
+    } = write;
+    let parent = load_parent_document(connection, &state.snapshot.source.document_id)?;
+    authorize_parent_write(connection, context, &parent)?;
+    validate_snapshot_is_at_location(&parent, &state.snapshot, &state.snapshot.source)?;
+    validate_snapshot_authorities(connection, &state.snapshot, "active")?;
+    let plan = plan_backward_merge(
+        &parent.base_materialization.block_tree,
+        &state.source_block_id,
+        &state.target_block_id,
+    )?;
+    let document_commit = persist_parent_operations_detailed_with_local_commit(
+        connection,
+        ParentDocumentWriteContext {
+            actor_project_id: bound_project_id(context)?,
+            store_epoch,
+            operation_id,
+            commit,
+        },
+        "structural-backward-merge",
+        &parent,
+        &[DocumentBlockOperation::MergeBlockBackward {
+            target_block_id: state.target_block_id.clone(),
+            source_block_id: state.source_block_id.clone(),
+            merged_content: plan.merged_content,
+            promoted_parent_block_id: plan.source_parent_block_id,
+            promoted_before_block_id: plan.source_before_block_id,
+            promoted_child_ids: plan.promoted_child_ids,
+        }],
+        ParentDocumentPlacement::Derived {
+            attachment_advances: &[],
+        },
+    )?;
+    refresh_snapshot_authorities(connection, &mut state.snapshot)?;
+    let retained = state.snapshot.clone();
+    Ok(AppliedTransition {
+        source_root_ids: vec![state.source_block_id.clone()],
+        result_root_ids: vec![state.target_block_id.clone()],
+        document_commits: vec![document_commit],
+        inverse: StructuralRecipeAction::RestoreBackwardMerge { state },
+        snapshot: retained,
+        additional_snapshots: Vec::new(),
+        resume: Some(LibraryEditorResumeTarget {
+            block_id: plan.target.id,
+            edge: LibraryEditorResumeEdge::End,
+            fallback_before_block_id: None,
+            fallback_after_block_id: None,
+        }),
+    })
+}
+
+fn validate_merged_backward_state(
+    tree: &[MaterializedBlockNode],
+    state: &BackwardMergeState,
+) -> Result<BackwardMergePlan, StoreError> {
+    if find_block(tree, &state.source_block_id).is_some() {
+        return Err(conflict(
+            "Backward merge source was restored before history replay",
+        ));
+    }
+    let original_target = find_block(&state.snapshot.roots, &state.target_block_id)
+        .ok_or_else(|| corrupt("Backward merge history lost its target Block"))?;
+    let original_source = find_block(&state.snapshot.roots, &state.source_block_id)
+        .ok_or_else(|| corrupt("Backward merge history lost its source Block"))?;
+    let mut merged_target = original_target.clone();
+    let mut merged = inline_content(original_target)
+        .ok_or_else(|| corrupt("Backward merge history target is not inline"))?
+        .clone();
+    merged.extend(
+        inline_content(original_source)
+            .ok_or_else(|| corrupt("Backward merge history source is not inline"))?
+            .iter()
+            .cloned(),
+    );
+    merged_target.content = Some(serde_json::Value::Array(merged));
+    let current_target = find_block(tree, &state.target_block_id)
+        .ok_or_else(|| conflict("Backward merge target no longer exists"))?;
+    if current_target != &merged_target {
+        return Err(conflict(
+            "Backward merge target changed before history replay",
+        ));
+    }
+    let placement = state
+        .snapshot
+        .source
+        .placements
+        .iter()
+        .find(|placement| placement.block_id == state.source_block_id)
+        .ok_or_else(|| corrupt("Backward merge history lost its source placement"))?;
+    let siblings = match placement.parent_block_id.as_deref() {
+        Some(parent_id) => {
+            &find_block(tree, parent_id)
+                .ok_or_else(|| conflict("Backward merge source parent no longer exists"))?
+                .children
+        }
+        None => tree,
+    };
+    let promoted_child_ids = original_source
+        .children
+        .iter()
+        .map(|child| child.id.clone())
+        .collect::<Vec<_>>();
+    let insertion_index = placement
+        .before_block_id
+        .as_ref()
+        .map(|before_id| {
+            siblings
+                .iter()
+                .position(|block| block.id == *before_id)
+                .ok_or_else(|| conflict("Backward merge source anchor no longer exists"))
+        })
+        .transpose()?
+        .unwrap_or(siblings.len());
+    if insertion_index < promoted_child_ids.len() {
+        return Err(conflict(
+            "Backward merge promoted children changed before history replay",
+        ));
+    }
+    let promoted = &siblings[insertion_index - promoted_child_ids.len()..insertion_index];
+    if promoted != original_source.children.as_slice() {
+        return Err(conflict(
+            "Backward merge promoted children changed before history replay",
+        ));
+    }
+    Ok(BackwardMergePlan {
+        target: original_target.clone(),
+        source: original_source.clone(),
+        merged_content: merged_target
+            .content
+            .clone()
+            .ok_or_else(|| corrupt("Backward merge target content is missing"))?,
+        source_parent_block_id: placement.parent_block_id.clone(),
+        source_before_block_id: placement.before_block_id.clone(),
+        promoted_child_ids,
+    })
+}
+
+fn restore_backward_merge(
+    write: StructuralWriteContext<'_>,
+    state: BackwardMergeState,
+) -> Result<AppliedTransition, StoreError> {
+    let StructuralWriteContext {
+        connection,
+        context,
+        operation_id,
+        store_epoch,
+        commit,
+    } = write;
+    let parent = load_parent_document(connection, &state.snapshot.source.document_id)?;
+    authorize_parent_write(connection, context, &parent)?;
+    validate_snapshot_authorities_exact(connection, &state.snapshot)?;
+    let plan = validate_merged_backward_state(&parent.base_materialization.block_tree, &state)?;
+    let target_content = plan
+        .target
+        .content
+        .clone()
+        .ok_or_else(|| corrupt("Backward merge target content is missing"))?;
+    let mut source_shell = plan.source.clone();
+    source_shell.children.clear();
+    let source_id = source_shell.id.clone();
+    let reactivated = [source_id.clone()];
+    let document_commit = persist_parent_operations_detailed_with_local_commit(
+        connection,
+        ParentDocumentWriteContext {
+            actor_project_id: bound_project_id(context)?,
+            store_epoch,
+            operation_id,
+            commit,
+        },
+        "structural-backward-merge-undo",
+        &parent,
+        &[DocumentBlockOperation::RestoreBackwardMerge {
+            target_block_id: state.target_block_id.clone(),
+            target_content,
+            source_block: source_shell,
+            source_parent_block_id: plan.source_parent_block_id,
+            source_before_block_id: plan.source_before_block_id,
+            promoted_child_ids: plan.promoted_child_ids,
+        }],
+        ParentDocumentPlacement::Restore {
+            preapplied: &[],
+            tombstone_reactivations: &reactivated,
+            source_document_id: &state.snapshot.source.document_id,
+            source_document_generation: state.snapshot.source.document_generation,
+        },
+    )?;
+    let current_parent = load_parent_document(connection, &state.snapshot.source.document_id)?;
+    let library_id = current_parent.authority.head.library_id.clone();
+    let restored = capture_backward_merge_snapshot(
+        connection,
+        &library_id,
+        &current_parent,
+        &LibraryStructuralSelection {
+            source_document_id: current_parent.authority.head.id.clone(),
+            root_block_ids: vec![state.target_block_id.clone(), source_id.clone()],
+            source_head: nodex_core_contracts::library::LibraryDocumentHead {
+                document_id: current_parent.authority.head.id.clone(),
+                generation: current_parent.authority.head.generation,
+                head_seq: current_parent.authority.head.head_seq,
+            },
+        },
+    )?;
+    let next_state = BackwardMergeState {
+        snapshot: restored.clone(),
+        target_block_id: state.target_block_id.clone(),
+        source_block_id: source_id.clone(),
+    };
+    Ok(AppliedTransition {
+        source_root_ids: vec![state.target_block_id.clone()],
+        result_root_ids: vec![source_id.clone()],
+        document_commits: vec![document_commit],
+        inverse: StructuralRecipeAction::ApplyBackwardMerge { state: next_state },
+        snapshot: restored,
+        additional_snapshots: Vec::new(),
+        resume: Some(LibraryEditorResumeTarget {
+            block_id: source_id,
+            edge: LibraryEditorResumeEdge::Start,
+            fallback_before_block_id: Some(state.target_block_id),
+            fallback_after_block_id: None,
+        }),
+    })
+}
+
 fn revoke_page_grants(connection: &Connection, page_id: &str) -> Result<Vec<String>, StoreError> {
     let grant_ids = connection
         .prepare(
@@ -2437,6 +2907,10 @@ fn apply_recipe_action(
         StructuralRecipeAction::TurnActiveSelection { snapshot, target } => {
             turn_active_selection(write, snapshot, target)
         }
+        StructuralRecipeAction::RestoreBackwardMerge { state } => {
+            restore_backward_merge(write, state)
+        }
+        StructuralRecipeAction::ApplyBackwardMerge { state } => apply_backward_merge(write, state),
     }
 }
 
@@ -2539,6 +3013,29 @@ fn capture_snapshot(
     parent: &ResolvedParentDocument,
     selection: &LibraryStructuralSelection,
 ) -> Result<OwnershipClosureSnapshot, StoreError> {
+    capture_snapshot_with_policy(connection, library_id, parent, selection, true)
+}
+
+fn capture_backward_merge_snapshot(
+    connection: &Connection,
+    library_id: &str,
+    parent: &ResolvedParentDocument,
+    selection: &LibraryStructuralSelection,
+) -> Result<OwnershipClosureSnapshot, StoreError> {
+    // A backward merge relocates descendants inside the same host Page; it
+    // never deletes their owner capabilities. Primary Databases are therefore
+    // valid descendants even though destructive structural selections reject
+    // them.
+    capture_snapshot_with_policy(connection, library_id, parent, selection, false)
+}
+
+fn capture_snapshot_with_policy(
+    connection: &Connection,
+    library_id: &str,
+    parent: &ResolvedParentDocument,
+    selection: &LibraryStructuralSelection,
+    reject_protected_databases: bool,
+) -> Result<OwnershipClosureSnapshot, StoreError> {
     let (roots, placements) = normalize_selection(
         &parent.base_materialization.block_tree,
         &selection.root_block_ids,
@@ -2630,7 +3127,9 @@ fn capture_snapshot(
     }
     documents.sort_by(|left, right| left.document_id.cmp(&right.document_id));
     let databases = databases.into_values().collect::<Vec<_>>();
-    reject_primary_databases(connection, &databases)?;
+    if reject_protected_databases {
+        reject_primary_databases(connection, &databases)?;
+    }
     Ok(OwnershipClosureSnapshot {
         version: SNAPSHOT_VERSION,
         roots,
@@ -4391,6 +4890,21 @@ fn validate_snapshot_authorities(
     snapshot: &OwnershipClosureSnapshot,
     expected_lifecycle: &str,
 ) -> Result<(), StoreError> {
+    validate_snapshot_authorities_with_lifecycle(connection, snapshot, Some(expected_lifecycle))
+}
+
+fn validate_snapshot_authorities_exact(
+    connection: &Connection,
+    snapshot: &OwnershipClosureSnapshot,
+) -> Result<(), StoreError> {
+    validate_snapshot_authorities_with_lifecycle(connection, snapshot, None)
+}
+
+fn validate_snapshot_authorities_with_lifecycle(
+    connection: &Connection,
+    snapshot: &OwnershipClosureSnapshot,
+    expected_lifecycle: Option<&str>,
+) -> Result<(), StoreError> {
     for block in &snapshot.blocks {
         let current = connection
             .query_row(
@@ -4407,7 +4921,7 @@ fn validate_snapshot_authorities(
             )
             .optional()?
             .ok_or_else(|| conflict("Structural history Block no longer exists"))?;
-        if current.0 != expected_lifecycle
+        if expected_lifecycle.is_some_and(|expected| current.0 != expected)
             || current.0 != block.lifecycle
             || current.1 != block.metadata_revision
             || current.2 != block.placement_revision
@@ -4442,7 +4956,7 @@ fn validate_snapshot_authorities(
             )
             .optional()?
             .ok_or_else(|| conflict("Structural Database authority no longer exists"))?;
-        if current.0 != expected_lifecycle
+        if expected_lifecycle.is_some_and(|expected| current.0 != expected)
             || current.0 != database.lifecycle
             || current.1 != database.metadata_revision
         {
@@ -6322,6 +6836,374 @@ mod tests {
         assert_eq!(root_ids(&roots), vec!["a", "b"]);
         assert_eq!(placements[0].before_block_id.as_deref(), Some("c"));
         assert_eq!(placements[1].before_block_id.as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn backward_merge_plan_keeps_atomic_siblings_and_lifts_source_children_in_place() {
+        let text = |id: &str, value: &str, children| MaterializedBlockNode {
+            id: id.to_owned(),
+            block_type: "paragraph".to_owned(),
+            props: BTreeMap::new(),
+            content: Some(serde_json::json!([{
+                "type": "text",
+                "text": value,
+                "styles": {},
+            }])),
+            children,
+        };
+        let atomic = |id: &str, block_type: &str| MaterializedBlockNode {
+            id: id.to_owned(),
+            block_type: block_type.to_owned(),
+            props: BTreeMap::new(),
+            content: None,
+            children: Vec::new(),
+        };
+        let tree = vec![
+            text("target", "ABC", Vec::new()),
+            atomic("page", "page"),
+            atomic("divider", "divider"),
+            text("source", "123", vec![text("child", "child", Vec::new())]),
+            text("after", "after", Vec::new()),
+        ];
+
+        let plan = plan_backward_merge(&tree, "source", "target").expect("merge plan");
+        assert_eq!(
+            plan.merged_content,
+            serde_json::json!([
+                { "type": "text", "text": "ABC", "styles": {} },
+                { "type": "text", "text": "123", "styles": {} }
+            ])
+        );
+        assert_eq!(plan.promoted_child_ids, vec!["child"]);
+        assert_eq!(plan.source_before_block_id.as_deref(), Some("after"));
+        assert_eq!(plan.target.id, "target");
+    }
+
+    #[test]
+    fn backward_merge_plan_rejects_an_editable_gap_or_non_paragraph_source() {
+        let mut target = paragraph("target", Vec::new());
+        target.content = Some(serde_json::json!([]));
+        let editable_gap = vec![
+            target.clone(),
+            paragraph("closer", Vec::new()),
+            paragraph("source", Vec::new()),
+        ];
+        assert!(plan_backward_merge(&editable_gap, "source", "target").is_err());
+
+        let mut heading = paragraph("source", Vec::new());
+        heading.block_type = "heading".to_owned();
+        let non_paragraph = vec![
+            target,
+            MaterializedBlockNode {
+                id: "image".to_owned(),
+                block_type: "image".to_owned(),
+                props: BTreeMap::new(),
+                content: None,
+                children: Vec::new(),
+            },
+            heading,
+        ];
+        assert!(plan_backward_merge(&non_paragraph, "source", "target").is_err());
+    }
+
+    #[test]
+    fn backward_merge_and_history_preserve_typed_child_identity() {
+        const NOW: &str = "2026-08-25T12:00:00.000Z";
+        const HOST_PAGE: &str = "018f0000-0000-7000-8000-000000000851";
+        const HOST_DOCUMENT: &str = "document:backward-merge-host";
+        const SUBPAGE: &str = "018f0000-0000-7000-8000-000000000852";
+        const SUBPAGE_DOCUMENT: &str = "document:backward-merge-subpage";
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Backward merge', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Library");
+        let context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:backward-merge".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        let created = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "backward-merge:create-host".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: HOST_PAGE.to_owned(),
+                        document_id: HOST_DOCUMENT.to_owned(),
+                        title: "Host".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create host Page");
+        let placeholder_id = created
+            .committed
+            .value
+            .page_create
+            .expect("Page creation")
+            .block_ids[0]
+            .clone();
+        let head = |document_id: &str| {
+            kernel
+                .readers()
+                .read_default(|connection| {
+                    connection
+                        .query_row(
+                            "SELECT generation, head_seq FROM documents WHERE id = ?1",
+                            [document_id],
+                            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                        )
+                        .map_err(Into::into)
+                })
+                .expect("Document head")
+        };
+        let initial_head = head(HOST_DOCUMENT);
+        let replaced = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "backward-merge:seed-blocks".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyStructuralEdit {
+                        command: Box::new(LibraryStructuralEditCommand::ReplaceSelection {
+                            selection: LibraryStructuralSelection {
+                                source_document_id: HOST_DOCUMENT.to_owned(),
+                                root_block_ids: vec![placeholder_id],
+                                source_head: nodex_core_contracts::library::LibraryDocumentHead {
+                                    document_id: HOST_DOCUMENT.to_owned(),
+                                    generation: initial_head.0,
+                                    head_seq: initial_head.1,
+                                },
+                            },
+                            replacement: LibraryStructuralReplacement::Blocks {
+                                blocks: vec![
+                                    LibraryStructuralReplacementBlock {
+                                        block_type: "paragraph".to_owned(),
+                                        props: BTreeMap::new(),
+                                        content: Some(serde_json::json!([{
+                                            "type": "text", "text": "ABC", "styles": {}
+                                        }])),
+                                        children: Vec::new(),
+                                    },
+                                    LibraryStructuralReplacementBlock {
+                                        block_type: "image".to_owned(),
+                                        props: BTreeMap::from([
+                                            ("url".to_owned(), serde_json::json!("https://example.test/image.png")),
+                                            ("name".to_owned(), serde_json::json!("")),
+                                            ("caption".to_owned(), serde_json::json!("")),
+                                        ]),
+                                        content: None,
+                                        children: Vec::new(),
+                                    },
+                                    LibraryStructuralReplacementBlock {
+                                        block_type: "paragraph".to_owned(),
+                                        props: BTreeMap::new(),
+                                        content: Some(serde_json::json!([{
+                                            "type": "text", "text": "123", "styles": {}
+                                        }])),
+                                        children: vec![LibraryStructuralReplacementBlock {
+                                            block_type: "paragraph".to_owned(),
+                                            props: BTreeMap::new(),
+                                            content: Some(serde_json::json!([{
+                                                "type": "text", "text": "ordinary child", "styles": {}
+                                            }])),
+                                            children: Vec::new(),
+                                        }],
+                                    },
+                                ],
+                            },
+                        }),
+                    },
+                },
+            )
+            .expect("seed merge Blocks");
+        let seeded = replaced
+            .committed
+            .value
+            .structural_edit
+            .expect("replacement result")
+            .result_root_block_ids;
+        let target_id = seeded[0].clone();
+        let image_id = seeded[1].clone();
+        let source_id = seeded[2].clone();
+        let seeded_head = head(HOST_DOCUMENT);
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "backward-merge:create-subpage".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: SUBPAGE.to_owned(),
+                        document_id: SUBPAGE_DOCUMENT.to_owned(),
+                        title: "Nested".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: HOST_PAGE.to_owned(),
+                            expected_document_generation: seeded_head.0,
+                            expected_document_head_seq: seeded_head.1,
+                            before: None,
+                            insertion: Some(LibraryPageInsertion::Append {
+                                parent_block_id: Some(source_id.clone()),
+                            }),
+                        },
+                    },
+                },
+            )
+            .expect("create typed child");
+        let merge_head = head(HOST_DOCUMENT);
+        let merged = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "backward-merge:apply".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyStructuralEdit {
+                        command: Box::new(LibraryStructuralEditCommand::MergeBlockBackward {
+                            selection: LibraryStructuralSelection {
+                                source_document_id: HOST_DOCUMENT.to_owned(),
+                                root_block_ids: vec![source_id.clone()],
+                                source_head: nodex_core_contracts::library::LibraryDocumentHead {
+                                    document_id: HOST_DOCUMENT.to_owned(),
+                                    generation: merge_head.0,
+                                    head_seq: merge_head.1,
+                                },
+                            },
+                            target_block_id: target_id.clone(),
+                        }),
+                    },
+                },
+            )
+            .expect("merge backward");
+        let history = merged
+            .committed
+            .value
+            .structural_edit
+            .expect("merge result")
+            .history
+            .expect("merge history");
+
+        let assert_tree = |merged: bool| {
+            kernel
+                .readers()
+                .read_default(|connection| {
+                    let parent = load_parent_document(connection, HOST_DOCUMENT)?;
+                    let roots = &parent.base_materialization.block_tree;
+                    let target = find_block(roots, &target_id).expect("target");
+                    let text = target
+                        .content
+                        .as_ref()
+                        .and_then(Value::as_array)
+                        .expect("target inline")
+                        .iter()
+                        .filter_map(|item| item.get("text").and_then(Value::as_str))
+                        .collect::<String>();
+                    assert_eq!(text, if merged { "ABC123" } else { "ABC" });
+                    let source = find_block(roots, &source_id);
+                    if merged {
+                        assert!(source.is_none());
+                        let root_ids = roots
+                            .iter()
+                            .map(|block| block.id.as_str())
+                            .collect::<Vec<_>>();
+                        let image_index = root_ids.iter().position(|id| *id == image_id).unwrap();
+                        assert_eq!(root_ids[image_index + 2], SUBPAGE);
+                    } else {
+                        let source = source.expect("restored source");
+                        assert_eq!(
+                            source.children.last().map(|child| child.id.as_str()),
+                            Some(SUBPAGE)
+                        );
+                    }
+                    let authority = connection.query_row(
+                        "SELECT block.lifecycle, page.document_id, page.parent_id \
+                         FROM blocks block, pages page WHERE block.id = ?1 AND page.block_id = ?1",
+                        [SUBPAGE],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                            ))
+                        },
+                    )?;
+                    assert_eq!(
+                        authority,
+                        (
+                            "active".to_owned(),
+                            SUBPAGE_DOCUMENT.to_owned(),
+                            HOST_PAGE.to_owned()
+                        )
+                    );
+                    Ok(())
+                })
+                .expect("inspect backward merge");
+        };
+        assert_tree(true);
+        let undone = module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "backward-merge:undo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: history },
+                },
+            )
+            .expect("undo backward merge");
+        assert_tree(false);
+        let redo = undone
+            .committed
+            .value
+            .structural_edit
+            .expect("undo result")
+            .history
+            .expect("redo history");
+        module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "backward-merge:redo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: redo },
+                },
+            )
+            .expect("redo backward merge");
+        assert_tree(true);
     }
 
     #[test]

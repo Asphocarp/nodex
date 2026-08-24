@@ -4338,7 +4338,9 @@ fn aggregate_owned_placement_block_ids(operations: &[DocumentBlockOperation]) ->
             DocumentBlockOperation::DeleteBlock { .. } => None,
             DocumentBlockOperation::SetTitle { .. }
             | DocumentBlockOperation::SetRichTitle { .. }
-            | DocumentBlockOperation::UpdateBlock { .. } => None,
+            | DocumentBlockOperation::UpdateBlock { .. }
+            | DocumentBlockOperation::MergeBlockBackward { .. }
+            | DocumentBlockOperation::RestoreBackwardMerge { .. } => None,
         })
         .collect::<Vec<_>>();
     block_ids.sort();
