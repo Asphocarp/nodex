@@ -52,6 +52,7 @@ it.effect("owns all Core authority IPC handlers with the Main Scope", () =>
       state,
       retry: Effect.void,
       requestRelaunch: Effect.void,
+      failApplication: () => Effect.succeed(true),
     });
     const windows = {
       all: () => [],

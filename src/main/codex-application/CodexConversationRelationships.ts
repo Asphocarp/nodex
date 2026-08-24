@@ -20,7 +20,7 @@ import {
   type CodexConversationRelationshipThread,
 } from "./CodexConversationRelationshipsProjection";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 const REPAIR_RETRY = "30 seconds";
 const PAGE_SIZE = 200;
@@ -107,13 +107,13 @@ export const make: Effect.Effect<
   never,
   | CodexApplicationEventHub
   | CodexThreadDirectory
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | CoreModules
   | Scope.Scope
 > = Effect.gen(function* () {
   const events = yield* CodexApplicationEventHub;
   const directory = yield* CodexThreadDirectory;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const core = yield* CoreModules;
   const repairs = yield* FiberMap.make<string, void>();
   const runRepair = yield* FiberMap.runtime(repairs)();
@@ -238,10 +238,10 @@ export const make: Effect.Effect<
   > {
     const parentThreadId = rawParentThreadId.trim();
     if (!parentThreadId) return [];
-    return yield* conversations.runExclusive(
+    return yield* conversations.runCommand(
       parentThreadId,
       Effect.gen(function* () {
-        const parentAggregate = conversations.currentConversation(parentThreadId);
+        const parentAggregate = conversations.current(parentThreadId);
         if (!parentAggregate) return [];
         const parent = parentAggregate.readSnapshot();
         if (!parent) return [];
@@ -264,8 +264,7 @@ export const make: Effect.Effect<
         const children: CodexConversationRelationshipChild[] = [];
         for (const childThreadId of childThreadIds) {
           if (removedThreadIds.has(childThreadId)) continue;
-          const childConversation =
-            conversations.currentConversation(childThreadId)?.readSnapshot() ?? null;
+          const childConversation = conversations.current(childThreadId)?.readSnapshot() ?? null;
           const thread =
             childrenById.get(childThreadId) ??
             (childConversation

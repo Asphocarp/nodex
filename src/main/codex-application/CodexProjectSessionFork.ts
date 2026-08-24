@@ -23,7 +23,7 @@ import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrai
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
 import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export interface CodexProjectSessionForkCommand {
   readonly sessionId: string;
@@ -67,7 +67,7 @@ export const make: Effect.Effect<
   | CodexPendingWorktreeRuntime
   | CodexThreadDirectory
   | CodexThreadSettingsRuntime
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | CoreModules
 > = Effect.gen(function* () {
   const core = yield* CoreModules;
@@ -80,7 +80,7 @@ export const make: Effect.Effect<
   const pendingWorktrees = yield* CodexPendingWorktreeRuntime;
   const directory = yield* CodexThreadDirectory;
   const threadSettings = yield* CodexThreadSettingsRuntime;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
 
   const error = (
     operation: CodexProjectSessionForkError["operation"],
@@ -339,7 +339,7 @@ export const make: Effect.Effect<
           ),
       ),
     );
-    return yield* conversations.runExclusive(
+    return yield* conversations.runCommand(
       source.threadId,
       Effect.gen(function* () {
         yield* notificationDrain.awaitCurrent(source.threadId);

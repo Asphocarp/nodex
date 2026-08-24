@@ -4,11 +4,11 @@ import * as FiberMap from "effect/FiberMap";
 import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
 import { resolveCodexReasoningSummary } from "../../shared/codex-reasoning-summary-policy";
-import type { CodexConversationAggregate } from "./CodexConversationAggregate";
+import type { ConversationEntityState } from "./internal/ConversationEntityState";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
 import { CodexTurnCommands } from "./CodexTurnCommands";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export const DEFAULT_ACTIVE_GOAL_CONTINUATION_DELAY = "250 millis";
 
@@ -21,7 +21,7 @@ export class CodexActiveGoalContinuation extends Context.Service<
 >()("nodex/main/codex-application/CodexActiveGoalContinuation") {}
 
 export const isCodexActiveGoalContinuationEligible = (
-  conversation: CodexConversationAggregate | null,
+  conversation: ConversationEntityState | null,
 ): boolean => {
   if (!conversation || conversation.readResumeState() !== "resumed") return false;
   const snapshot = conversation.readSnapshot();
@@ -46,10 +46,10 @@ export const make: Effect.Effect<
   | CodexThreadGoalRuntime
   | CodexThreadSettingsRuntime
   | CodexTurnCommands
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | Scope.Scope
 > = Effect.gen(function* () {
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const threadGoals = yield* CodexThreadGoalRuntime;
   const threadSettings = yield* CodexThreadSettingsRuntime;
   const turnCommands = yield* CodexTurnCommands;
@@ -57,7 +57,7 @@ export const make: Effect.Effect<
   const admission = yield* Semaphore.make(1);
 
   const isEligible = (conversationId: string): boolean =>
-    isCodexActiveGoalContinuationEligible(conversations.currentConversation(conversationId));
+    isCodexActiveGoalContinuationEligible(conversations.current(conversationId));
 
   const continueGoal = Effect.fn("CodexActiveGoalContinuation.continueGoal")(function* (
     conversationId: string,
@@ -66,7 +66,7 @@ export const make: Effect.Effect<
     yield* threadSettings.awaitCurrent(conversationId);
     if (!isEligible(conversationId)) return;
 
-    const snapshot = conversations.currentConversation(conversationId)?.readSnapshot();
+    const snapshot = conversations.current(conversationId)?.readSnapshot();
     const summary = resolveCodexReasoningSummary({
       configuredSummary: snapshot?.latestThreadSettings?.summary,
     });

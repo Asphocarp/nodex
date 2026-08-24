@@ -13,7 +13,7 @@ import {
 } from "./CodexConversationProjection";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { CodexThreadDirectory, type CodexThreadDirectoryError } from "./CodexThreadDirectory";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 type GatewayThreadRollbackParams = ClientRequestParamsByMethod["thread/rollback"];
 
@@ -69,13 +69,13 @@ export const make: Effect.Effect<
   | CodexGateway
   | CodexOwnerNotificationDrainRuntime
   | CodexThreadDirectory
-  | ConversationRuntimeMap
+  | ConversationEntityMap
 > = Effect.gen(function* () {
   const projection = yield* CodexConversationProjection;
   const gateway = yield* CodexGateway;
   const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
   const directory = yield* CodexThreadDirectory;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
 
   const rollbackLatestForEdit = Effect.fn("CodexThreadRollbackCommands.rollbackLatestForEdit")(
     function* (input: {
@@ -83,7 +83,7 @@ export const make: Effect.Effect<
       readonly turnId: string;
       readonly numTurns: number;
     }) {
-      return yield* conversations.runExclusive(
+      return yield* conversations.runCommand(
         input.threadId,
         Effect.gen(function* () {
           yield* ownerNotificationDrain.awaitCurrent(input.threadId);

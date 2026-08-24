@@ -10,7 +10,7 @@ import type { CodexServerNotification } from "../codex-runtime/CodexApplicationP
 import { CodexInternalThreadRegistry } from "./CodexInternalThreadRegistry";
 import { CodexSubagentCatalog } from "./CodexSubagentCatalog";
 import { CodexTurnAuthority } from "./CodexTurnAuthority";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export type CodexNotificationAdmissionDecision =
   | { readonly _tag: "Admit" }
@@ -38,10 +38,10 @@ export class CodexNotificationAdmission extends Context.Service<
 const admitted: CodexNotificationAdmissionDecision = { _tag: "Admit" };
 
 const latestInProgressTurnId = (
-  conversations: ConversationRuntimeMap["Service"],
+  conversations: ConversationEntityMap["Service"],
   threadId: string,
 ): string | null => {
-  const turns = conversations.currentConversation(threadId)?.readCanonicalState()?.turns ?? [];
+  const turns = conversations.current(threadId)?.readCanonicalState()?.turns ?? [];
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index];
     if (turn?.protocol.status === "inProgress" && turn.protocol.id) return turn.protocol.id;
@@ -59,13 +59,13 @@ export const make: Effect.Effect<
   | CodexInternalThreadRegistry
   | CodexSubagentCatalog
   | CodexTurnAuthority
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | Scope.Scope
 > = Effect.gen(function* () {
   const internalThreads = yield* CodexInternalThreadRegistry;
   const subagents = yield* CodexSubagentCatalog;
   const authority = yield* CodexTurnAuthority;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const inheritedBySubagentThreadId = new Map<string, FrozenNodexAgentTurnAuthority>();
 
   yield* Effect.addFinalizer(() => Effect.sync(() => inheritedBySubagentThreadId.clear()));

@@ -17,12 +17,12 @@ import { codexRuntimeError, type CodexRuntimeError } from "../codex-runtime/Code
 import { CodexTurnCommands, type CodexTurnCommandsService } from "./CodexTurnCommands";
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
-import { transparentThreadStartNotificationGate } from "./CodexThreadStartNotificationGate.test-support";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
+import { transparentThreadCreationRuntime } from "./ThreadCreationRuntime.test-support";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 import { make as makeCommands } from "./CodexSideChatCommands";
 import { SIDE_CHAT_BOUNDARY_TEXT } from "./CodexSideChatPolicy";
 
@@ -75,7 +75,7 @@ interface SideChatHarnessOptions {
 const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =>
   Effect.gen(function* () {
     const conversationContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(conversationContext, ConversationRuntimeMap);
+    const conversations = Context.get(conversationContext, ConversationEntityMap);
     const routingContext = yield* Layer.buildWithScope(codexEphemeralThreadRoutingLive, scope);
     const routing = Context.get(routingContext, CodexEphemeralThreadRouting);
     const events: string[] = [];
@@ -143,7 +143,7 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
     const directory = CodexThreadDirectory.of({
       // The canonical directory serializes remote materialization in the Thread lane.
       // Side-chat admission must therefore never hold that same non-reentrant lane.
-      resolve: () => conversations.runExclusive(parentThreadId, Effect.succeed(directoryEntry)),
+      resolve: () => conversations.runCommand(parentThreadId, Effect.succeed(directoryEntry)),
       descendants: () => Effect.die("unused"),
       acceptRollbackResult: () => Effect.die("unused"),
       acceptImportResult: () => Effect.die("unused"),
@@ -165,7 +165,7 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
             requests: [],
             queuedFollowUps: [],
           } as unknown as CodexConversationSnapshot;
-          const aggregate = conversations.conversation(input.threadId);
+          const aggregate = conversations.entity(input.threadId);
           aggregate.acceptCanonicalState(input.canonical);
           aggregate.installSnapshot(snapshot);
           return snapshot;
@@ -177,12 +177,9 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       Effect.provideService(CodexThreadHostResolver, hostResolver),
       Effect.provideService(CodexEphemeralThreadRouting, routing),
       Effect.provideService(CodexThreadDirectory, directory),
-      Effect.provideService(
-        CodexThreadStartNotificationGate,
-        transparentThreadStartNotificationGate,
-      ),
+      Effect.provideService(ThreadCreationRuntime, transparentThreadCreationRuntime),
       Effect.provideService(CodexTurnCommands, turns),
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
     );
 
     return {
@@ -190,7 +187,7 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       conversations,
       events,
       markExisting: () => {
-        conversations.conversation(sideThreadId).installSnapshot({
+        conversations.entity(sideThreadId).installSnapshot({
           ...parentSnapshot,
           threadId: sideThreadId,
           source: { parentThreadId, sideConversation: true },
@@ -247,12 +244,12 @@ it.effect("discards local ownership even when the remote unsubscribe fails", () 
     });
     harness.markExisting();
     yield* harness.routing.register(sideThreadId, remoteHostId);
-    const beforeGeneration = harness.conversations.currentConversation(sideThreadId)?.generation;
+    const beforeGeneration = harness.conversations.current(sideThreadId)?.generation;
 
     assert.isTrue(yield* harness.commands.discard(sideThreadId));
 
-    assert.isNull(harness.conversations.currentConversation(sideThreadId));
-    const afterGeneration = harness.conversations.conversation(sideThreadId).generation;
+    assert.isNull(harness.conversations.current(sideThreadId));
+    const afterGeneration = harness.conversations.entity(sideThreadId).generation;
     assert.notStrictEqual(afterGeneration, beforeGeneration);
     assert.isNull(yield* harness.routing.resolve(sideThreadId));
     assert.deepEqual(harness.events, [
@@ -269,12 +266,12 @@ it.effect("discards local ownership when the parent host is unavailable", () =>
       hostResolution: Effect.fail(requestFailure("resolve-host")),
     });
     harness.markExisting();
-    const beforeGeneration = harness.conversations.currentConversation(sideThreadId)?.generation;
+    const beforeGeneration = harness.conversations.current(sideThreadId)?.generation;
 
     assert.isTrue(yield* harness.commands.discard(sideThreadId));
 
-    assert.isNull(harness.conversations.currentConversation(sideThreadId));
-    const afterGeneration = harness.conversations.conversation(sideThreadId).generation;
+    assert.isNull(harness.conversations.current(sideThreadId));
+    const afterGeneration = harness.conversations.entity(sideThreadId).generation;
     assert.notStrictEqual(afterGeneration, beforeGeneration);
     assert.deepEqual(harness.events, [`resolve:${parentThreadId}`]);
     yield* Scope.close(scope, Exit.void);

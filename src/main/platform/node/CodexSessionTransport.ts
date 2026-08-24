@@ -7,7 +7,11 @@ import * as Scope from "effect/Scope";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { CodexAppServerClient, layerChildProcess } from "@nodex/effect-codex-app-server/client";
-import { codexRuntimeError, type CodexRuntimeError } from "../../codex-runtime/CodexRuntimeError";
+import {
+  classifyCodexClientError,
+  codexRuntimeError,
+  type CodexRuntimeError,
+} from "../../codex-runtime/CodexRuntimeError";
 
 export interface CodexSessionProcessConfig {
   readonly hostId: string;
@@ -77,7 +81,7 @@ export const live: Layer.Layer<
         const clientContext = yield* Layer.build(layerChildProcess(handle));
         const client = Context.get(clientContext, CodexAppServerClient);
         const pid = Number(handle.pid);
-        const termination = handle.exitCode.pipe(
+        const childTermination = handle.exitCode.pipe(
           Effect.mapError((cause) =>
             codexRuntimeError({
               operation: "session.wait",
@@ -103,6 +107,18 @@ export const live: Layer.Layer<
             ),
           ),
         );
+        const protocolTermination = client.termination.pipe(
+          Effect.mapError((cause) =>
+            classifyCodexClientError({
+              operation: "session.protocol",
+              cause,
+              hostId: config.hostId,
+              generation: config.generation,
+              pid,
+            }),
+          ),
+        );
+        const termination = Effect.raceFirst(childTermination, protocolTermination);
         return { pid, client, termination };
       }),
       canonicalPath: Effect.fn("CodexSessionTransport.canonicalPath")((path) =>

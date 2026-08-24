@@ -6,17 +6,18 @@ import * as Ref from "effect/Ref";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 
 import * as CodexClient from "./client.ts";
+import * as CodexError from "./errors.ts";
 import { makeInMemoryStdio } from "./_internal/stdio.ts";
 
 const encoder = new TextEncoder();
 const encodeJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
-const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 const mockPeerPath = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(import.meta.dirname, "../test/fixtures/codex-app-server-mock-peer.ts"),
@@ -49,33 +50,42 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
       const result = yield* Effect.gen(function* () {
         const client = yield* CodexClient.CodexAppServerClient;
 
-        yield* client
-          .handleServerRequestFallback((method, payload, requestId) =>
+        yield* client.requests.pipe(
+          Stream.runForEach((request) =>
             Ref.update(userInputRequests, (current) => [
               ...current,
-              { method, payload, requestId },
+              { method: request.method, payload: request.params, requestId: request.id },
             ]).pipe(
-              Effect.as({
-                answers: {
-                  approved: {
-                    answers: ["yes"],
+              Effect.andThen(
+                client.raw.respond(request.id, {
+                  answers: {
+                    approved: {
+                      answers: ["yes"],
+                    },
                   },
-                },
-              }),
+                }),
+              ),
             ),
-          )
-          .pipe(Effect.provideService(Scope.Scope, scope));
+          ),
+          Effect.forkIn(scope, { startImmediately: true }),
+        );
 
-        yield* client
-          .handleServerNotification("item/agentMessage/delta", (payload) =>
-            Ref.update(messageDeltas, (current) => [...current, payload]),
-          )
-          .pipe(Effect.provideService(Scope.Scope, scope));
-        yield* client
-          .handleServerNotificationFallback((method, payload) =>
-            Ref.update(fallbackNotifications, (current) => [...current, { method, payload }]),
-          )
-          .pipe(Effect.provideService(Scope.Scope, scope));
+        yield* client.notifications.pipe(
+          Stream.runForEach((notification) =>
+            Ref.update(fallbackNotifications, (current) => [
+              ...current,
+              { method: notification.method, payload: notification.params },
+            ]).pipe(
+              Effect.andThen(
+                notification.protocol === "generated" &&
+                  notification.method === "item/agentMessage/delta"
+                  ? Ref.update(messageDeltas, (current) => [...current, notification.params])
+                  : Effect.void,
+              ),
+            ),
+          ),
+          Effect.forkIn(scope, { startImmediately: true }),
+        );
 
         const initialized = yield* client.request("initialize", {
           clientInfo: {
@@ -191,42 +201,26 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
     }),
   );
 
-  it.effect("unregisters server handlers when their owning scope closes", () =>
+  it.effect("terminates the physical protocol when a known notification cannot be decoded", () =>
     Effect.gen(function* () {
-      const { stdio, input, output } = yield* makeInMemoryStdio();
+      const { stdio, input } = yield* makeInMemoryStdio();
       const client = yield* CodexClient.make(stdio);
-      const handlerScope = yield* Scope.make();
-      const handled = yield* Ref.make(0);
-      yield* client
-        .handleServerRequest("item/tool/requestUserInput", () =>
-          Ref.update(handled, (count) => count + 1).pipe(Effect.as({ answers: {} })),
-        )
-        .pipe(Effect.provideService(Scope.Scope, handlerScope));
-
-      const params = {
-        isBlocking: true,
-        itemId: "item-1",
-        questions: [],
-        threadId: "thread-1",
-        turnId: "turn-1",
-      };
       yield* Queue.offer(
         input,
-        encoder.encode(`${encodeJson({ id: 1, method: "item/tool/requestUserInput", params })}\n`),
+        encoder.encode(
+          `${encodeJson({
+            method: "item/agentMessage/delta",
+            params: { threadId: "thread-1", delta: 42 },
+          })}\n`,
+        ),
       );
-      assert.deepEqual(decodeJson(yield* Queue.take(output)), { id: 1, result: { answers: {} } });
-      assert.equal(yield* Ref.get(handled), 1);
 
-      yield* Scope.close(handlerScope, Exit.void);
-      yield* Queue.offer(
-        input,
-        encoder.encode(`${encodeJson({ id: 2, method: "item/tool/requestUserInput", params })}\n`),
-      );
-      assert.deepEqual(decodeJson(yield* Queue.take(output)), {
-        id: 2,
-        error: { code: -32601, message: "Method not found: item/tool/requestUserInput" },
+      const error = yield* client.termination.pipe(Effect.flip);
+      assert.instanceOf(error, CodexError.CodexAppServerProtocolParseError);
+      assert.deepInclude(error, {
+        operation: "decode-notification-payload",
+        method: "item/agentMessage/delta",
       });
-      assert.equal(yield* Ref.get(handled), 1);
     }),
   );
 });

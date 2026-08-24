@@ -22,6 +22,7 @@ import {
 } from "../codex/renderer-client-runtime-contracts";
 import { safeSendToWebContents } from "../ipc-safe-send";
 import { getLogger } from "../logging/logger";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 interface RegisteredRendererClient {
   readonly clientId: string;
@@ -72,7 +73,7 @@ export const live = (
         options.send ??
         ((target: RendererClientWebContents, channel: string, args: readonly unknown[]) =>
           safeSendToWebContents(target, channel, args, { logger }));
-      const events = yield* PubSub.unbounded<RendererClientEvent>();
+      const events = yield* PubSub.sliding<RendererClientEvent>(MAIN_OBSERVATION_EVENT_CAPACITY);
       const callbacks = yield* FiberSet.makeRuntime<never, void, never>();
       const clientsByWebContentsId = new Map<number, RegisteredRendererClient>();
       const webContentsIdByClientId = new Map<string, number>();

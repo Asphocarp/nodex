@@ -3,8 +3,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
-import type { ServerNotificationMethod } from "@nodex/effect-codex-app-server/rpc";
+import type { CodexAppServerNotification } from "@nodex/effect-codex-app-server/client";
 import type { CodexRuntimeError } from "./CodexRuntimeError";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 export type CodexEndpointConnection =
   | { readonly kind: "stopped"; readonly hostId: string }
@@ -30,10 +31,7 @@ export type CodexEndpointEvent =
       readonly kind: "notification";
       readonly hostId: string;
       readonly generation: number;
-      readonly value: {
-        readonly method: ServerNotificationMethod;
-        readonly params: unknown;
-      };
+      readonly value: CodexAppServerNotification;
     }
   | { readonly kind: "connection"; readonly value: CodexEndpointConnection };
 
@@ -48,7 +46,9 @@ export class CodexEventHub extends Context.Service<
 export const live: Layer.Layer<CodexEventHub> = Layer.effect(
   CodexEventHub,
   Effect.gen(function* () {
-    const events = yield* PubSub.unbounded<CodexEndpointEvent>();
+    // Reliable protocol occurrences enter CodexApplicationRequestInbox directly. This fan-out is
+    // observational, so slow subscribers repair from canonical state after a sliding gap.
+    const events = yield* PubSub.sliding<CodexEndpointEvent>(MAIN_OBSERVATION_EVENT_CAPACITY);
     yield* Effect.addFinalizer(() => PubSub.shutdown(events).pipe(Effect.asVoid));
     return CodexEventHub.of({
       events: Stream.fromPubSub(events),

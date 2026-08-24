@@ -202,6 +202,7 @@ const buildHarness = (input: {
       state: authorityState,
       retry: Effect.void,
       requestRelaunch: Effect.void,
+      failApplication: () => Effect.succeed(true),
     });
     const notifications: ElectronNotificationInput[] = [];
     let powerResume: Effect.Effect<void> | null = null;

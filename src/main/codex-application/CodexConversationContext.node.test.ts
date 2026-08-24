@@ -8,8 +8,8 @@ import { CoreModuleResponseError } from "../core-client/core-client";
 import { CoreModules, type CoreModuleClients } from "../core-runtime/CoreModules";
 import { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { make as makeConversationContext } from "./CodexConversationContext";
-import type { CodexConversationAggregate } from "./CodexConversationAggregate";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import type { ConversationEntityState } from "./internal/ConversationEntityState";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 const notFound = (kind: string) =>
   new CoreRuntimeError({
@@ -51,9 +51,9 @@ it.effect(
         ({
           readSnapshot: () => snapshot,
           readCanonicalState: () => canonical,
-        }) as unknown as CodexConversationAggregate;
-      const conversations = ConversationRuntimeMap.of({
-        currentConversation: (threadId: string) =>
+        }) as unknown as ConversationEntityState;
+      const conversations = ConversationEntityMap.of({
+        current: (threadId: string) =>
           threadId === "side-chat"
             ? aggregate(childSnapshot, childCanonical)
             : threadId === "parent-thread"
@@ -67,7 +67,7 @@ it.effect(
                   {} as CodexCanonicalConversationState,
                 )
               : null,
-      } as unknown as ConversationRuntimeMap["Service"]);
+      } as unknown as ConversationEntityMap["Service"]);
       const workspace: CoreModuleClients["workspace"] = {
         read: (read) => {
           if (read.kind === "thread" && read.thread_id === "parent-thread") {
@@ -88,7 +88,7 @@ it.effect(
         apply: () => Effect.die("unused"),
       };
       const context = yield* makeConversationContext.pipe(
-        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(ConversationEntityMap, conversations),
         Effect.provideService(
           CoreModules,
           CoreModules.of({ workspace } as unknown as CoreModuleClients),

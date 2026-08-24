@@ -14,6 +14,7 @@ import * as Queue from "effect/Queue";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
+import { MAIN_RELIABLE_COMMAND_CAPACITY } from "../runtime-limits";
 import {
   buildThreadTitleGenerationPrompt,
   CODEX_THREAD_TITLE_CONFIG,
@@ -23,7 +24,7 @@ import {
   parseGeneratedThreadTitleResponse,
 } from "../codex/thread-title-generator";
 import { CodexInternalThreadRegistry } from "./CodexInternalThreadRegistry";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 
 type ThreadStartParams = ClientRequestParamsByMethod["thread/start"];
 type ThreadStartResponse = ClientRequestResponsesByMethod["thread/start"];
@@ -165,11 +166,11 @@ export const make = (
 ): Effect.Effect<
   CodexStructuredThreadTitle["Service"],
   never,
-  CodexInternalThreadRegistry | CodexThreadStartNotificationGate | Scope.Scope
+  CodexInternalThreadRegistry | ThreadCreationRuntime | Scope.Scope
 > =>
   Effect.gen(function* () {
     const internalThreads = yield* CodexInternalThreadRegistry;
-    const threadStarts = yield* CodexThreadStartNotificationGate;
+    const threadStarts = yield* ThreadCreationRuntime;
     const closed = yield* Latch.make();
     yield* Effect.addFinalizer(() => closed.open);
 
@@ -250,7 +251,9 @@ export const make = (
             (response) => options.unsubscribeThread(response.thread.id).pipe(Effect.ignore),
           );
           const threadId = thread.thread.id;
-          const notifications = yield* Queue.unbounded<TitleNotification>();
+          const notifications = yield* Queue.bounded<TitleNotification>(
+            MAIN_RELIABLE_COMMAND_CAPACITY,
+          );
           yield* Effect.addFinalizer(() => Queue.shutdown(notifications).pipe(Effect.asVoid));
           yield* options.events.pipe(
             Stream.runForEach((event) => {

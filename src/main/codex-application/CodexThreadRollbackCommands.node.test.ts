@@ -7,8 +7,8 @@ import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { make } from "./CodexThreadRollbackCommands";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
-import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
+import { makeConversationEntityStateRegistry } from "./internal/ConversationEntityState";
 
 const unused = () => Effect.die(new Error("Unsupported test operation"));
 
@@ -42,15 +42,15 @@ const ownerDrain = (events: string[]): CodexOwnerNotificationDrainRuntime["Servi
     clear: () => undefined,
   });
 
-const conversationLane = (events: string[]): ConversationRuntimeMap["Service"] => {
-  const conversations = makeCodexConversationAggregateRegistry();
-  return ConversationRuntimeMap.of({
-    conversation: conversations.acquire,
-    currentConversation: conversations.current,
-    runExclusive: (threadId, operation) =>
+const conversationLane = (events: string[]): ConversationEntityMap["Service"] => {
+  const conversations = makeConversationEntityStateRegistry();
+  return ConversationEntityMap.of({
+    entity: conversations.acquire,
+    current: conversations.current,
+    runCommand: (threadId, operation) =>
       Effect.sync(() => events.push(`lane:${threadId}`)).pipe(Effect.andThen(operation)),
     markAllNeedsResume: conversations.markAllNeedsResume,
-    close: () => Effect.void,
+    retire: () => Effect.void,
   });
 };
 
@@ -97,7 +97,7 @@ it.effect("runs owner drain, validation, Gateway, and projection commit in the T
       Effect.provideService(CodexConversationProjection, projection),
       Effect.provideService(CodexThreadDirectory, directory),
       Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerDrain(events)),
-      Effect.provideService(ConversationRuntimeMap, conversationLane(events)),
+      Effect.provideService(ConversationEntityMap, conversationLane(events)),
     );
 
     const response = yield* commands.rollbackLatestForEdit({
@@ -143,7 +143,7 @@ it.effect("rejects a mismatched response before committing canonical state", () 
       Effect.provideService(CodexConversationProjection, projection),
       Effect.provideService(CodexThreadDirectory, directory),
       Effect.provideService(CodexOwnerNotificationDrainRuntime, ownerDrain(events)),
-      Effect.provideService(ConversationRuntimeMap, conversationLane(events)),
+      Effect.provideService(ConversationEntityMap, conversationLane(events)),
     );
 
     const exit = yield* Effect.exit(

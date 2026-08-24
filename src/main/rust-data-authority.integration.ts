@@ -74,9 +74,9 @@ import {
   make as makeCodexTurnAuthority,
 } from "./codex-application/CodexTurnAuthority";
 import {
-  ConversationRuntimeMap,
-  live as conversationRuntimeMapLive,
-} from "./codex-application/ConversationRuntimeMap";
+  ConversationEntityMap,
+  live as conversationEntityMapLive,
+} from "./codex-application/internal/ConversationEntityMap";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
@@ -127,6 +127,7 @@ const withFinalDataApplications = <A, E>(
           state,
           retry: Effect.void,
           requestRelaunch: Effect.void,
+          failApplication: () => Effect.succeed(true),
         });
         const authorityLayer = Layer.succeed(CoreAuthority, authority);
         const coreContext = yield* Layer.build(coreModulesLive.pipe(Layer.provide(accessLayer)));
@@ -144,11 +145,11 @@ const withFinalDataApplications = <A, E>(
         const workspace = yield* makeProjectWorkspace.pipe(
           Effect.provideService(CoreModules, core),
         );
-        const conversationRuntimeContext = yield* Layer.build(conversationRuntimeMapLive);
+        const conversationRuntimeContext = yield* Layer.build(conversationEntityMapLive);
         const conversationContext = yield* makeCodexConversationContext.pipe(
           Effect.provideService(
-            ConversationRuntimeMap,
-            Context.get(conversationRuntimeContext, ConversationRuntimeMap),
+            ConversationEntityMap,
+            Context.get(conversationRuntimeContext, ConversationEntityMap),
           ),
           Effect.provideService(CoreModules, core),
         );

@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { CoreModuleResponseError } from "../core-client/core-client";
 import { CoreModules } from "../core-runtime/CoreModules";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export interface CodexConversationContextValue {
   readonly threadId: string;
@@ -43,13 +43,13 @@ const normalized = (value: string | null | undefined): string | null => {
 export const make: Effect.Effect<
   CodexConversationContext["Service"],
   never,
-  ConversationRuntimeMap | CoreModules
+  ConversationEntityMap | CoreModules
 > = Effect.gen(function* () {
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const core = yield* CoreModules;
 
   const live = (threadId: string) => {
-    const aggregate = conversations.currentConversation(threadId);
+    const aggregate = conversations.current(threadId);
     return {
       snapshot: aggregate?.readSnapshot() ?? null,
       canonical: aggregate?.readCanonicalState() ?? null,

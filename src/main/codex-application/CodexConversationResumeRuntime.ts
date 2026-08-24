@@ -23,7 +23,7 @@ import { CodexPostResumeGoalRuntime } from "./CodexPostResumeGoalRuntime";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export interface CodexConversationResumeInput {
   readonly threadId: string;
@@ -112,7 +112,7 @@ export const make: Effect.Effect<
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
   | CodexThreadDirectory
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | Scope.Scope
 > = Effect.gen(function* () {
   const protocol = yield* CodexApplicationProtocol;
@@ -124,7 +124,7 @@ export const make: Effect.Effect<
   const rendererCoordinator = yield* CodexRendererConversationCoordinator;
   const rendererRegistry = yield* CodexRendererConversationRegistry;
   const threadDirectory = yield* CodexThreadDirectory;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
 
   const refreshRelationships = (threadId: string): Effect.Effect<void> =>
     relationships.refresh(threadId).pipe(
@@ -153,7 +153,7 @@ export const make: Effect.Effect<
     yield* protocol.releaseResume(threadId);
     yield* ownerNotificationDrain.awaitCurrent(threadId);
     rendererCoordinator.reconcileOwnership(threadId);
-    const revision = conversations.currentConversation(threadId)?.read().revision ?? 0;
+    const revision = conversations.current(threadId)?.read().revision ?? 0;
     if (!postResumeGoals.release(threadId, revision)) {
       conversationHistory.requestRemaining(threadId);
     }
@@ -165,7 +165,7 @@ export const make: Effect.Effect<
   ) {
     const threadId = demand.threadId.trim();
     if (!threadId) return yield* invalidIdentity("Thread");
-    const aggregate = conversations.conversation(threadId);
+    const aggregate = conversations.entity(threadId);
     const current = aggregate.readSnapshot();
     if (current && (aggregate.readResumeState() !== "needs_resume" || aggregate.isStreaming())) {
       const hadBuffer = protocol.hasResume(threadId);
@@ -186,7 +186,7 @@ export const make: Effect.Effect<
       const archived = yield* threadDirectory
         .resolve({ threadId, fidelity: "full" })
         .pipe(Effect.mapError((cause) => new CodexConversationResumeError({ cause })));
-      const archivedAggregate = conversations.currentConversation(threadId);
+      const archivedAggregate = conversations.current(threadId);
       archivedAggregate?.setResumeState("needs_resume");
       rendererCoordinator.reconcileOwnership(threadId);
       return archivedAggregate?.readSnapshot() ?? archived?.snapshot ?? null;
@@ -319,7 +319,7 @@ export const make: Effect.Effect<
     return threadDirectory.resolve({ threadId, fidelity: "durable" }).pipe(
       Effect.flatMap((entry) => {
         const conversation =
-          entry?.snapshot ?? conversations.currentConversation(threadId)?.readSnapshot() ?? null;
+          entry?.snapshot ?? conversations.current(threadId)?.readSnapshot() ?? null;
         return conversation
           ? refreshRelationships(threadId).pipe(Effect.as(conversation))
           : Effect.succeed(null);

@@ -12,7 +12,7 @@ import type { CodexConversationSnapshot } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { projectCodexConversationOlderTurns } from "./CodexConversationHistoryProjection";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export interface CodexConversationHistoryLoadInput {
   readonly threadId: string;
@@ -60,11 +60,11 @@ const normalizeGatewayHistoryTurn = (turn: GatewayHistoryTurn): Turn =>
 export const make: Effect.Effect<
   CodexConversationHistoryRuntime["Service"],
   never,
-  CodexGateway | CodexRendererConversationRegistry | ConversationRuntimeMap | Scope.Scope
+  CodexGateway | CodexRendererConversationRegistry | ConversationEntityMap | Scope.Scope
 > = Effect.gen(function* () {
   const gateway = yield* CodexGateway;
   const rendererRegistry = yield* CodexRendererConversationRegistry;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const loads = yield* FiberMap.make<string, void, CodexConversationHistoryError>();
   const runLoad = yield* FiberMap.runtime(loads)();
   const runBackground = yield* FiberSet.makeRuntime<never, void, never>();
@@ -77,7 +77,7 @@ export const make: Effect.Effect<
     input: CodexConversationHistoryLoadInput,
   ): Effect.Effect<void, CodexConversationHistoryError> =>
     Effect.gen(function* () {
-      const aggregate = conversations.currentConversation(input.threadId);
+      const aggregate = conversations.current(input.threadId);
       const snapshot = aggregate?.readSnapshot() ?? null;
       if (!aggregate || !snapshot || !aggregate.readCanonicalState()) return;
       const pagination = aggregate.readTurnPagination();
@@ -186,10 +186,10 @@ export const make: Effect.Effect<
     });
 
   const snapshot = (threadId: string): CodexConversationSnapshot | null =>
-    conversations.currentConversation(threadId)?.readSnapshot() ?? null;
+    conversations.current(threadId)?.readSnapshot() ?? null;
 
   const requestRemaining = (threadId: string): void => {
-    const pagination = conversations.currentConversation(threadId)?.readTurnPagination();
+    const pagination = conversations.current(threadId)?.readTurnPagination();
     if (!pagination || pagination.hasLoadedOldest || pagination.olderCursor === null) return;
     runBackground(
       load({ threadId, loadCompleteHistory: true, broadcastResult: true }).pipe(

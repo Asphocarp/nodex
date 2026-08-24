@@ -1,9 +1,9 @@
 import type { Thread, ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import { assert, it } from "@effect/vitest";
-import type { CodexConversationSnapshot } from "../../shared/types";
-import { CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID } from "../../shared/codex-conversation-state/codex-conversation-reducer";
-import { createCodexCanonicalConversationState } from "../../shared/codex-conversation-state/codex-conversation-state";
-import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
+import type { CodexConversationSnapshot } from "../../../shared/types";
+import { CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID } from "../../../shared/codex-conversation-state/codex-conversation-reducer";
+import { createCodexCanonicalConversationState } from "../../../shared/codex-conversation-state/codex-conversation-state";
+import { makeConversationEntityStateRegistry } from "./ConversationEntityState";
 
 const threadId = "thread-canonical-projection";
 
@@ -62,7 +62,7 @@ const goal: ThreadGoal = {
 };
 
 it("projects semantic canonical mutations into both the snapshot and dormant replica", () => {
-  const aggregate = makeCodexConversationAggregateRegistry().acquire(threadId);
+  const aggregate = makeConversationEntityStateRegistry().acquire(threadId);
   aggregate.acceptCanonicalState(
     createCodexCanonicalConversationState(thread, { turnParamsById: {} }),
   );
@@ -99,4 +99,23 @@ it("projects semantic canonical mutations into both the snapshot and dormant rep
   assert.isTrue(aggregate.rollbackManualCompaction({ observedAtMs: 4_000, projectReplica: true }));
   assert.strictEqual(aggregate.readSnapshot()?.turns.length, 1);
   assert.strictEqual(aggregate.read().acceptedReplica?.conversation.turns.length, 1);
+});
+
+it("invalidates generation-bound renderer checkpoints when the endpoint is lost", () => {
+  const registry = makeConversationEntityStateRegistry();
+  const aggregate = registry.acquire(threadId);
+  aggregate.installSnapshot(snapshot());
+  aggregate.acceptReplica({ conversation: snapshot(), revision: 4, ownerEpoch: 2 });
+  aggregate.setStreamRole("owner");
+  aggregate.setStreaming(true);
+
+  assert.deepEqual(registry.markAllNeedsResume(), [threadId]);
+  const state = aggregate.read();
+  assert.strictEqual(state.resumeState, "needs_resume");
+  assert.strictEqual(state.streamRole, null);
+  assert.isFalse(state.isStreaming);
+  assert.strictEqual(state.acceptedReplica, null);
+  assert.strictEqual(state.revision, 0);
+  assert.strictEqual(state.checkpoint, null);
+  assert.strictEqual(aggregate.readSnapshot()?.resumeState, "needs_resume");
 });

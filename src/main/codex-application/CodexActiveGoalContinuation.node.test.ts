@@ -4,14 +4,14 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
-import type { CodexConversationAggregate } from "./CodexConversationAggregate";
+import type { ConversationEntityState } from "./internal/ConversationEntityState";
 import { make } from "./CodexActiveGoalContinuation";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
 import { CodexTurnCommands } from "./CodexTurnCommands";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
-const activeConversation = (): CodexConversationAggregate =>
+const activeConversation = (): ConversationEntityState =>
   ({
     readResumeState: () => "resumed",
     readSnapshot: () => ({
@@ -25,7 +25,7 @@ const activeConversation = (): CodexConversationAggregate =>
     readServerRequests: () => [],
     readStreamRole: () => "owner",
     isStreaming: () => true,
-  }) as unknown as CodexConversationAggregate;
+  }) as unknown as ConversationEntityState;
 
 const makeRuntime = (input: {
   readonly eligible: () => boolean;
@@ -33,10 +33,10 @@ const makeRuntime = (input: {
 }) =>
   make.pipe(
     Effect.provideService(
-      ConversationRuntimeMap,
-      ConversationRuntimeMap.of({
-        currentConversation: () => (input.eligible() ? activeConversation() : null),
-      } as unknown as ConversationRuntimeMap["Service"]),
+      ConversationEntityMap,
+      ConversationEntityMap.of({
+        current: () => (input.eligible() ? activeConversation() : null),
+      } as unknown as ConversationEntityMap["Service"]),
     ),
     Effect.provideService(
       CodexThreadSettingsRuntime,

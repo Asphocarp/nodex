@@ -8,6 +8,7 @@ import { AutomationApplication } from "../../automation-application/AutomationAp
 import { AutomationExecution } from "../../automation-application/AutomationExecution";
 import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
+import { RendererClientRuntime } from "../../host-runtime/RendererClientRuntime";
 import { ScheduledAutomationRuntime } from "../../host-runtime/ScheduledAutomationRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
@@ -28,9 +29,7 @@ it.effect("owns calendar and scheduled automation ingress with the Main Scope", 
     } as unknown as ElectronIpc["Service"]);
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      live({
-        rendererClients: {} as RendererClientRuntimeService,
-      }).pipe(
+      live.pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(
@@ -40,6 +39,7 @@ it.effect("owns calendar and scheduled automation ingress with the Main Scope", 
               } as unknown as ConversationCommands["Service"]),
             ),
             Layer.succeed(ElectronIpc, ipc),
+            Layer.succeed(RendererClientRuntime, {} as RendererClientRuntimeService),
             mainConfigLayer(),
             Layer.succeed(AutomationApplication, {} as AutomationApplication["Service"]),
             Layer.succeed(AutomationExecution, {} as AutomationExecution["Service"]),

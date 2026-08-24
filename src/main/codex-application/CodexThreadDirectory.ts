@@ -32,7 +32,7 @@ import { CoreModules } from "../core-runtime/CoreModules";
 import { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexConversationProjection } from "./CodexConversationProjection";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 import {
   buildWorkspaceThreadSummary,
   hasSidebarThreadSummaryChanged,
@@ -213,7 +213,7 @@ export const make: Effect.Effect<
   | CodexApplicationEventHub
   | CodexConversationProjection
   | CodexGateway
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | CoreModules
   | Scope.Scope
 > = Effect.gen(function* () {
@@ -221,7 +221,7 @@ export const make: Effect.Effect<
   const events = yield* CodexApplicationEventHub;
   const projection = yield* CodexConversationProjection;
   const gateway = yield* CodexGateway;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const core = yield* CoreModules;
 
   const error = (
@@ -266,7 +266,7 @@ export const make: Effect.Effect<
     durable: DurableThread,
     fidelity: CodexThreadDirectoryFidelity,
   ): CodexThreadDirectoryEntry => {
-    const aggregate = conversations.currentConversation(durable.thread.threadId);
+    const aggregate = conversations.current(durable.thread.threadId);
     const state = aggregate?.read();
     return {
       fidelity,
@@ -375,7 +375,7 @@ export const make: Effect.Effect<
     readonly hasUnreadTurn?: boolean;
   }): Effect.fn.Return<CodexThreadDirectoryEntry, CodexThreadDirectoryError> {
     const threadId = input.durable.thread.threadId;
-    const aggregate = conversations.conversation(threadId);
+    const aggregate = conversations.entity(threadId);
     const existingPermissions =
       aggregate.readCanonicalState()?.sidecar.hydrationContext?.currentPermissions;
     const fallbackPermissions = createCodexCanonicalWorkspacePermissionContext(
@@ -508,12 +508,9 @@ export const make: Effect.Effect<
     const hostId = durable?.thread.executionHostId ?? input.hostId?.trim();
     if (!hostId) return null;
     if (input.fidelity === "durable") {
-      return yield* conversations.runExclusive(threadId, readRemote(threadId, "metadata", hostId));
+      return yield* conversations.runCommand(threadId, readRemote(threadId, "metadata", hostId));
     }
-    return yield* conversations.runExclusive(
-      threadId,
-      readRemote(threadId, input.fidelity, hostId),
-    );
+    return yield* conversations.runCommand(threadId, readRemote(threadId, input.fidelity, hostId));
   });
 
   const discover = Effect.fn("CodexThreadDirectory.discover")(function* (

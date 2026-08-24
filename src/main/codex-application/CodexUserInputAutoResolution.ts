@@ -14,6 +14,7 @@ import type {
   CodexUserInputAutoResolutionEntry,
 } from "../../shared/codex-user-input-auto-resolution";
 import type { CodexProtocolRequestId } from "../../shared/types";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 
 export const USER_INPUT_FOREGROUND_INACTIVITY = "60 seconds";
@@ -78,7 +79,9 @@ export const make: Effect.Effect<
 > = Effect.gen(function* () {
   const rendererConversations = yield* CodexRendererConversationRegistry;
   const state = yield* Ref.make(HashMap.empty<string, TrackedUserInput>());
-  const changes = yield* PubSub.unbounded<CodexUserInputAutoResolutionChange>();
+  const changes = yield* PubSub.sliding<CodexUserInputAutoResolutionChange>(
+    MAIN_OBSERVATION_EVENT_CAPACITY,
+  );
   const timers = yield* FiberMap.make<string, void>();
   const mutations = yield* Semaphore.make(1);
   yield* Effect.addFinalizer(() => PubSub.shutdown(changes));

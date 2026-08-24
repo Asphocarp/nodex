@@ -78,13 +78,13 @@ import { CodexHeartbeatTurnCompletion } from "../codex-application/CodexHeartbea
 import { CodexPermissions } from "../codex-application/CodexPermissions";
 import { CodexRendererConversationRegistry } from "../codex-application/CodexRendererConversationRegistry";
 import { CodexThreadDirectory } from "../codex-application/CodexThreadDirectory";
-import { CodexThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "../codex-application/ThreadCreationRuntime";
 import { CodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
 import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTitlePersistence";
 import { CodexTurnAuthority } from "../codex-application/CodexTurnAuthority";
 import { CodexTurnCommands } from "../codex-application/CodexTurnCommands";
 import { ComposerCatalog } from "../codex-application/ComposerCatalog";
-import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
+import { CodexConversations } from "../codex-application/CodexConversations";
 import { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
 import { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
 import { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
@@ -342,13 +342,13 @@ export const live = (
   | CodexPermissions
   | CodexRendererConversationRegistry
   | CodexThreadDirectory
-  | CodexThreadStartNotificationGate
+  | ThreadCreationRuntime
   | CodexThreadSettingsRuntime
   | CodexThreadTitlePersistence
   | CodexTurnAuthority
   | CodexTurnCommands
   | ComposerCatalog
-  | ConversationRuntimeMap
+  | CodexConversations
   | DesktopToolRuntime
   | ExecutionHostRuntime
   | MainConfig
@@ -368,13 +368,13 @@ export const live = (
       const permissions = yield* CodexPermissions;
       const rendererConversations = yield* CodexRendererConversationRegistry;
       const directory = yield* CodexThreadDirectory;
-      const threadStarts = yield* CodexThreadStartNotificationGate;
+      const threadStarts = yield* ThreadCreationRuntime;
       const threadSettings = yield* CodexThreadSettingsRuntime;
       const titles = yield* CodexThreadTitlePersistence;
       const authority = yield* CodexTurnAuthority;
       const turns = yield* CodexTurnCommands;
       const composer = yield* ComposerCatalog;
-      const conversations = yield* ConversationRuntimeMap;
+      const conversations = yield* CodexConversations;
       const desktopTools = yield* DesktopToolRuntime;
       const executionHosts = yield* ExecutionHostRuntime;
       const config = yield* MainConfig;
@@ -1190,7 +1190,7 @@ export const live = (
       const resolveArchiveMessages = (
         threadId: string,
       ): Effect.Effect<AutomationArchiveMessages> => {
-        const snapshot = conversations.currentConversation(threadId)?.readSnapshot() ?? null;
+        const snapshot = conversations.read(threadId)?.snapshot ?? null;
         const local = snapshot
           ? resolveAutomationArchiveMessagesFromTranscript(
               snapshot.turns.flatMap((turn) => turn.items),

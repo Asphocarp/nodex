@@ -10,14 +10,13 @@ import {
 import type { NodexAgentAccess } from "../../shared/nodex-agent-tools/read-runtime";
 import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
 import type { NodexAgentResourceIntent } from "../../shared/nodex-agent-resource-access";
-import type { CodexConversationAggregate } from "../codex-application/CodexConversationAggregate";
+import { CodexConversations } from "../codex-application/CodexConversations";
 import { CodexConversationContext } from "../codex-application/CodexConversationContext";
 import {
   NodexAgentAuthorizationRuntime,
   type NodexAgentAuthorizationPresentationTarget,
 } from "../codex-application/NodexAgentAuthorizationRuntime";
 import { CodexRendererConversationRegistry } from "../codex-application/CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
 import { resolveNodexAgentWriteAccess } from "../codex/nodex-agent-access";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { NodexAgentDynamicTools } from "./NodexAgentDynamicTools";
@@ -50,15 +49,6 @@ const fromCoreAuthority = (authority: {
   source: authority.source,
 });
 
-const latestTurnId = (aggregate: CodexConversationAggregate | null | undefined): string | null => {
-  const turns = aggregate?.readCanonicalState()?.turns ?? [];
-  for (let index = turns.length - 1; index >= 0; index -= 1) {
-    const turnId = turns[index]?.protocol.id;
-    if (turnId) return turnId;
-  }
-  return null;
-};
-
 /**
  * Executes Nodex Agent calls from their frozen Core Turn authority. Model-controlled arguments
  * never select Project, root Thread, toolset revision, resource grants, or presentation target.
@@ -67,8 +57,8 @@ export const live: Layer.Layer<
   NodexAgentProtocolTools,
   never,
   | CodexConversationContext
+  | CodexConversations
   | CodexRendererConversationRegistry
-  | ConversationRuntimeMap
   | CoreModules
   | NodexAgentAuthorizationRuntime
   | NodexAgentDynamicTools
@@ -77,8 +67,8 @@ export const live: Layer.Layer<
   NodexAgentProtocolTools,
   Effect.gen(function* () {
     const conversationContext = yield* CodexConversationContext;
+    const conversations = yield* CodexConversations;
     const renderer = yield* CodexRendererConversationRegistry;
-    const conversations = yield* ConversationRuntimeMap;
     const core = yield* CoreModules;
     const authorization = yield* NodexAgentAuthorizationRuntime;
     const tools = yield* NodexAgentDynamicTools;
@@ -137,7 +127,7 @@ export const live: Layer.Layer<
       if (direct) return { clientId: direct, threadId: params.threadId, turnId: params.turnId };
       if (rootThreadId === params.threadId) return null;
       const clientId = renderer.resolvePresentationClient(rootThreadId);
-      const turnId = latestTurnId(conversations.currentConversation(rootThreadId));
+      const turnId = conversations.latestTurnId(rootThreadId);
       return clientId && turnId ? { clientId, threadId: rootThreadId, turnId } : null;
     };
 

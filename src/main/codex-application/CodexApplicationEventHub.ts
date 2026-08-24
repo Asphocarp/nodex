@@ -6,6 +6,7 @@ import * as Stream from "effect/Stream";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type { IpcEvents } from "../../shared/ipc-api";
 import type { CodexHostMessage } from "../../shared/types";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 export type CodexApplicationEvent =
   | { readonly kind: "codex"; readonly value: IpcEvents["codex:event"] }
@@ -74,7 +75,7 @@ export class CodexApplicationEventHub extends Context.Service<
 export const make: Effect.Effect<CodexApplicationEventHub["Service"], never, Scope.Scope> =
   Effect.gen(function* () {
     let accepting = true;
-    const events = yield* PubSub.unbounded<CodexApplicationEvent>();
+    const events = yield* PubSub.sliding<CodexApplicationEvent>(MAIN_OBSERVATION_EVENT_CAPACITY);
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         accepting = false;

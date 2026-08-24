@@ -137,6 +137,18 @@ describe("LocalConversationStreamState", () => {
     expect(streamState.getRevision("thread-1")).toBe(null);
   });
 
+  test("invalidates an owner role when its physical endpoint generation is lost", () => {
+    const streamState = new LocalConversationStreamState();
+
+    streamState.setConversationFollowing("thread-1", true);
+    streamState.markOwner("thread-1", checkpoint(3));
+
+    expect(streamState.handleTransportReset(["thread-1"])).toEqual(["thread-1"]);
+    expect(streamState.isConversationFollowing("thread-1")).toBe(true);
+    expect(streamState.getRole("thread-1")).toBe(null);
+    expect(streamState.getRevision("thread-1")).toBe(null);
+  });
+
   test("adopts the authoritative follower baseline returned by resume", () => {
     const streamState = new LocalConversationStreamState();
 

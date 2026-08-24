@@ -10,7 +10,7 @@ import {
   type CodexSidebarSyncNotification,
 } from "./CodexSidebarSyncRuntime";
 import { make } from "./CodexThreadDurableProjection";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 type CoreThread = Extract<
   ProjectWorkspaceReadSnapshot["value"],
@@ -96,10 +96,10 @@ it.effect("serially commits archive and delete observations before scheduling si
         } as unknown as CodexSidebarSyncRuntime["Service"]),
       ),
       Effect.provideService(
-        ConversationRuntimeMap,
-        ConversationRuntimeMap.of({
-          currentConversation: () => null,
-        } as unknown as ConversationRuntimeMap["Service"]),
+        ConversationEntityMap,
+        ConversationEntityMap.of({
+          current: () => null,
+        } as unknown as ConversationEntityMap["Service"]),
       ),
       Effect.provideService(
         CoreModules,

@@ -108,11 +108,16 @@ export const live = (
             }),
           );
         }
-        return Ref.update(configs, (current) => {
-          const next = new Map(current);
-          next.set(hostId, { ...config, hostId });
-          return next;
-        }).pipe(Effect.andThen(endpoints.invalidate(hostId)), mutationLock.withPermits(1));
+        const normalized = { ...config, hostId };
+        return Effect.gen(function* () {
+          const previous = yield* Ref.get(configs);
+          const next = new Map(previous);
+          next.set(hostId, normalized);
+          yield* Ref.set(configs, next);
+          if (!previous.has(hostId)) return;
+          const stableEndpoint = yield* endpoint(hostId);
+          yield* stableEndpoint.reconcile(normalized);
+        }).pipe(mutationLock.withPermits(1));
       });
 
       const unregister = Effect.fn("CodexEndpointMap.unregister")((
@@ -145,7 +150,7 @@ export const live = (
           Ref.get(configs).pipe(
             Effect.flatMap((current) =>
               current.has(hostId.trim())
-                ? endpoints.invalidate(hostId.trim())
+                ? endpoint(hostId.trim()).pipe(Effect.flatMap((stable) => stable.restart))
                 : Effect.fail(unavailable(hostId.trim())),
             ),
             mutationLock.withPermits(1),

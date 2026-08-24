@@ -34,7 +34,7 @@ import {
   type CodexTurnStartPlan,
   type CodexTurnSteerPlan,
 } from "./CodexTurnPreparation";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 type GatewayTurnStartParams = ClientRequestParamsByMethod["turn/start"];
 type GatewayTurnSteerParams = ClientRequestParamsByMethod["turn/steer"];
@@ -148,12 +148,12 @@ export const make: Effect.Effect<
   | CodexGateway
   | CodexTurnAuthority
   | CodexTurnPreparation
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | CoreModules
   | ProjectRuntimeLifecycleRuntime
   | Scope.Scope
 > = Effect.gen(function* () {
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const gateway = yield* CodexGateway;
   const projectLifecycle = yield* ProjectRuntimeLifecycleRuntime;
   const automationRuns = yield* CodexAutomationRunAcceptance;
@@ -165,7 +165,7 @@ export const make: Effect.Effect<
 
   /** This mutation participates in the already-held Thread transaction; reacquiring its lane deadlocks. */
   const clearPausedFollowUps = (threadId: string, projectReplica: boolean): void => {
-    conversations.currentConversation(threadId)?.clearPausedQueuedFollowUps(projectReplica);
+    conversations.current(threadId)?.clearPausedQueuedFollowUps(projectReplica);
   };
 
   const commandError = (
@@ -424,7 +424,7 @@ export const make: Effect.Effect<
     rendererOwnsState: boolean,
     acceptAutomationRun = true,
   ) =>
-    conversations.runExclusive(
+    conversations.runCommand(
       threadId,
       startInLane(threadId, prompt, overrides, rendererOwnsState, acceptAutomationRun),
     );
@@ -538,7 +538,7 @@ export const make: Effect.Effect<
       ),
     acceptPreparedRendererTurn: (plan) =>
       conversations
-        .runExclusive(
+        .runCommand(
           plan.threadId,
           startTransaction({
             ...plan,
@@ -562,14 +562,14 @@ export const make: Effect.Effect<
           }),
         ),
     steer: (input) =>
-      conversations.runExclusive(input.threadId, steerInLane(input)).pipe(
+      conversations.runCommand(input.threadId, steerInLane(input)).pipe(
         Effect.withSpan("CodexTurnCommands.steer", {
           attributes: { threadId: input.threadId },
         }),
       ),
     steerRendererOwned: (params) =>
       conversations
-        .runExclusive(
+        .runCommand(
           params.threadId,
           gateway
             .requestForThread(params.threadId, "turn/steer", params as GatewayTurnSteerParams)
@@ -582,7 +582,7 @@ export const make: Effect.Effect<
         ),
     continueGoal: (threadId) =>
       conversations
-        .runExclusive(
+        .runCommand(
           threadId,
           materialization.ensure(threadId).pipe(
             Effect.mapError((cause) => commandError("start", threadId, cause)),

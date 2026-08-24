@@ -18,9 +18,9 @@ import {
 } from "./CodexRendererConversationRegistry";
 import { CodexTurnCommands } from "./CodexTurnCommands";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 
 const snapshot = (threadId: string): CodexConversationSnapshot =>
   ({
@@ -46,11 +46,11 @@ const makeHarness = (input: {
       conversationRuntimeMapLive,
       stateScope,
     );
-    const conversations = Context.get(conversationsContext, ConversationRuntimeMap);
-    conversations.conversation("thread-a").installSnapshot(snapshot("thread-a"));
+    const conversations = Context.get(conversationsContext, ConversationEntityMap);
+    conversations.entity("thread-a").installSnapshot(snapshot("thread-a"));
     const rendererRegistry = makeCodexRendererConversationRegistryState();
     const queued = yield* makeQueuedFollowUps.pipe(
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
       Effect.provideService(CodexRendererConversationRegistry, rendererRegistry),
       Effect.provideService(Scope.Scope, stateScope),
     );
@@ -58,7 +58,7 @@ const makeHarness = (input: {
       read: (threadId: string) =>
         Effect.succeed({
           canonical: canonical(input.activeTurnId ?? null),
-          snapshot: conversations.currentConversation(threadId)?.readSnapshot() ?? null,
+          snapshot: conversations.current(threadId)?.readSnapshot() ?? null,
         }),
     } as unknown as CodexConversationProjection["Service"]);
     const turns = CodexTurnCommands.of({

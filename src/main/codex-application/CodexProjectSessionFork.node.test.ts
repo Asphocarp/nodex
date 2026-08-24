@@ -14,7 +14,7 @@ import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { make } from "./CodexProjectSessionFork";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadSettingsRuntime } from "./CodexThreadSettingsRuntime";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 const sessionId = "session-source";
 const sourceThreadId = "thread-source";
@@ -184,9 +184,9 @@ const makeHarness = () => {
       } as never),
     ),
     Effect.provideService(
-      ConversationRuntimeMap,
-      ConversationRuntimeMap.of({
-        runExclusive: <A, E, R>(_threadId: string, operation: Effect.Effect<A, E, R>) => operation,
+      ConversationEntityMap,
+      ConversationEntityMap.of({
+        runCommand: <A, E, R>(_threadId: string, operation: Effect.Effect<A, E, R>) => operation,
       } as never),
     ),
   );

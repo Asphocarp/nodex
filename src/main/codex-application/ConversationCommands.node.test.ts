@@ -13,7 +13,7 @@ import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import { CodexServerRequestResponses } from "./CodexServerRequestResponses";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { ConversationCommands, live } from "./ConversationCommands";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 it.effect(
   "commits interruption as one application transaction and tolerates post-commit projection failure",
@@ -90,13 +90,11 @@ it.effect(
           declineAllInTransaction: (threadId: string) =>
             Effect.sync(() => events.push(`requests:decline:${threadId}`)),
         } as unknown as CodexServerRequestResponses["Service"]);
-        const runExclusive: ConversationRuntimeMap["Service"]["runExclusive"] = (
-          threadId,
-          operation,
-        ) => Effect.sync(() => events.push(`lane:${threadId}`)).pipe(Effect.andThen(operation));
-        const runtimes = ConversationRuntimeMap.of({
-          runExclusive,
-        } as unknown as ConversationRuntimeMap["Service"]);
+        const runCommand: ConversationEntityMap["Service"]["runCommand"] = (threadId, operation) =>
+          Effect.sync(() => events.push(`lane:${threadId}`)).pipe(Effect.andThen(operation));
+        const runtimes = ConversationEntityMap.of({
+          runCommand,
+        } as unknown as ConversationEntityMap["Service"]);
         const context = yield* Layer.build(
           live.pipe(
             Layer.provide(
@@ -113,7 +111,7 @@ it.effect(
                 Layer.succeed(CodexQueuedFollowUps, queued),
                 Layer.succeed(CodexServerRequestResponses, responses),
                 Layer.succeed(CodexThreadGoalRuntime, goals),
-                Layer.succeed(ConversationRuntimeMap, runtimes),
+                Layer.succeed(ConversationEntityMap, runtimes),
               ),
             ),
           ),

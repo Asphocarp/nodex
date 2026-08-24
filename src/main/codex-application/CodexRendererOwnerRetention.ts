@@ -14,7 +14,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export const DEFAULT_RENDERER_OWNER_RETENTION = "1 hour";
 export const DEFAULT_RENDERER_OWNER_MAX_RETAINED = 4;
@@ -59,11 +59,11 @@ export const make = (
   | CodexGateway
   | CodexOwnerNotificationDrainRuntime
   | CodexRendererConversationRegistry
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | Scope.Scope
 > =>
   Effect.gen(function* () {
-    const conversations = yield* ConversationRuntimeMap;
+    const conversations = yield* ConversationEntityMap;
     const events = yield* CodexApplicationEventHub;
     const gateway = yield* CodexGateway;
     const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
@@ -91,7 +91,7 @@ export const make = (
       if (rendererConversations.hasFollowersOrPendingReconnect(conversationId)) return false;
       if (rendererConversations.hasActiveView(conversationId)) return false;
 
-      const aggregate = conversations.currentConversation(conversationId);
+      const aggregate = conversations.current(conversationId);
       const conversation = aggregate?.read().acceptedReplica?.conversation;
       if (!aggregate || !conversation) return false;
       if (!detached && aggregate.readStreamRole() !== "owner") return false;
@@ -130,7 +130,7 @@ export const make = (
     const commitCleanup = (conversationId: string): Effect.Effect<void> =>
       Effect.sync(() => {
         if (!isCandidate(conversationId)) return;
-        const aggregate = conversations.currentConversation(conversationId);
+        const aggregate = conversations.current(conversationId);
         const replica = aggregate?.read().acceptedReplica ?? null;
         const ownerClientId = rendererConversations.clearConversation(conversationId);
         ownerNotificationDrain.release(conversationId);

@@ -1,6 +1,8 @@
 import * as Context from "effect/Context";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
@@ -85,7 +87,13 @@ it.effect("routes ephemeral Threads before the durable Workspace authority", () 
   ),
 );
 
-const makeHarness = (failedHostId?: string) => {
+const makeHarness = (
+  failedHostId?: string,
+  ensureReady?: (
+    config: CodexSshExecutionHostConfig,
+    signal?: AbortSignal,
+  ) => ReturnType<RemoteExecutionHostTransport["ensureReady"]>,
+) => {
   let settings: CodexExecutionHostSettings = { sshHosts: [] };
   const registered = new Map<string, CodexExecutionHostConfig>();
   const removed: string[] = [];
@@ -120,19 +128,21 @@ const makeHarness = (failedHostId?: string) => {
       ({
         hostId: config.id,
         config,
-        ensureReady: () =>
-          failedHosts.has(config.id)
-            ? Promise.reject(new Error("host unavailable"))
-            : Promise.resolve({
-                hostId: config.id,
-                home: `/remote/${config.id}`,
-                codexHome: `/remote/${config.id}/.codex`,
-                platform: "linux",
-                architecture: "arm64",
-                nodeVersion: "v24",
-                gitVersion: "git 2",
-                codexVersion: "codex 1",
-              }),
+        ensureReady: (signal) =>
+          ensureReady
+            ? ensureReady(config, signal)
+            : failedHosts.has(config.id)
+              ? Promise.reject(new Error("host unavailable"))
+              : Promise.resolve({
+                  hostId: config.id,
+                  home: `/remote/${config.id}`,
+                  codexHome: `/remote/${config.id}/.codex`,
+                  platform: "linux",
+                  architecture: "arm64",
+                  nodeVersion: "v24",
+                  gitVersion: "git 2",
+                  codexVersion: "codex 1",
+                }),
         openWorktreeWorker: () => Promise.reject(new Error("not exercised")),
         appServerClientOptions: () => ({ binaryPath: "ssh", args: [] }),
         describe: () => Promise.reject(new Error("not exercised")),
@@ -246,5 +256,37 @@ it.effect("keeps healthy hosts active while reporting unavailable peers", () =>
     assert.deepEqual([...harness.registered.keys()].sort(), ["broken", "healthy"]);
 
     yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("aborts an SSH health probe when the owning application Scope closes", () =>
+  Effect.gen(function* () {
+    let observedSignal: AbortSignal | undefined;
+    let markProbeStarted: (() => void) | undefined;
+    const probeStarted = new Promise<void>((resolve) => {
+      markProbeStarted = resolve;
+    });
+    const harness = makeHarness(undefined, (_config, signal) => {
+      observedSignal = signal;
+      markProbeStarted?.();
+      return new Promise((_, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    });
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(harness.layer, scope);
+    const hosts = Context.get(context, ExecutionHostRuntime);
+    const reconcile = yield* hosts
+      .updateSettings({ sshHosts: [sshHost("slow")] })
+      .pipe(Effect.forkChild);
+    yield* Effect.promise(() => probeStarted);
+
+    yield* Scope.close(scope, Exit.void);
+
+    assert.isTrue(observedSignal?.aborted);
+    const reconcileExit = yield* Fiber.await(reconcile);
+    assert.isTrue(Exit.isFailure(reconcileExit));
+    if (Exit.isFailure(reconcileExit)) assert.isTrue(Cause.hasInterruptsOnly(reconcileExit.cause));
+    assert.deepEqual([...harness.registered.keys()], []);
   }),
 );

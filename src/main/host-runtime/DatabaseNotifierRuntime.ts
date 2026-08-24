@@ -13,6 +13,7 @@ import {
 import { logDevRuntimeMetric } from "../dev-runtime-metrics";
 import { safeBroadcastToWindows } from "../ipc-safe-send";
 import { WindowRuntime } from "../window-runtime/WindowRuntime";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 export type ProjectChangeType =
   | "create"
@@ -55,7 +56,9 @@ export const live: Layer.Layer<DatabaseNotifierRuntime, never, WindowRuntime> = 
   DatabaseNotifierRuntime,
   Effect.gen(function* () {
     const windows = yield* WindowRuntime;
-    const projectSessionInvalidations = yield* PubSub.unbounded<ProjectSessionsChangeEvent>();
+    const projectSessionInvalidations = yield* PubSub.sliding<ProjectSessionsChangeEvent>(
+      MAIN_OBSERVATION_EVENT_CAPACITY,
+    );
     let accepting = true;
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {

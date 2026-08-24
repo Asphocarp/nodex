@@ -6,6 +6,10 @@ import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import {
+  TERMINAL_OUTPUT_CHUNK_CAPACITY,
+  TERMINAL_OUTPUT_CHUNK_CHAR_LIMIT,
+} from "../../runtime-limits";
 import * as Stream from "effect/Stream";
 import * as pty from "node-pty";
 
@@ -53,7 +57,7 @@ export const live: Layer.Layer<TerminalPty> = Layer.succeed(
     spawn: (config) =>
       Effect.acquireRelease(
         Effect.gen(function* () {
-          const output = yield* Queue.unbounded<string>();
+          const output = yield* Queue.sliding<string>(TERMINAL_OUTPUT_CHUNK_CAPACITY);
           const exit = yield* Deferred.make<TerminalPtyExit>();
           const runCallback = yield* FiberSet.makeRuntime();
           const process = yield* Effect.try({
@@ -68,7 +72,8 @@ export const live: Layer.Layer<TerminalPty> = Layer.succeed(
             catch: (cause) => ptyError("spawn", cause),
           });
           const dataSubscription = process.onData((data) => {
-            runCallback(Queue.offer(output, data).pipe(Effect.asVoid));
+            const bounded = data.slice(-TERMINAL_OUTPUT_CHUNK_CHAR_LIMIT);
+            runCallback(Queue.offer(output, bounded).pipe(Effect.asVoid));
           });
           const exitSubscription = process.onExit(({ exitCode, signal }) => {
             const normalizedSignal =

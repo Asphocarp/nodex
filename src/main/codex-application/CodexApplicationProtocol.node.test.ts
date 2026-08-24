@@ -42,15 +42,17 @@ import {
   make as makeAutoResolution,
 } from "./CodexUserInputAutoResolution";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 import { CodexApplicationProtocol, make as makeProtocol } from "./CodexApplicationProtocol";
+import { live as protocolIngressLive } from "./CodexProtocolIngress";
 import {
-  CodexThreadStartNotificationGate,
+  ThreadCreationRuntime,
   make as makeThreadStartNotificationGate,
-} from "./CodexThreadStartNotificationGate";
+} from "./ThreadCreationRuntime";
 import { NodexAgentProtocolTools } from "../nodex-agent-application/NodexAgentProtocolTools";
+import { MainShutdown, layer as mainShutdownLayer } from "../app/MainShutdown";
 
 const coordinator = CodexRendererConversationCoordinator.of({
   forwardNotificationForConversation: () => false,
@@ -91,17 +93,19 @@ const directCodexAppParams = (threadId: string) => ({
 const withProtocol = <A, E>(
   run: (services: {
     readonly inbox: CodexApplicationRequestInbox["Service"];
-    readonly conversations: ConversationRuntimeMap["Service"];
+    readonly conversations: ConversationEntityMap["Service"];
     readonly appliedNotifications: string[];
     readonly protocol: CodexApplicationProtocol["Service"];
-    readonly threadStarts: CodexThreadStartNotificationGate["Service"];
+    readonly threadStarts: ThreadCreationRuntime["Service"];
   }) => Effect.Effect<A, E>,
 ) =>
   Effect.gen(function* () {
     const rootScope = yield* Scope.make();
+    const shutdownContext = yield* Layer.buildWithScope(mainShutdownLayer, rootScope);
+    const shutdown = Context.get(shutdownContext, MainShutdown);
     const inbox = yield* makeInbox.pipe(Effect.provideService(Scope.Scope, rootScope));
     const conversationContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, rootScope);
-    const conversations = Context.get(conversationContext, ConversationRuntimeMap);
+    const conversations = Context.get(conversationContext, ConversationEntityMap);
     const applicationEvents = yield* makeApplicationEvents.pipe(
       Effect.provideService(Scope.Scope, rootScope),
     );
@@ -157,7 +161,13 @@ const withProtocol = <A, E>(
             (entry) => entry.threadId === notification.params.threadId,
           );
           for (const entry of entries) pending.complete(entry, CodexAppServerNoResponse);
-        }),
+        }).pipe(
+          Effect.as(
+            notification.method === "thread/archived" || notification.method === "thread/deleted"
+              ? ("retire" as const)
+              : ("retain" as const),
+          ),
+        ),
     });
     const notificationAdmission = CodexNotificationAdmission.of({
       decide: () => Effect.succeed({ _tag: "Admit" }),
@@ -177,11 +187,24 @@ const withProtocol = <A, E>(
       Effect.provideService(CodexProtocolNotificationEffects, notificationEffects),
       Effect.provideService(CodexRendererConversationCoordinator, coordinator),
       Effect.provideService(CodexRendererConversationRegistry, rendererRegistry),
-      Effect.provideService(CodexThreadStartNotificationGate, threadStarts),
+      Effect.provideService(ThreadCreationRuntime, threadStarts),
       Effect.provideService(CodexUserInputAutoResolution, autoResolution),
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
       Effect.provideService(NodexAgentProtocolTools, nodexAgentTools),
       Effect.provideService(Scope.Scope, rootScope),
+    );
+    yield* Layer.buildWithScope(
+      protocolIngressLive.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(CodexApplicationProtocol, protocol),
+            Layer.succeed(CodexApplicationRequestInbox, inbox),
+            Layer.succeed(ThreadCreationRuntime, threadStarts),
+            Layer.succeed(MainShutdown, shutdown),
+          ),
+        ),
+      ),
+      rootScope,
     );
 
     const result = yield* run({
@@ -210,6 +233,7 @@ it.effect("replays thread/started only after its local materialization commits",
       yield* inbox.publishNotification({
         hostId: "local",
         generation: 8,
+        protocol: "generated",
         method: "thread/started",
         params: {
           thread: {
@@ -253,6 +277,7 @@ it.effect(
 
         yield* generation.admit({
           requestId: "blocked",
+          protocol: "generated",
           method: "item/tool/requestUserInput",
           params: userInputParams("thread-a"),
         });
@@ -260,9 +285,33 @@ it.effect(
         yield* Scope.close(generationScope, Exit.void);
         yield* protocol.releaseResume("thread-a");
 
-        assert.deepEqual(conversations.conversation("thread-a").readServerRequests(), []);
+        assert.deepEqual(conversations.entity("thread-a").readServerRequests(), []);
       }),
     ),
+);
+
+it.effect("retires the exact Conversation Entity after a terminal notification commits", () =>
+  withProtocol(({ inbox, conversations }) =>
+    Effect.gen(function* () {
+      const generationScope = yield* Scope.make();
+      yield* inbox
+        .openGeneration("local", 9)
+        .pipe(Effect.provideService(Scope.Scope, generationScope));
+      conversations.entity("thread-retired");
+
+      yield* inbox.publishNotification({
+        hostId: "local",
+        generation: 9,
+        protocol: "generated",
+        method: "thread/archived",
+        params: { threadId: "thread-retired" },
+      });
+      while (conversations.current("thread-retired") !== null) yield* Effect.yieldNow;
+
+      assert.isNull(conversations.current("thread-retired"));
+      yield* Scope.close(generationScope, Exit.void);
+    }),
+  ),
 );
 
 it.effect("settles Nodex Agent calls directly from the protocol command lane", () =>
@@ -275,6 +324,7 @@ it.effect("settles Nodex Agent calls directly from the protocol command lane", (
       const settled = yield* generation.settlements.pipe(Stream.runHead, Effect.forkChild);
       yield* generation.admit({
         requestId: "nodex-call",
+        protocol: "generated",
         method: "item/tool/call",
         params: {
           threadId: "thread-a",
@@ -312,7 +362,7 @@ it.effect("lets another Thread respond while the first Thread command lane is oc
       const laneEntered = yield* Deferred.make<void>();
       const releaseLane = yield* Deferred.make<void>();
       const blocker = yield* conversations
-        .runExclusive(
+        .runCommand(
           "thread-a",
           Deferred.succeed(laneEntered, undefined).pipe(
             Effect.andThen(Deferred.await(releaseLane)),
@@ -322,6 +372,7 @@ it.effect("lets another Thread respond while the first Thread command lane is oc
       yield* Deferred.await(laneEntered);
       yield* generation.admit({
         requestId: "blocked",
+        protocol: "generated",
         method: "item/tool/requestUserInput",
         params: userInputParams("thread-a"),
       });
@@ -332,6 +383,7 @@ it.effect("lets another Thread respond while the first Thread command lane is oc
       );
       yield* generation.admit({
         requestId: "fast",
+        protocol: "generated",
         method: "item/tool/call",
         params: directCodexAppParams("thread-b"),
       });
@@ -347,7 +399,7 @@ it.effect("lets another Thread respond while the first Thread command lane is oc
           },
         });
       }
-      assert.deepEqual(conversations.conversation("thread-a").readServerRequests(), []);
+      assert.deepEqual(conversations.entity("thread-a").readServerRequests(), []);
       yield* Deferred.succeed(releaseLane, undefined);
       yield* Fiber.join(blocker);
       yield* Scope.close(generationScope, Exit.void);
@@ -365,7 +417,7 @@ it.effect("keeps one-shot requests outside a blocked Thread command lane", () =>
       const laneEntered = yield* Deferred.make<void>();
       const releaseLane = yield* Deferred.make<void>();
       const blocker = yield* conversations
-        .runExclusive(
+        .runCommand(
           "thread-a",
           Deferred.succeed(laneEntered, undefined).pipe(
             Effect.andThen(Deferred.await(releaseLane)),
@@ -376,6 +428,7 @@ it.effect("keeps one-shot requests outside a blocked Thread command lane", () =>
       const settled = yield* generation.settlements.pipe(Stream.runHead, Effect.forkChild);
       yield* generation.admit({
         requestId: "time",
+        protocol: "generated",
         method: "currentTime/read",
         params: { threadId: "thread-a" },
       });
@@ -402,12 +455,14 @@ it.effect("commits a request before the following resolution notification in the
       const settled = yield* generation.settlements.pipe(Stream.runHead, Effect.forkChild);
       const request = yield* generation.admit({
         requestId: 73,
+        protocol: "generated",
         method: "item/tool/requestUserInput",
         params: userInputParams("thread-a"),
       });
       yield* inbox.publishNotification({
         hostId: "local",
         generation: 3,
+        protocol: "generated",
         method: "serverRequest/resolved",
         params: { threadId: "thread-a", requestId: 73 },
       });

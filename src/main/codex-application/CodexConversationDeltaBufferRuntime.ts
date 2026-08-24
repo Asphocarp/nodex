@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FiberHandle from "effect/FiberHandle";
@@ -13,7 +14,7 @@ import {
   type CodexFrameTextDeltaUpdate,
 } from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export interface CodexConversationDeltaBufferRuntimeOptions {
   readonly frameFlushInterval?: Duration.Input;
@@ -26,7 +27,7 @@ export class CodexConversationDeltaBufferRuntime extends Context.Service<
   {
     readonly enqueueFrameText: (update: CodexFrameTextDeltaUpdate) => void;
     readonly enqueueCommandOutput: (update: CodexCommandOutputUpdate) => void;
-    readonly drainFrameText: (conversationId: string) => void;
+    readonly drainFrameText: (conversationId: string, observedAtMs: number) => void;
     readonly clear: (conversationId: string) => void;
   }
 >()("nodex/main/codex-application/CodexConversationDeltaBufferRuntime") {}
@@ -36,10 +37,10 @@ export const make = (
 ): Effect.Effect<
   CodexConversationDeltaBufferRuntime["Service"],
   never,
-  ConversationRuntimeMap | CodexRendererConversationRegistry | Scope.Scope
+  ConversationEntityMap | CodexRendererConversationRegistry | Scope.Scope
 > =>
   Effect.gen(function* () {
-    const conversations = yield* ConversationRuntimeMap;
+    const conversations = yield* ConversationEntityMap;
     const rendererRegistry = yield* CodexRendererConversationRegistry;
     const frameFlush = yield* FiberHandle.make<void, never>();
     const outputFlush = yield* FiberHandle.make<void, never>();
@@ -50,15 +51,15 @@ export const make = (
     const maxBufferedOutputChars =
       options.maxBufferedOutputChars ?? CODEX_COMMAND_OUTPUT_MAX_BUFFERED_CHARS;
 
-    const flushFrameThread = (threadId: string): void => {
+    const flushFrameThread = (threadId: string, observedAtMs: number): void => {
       pendingFrameThreads.delete(threadId);
-      const aggregate = conversations.currentConversation(threadId);
+      const aggregate = conversations.current(threadId);
       if (!aggregate) return;
       const updates = aggregate.takeBufferedFrameTextDeltas();
       if (updates.length === 0) return;
       const outcomes = aggregate.commitFrameTextDeltas({
         updates,
-        observedAtMs: Date.now(),
+        observedAtMs,
         projectReplica: !rendererRegistry.hasOwner(threadId),
       });
       for (const outcome of outcomes) {
@@ -77,38 +78,48 @@ export const make = (
       }
     };
 
-    const flushFrameText = (): void => {
-      for (const threadId of [...pendingFrameThreads]) flushFrameThread(threadId);
-    };
+    const flushFrameText = Clock.currentTimeMillis.pipe(
+      Effect.flatMap((observedAtMs) =>
+        Effect.sync(() => {
+          for (const threadId of [...pendingFrameThreads]) {
+            flushFrameThread(threadId, observedAtMs);
+          }
+        }),
+      ),
+    );
 
-    const flushCommandOutput = (): void => {
-      const threadIds = [...pendingOutputThreads];
-      pendingOutputThreads.clear();
-      for (const threadId of threadIds) {
-        const aggregate = conversations.currentConversation(threadId);
-        if (!aggregate) continue;
-        const updates = aggregate.takeBufferedCommandOutputDeltas();
-        if (updates.length === 0) continue;
-        aggregate.commitCommandOutputDeltas({
-          updates,
-          observedAtMs: Date.now(),
-          projectReplica: !rendererRegistry.hasOwner(threadId),
-        });
-      }
-    };
+    const flushCommandOutput = Clock.currentTimeMillis.pipe(
+      Effect.flatMap((observedAtMs) =>
+        Effect.sync(() => {
+          const threadIds = [...pendingOutputThreads];
+          pendingOutputThreads.clear();
+          for (const threadId of threadIds) {
+            const aggregate = conversations.current(threadId);
+            if (!aggregate) continue;
+            const updates = aggregate.takeBufferedCommandOutputDeltas();
+            if (updates.length === 0) continue;
+            aggregate.commitCommandOutputDeltas({
+              updates,
+              observedAtMs,
+              projectReplica: !rendererRegistry.hasOwner(threadId),
+            });
+          }
+        }),
+      ),
+    );
 
     const scheduleFrameFlush = (): void => {
       runFrameFlush(
         Effect.sleep(
           options.frameFlushInterval ?? CODEX_FRAME_TEXT_DELTA_FALLBACK_INTERVAL_MS,
-        ).pipe(Effect.andThen(Effect.sync(flushFrameText))),
+        ).pipe(Effect.andThen(flushFrameText)),
       );
     };
 
     const scheduleOutputFlush = (): void => {
       runOutputFlush(
         Effect.sleep(options.outputFlushInterval ?? CODEX_COMMAND_OUTPUT_FLUSH_INTERVAL_MS).pipe(
-          Effect.andThen(Effect.sync(flushCommandOutput)),
+          Effect.andThen(flushCommandOutput),
         ),
       );
     };
@@ -116,10 +127,10 @@ export const make = (
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         for (const threadId of pendingFrameThreads) {
-          conversations.currentConversation(threadId)?.clearBufferedDeltas();
+          conversations.current(threadId)?.clearBufferedDeltas();
         }
         for (const threadId of pendingOutputThreads) {
-          conversations.currentConversation(threadId)?.clearBufferedDeltas();
+          conversations.current(threadId)?.clearBufferedDeltas();
         }
         pendingFrameThreads.clear();
         pendingOutputThreads.clear();
@@ -128,25 +139,25 @@ export const make = (
 
     return CodexConversationDeltaBufferRuntime.of({
       enqueueFrameText: (update) => {
-        const aggregate = conversations.conversation(update.conversationId);
+        const aggregate = conversations.entity(update.conversationId);
         aggregate.bufferFrameTextDelta(update);
         const shouldSchedule = pendingFrameThreads.size === 0;
         pendingFrameThreads.add(update.conversationId);
         if (shouldSchedule) scheduleFrameFlush();
       },
       enqueueCommandOutput: (update) => {
-        const aggregate = conversations.conversation(update.conversationId);
+        const aggregate = conversations.entity(update.conversationId);
         aggregate.bufferCommandOutputDelta(update, maxBufferedOutputChars);
         const shouldSchedule = pendingOutputThreads.size === 0;
         pendingOutputThreads.add(update.conversationId);
         if (shouldSchedule) scheduleOutputFlush();
       },
-      drainFrameText: (conversationId) => {
-        flushFrameThread(conversationId);
+      drainFrameText: (conversationId, observedAtMs) => {
+        flushFrameThread(conversationId, observedAtMs);
         if (pendingFrameThreads.size === 0) runFrameFlush(Effect.void);
       },
       clear: (conversationId) => {
-        conversations.currentConversation(conversationId)?.clearBufferedDeltas();
+        conversations.current(conversationId)?.clearBufferedDeltas();
         pendingFrameThreads.delete(conversationId);
         pendingOutputThreads.delete(conversationId);
         if (pendingFrameThreads.size === 0) runFrameFlush(Effect.void);

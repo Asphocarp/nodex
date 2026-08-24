@@ -23,7 +23,7 @@ import {
   type CodexServerRequestResponseProjectionError,
 } from "./CodexServerRequestResponses";
 import { type CodexThreadGoalError, CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 type BackgroundTerminal =
   ClientRequestResponsesByMethod["thread/backgroundTerminals/list"]["data"][number];
@@ -88,20 +88,20 @@ export const live: Layer.Layer<
   | CodexQueuedFollowUps
   | CodexServerRequestResponses
   | CodexThreadGoalRuntime
-  | ConversationRuntimeMap
+  | ConversationEntityMap
 > = Layer.effect(
   ConversationCommands,
   Effect.gen(function* () {
     const gateway = yield* CodexGateway;
     const archive = yield* CodexConversationArchive;
-    const conversations = yield* ConversationRuntimeMap;
+    const conversations = yield* ConversationEntityMap;
     const serverRequestResponses = yield* CodexServerRequestResponses;
     const projection = yield* CodexConversationProjection;
     const queuedFollowUps = yield* CodexQueuedFollowUps;
     const threadGoals = yield* CodexThreadGoalRuntime;
 
     const runSerial = <A, E>(threadId: string, operation: Effect.Effect<A, E>) =>
-      conversations.runExclusive(threadId, operation);
+      conversations.runCommand(threadId, operation);
     const listBackgroundTerminalsPage = (
       threadId: string,
       options?: { readonly cursor?: string | null; readonly limit?: number },
@@ -168,7 +168,7 @@ export const live: Layer.Layer<
     return ConversationCommands.of({
       archive: (threadId) =>
         runSerial(threadId, archive.archive(threadId)).pipe(
-          Effect.tap((archived) => (archived ? conversations.close(threadId) : Effect.void)),
+          Effect.tap((archived) => (archived ? conversations.retire(threadId) : Effect.void)),
         ),
       unarchive: (threadId) => runSerial(threadId, archive.unarchive(threadId)),
       setMemoryMode: (threadId, mode) =>

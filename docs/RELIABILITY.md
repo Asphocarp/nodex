@@ -64,6 +64,12 @@ schedulers, cursors, and logical subscriptions survive the physical generation.
 Repeated failures produce one app-wide unavailable state and a bounded circuit,
 not many feature-local retry loops.
 
+The reliable Core event tail advances its cursor only after canonical delivery and checkpoint
+success. A retryable delivery or bounded callback-ingress overflow closes that physical stream and
+reopens from the last durable cursor. A non-retryable canonical delivery failure atomically marks
+Core authority unavailable, fences every later Core operation with the same typed failure, and
+requests `RuntimeFatal`; `connection = failed` is therefore never a mutation-capable half-state.
+
 Core, rather than Electron, owns request admission and completion. Interactive
 work retains reserved execution capacity while background and maintenance work
 use bounded subordinate lanes. One absolute request deadline and cancellation
@@ -168,6 +174,9 @@ early-event buffer. It does not acquire an application service. After readiness,
 Profile-scoped Main resource graph and builds the Core, Codex, Window, IPC, Browser, Terminal,
 worker, scheduler, updater, and notification Layers inside it. A required acquisition failure
 returns its Cause and rolls back every resource already acquired by that same Scope.
+Layer acquisition itself is the application readiness boundary: the acquired `MainApplication`
+contains only operations that are valid after startup, with no separate `start` method or
+partially initialized controller that can escape the Scope.
 
 `MainShutdown` is the first-wins quit or relaunch decision authority. Normal quit, process signals,
 startup rollback, Store restore, and Core authority drift all close the same Profile Scope before
@@ -176,6 +185,20 @@ independent per-subsystem disposer list. Layer dependencies determine release or
 Scopes release their own resources, and Effect combines finalizer failures into the closing Cause
 while continuing the remaining finalizers. Any physical release that can hang owns its bounded
 deadline or escalation policy at the platform adapter rather than in a global shutdown coordinator.
+The same first-wins decision races application acquisition and readiness, so a signal or first
+`before-quit` during startup interrupts in-flight work and rolls back everything already acquired.
+`before-quit` never consults a partially published runtime or performs window cleanup itself; it
+only submits that decision, while Window and other Layers release their own resources.
+Window release stops new admission, requests renderer-aware graceful close in parallel, and then
+destroys only the still-live windows at the per-window deadline. Close and destroy outcomes are
+reported without allowing one damaged window to block the rest of the resource graph.
+
+The process boundary observes one `MainExit`. Normal shutdown retains its first-wins reason and
+cleanup report; failure retains the full Effect Cause and its `pre-ready`, `startup`, `runtime`, or
+`closing` phase. Fatal Core or Codex truth loss carries its subsystem and original cause into this
+boundary, closes application admission first, and is presented as a runtime failure rather than a
+misleading startup error. The root observability adapter preserves structured annotations, spans,
+fiber identity, and the Cause tree; only that root boundary reports defects to diagnostics.
 
 Process termination signals are lifecycle ingress, not a competing shutdown owner. Electron Main
 translates `SIGINT` and `SIGTERM` into the Main shutdown request and waits for Scope release before
@@ -202,12 +225,32 @@ external cleanup fails closed and preserves recoverable state rather than claimi
 ### Codex conversations
 
 The app-server endpoint generation is the wire authority, Core Workspace is the durable Thread and
-execution-metadata authority, and one Main aggregate plus causal lane owns each live Thread
-generation. Protocol occurrences are generation-fenced before they enter that lane. Endpoint
+execution-metadata authority, and one private Main Conversation Entity plus causal lane owns each
+live Thread generation. Protocol occurrences are generation-fenced before they enter that lane. Endpoint
 replacement, failed hydration, or Thread removal settles the old generation's pending requests and
 interrupts its buffers and command fibers; recovery seeds durable Core facts, performs a fresh
 full-fidelity app-server read, and publishes one complete replacement generation. Sidebar summaries
 and persisted renderer artifacts are never treated as a second transcript.
+
+Endpoint loss also invalidates every loaded renderer stream role immediately: Main marks the exact
+Conversation Entities `needs_resume` and sends targeted transport resets before reconnect. A visible
+surface therefore either adopts the replacement generation from canonical history or reaches its
+terminal attachment failure state; it cannot remain attached to a dead generation behind a truthful
+global reconnect indicator.
+
+The canonical protocol ingress is a supervised application actor with explicit health. Physical
+reader/writer/decode failure, application occurrence or settlement overflow, deferred Thread-start
+release overflow, and canonical consequence failure all terminate the exact endpoint generation;
+an actor defect requests typed runtime shutdown instead of leaving a ready-looking queue without a
+consumer. Generated protocol payloads are decoded once at the connection boundary. Internal
+extensions remain explicitly tagged and cannot weaken generated-message validation.
+
+The physical JSONL transport limits incoming and outgoing retained message counts, retained bytes,
+and single-frame bytes independently. Exceeding any reliable transport budget terminates that exact
+endpoint generation so replacement can hydrate from canonical state; it never blocks forever or
+continues after silently dropping a command. Main observation hubs use bounded sliding publication
+only where subscribers can reread the canonical owner. Variable terminal output is truncated before
+publication, while reliable command queues use bounded backpressure and surface admission failure.
 
 One renderer owner is the sole visible conversation writer. Main validates and retains its accepted
 document as a relay/recovery replica; followers first acknowledge an exact snapshot barrier and then
@@ -227,7 +270,7 @@ a relationship journal or parallel parent map.
 Core Workspace remains the cold-restart authority for a managed Thread's execution host, cwd,
 worktree path, and writable roots. Resume projects that location into the new app-server generation
 instead of adopting a stale `thread/read` cwd. App-local worktree initialization activity survives
-renderer replacement in the live Main aggregate but intentionally disappears with Main and is not
+renderer replacement in the live Main entity but intentionally disappears with Main and is not
 fabricated into durable protocol history.
 
 A retained worktree removal leaves either the physical worktree or a complete snapshot reference.
@@ -304,6 +347,8 @@ and [Desktop Notification Behavior](product-specs/desktop-notification-behavior.
 | Core transport generation lost         | Single-flight reconnect to the same Profile/Library/Store epoch                                                                                                                                                                                                                              |
 | Repeated Core losses                   | Open bounded circuit and show one app-wide Retry/Restart state                                                                                                                                                                                                                               |
 | Codex app-server session lost          | Reject that session's pending requests, retire its child, then reconnect with one bounded supervisor; never carry pending RPC state into the replacement generation                                                                                                                          |
+| Thread resume/start buffer saturated   | Fail the exact Codex generation and canonically read the Thread after replacement; never apply a later occurrence ahead of a dropped predecessor                                                                                                                                             |
+| Worktree worker ingress saturated      | Terminate the exact worker generation, reject its pending operations, and let durable worktree reconciliation recover accepted work; never drop a progress/result message while keeping that worker ready                                                                                    |
 | Main shutdown requested repeatedly     | Close the one process scope idempotently; report finalizer failures and continue later cleanup                                                                                                                                                                                               |
 | Document/Canvas stream gap             | New exact live barrier plus canonical engine sync                                                                                                                                                                                                                                            |
 | Files external edit during local draft | Preserve local and external versions in explicit conflict state                                                                                                                                                                                                                              |

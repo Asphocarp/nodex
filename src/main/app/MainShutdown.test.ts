@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import { assert, it } from "@effect/vitest";
-import { MainRuntimeError } from "./MainRuntimeLive";
+import { MainApplicationError } from "./MainApplication";
 import { MainShutdown, layer } from "./MainShutdown";
 
 it.layer(layer)("MainShutdown", (it) => {
@@ -13,7 +13,11 @@ it.layer(layer)("MainShutdown", (it) => {
       assert.deepEqual(yield* shutdown.awaitRequest, { _tag: "UserQuit" });
 
       const first = Exit.fail(
-        new MainRuntimeError({ operation: "test", cause: new Error("first") }),
+        new MainApplicationError({
+          phase: "runtime",
+          operation: "test",
+          cause: new Error("first"),
+        }),
       );
       assert.isTrue(yield* shutdown.markRuntimeClosed(first));
       assert.isFalse(yield* shutdown.markRuntimeClosed(Exit.void));

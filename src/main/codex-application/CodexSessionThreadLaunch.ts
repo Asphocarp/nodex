@@ -27,7 +27,7 @@ import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadLaunchCompletion } from "./CodexThreadLaunchCompletion";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 import { CodexTurnCommands, type CodexTurnCommandsError } from "./CodexTurnCommands";
 import { CodexTurnPreparation } from "./CodexTurnPreparation";
 
@@ -97,7 +97,7 @@ export const make: Effect.Effect<
   | CodexPendingWorktreeRuntime
   | CodexThreadDirectory
   | CodexThreadLaunchCompletion
-  | CodexThreadStartNotificationGate
+  | ThreadCreationRuntime
   | CodexTurnCommands
   | CodexTurnPreparation
   | CoreModules
@@ -114,7 +114,7 @@ export const make: Effect.Effect<
   const preparation = yield* CodexTurnPreparation;
   const freshLaunches = yield* CodexFreshThreadLaunchRuntime;
   const completion = yield* CodexThreadLaunchCompletion;
-  const threadStarts = yield* CodexThreadStartNotificationGate;
+  const threadStarts = yield* ThreadCreationRuntime;
   const lanes = yield* LayerMap.make(laneLayer);
 
   const fail = (

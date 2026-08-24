@@ -21,7 +21,7 @@ import type { ManagedWorktreeHandoffPreparation } from "./ManagedWorktreeHandoff
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexTurnCommands } from "./CodexTurnCommands";
 import { ConversationCommands } from "./ConversationCommands";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 
 export class CodexThreadExecutionError extends Schema.TaggedError<CodexThreadExecutionError>()(
@@ -127,7 +127,7 @@ export const live: Layer.Layer<
   | CodexGateway
   | CodexTurnCommands
   | ConversationCommands
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | CoreModules
   | DesktopToolRuntime
   | ExecutionHostRuntime
@@ -138,7 +138,7 @@ export const live: Layer.Layer<
     const gateway = yield* CodexGateway;
     const turns = yield* CodexTurnCommands;
     const conversations = yield* ConversationCommands;
-    const conversationRuntimes = yield* ConversationRuntimeMap;
+    const conversationRuntimes = yield* ConversationEntityMap;
     const core = yield* CoreModules;
     const tools = yield* DesktopToolRuntime;
     const executionHosts = yield* ExecutionHostRuntime;
@@ -216,8 +216,8 @@ export const live: Layer.Layer<
 
     const permissionContext = (threadId: string, workspaceRoots: readonly string[]) =>
       Effect.sync(() => {
-        const existing = conversationRuntimes.currentConversation(threadId)?.readCanonicalState()
-          ?.sidecar.hydrationContext?.currentPermissions;
+        const existing = conversationRuntimes.current(threadId)?.readCanonicalState()?.sidecar
+          .hydrationContext?.currentPermissions;
         if (!existing) return createCodexCanonicalWorkspacePermissionContext(workspaceRoots);
         return {
           ...existing,

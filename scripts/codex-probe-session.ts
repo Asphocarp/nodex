@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import type { ServerNotification } from "@nodex/codex-app-server-protocol";
@@ -164,8 +165,13 @@ const acquireProbeClient = (
       callbacks,
       options.requestTimeout ?? "180 seconds",
     );
-    yield* session.client.handleServerNotificationFallback((method, params) =>
-      Effect.sync(() => bridge.observeNotification(method, params)),
+    yield* session.client.notifications.pipe(
+      Stream.runForEach((notification) =>
+        notification.protocol === "generated"
+          ? Effect.sync(() => bridge.observeNotification(notification.method, notification.params))
+          : Effect.void,
+      ),
+      Effect.forkScoped({ startImmediately: true }),
     );
     return bridge;
   });

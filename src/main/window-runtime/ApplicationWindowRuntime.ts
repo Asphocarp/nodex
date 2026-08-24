@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
@@ -23,16 +24,20 @@ import type {
   RendererClientRuntimeService,
 } from "../codex/renderer-client-runtime-contracts";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
+import { MainCleanup } from "../app/MainCleanup";
+import { ElectronIpc } from "../platform/electron/ElectronIpc";
+import { requireTrustedAppRendererSender } from "../platform/electron/TrustedRendererSender";
 import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import type { DesktopNotificationRuntime } from "../host-runtime/DesktopNotificationRuntime";
 import type { McpAppSandboxRuntime } from "../host-runtime/McpAppSandboxRuntime";
 import { getLogger } from "../logging/logger";
 import { captureMainException, captureMainMessage } from "../observability/sentry-main";
-import { closeWindowsBeforeRuntimeShutdown } from "../runtime-quit-coordinator";
 import { resolveCodexTitleBarOptions } from "../window-navigation-chrome";
 import { isWindowSessionBoundsVisible } from "../window-session-state";
 import type { WindowRuntimeService } from "./WindowRuntime";
 import { safeSendToWindow } from "../ipc-safe-send";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
+import { WindowShutdown } from "./WindowShutdown";
 import {
   createApplicationWindowCoordinator,
   type ApplicationWindowCoordinator,
@@ -63,6 +68,10 @@ export class ApplicationWindowRuntime extends Context.Service<
   }
 >()("nodex/main/window-runtime/ApplicationWindowRuntime") {}
 
+class WindowCloseHandshakeError extends Data.TaggedError("WindowCloseHandshakeError")<{
+  readonly cause: unknown;
+}> {}
+
 const syncMacWindowTitle = (platform: NodeJS.Platform, window: BrowserWindow): void => {
   if (platform !== "darwin" || window.isDestroyed()) return;
   window.setTitle("Nodex");
@@ -70,16 +79,41 @@ const syncMacWindowTitle = (platform: NodeJS.Platform, window: BrowserWindow): v
 
 export const live = (
   options: ApplicationWindowRuntimeOptions,
-): Layer.Layer<ApplicationWindowRuntime, never, ComposerAppshotRuntime | ScopedCallbackRuntime> =>
+): Layer.Layer<
+  ApplicationWindowRuntime,
+  never,
+  ComposerAppshotRuntime | ElectronIpc | MainCleanup | ScopedCallbackRuntime | WindowShutdown
+> =>
   Layer.effect(
     ApplicationWindowRuntime,
     Effect.gen(function* () {
       const appshots = yield* ComposerAppshotRuntime;
       const callbacks = yield* ScopedCallbackRuntime;
-      const rendererLoaded = yield* PubSub.unbounded<number>();
+      const cleanup = yield* MainCleanup;
+      const ipc = yield* ElectronIpc;
+      const windowShutdown = yield* WindowShutdown;
+      const rendererLoaded = yield* PubSub.sliding<number>(MAIN_OBSERVATION_EVENT_CAPACITY);
       yield* Effect.addFinalizer(() => PubSub.shutdown(rendererLoaded));
       const logger = getLogger({ component: "application-window-runtime" });
       const icon = nativeImage.createFromPath(options.iconPath);
+
+      // This acknowledgement belongs to the Window resource, not the broad IPC cluster. Register
+      // it before the Window finalizer so it remains live while graceful close flushes renderers.
+      yield* ipc.handle("app:flush-before-close:done", (event, claimedWebContentsId: unknown) =>
+        Effect.try({
+          try: () => {
+            requireTrustedAppRendererSender(event, "Window close flush", options.rendererUrl);
+            if (!options.windows.has(event.sender.id)) {
+              throw new Error("Window close flush requires an active Nodex window");
+            }
+            if (claimedWebContentsId !== event.sender.id) {
+              throw new Error("Window close flush sender does not own the claimed window");
+            }
+            options.windows.acknowledgeClose(event.sender.id);
+          },
+          catch: (cause) => new WindowCloseHandshakeError({ cause }),
+        }),
+      );
 
       const create = (session: WindowSessionRecord): BrowserWindow => {
         const windowCreatedAt = performance.now();
@@ -325,7 +359,7 @@ export const live = (
       };
 
       const coordinator = createApplicationWindowCoordinator({
-        closeAll: closeWindowsBeforeRuntimeShutdown,
+        closeAll: windowShutdown.closeAll,
         create,
         focusedWindow: () => BrowserWindow.getFocusedWindow(),
         reportFailure: ({ cause, operation, windowSessionId }) => {
@@ -347,7 +381,32 @@ export const live = (
         syncTitle: (window) => syncMacWindowTitle(options.platform, window),
         windows: options.windows,
       });
-      yield* Effect.addFinalizer(() => Effect.sync(coordinator.stop));
+      yield* Effect.addFinalizer(() =>
+        coordinator.prepareQuit.pipe(
+          Effect.tap((report) =>
+            report.destroyed > 0 || report.failed > 0
+              ? Effect.logWarning("Window shutdown required escalation").pipe(
+                  Effect.annotateLogs({
+                    destroyed: report.destroyed,
+                    failed: report.failed,
+                    graceful: report.graceful,
+                    total: report.total,
+                  }),
+                )
+              : Effect.void,
+          ),
+          Effect.tap((report) =>
+            cleanup.report(
+              report.failures.map((failure) => ({
+                subsystem: "window",
+                operation: failure.phase,
+                reason: failure.reason,
+              })),
+            ),
+          ),
+          Effect.asVoid,
+        ),
+      );
 
       return ApplicationWindowRuntime.of({
         ...coordinator,

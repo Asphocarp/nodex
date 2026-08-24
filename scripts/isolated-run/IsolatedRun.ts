@@ -212,7 +212,9 @@ export const superviseIsolatedRunEffect = (input: {
           ),
       );
       const state = yield* Ref.make(initialState);
-      const signalQueue = yield* Queue.unbounded<SupervisorSignal>();
+      // Only the first two non-duplicate signals have distinct semantics. A small sliding inbox
+      // preserves the latest force-exit intent without letting a signal storm retain memory.
+      const signalQueue = yield* Queue.sliding<SupervisorSignal>(8);
       const terminationDone = yield* Deferred.make<void>();
       const clock = createClock(input.dependencies);
       const processGroup = createProcessGroup(input.dependencies);

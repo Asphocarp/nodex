@@ -7,12 +7,11 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { CodexConnectionState } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexEndpointConnection } from "../codex-runtime/CodexEventHub";
-import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 
 export class CodexConnection extends Context.Service<
   CodexConnection,
   {
-    readonly read: Effect.Effect<CodexConnectionState, CodexRuntimeError>;
+    readonly read: Effect.Effect<CodexConnectionState>;
     readonly changes: Stream.Stream<CodexConnectionState>;
   }
 >()("nodex/main/codex-application/CodexConnection") {}

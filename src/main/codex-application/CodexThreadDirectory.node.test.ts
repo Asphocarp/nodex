@@ -15,10 +15,10 @@ import {
   CodexConversationProjection,
   make as makeConversationProjection,
 } from "./CodexConversationProjection";
-import { makeCodexConversationAggregateRegistry } from "./CodexConversationAggregate";
+import { makeConversationEntityStateRegistry } from "./internal/ConversationEntityState";
 import { makeCodexRendererConversationRegistryState } from "./CodexRendererConversationRegistry";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 import { make as makeDirectory } from "./CodexThreadDirectory";
 
 type CoreThread = Extract<
@@ -169,14 +169,14 @@ const makeGateway = (requestOnHost: RequestOnHost): CodexGateway["Service"] => {
 };
 
 const makeConversations = () => {
-  const aggregates = makeCodexConversationAggregateRegistry();
-  const runExclusive: ConversationRuntimeMap["Service"]["runExclusive"] = (_threadId, operation) =>
+  const aggregates = makeConversationEntityStateRegistry();
+  const runCommand: ConversationEntityMap["Service"]["runCommand"] = (_threadId, operation) =>
     operation;
-  return ConversationRuntimeMap.of({
-    conversation: aggregates.acquire,
-    currentConversation: aggregates.current,
-    runExclusive,
-  } as unknown as ConversationRuntimeMap["Service"]);
+  return ConversationEntityMap.of({
+    entity: aggregates.acquire,
+    current: aggregates.current,
+    runCommand,
+  } as unknown as ConversationEntityMap["Service"]);
 };
 
 it.effect("accepts rollback as one durable and canonical replacement", () =>
@@ -185,13 +185,13 @@ it.effect("accepts rollback as one durable and canonical replacement", () =>
       const threads = new Map([["thread-a", coreThread("thread-a", { has_unread_turn: true })]]);
       const core = makeCore(threads);
       const conversations = makeConversations();
-      conversations.conversation("thread-a").seedHasUnreadTurn(true);
+      conversations.entity("thread-a").seedHasUnreadTurn(true);
       const eventHub = CodexApplicationEventHub.of({
         events: Stream.empty,
         publish: () => undefined,
       });
       const projection = yield* makeConversationProjection.pipe(
-        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(ConversationEntityMap, conversations),
         Effect.provideService(
           CodexRendererConversationRegistry,
           makeCodexRendererConversationRegistryState(),
@@ -206,7 +206,7 @@ it.effect("accepts rollback as one durable and canonical replacement", () =>
           CodexGateway,
           makeGateway((() => Effect.die("unused")) as RequestOnHost),
         ),
-        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(ConversationEntityMap, conversations),
         Effect.provideService(CoreModules, core),
       );
 
@@ -219,10 +219,7 @@ it.effect("accepts rollback as one durable and canonical replacement", () =>
       assert.isFalse(accepted.durable.hasUnreadTurn);
       assert.isFalse(accepted.canonical?.sidecar.hasUnreadTurn ?? true);
       assert.deepEqual(accepted.canonical?.requests, []);
-      assert.deepEqual(
-        conversations.currentConversation("thread-a")?.readSnapshot(),
-        accepted.snapshot,
-      );
+      assert.deepEqual(conversations.current("thread-a")?.readSnapshot(), accepted.snapshot);
     }),
   ),
 );
@@ -238,7 +235,7 @@ it.effect("accepts an imported rollout as a standalone canonical Thread", () =>
         publish: () => undefined,
       });
       const projection = yield* makeConversationProjection.pipe(
-        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(ConversationEntityMap, conversations),
         Effect.provideService(
           CodexRendererConversationRegistry,
           makeCodexRendererConversationRegistryState(),
@@ -253,7 +250,7 @@ it.effect("accepts an imported rollout as a standalone canonical Thread", () =>
           CodexGateway,
           makeGateway((() => Effect.die("unused")) as RequestOnHost),
         ),
-        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(ConversationEntityMap, conversations),
         Effect.provideService(CoreModules, core),
       );
       const thread = appThread("thread-imported");
@@ -270,10 +267,7 @@ it.effect("accepts an imported rollout as a standalone canonical Thread", () =>
       assert.strictEqual(accepted.durable.managedWorktreePath, null);
       assert.strictEqual(accepted.durable.cwd, "/repo");
       assert.strictEqual(accepted.canonical?.protocol.id, "thread-imported");
-      assert.deepEqual(
-        conversations.currentConversation("thread-imported")?.readSnapshot(),
-        accepted.snapshot,
-      );
+      assert.deepEqual(conversations.current("thread-imported")?.readSnapshot(), accepted.snapshot);
     }),
   ),
 );
@@ -296,7 +290,7 @@ it.effect("accepts a fork with inherited durable authority and an exact canonica
         publish: () => undefined,
       });
       const projection = yield* makeConversationProjection.pipe(
-        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(ConversationEntityMap, conversations),
         Effect.provideService(
           CodexRendererConversationRegistry,
           makeCodexRendererConversationRegistryState(),
@@ -311,7 +305,7 @@ it.effect("accepts a fork with inherited durable authority and an exact canonica
           CodexGateway,
           makeGateway((() => Effect.die("unused")) as RequestOnHost),
         ),
-        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(ConversationEntityMap, conversations),
         Effect.provideService(CoreModules, core),
       );
       const turn = {
@@ -384,7 +378,7 @@ it.effect(
           publish: (event) => events.push(event),
         });
         const projection = yield* makeConversationProjection.pipe(
-          Effect.provideService(ConversationRuntimeMap, conversations),
+          Effect.provideService(ConversationEntityMap, conversations),
           Effect.provideService(
             CodexRendererConversationRegistry,
             makeCodexRendererConversationRegistryState(),
@@ -419,7 +413,7 @@ it.effect(
           Effect.provideService(CodexApplicationEventHub, eventHub),
           Effect.provideService(CodexConversationProjection, projection),
           Effect.provideService(CodexGateway, gateway),
-          Effect.provideService(ConversationRuntimeMap, conversations),
+          Effect.provideService(ConversationEntityMap, conversations),
           Effect.provideService(CoreModules, core),
         );
 
@@ -436,7 +430,7 @@ it.effect(
           ["turn-a"],
         );
         assert.strictEqual(
-          conversations.currentConversation("thread-a")?.readCanonicalState(),
+          conversations.current("thread-a")?.readCanonicalState(),
           resolved?.canonical,
         );
         assert.deepEqual(resolved?.snapshot?.turnPagination, {
@@ -512,7 +506,7 @@ it.effect("routes an unknown remote child through root lineage and fences repeat
           CodexConversationProjection.of({ hydrate: () => Effect.die("unused") } as never),
         ),
         Effect.provideService(CodexGateway, gateway),
-        Effect.provideService(ConversationRuntimeMap, conversations),
+        Effect.provideService(ConversationEntityMap, conversations),
         Effect.provideService(CoreModules, core),
       );
 
@@ -576,7 +570,7 @@ it.effect("owner Scope close interrupts an in-flight remote hydration", () =>
         CodexConversationProjection.of({ hydrate: () => Effect.die("unused") } as never),
       ),
       Effect.provideService(CodexGateway, gateway),
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
       Effect.provideService(CoreModules, core),
       Effect.provideService(Scope.Scope, ownerScope),
     );
