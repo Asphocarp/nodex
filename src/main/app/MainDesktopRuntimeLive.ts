@@ -1363,6 +1363,78 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
+        const composerAppshotContext = yield* Layer.buildWithScope(
+          composerAppshotRuntimeLive.pipe(Layer.provide(Layer.succeed(MainConfig, config))),
+          runtimeScope,
+        );
+        const composerAppshots = Context.get(composerAppshotContext, ComposerAppshotRuntime);
+        yield* Layer.buildWithScope(
+          ComposerAppshotIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ComposerAppshotRuntime, composerAppshots),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const applicationWindowContext = yield* Layer.buildWithScope(
+          applicationWindowRuntimeLive({
+            appUpdates,
+            browser: browser.guest,
+            rendererConversations: rendererConversationCoordinator,
+            desktopNotifications,
+            iconPath: config.isPackaged
+              ? `${config.resourcesPath}/icon.png`
+              : `${config.projectRootPath}/resources/icon.png`,
+            mcpAppSandbox,
+            platform: config.platform as NodeJS.Platform,
+            preloadPath: `${__dirname}/../preload/index.js`,
+            rendererClients,
+            rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,
+            windows,
+          }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(ComposerAppshotRuntime, composerAppshots),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const applicationWindows = Context.get(applicationWindowContext, ApplicationWindowRuntime);
+        yield* Layer.buildWithScope(
+          ApplicationWindowIpc.live().pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ApplicationWindowRuntime, applicationWindows),
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const applicationMenuContext = yield* Layer.buildWithScope(
+          applicationMenuRuntimeLive({
+            checkForUpdates: appUpdates.check,
+            environmentPath: config.environmentPath ?? undefined,
+            initialCommandKeymap: getCommandKeymapState(),
+            isPackaged: config.isPackaged,
+            platform: config.platform as NodeJS.Platform,
+            requestNewWindow: applicationWindows.requestNew,
+            resourcesPath: config.resourcesPath,
+            showMessage: desktop.showMessage,
+            windows,
+          }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
+          runtimeScope,
+        );
+        const applicationMenus = Context.get(applicationMenuContext, ApplicationMenuRuntime);
         const windowSessions = WindowSessionCatalog.WindowSessionCatalog.of({
           resolveForWebContents: (webContentsId) =>
             Effect.sync(() => windows.resolveSessionId(webContentsId)),
@@ -1444,6 +1516,32 @@ export const live: Layer.Layer<
         );
         const libraryModule = Context.get(applicationDataModulesContext, LibraryModule);
         const databaseModule = Context.get(applicationDataModulesContext, DatabaseModule);
+        const deepLinkContext = yield* Layer.buildWithScope(
+          deepLinkRuntimeLive({
+            focusWindow: applicationWindows.focusLast,
+            windows,
+          }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(LibraryModule, libraryModule),
+                Layer.succeed(ProjectWorkspace, projectWorkspace),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const deepLinks = Context.get(deepLinkContext, DeepLinkRuntime);
+        yield* applicationWindows.rendererLoaded.pipe(
+          Stream.runForEach(() =>
+            Effect.all([deepLinks.flush, appUpdates.startAutomaticChecks], {
+              concurrency: 2,
+            }).pipe(Effect.asVoid),
+          ),
+          Effect.forkIn(runtimeScope),
+          Effect.asVoid,
+        );
+        yield* deepLinks.extractFromArgv(config.argv);
+        applicationWindows.openStartup(getWindowRestoreSettings().policy);
         const nodexAgentApplicationContext = yield* Layer.buildWithScope(
           nodexAgentApplicationLive.pipe(
             Layer.provide(
@@ -2667,104 +2765,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const composerAppshotContext = yield* Layer.buildWithScope(
-          composerAppshotRuntimeLive.pipe(Layer.provide(Layer.succeed(MainConfig, config))),
-          runtimeScope,
-        );
-        const composerAppshots = Context.get(composerAppshotContext, ComposerAppshotRuntime);
-        yield* Layer.buildWithScope(
-          ComposerAppshotIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ComposerAppshotRuntime, composerAppshots),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const applicationWindowContext = yield* Layer.buildWithScope(
-          applicationWindowRuntimeLive({
-            appUpdates,
-            browser: browser.guest,
-            rendererConversations: rendererConversationCoordinator,
-            desktopNotifications,
-            iconPath: config.isPackaged
-              ? `${config.resourcesPath}/icon.png`
-              : `${config.projectRootPath}/resources/icon.png`,
-            mcpAppSandbox,
-            platform: config.platform as NodeJS.Platform,
-            preloadPath: `${__dirname}/../preload/index.js`,
-            rendererClients,
-            rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,
-            windows,
-          }).pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(ComposerAppshotRuntime, composerAppshots),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const applicationWindows = Context.get(applicationWindowContext, ApplicationWindowRuntime);
-        yield* Layer.buildWithScope(
-          ApplicationWindowIpc.live().pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ApplicationWindowRuntime, applicationWindows),
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const deepLinkContext = yield* Layer.buildWithScope(
-          deepLinkRuntimeLive({
-            focusWindow: applicationWindows.focusLast,
-            windows,
-          }).pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(LibraryModule, libraryModule),
-                Layer.succeed(ProjectWorkspace, projectWorkspace),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const deepLinks = Context.get(deepLinkContext, DeepLinkRuntime);
-        yield* applicationWindows.rendererLoaded.pipe(
-          Stream.runForEach(() =>
-            Effect.all([deepLinks.flush, appUpdates.startAutomaticChecks], {
-              concurrency: 2,
-            }).pipe(Effect.asVoid),
-          ),
-          Effect.forkIn(runtimeScope),
-          Effect.asVoid,
-        );
-        const applicationMenuContext = yield* Layer.buildWithScope(
-          applicationMenuRuntimeLive({
-            checkForUpdates: appUpdates.check,
-            environmentPath: config.environmentPath ?? undefined,
-            initialCommandKeymap: getCommandKeymapState(),
-            isPackaged: config.isPackaged,
-            platform: config.platform as NodeJS.Platform,
-            requestNewWindow: applicationWindows.requestNew,
-            resourcesPath: config.resourcesPath,
-            showMessage: desktop.showMessage,
-            windows,
-          }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
-          runtimeScope,
-        );
-        const applicationMenus = Context.get(applicationMenuContext, ApplicationMenuRuntime);
-        yield* deepLinks.extractFromArgv(config.argv);
-        applicationWindows.openStartup(getWindowRestoreSettings().policy);
         const coreApplicationProjectionContext = yield* Layer.buildWithScope(
           coreApplicationProjectionRuntimeLive.pipe(
             Layer.provide(
