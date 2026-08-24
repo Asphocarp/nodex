@@ -108,17 +108,23 @@ it.effect("serially commits archive and delete observations before scheduling si
     );
 
     yield* service.observe({
+      hostId: "local",
+      generation: 1,
+      occurrenceId: "local:1:inbox-a:41",
       occurrenceToken: 41,
       notification: { method: "thread/archived", params: { threadId: "thread-a" } },
     });
     yield* service.observe({
+      hostId: "local",
+      generation: 1,
+      occurrenceId: "local:1:inbox-a:42",
       occurrenceToken: 42,
       notification: { method: "thread/deleted", params: { threadId: "thread-a" } },
     });
 
     assert.deepEqual(operations, [
-      "codex:notification:41:thread/archived:thread-a",
-      "codex:notification:42:thread/deleted:thread-a",
+      "codex:notification:local:1:inbox-a:41:thread/archived:thread-a",
+      "codex:notification:local:1:inbox-a:42:thread/deleted:thread-a",
     ]);
     assert.deepEqual(sidebar, ["thread/archived", "thread/deleted"]);
     assert.isNull(stored);

@@ -47,7 +47,10 @@ type CoreThread = Extract<
 >["thread"];
 
 export interface CodexThreadDurableProjectionInput {
+  readonly hostId: string;
+  readonly generation: number;
   readonly notification: CodexThreadDurableProjectionNotification;
+  readonly occurrenceId: string;
   readonly occurrenceToken: number;
 }
 
@@ -163,7 +166,7 @@ export const make: Effect.Effect<
       thread,
       existing: existing ? projectCoreWorkspaceThread(existing) : null,
       parent: parent ? projectCoreWorkspaceThread(parent) : null,
-      observedExecutionHostId: "local",
+      observedExecutionHostId: input.hostId,
       nowMs: observedAtMs,
     });
     if (!materialization) {
@@ -171,7 +174,7 @@ export const make: Effect.Effect<
     }
     yield* core.workspace
       .apply({
-        operationId: `codex:notification:${input.occurrenceToken}:thread/started:${id}`,
+        operationId: `codex:notification:${input.occurrenceId}:thread/started:${id}`,
         intent: { kind: "upsert_thread", thread_id: id, patch: materialization.patch },
       })
       .pipe(Effect.mapError((cause) => error("materialize", id, cause)));
@@ -220,7 +223,7 @@ export const make: Effect.Effect<
     } else if (notification.method === "thread/deleted") {
       yield* core.workspace
         .apply({
-          operationId: `codex:notification:${input.occurrenceToken}:thread/deleted:${id}`,
+          operationId: `codex:notification:${input.occurrenceId}:thread/deleted:${id}`,
           intent: { kind: "delete_thread", thread_id: id },
         })
         .pipe(
@@ -236,7 +239,7 @@ export const make: Effect.Effect<
       const archived = notification.method === "thread/archived";
       yield* core.workspace
         .apply({
-          operationId: `codex:notification:${input.occurrenceToken}:${notification.method}:${id}`,
+          operationId: `codex:notification:${input.occurrenceId}:${notification.method}:${id}`,
           intent: { kind: "set_thread_archived", thread_id: id, archived },
         })
         .pipe(Effect.mapError((cause) => error("archive", id, cause)));
@@ -251,7 +254,7 @@ export const make: Effect.Effect<
       const observedAtMs = yield* Clock.currentTimeMillis;
       yield* core.workspace
         .apply({
-          operationId: `codex:notification:${input.occurrenceToken}:thread/status/changed:${id}`,
+          operationId: `codex:notification:${input.occurrenceId}:thread/status/changed:${id}`,
           intent: {
             kind: "update_thread",
             thread_id: id,
@@ -271,7 +274,7 @@ export const make: Effect.Effect<
       const observedAtMs = yield* Clock.currentTimeMillis;
       yield* core.workspace
         .apply({
-          operationId: `codex:notification:${input.occurrenceToken}:thread/name/updated:${id}`,
+          operationId: `codex:notification:${input.occurrenceId}:thread/name/updated:${id}`,
           intent: {
             kind: "update_thread",
             thread_id: id,

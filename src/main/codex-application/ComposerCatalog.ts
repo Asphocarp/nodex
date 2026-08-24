@@ -200,8 +200,7 @@ export const live: Layer.Layer<ComposerCatalog, never, CodexGateway> = Layer.eff
           yield* awaitReady;
           const normalized = normalizeCwds(cwds);
           const response = yield* gateway.requestLocal("skills/list", {
-            cwds: normalized.length > 0 ? normalized : undefined,
-            forceReload: false,
+            ...(normalized.length > 0 ? { cwds: normalized } : {}),
           });
           const plain = asPlainSkillsResponse(response);
           return yield* Effect.tryPromise({

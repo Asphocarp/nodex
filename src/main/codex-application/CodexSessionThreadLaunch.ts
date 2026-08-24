@@ -27,6 +27,7 @@ import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadLaunchCompletion } from "./CodexThreadLaunchCompletion";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
 import { CodexTurnCommands, type CodexTurnCommandsError } from "./CodexTurnCommands";
 import { CodexTurnPreparation } from "./CodexTurnPreparation";
 
@@ -96,6 +97,7 @@ export const make: Effect.Effect<
   | CodexPendingWorktreeRuntime
   | CodexThreadDirectory
   | CodexThreadLaunchCompletion
+  | CodexThreadStartNotificationGate
   | CodexTurnCommands
   | CodexTurnPreparation
   | CoreModules
@@ -112,6 +114,7 @@ export const make: Effect.Effect<
   const preparation = yield* CodexTurnPreparation;
   const freshLaunches = yield* CodexFreshThreadLaunchRuntime;
   const completion = yield* CodexThreadLaunchCompletion;
+  const threadStarts = yield* CodexThreadStartNotificationGate;
   const lanes = yield* LayerMap.make(laneLayer);
 
   const fail = (
@@ -409,7 +412,11 @@ export const make: Effect.Effect<
               }
               return yield* enqueuePending({ ...input, projectId: input.projectId }, sourceRoots);
             }
-            return yield* startImmediate(input, context, sourceRoots);
+            return yield* threadStarts.materialize(
+              gateway.localHostId,
+              startImmediate(input, context, sourceRoots),
+              (result) => (result.kind === "started" ? result.detail.threadId : null),
+            );
           }),
         ),
       ).pipe(

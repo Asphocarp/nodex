@@ -28,7 +28,6 @@ import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLi
 import { CodexAutomationRunAcceptance } from "./CodexAutomationRunAcceptance";
 import { CodexConversationMaterialization } from "./CodexConversationMaterialization";
 import { CodexConversationProjection } from "./CodexConversationProjection";
-import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import { CodexTurnAuthority, type CodexTurnAuthorityLaunch } from "./CodexTurnAuthority";
 import {
   CodexTurnPreparation,
@@ -147,7 +146,6 @@ export const make: Effect.Effect<
   | CodexConversationMaterialization
   | CodexAutomationRunAcceptance
   | CodexGateway
-  | CodexQueuedFollowUps
   | CodexTurnAuthority
   | CodexTurnPreparation
   | ConversationRuntimeMap
@@ -163,8 +161,12 @@ export const make: Effect.Effect<
   const projection = yield* CodexConversationProjection;
   const preparation = yield* CodexTurnPreparation;
   const authority = yield* CodexTurnAuthority;
-  const queuedFollowUps = yield* CodexQueuedFollowUps;
   const core = yield* CoreModules;
+
+  /** This mutation participates in the already-held Thread transaction; reacquiring its lane deadlocks. */
+  const clearPausedFollowUps = (threadId: string, projectReplica: boolean): void => {
+    conversations.currentConversation(threadId)?.clearPausedQueuedFollowUps(projectReplica);
+  };
 
   const commandError = (
     operation: "start" | "steer",
@@ -347,7 +349,7 @@ export const make: Effect.Effect<
             ),
           );
 
-          yield* queuedFollowUps.clearPaused(plan.threadId);
+          clearPausedFollowUps(plan.threadId, !plan.rendererOwnsState);
           yield* projection
             .markThreadActive(plan.threadId)
             .pipe(
@@ -473,7 +475,7 @@ export const make: Effect.Effect<
         optimisticAdmitted = false;
         return null;
       }
-      yield* queuedFollowUps.clearPaused(plan.threadId);
+      clearPausedFollowUps(plan.threadId, true);
       return { turnId: response.turnId };
     }).pipe(
       Effect.onExit((exit) => (Exit.isFailure(exit) ? rollback : Effect.void)),

@@ -1,8 +1,10 @@
 import type { TurnStartResponse } from "@nodex/codex-app-server-protocol/v2";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import { assert, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { codexRuntimeError } from "../codex-runtime/CodexRuntimeError";
@@ -11,11 +13,13 @@ import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLi
 import { CodexAutomationRunAcceptance } from "./CodexAutomationRunAcceptance";
 import { CodexConversationMaterialization } from "./CodexConversationMaterialization";
 import { CodexConversationProjection } from "./CodexConversationProjection";
-import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import { CodexTurnAuthority } from "./CodexTurnAuthority";
 import { make, type CodexTurnCommandsService } from "./CodexTurnCommands";
 import { CodexTurnPreparation, type CodexTurnStartPlan } from "./CodexTurnPreparation";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import {
+  ConversationRuntimeMap,
+  live as conversationRuntimeMapLive,
+} from "./ConversationRuntimeMap";
 
 const response = (): TurnStartResponse =>
   ({
@@ -108,19 +112,24 @@ const makeHarness = (input: {
       inherit: () => Effect.die("unused"),
       abort: () => events.push("authority:abort"),
     });
-    const queued = CodexQueuedFollowUps.of({
-      clearPaused: () => Effect.sync(() => (events.push("queue:clear-paused"), false)),
-    } as unknown as CodexQueuedFollowUps["Service"]);
     const automation = CodexAutomationRunAcceptance.of({
       accept: () => Effect.sync(() => (events.push("automation:accept"), true)),
     });
-    const runExclusive: ConversationRuntimeMap["Service"]["runExclusive"] = (
-      _threadId,
-      operation,
-    ) => operation;
-    const conversations = ConversationRuntimeMap.of({
-      runExclusive,
-    } as unknown as ConversationRuntimeMap["Service"]);
+    const conversationsContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const conversations = Context.get(conversationsContext, ConversationRuntimeMap);
+    const aggregate = conversations.conversation("thread-a");
+    aggregate.appendQueuedFollowUp(
+      {
+        followUpId: "follow-up:paused",
+        threadId: "thread-a",
+        prompt: "later",
+        createdAt: 1,
+        collaborationMode: null,
+        serviceTier: null,
+        pausedReason: "wait",
+      },
+      true,
+    );
     const projectLifecycle = ProjectRuntimeLifecycleRuntime.of({
       runExclusive: (_projectId, operation) => operation,
     });
@@ -135,7 +144,6 @@ const makeHarness = (input: {
       Effect.provideService(CodexConversationMaterialization, materialization),
       Effect.provideService(CodexConversationProjection, projection),
       Effect.provideService(CodexGateway, gateway),
-      Effect.provideService(CodexQueuedFollowUps, queued),
       Effect.provideService(CodexTurnAuthority, authority),
       Effect.provideService(CodexTurnPreparation, preparation),
       Effect.provideService(ConversationRuntimeMap, conversations),
@@ -143,7 +151,7 @@ const makeHarness = (input: {
       Effect.provideService(ProjectRuntimeLifecycleRuntime, projectLifecycle),
       Effect.provideService(Scope.Scope, scope),
     );
-    return { commands, events, requests: () => requests, scope };
+    return { aggregate, commands, events, requests: () => requests, scope };
   });
 
 it.effect("rematerializes once after thread-not-found and retries a fresh transaction", () =>
@@ -178,9 +186,9 @@ it.effect("rematerializes once after thread-not-found and retries a fresh transa
       "authority:bind",
       "accept",
       "automation:accept",
-      "queue:clear-paused",
       "active",
     ]);
+    assert.isNull(harness.aggregate.listQueuedFollowUps()[0]?.pausedReason ?? null);
     yield* Scope.close(harness.scope, Exit.void);
   }),
 );

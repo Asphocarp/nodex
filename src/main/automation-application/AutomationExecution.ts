@@ -78,6 +78,7 @@ import { CodexHeartbeatTurnCompletion } from "../codex-application/CodexHeartbea
 import { CodexPermissions } from "../codex-application/CodexPermissions";
 import { CodexRendererConversationRegistry } from "../codex-application/CodexRendererConversationRegistry";
 import { CodexThreadDirectory } from "../codex-application/CodexThreadDirectory";
+import { CodexThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate";
 import { CodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
 import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTitlePersistence";
 import { CodexTurnAuthority } from "../codex-application/CodexTurnAuthority";
@@ -341,6 +342,7 @@ export const live = (
   | CodexPermissions
   | CodexRendererConversationRegistry
   | CodexThreadDirectory
+  | CodexThreadStartNotificationGate
   | CodexThreadSettingsRuntime
   | CodexThreadTitlePersistence
   | CodexTurnAuthority
@@ -366,6 +368,7 @@ export const live = (
       const permissions = yield* CodexPermissions;
       const rendererConversations = yield* CodexRendererConversationRegistry;
       const directory = yield* CodexThreadDirectory;
+      const threadStarts = yield* CodexThreadStartNotificationGate;
       const threadSettings = yield* CodexThreadSettingsRuntime;
       const titles = yield* CodexThreadTitlePersistence;
       const authority = yield* CodexTurnAuthority;
@@ -1075,45 +1078,47 @@ export const live = (
             summary: "auto",
           });
         });
-        yield* transaction.pipe(
-          Effect.onExit((exit) =>
-            !Exit.isSuccess(exit) && threadId === null
-              ? automation.runs
-                  .archive({
-                    threadId: pendingThreadId,
-                    archivedReason: "auto",
-                    archivedUserMessage: null,
-                    archivedAssistantMessage: null,
-                  })
-                  .pipe(
-                    Effect.tap((archived) =>
-                      Effect.sync(() => {
-                        if (archived) {
-                          notify({
-                            automationId: input.definition.id,
-                            threadId: pendingThreadId,
-                            reason: "archive",
-                          });
-                        }
-                      }),
-                    ),
-                    Effect.andThen(
-                      managedWorktreePath
-                        ? managedWorktrees
-                            .remove({
-                              hostId: CODEX_APP_LOCAL_HOST_ID,
-                              worktreeGitRoot: managedWorktreePath,
-                              reason: "failed-create",
-                            })
-                            .pipe(Effect.ignore)
-                        : Effect.void,
-                    ),
-                    Effect.asVoid,
-                    Effect.ignore,
-                  )
-              : Effect.void,
-          ),
-        );
+        yield* threadStarts
+          .materialize(gateway.localHostId, transaction, () => threadId)
+          .pipe(
+            Effect.onExit((exit) =>
+              !Exit.isSuccess(exit) && threadId === null
+                ? automation.runs
+                    .archive({
+                      threadId: pendingThreadId,
+                      archivedReason: "auto",
+                      archivedUserMessage: null,
+                      archivedAssistantMessage: null,
+                    })
+                    .pipe(
+                      Effect.tap((archived) =>
+                        Effect.sync(() => {
+                          if (archived) {
+                            notify({
+                              automationId: input.definition.id,
+                              threadId: pendingThreadId,
+                              reason: "archive",
+                            });
+                          }
+                        }),
+                      ),
+                      Effect.andThen(
+                        managedWorktreePath
+                          ? managedWorktrees
+                              .remove({
+                                hostId: CODEX_APP_LOCAL_HOST_ID,
+                                worktreeGitRoot: managedWorktreePath,
+                                reason: "failed-create",
+                              })
+                              .pipe(Effect.ignore)
+                          : Effect.void,
+                      ),
+                      Effect.asVoid,
+                      Effect.ignore,
+                    )
+                : Effect.void,
+            ),
+          );
       });
 
       const startCron = Effect.fn("AutomationExecution.startCron")(function* (

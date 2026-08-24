@@ -25,6 +25,7 @@ import {
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { parseCodexAppServerMessage } from "../codex/codex-app-server-message-parser";
 import {
+  CODEX_SERVER_REQUEST_OCCURRENCE_ID,
   CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
   type CodexServerNotification,
   type CodexServerRequest,
@@ -52,6 +53,7 @@ import { CodexRendererConversationCoordinator } from "./CodexRendererConversatio
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
 import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
 import { NodexAgentProtocolTools } from "../nodex-agent-application/NodexAgentProtocolTools";
 
@@ -67,9 +69,6 @@ export class CodexApplicationProtocol extends Context.Service<
     readonly hasResume: (threadId: string) => boolean;
     readonly releaseResume: (threadId: string) => Effect.Effect<void>;
     readonly discardResume: (threadId: string, reason: unknown) => Effect.Effect<void>;
-    readonly beginThreadStartDeferral: () => void;
-    readonly completeThreadStartDeferral: (threadId: string | null) => Effect.Effect<void>;
-    readonly endThreadStartDeferral: Effect.Effect<void>;
     readonly clearConversationBuffer: (threadId: string, reason: unknown) => Effect.Effect<void>;
   }
 >()("nodex/main/codex-application/CodexApplicationProtocol") {}
@@ -100,6 +99,7 @@ const parseRequest = (
   }
   return Effect.succeed(
     Object.assign(parsed.data.request, {
+      [CODEX_SERVER_REQUEST_OCCURRENCE_ID]: occurrence.occurrenceId,
       [CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN]: occurrence.occurrenceToken,
     }),
   );
@@ -290,6 +290,7 @@ export const make: Effect.Effect<
   | CodexProtocolNotificationEffects
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
+  | CodexThreadStartNotificationGate
   | CodexUserInputAutoResolution
   | ConversationRuntimeMap
   | NodexAgentProtocolTools
@@ -305,11 +306,10 @@ export const make: Effect.Effect<
   const notificationEffects = yield* CodexProtocolNotificationEffects;
   const renderer = yield* CodexRendererConversationCoordinator;
   const rendererRegistry = yield* CodexRendererConversationRegistry;
+  const threadStarts = yield* CodexThreadStartNotificationGate;
   const autoResolution = yield* CodexUserInputAutoResolution;
   const conversations = yield* ConversationRuntimeMap;
   const nodexAgentTools = yield* NodexAgentProtocolTools;
-  let threadStartDeferralDepth = 0;
-  const deferredThreadStarts = new Set<string>();
 
   const reduceRequest = (
     threadId: string,
@@ -479,13 +479,14 @@ export const make: Effect.Effect<
   ) {
     if (isCodexOneShotServerRequest(request)) return yield* oneShot.handle(request);
     if (request.method === "inbox-items-create") {
+      const occurrenceId = request[CODEX_SERVER_REQUEST_OCCURRENCE_ID];
       const occurrenceToken = request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN];
-      if (occurrenceToken === undefined) {
+      if (occurrenceId === undefined || occurrenceToken === undefined) {
         return yield* Effect.die(
-          new Error("Automation inbox request is missing its Effect occurrence token"),
+          new Error("Automation inbox request is missing its Effect occurrence identity"),
         );
       }
-      return yield* automationInbox.create(request.params, { occurrenceToken });
+      return yield* automationInbox.create(request.params, { occurrenceId, occurrenceToken });
     }
     const threadId = threadIdForRequest(request);
     const observedAtMs = yield* Clock.currentTimeMillis;
@@ -521,19 +522,23 @@ export const make: Effect.Effect<
   });
 
   const observeNotification = (
+    occurrence: CodexApplicationNotificationOccurrence,
     notification: CodexServerNotification,
-    occurrenceToken: number,
   ): Effect.Effect<void> => {
     const threadId = codexProtocolNotificationThreadId(notification);
-    return notificationAdmission
-      .decide({ notification, threadId })
-      .pipe(
-        Effect.flatMap((decision) =>
-          decision._tag === "Admit"
-            ? notificationEffects.apply({ notification, occurrenceToken })
-            : Effect.void,
-        ),
-      );
+    return notificationAdmission.decide({ notification, threadId }).pipe(
+      Effect.flatMap((decision) =>
+        decision._tag === "Admit"
+          ? notificationEffects.apply({
+              hostId: occurrence.hostId,
+              generation: occurrence.generation,
+              notification,
+              occurrenceId: occurrence.occurrenceId,
+              occurrenceToken: occurrence.occurrenceToken,
+            })
+          : Effect.void,
+      ),
+    );
   };
 
   const interpretOperation = (
@@ -620,10 +625,7 @@ export const make: Effect.Effect<
     const threadId = codexProtocolNotificationThreadId(notification);
     if (!threadId) {
       return inbox
-        .interpretNotification(
-          occurrence,
-          observeNotification(notification, occurrence.occurrenceToken),
-        )
+        .interpretNotification(occurrence, observeNotification(occurrence, notification))
         .pipe(Effect.asVoid);
     }
     return inbox
@@ -636,17 +638,14 @@ export const make: Effect.Effect<
               occurrence,
               bypassResume: false,
               startsThread: notification.method === "thread/started",
-              deferThreadStart: threadStartDeferralDepth > 0,
+              deferThreadStart:
+                notification.method === "thread/started" &&
+                threadStarts.defer(occurrence.hostId, threadId),
             });
-            if (buffered && notification.method === "thread/started") {
-              deferredThreadStarts.add(threadId);
-            }
             return buffered;
           }).pipe(
             Effect.flatMap((buffered) =>
-              buffered
-                ? Effect.void
-                : observeNotification(notification, occurrence.occurrenceToken),
+              buffered ? Effect.void : observeNotification(occurrence, notification),
             ),
           ),
         ),
@@ -680,10 +679,7 @@ export const make: Effect.Effect<
     const notification = parseNotification(occurrence);
     if (!notification) return Effect.void;
     return inbox
-      .interpretNotification(
-        occurrence,
-        observeNotification(notification, occurrence.occurrenceToken),
-      )
+      .interpretNotification(occurrence, observeNotification(occurrence, notification))
       .pipe(Effect.asVoid);
   };
 
@@ -740,15 +736,12 @@ export const make: Effect.Effect<
     );
   };
 
-  const completeThreadStartDeferral = (threadId: string | null): Effect.Effect<void> => {
-    if (!threadId) return Effect.void;
-    deferredThreadStarts.delete(threadId);
+  const releaseThreadStart = (threadId: string): Effect.Effect<void> => {
     const aggregate = conversations.currentConversation(threadId);
     if (!aggregate) return Effect.void;
     return conversations.runExclusive(
       threadId,
       Effect.sync(() => {
-        aggregate.markThreadStartReady();
         const buffered = aggregate.takeThreadStartEventBuffer();
         return buffered
           ? compactCodexApplicationProtocolOccurrences({
@@ -761,18 +754,6 @@ export const make: Effect.Effect<
     );
   };
 
-  const endThreadStartDeferral = Effect.gen(function* () {
-    if (threadStartDeferralDepth <= 0) return;
-    threadStartDeferralDepth -= 1;
-    if (threadStartDeferralDepth > 0) return;
-    const pendingThreadIds = [...deferredThreadStarts];
-    yield* Effect.forEach(pendingThreadIds, completeThreadStartDeferral, { discard: true });
-    deferredThreadStarts.clear();
-    for (const threadId of pendingThreadIds) {
-      conversations.currentConversation(threadId)?.resetThreadStartReady();
-    }
-  });
-
   const service = CodexApplicationProtocol.of({
     interpret,
     observe,
@@ -784,17 +765,28 @@ export const make: Effect.Effect<
       const aggregate = conversations.currentConversation(threadId);
       return aggregate ? rejectBuffered(aggregate.discardResumeEventBuffer(), reason) : Effect.void;
     },
-    beginThreadStartDeferral: () => {
-      threadStartDeferralDepth += 1;
-    },
-    completeThreadStartDeferral,
-    endThreadStartDeferral,
     clearConversationBuffer: (threadId, reason) => {
-      deferredThreadStarts.delete(threadId);
+      threadStarts.clear(threadId);
       const aggregate = conversations.currentConversation(threadId);
       return aggregate ? rejectBuffered(aggregate.clearBufferedEvents(), reason) : Effect.void;
     },
   });
+  yield* threadStarts.releases.pipe(
+    Stream.runForEach((release) =>
+      releaseThreadStart(release.threadId).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logError("Failed to replay deferred Codex thread start").pipe(
+            Effect.annotateLogs({
+              hostId: release.hostId,
+              threadId: release.threadId,
+              cause,
+            }),
+          ),
+        ),
+      ),
+    ),
+    Effect.forkScoped({ startImmediately: true }),
+  );
   yield* inbox.occurrences.pipe(
     Stream.mapEffect(
       (occurrence) => (occurrence.kind === "request" ? interpret(occurrence) : observe(occurrence)),
@@ -819,6 +811,7 @@ export const live: Layer.Layer<
   | CodexProtocolNotificationEffects
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
+  | CodexThreadStartNotificationGate
   | CodexUserInputAutoResolution
   | ConversationRuntimeMap
   | NodexAgentProtocolTools

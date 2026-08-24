@@ -16,6 +16,8 @@ import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrai
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexThreadCatalog } from "./CodexThreadCatalog";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { transparentThreadStartNotificationGate } from "./CodexThreadStartNotificationGate.test-support";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
@@ -235,6 +237,7 @@ const makeHarness = (responseTurnId = "turn-a") => {
       } as never),
     ),
     Effect.provideService(CodexThreadDirectory, directory),
+    Effect.provideService(CodexThreadStartNotificationGate, transparentThreadStartNotificationGate),
     Effect.provideService(
       CodexThreadTitlePersistence,
       CodexThreadTitlePersistence.of({

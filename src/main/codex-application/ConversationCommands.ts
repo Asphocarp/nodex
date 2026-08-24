@@ -109,7 +109,7 @@ export const live: Layer.Layer<
       gateway.requestForThread(threadId, "thread/backgroundTerminals/list", {
         threadId,
         cursor: options?.cursor ?? null,
-        limit: options?.limit,
+        ...(options?.limit === undefined ? {} : { limit: options.limit }),
       });
     const listBackgroundTerminals = (
       threadId: string,

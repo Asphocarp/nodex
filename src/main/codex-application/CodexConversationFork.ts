@@ -27,6 +27,7 @@ import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrai
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexThreadCatalog } from "./CodexThreadCatalog";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
@@ -76,9 +77,9 @@ export class CodexConversationFork extends Context.Service<
 
 /**
  * Owns a persistent same-directory fork from protocol mutation through durable Session identity.
- * App-server `thread/started` observations may arrive before the response, but they are merely
- * idempotent observations: this transaction commits the authoritative fork result and exact
- * Session ownership, so launch callers never need a notification deferral fence.
+ * App-server `thread/started` observations may arrive before the response. The shared start gate
+ * holds those observations until this transaction commits the authoritative fork result and exact
+ * Session ownership.
  */
 export const make: Effect.Effect<
   CodexConversationFork["Service"],
@@ -91,6 +92,7 @@ export const make: Effect.Effect<
   | CodexRendererConversationCoordinator
   | CodexThreadCatalog
   | CodexThreadDirectory
+  | CodexThreadStartNotificationGate
   | CodexThreadTitlePersistence
   | ConversationRuntimeMap
   | CoreModules
@@ -104,6 +106,7 @@ export const make: Effect.Effect<
   const forkTitles = yield* CodexForkTitlePolicy;
   const catalog = yield* CodexThreadCatalog;
   const directory = yield* CodexThreadDirectory;
+  const threadStarts = yield* CodexThreadStartNotificationGate;
   const titles = yield* CodexThreadTitlePersistence;
   const conversations = yield* ConversationRuntimeMap;
 
@@ -279,7 +282,6 @@ export const make: Effect.Effect<
         .adoptRendererOwner({
           conversationId: child.summary.threadId,
           ownerClientId,
-          conversation: accepted.snapshot,
         })
         .pipe(Effect.mapError((cause) => error("adopt", sourceThreadId, cause)));
       if (adoption.ownerClientId !== ownerClientId) {
@@ -366,7 +368,11 @@ export const make: Effect.Effect<
               ),
           ),
         );
-        return yield* conversations.runExclusive(sourceThreadId, forkPhysical(input));
+        return yield* threadStarts.materialize(
+          durable.durable.executionHostId,
+          conversations.runExclusive(sourceThreadId, forkPhysical(input)),
+          (result) => result.threadId,
+        );
       }).pipe(
         Effect.mapError((cause) =>
           cause instanceof CodexConversationForkError

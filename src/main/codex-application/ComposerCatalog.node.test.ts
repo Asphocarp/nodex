@@ -12,6 +12,7 @@ it.effect("projects models, plugins, and skills through one composer interface",
   Effect.gen(function* () {
     const experimentalRequests: unknown[] = [];
     const hookWrites: unknown[] = [];
+    const skillsRequests: unknown[] = [];
     const requestLocal = ((method: string, params: unknown) => {
       if (method === "model/list") {
         return Effect.succeed({
@@ -68,6 +69,7 @@ it.effect("projects models, plugins, and skills through one composer interface",
         });
       }
       if (method === "skills/list") {
+        skillsRequests.push(params);
         return Effect.succeed({
           data: [
             {
@@ -174,6 +176,9 @@ it.effect("projects models, plugins, and skills through one composer interface",
     assert.strictEqual(plugins[0]?.id, "browser@openai-bundled");
     const skills = yield* catalog.listSkills(["/repo"]);
     assert.strictEqual(skills[0]?.path, "/skills/pdf/SKILL.md");
+    yield* catalog.listSkills([]);
+    assert.deepEqual(skillsRequests.slice(0, 2), [{ cwds: ["/repo"] }, {}]);
+    assert.isFalse(Object.hasOwn(skillsRequests[1] as object, "cwds"));
     yield* catalog.activatePlugin({ id: "browser@openai-bundled", cwds: ["/repo"] });
     assert.deepEqual(yield* catalog.listHooks({ hostId: "default", cwds: ["/repo"] }), {
       data: [],

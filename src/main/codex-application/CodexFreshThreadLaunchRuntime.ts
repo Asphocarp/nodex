@@ -171,20 +171,10 @@ export const make: Effect.Effect<
       catch: (cause) => adoptionError(launch, cause),
     });
   const adoptLaunch = (launch: CodexFreshThreadLaunch) => {
-    const state = rendererConversations.readRendererState(launch.threadId);
-    if (!state.acceptedConversation) {
-      return Effect.fail(
-        adoptionError(
-          launch,
-          new Error(`Fresh thread '${launch.threadId}' has no materialized conversation`),
-        ),
-      );
-    }
     return rendererConversations
       .adoptRendererOwner({
         conversationId: launch.threadId,
         ownerClientId: launch.rendererClientId,
-        conversation: state.acceptedConversation,
       })
       .pipe(
         Effect.flatMap(() => readAdopted(launch)),

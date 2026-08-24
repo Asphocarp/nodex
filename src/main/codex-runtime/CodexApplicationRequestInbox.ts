@@ -1,6 +1,7 @@
 import type { RequestId } from "@nodex/codex-app-server-protocol";
 import type { ServerNotificationMethod } from "@nodex/effect-codex-app-server/rpc";
 import type { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
+import { randomUUID } from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -16,6 +17,7 @@ export interface CodexApplicationRequestOccurrence {
   readonly kind: "request";
   readonly hostId: string;
   readonly generation: number;
+  readonly occurrenceId: string;
   readonly occurrenceToken: number;
   readonly requestId: RequestId;
   readonly method: string;
@@ -26,6 +28,7 @@ export interface CodexApplicationNotificationOccurrence {
   readonly kind: "notification";
   readonly hostId: string;
   readonly generation: number;
+  readonly occurrenceId: string;
   readonly occurrenceToken: number;
   readonly method: ServerNotificationMethod;
   readonly params: unknown;
@@ -154,6 +157,7 @@ const isInterruptedOnly = (cause: Cause.Cause<unknown>): boolean =>
 export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Scope.Scope> =
   Effect.gen(function* () {
     const occurrences = yield* Queue.unbounded<CodexApplicationProtocolOccurrence>();
+    const inboxId = randomUUID();
     const state = yield* SynchronizedRef.make<InboxState>({
       closed: false,
       nextOccurrenceToken: 1,
@@ -227,11 +231,13 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
             if (current.closed || active?.lease !== lease) {
               return Effect.fail(unavailable(hostId, generation, "closed"));
             }
+            const occurrenceToken = current.nextOccurrenceToken;
             const occurrence: CodexApplicationRequestOccurrence = {
               kind: "request",
               hostId,
               generation,
-              occurrenceToken: current.nextOccurrenceToken,
+              occurrenceId: `${hostId}:${generation}:${inboxId}:${occurrenceToken}`,
+              occurrenceToken,
               requestId: input.requestId,
               method: input.method,
               params: input.params,
@@ -354,10 +360,12 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
       SynchronizedRef.modifyEffect(state, (current) => {
         const active = current.generations.get(generationKey(input.hostId, input.generation));
         if (current.closed || !active) return Effect.succeed([undefined, current] as const);
+        const occurrenceToken = current.nextOccurrenceToken;
         const occurrence: CodexApplicationNotificationOccurrence = {
           kind: "notification",
           ...input,
-          occurrenceToken: current.nextOccurrenceToken,
+          occurrenceId: `${input.hostId}:${input.generation}:${inboxId}:${occurrenceToken}`,
+          occurrenceToken,
         };
         return Queue.offer(occurrences, occurrence).pipe(
           Effect.as([

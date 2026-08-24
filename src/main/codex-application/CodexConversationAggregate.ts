@@ -155,7 +155,6 @@ interface MutableCodexConversationAggregate {
   resumeEventBuffer: CodexApplicationProtocolOccurrence[] | null;
   threadStartEventBuffer: CodexApplicationProtocolOccurrence[] | null;
   threadStartDeferred: boolean;
-  threadStartReady: boolean;
   queuedFollowUps: readonly CodexQueuedFollowUp[];
   queuedFollowUpGeneration: number;
 }
@@ -224,9 +223,6 @@ export interface CodexConversationAggregate {
   }) => boolean;
   readonly takeResumeEventBuffer: () => readonly CodexApplicationProtocolOccurrence[] | null;
   readonly takeThreadStartEventBuffer: () => readonly CodexApplicationProtocolOccurrence[] | null;
-  readonly markThreadStartReady: () => void;
-  readonly resetThreadStartReady: () => void;
-  readonly hasDeferredThreadStart: () => boolean;
   readonly discardResumeEventBuffer: () => readonly CodexApplicationProtocolOccurrence[];
   readonly clearBufferedEvents: () => readonly CodexApplicationProtocolOccurrence[];
   readonly commitFrameTextDeltas: (input: {
@@ -451,7 +447,6 @@ const initialAggregate = (generation: number): MutableCodexConversationAggregate
   resumeEventBuffer: null,
   threadStartEventBuffer: null,
   threadStartDeferred: false,
-  threadStartReady: false,
   queuedFollowUps: [],
   queuedFollowUpGeneration: 0,
 });
@@ -516,7 +511,6 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
     aggregate.resumeEventBuffer = null;
     aggregate.threadStartEventBuffer = null;
     aggregate.threadStartDeferred = false;
-    aggregate.threadStartReady = false;
     aggregate.queuedFollowUps = [];
     aggregate.queuedFollowUpGeneration += 1;
   };
@@ -873,7 +867,7 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
           aggregate.threadStartEventBuffer.push(occurrence);
           return true;
         }
-        if (!startsThread || !deferThreadStart || aggregate.threadStartReady) return false;
+        if (!startsThread || !deferThreadStart) return false;
         aggregate.threadStartDeferred = true;
         aggregate.threadStartEventBuffer = [occurrence];
         return true;
@@ -890,13 +884,6 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
         aggregate.threadStartDeferred = false;
         return buffered;
       },
-      markThreadStartReady: () => {
-        aggregate.threadStartReady = true;
-      },
-      resetThreadStartReady: () => {
-        aggregate.threadStartReady = false;
-      },
-      hasDeferredThreadStart: () => aggregate.threadStartDeferred,
       discardResumeEventBuffer: () => {
         const buffered = aggregate.resumeEventBuffer ?? [];
         aggregate.resumeEventBuffer = null;
@@ -910,7 +897,6 @@ export function makeCodexConversationAggregateRegistry(): CodexConversationAggre
         aggregate.resumeEventBuffer = null;
         aggregate.threadStartEventBuffer = null;
         aggregate.threadStartDeferred = false;
-        aggregate.threadStartReady = false;
         return buffered;
       },
       commitFrameTextDeltas: ({ updates, observedAtMs, projectReplica }) => {

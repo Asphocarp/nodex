@@ -62,7 +62,10 @@ import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
 export interface CodexProtocolNotificationInput {
+  readonly hostId: string;
+  readonly generation: number;
   readonly notification: CodexServerNotification;
+  readonly occurrenceId: string;
   readonly occurrenceToken: number;
 }
 
@@ -539,7 +542,10 @@ export const make: Effect.Effect<
     }
     if (isCodexThreadDurableProjectionNotification(notification)) {
       const durable = durableThreads.observe({
+        hostId: input.hostId,
+        generation: input.generation,
         notification,
+        occurrenceId: input.occurrenceId,
         occurrenceToken: input.occurrenceToken,
       });
       if (notification.method !== "thread/archived" && notification.method !== "thread/deleted") {

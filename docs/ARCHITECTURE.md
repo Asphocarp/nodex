@@ -519,6 +519,19 @@ each request or notification once, routes it to its semantic family, and enters 
 causal lane. Different Threads may progress concurrently; events for one Thread cannot overtake its
 own accepted command or projection consequence.
 
+Every app-server operation that materializes a new Thread (`thread/start` or `thread/fork`) enters
+one host-scoped start-notification gate. Because `thread/started` may arrive before the response
+continuation reveals its Thread id, the gate holds that Thread's protocol lane until the owning
+launch, fork, automation, import, side-chat, or internal-thread transaction has committed its
+canonical and durable identity. Commit emits a one-way release to the protocol actor; application
+transactions never wait for replay acknowledgement. A failed or interrupted transaction drains any
+otherwise-unidentified started Threads when that host's materialization cohort becomes quiescent.
+Every notification retains its endpoint host and generation through replay and durable projection,
+so a previously unknown remote Thread can never acquire local execution authority by default. Its
+Core idempotency identity also includes a process-unique Inbox namespace in addition to the local
+monotonic occurrence token; restarting Main therefore cannot alias a new notification to an old
+persisted operation receipt.
+
 ```mermaid
 flowchart LR
     Server["Codex app-server"] --> Endpoint["Endpoint generation"]
@@ -547,8 +560,10 @@ and steering, Session launch, resume,
 fork, rollback, side chat, compaction, history, goals and settings, read state, queued follow-ups,
 archive, handoff, and background-process actions compose the same Thread lane, Gateway, Core
 Workspace, and aggregate. Project-owned commands also enter the Project lifecycle gate before
-admission. Optimistic state is committed or compensated within the owning transaction, and
-interruption reaches the same physical Gateway, worker, or Core operation.
+admission. A transaction that already owns the Thread lane performs its aggregate transitions
+directly; it never re-enters the lane through a sibling public command. Optimistic state is
+committed or compensated within the owning transaction, and interruption reaches the same physical
+Gateway, worker, or Core operation.
 
 App-server approval, elicitation, permission, and user-input requests have one canonical pending
 request lifecycle. Admission records the exact endpoint and Thread generation before presentation;
@@ -566,7 +581,10 @@ broaden a Core resource boundary, and Scope close clears every transient grant.
 Renderer client identity and Electron delivery belong to the scoped renderer client runtime. A
 conversation registry records presence and role without owning projection policy; the conversation
 coordinator atomically owns adoption, owner replacement, following, targeted request delivery, and
-client disposal consequences. A follower acknowledges an exact owner snapshot barrier and then
+client disposal consequences. First-owner adoption converts the aggregate's already-hydrated
+canonical snapshot into the initial accepted renderer replica; it never requires that replica to
+exist before adoption and fails closed when no canonical snapshot exists. A follower acknowledges
+an exact owner snapshot barrier and then
 accepts only contiguous patches from the same owner epoch. A gap, hash mismatch, owner replacement,
 or transport reset requests a fresh barrier instead of merging competing documents. The event hub
 fans accepted application changes to renderer projection and native notification consumers; those

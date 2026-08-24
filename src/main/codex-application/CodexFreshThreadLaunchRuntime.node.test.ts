@@ -59,9 +59,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     requests: [],
     queuedFollowUps: [],
   } as unknown as CodexConversationSnapshot;
-  aggregates
-    .acquire(identity.threadId)
-    .acceptReplica({ conversation: snapshot, revision: 1, ownerEpoch: 0 });
+  aggregates.acquire(identity.threadId).installSnapshot(snapshot);
   let adoptionCalls = 0;
   const coordinator = CodexRendererConversationCoordinator.of({
     readRendererState: (threadId) => {
@@ -78,12 +76,24 @@ const makeHarness = (options: HarnessOptions = {}) => {
       (options.beforeAdopt ?? Effect.void).pipe(
         Effect.map(() => {
           adoptionCalls += 1;
-          registry.setOwner(input.conversationId, input.ownerClientId);
-          const state = aggregates.acquire(input.conversationId).read();
+          const owner = registry.setOwner(input.conversationId, input.ownerClientId);
+          const aggregate = aggregates.acquire(input.conversationId);
+          const state = aggregate.read();
+          if (owner && !state.acceptedReplica) {
+            const canonical = aggregate.readSnapshot();
+            if (canonical) {
+              aggregate.acceptReplica({
+                conversation: canonical,
+                revision: state.revision,
+                ownerEpoch: owner.ownerEpoch,
+              });
+            }
+          }
+          const adopted = aggregate.read();
           return {
-            checkpoint: state.acceptedReplica?.checkpoint ?? null,
+            checkpoint: adopted.acceptedReplica?.checkpoint ?? null,
             ownerClientId: registry.getOwnerClientId(input.conversationId),
-            revision: state.revision,
+            revision: adopted.revision,
           };
         }),
       ),

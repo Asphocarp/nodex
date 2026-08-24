@@ -14,6 +14,8 @@ import { CodexPendingWorktreeRuntime } from "./CodexPendingWorktreeRuntime";
 import { make, type CodexSessionThreadLaunchContext } from "./CodexSessionThreadLaunch";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadLaunchCompletion } from "./CodexThreadLaunchCompletion";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { transparentThreadStartNotificationGate } from "./CodexThreadStartNotificationGate.test-support";
 import { CodexTurnCommands } from "./CodexTurnCommands";
 import { CodexTurnPreparation } from "./CodexTurnPreparation";
 
@@ -127,6 +129,10 @@ const harness = (
       Effect.provideService(CodexThreadDirectory, directory),
       Effect.provideService(CodexTurnCommands, turns),
       Effect.provideService(CodexThreadLaunchCompletion, completion),
+      Effect.provideService(
+        CodexThreadStartNotificationGate,
+        transparentThreadStartNotificationGate,
+      ),
       Effect.provideService(
         ProjectRuntimeLifecycleRuntime,
         ProjectRuntimeLifecycleRuntime.of({ runExclusive: (_projectId, operation) => operation }),

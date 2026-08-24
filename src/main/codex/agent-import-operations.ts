@@ -38,6 +38,7 @@ import { CodexApplicationEventHub } from "../codex-application/CodexApplicationE
 import { CodexExternalAgentImportRuntime } from "../codex-application/CodexExternalAgentImportRuntime";
 import { CodexSidebarSyncRuntime } from "../codex-application/CodexSidebarSyncRuntime";
 import { CodexThreadDirectory } from "../codex-application/CodexThreadDirectory";
+import { CodexThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate";
 import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTitlePersistence";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { getLogger } from "../logging/logger";
@@ -171,6 +172,7 @@ interface AgentImportEffectServices {
   readonly gateway: CodexGateway["Service"];
   readonly sidebarSync: CodexSidebarSyncRuntime["Service"];
   readonly threadDirectory: CodexThreadDirectory["Service"];
+  readonly threadStarts: CodexThreadStartNotificationGate["Service"];
   readonly threadTitles: CodexThreadTitlePersistence["Service"];
 }
 
@@ -1341,7 +1343,7 @@ class AgentImportOperations {
 
   private importSession(session: NativeSessionCandidate) {
     let createdThreadId: string | null = null;
-    return Effect.gen({ self: this }, function* () {
+    const operation = Effect.gen({ self: this }, function* () {
       const cwd = existsSync(session.cwd) ? session.cwd : homedir();
       const response = (yield* this.services.gateway.requestLocal("thread/fork", {
         cwd,
@@ -1381,15 +1383,18 @@ class AgentImportOperations {
         });
       }
       return threadId;
-    }).pipe(
-      Effect.onError(() =>
-        createdThreadId
-          ? this.services.gateway
-              .requestLocal("thread/delete", { threadId: createdThreadId })
-              .pipe(Effect.ignore)
-          : Effect.void,
-      ),
-    );
+    });
+    return this.services.threadStarts
+      .materialize(this.services.gateway.localHostId, operation, (threadId) => threadId)
+      .pipe(
+        Effect.onError(() =>
+          createdThreadId
+            ? this.services.gateway
+                .requestLocal("thread/delete", { threadId: createdThreadId })
+                .pipe(Effect.ignore)
+            : Effect.void,
+        ),
+      );
   }
 
   private async importCopies(

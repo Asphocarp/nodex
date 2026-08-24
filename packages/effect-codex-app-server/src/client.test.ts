@@ -102,7 +102,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
 
         const path = yield* Path.Path;
         const peerCwd = path.join(import.meta.dirname, "..");
-        const skills = yield* client.request("skills/list", { cwds: [peerCwd] });
+        const skills = yield* client.request("skills/list", {});
         assert.equal(skills.data.length, 1);
         assert.equal(skills.data[0]?.cwd, peerCwd);
 

@@ -21,13 +21,18 @@ it.effect(
     Effect.scoped(
       Effect.gen(function* () {
         const events: string[] = [];
+        const backgroundTerminalRequests: unknown[] = [];
         const unsupported = () => Effect.die(new Error("Unsupported test operation"));
         const requestForThread: CodexGateway["Service"]["requestForThread"] = (
           threadId,
           method,
-          _params,
+          params,
         ) => {
           events.push(`remote:${method}:${threadId}`);
+          if (method === "thread/backgroundTerminals/list") {
+            backgroundTerminalRequests.push(params);
+            return Effect.succeed({ data: [], nextCursor: null }) as never;
+          }
           return Effect.succeed({}) as never;
         };
         const gateway = CodexGateway.of({
@@ -126,6 +131,9 @@ it.effect(
           "projection:thread-a:turn-remote-only",
           "queue:thread-a",
         ]);
+        yield* commands.listBackgroundTerminalsPage("thread-a", { cursor: null });
+        assert.deepEqual(backgroundTerminalRequests, [{ threadId: "thread-a", cursor: null }]);
+        assert.isFalse(Object.hasOwn(backgroundTerminalRequests[0] as object, "limit"));
       }),
     ),
 );

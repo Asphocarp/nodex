@@ -23,6 +23,7 @@ import {
   parseGeneratedThreadTitleResponse,
 } from "../codex/thread-title-generator";
 import { CodexInternalThreadRegistry } from "./CodexInternalThreadRegistry";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
 
 type ThreadStartParams = ClientRequestParamsByMethod["thread/start"];
 type ThreadStartResponse = ClientRequestResponsesByMethod["thread/start"];
@@ -164,10 +165,11 @@ export const make = (
 ): Effect.Effect<
   CodexStructuredThreadTitle["Service"],
   never,
-  CodexInternalThreadRegistry | Scope.Scope
+  CodexInternalThreadRegistry | CodexThreadStartNotificationGate | Scope.Scope
 > =>
   Effect.gen(function* () {
     const internalThreads = yield* CodexInternalThreadRegistry;
+    const threadStarts = yield* CodexThreadStartNotificationGate;
     const closed = yield* Latch.make();
     yield* Effect.addFinalizer(() => closed.open);
 
@@ -219,26 +221,32 @@ export const make = (
           if (!prompt) return null;
 
           const thread = yield* Effect.acquireRelease(
-            options
-              .startThread({
-                model: CODEX_THREAD_TITLE_MODEL,
-                modelProvider: null,
-                cwd: input.cwd,
-                approvalPolicy: "never",
-                permissions: ":read-only",
-                runtimeWorkspaceRoots: [],
-                config: CODEX_THREAD_TITLE_CONFIG,
-                personality: null,
-                ephemeral: true,
-                threadSource: "system",
-                experimentalRawEvents: false,
-                dynamicTools: null,
-                serviceTier: null,
-                ...(input.serviceName === undefined ? {} : { serviceName: input.serviceName }),
-              })
-              .pipe(
-                Effect.tap((response) => internalThreads.leaseStructuredTitle(response.thread.id)),
-              ),
+            threadStarts.materialize(
+              options.hostId,
+              options
+                .startThread({
+                  model: CODEX_THREAD_TITLE_MODEL,
+                  modelProvider: null,
+                  cwd: input.cwd,
+                  approvalPolicy: "never",
+                  permissions: ":read-only",
+                  runtimeWorkspaceRoots: [],
+                  config: CODEX_THREAD_TITLE_CONFIG,
+                  personality: null,
+                  ephemeral: true,
+                  threadSource: "system",
+                  experimentalRawEvents: false,
+                  dynamicTools: null,
+                  serviceTier: null,
+                  ...(input.serviceName === undefined ? {} : { serviceName: input.serviceName }),
+                })
+                .pipe(
+                  Effect.tap((response) =>
+                    internalThreads.leaseStructuredTitle(response.thread.id),
+                  ),
+                ),
+              (response) => response.thread.id,
+            ),
             (response) => options.unsubscribeThread(response.thread.id).pipe(Effect.ignore),
           );
           const threadId = thread.thread.id;

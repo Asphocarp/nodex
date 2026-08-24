@@ -17,6 +17,8 @@ import { codexRuntimeError, type CodexRuntimeError } from "../codex-runtime/Code
 import { CodexTurnCommands, type CodexTurnCommandsService } from "./CodexTurnCommands";
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { transparentThreadStartNotificationGate } from "./CodexThreadStartNotificationGate.test-support";
 import {
   ConversationRuntimeMap,
   live as conversationRuntimeMapLive,
@@ -173,6 +175,10 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       Effect.provideService(CodexThreadHostResolver, hostResolver),
       Effect.provideService(CodexEphemeralThreadRouting, routing),
       Effect.provideService(CodexThreadDirectory, directory),
+      Effect.provideService(
+        CodexThreadStartNotificationGate,
+        transparentThreadStartNotificationGate,
+      ),
       Effect.provideService(CodexTurnCommands, turns),
       Effect.provideService(ConversationRuntimeMap, conversations),
     );

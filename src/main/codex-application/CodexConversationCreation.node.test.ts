@@ -13,6 +13,8 @@ import { CodexForkSidePanelTransfer } from "./CodexForkSidePanelTransferRuntime"
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadLaunchCompletion } from "./CodexThreadLaunchCompletion";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { transparentThreadStartNotificationGate } from "./CodexThreadStartNotificationGate.test-support";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 import { CodexTurnCommands } from "./CodexTurnCommands";
 import { ManagedWorktreeRuntime } from "./ManagedWorktreeRuntime";
@@ -129,6 +131,10 @@ it.effect("keeps an accepted first Turn when later launch metadata fails", () =>
       Effect.provideService(
         CodexThreadLaunchCompletion,
         CodexThreadLaunchCompletion.of({ accepted: unsupported } as never),
+      ),
+      Effect.provideService(
+        CodexThreadStartNotificationGate,
+        transparentThreadStartNotificationGate,
       ),
       Effect.provideService(
         CodexThreadTitlePersistence,

@@ -344,6 +344,10 @@ import {
   make as makeCodexApplicationProtocol,
 } from "../codex-application/CodexApplicationProtocol";
 import {
+  CodexThreadStartNotificationGate,
+  make as makeCodexThreadStartNotificationGate,
+} from "../codex-application/CodexThreadStartNotificationGate";
+import {
   CodexAutomationTurnCompletion,
   live as codexAutomationTurnCompletionLive,
 } from "../codex-application/CodexAutomationTurnCompletion";
@@ -1745,6 +1749,9 @@ export const live: Layer.Layer<
         const internalThreadRegistry = yield* makeCodexInternalThreadRegistry.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const threadStartNotifications = yield* makeCodexThreadStartNotificationGate.pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const sidebarSync = yield* makeCodexSidebarSyncRuntime({
           foldPathCase: config.platform === "win32",
         }).pipe(
@@ -1845,6 +1852,7 @@ export const live: Layer.Layer<
             ),
         }).pipe(
           Effect.provideService(CodexInternalThreadRegistry, internalThreadRegistry),
+          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime.pipe(
@@ -2080,6 +2088,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexForkSidePanelTransfer, forkSidePanelTransfers),
           Effect.provideService(CodexThreadCatalog, threadCatalog),
           Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
           Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
         );
@@ -2092,6 +2101,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadDirectory, threadDirectory),
           Effect.provideService(CodexThreadGoalRuntime, threadGoals),
           Effect.provideService(CodexThreadLaunchCompletion, threadLaunchCompletion),
+          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
           Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
           Effect.provideService(CodexTurnCommands, turnCommands),
           Effect.provideService(BrowserUseRuntime, browserUse),
@@ -2182,6 +2192,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(CodexSidebarSyncRuntime, sidebarSync),
           Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
           Effect.provideService(CodexThreadTitlePersistence, threadTitlePersistence),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
@@ -2234,6 +2245,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexThreadHostResolver, threadHostResolver),
           Effect.provideService(CodexEphemeralThreadRouting, ephemeralThreadRouting),
           Effect.provideService(CodexThreadDirectory, threadDirectory),
+          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
           Effect.provideService(CodexTurnCommands, turnCommands),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
         );
@@ -2244,6 +2256,7 @@ export const live: Layer.Layer<
           Effect.provideService(CodexPendingWorktreeRuntime, pendingWorktrees),
           Effect.provideService(CodexThreadDirectory, threadDirectory),
           Effect.provideService(CodexThreadLaunchCompletion, threadLaunchCompletion),
+          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
           Effect.provideService(CodexTurnCommands, turnCommands),
           Effect.provideService(CodexTurnPreparation, turnPreparation),
           Effect.provideService(CoreModules, coreModules),
@@ -2392,6 +2405,7 @@ export const live: Layer.Layer<
             rendererConversationCoordinator,
           ),
           Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
+          Effect.provideService(CodexThreadStartNotificationGate, threadStartNotifications),
           Effect.provideService(CodexUserInputAutoResolution, userInputAutoResolution),
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(NodexAgentProtocolTools, nodexAgentProtocolTools),
@@ -2439,6 +2453,7 @@ export const live: Layer.Layer<
                 Layer.succeed(CodexPermissions, codexPermissions),
                 Layer.succeed(CodexRendererConversationRegistry, rendererConversations),
                 Layer.succeed(CodexThreadDirectory, threadDirectory),
+                Layer.succeed(CodexThreadStartNotificationGate, threadStartNotifications),
                 Layer.succeed(CodexThreadSettingsRuntime, threadSettingsRuntime),
                 Layer.succeed(CodexThreadTitlePersistence, threadTitlePersistence),
                 Layer.succeed(CodexTurnAuthority, turnAuthority),

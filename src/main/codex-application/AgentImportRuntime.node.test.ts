@@ -11,6 +11,8 @@ import { CodexApplicationEventHub, type CodexApplicationEvent } from "./CodexApp
 import { CodexExternalAgentImportRuntime } from "./CodexExternalAgentImportRuntime";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
 import { CodexThreadDirectory, CodexThreadDirectoryError } from "./CodexThreadDirectory";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { transparentThreadStartNotificationGate } from "./CodexThreadStartNotificationGate.test-support";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 
 const SOURCE_THREAD_ID = "019c0000-0000-7000-8000-000000000003";
@@ -115,6 +117,10 @@ const makeHarness = (runtimeStateHome: string, cwd: string, options: ImportHarne
       Effect.provideService(CodexGateway, gateway),
       Effect.provideService(CodexSidebarSyncRuntime, sidebar),
       Effect.provideService(CodexThreadDirectory, directory),
+      Effect.provideService(
+        CodexThreadStartNotificationGate,
+        transparentThreadStartNotificationGate,
+      ),
       Effect.provideService(CodexThreadTitlePersistence, titlePersistence),
     ),
   };

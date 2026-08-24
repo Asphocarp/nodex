@@ -74,7 +74,7 @@ it.effect("commits Automation inbox directives with the request occurrence ident
 
     const response = yield* inbox.create(
       { conversationId: "thread-a", items: [{ title: "Review", summary: "Ready" }] },
-      { occurrenceToken: 42 },
+      { occurrenceId: "local:1:inbox-a:42", occurrenceToken: 42 },
     );
 
     assert.deepEqual(response.items, [
@@ -82,7 +82,7 @@ it.effect("commits Automation inbox directives with the request occurrence ident
     ]);
     assert.strictEqual(
       (applied[0] as { operationId: string }).operationId,
-      "codex:inbox-item:42:0:thread-a",
+      "codex:inbox-item:local:1:inbox-a:42:0:thread-a",
     );
     assert.strictEqual(routing.length, 1);
     assert.deepEqual(events, [

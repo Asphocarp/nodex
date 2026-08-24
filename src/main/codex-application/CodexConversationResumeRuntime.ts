@@ -428,7 +428,6 @@ export const make: Effect.Effect<
         const adoption = yield* rendererCoordinator.adoptRendererOwner({
           conversationId: threadId,
           ownerClientId,
-          conversation: resumed,
         });
         if (adoption.ownerClientId !== ownerClientId) {
           return yield* Effect.fail(

@@ -15,6 +15,7 @@ export interface CodexAutomationInboxItem {
 }
 
 export interface CodexAutomationInboxRequestIdentity {
+  readonly occurrenceId: string;
   readonly occurrenceToken: number;
 }
 
@@ -71,7 +72,7 @@ export const live: Layer.Layer<
       if (!current) return;
       const committed = yield* core.automation.apply(
         {
-          operationId: `codex:inbox-item:${identity.occurrenceToken}:${index}:${item.threadId}`,
+          operationId: `codex:inbox-item:${identity.occurrenceId}:${index}:${item.threadId}`,
           intent: {
             kind: "set_run_inbox_item",
             thread_id: item.threadId,

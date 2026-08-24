@@ -52,10 +52,13 @@ export const make: Effect.Effect<
         conversations.runExclusive(
           threadId,
           protocol.apply({
+            hostId: DEFAULT_CODEX_HOST_ID,
+            generation: 0,
             notification: {
               method: "serverRequest/resolved",
               params: { threadId, requestId },
             },
+            occurrenceId: `synthetic:connection:${threadId}:${String(requestId)}`,
             occurrenceToken: 0,
           }),
         ),

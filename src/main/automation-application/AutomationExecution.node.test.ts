@@ -14,6 +14,8 @@ import { CodexHeartbeatTurnCompletion } from "../codex-application/CodexHeartbea
 import { CodexPermissions } from "../codex-application/CodexPermissions";
 import { CodexRendererConversationRegistry } from "../codex-application/CodexRendererConversationRegistry";
 import { CodexThreadDirectory } from "../codex-application/CodexThreadDirectory";
+import { CodexThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate";
+import { transparentThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate.test-support";
 import { CodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
 import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTitlePersistence";
 import { CodexTurnAuthority } from "../codex-application/CodexTurnAuthority";
@@ -133,6 +135,7 @@ it.effect("run-now enters the scoped execution capability after runtime readines
               {} as CodexRendererConversationRegistry["Service"],
             ),
             Layer.succeed(CodexThreadDirectory, {} as CodexThreadDirectory["Service"]),
+            Layer.succeed(CodexThreadStartNotificationGate, transparentThreadStartNotificationGate),
             Layer.succeed(CodexThreadSettingsRuntime, {} as CodexThreadSettingsRuntime["Service"]),
             Layer.succeed(
               CodexThreadTitlePersistence,

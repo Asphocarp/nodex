@@ -50,7 +50,6 @@ export interface CodexRendererConversationCoordinatorService {
   readonly adoptRendererOwner: (input: {
     readonly conversationId: string;
     readonly ownerClientId: string;
-    readonly conversation: CodexConversationSnapshot;
   }) => Effect.Effect<{
     readonly checkpoint: CodexThreadStreamCheckpoint | null;
     readonly ownerClientId: string | null;
@@ -316,7 +315,7 @@ export const make: Effect.Effect<
       };
     },
     adoptRendererOwner: (input) =>
-      Effect.gen(function* () {
+      Effect.sync(() => {
         if (registry.isClientDisposed(input.ownerClientId)) {
           return {
             checkpoint: null,
@@ -333,19 +332,28 @@ export const make: Effect.Effect<
             revision: current?.revision ?? 0,
           };
         }
-        const conversation =
-          aggregate(input.conversationId) ?? conversations.conversation(input.conversationId);
-        conversation.setStreamRole("owner");
-        if (!(yield* setOwner(input.conversationId, input.ownerClientId))) {
+        const conversation = aggregate(input.conversationId);
+        const before = conversation?.read() ?? null;
+        const initialReplica =
+          before?.acceptedReplica?.conversation ?? conversation?.readSnapshot();
+        if (!conversation || !before || !initialReplica) {
+          return {
+            checkpoint: null,
+            ownerClientId: null,
+            revision: conversation?.read().revision ?? 0,
+          };
+        }
+        if (!setOwnerState(input.conversationId, input.ownerClientId)) {
           return { checkpoint: null, ownerClientId: null, revision: conversation.read().revision };
         }
-        const before = conversation.read();
+        conversation.setStreamRole("owner");
         if (!before.acceptedReplica) {
           conversation.acceptReplica({
-            conversation: input.conversation,
+            conversation: initialReplica,
             revision: before.revision,
             ownerEpoch: registry.getOwnerEpoch(input.conversationId) ?? 0,
           });
+          flushSnapshots(input.conversationId);
         }
         const after = conversation.read();
         return {
@@ -353,7 +361,7 @@ export const make: Effect.Effect<
           ownerClientId: registry.getOwnerClientId(input.conversationId),
           revision: after.revision,
         };
-      }),
+      }).pipe(Effect.tap(() => retention.reconcile(input.conversationId))),
     setOwner,
     setFollowing: (conversationId, clientId, following, options) =>
       Effect.sync(() => registry.setFollowing(conversationId, clientId, following, options)).pipe(

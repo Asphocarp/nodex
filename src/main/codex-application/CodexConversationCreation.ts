@@ -26,6 +26,7 @@ import { CodexForkSidePanelTransfer } from "./CodexForkSidePanelTransferRuntime"
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexThreadLaunchCompletion } from "./CodexThreadLaunchCompletion";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 import { CodexTurnCommands } from "./CodexTurnCommands";
 import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
@@ -93,6 +94,7 @@ export const make: Effect.Effect<
   | CodexThreadDirectory
   | CodexThreadGoalRuntime
   | CodexThreadLaunchCompletion
+  | CodexThreadStartNotificationGate
   | CodexThreadTitlePersistence
   | CodexTurnCommands
   | BrowserUseRuntime
@@ -107,6 +109,7 @@ export const make: Effect.Effect<
   const directory = yield* CodexThreadDirectory;
   const goals = yield* CodexThreadGoalRuntime;
   const completion = yield* CodexThreadLaunchCompletion;
+  const threadStarts = yield* CodexThreadStartNotificationGate;
   const titles = yield* CodexThreadTitlePersistence;
   const turns = yield* CodexTurnCommands;
   const browserUse = yield* BrowserUseRuntime;
@@ -209,7 +212,7 @@ export const make: Effect.Effect<
     return { threadId: forked.threadId };
   });
 
-  const launchStart = Effect.fn("CodexConversationCreation.launchStart")(function* (
+  const launchStartPhysical = Effect.fn("CodexConversationCreation.launchStart")(function* (
     entry: Extract<CodexPendingWorktreeEntry, { readonly launchMode: "start-conversation" }>,
     workspaceRoot: string,
     worktreeInit: CodexCanonicalWorktreeInitItem | undefined,
@@ -390,6 +393,18 @@ export const make: Effect.Effect<
       ),
     );
   });
+
+  const launchStart = (
+    entry: Extract<CodexPendingWorktreeEntry, { readonly launchMode: "start-conversation" }>,
+    workspaceRoot: string,
+    worktreeInit: CodexCanonicalWorktreeInitItem | undefined,
+    includeWorktreeInit: boolean,
+  ) =>
+    threadStarts.materialize(
+      gateway.localHostId,
+      launchStartPhysical(entry, workspaceRoot, worktreeInit, includeWorktreeInit),
+      (result) => result.threadId,
+    );
 
   return CodexConversationCreation.of({
     launchPending: (entry, workspaceRoot, includeWorktreeInit) => {

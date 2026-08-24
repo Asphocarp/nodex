@@ -32,6 +32,7 @@ import { SIDE_CHAT_BOUNDARY_TEXT } from "./CodexSideChatPolicy";
 import { SIDE_CHAT_DEVELOPER_INSTRUCTIONS } from "./CodexSideChatPolicy";
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
+import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
 
 type GatewayThreadForkParams = ClientRequestParamsByMethod["thread/fork"];
 type GatewayThreadInjectItemsParams = ClientRequestParamsByMethod["thread/inject_items"];
@@ -80,6 +81,7 @@ export const make: Effect.Effect<
   | CodexThreadHostResolver
   | CodexEphemeralThreadRouting
   | CodexThreadDirectory
+  | CodexThreadStartNotificationGate
   | CodexTurnCommands
   | ConversationRuntimeMap
 > = Effect.gen(function* () {
@@ -89,6 +91,7 @@ export const make: Effect.Effect<
   const routing = yield* CodexEphemeralThreadRouting;
   const turns = yield* CodexTurnCommands;
   const directory = yield* CodexThreadDirectory;
+  const threadStarts = yield* CodexThreadStartNotificationGate;
   const projection = yield* CodexConversationProjection;
 
   const prepare = Effect.fn("CodexSideChatCommands.prepare")(function* (
@@ -327,69 +330,67 @@ export const make: Effect.Effect<
       { concurrency: 1, discard: true },
     );
 
+  const startPrepared = (plan: CodexSideChatPlan, hostId: string) =>
+    gateway.requestOnHost(hostId, "thread/fork", plan.forkRequest as GatewayThreadForkParams).pipe(
+      Effect.map((response) => response as unknown as ThreadForkResponse),
+      Effect.flatMap((response) => {
+        const threadId = response.thread.id.trim();
+        if (!threadId || threadId !== response.thread.id) {
+          return Effect.fail(
+            new CodexSideChatProjectionError({
+              operation: "commit",
+              threadId: plan.parentThreadId,
+              cause: new Error("Thread fork did not return a valid thread id"),
+            }),
+          );
+        }
+        return Effect.acquireUseRelease(
+          routing.register(threadId, hostId).pipe(Effect.as({ hostId, threadId })),
+          () =>
+            gateway
+              .requestOnHost(hostId, "thread/inject_items", {
+                threadId,
+                items: [
+                  {
+                    type: "message",
+                    role: "user",
+                    content: [{ type: "input_text", text: SIDE_CHAT_BOUNDARY_TEXT }],
+                  },
+                ],
+              } as GatewayThreadInjectItemsParams)
+              .pipe(
+                Effect.andThen(acceptFork(plan, response)),
+                Effect.tap((result) =>
+                  plan.initialTurn
+                    ? turns
+                        .start(result.threadId, plan.initialTurn.prompt, plan.initialTurn.overrides)
+                        .pipe(Effect.asVoid)
+                    : Effect.void,
+                ),
+              ),
+          (lease, exit) =>
+            Exit.isFailure(exit) ? cleanup(lease.hostId, lease.threadId) : Effect.void,
+        );
+      }),
+    );
+
   const start: CodexSideChatCommandsService["start"] = (input) => {
     const parentThreadId = input.parentThreadId.trim();
     return conversations.runExclusive(
       parentThreadId,
       prepare(input).pipe(
         Effect.flatMap((plan) =>
-          hostResolver.resolve(plan.parentThreadId).pipe(
-            Effect.flatMap((hostId) =>
-              gateway
-                .requestOnHost(hostId, "thread/fork", plan.forkRequest as GatewayThreadForkParams)
-                .pipe(
-                  Effect.map((response) => response as unknown as ThreadForkResponse),
-                  Effect.flatMap((response) => {
-                    const threadId = response.thread.id.trim();
-                    if (!threadId || threadId !== response.thread.id) {
-                      return Effect.fail(
-                        new CodexSideChatProjectionError({
-                          operation: "commit",
-                          threadId: plan.parentThreadId,
-                          cause: new Error("Thread fork did not return a valid thread id"),
-                        }),
-                      );
-                    }
-                    return Effect.acquireUseRelease(
-                      routing.register(threadId, hostId).pipe(Effect.as({ hostId, threadId })),
-                      () =>
-                        gateway
-                          .requestOnHost(hostId, "thread/inject_items", {
-                            threadId,
-                            items: [
-                              {
-                                type: "message",
-                                role: "user",
-                                content: [
-                                  {
-                                    type: "input_text",
-                                    text: SIDE_CHAT_BOUNDARY_TEXT,
-                                  },
-                                ],
-                              },
-                            ],
-                          } as GatewayThreadInjectItemsParams)
-                          .pipe(
-                            Effect.andThen(acceptFork(plan, response)),
-                            Effect.tap((result) =>
-                              plan.initialTurn
-                                ? turns
-                                    .start(
-                                      result.threadId,
-                                      plan.initialTurn.prompt,
-                                      plan.initialTurn.overrides,
-                                    )
-                                    .pipe(Effect.asVoid)
-                                : Effect.void,
-                            ),
-                          ),
-                      (lease, exit) =>
-                        Exit.isFailure(exit) ? cleanup(lease.hostId, lease.threadId) : Effect.void,
-                    );
-                  }),
+          hostResolver
+            .resolve(plan.parentThreadId)
+            .pipe(
+              Effect.flatMap((hostId) =>
+                threadStarts.materialize(
+                  hostId,
+                  startPrepared(plan, hostId),
+                  (result) => result.threadId,
                 ),
+              ),
             ),
-          ),
         ),
       ),
     );

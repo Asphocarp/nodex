@@ -73,9 +73,6 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
     hasResume: (id) => buffers.has(id),
     releaseResume: (id) => Effect.sync(() => void buffers.delete(id)),
     discardResume: (id) => Effect.sync(() => void buffers.delete(id)),
-    beginThreadStartDeferral: () => undefined,
-    completeThreadStartDeferral: () => Effect.void,
-    endThreadStartDeferral: Effect.void,
     clearConversationBuffer: () => Effect.void,
   });
   const coordinator = CodexRendererConversationCoordinator.of({
@@ -98,8 +95,10 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
         const aggregate = conversations.conversation(input.conversationId);
         aggregate.setStreamRole("owner");
         if (!aggregate.read().acceptedReplica) {
+          const conversation = aggregate.readSnapshot();
+          if (!conversation) return { checkpoint: null, ownerClientId: null, revision: 0 };
           aggregate.acceptReplica({
-            conversation: input.conversation,
+            conversation,
             revision: aggregate.read().revision,
             ownerEpoch: owner.ownerEpoch,
           });

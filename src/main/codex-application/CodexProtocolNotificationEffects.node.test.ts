@@ -90,7 +90,8 @@ it.effect("drains frame text before terminal turn consequences", () =>
       Effect.provideService(
         CodexThreadDurableProjection,
         CodexThreadDurableProjection.of({
-          observe: () => Effect.sync(() => trace.push("durable")),
+          observe: ({ hostId, generation }) =>
+            Effect.sync(() => trace.push(`durable:${hostId}:${generation}`)),
         }),
       ),
       Effect.provideService(
@@ -136,8 +137,14 @@ it.effect("drains frame text before terminal turn consequences", () =>
       },
     } as unknown as CodexServerNotification;
 
-    yield* service.apply({ notification, occurrenceToken: 91 });
+    yield* service.apply({
+      hostId: "remote-a",
+      generation: 7,
+      notification,
+      occurrenceId: "remote-a:7:inbox-a:91",
+      occurrenceToken: 91,
+    });
 
-    assert.deepEqual(trace, ["drain", "browser", "automation", "queue", "durable"]);
+    assert.deepEqual(trace, ["drain", "browser", "automation", "queue", "durable:remote-a:7"]);
   }),
 );

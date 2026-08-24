@@ -49,6 +49,36 @@ it.effect("keeps exact request occurrences lossless and settles each at most onc
   }),
 );
 
+it.effect("namespaces durable occurrence identities across Inbox lifetimes", () =>
+  Effect.gen(function* () {
+    const admitFirst = (rootScope: Scope.Scope, generationScope: Scope.Scope) =>
+      Effect.gen(function* () {
+        const inbox = yield* make.pipe(Effect.provideService(Scope.Scope, rootScope));
+        const generation = yield* inbox
+          .openGeneration("local", 1)
+          .pipe(Effect.provideService(Scope.Scope, generationScope));
+        return yield* generation.admit({ requestId: 1, method: "approval", params: {} });
+      });
+
+    const firstRoot = yield* Scope.make();
+    const firstGeneration = yield* Scope.make();
+    const first = yield* admitFirst(firstRoot, firstGeneration);
+
+    const secondRoot = yield* Scope.make();
+    const secondGeneration = yield* Scope.make();
+    const second = yield* admitFirst(secondRoot, secondGeneration);
+
+    assert.strictEqual(first.occurrenceToken, 1);
+    assert.strictEqual(second.occurrenceToken, 1);
+    assert.notStrictEqual(first.occurrenceId, second.occurrenceId);
+
+    yield* Scope.close(firstGeneration, Exit.void);
+    yield* Scope.close(firstRoot, Exit.void);
+    yield* Scope.close(secondGeneration, Exit.void);
+    yield* Scope.close(secondRoot, Exit.void);
+  }),
+);
+
 it.effect("fences stale generation leases and rejects all live occurrences explicitly", () =>
   Effect.gen(function* () {
     const rootScope = yield* Scope.make();

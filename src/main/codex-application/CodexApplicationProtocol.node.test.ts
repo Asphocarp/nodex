@@ -46,6 +46,10 @@ import {
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
 import { CodexApplicationProtocol, make as makeProtocol } from "./CodexApplicationProtocol";
+import {
+  CodexThreadStartNotificationGate,
+  make as makeThreadStartNotificationGate,
+} from "./CodexThreadStartNotificationGate";
 import { NodexAgentProtocolTools } from "../nodex-agent-application/NodexAgentProtocolTools";
 
 const coordinator = CodexRendererConversationCoordinator.of({
@@ -88,7 +92,9 @@ const withProtocol = <A, E>(
   run: (services: {
     readonly inbox: CodexApplicationRequestInbox["Service"];
     readonly conversations: ConversationRuntimeMap["Service"];
+    readonly appliedNotifications: string[];
     readonly protocol: CodexApplicationProtocol["Service"];
+    readonly threadStarts: CodexThreadStartNotificationGate["Service"];
   }) => Effect.Effect<A, E>,
 ) =>
   Effect.gen(function* () {
@@ -139,9 +145,11 @@ const withProtocol = <A, E>(
         }),
       respond: () => Effect.succeed(null),
     });
+    const appliedNotifications: string[] = [];
     const notificationEffects = CodexProtocolNotificationEffects.of({
       apply: ({ notification }) =>
         Effect.sync(() => {
+          appliedNotifications.push(notification.method);
           if (notification.method !== "serverRequest/resolved") return;
           const entries = pending.takeAll(
             "user-input",
@@ -154,6 +162,9 @@ const withProtocol = <A, E>(
     const notificationAdmission = CodexNotificationAdmission.of({
       decide: () => Effect.succeed({ _tag: "Admit" }),
     });
+    const threadStarts = yield* makeThreadStartNotificationGate.pipe(
+      Effect.provideService(Scope.Scope, rootScope),
+    );
 
     const protocol = yield* makeProtocol.pipe(
       Effect.provideService(CodexApplicationEventHub, applicationEvents),
@@ -166,18 +177,68 @@ const withProtocol = <A, E>(
       Effect.provideService(CodexProtocolNotificationEffects, notificationEffects),
       Effect.provideService(CodexRendererConversationCoordinator, coordinator),
       Effect.provideService(CodexRendererConversationRegistry, rendererRegistry),
+      Effect.provideService(CodexThreadStartNotificationGate, threadStarts),
       Effect.provideService(CodexUserInputAutoResolution, autoResolution),
       Effect.provideService(ConversationRuntimeMap, conversations),
       Effect.provideService(NodexAgentProtocolTools, nodexAgentTools),
       Effect.provideService(Scope.Scope, rootScope),
     );
 
-    const result = yield* run({ inbox, conversations, protocol }).pipe(
-      Effect.provideService(Scope.Scope, rootScope),
-    );
+    const result = yield* run({
+      appliedNotifications,
+      inbox,
+      conversations,
+      protocol,
+      threadStarts,
+    }).pipe(Effect.provideService(Scope.Scope, rootScope));
     yield* Scope.close(rootScope, Exit.void);
     return result;
   });
+
+it.effect("replays thread/started only after its local materialization commits", () =>
+  withProtocol(({ appliedNotifications, inbox, threadStarts }) =>
+    Effect.gen(function* () {
+      const generationScope = yield* Scope.make();
+      yield* inbox
+        .openGeneration("local", 8)
+        .pipe(Effect.provideService(Scope.Scope, generationScope));
+      const commit = yield* Deferred.make<string>();
+      const materialization = yield* threadStarts
+        .materialize("local", Deferred.await(commit), (threadId) => threadId)
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* inbox.publishNotification({
+        hostId: "local",
+        generation: 8,
+        method: "thread/started",
+        params: {
+          thread: {
+            id: "thread-gated",
+            sessionId: "session-thread-gated",
+            preview: "",
+            ephemeral: false,
+            modelProvider: "openai",
+            createdAt: 1,
+            updatedAt: 1,
+            status: { type: "idle" },
+            cwd: "/repo",
+            cliVersion: "test",
+            source: "unknown",
+            turns: [],
+          },
+        },
+      });
+      yield* Effect.yieldNow;
+      assert.deepEqual(appliedNotifications, []);
+
+      yield* Deferred.succeed(commit, "thread-gated");
+      assert.strictEqual(yield* Fiber.join(materialization), "thread-gated");
+      while (appliedNotifications.length === 0) yield* Effect.yieldNow;
+      assert.deepEqual(appliedNotifications, ["thread/started"]);
+      yield* Scope.close(generationScope, Exit.void);
+    }),
+  ),
+);
 
 it.effect(
   "withdraws a generation before a blocked Thread command can mutate application state",
