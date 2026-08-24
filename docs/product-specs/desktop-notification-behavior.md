@@ -28,9 +28,10 @@ and unsupported private requests do not produce desktop notifications.
 
 The feature has four owners:
 
-1. `CodexService` emits a typed occurrence only after the matching raw
-   app-server lifecycle transition and pending-request registry change have
-   committed. Hydration and renderer snapshot projection are not producers.
+1. `CodexProtocolNotificationEffects` publishes a typed application occurrence
+   only after the canonical conversation transition or pending-request state
+   change has committed. Hydration and renderer snapshot projection are not
+   producers.
 2. The pure Codex notification handler decides policy, settings, focus,
    presentation, host, and target renderer; its Main-scoped runtime owns event
    subscription and action admission.

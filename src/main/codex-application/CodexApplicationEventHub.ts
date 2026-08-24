@@ -56,7 +56,7 @@ export type CodexApplicationEvent =
     }
   | { readonly kind: "agentImportProgress"; readonly value: IpcEvents["agent-import:progress"] };
 
-/** Synchronous projection seam used by the still-imperative Codex application reducer. */
+/** Synchronous ingress for causally ordered protocol projections into the Main-scoped event bus. */
 export interface CodexApplicationEventPublisher {
   readonly publish: (event: CodexApplicationEvent) => void;
 }

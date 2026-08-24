@@ -387,7 +387,7 @@ root. The protocol validator remains a pure helper and can report stale catalogs
 is available, but production execution never discovers authority through a module setter or
 import-time active-service slot.
 
-Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0048](adr/0048-effect-main-application-kernel.md) defines the completed Main application-kernel topology and frontier.
+Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0048](adr/0048-effect-main-application-kernel.md) defines the completed Main application-kernel topology and frontier; the [external frontier ledger](effect-external-frontiers.md) records the permitted adapter categories and their constraints.
 
 Codex Electron and app-server ingress convert external callback, Promise, and cancellation shapes
 once at their scoped platform boundary. Operations coupled to renderer lifetime combine the exact

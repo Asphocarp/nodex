@@ -378,7 +378,8 @@ Codex-specific logging policy:
 
 ### Block and Document Mutations
 
-[src/main/ipc-handlers.ts](../../src/main/ipc-handlers.ts) and the native Core writer log:
+[Core mutation ingress](../../src/main/ipc/handlers/CoreMutationIpc.ts) and the
+[native Core writer](../../crates/nodex-core/src/infrastructure/writer.rs) log:
 
 - worker queue, transaction, and main-event-loop lag metrics for Card lifecycle, Block property, Database, Document, relocation, transfer, history, and maintenance commands
 - durable Document generation/head/update-size evidence without title/body content

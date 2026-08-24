@@ -15,6 +15,14 @@ Automation is demand. Core may idle-drain only after every demand source is
 gone. A lifecycle breadcrumb under the Profile run directory is bounded,
 contains no content or secret, and remains diagnostic rather than authority.
 
+The Electron Profile Scope owns the exact generation it selected. On normal
+Scope release it first closes application admission and live leases, then sends
+that generation the authenticated graceful-shutdown command and waits a bounded
+five seconds for its OS process to exit. The generation identity captured at
+acquisition fences this finalizer from targeting a later or foreign process;
+failure remains in the Scope-closing Cause instead of being hidden by a global
+shutdown checklist.
+
 ## Generation recovery
 
 Electron's process Scope retains one Effect `CoreAuthority` and one logical Core
