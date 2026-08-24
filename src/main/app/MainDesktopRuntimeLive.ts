@@ -9,17 +9,13 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { performance } from "node:perf_hooks";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
-import {
-  CoreAuthority,
-  CoreSessionAccess,
-  live as coreAuthorityLive,
-} from "../core-runtime/CoreAuthority";
+import { CoreAuthority, CoreSessionAccess } from "../core-runtime/CoreAuthority";
 import {
   CoreEventDelivery,
   CoreEventHub,
   live as coreEventHubLive,
 } from "../core-runtime/CoreEventHub";
-import { CoreModules, live as coreModulesLive } from "../core-runtime/CoreModules";
+import { CoreModules } from "../core-runtime/CoreModules";
 import {
   AutomationRoutingIndex,
   live as automationRoutingIndexLive,
@@ -28,7 +24,6 @@ import {
   StoreAdministration,
   live as storeAdministrationLive,
 } from "../core-runtime/StoreAdministration";
-import { live as coreTransportLive } from "../core-runtime/CoreTransport";
 import {
   DocumentLiveRuntime,
   live as documentLiveRuntimeLive,
@@ -42,10 +37,7 @@ import {
   live as coreApplicationProjectionRuntimeLive,
 } from "../core-runtime/CoreApplicationProjectionRuntime";
 import { DesktopDocumentSessionRuntime, desktopDocumentSessionRuntimeLive } from "../core-client";
-import {
-  ProjectWorkspace,
-  live as projectWorkspaceLive,
-} from "../project-application/ProjectWorkspace";
+import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import {
   AutomationApplication,
   live as automationApplicationLive,
@@ -393,7 +385,6 @@ import {
 import {
   ExecutionHostRuntime,
   live as executionHostRuntimeLive,
-  threadHostResolverLive,
 } from "../codex-application/ExecutionHostRuntime";
 import {
   ExecutionHostConfiguration,
@@ -420,10 +411,7 @@ import {
 } from "../codex-application/CodexToolRuntime";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
-import {
-  CodexEphemeralThreadRouting,
-  live as codexEphemeralThreadRoutingLive,
-} from "../codex-runtime/CodexEphemeralThreadRouting";
+import { CodexEphemeralThreadRouting } from "../codex-runtime/CodexEphemeralThreadRouting";
 import {
   CodexApplicationRequestInbox,
   make as makeCodexApplicationRequestInbox,
@@ -493,10 +481,7 @@ import {
   WorktreeEnvironmentRuntime,
   live as worktreeEnvironmentRuntimeLive,
 } from "../host-runtime/WorktreeEnvironmentRuntime";
-import {
-  live as projectRuntimeLifecycleLive,
-  ProjectRuntimeLifecycleRuntime,
-} from "../host-runtime/ProjectRuntimeLifecycleRuntime";
+import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import {
   ProjectArchiveBlockers,
   live as projectArchiveBlockersLive,
@@ -567,10 +552,7 @@ import {
   live as mcpAppSandboxRuntimeLive,
 } from "../host-runtime/McpAppSandboxRuntime";
 import { DeepLinkRuntime, live as deepLinkRuntimeLive } from "../host-runtime/DeepLinkRuntime";
-import {
-  ApplicationInitializationRuntime,
-  live as applicationInitializationRuntimeLive,
-} from "../host-runtime/ApplicationInitializationRuntime";
+import { ApplicationInitializationRuntime } from "../host-runtime/ApplicationInitializationRuntime";
 import {
   ApplicationMenuRuntime,
   live as applicationMenuRuntimeLive,
@@ -610,7 +592,7 @@ import { resolveCodexProcessEnvironment } from "../platform/node/CodexProcessEnv
 import * as TerminalProjectAdmission from "../terminal-runtime/TerminalProjectAdmission";
 import * as TerminalRuntimeLive from "../terminal-runtime/TerminalRuntimeLive";
 import * as WindowSessionCatalog from "../window-runtime/WindowSessionCatalog";
-import { WindowRuntime, live as windowRuntimeLive } from "../window-runtime/WindowRuntime";
+import { WindowRuntime } from "../window-runtime/WindowRuntime";
 import { MainApplication, MainApplicationError } from "./MainApplication";
 import { MainConfig } from "./MainConfig";
 import { MainShutdown } from "./MainShutdown";
@@ -622,6 +604,8 @@ import {
   live as applicationWindowRuntimeLive,
 } from "../window-runtime/ApplicationWindowRuntime";
 import { live as windowShutdownLive } from "../window-runtime/WindowShutdown";
+import * as CoreApplicationLive from "./CoreApplicationLive";
+import * as WindowApplicationLive from "./WindowApplicationLive";
 
 const runtimeError = (operation: string, cause: unknown) =>
   new MainApplicationError({ phase: "startup", operation, cause });
@@ -667,40 +651,19 @@ export const live: Layer.Layer<
     return yield* Effect.interruptible(
       Effect.gen(function* () {
         const runtimeStateHome = `${config.nodexHome}/agent`;
-        const windowRuntimeContext = yield* Layer.buildWithScope(
-          windowRuntimeLive(userDataPath, config.platform as NodeJS.Platform),
+        const coreContext = yield* Layer.buildWithScope(
+          CoreApplicationLive.live.pipe(Layer.provideMerge(WindowApplicationLive.live)),
           runtimeScope,
-        );
-        const windows = Context.get(windowRuntimeContext, WindowRuntime);
-        const initializationContext = yield* Layer.buildWithScope(
-          applicationInitializationRuntimeLive(windows),
-          runtimeScope,
-        );
-        const initialization = Context.get(initializationContext, ApplicationInitializationRuntime);
-        const authorityLayer = coreAuthorityLive().pipe(
-          Layer.provide(
-            Layer.merge(
-              coreTransportLive({
-                appResourcesPath: config.isPackaged ? config.resourcesPath : undefined,
-                buildId: `nodex-desktop/${config.appVersion}`,
-                isPackaged: config.isPackaged,
-                nodexHome: config.nodexHome,
-                onAuthorityProcessExit: (event) => {
-                  void callbacks.runPromise(initialization.observeAuthorityExit(event));
-                },
-                onStartupEvent: (event) => {
-                  void callbacks.runPromise(initialization.observeCoreStartup(event));
-                },
-                repositoryRoot: config.projectRootPath,
-              }),
-              Layer.succeed(MainShutdown, shutdown),
-            ),
-          ),
-        );
-        const authorityFiber = yield* Layer.buildWithScope(authorityLayer, runtimeScope).pipe(
-          Effect.mapError((cause) => runtimeError("core-authority", cause)),
-          Effect.forkIn(runtimeScope, { startImmediately: true }),
-        );
+        ).pipe(Effect.mapError((cause) => runtimeError("core-application", cause)));
+        const windows = Context.get(coreContext, WindowRuntime);
+        const initialization = Context.get(coreContext, ApplicationInitializationRuntime);
+        const authority = Context.get(coreContext, CoreAuthority);
+        const access = Context.get(coreContext, CoreSessionAccess);
+        const coreModules = Context.get(coreContext, CoreModules);
+        const projectWorkspace = Context.get(coreContext, ProjectWorkspace);
+        const projectRuntimeLifecycle = Context.get(coreContext, ProjectRuntimeLifecycleRuntime);
+        const ephemeralThreadRouting = Context.get(coreContext, CodexEphemeralThreadRouting);
+        const threadHostResolver = Context.get(coreContext, CodexThreadHostResolver);
         const codexRuntime = yield* Effect.try({
           try: () =>
             resolveCodexRuntime({
@@ -714,47 +677,6 @@ export const live: Layer.Layer<
           try: createElectronProviderCredentialStore,
           catch: (cause) => runtimeError("provider-credential-store", cause),
         });
-        const authorityContext = yield* Fiber.join(authorityFiber);
-        const authority = Context.get(authorityContext, CoreAuthority);
-        const access = Context.get(authorityContext, CoreSessionAccess);
-        const coreModulesContext = yield* Layer.buildWithScope(
-          coreModulesLive.pipe(Layer.provide(Layer.succeed(CoreSessionAccess, access))),
-          runtimeScope,
-        );
-        const coreModules = Context.get(coreModulesContext, CoreModules);
-        const projectWorkspaceContext = yield* Layer.buildWithScope(
-          projectWorkspaceLive.pipe(Layer.provide(Layer.succeed(CoreModules, coreModules))),
-          runtimeScope,
-        );
-        const projectWorkspace = Context.get(projectWorkspaceContext, ProjectWorkspace);
-        const projectRuntimeLifecycleContext = yield* Layer.buildWithScope(
-          projectRuntimeLifecycleLive,
-          runtimeScope,
-        );
-        const projectRuntimeLifecycle = Context.get(
-          projectRuntimeLifecycleContext,
-          ProjectRuntimeLifecycleRuntime,
-        );
-        const ephemeralThreadRoutingContext = yield* Layer.buildWithScope(
-          codexEphemeralThreadRoutingLive,
-          runtimeScope,
-        );
-        const ephemeralThreadRouting = Context.get(
-          ephemeralThreadRoutingContext,
-          CodexEphemeralThreadRouting,
-        );
-        const threadHostResolverContext = yield* Layer.buildWithScope(
-          threadHostResolverLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexEphemeralThreadRouting, ephemeralThreadRouting),
-                Layer.succeed(CoreModules, coreModules),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const threadHostResolver = Context.get(threadHostResolverContext, CodexThreadHostResolver);
         const applicationRequestInbox = yield* makeCodexApplicationRequestInbox.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
