@@ -274,41 +274,38 @@ describe("Core Document sync adapter", () => {
     });
   });
 
-  test(
-    "maps a rejected generic typed-owner mutation to a canonical repair",
-    async (createCoreDocumentSyncAdapter) => {
-      const client = new FakeCoreClient();
-      const adapter = createCoreDocumentSyncAdapter(client);
-      vi.spyOn(client, "documentApplyUpdate").mockRejectedValueOnce(
-        new CoreModuleResponseError({
-          code: "protected_owner_deletion",
-          message: "Typed owner Page cannot contain child Blocks",
-          retryable: false,
-          recovery: { kind: "none" },
-        }),
-      );
+  test("maps a rejected generic typed-owner mutation to a canonical repair", async (createCoreDocumentSyncAdapter) => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    vi.spyOn(client, "documentApplyUpdate").mockRejectedValueOnce(
+      new CoreModuleResponseError({
+        code: "protected_owner_deletion",
+        message: "Typed owner Page cannot contain child Blocks",
+        retryable: false,
+        recovery: { kind: "none" },
+      }),
+    );
 
-      await expect(
-        adapter.applyUpdate({
-          documentId: "document:owner-guard",
-          clientSessionId: "renderer:owner-guard",
-          storeEpoch: "epoch:test",
-          generation: 1,
-          updateId: "update:owner-guard",
-          baseHeadSeq: 4,
-          touchedBlockIds: ["page:nested"],
-          update: new Uint8Array([1]),
-        }),
-      ).resolves.toMatchObject({
-        ok: false,
-        error: {
-          code: "protected_owner_mutation",
-          retryable: false,
-          resetRequired: true,
-        },
-      });
-    },
-  );
+    await expect(
+      adapter.applyUpdate({
+        documentId: "document:owner-guard",
+        clientSessionId: "renderer:owner-guard",
+        storeEpoch: "epoch:test",
+        generation: 1,
+        updateId: "update:owner-guard",
+        baseHeadSeq: 4,
+        touchedBlockIds: ["page:nested"],
+        update: new Uint8Array([1]),
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "protected_owner_mutation",
+        retryable: false,
+        resetRequired: true,
+      },
+    });
+  });
 
   test("maps Additional Document owner commands and durable receipts", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();

@@ -121,9 +121,7 @@ export const live: Layer.Layer<
     );
     yield* handle("clipboard:write-structural", (event, input) =>
       authorize(event).pipe(
-        Effect.andThen(
-          run("write-structural-clipboard", () => writeStructuralClipboard(input)),
-        ),
+        Effect.andThen(run("write-structural-clipboard", () => writeStructuralClipboard(input))),
       ),
     );
     yield* handle("clipboard:read-paste", (event) =>

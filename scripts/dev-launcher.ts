@@ -444,7 +444,9 @@ const prepareProfileSnapshot = (input: {
     }
     if (current.manifest.initializedAt) {
       return yield* Effect.fail(
-        devLauncherError(new Error("Development home was already initialized without a Profile snapshot")),
+        devLauncherError(
+          new Error("Development home was already initialized without a Profile snapshot"),
+        ),
       );
     }
 
@@ -475,7 +477,9 @@ const prepareProfileSnapshot = (input: {
       return;
     }
     const receiptError = publishedResult.failure.cause;
-    if (!(receiptError instanceof Error && "code" in receiptError && receiptError.code === "ENOENT")) {
+    if (
+      !(receiptError instanceof Error && "code" in receiptError && receiptError.code === "ENOENT")
+    ) {
       return yield* Effect.fail(publishedResult.failure);
     }
 
