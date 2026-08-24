@@ -74,6 +74,7 @@ import type {
 } from "../../../shared/agent-runtime";
 import type { ComposerIntelligenceSelection } from "./view/composer/composer-intelligence-types";
 import type { CommandShortcutPresentation } from "../../../shared/command-keybindings";
+import type { LocalConversationAttachmentState } from "./conversation-attachment-state";
 
 export interface NewChatProjectSelectorModel {
   projects: NewChatProjectSelectorOption[];
@@ -435,6 +436,7 @@ export interface ThreadStageActions {
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onConsumeNewThreadComposerIntent?: (sessionId: string, focusNonce: number) => void;
   onOpenThread: (threadId: string, context?: ThreadOpenThreadContext) => void | Promise<void>;
+  onRetryThreadAttachment?: (threadId: string) => void | Promise<void>;
   onStopBackgroundAgents?: (threadIds: readonly string[]) => Promise<void>;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
 }
@@ -958,6 +960,11 @@ export interface ThreadBodyModel {
         title: string;
         description: string;
         status: CodexConversationResumeState;
+      }
+    | {
+        type: "threadAttachmentFailed";
+        title: string;
+        description: string;
       };
   showThreadStartProgressPanel: boolean;
 }
@@ -1050,6 +1057,7 @@ export interface ThreadBodySurfaceModel {
   requests: CodexConversationServerRequest[];
   canonicalRequests?: CodexCanonicalServerRequest[];
   resumeState: CodexConversationResumeState | null;
+  attachmentState?: LocalConversationAttachmentState;
   statusType: CodexThreadStatusType | null;
   capabilityFlags: CodexConversationCapabilityFlags;
   body: ThreadBodyModel;
@@ -1079,6 +1087,7 @@ export interface ThreadFooterModel {
   account: CodexAccountSnapshot | null;
   conversation: CodexConversationSnapshot | null;
   resumeState: CodexConversationResumeState | null;
+  attachmentState?: LocalConversationAttachmentState;
   activeTurn: CodexConversationTurn | null;
   isThreadRunning: boolean;
   isNewThreadTab: boolean;

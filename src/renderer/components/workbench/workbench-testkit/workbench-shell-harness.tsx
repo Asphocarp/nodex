@@ -139,6 +139,7 @@ export let listBackgroundTerminalsCalls: string[] = [];
 export let listBackgroundProcessesCalls: string[] = [];
 export let terminateBackgroundTerminalCalls: unknown[] = [];
 export let startSideChatCalls: unknown[] = [];
+export let startSideChatError: Error | null = null;
 export let discardSideChatCalls: string[] = [];
 export let sideChatConversations: Record<string, Record<string, unknown>> = {};
 export let sideChatConversationProjectId: string | null = "alpha";
@@ -174,6 +175,7 @@ export const mockCodexControl = {
   },
   startSideChat: async (input: unknown) => {
     startSideChatCalls.push(input);
+    if (startSideChatError) throw startSideChatError;
     const threadId = `side-thread-${startSideChatCalls.length}`;
     const conversation = {
       threadId,
@@ -3829,6 +3831,7 @@ beforeEach(() => {
   listBackgroundProcessesCalls = [];
   terminateBackgroundTerminalCalls = [];
   startSideChatCalls = [];
+  startSideChatError = null;
   discardSideChatCalls = [];
   sideChatConversations = {};
   sideChatConversationProjectId = "alpha";
@@ -4272,6 +4275,10 @@ export function setTerminateBackgroundTerminalCalls(
 
 export function setStartSideChatCalls(value: typeof startSideChatCalls): void {
   startSideChatCalls = value;
+}
+
+export function setStartSideChatError(value: typeof startSideChatError): void {
+  startSideChatError = value;
 }
 
 export function setDiscardSideChatCalls(value: typeof discardSideChatCalls): void {

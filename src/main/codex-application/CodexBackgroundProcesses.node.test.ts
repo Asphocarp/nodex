@@ -363,11 +363,10 @@ it.effect("admits, persists, and launches a local terminal action as one semanti
     });
 
     assert.deepEqual(events, [
-      "lane:thread-a:open",
       "thread:thread-a",
       "project:project-a",
+      "lane:thread-a:open",
       "gate:project-a:open",
-      "thread:thread-a",
       "project:project-a",
       "record:item-a",
       "terminal:terminal-a",

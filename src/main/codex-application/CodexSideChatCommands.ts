@@ -298,7 +298,6 @@ export const make: Effect.Effect<
       );
     const aggregate = conversations.conversation(threadId);
     aggregate.setStreaming(true);
-    aggregate.setStreamRole("owner");
     return { parentThreadId: plan.parentThreadId, threadId, conversation };
   });
 
@@ -375,23 +374,19 @@ export const make: Effect.Effect<
     );
 
   const start: CodexSideChatCommandsService["start"] = (input) => {
-    const parentThreadId = input.parentThreadId.trim();
-    return conversations.runExclusive(
-      parentThreadId,
-      prepare(input).pipe(
-        Effect.flatMap((plan) =>
-          hostResolver
-            .resolve(plan.parentThreadId)
-            .pipe(
-              Effect.flatMap((hostId) =>
-                threadStarts.materialize(
-                  hostId,
-                  startPrepared(plan, hostId),
-                  (result) => result.threadId,
-                ),
+    return prepare(input).pipe(
+      Effect.flatMap((plan) =>
+        hostResolver
+          .resolve(plan.parentThreadId)
+          .pipe(
+            Effect.flatMap((hostId) =>
+              threadStarts.materialize(
+                hostId,
+                startPrepared(plan, hostId),
+                (result) => result.threadId,
               ),
             ),
-        ),
+          ),
       ),
     );
   };

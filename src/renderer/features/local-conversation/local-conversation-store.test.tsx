@@ -8,6 +8,7 @@ import type {
   CodexConversationSnapshot,
   CodexHostMessage,
   CodexProtocolRequestId,
+  CodexSideChatStartResult,
   CodexThreadStreamStateChange,
   CodexThreadSummary,
 } from "../../lib/types";
@@ -44,6 +45,7 @@ let snapshotByThread: Record<string, CodexConversationSnapshot | null> = {};
 let startThreadForSessionResult: unknown = null;
 let freshThreadAdoptionResult: CodexConversationSnapshot | null = null;
 let freshThreadAdoptionRevision = 0;
+let sideChatStartResult: CodexSideChatStartResult | null = null;
 let resumeThreadResult: CodexConversationSnapshot | Promise<CodexConversationSnapshot> | null =
   null;
 let resumeThreadError: Error | null = null;
@@ -182,6 +184,15 @@ vi.mock("./local-conversation-deps", () => ({
 
     if (channel === "codex:thread:start-for-session") {
       return startThreadForSessionResult;
+    }
+
+    if (channel === "codex:thread:side-chat:start") {
+      if (!sideChatStartResult) throw new Error("Side chat start fixture is unavailable");
+      return sideChatStartResult;
+    }
+
+    if (channel === "codex:thread:side-chat:discard") {
+      return true;
     }
 
     if (channel === "codex:thread:turns:load-older") {
@@ -2883,8 +2894,15 @@ describe("local-conversation-store", () => {
         ],
       };
       resumeThreadResult = baseConversation;
+      const observedResumedRoles: Array<string | null> = [];
+      const unsubscribe = manager.addConversationCallback("thread-resume-owner", (conversation) => {
+        if (conversation.resumeState === "resumed") {
+          observedResumedRoles.push(manager.readConversationStreamRole("thread-resume-owner"));
+        }
+      });
 
       const result = await manager.requestThreadStreamResume("thread-resume-owner");
+      unsubscribe();
       const releaseIndex = invokeRecords.findIndex(
         (record) => record.channel === "codex:thread:resume-buffer:release",
       );
@@ -2909,6 +2927,11 @@ describe("local-conversation-store", () => {
       );
 
       expect(result?.threadId ?? "").toBe("thread-resume-owner");
+      expect(observedResumedRoles).toContain("owner");
+      expect(observedResumedRoles).not.toContain(null);
+      expect(manager.readConversationAttachmentState("thread-resume-owner").status).toBe(
+        "attached",
+      );
       expect(releaseIndex >= 0).toBe(true);
       expect(snapshotPublishIndex >= 0).toBe(true);
       expect(releaseIndex < snapshotPublishIndex).toBe(true);
@@ -3028,6 +3051,60 @@ describe("local-conversation-store", () => {
       resumeThreadOwnerClientId = "renderer-owner";
       resumeThreadRevision = 0;
       resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("renderer resume converges a stale activation checkpoint before becoming attached", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadRevision = 4;
+    const initial = {
+      ...withCanonicalState(buildConversation("thread-resume-recovery", "project-1")),
+      hasUnreadTurn: true,
+    } satisfies CodexConversationSnapshot;
+    const recovery = { ...initial, hasUnreadTurn: false } satisfies CodexConversationSnapshot;
+    resumeThreadResult = initial;
+    let publicationCount = 0;
+    ownerStreamPublishHandler = (rawInput) => {
+      const input = rawInput as {
+        baseCheckpoint: ReturnType<typeof buildTestCheckpoint>;
+        checkpoint: ReturnType<typeof buildTestCheckpoint>;
+        change: Extract<CodexThreadStreamStateChange, { type: "snapshot" }>;
+      };
+      publicationCount += 1;
+      if (publicationCount === 1) {
+        return {
+          accepted: false,
+          reason: "checkpoint-mismatch" as const,
+          recovery: {
+            checkpoint: buildTestCheckpoint(recovery, 5),
+            conversationState: recovery,
+          },
+        };
+      }
+      expect(input.baseCheckpoint).toEqual(buildTestCheckpoint(recovery, 5));
+      expect(input.change.conversationState.hasUnreadTurn).toBe(false);
+      return { accepted: true, checkpoint: input.checkpoint };
+    };
+    const { CodexAppServerManager, __resetLocalConversationStoreForTests } =
+      await import("./local-conversation-store");
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
+    const manager = new CodexAppServerManager("default");
+
+    try {
+      await expect(manager.requestThreadStreamResume(initial.threadId)).resolves.toMatchObject({
+        threadId: initial.threadId,
+        hasUnreadTurn: false,
+      });
+      expect(publicationCount).toBe(2);
+      expect(manager.readConversationAttachmentState(initial.threadId).status).toBe("attached");
+    } finally {
+      ownerStreamPublishHandler = null;
+      resumeThreadResult = null;
+      resumeThreadRevision = 0;
       manager.destroy();
     }
   });
@@ -3288,6 +3365,11 @@ describe("local-conversation-store", () => {
       expect(threw).toBe(true);
       expect(releaseIndex >= 0).toBe(true);
       expect(manager.readConversation("thread-resume-failed")?.resumeState).toBe("needs_resume");
+      const attachment = manager.readConversationAttachmentState("thread-resume-failed");
+      expect(attachment.status).toBe("failed");
+      if (attachment.status === "failed") {
+        expect(attachment.message).toContain("resume failed");
+      }
       expect(Boolean(finalSnapshotPublish)).toBe(false);
     } finally {
       resumeThreadResult = null;
@@ -18134,6 +18216,45 @@ describe("local-conversation-store", () => {
     );
     expect(conversation?.ephemeral === true).toBe(true);
     expect(textContent(container)).toBe("0");
+  });
+
+  test("attaches a newly forked side chat through the canonical renderer owner lifecycle", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    const { CodexAppServerManager, __resetLocalConversationStoreForTests } =
+      await import("./local-conversation-store");
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
+    const manager = new CodexAppServerManager("default");
+    const conversation = {
+      ...buildConversation("side-thread-owner", "project-1"),
+      source: { parentThreadId: "thread-parent", sideConversation: true },
+      ephemeral: true,
+    } satisfies CodexConversationSnapshot;
+    sideChatStartResult = {
+      parentThreadId: "thread-parent",
+      threadId: conversation.threadId,
+      conversation,
+    };
+    resumeThreadResult = conversation;
+
+    try {
+      const result = await manager.startSideChat({ parentThreadId: "thread-parent" });
+
+      expect(result.threadId).toBe("side-thread-owner");
+      expect(manager.readConversationStreamRole(result.threadId)).toBe("owner");
+      expect(manager.readConversationAttachmentState(result.threadId).status).toBe("attached");
+      expect(
+        invokeRecords.some(
+          (record) =>
+            record.channel === "codex:thread:resume:request" &&
+            record.args[0] === "side-thread-owner",
+        ),
+      ).toBe(true);
+    } finally {
+      sideChatStartResult = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
   });
 
   test("empty project thread results still count as hydrated", async () => {

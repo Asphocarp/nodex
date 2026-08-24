@@ -66,6 +66,12 @@ import type { useWorkbenchPanelLifecycle } from "./use-workbench-panel-lifecycle
 type ProjectSession = WorkbenchSessionRenderProjection;
 export const IMAGE_SIDE_PANEL_AUTO_EXPANDED_STORAGE_KEY = "image-side-panel-auto-expanded-v1";
 
+function describeSideChatOpenFailure(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  const message = String(error).trim();
+  return message && message !== "[object Object]" ? message : "The side chat could not be opened.";
+}
+
 type ImagePanelExpansionStorage = Pick<Storage, "getItem" | "setItem">;
 
 function resolveImagePanelExpansionStorage(): ImagePanelExpansionStorage | null {
@@ -380,6 +386,7 @@ export function useWorkbenchPanelOpeners({
                     id: readyTabId,
                     threadId: result.threadId,
                     status: "ready",
+                    errorMessage: undefined,
                     stateKey: tab.stateKey + 1,
                   }
                 : tab,
@@ -396,12 +403,23 @@ export function useWorkbenchPanelOpeners({
             focusNonce: Date.now(),
           });
         }
-      } catch {
-        panelControllerRef.current.removeEphemeralTab({
-          sessionId: activeSession.id,
-          panelId,
-          leafId,
-          tabId: loadingTabId,
+      } catch (error) {
+        const errorMessage = describeSideChatOpenFailure(error);
+        panelControllerRef.current.updateSideChatTabsBySession((current) => {
+          const tabs = current[activeSession.id] ?? [];
+          return {
+            ...current,
+            [activeSession.id]: tabs.map((tab) =>
+              tab.id === loadingTabId
+                ? {
+                    ...tab,
+                    status: "failed",
+                    errorMessage,
+                    stateKey: tab.stateKey + 1,
+                  }
+                : tab,
+            ),
+          };
         });
         toast.danger("Failed to open side chat", { id: "side-chat-open-failed" });
       }
@@ -593,6 +611,7 @@ export function useWorkbenchPanelOpeners({
                   id: loadingTabId,
                   threadId: null,
                   status: "loading",
+                  errorMessage: undefined,
                   stateKey: tab.stateKey + 1,
                 }
               : tab,
@@ -625,6 +644,7 @@ export function useWorkbenchPanelOpeners({
                     id: readyTabId,
                     threadId: result.threadId,
                     status: "ready",
+                    errorMessage: undefined,
                     stateKey: tab.stateKey + 1,
                   }
                 : tab,
@@ -639,7 +659,8 @@ export function useWorkbenchPanelOpeners({
             existingTab.leafId,
           )]: readyTabId,
         }));
-      } catch {
+      } catch (error) {
+        const errorMessage = describeSideChatOpenFailure(error);
         panelControllerRef.current.updateSideChatTabsBySession((current) => {
           const tabs = current[activeSession.id] ?? [];
           return {
@@ -648,7 +669,9 @@ export function useWorkbenchPanelOpeners({
               tab.id === loadingTabId
                 ? {
                     ...existingTab,
-                    status: "expired",
+                    threadId: null,
+                    status: "failed",
+                    errorMessage,
                     stateKey: existingTab.stateKey + 1,
                   }
                 : tab,

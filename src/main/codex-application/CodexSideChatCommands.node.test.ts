@@ -133,15 +133,17 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       executionProfile: null,
       queuedFollowUps: [],
     } as unknown as CodexConversationSnapshot;
+    const directoryEntry = {
+      fidelity: "full",
+      durable: { cwd: "/workspace" },
+      summary: parentSnapshot,
+      canonical: null,
+      snapshot: parentSnapshot,
+    } as never;
     const directory = CodexThreadDirectory.of({
-      resolve: () =>
-        Effect.succeed({
-          fidelity: "full",
-          durable: { cwd: "/workspace" },
-          summary: parentSnapshot,
-          canonical: null,
-          snapshot: parentSnapshot,
-        } as never),
+      // The canonical directory serializes remote materialization in the Thread lane.
+      // Side-chat admission must therefore never hold that same non-reentrant lane.
+      resolve: () => conversations.runExclusive(parentThreadId, Effect.succeed(directoryEntry)),
       descendants: () => Effect.die("unused"),
       acceptRollbackResult: () => Effect.die("unused"),
       acceptImportResult: () => Effect.die("unused"),

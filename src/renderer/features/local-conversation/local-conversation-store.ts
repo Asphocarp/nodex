@@ -150,6 +150,12 @@ import { getCodexThreadOwnerNotificationThreadId } from "../../../shared/types";
 import { applyTerminalTextDelta } from "../../../shared/terminal-text";
 import { WORKTREE_OUTPUT_TAIL_MAX_CHARS } from "../../../shared/worktree-output";
 import {
+  IDLE_LOCAL_CONVERSATION_ATTACHMENT_STATE,
+  areLocalConversationAttachmentStatesEqual,
+  makeLocalConversationAttachmentFailure,
+  type LocalConversationAttachmentState,
+} from "./conversation-attachment-state";
+import {
   applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
 } from "../../../shared/codex-conversation-patches";
@@ -591,6 +597,20 @@ interface OwnerStreamPublishCursor {
   dirty: boolean;
   standaloneUnreadStateOverride?: boolean;
 }
+
+type OwnerSnapshotPublishOutcome =
+  | {
+      readonly accepted: true;
+      readonly checkpoint: CodexThreadStreamCheckpoint;
+      readonly conversation: CodexConversationSnapshot;
+    }
+  | {
+      readonly accepted: false;
+      readonly reason: Exclude<
+        CodexThreadOwnerStreamStatePublishResult,
+        { accepted: true }
+      >["reason"];
+    };
 
 function applyStandaloneUnreadStateToSnapshot(
   conversation: CodexConversationSnapshot,
@@ -3628,6 +3648,7 @@ export class CodexAppServerManager {
     string,
     Promise<CodexConversationSnapshot | null>
   >();
+  private readonly attachmentStateByThreadId = new Map<string, LocalConversationAttachmentState>();
   private readonly interruptedTurnResumesInFlightByThreadId = new Map<string, Promise<unknown>>();
   private readonly olderTurnLoadsInFlightByThread = new Map<
     string,
@@ -3710,6 +3731,7 @@ export class CodexAppServerManager {
   private readonly controlCallbacks = new Set<ControlListener>();
   private readonly projectSummaryCallbacksByProject = new Map<string, Set<StoreListener>>();
   private readonly conversationCallbacks = new Map<string, Set<ConversationListener>>();
+  private readonly attachmentCallbacks = new Map<string, Set<StoreListener>>();
   private readonly relationshipCallbacks = new Map<string, Set<StoreListener>>();
   private anyConversationCallbacks = new Set<AnyConversationListener>();
   private anyConversationMetaCallbacks = new Set<AnyConversationListener>();
@@ -3810,6 +3832,8 @@ export class CodexAppServerManager {
     this.unclaimedOwnerNotificationSequencesByConversationId.clear();
     this.outputDeltaQueue.dispose();
     this.resumeInFlightByThreadId.clear();
+    this.attachmentStateByThreadId.clear();
+    this.attachmentCallbacks.clear();
     this.interruptedTurnResumesInFlightByThreadId.clear();
     this.deferredOwnerMessagesByRequestRecovery.clear();
     this.ownerHiddenLifecycleItemTypesByConversationId.clear();
@@ -3947,6 +3971,34 @@ export class CodexAppServerManager {
       unsubscribe();
       cleanupListenerSet(this.conversationCallbacks, threadId);
     };
+  }
+
+  subscribeConversationAttachment(threadId: string, listener: StoreListener): () => void {
+    this.start();
+    const listeners = getOrCreateListenerSet(this.attachmentCallbacks, threadId);
+    const unsubscribe = subscribeSet(listeners, listener);
+    return () => {
+      unsubscribe();
+      cleanupListenerSet(this.attachmentCallbacks, threadId);
+    };
+  }
+
+  readConversationAttachmentState(threadId: string): LocalConversationAttachmentState {
+    return this.attachmentStateByThreadId.get(threadId) ?? IDLE_LOCAL_CONVERSATION_ATTACHMENT_STATE;
+  }
+
+  private setConversationAttachmentState(
+    threadId: string,
+    state: LocalConversationAttachmentState,
+  ): void {
+    const current = this.readConversationAttachmentState(threadId);
+    if (areLocalConversationAttachmentStatesEqual(current, state)) return;
+    if (state.status === "idle") {
+      this.attachmentStateByThreadId.delete(threadId);
+    } else {
+      this.attachmentStateByThreadId.set(threadId, state);
+    }
+    for (const listener of this.attachmentCallbacks.get(threadId) ?? []) listener();
   }
 
   removeConversationCallback(threadId: string, listener: ConversationListener): void {
@@ -4097,7 +4149,11 @@ export class CodexAppServerManager {
   }
 
   private async runThreadStreamResume(threadId: string): Promise<CodexConversationSnapshot | null> {
+    this.setConversationAttachmentState(threadId, {
+      status: "attaching",
+    });
     this.markConversationResumeState(threadId, "resuming");
+    let adoptedRenderer = false;
 
     try {
       const result = await invoke("codex:thread:resume:request", threadId);
@@ -4120,26 +4176,44 @@ export class CodexAppServerManager {
             sourceClientId: result.ownerClientId,
           });
           this.applyConversationSnapshot(threadId, materialized);
+          this.setConversationAttachmentState(threadId, {
+            status: "attached",
+          });
           return this.conversationsById.get(threadId) ?? materialized;
         }
 
         await this.waitForOwnerStreamPublishIdle(threadId);
         this.followerAcceptedReplicasByConversationId.delete(threadId);
-        this.applyConversationSnapshot(threadId, materialized);
         const checkpoint = result.checkpoint;
         this.streamState.markOwner(threadId, checkpoint);
         this.seedOwnerStreamPublishCursor(threadId, checkpoint, acceptedReplica);
+        adoptedRenderer = true;
+        this.applyConversationSnapshot(threadId, materialized);
         await invoke("codex:thread:resume-buffer:release", threadId);
         const latestConversation = this.conversationsById.get(threadId) ?? materialized;
         await this.publishOwnerSnapshotTransaction(threadId, latestConversation, "owner resume");
         await invoke("codex:thread-owner:pending-requests:replay", threadId);
+        this.setConversationAttachmentState(threadId, {
+          status: "attached",
+        });
         return this.conversationsById.get(threadId) ?? latestConversation;
       }
       this.markConversationResumeState(threadId, "needs_resume");
+      this.setConversationAttachmentState(
+        threadId,
+        makeLocalConversationAttachmentFailure(
+          new Error("The thread is no longer available to restore."),
+        ),
+      );
       return null;
     } catch (error) {
       await this.releaseResumeBufferAfterFailedResume(threadId);
-      this.markConversationResumeState(threadId, "needs_resume");
+      if (adoptedRenderer) {
+        this.markOwnerStreamPublishUnavailable(threadId);
+      } else {
+        this.markConversationResumeState(threadId, "needs_resume");
+      }
+      this.setConversationAttachmentState(threadId, makeLocalConversationAttachmentFailure(error));
       throw error;
     }
   }
@@ -4330,7 +4404,6 @@ export class CodexAppServerManager {
       );
     }
 
-    const revision = cursor.acceptedCheckpoint.revision + 1;
     cursor.inFlight = true;
     this.applyConversationSnapshot(
       threadId,
@@ -4340,36 +4413,23 @@ export class CodexAppServerManager {
     );
     const latestConversation = this.conversationsById.get(threadId) ?? conversation;
     const sharedConversation = toSharedConversationDocument(latestConversation);
-    const checkpoint = buildCodexThreadStreamCheckpoint({
-      ownerEpoch: cursor.acceptedCheckpoint.ownerEpoch,
-      revision,
-      conversation: sharedConversation,
-    });
-    const result = await this.dispatchOwnerStreamSnapshot(
-      threadId,
-      cursor.acceptedCheckpoint,
-      checkpoint,
-      sharedConversation,
-    );
-    if (this.ownerStreamPublishCursorsByConversationId.get(threadId) !== cursor) {
-      throw new Error(`Could not publish ${label} snapshot for ${threadId}`);
-    }
+    const result = await this.publishOwnerSnapshotFromCursor(threadId, cursor, sharedConversation);
     if (!result.accepted) {
       cursor.inFlight = false;
       this.markOwnerStreamPublishUnavailable(threadId);
-      throw new Error(`Could not publish ${label} snapshot for ${threadId}`);
+      throw new Error(`Could not publish ${label} snapshot for ${threadId}: ${result.reason}`);
     }
 
     cursor.acceptedCheckpoint = result.checkpoint;
     cursor.acceptedDocument = this.consumeOwnerStandaloneUnreadStateOverride(
       cursor,
-      sharedConversation,
+      result.conversation,
     );
     cursor.inFlight = false;
     this.streamState.recordOwnerCheckpoint(threadId, result.checkpoint);
     this.processOwnerStreamPublishCursor(threadId);
     this.resolveOwnerStreamPublishIdleWaiters(threadId);
-    return revision;
+    return result.checkpoint.revision;
   }
 
   private async publishOwnerActionSnapshotMutation(
@@ -4466,21 +4526,41 @@ export class CodexAppServerManager {
       Extract<CodexThreadStartForSessionResult, { kind: "started" }>["freshLaunch"]
     >,
   ): Promise<void> {
-    const result = await invoke("codex:thread:fresh-owner:adopt", launch.threadId, launch.launchId);
-    const acceptedReplica = resolveAcceptedConversationReplica({
-      conversation: result.conversation,
-      revision: result.revision,
-      checkpoint: result.checkpoint,
-      context: `Fresh owner adoption for ${launch.threadId}`,
+    this.setConversationAttachmentState(launch.threadId, {
+      status: "attaching",
     });
-    const conversation = materializeOwnerCanonicalConversationSnapshot(result.conversation);
-    this.followerAcceptedReplicasByConversationId.delete(launch.threadId);
-    this.applyConversationSnapshot(launch.threadId, conversation);
-    const checkpoint = result.checkpoint;
-    this.streamState.markOwner(launch.threadId, checkpoint);
-    this.seedOwnerStreamPublishCursor(launch.threadId, checkpoint, acceptedReplica);
-    await invoke("codex:thread:resume-buffer:release", launch.threadId);
-    await invoke("codex:thread-owner:pending-requests:replay", launch.threadId);
+    try {
+      const result = await invoke(
+        "codex:thread:fresh-owner:adopt",
+        launch.threadId,
+        launch.launchId,
+      );
+      const acceptedReplica = resolveAcceptedConversationReplica({
+        conversation: result.conversation,
+        revision: result.revision,
+        checkpoint: result.checkpoint,
+        context: `Fresh owner adoption for ${launch.threadId}`,
+      });
+      const conversation = materializeOwnerCanonicalConversationSnapshot(result.conversation);
+      this.followerAcceptedReplicasByConversationId.delete(launch.threadId);
+      const checkpoint = result.checkpoint;
+      this.streamState.markOwner(launch.threadId, checkpoint);
+      this.seedOwnerStreamPublishCursor(launch.threadId, checkpoint, acceptedReplica);
+      this.applyConversationSnapshot(launch.threadId, conversation);
+      await invoke("codex:thread:resume-buffer:release", launch.threadId);
+      await invoke("codex:thread-owner:pending-requests:replay", launch.threadId);
+      this.setConversationAttachmentState(launch.threadId, {
+        status: "attached",
+      });
+    } catch (error) {
+      await this.releaseResumeBufferAfterFailedResume(launch.threadId);
+      this.markOwnerStreamPublishUnavailable(launch.threadId);
+      this.setConversationAttachmentState(
+        launch.threadId,
+        makeLocalConversationAttachmentFailure(error),
+      );
+      throw error;
+    }
 
     // The transaction commits and synchronously notifies the optimistic turn
     // before returning this transport-completion promise.
@@ -4526,7 +4606,17 @@ export class CodexAppServerManager {
     })) as CodexSideChatStartResult;
     const conversation = materializeOwnerCanonicalConversationSnapshot(result.conversation);
     this.applyConversationSnapshot(result.threadId, conversation);
-    return { ...result, conversation };
+    try {
+      const attachedConversation = await this.requestThreadStreamResume(result.threadId);
+      if (!attachedConversation) {
+        throw new Error("The side chat was created but could not attach to this window.");
+      }
+      return { ...result, conversation: attachedConversation };
+    } catch (error) {
+      await invoke("codex:thread:side-chat:discard", result.threadId).catch(() => false);
+      this.removeThreadLocalState(result.threadId);
+      throw error;
+    }
   }
 
   async discardSideChat(threadId: string): Promise<boolean> {
@@ -4739,6 +4829,7 @@ export class CodexAppServerManager {
         resumeState: "needs_resume",
       });
     }
+    this.setConversationAttachmentState(conversationId, IDLE_LOCAL_CONVERSATION_ATTACHMENT_STATE);
   }
 
   private async runFollowerRequestResponseThroughOwner(
@@ -6953,6 +7044,7 @@ export class CodexAppServerManager {
     this.loadedThreadSummariesByProject.clear();
     this.threadSummaryLoadsInFlightByProject.clear();
     this.resumeInFlightByThreadId.clear();
+    this.attachmentStateByThreadId.clear();
     this.interruptedTurnResumesInFlightByThreadId.clear();
     this.conversationsById.clear();
     this.followerAcceptedReplicasByConversationId.clear();
@@ -8260,6 +8352,7 @@ export class CodexAppServerManager {
       ...event.conversationIds,
     ]);
     for (const conversationId of targetConversationIds) {
+      this.setConversationAttachmentState(conversationId, IDLE_LOCAL_CONVERSATION_ATTACHMENT_STATE);
       this.followerAcceptedReplicasByConversationId.delete(conversationId);
       this.ownerTextDeltaQueue.discardConversation(conversationId);
       this.outputDeltaQueue.discardConversation(conversationId);
@@ -8822,38 +8915,29 @@ export class CodexAppServerManager {
     ownerNotificationSequence: number,
     rejection: Exclude<CodexThreadOwnerStreamStatePublishResult, { accepted: true }>,
   ): Promise<void> {
-    const localConversation = this.conversationsById.get(conversationId);
-    const role = this.streamState.getRole(conversationId);
-    if (!localConversation || !role || role.role !== "owner") {
-      cursor.inFlight = false;
-      this.markOwnerStreamPublishUnavailable(conversationId);
-      return;
-    }
     if (!rejection.recovery) {
       cursor.inFlight = false;
       this.markOwnerStreamPublishUnavailable(conversationId);
       return;
     }
 
-    cursor.acceptedCheckpoint = rejection.recovery.checkpoint;
-    cursor.acceptedDocument = rejection.recovery.conversationState;
-    this.streamState.recordOwnerCheckpoint(conversationId, rejection.recovery.checkpoint);
-    const conversation = toSharedConversationDocument(localConversation);
-    const revision = rejection.recovery.checkpoint.revision + 1;
-    const checkpoint = buildCodexThreadStreamCheckpoint({
-      ownerEpoch: rejection.recovery.checkpoint.ownerEpoch,
-      revision,
-      conversation,
-    });
-    cursor.dirty = false;
-    const result = await this.dispatchOwnerStreamSnapshot(
+    const conversation = this.adoptOwnerSnapshotRecovery(
       conversationId,
-      rejection.recovery.checkpoint,
-      checkpoint,
+      cursor,
+      rejection.recovery,
+    );
+    if (!conversation) {
+      cursor.inFlight = false;
+      this.markOwnerStreamPublishUnavailable(conversationId);
+      return;
+    }
+    cursor.dirty = false;
+    const result = await this.publishOwnerSnapshotFromCursor(
+      conversationId,
+      cursor,
       conversation,
       ownerNotificationSequence || undefined,
     );
-    if (this.ownerStreamPublishCursorsByConversationId.get(conversationId) !== cursor) return;
     if (!result.accepted) {
       cursor.inFlight = false;
       this.markOwnerStreamPublishUnavailable(conversationId);
@@ -8861,13 +8945,93 @@ export class CodexAppServerManager {
     }
 
     cursor.acceptedCheckpoint = result.checkpoint;
-    cursor.acceptedDocument = this.consumeOwnerStandaloneUnreadStateOverride(cursor, conversation);
+    cursor.acceptedDocument = this.consumeOwnerStandaloneUnreadStateOverride(
+      cursor,
+      result.conversation,
+    );
     cursor.inFlight = false;
     this.confirmOwnerNotificationAck(conversationId, ownerNotificationSequence);
     this.streamState.recordOwnerCheckpoint(conversationId, result.checkpoint);
     this.processOwnerStreamPublishCursor(conversationId);
     this.flushOwnerNotificationCompletions(conversationId);
     this.resolveOwnerStreamPublishIdleWaiters(conversationId);
+  }
+
+  private adoptOwnerSnapshotRecovery(
+    conversationId: string,
+    cursor: OwnerStreamPublishCursor,
+    recovery: NonNullable<
+      Exclude<CodexThreadOwnerStreamStatePublishResult, { accepted: true }>["recovery"]
+    >,
+  ): CodexConversationSnapshot | null {
+    const localConversation = this.conversationsById.get(conversationId);
+    const role = this.streamState.getRole(conversationId);
+    if (
+      !localConversation ||
+      !role ||
+      role.role !== "owner" ||
+      this.ownerStreamPublishCursorsByConversationId.get(conversationId) !== cursor
+    ) {
+      return null;
+    }
+
+    cursor.acceptedCheckpoint = recovery.checkpoint;
+    cursor.acceptedDocument = recovery.conversationState;
+    this.streamState.recordOwnerCheckpoint(conversationId, recovery.checkpoint);
+
+    const authoritativeUnread =
+      cursor.standaloneUnreadStateOverride ?? recovery.conversationState.hasUnreadTurn;
+    const convergedConversation =
+      typeof authoritativeUnread === "boolean"
+        ? applyStandaloneUnreadStateToSnapshot(localConversation, authoritativeUnread)
+        : localConversation;
+    if (convergedConversation !== localConversation) {
+      this.applyConversationSnapshot(conversationId, convergedConversation);
+    }
+    return toSharedConversationDocument(convergedConversation);
+  }
+
+  private async publishOwnerSnapshotFromCursor(
+    conversationId: string,
+    cursor: OwnerStreamPublishCursor,
+    initialConversation: CodexConversationSnapshot,
+    ownerNotificationSequence?: number,
+  ): Promise<OwnerSnapshotPublishOutcome> {
+    let conversation = initialConversation;
+    let rejectionReason: Exclude<
+      CodexThreadOwnerStreamStatePublishResult,
+      { accepted: true }
+    >["reason"] = "base-checkpoint-mismatch";
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const baseCheckpoint = cursor.acceptedCheckpoint;
+      const checkpoint = buildCodexThreadStreamCheckpoint({
+        ownerEpoch: baseCheckpoint.ownerEpoch,
+        revision: baseCheckpoint.revision + 1,
+        conversation,
+      });
+      const result = await this.dispatchOwnerStreamSnapshot(
+        conversationId,
+        baseCheckpoint,
+        checkpoint,
+        conversation,
+        ownerNotificationSequence,
+      );
+      if (this.ownerStreamPublishCursorsByConversationId.get(conversationId) !== cursor) {
+        return { accepted: false, reason: "not-owner" };
+      }
+      if (result.accepted) {
+        return { accepted: true, checkpoint: result.checkpoint, conversation };
+      }
+
+      rejectionReason = result.reason;
+      if (!result.recovery) break;
+      const recovered = this.adoptOwnerSnapshotRecovery(conversationId, cursor, result.recovery);
+      if (!recovered) break;
+      conversation = recovered;
+    }
+
+    return { accepted: false, reason: rejectionReason };
   }
 
   private publishOwnerConversationMutation(
@@ -9088,6 +9252,7 @@ export class CodexAppServerManager {
     const conversation = this.conversationsById.get(conversationId);
     if (!conversation) {
       this.streamState.removeConversation(conversationId);
+      this.setConversationAttachmentState(conversationId, IDLE_LOCAL_CONVERSATION_ATTACHMENT_STATE);
       return;
     }
 
@@ -9098,6 +9263,7 @@ export class CodexAppServerManager {
       });
     }
     this.streamState.removeConversation(conversationId);
+    this.setConversationAttachmentState(conversationId, IDLE_LOCAL_CONVERSATION_ATTACHMENT_STATE);
   }
 
   private handleOwnerReducerUnavailable(conversationId: string): void {
@@ -9270,6 +9436,9 @@ export class CodexAppServerManager {
         event.change.conversationState,
       );
       this.applyConversationSnapshot(event.conversationId, materialized);
+      this.setConversationAttachmentState(event.conversationId, {
+        status: "attached",
+      });
       this.conversationVersionById.set(
         event.conversationId,
         Math.max(event.version, this.conversationVersionById.get(event.conversationId) ?? 0),
@@ -9350,6 +9519,9 @@ export class CodexAppServerManager {
         conversationId: event.conversationId,
         checkpoint,
         sourceClientId,
+      });
+      this.setConversationAttachmentState(event.conversationId, {
+        status: "attached",
       });
       this.conversationVersionById.set(
         event.conversationId,
@@ -9579,6 +9751,8 @@ export class CodexAppServerManager {
 
     this.threadSummariesById.delete(normalizedThreadId);
     this.conversationsById.delete(normalizedThreadId);
+    this.attachmentStateByThreadId.delete(normalizedThreadId);
+    for (const listener of this.attachmentCallbacks.get(normalizedThreadId) ?? []) listener();
     this.childMembershipsByParentThreadId.delete(normalizedThreadId);
     this.followerAcceptedReplicasByConversationId.delete(normalizedThreadId);
     this.ownerHiddenLifecycleItemTypesByConversationId.delete(normalizedThreadId);
@@ -10512,6 +10686,21 @@ export function useConversationResumeState(
   threadId: string | null,
 ): CodexConversationResumeState | null {
   return useCodexConversationValue(threadId, (conversation) => conversation?.resumeState ?? null);
+}
+
+export function useConversationAttachmentState(
+  threadId: string | null,
+): LocalConversationAttachmentState {
+  const manager = useCodexAppServerManagerForConversationId(threadId);
+  return useExternalSelector(
+    (listener) =>
+      threadId ? manager.subscribeConversationAttachment(threadId, listener) : () => {},
+    () =>
+      threadId
+        ? manager.readConversationAttachmentState(threadId)
+        : IDLE_LOCAL_CONVERSATION_ATTACHMENT_STATE,
+    areLocalConversationAttachmentStatesEqual,
+  );
 }
 
 export function useConversationStreamRole(

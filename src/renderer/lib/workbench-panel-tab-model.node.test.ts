@@ -90,6 +90,7 @@ describe("workbench panel tab model", () => {
     expect(isPanelTabClosable(sideChat)).toBe(false);
     expect(isPanelTabClosable({ ...sideChat, status: "ready" })).toBe(true);
     expect(isPanelTabClosable({ ...sideChat, status: "expired" })).toBe(true);
+    expect(isPanelTabClosable({ ...sideChat, status: "failed" })).toBe(true);
   });
 
   test("limits root composer overlay eligibility to durable surfaces", () => {

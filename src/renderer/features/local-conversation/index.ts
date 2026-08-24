@@ -22,6 +22,7 @@ export {
   useCodexThreadStartProgress,
   useComposerIntent,
   useConversation,
+  useConversationAttachmentState,
   useConversationCollaborationMode,
   useConversationStreamRole,
   useConversationSubset,
@@ -29,6 +30,7 @@ export {
   useLocalConversationConnection,
   useProjectThreadSummaries,
 } from "./local-conversation-store";
+export type { LocalConversationAttachmentState } from "./conversation-attachment-state";
 export { LocalConversationStageScreen as StageThreads } from "./view/local-conversation-stage-screen";
 export {
   ConnectedThreadComposerDock,
