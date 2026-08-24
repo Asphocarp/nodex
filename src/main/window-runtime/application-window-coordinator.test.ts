@@ -6,6 +6,16 @@ import type { WindowSessionRecord } from "../../shared/window-session";
 import type { AcquiredWindowSession } from "../window-session-state";
 import type { WindowRuntimeService } from "./WindowRuntime";
 import { createApplicationWindowCoordinator } from "./application-window-coordinator";
+import type { WindowCleanupReport } from "./WindowShutdown";
+
+const cleanReport: WindowCleanupReport = {
+  alreadyClosed: 0,
+  destroyed: 0,
+  failed: 0,
+  failures: [],
+  graceful: 0,
+  total: 0,
+};
 
 const session = (id: string): WindowSessionRecord => ({ id }) as WindowSessionRecord;
 
@@ -28,7 +38,7 @@ describe("application window coordinator", () => {
     const source = browserWindow(7, sent);
     const create = vi.fn();
     const coordinator = createApplicationWindowCoordinator({
-      closeAll: () => Effect.void,
+      closeAll: () => Effect.succeed(cleanReport),
       create,
       focusedWindow: () => source,
       reportFailure: vi.fn(),
@@ -60,7 +70,7 @@ describe("application window coordinator", () => {
     const rollback = vi.fn();
     const reportFailure = vi.fn();
     const coordinator = createApplicationWindowCoordinator({
-      closeAll: () => Effect.void,
+      closeAll: () => Effect.succeed(cleanReport),
       create: () => {
         throw new Error("native creation failed");
       },
@@ -91,7 +101,7 @@ describe("application window coordinator", () => {
       const created = browserWindow(9);
       const create = vi.fn(() => created);
       const beginApplicationQuit = vi.fn();
-      const closeAll = vi.fn(() => Effect.void);
+      const closeAll = vi.fn(() => Effect.succeed(cleanReport));
       const all = [created];
       const cloneSessionForWindow = vi.fn(() => cloned);
       const coordinator = createApplicationWindowCoordinator({

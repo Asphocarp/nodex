@@ -279,10 +279,135 @@ it.effect("routes process termination signals through Main shutdown before quitt
   }),
 );
 
+it.effect("interrupts an in-flight runtime acquisition when a termination signal wins", () =>
+  Effect.gen(function* () {
+    const events: string[] = [];
+    const startEntered = yield* Deferred.make<void>();
+    const startInterrupted = yield* Deferred.make<void>();
+    const termination = yield* Ref.make<
+      ((signal: ElectronTerminationSignal) => Effect.Effect<void>) | null
+    >(null);
+    const electron = Layer.succeed(
+      ElectronApp,
+      ElectronApp.of({
+        appPath: Effect.succeed("/tmp/nodex-test-app"),
+        downloadsPath: Effect.succeed("/tmp/nodex-test-downloads"),
+        isInApplicationsFolder: Effect.succeed(true),
+        locale: Effect.succeed("en-US"),
+        userDataPath: Effect.succeed("/tmp/nodex-test-user-data"),
+        whenReady: Effect.void,
+        quit: Effect.sync(() => events.push("quit")),
+        relaunch: Effect.void,
+        exit: () => Effect.void,
+        onActivate: () => Effect.void,
+        onBeforeQuit: () => Effect.void,
+        onOpenUrl: () => Effect.void,
+        onSecondInstance: () => Effect.void,
+        onTerminationSignal: (handler) => Ref.set(termination, handler),
+        onWindowAllClosed: () => Effect.void,
+      }),
+    );
+    const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+    const foundationScope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(foundation, foundationScope);
+    const shutdown = Context.get(context, MainShutdown);
+    const runtimeLayer = mainRuntimeTestLayer({
+      start: Deferred.succeed(startEntered, undefined).pipe(
+        Effect.andThen(Effect.never),
+        Effect.onInterrupt(() => Deferred.succeed(startInterrupted, undefined)),
+      ),
+      handleBootstrapEvent: () => Effect.void,
+      release: Effect.sync(() => events.push("release")),
+    });
+    const fiber = yield* program({
+      initialEvents: [],
+      runtimeLayer,
+      runStartupGate: Effect.succeed("continue" as const),
+    }).pipe(Effect.provide(context), Effect.forkScoped);
+    yield* Deferred.await(startEntered);
+
+    const handler = yield* Ref.get(termination);
+    if (handler) yield* handler("SIGTERM");
+    yield* Fiber.join(fiber);
+
+    yield* Deferred.await(startInterrupted);
+    assert.deepEqual(events, ["release", "quit"]);
+    assert.deepEqual(yield* shutdown.awaitRequest, { _tag: "Signal", signal: "SIGTERM" });
+    assert.isTrue(Exit.isSuccess(yield* shutdown.awaitRuntimeClosed));
+    yield* Scope.close(foundationScope, Exit.void);
+  }),
+);
+
+it.effect(
+  "turns Cmd-Q during startup into structured interruption without consulting runtime",
+  () =>
+    Effect.gen(function* () {
+      const events: string[] = [];
+      const startEntered = yield* Deferred.make<void>();
+      const startInterrupted = yield* Deferred.make<void>();
+      const beforeQuit = yield* Ref.make<(() => ElectronBeforeQuitDecision) | null>(null);
+      const electron = Layer.succeed(
+        ElectronApp,
+        ElectronApp.of({
+          appPath: Effect.succeed("/tmp/nodex-test-app"),
+          downloadsPath: Effect.succeed("/tmp/nodex-test-downloads"),
+          isInApplicationsFolder: Effect.succeed(true),
+          locale: Effect.succeed("en-US"),
+          userDataPath: Effect.succeed("/tmp/nodex-test-user-data"),
+          whenReady: Effect.void,
+          quit: Effect.sync(() => events.push("quit")),
+          relaunch: Effect.void,
+          exit: () => Effect.void,
+          onActivate: () => Effect.void,
+          onBeforeQuit: (handler) => Ref.set(beforeQuit, handler),
+          onOpenUrl: () => Effect.void,
+          onSecondInstance: () => Effect.void,
+          onTerminationSignal: () => Effect.void,
+          onWindowAllClosed: () => Effect.void,
+        }),
+      );
+      const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+      const foundationScope = yield* Scope.make();
+      const context = yield* Layer.buildWithScope(foundation, foundationScope);
+      const shutdown = Context.get(context, MainShutdown);
+      const runtimeLayer = mainRuntimeTestLayer({
+        start: Deferred.succeed(startEntered, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() => Deferred.succeed(startInterrupted, undefined)),
+        ),
+        prepareQuit: Effect.sync(() => {
+          events.push("unexpected-prepare-quit");
+          return "continue" as const;
+        }),
+        handleBootstrapEvent: () => Effect.void,
+        release: Effect.sync(() => events.push("release")),
+      });
+      const fiber = yield* program({
+        initialEvents: [],
+        runtimeLayer,
+        runStartupGate: Effect.succeed("continue" as const),
+      }).pipe(Effect.provide(context), Effect.forkScoped);
+      yield* Deferred.await(startEntered);
+
+      const handler = yield* Ref.get(beforeQuit);
+      const decision = handler?.();
+      assert.isTrue(decision?.preventDefault);
+      if (decision) yield* decision.task;
+      yield* Fiber.join(fiber);
+
+      yield* Deferred.await(startInterrupted);
+      assert.deepEqual(events, ["release", "quit"]);
+      assert.deepEqual(yield* shutdown.awaitRequest, { _tag: "UserQuit" });
+      assert.isTrue(Exit.isSuccess(yield* shutdown.awaitRuntimeClosed));
+      yield* Scope.close(foundationScope, Exit.void);
+    }),
+);
+
 it.effect("defers a system-owned quit without closing the Main runtime", () =>
   Effect.gen(function* () {
     const events: string[] = [];
     const started = yield* Deferred.make<void>();
+    const ready = yield* Deferred.make<void>();
     const beforeQuit = yield* Ref.make<(() => ElectronBeforeQuitDecision) | null>(null);
     const electron = Layer.succeed(
       ElectronApp,
@@ -321,8 +446,10 @@ it.effect("defers a system-owned quit without closing the Main runtime", () =>
       initialEvents: [],
       runtimeLayer,
       runStartupGate: Effect.succeed("continue" as const),
+      onRuntimeReady: () => Deferred.succeed(ready, undefined).pipe(Effect.asVoid),
     }).pipe(Effect.provide(context), Effect.forkScoped);
-    yield* Deferred.await(started);
+    yield* Deferred.await(ready);
+    yield* Effect.yieldNow;
 
     const handler = yield* Ref.get(beforeQuit);
     const decision = handler?.();

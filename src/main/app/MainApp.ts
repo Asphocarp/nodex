@@ -22,22 +22,30 @@ export interface MainAppOptions<R> {
 const runRuntime = <R>(
   options: MainAppOptions<R>,
   onAcquired: (runtime: MainRuntime["Service"] | null) => void,
+  onReady: (ready: boolean) => void,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
-      const context = yield* Layer.build(options.runtimeLayer);
-      const runtime = Context.get(context, MainRuntime);
-      onAcquired(runtime);
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          onAcquired(null);
-        }),
-      );
-      yield* runtime.start;
-      for (const event of options.initialEvents) yield* runtime.handleBootstrapEvent(event);
-      if (options.onRuntimeReady) yield* options.onRuntimeReady(runtime);
       const shutdown = yield* MainShutdown;
-      return yield* shutdown.awaitRequest;
+      return yield* Effect.raceFirst(
+        Effect.gen(function* () {
+          const context = yield* Layer.build(options.runtimeLayer);
+          const runtime = Context.get(context, MainRuntime);
+          onAcquired(runtime);
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              onReady(false);
+              onAcquired(null);
+            }),
+          );
+          yield* runtime.start;
+          for (const event of options.initialEvents) yield* runtime.handleBootstrapEvent(event);
+          if (options.onRuntimeReady) yield* options.onRuntimeReady(runtime);
+          onReady(true);
+          return yield* shutdown.awaitRequest;
+        }),
+        shutdown.awaitRequest,
+      );
     }),
   );
 
@@ -48,6 +56,7 @@ export const program = <R>(options: MainAppOptions<R>) =>
     const shutdown = yield* MainShutdown;
     let quitAllowed = false;
     let activeRuntime: MainRuntime["Service"] | null = null;
+    let runtimeReady = false;
     yield* electron.onActivate(
       Effect.suspend(() => activeRuntime?.activate ?? Effect.void).pipe(Effect.orDie),
     );
@@ -55,15 +64,24 @@ export const program = <R>(options: MainAppOptions<R>) =>
       preventDefault: !quitAllowed,
       task: quitAllowed
         ? Effect.void
-        : (activeRuntime?.prepareQuit ?? Effect.succeed("continue" as const)).pipe(
-            Effect.flatMap((decision) =>
-              decision === "defer"
-                ? Effect.void
-                : shutdown.request({ _tag: "UserQuit" }).pipe(Effect.asVoid),
-            ),
-            Effect.asVoid,
-            Effect.orDie,
-          ),
+        : Effect.suspend(() => {
+            if (!runtimeReady || activeRuntime === null) {
+              return shutdown.request({ _tag: "UserQuit" }).pipe(Effect.asVoid);
+            }
+            return activeRuntime.prepareQuit.pipe(
+              Effect.matchCauseEffect({
+                onFailure: (cause) =>
+                  Effect.logError(cause).pipe(
+                    Effect.andThen(shutdown.request({ _tag: "UserQuit" })),
+                    Effect.asVoid,
+                  ),
+                onSuccess: (decision) =>
+                  decision === "defer"
+                    ? Effect.void
+                    : shutdown.request({ _tag: "UserQuit" }).pipe(Effect.asVoid),
+              }),
+            );
+          }),
     }));
     yield* electron.onWindowAllClosed(
       config.platform === "darwin"
@@ -82,9 +100,15 @@ export const program = <R>(options: MainAppOptions<R>) =>
     }
 
     const runtimeExit = yield* Effect.exit(
-      runRuntime(options, (runtime) => {
-        activeRuntime = runtime;
-      }),
+      runRuntime(
+        options,
+        (runtime) => {
+          activeRuntime = runtime;
+        },
+        (ready) => {
+          runtimeReady = ready;
+        },
+      ),
     );
     yield* shutdown.markRuntimeClosed(Exit.asVoid(runtimeExit));
     if (Exit.isFailure(runtimeExit)) return yield* Effect.failCause(runtimeExit.cause);

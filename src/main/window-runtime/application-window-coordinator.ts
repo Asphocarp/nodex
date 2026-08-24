@@ -10,14 +10,12 @@ import type {
 } from "../../shared/window-session";
 import { REQUEST_NEW_WINDOW_HOST_CHANNEL } from "../../shared/window-navigation";
 import { safeSendToWindow } from "../ipc-safe-send";
-import type { RuntimeWindowShutdownError } from "../runtime-quit-coordinator";
 import type { AcquiredWindowSession } from "../window-session-state";
 import { captureWindowSessionBounds, type WindowRuntimeService } from "./WindowRuntime";
+import type { ShutdownWindow, WindowCleanupReport } from "./WindowShutdown";
 
 export interface ApplicationWindowCoordinatorOptions {
-  readonly closeAll: (
-    windows: readonly BrowserWindow[],
-  ) => Effect.Effect<void, RuntimeWindowShutdownError>;
+  readonly closeAll: (windows: readonly ShutdownWindow[]) => Effect.Effect<WindowCleanupReport>;
   readonly create: (session: WindowSessionRecord) => BrowserWindow;
   readonly focusedWindow: () => BrowserWindow | null;
   readonly reportFailure: (input: {
@@ -38,7 +36,7 @@ export interface ApplicationWindowCoordinator {
     request: WindowSessionNewWindowRequest,
   ) => void;
   readonly openStartup: (policy: WindowRestorePolicy) => void;
-  readonly prepareQuit: Effect.Effect<void, RuntimeWindowShutdownError>;
+  readonly prepareQuit: Effect.Effect<WindowCleanupReport>;
   readonly requestNew: () => void;
   readonly resolveSessionId: (webContentsId: number) => string | null;
   readonly saveLayout: (

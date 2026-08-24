@@ -420,80 +420,74 @@ export const live = (
               return Layer.effect(
                 ActiveRemoteHost,
                 Effect.acquireRelease(
-                  Effect.uninterruptibleMask((restore) =>
-                    Effect.gen(function* () {
-                      const transport = yield* Effect.try({
-                        try: () =>
-                          factories.makeTransport({
-                            config,
-                            workerBundlePath: remoteWorktreeWorkerBundlePath,
-                          }),
-                        catch: (cause) => error("construct-transport", cause, hostId),
-                      });
-                      const health = yield* restore(
-                        Effect.tryPromise({
-                          try: (signal) => transport.ensureReady(signal),
-                          catch: (cause) => error("prepare", cause, hostId),
+                  Effect.gen(function* () {
+                    const transport = yield* Effect.try({
+                      try: () =>
+                        factories.makeTransport({
+                          config,
+                          workerBundlePath: remoteWorktreeWorkerBundlePath,
                         }),
-                      );
-                      const worker = yield* factories.makeWorker({
-                        hostId,
-                        openWorker: (signal) => transport.openWorktreeWorker(signal),
-                        onInfrastructureError: (cause) => {
-                          logger.error("Remote worktree worker failed", {
-                            hostId,
-                            error: cause.message,
-                          });
-                        },
+                      catch: (cause) => error("construct-transport", cause, hostId),
+                    });
+                    const health = yield* Effect.tryPromise({
+                      try: (signal) => transport.ensureReady(signal),
+                      catch: (cause) => error("prepare", cause, hostId),
+                    });
+                    const worker = yield* factories.makeWorker({
+                      hostId,
+                      openWorker: (signal) => transport.openWorktreeWorker(signal),
+                      onInfrastructureError: (cause) => {
+                        logger.error("Remote worktree worker failed", {
+                          hostId,
+                          error: cause.message,
+                        });
+                      },
+                    });
+                    const host = ActiveRemoteHost.of({ config, worker });
+                    yield* Effect.gen(function* () {
+                      const endpointConfig = yield* Effect.try({
+                        try: () =>
+                          makeCodexProcessExecutionHost(hostId, transport.appServerClientOptions()),
+                        catch: (cause) => error("configure-endpoint", cause, hostId),
                       });
-                      const host = ActiveRemoteHost.of({ config, worker });
-                      yield* Effect.gen(function* () {
-                        const endpointConfig = yield* Effect.try({
-                          try: () =>
-                            makeCodexProcessExecutionHost(
-                              hostId,
-                              transport.appServerClientOptions(),
-                            ),
-                          catch: (cause) => error("configure-endpoint", cause, hostId),
-                        });
-                        yield* gateway
-                          .reconcileHost(endpointConfig)
-                          .pipe(
-                            Effect.mapError((cause) => error("register-endpoint", cause, hostId)),
-                          );
-                        yield* register({
-                          descriptor: {
-                            hostId,
-                            displayName: config.displayName,
-                            kind: "ssh",
-                            nodexHome: path.posix.join(health.home, ".nodex"),
-                            codexHome: health.codexHome,
-                            managedRoot: config.managedRoot,
-                            handoffStagingRoot: path.posix.join(health.codexHome, "nodex-handoffs"),
-                            repositoryRoots: [...config.repositoryRoots],
-                            capabilities: WORKTREE_CAPABILITIES,
-                            supportsFileTransfer: true,
-                          },
-                          knownManagedRoots: new Set([config.managedRoot]),
-                          worker,
-                          transfer: transport,
-                        });
-                        yield* SubscriptionRef.update(activeSshHosts, (current) => {
-                          const next = new Map(current);
-                          next.set(hostId, config);
-                          return next;
-                        });
-                      }).pipe(
-                        Effect.onError(() =>
-                          unregister(hostId, worker).pipe(
-                            Effect.andThen(gateway.removeHost(hostId).pipe(Effect.ignore)),
-                          ),
+                      yield* gateway
+                        .reconcileHost(endpointConfig)
+                        .pipe(
+                          Effect.mapError((cause) => error("register-endpoint", cause, hostId)),
+                        );
+                      yield* register({
+                        descriptor: {
+                          hostId,
+                          displayName: config.displayName,
+                          kind: "ssh",
+                          nodexHome: path.posix.join(health.home, ".nodex"),
+                          codexHome: health.codexHome,
+                          managedRoot: config.managedRoot,
+                          handoffStagingRoot: path.posix.join(health.codexHome, "nodex-handoffs"),
+                          repositoryRoots: [...config.repositoryRoots],
+                          capabilities: WORKTREE_CAPABILITIES,
+                          supportsFileTransfer: true,
+                        },
+                        knownManagedRoots: new Set([config.managedRoot]),
+                        worker,
+                        transfer: transport,
+                      });
+                      yield* SubscriptionRef.update(activeSshHosts, (current) => {
+                        const next = new Map(current);
+                        next.set(hostId, config);
+                        return next;
+                      });
+                    }).pipe(
+                      Effect.onError(() =>
+                        unregister(hostId, worker).pipe(
+                          Effect.andThen(gateway.removeHost(hostId).pipe(Effect.ignore)),
                         ),
-                      );
-                      return host;
-                    }),
-                  ),
+                      ),
+                    );
+                    return host;
+                  }),
                   releaseRemoteHost,
+                  { interruptible: true },
                 ),
               );
             }),

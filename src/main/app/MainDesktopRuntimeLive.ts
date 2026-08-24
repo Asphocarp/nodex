@@ -620,6 +620,7 @@ import {
   ApplicationWindowRuntime,
   live as applicationWindowRuntimeLive,
 } from "../window-runtime/ApplicationWindowRuntime";
+import { live as windowShutdownLive } from "../window-runtime/WindowShutdown";
 
 const runtimeError = (operation: string, cause: unknown) =>
   new MainRuntimeError({ operation, cause });
@@ -676,7 +677,7 @@ export const live: Layer.Layer<
           : Effect.succeed(controller),
       );
 
-    const start = Effect.uninterruptible(
+    const start = Effect.interruptible(
       Effect.gen(function* () {
         if (started)
           return yield* runtimeError("startup", new Error("Main runtime already started"));
@@ -761,7 +762,7 @@ export const live: Layer.Layer<
         const threadHostResolverContext = yield* Layer.buildWithScope(
           threadHostResolverLive.pipe(
             Layer.provide(
-              Layer.merge(
+              Layer.mergeAll(
                 Layer.succeed(CodexEphemeralThreadRouting, ephemeralThreadRouting),
                 Layer.succeed(CoreModules, coreModules),
               ),
@@ -1451,9 +1452,10 @@ export const live: Layer.Layer<
             windows,
           }).pipe(
             Layer.provide(
-              Layer.merge(
+              Layer.mergeAll(
                 Layer.succeed(ComposerAppshotRuntime, composerAppshots),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
+                windowShutdownLive(),
               ),
             ),
           ),
@@ -3096,10 +3098,7 @@ export const live: Layer.Layer<
 
         controller = {
           activate: Effect.sync(applicationWindows.focusLast),
-          prepareQuit: applicationWindows.prepareQuit.pipe(
-            Effect.mapError((cause) => runtimeError("prepare-quit", cause)),
-            Effect.as("continue" as const),
-          ),
+          prepareQuit: applicationWindows.prepareQuit.pipe(Effect.as("continue" as const)),
           handleBootstrapEvent: (event) => {
             if (event.type === "open-url") {
               return deepLinks.handle(event.url).pipe(

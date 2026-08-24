@@ -176,6 +176,11 @@ independent per-subsystem disposer list. Layer dependencies determine release or
 Scopes release their own resources, and Effect combines finalizer failures into the closing Cause
 while continuing the remaining finalizers. Any physical release that can hang owns its bounded
 deadline or escalation policy at the platform adapter rather than in a global shutdown coordinator.
+The same first-wins decision races application acquisition and readiness, so a signal or first
+`before-quit` during startup interrupts in-flight work and rolls back everything already acquired.
+Window release stops new admission, requests renderer-aware graceful close in parallel, and then
+destroys only the still-live windows at the per-window deadline. Close and destroy outcomes are
+reported without allowing one damaged window to block the rest of the resource graph.
 
 Process termination signals are lifecycle ingress, not a competing shutdown owner. Electron Main
 translates `SIGINT` and `SIGTERM` into the Main shutdown request and waits for Scope release before

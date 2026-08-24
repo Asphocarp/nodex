@@ -28,11 +28,11 @@ import type { DesktopNotificationRuntime } from "../host-runtime/DesktopNotifica
 import type { McpAppSandboxRuntime } from "../host-runtime/McpAppSandboxRuntime";
 import { getLogger } from "../logging/logger";
 import { captureMainException, captureMainMessage } from "../observability/sentry-main";
-import { closeWindowsBeforeRuntimeShutdown } from "../runtime-quit-coordinator";
 import { resolveCodexTitleBarOptions } from "../window-navigation-chrome";
 import { isWindowSessionBoundsVisible } from "../window-session-state";
 import type { WindowRuntimeService } from "./WindowRuntime";
 import { safeSendToWindow } from "../ipc-safe-send";
+import { WindowShutdown } from "./WindowShutdown";
 import {
   createApplicationWindowCoordinator,
   type ApplicationWindowCoordinator,
@@ -70,12 +70,17 @@ const syncMacWindowTitle = (platform: NodeJS.Platform, window: BrowserWindow): v
 
 export const live = (
   options: ApplicationWindowRuntimeOptions,
-): Layer.Layer<ApplicationWindowRuntime, never, ComposerAppshotRuntime | ScopedCallbackRuntime> =>
+): Layer.Layer<
+  ApplicationWindowRuntime,
+  never,
+  ComposerAppshotRuntime | ScopedCallbackRuntime | WindowShutdown
+> =>
   Layer.effect(
     ApplicationWindowRuntime,
     Effect.gen(function* () {
       const appshots = yield* ComposerAppshotRuntime;
       const callbacks = yield* ScopedCallbackRuntime;
+      const windowShutdown = yield* WindowShutdown;
       const rendererLoaded = yield* PubSub.unbounded<number>();
       yield* Effect.addFinalizer(() => PubSub.shutdown(rendererLoaded));
       const logger = getLogger({ component: "application-window-runtime" });
@@ -325,7 +330,7 @@ export const live = (
       };
 
       const coordinator = createApplicationWindowCoordinator({
-        closeAll: closeWindowsBeforeRuntimeShutdown,
+        closeAll: windowShutdown.closeAll,
         create,
         focusedWindow: () => BrowserWindow.getFocusedWindow(),
         reportFailure: ({ cause, operation, windowSessionId }) => {
@@ -347,7 +352,23 @@ export const live = (
         syncTitle: (window) => syncMacWindowTitle(options.platform, window),
         windows: options.windows,
       });
-      yield* Effect.addFinalizer(() => Effect.sync(coordinator.stop));
+      yield* Effect.addFinalizer(() =>
+        coordinator.prepareQuit.pipe(
+          Effect.tap((report) =>
+            report.destroyed > 0 || report.failed > 0
+              ? Effect.logWarning("Window shutdown required escalation").pipe(
+                  Effect.annotateLogs({
+                    destroyed: report.destroyed,
+                    failed: report.failed,
+                    graceful: report.graceful,
+                    total: report.total,
+                  }),
+                )
+              : Effect.void,
+          ),
+          Effect.asVoid,
+        ),
+      );
 
       return ApplicationWindowRuntime.of({
         ...coordinator,
