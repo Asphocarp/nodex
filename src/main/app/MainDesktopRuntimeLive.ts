@@ -674,19 +674,6 @@ export const live: Layer.Layer<
         if (started)
           return yield* runtimeError("startup", new Error("Main runtime already started"));
         started = true;
-        const codexRuntime = yield* Effect.try({
-          try: () =>
-            resolveCodexRuntime({
-              isPackaged: config.isPackaged,
-              projectRootPath: config.projectRootPath,
-              resourcesPath: config.resourcesPath,
-            }),
-          catch: (cause) => runtimeError("resolve-codex-runtime", cause),
-        });
-        const providerCredentialStore = yield* Effect.try({
-          try: createElectronProviderCredentialStore,
-          catch: (cause) => runtimeError("provider-credential-store", cause),
-        });
         const runtimeStateHome = `${config.nodexHome}/agent`;
         const windowRuntimeContext = yield* Layer.buildWithScope(
           windowRuntimeLive(userDataPath, config.platform as NodeJS.Platform),
@@ -718,9 +705,24 @@ export const live: Layer.Layer<
             ),
           ),
         );
-        const authorityContext = yield* Layer.buildWithScope(authorityLayer, runtimeScope).pipe(
+        const authorityFiber = yield* Layer.buildWithScope(authorityLayer, runtimeScope).pipe(
           Effect.mapError((cause) => runtimeError("core-authority", cause)),
+          Effect.forkIn(runtimeScope, { startImmediately: true }),
         );
+        const codexRuntime = yield* Effect.try({
+          try: () =>
+            resolveCodexRuntime({
+              isPackaged: config.isPackaged,
+              projectRootPath: config.projectRootPath,
+              resourcesPath: config.resourcesPath,
+            }),
+          catch: (cause) => runtimeError("resolve-codex-runtime", cause),
+        });
+        const providerCredentialStore = yield* Effect.try({
+          try: createElectronProviderCredentialStore,
+          catch: (cause) => runtimeError("provider-credential-store", cause),
+        });
+        const authorityContext = yield* Fiber.join(authorityFiber);
         const authority = Context.get(authorityContext, CoreAuthority);
         const access = Context.get(authorityContext, CoreSessionAccess);
         const coreModulesContext = yield* Layer.buildWithScope(
