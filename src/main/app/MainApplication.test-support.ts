@@ -1,25 +1,27 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { BootstrapRuntimeEvent } from "../bootstrap-events";
-import { MainRuntime, type MainRuntimeError } from "./MainRuntimeLive";
+import { MainApplication, type MainApplicationError } from "./MainApplication";
 
-export interface MainRuntimeTestHooks {
-  readonly activate?: Effect.Effect<void, MainRuntimeError>;
-  readonly start: Effect.Effect<void, MainRuntimeError>;
+export interface MainApplicationTestHooks {
+  readonly acquire: Effect.Effect<void, MainApplicationError>;
+  readonly activate?: Effect.Effect<void, MainApplicationError>;
   readonly handleBootstrapEvent: (
     event: BootstrapRuntimeEvent,
-  ) => Effect.Effect<void, MainRuntimeError>;
+  ) => Effect.Effect<void, MainApplicationError>;
   readonly release?: Effect.Effect<void>;
 }
 
-export const mainRuntimeTestLayer = (hooks: MainRuntimeTestHooks): Layer.Layer<MainRuntime> =>
+export const mainApplicationTestLayer = (
+  hooks: MainApplicationTestHooks,
+): Layer.Layer<MainApplication, MainApplicationError> =>
   Layer.effect(
-    MainRuntime,
+    MainApplication,
     Effect.gen(function* () {
       if (hooks.release) yield* Effect.addFinalizer(() => hooks.release ?? Effect.void);
-      return MainRuntime.of({
+      yield* hooks.acquire;
+      return MainApplication.of({
         activate: hooks.activate ?? Effect.void,
-        start: hooks.start,
         handleBootstrapEvent: hooks.handleBootstrapEvent,
       });
     }),

@@ -117,6 +117,13 @@ export const live = (
 
             const failDelivery = (cause: CoreRuntimeError) =>
               Deferred.fail(deliveryFailure, cause).pipe(Effect.asVoid);
+            const inboundOverflowError = () =>
+              coreRuntimeError({
+                operation: "events.inbound-capacity",
+                reason: "delivery",
+                retryable: true,
+                cause: new Error(`Core event ingress exceeded ${inboundCapacity} entries`),
+              });
             const processInbound = Effect.fn("CoreEventHub.processInbound")(function* (
               item: InboundEvent,
             ) {
@@ -155,17 +162,7 @@ export const live = (
                   Effect.flatMap((accepted) =>
                     accepted
                       ? Effect.void
-                      : Deferred.fail(
-                          overflowFailure,
-                          coreRuntimeError({
-                            operation: "events.inbound-capacity",
-                            reason: "delivery",
-                            retryable: true,
-                            cause: new Error(
-                              `Core event ingress exceeded ${inboundCapacity} entries`,
-                            ),
-                          }),
-                        ).pipe(Effect.asVoid),
+                      : Deferred.fail(overflowFailure, inboundOverflowError()).pipe(Effect.asVoid),
                   ),
                 ),
               );
@@ -206,7 +203,8 @@ export const live = (
               Effect.raceFirst(Deferred.await(deliveryFailure), Deferred.await(overflowFailure)),
             );
             const flush = yield* Deferred.make<void>();
-            yield* Queue.offer(inbound, { kind: "flush", ack: flush });
+            const flushAccepted = yield* Queue.offer(inbound, { kind: "flush", ack: flush });
+            if (!flushAccepted) return yield* inboundOverflowError();
             yield* Effect.raceFirst(
               Deferred.await(flush),
               Effect.raceFirst(Deferred.await(deliveryFailure), Deferred.await(overflowFailure)),

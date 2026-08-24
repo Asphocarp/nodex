@@ -4,41 +4,40 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 import { ElectronApp } from "../platform/electron/ElectronApp";
+import { MainApplication, type MainApplicationError } from "./MainApplication";
 import { MainConfig } from "./MainConfig";
-import { MainRuntime, type MainRuntimeError } from "./MainRuntimeLive";
 import { MainShutdown } from "./MainShutdown";
 
 export type MainStartupGateResult = "continue" | "moved" | "quit";
 
 export interface MainAppOptions<R> {
   readonly initialEvents: readonly import("../bootstrap-events").BootstrapRuntimeEvent[];
-  readonly runtimeLayer: Layer.Layer<MainRuntime, MainRuntimeError, R>;
-  readonly runStartupGate: Effect.Effect<MainStartupGateResult, MainRuntimeError, R>;
-  readonly onRuntimeReady?: (
-    runtime: MainRuntime["Service"],
-  ) => Effect.Effect<void, MainRuntimeError, R | Scope.Scope>;
+  readonly applicationLayer: Layer.Layer<MainApplication, MainApplicationError, R>;
+  readonly runStartupGate: Effect.Effect<MainStartupGateResult, MainApplicationError, R>;
+  readonly onApplicationReady?: (
+    application: MainApplication["Service"],
+  ) => Effect.Effect<void, MainApplicationError, R | Scope.Scope>;
 }
 
-const runRuntime = <R>(
+const runApplication = <R>(
   options: MainAppOptions<R>,
-  onAcquired: (runtime: MainRuntime["Service"] | null) => void,
+  onAcquired: (application: MainApplication["Service"] | null) => void,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
       const shutdown = yield* MainShutdown;
       return yield* Effect.raceFirst(
         Effect.gen(function* () {
-          const context = yield* Layer.build(options.runtimeLayer);
-          const runtime = Context.get(context, MainRuntime);
-          onAcquired(runtime);
+          const context = yield* Layer.build(options.applicationLayer);
+          const application = Context.get(context, MainApplication);
+          onAcquired(application);
           yield* Effect.addFinalizer(() =>
             Effect.sync(() => {
               onAcquired(null);
             }),
           );
-          yield* runtime.start;
-          for (const event of options.initialEvents) yield* runtime.handleBootstrapEvent(event);
-          if (options.onRuntimeReady) yield* options.onRuntimeReady(runtime);
+          for (const event of options.initialEvents) yield* application.handleBootstrapEvent(event);
+          if (options.onApplicationReady) yield* options.onApplicationReady(application);
           return yield* shutdown.awaitRequest;
         }),
         shutdown.awaitRequest,
@@ -52,9 +51,9 @@ export const program = <R>(options: MainAppOptions<R>) =>
     const config = yield* MainConfig;
     const shutdown = yield* MainShutdown;
     let quitAllowed = false;
-    let activeRuntime: MainRuntime["Service"] | null = null;
+    let activeApplication: MainApplication["Service"] | null = null;
     yield* electron.onActivate(
-      Effect.suspend(() => activeRuntime?.activate ?? Effect.void).pipe(Effect.orDie),
+      Effect.suspend(() => activeApplication?.activate ?? Effect.void).pipe(Effect.orDie),
     );
     yield* electron.onBeforeQuit(() => ({
       preventDefault: !quitAllowed,
@@ -76,17 +75,17 @@ export const program = <R>(options: MainAppOptions<R>) =>
       return;
     }
 
-    const runtimeExit = yield* Effect.exit(
-      runRuntime(options, (runtime) => {
-        activeRuntime = runtime;
+    const applicationExit = yield* Effect.exit(
+      runApplication(options, (application) => {
+        activeApplication = application;
       }),
     );
-    yield* shutdown.markRuntimeClosed(Exit.asVoid(runtimeExit));
-    if (Exit.isFailure(runtimeExit)) return yield* Effect.failCause(runtimeExit.cause);
+    yield* shutdown.markRuntimeClosed(Exit.asVoid(applicationExit));
+    if (Exit.isFailure(applicationExit)) return yield* Effect.failCause(applicationExit.cause);
     quitAllowed = true;
     if (
-      runtimeExit.value._tag === "AuthorityDriftRelaunch" ||
-      runtimeExit.value._tag === "StoreRestoreRelaunch"
+      applicationExit.value._tag === "AuthorityDriftRelaunch" ||
+      applicationExit.value._tag === "StoreRestoreRelaunch"
     ) {
       yield* electron.relaunch;
     }

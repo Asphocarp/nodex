@@ -611,8 +611,8 @@ import * as TerminalProjectAdmission from "../terminal-runtime/TerminalProjectAd
 import * as TerminalRuntimeLive from "../terminal-runtime/TerminalRuntimeLive";
 import * as WindowSessionCatalog from "../window-runtime/WindowSessionCatalog";
 import { WindowRuntime, live as windowRuntimeLive } from "../window-runtime/WindowRuntime";
+import { MainApplication, MainApplicationError } from "./MainApplication";
 import { MainConfig } from "./MainConfig";
-import { MainRuntime, MainRuntimeError } from "./MainRuntimeLive";
 import { MainShutdown } from "./MainShutdown";
 import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
@@ -624,17 +624,15 @@ import {
 import { live as windowShutdownLive } from "../window-runtime/WindowShutdown";
 
 const runtimeError = (operation: string, cause: unknown) =>
-  new MainRuntimeError({ operation, cause });
+  new MainApplicationError({ phase: "startup", operation, cause });
 
 const notificationLogger = getLogger({ component: "codex-thread-notification-runtime" });
 const applicationLogger = getLogger({ subsystem: "app" });
 
-type MainDesktopController = Omit<MainRuntime["Service"], "start">;
-
-/** Production Main runtime owner while feature Layers replace the remaining application Modules. */
+/** Fully acquired production desktop application. */
 export const live: Layer.Layer<
-  MainRuntime,
-  MainRuntimeError,
+  MainApplication,
+  MainApplicationError,
   | ElectronApp
   | ElectronDesktop
   | ElectronIpc
@@ -648,7 +646,7 @@ export const live: Layer.Layer<
   | ScopedCallbackRuntime
   | TerminalSessions
 > = Layer.effect(
-  MainRuntime,
+  MainApplication,
   Effect.gen(function* () {
     const electron = yield* ElectronApp;
     const desktop = yield* ElectronDesktop;
@@ -665,23 +663,9 @@ export const live: Layer.Layer<
     const runtimeScope = yield* Scope.Scope;
     const locale = yield* electron.locale;
     const userDataPath = yield* electron.userDataPath;
-    let controller: MainDesktopController | null = null;
-    let started = false;
 
-    const requireController = (
-      operation: string,
-    ): Effect.Effect<MainDesktopController, MainRuntimeError> =>
-      Effect.suspend(() =>
-        controller === null
-          ? Effect.fail(runtimeError(operation, new Error("Main runtime has not started")))
-          : Effect.succeed(controller),
-      );
-
-    const start = Effect.interruptible(
+    return yield* Effect.interruptible(
       Effect.gen(function* () {
-        if (started)
-          return yield* runtimeError("startup", new Error("Main runtime already started"));
-        started = true;
         const runtimeStateHome = `${config.nodexHome}/agent`;
         const windowRuntimeContext = yield* Layer.buildWithScope(
           windowRuntimeLive(userDataPath, config.platform as NodeJS.Platform),
@@ -3111,7 +3095,7 @@ export const live: Layer.Layer<
         });
         yield* appUpdates.markApplicationReady;
 
-        controller = {
+        const application = MainApplication.of({
           activate: Effect.sync(applicationWindows.focusLast),
           handleBootstrapEvent: (event) => {
             if (event.type === "open-url") {
@@ -3136,7 +3120,7 @@ export const live: Layer.Layer<
               Effect.asVoid,
             );
           },
-        };
+        });
         yield* Layer.buildWithScope(
           codexThreadNotificationRuntimeLive({
             events: codexApplicationEvents,
@@ -3182,21 +3166,13 @@ export const live: Layer.Layer<
             applicationLogger.info("Nodex Main Scope closing");
           }),
         );
+        return application;
       }),
     ).pipe(
       Effect.mapError((cause) =>
-        Schema.is(MainRuntimeError)(cause) ? cause : runtimeError("startup", cause),
+        Schema.is(MainApplicationError)(cause) ? cause : runtimeError("startup", cause),
       ),
     );
-
-    return MainRuntime.of({
-      activate: requireController("activate").pipe(Effect.flatMap((runtime) => runtime.activate)),
-      start,
-      handleBootstrapEvent: (event) =>
-        requireController("bootstrap-event").pipe(
-          Effect.flatMap((runtime) => runtime.handleBootstrapEvent(event)),
-        ),
-    });
   }),
 );
 

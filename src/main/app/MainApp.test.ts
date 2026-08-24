@@ -15,8 +15,8 @@ import {
 } from "../platform/electron/ElectronApp";
 import { program } from "./MainApp";
 import { testLayer as configLayer } from "./MainConfig";
-import { mainRuntimeTestLayer } from "./MainRuntimeLive.test-support";
-import { MainRuntimeError } from "./MainRuntimeLive";
+import { mainApplicationTestLayer } from "./MainApplication.test-support";
+import { MainApplicationError } from "./MainApplication";
 import { MainShutdown, layer as shutdownLayer } from "./MainShutdown";
 
 const fakeElectronLayer = (events: string[]) =>
@@ -53,8 +53,8 @@ it.effect("starts, replays bootstrap events, closes runtime, then quits", () =>
       { type: "open-url", url: "nodex://pages/one" },
       { type: "second-instance", argv: ["--new-window"] },
     ];
-    const runtimeLayer = mainRuntimeTestLayer({
-      start: Effect.sync(() => events.push("start")).pipe(
+    const applicationLayer = mainApplicationTestLayer({
+      acquire: Effect.sync(() => events.push("start")).pipe(
         Effect.andThen(Deferred.succeed(started, undefined)),
         Effect.asVoid,
       ),
@@ -65,7 +65,7 @@ it.effect("starts, replays bootstrap events, closes runtime, then quits", () =>
 
     const fiber = yield* program({
       initialEvents,
-      runtimeLayer,
+      applicationLayer,
       runStartupGate: Effect.sync(() => {
         events.push("gate");
         return "continue" as const;
@@ -96,12 +96,13 @@ it.effect("rolls back an acquired runtime and publishes the startup failure exit
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeError = new MainRuntimeError({
+    const applicationError = new MainApplicationError({
+      phase: "startup",
       operation: "startup",
       cause: new Error("failed startup"),
     });
-    const runtimeLayer = mainRuntimeTestLayer({
-      start: Effect.fail(runtimeError),
+    const applicationLayer = mainApplicationTestLayer({
+      acquire: Effect.fail(applicationError),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
     });
@@ -109,7 +110,7 @@ it.effect("rolls back an acquired runtime and publishes the startup failure exit
     const result = yield* Effect.exit(
       program({
         initialEvents: [],
-        runtimeLayer,
+        applicationLayer,
         runStartupGate: Effect.succeed("continue" as const),
       }).pipe(Effect.provide(context)),
     );
@@ -128,14 +129,14 @@ it.effect("relaunches only after an authority-drift shutdown has released the ru
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = mainRuntimeTestLayer({
-      start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
+    const applicationLayer = mainApplicationTestLayer({
+      acquire: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
     });
     const fiber = yield* program({
       initialEvents: [],
-      runtimeLayer,
+      applicationLayer,
       runStartupGate: Effect.succeed("continue" as const),
     }).pipe(Effect.provide(context), Effect.forkScoped);
     yield* Deferred.await(started);
@@ -154,14 +155,14 @@ it.effect("relaunches after a Store restore only once the Main Scope is released
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = mainRuntimeTestLayer({
-      start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
+    const applicationLayer = mainApplicationTestLayer({
+      acquire: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
     });
     const fiber = yield* program({
       initialEvents: [],
-      runtimeLayer,
+      applicationLayer,
       runStartupGate: Effect.succeed("continue" as const),
     }).pipe(Effect.provide(context), Effect.forkScoped);
     yield* Deferred.await(started);
@@ -177,6 +178,7 @@ it.effect("routes Electron activation through the scoped Main runtime", () =>
   Effect.gen(function* () {
     const events: string[] = [];
     const started = yield* Deferred.make<void>();
+    const ready = yield* Deferred.make<void>();
     const activate = yield* Ref.make<Effect.Effect<void> | null>(null);
     const electron = Layer.succeed(
       ElectronApp,
@@ -202,18 +204,19 @@ it.effect("routes Electron activation through the scoped Main runtime", () =>
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = mainRuntimeTestLayer({
+    const applicationLayer = mainApplicationTestLayer({
       activate: Effect.sync(() => events.push("activate")),
-      start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
+      acquire: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
     });
     const fiber = yield* program({
       initialEvents: [],
-      runtimeLayer,
+      applicationLayer,
       runStartupGate: Effect.succeed("continue" as const),
+      onApplicationReady: () => Deferred.succeed(ready, undefined).pipe(Effect.asVoid),
     }).pipe(Effect.provide(context), Effect.forkScoped);
-    yield* Deferred.await(started);
+    yield* Deferred.await(ready);
 
     const handler = yield* Ref.get(activate);
     if (handler) yield* handler;
@@ -257,14 +260,14 @@ it.effect("routes process termination signals through Main shutdown before quitt
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = mainRuntimeTestLayer({
-      start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
+    const applicationLayer = mainApplicationTestLayer({
+      acquire: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
     });
     const fiber = yield* program({
       initialEvents: [],
-      runtimeLayer,
+      applicationLayer,
       runStartupGate: Effect.succeed("continue" as const),
     }).pipe(Effect.provide(context), Effect.forkScoped);
     yield* Deferred.await(started);
@@ -311,8 +314,8 @@ it.effect("interrupts an in-flight runtime acquisition when a termination signal
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = mainRuntimeTestLayer({
-      start: Deferred.succeed(startEntered, undefined).pipe(
+    const applicationLayer = mainApplicationTestLayer({
+      acquire: Deferred.succeed(startEntered, undefined).pipe(
         Effect.andThen(Effect.never),
         Effect.onInterrupt(() => Deferred.succeed(startInterrupted, undefined)),
       ),
@@ -321,7 +324,7 @@ it.effect("interrupts an in-flight runtime acquisition when a termination signal
     });
     const fiber = yield* program({
       initialEvents: [],
-      runtimeLayer,
+      applicationLayer,
       runStartupGate: Effect.succeed("continue" as const),
     }).pipe(Effect.provide(context), Effect.forkScoped);
     yield* Deferred.await(startEntered);
@@ -370,8 +373,8 @@ it.effect(
       const foundationScope = yield* Scope.make();
       const context = yield* Layer.buildWithScope(foundation, foundationScope);
       const shutdown = Context.get(context, MainShutdown);
-      const runtimeLayer = mainRuntimeTestLayer({
-        start: Deferred.succeed(startEntered, undefined).pipe(
+      const applicationLayer = mainApplicationTestLayer({
+        acquire: Deferred.succeed(startEntered, undefined).pipe(
           Effect.andThen(Effect.never),
           Effect.onInterrupt(() => Deferred.succeed(startInterrupted, undefined)),
         ),
@@ -380,7 +383,7 @@ it.effect(
       });
       const fiber = yield* program({
         initialEvents: [],
-        runtimeLayer,
+        applicationLayer,
         runStartupGate: Effect.succeed("continue" as const),
       }).pipe(Effect.provide(context), Effect.forkScoped);
       yield* Deferred.await(startEntered);
@@ -429,16 +432,16 @@ it.effect("turns the first ready-state before-quit into the same scoped shutdown
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
-    const runtimeLayer = mainRuntimeTestLayer({
-      start: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
+    const applicationLayer = mainApplicationTestLayer({
+      acquire: Deferred.succeed(started, undefined).pipe(Effect.asVoid),
       handleBootstrapEvent: () => Effect.void,
       release: Effect.sync(() => events.push("release")),
     });
     const fiber = yield* program({
       initialEvents: [],
-      runtimeLayer,
+      applicationLayer,
       runStartupGate: Effect.succeed("continue" as const),
-      onRuntimeReady: () => Deferred.succeed(ready, undefined).pipe(Effect.asVoid),
+      onApplicationReady: () => Deferred.succeed(ready, undefined).pipe(Effect.asVoid),
     }).pipe(Effect.provide(context), Effect.forkScoped);
     yield* Deferred.await(ready);
     yield* Effect.yieldNow;

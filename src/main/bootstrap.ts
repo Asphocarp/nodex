@@ -17,7 +17,7 @@ import * as MainApp from "./app/MainApp";
 import * as MainDesktopRuntimeLive from "./app/MainDesktopRuntimeLive";
 import * as MainEntry from "./app/MainEntry";
 import * as MainFoundationLive from "./app/MainFoundationLive";
-import { MainRuntimeError } from "./app/MainRuntimeLive";
+import { MainApplicationError } from "./app/MainApplication";
 import { ScopedCallbackRuntime } from "./app/ScopedCallbackRuntime";
 import { assertRustDataAuthorityEnvironment } from "./data-authority";
 import { registerNodexPrivilegedSchemes } from "./privileged-schemes";
@@ -230,28 +230,34 @@ function launchMainApplication(): void {
     const callbacks = yield* ScopedCallbackRuntime;
     yield* MainApp.program({
       initialEvents: startupEvents,
-      runtimeLayer: MainDesktopRuntimeLive.productionLive,
+      applicationLayer: MainDesktopRuntimeLive.productionLive,
       runStartupGate: Effect.tryPromise({
         try: async () => {
           await mainSentryInitialization;
           assertRustDataAuthorityEnvironment(process.env);
           return await runMacApplicationsInstallerGate(createMacApplicationsInstallerEnvironment());
         },
-        catch: (cause) => new MainRuntimeError({ operation: "startup-gate", cause }),
+        catch: (cause) =>
+          new MainApplicationError({ phase: "pre-ready", operation: "startup-gate", cause }),
       }),
-      onRuntimeReady: (runtime) =>
+      onApplicationReady: (application) =>
         Effect.acquireRelease(
           Effect.tryPromise({
             try: () =>
               runtimeQueue.attachController({
                 handleOpenUrl: (url) =>
-                  callbacks.runPromise(runtime.handleBootstrapEvent({ type: "open-url", url })),
+                  callbacks.runPromise(application.handleBootstrapEvent({ type: "open-url", url })),
                 handleSecondInstance: (argv) =>
                   callbacks.runPromise(
-                    runtime.handleBootstrapEvent({ type: "second-instance", argv }),
+                    application.handleBootstrapEvent({ type: "second-instance", argv }),
                   ),
               }),
-            catch: (cause) => new MainRuntimeError({ operation: "bootstrap-handoff", cause }),
+            catch: (cause) =>
+              new MainApplicationError({
+                phase: "startup",
+                operation: "bootstrap-handoff",
+                cause,
+              }),
           }),
           (release) => Effect.sync(release),
         ).pipe(

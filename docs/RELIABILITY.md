@@ -174,6 +174,9 @@ early-event buffer. It does not acquire an application service. After readiness,
 Profile-scoped Main resource graph and builds the Core, Codex, Window, IPC, Browser, Terminal,
 worker, scheduler, updater, and notification Layers inside it. A required acquisition failure
 returns its Cause and rolls back every resource already acquired by that same Scope.
+Layer acquisition itself is the application readiness boundary: the acquired `MainApplication`
+contains only operations that are valid after startup, with no separate `start` method or
+partially initialized controller that can escape the Scope.
 
 `MainShutdown` is the first-wins quit or relaunch decision authority. Normal quit, process signals,
 startup rollback, Store restore, and Core authority drift all close the same Profile Scope before
