@@ -180,12 +180,10 @@ export function PageEditorSessionSurface({
         return (
           <PageTitleProjectionPublisher
             identity={pageTitleIdentity}
-            publisherId={surface.clientSessionId}
-            authorityVersion={{
-              generation: descriptor.generation,
-              headSeq: descriptor.headSeq,
-            }}
+            publisherId={`${session.key}:${surface.clientSessionId}`}
             title={surface.title}
+            runtime={session.runtime}
+            retentionOwner={session}
           >
             {content}
           </PageTitleProjectionPublisher>

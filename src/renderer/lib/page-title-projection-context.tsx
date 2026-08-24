@@ -20,6 +20,37 @@ export interface PageTitleResourceIdentity {
   readonly pageId: string;
 }
 
+export interface PageTitleDocumentStatusSource {
+  readonly getStatus: () => {
+    readonly phase:
+      | "idle"
+      | "connecting"
+      | "ready"
+      | "saving"
+      | "offline"
+      | "error"
+      | "reset-required"
+      | "closing"
+      | "closed";
+    readonly ready: boolean;
+    readonly reloadRequired: boolean;
+    readonly descriptor: { readonly generation: number };
+    readonly provider: {
+      readonly generation?: number;
+      readonly headSeq: number;
+      readonly pendingUpdateCount: number;
+    };
+  };
+  readonly subscribe: (listener: () => void) => () => void;
+}
+
+export interface PageTitleProjectionRetentionOwner {
+  getOrCreateRetainedResource<Resource extends { dispose(): void }>(
+    key: string,
+    create: () => Resource,
+  ): Resource;
+}
+
 interface PageTitleProjectionContextValue {
   readonly currentLibraryId: string | null;
   readonly store: PageTitleProjectionStore;
@@ -93,50 +124,157 @@ export function usePublishCanonicalPageTitle(
 export function PageTitleProjectionPublisher({
   identity,
   publisherId,
-  authorityVersion,
   title,
+  runtime,
+  retentionOwner,
   children,
 }: {
   readonly identity: PageTitleResourceIdentity;
   readonly publisherId: string;
-  readonly authorityVersion: PageTitleAuthorityVersion;
   readonly title: Y.Text;
+  readonly runtime: PageTitleDocumentStatusSource;
+  readonly retentionOwner?: PageTitleProjectionRetentionOwner;
   readonly children: ReactNode;
 }) {
   const context = useContext(PageTitleProjectionContext);
   const store = context?.store ?? null;
   const publisherLeaseId = useId();
-  const authorityGeneration = authorityVersion.generation;
-  const authorityHeadSeq = authorityVersion.headSeq;
 
   useLayoutEffect(() => {
     if (!store) return;
     const resourceKey = makePageTitleResourceKey(identity.libraryId, identity.pageId);
-    const leasedPublisherId = `${publisherId}:${publisherLeaseId}`;
-    const publish = () => {
-      store.publishLive(resourceKey, leasedPublisherId, title.toString(), {
-        generation: authorityGeneration,
-        headSeq: authorityHeadSeq,
+    const leasedPublisherId = retentionOwner
+      ? `${publisherId}:retained`
+      : `${publisherId}:${publisherLeaseId}`;
+    const create = () =>
+      createPageTitleProjectionPublisher({
+        store,
+        resourceKey,
+        publisherId: leasedPublisherId,
+        title,
+        runtime,
       });
-    };
-    publish();
-    title.observe(publish);
-    return () => {
-      title.unobserve(publish);
-      store.releasePublisher(resourceKey, leasedPublisherId);
-    };
+    if (!retentionOwner) return create().dispose;
+
+    retentionOwner.getOrCreateRetainedResource(`page-title-projection:${resourceKey}`, create);
+    return undefined;
   }, [
-    authorityGeneration,
-    authorityHeadSeq,
     identity.libraryId,
     identity.pageId,
     publisherId,
     publisherLeaseId,
+    retentionOwner,
+    runtime,
     store,
     title,
   ]);
 
   return children;
+}
+
+function createPageTitleProjectionPublisher({
+  store,
+  resourceKey,
+  publisherId,
+  title,
+  runtime,
+}: {
+  readonly store: PageTitleProjectionStore;
+  readonly resourceKey: string;
+  readonly publisherId: string;
+  readonly title: Y.Text;
+  readonly runtime: PageTitleDocumentStatusSource;
+}): { readonly dispose: () => void } {
+  let disposed = false;
+  let retiring = false;
+  let observedReadyState = false;
+  let awaitingRuntimeStatus = false;
+  let unsubscribeRuntime = (): void => undefined;
+
+  const finish = (): void => {
+    if (disposed) return;
+    disposed = true;
+    unsubscribeRuntime();
+    title.unobserve(handleObservedTitle);
+    store.releasePublisher(resourceKey, publisherId);
+  };
+
+  function publishObservedTitle(): void {
+    if (disposed) return;
+    const status = runtime.getStatus();
+    store.publishLive(
+      resourceKey,
+      publisherId,
+      title.toString(),
+      status.provider.generation ?? status.descriptor.generation,
+    );
+  }
+
+  function handleObservedTitle(): void {
+    // Y.Text observers run before the Y.Doc update handler queues persistence.
+    // Only a later runtime status may acknowledge this newly observed value.
+    awaitingRuntimeStatus = true;
+    publishObservedTitle();
+  }
+
+  const publishDurableAcknowledgement = (): void => {
+    if (disposed) return;
+    const status = runtime.getStatus();
+    if (status.ready) observedReadyState = true;
+    const generation = status.provider.generation ?? status.descriptor.generation;
+    const canAcknowledge =
+      status.ready || (retiring && observedReadyState && status.phase === "closing");
+    if (
+      !canAcknowledge ||
+      status.reloadRequired ||
+      status.provider.pendingUpdateCount !== 0 ||
+      !Number.isSafeInteger(generation) ||
+      generation < 1 ||
+      !Number.isSafeInteger(status.provider.headSeq) ||
+      status.provider.headSeq < 0
+    ) {
+      return;
+    }
+    store.acknowledgeLive(resourceKey, publisherId, title.toString(), {
+      generation,
+      headSeq: status.provider.headSeq,
+    });
+  };
+
+  const settleRetirement = (): void => {
+    if (!retiring || disposed || awaitingRuntimeStatus) return;
+    const status = runtime.getStatus();
+    if (
+      status.provider.pendingUpdateCount === 0 ||
+      status.phase === "closed" ||
+      status.phase === "error" ||
+      status.phase === "reset-required"
+    ) {
+      finish();
+    }
+  };
+
+  const handleRuntimeStatus = (): void => {
+    awaitingRuntimeStatus = false;
+    publishObservedTitle();
+    publishDurableAcknowledgement();
+    settleRetirement();
+  };
+
+  publishObservedTitle();
+  title.observe(handleObservedTitle);
+  unsubscribeRuntime = runtime.subscribe(handleRuntimeStatus);
+  handleRuntimeStatus();
+
+  return {
+    dispose: () => {
+      if (disposed || retiring) return;
+      retiring = true;
+      if (awaitingRuntimeStatus) return;
+      publishDurableAcknowledgement();
+      settleRetirement();
+    },
+  };
 }
 
 const presentFallbackTitle = (title: string): string => title.trim() || "Untitled";

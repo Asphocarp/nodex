@@ -1155,12 +1155,48 @@ vi.mock(".././workbench-page-stage", () => ({
       return document;
     });
     const title = titleDocument.getText("title");
+    const [titleRuntime] = useState(() => {
+      let phase: "ready" | "saving" | "closed" = "ready";
+      let headSeq = 1;
+      let pendingUpdateCount = 0;
+      const listeners = new Set<() => void>();
+      const emit = () => listeners.forEach((listener) => listener());
+      return {
+        getStatus: () => ({
+          phase,
+          ready: phase !== "closed",
+          reloadRequired: false,
+          descriptor: { generation: 1 },
+          provider: { generation: 1, headSeq, pendingUpdateCount },
+        }),
+        subscribe: (listener: () => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        commitUpdate: () => {
+          phase = "saving";
+          pendingUpdateCount = 1;
+          emit();
+          headSeq += 1;
+          phase = "ready";
+          pendingUpdateCount = 0;
+          emit();
+        },
+        close: () => {
+          phase = "closed";
+          pendingUpdateCount = 0;
+          emit();
+          listeners.clear();
+        },
+      };
+    });
     const [publishingTitle, setPublishingTitle] = useState(true);
     const publishTitle = (nextTitle: string) => {
       titleDocument.transact(() => {
         title.delete(0, title.length);
         title.insert(0, nextTitle);
       });
+      titleRuntime.commitUpdate();
       setPublishingTitle(true);
     };
     const exposedProps = {
@@ -1192,6 +1228,7 @@ vi.mock(".././workbench-page-stage", () => ({
         [pageId]: (state.__mockPageStageMountsByPageId?.[pageId] ?? 0) + 1,
       };
       return () => {
+        titleRuntime.close();
         titleDocument.destroy();
         state.__mockPageStageUnmounts = (state.__mockPageStageUnmounts ?? 0) + 1;
         state.__mockPageStageUnmountsByPageId = {
@@ -1199,7 +1236,7 @@ vi.mock(".././workbench-page-stage", () => ({
           [pageId]: (state.__mockPageStageUnmountsByPageId?.[pageId] ?? 0) + 1,
         };
       };
-    }, [pageId, titleDocument]);
+    }, [pageId, titleDocument, titleRuntime]);
     const content = createElement(
       "div",
       { "data-page-stage": "true" },
@@ -1281,20 +1318,12 @@ vi.mock(".././workbench-page-stage", () => ({
     );
     const identity = props.pageTitleIdentity as PageTitleResourceIdentity | undefined;
     if (!identity || !publishingTitle) return content;
-    const documentAuthority = props.documentAuthority as
-      | {
-          descriptor?: { generation?: number; headSeq?: number };
-        }
-      | undefined;
     return (
       <PageTitleProjectionPublisher
         identity={identity}
         publisherId={String(props.editorSessionKey ?? pageId)}
-        authorityVersion={{
-          generation: documentAuthority?.descriptor?.generation ?? 1,
-          headSeq: documentAuthority?.descriptor?.headSeq ?? 1,
-        }}
         title={title}
+        runtime={titleRuntime}
       >
         {content}
       </PageTitleProjectionPublisher>
