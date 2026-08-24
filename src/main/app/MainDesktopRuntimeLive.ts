@@ -386,14 +386,8 @@ import * as WorkspaceFileIpc from "../ipc/handlers/WorkspaceFileIpc";
 import * as CodexWorkspaceIpc from "../ipc/handlers/CodexWorkspaceIpc";
 import * as DictationIpc from "../ipc/handlers/DictationIpc";
 import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
-import {
-  RemoteHostedPipRuntime,
-  live as remoteHostedPipRuntimeLive,
-} from "../host-runtime/RemoteHostedPipRuntime";
-import {
-  ComputerUseSettingsRuntime,
-  live as computerUseSettingsRuntimeLive,
-} from "../host-runtime/ComputerUseSettingsRuntime";
+import { RemoteHostedPipRuntime } from "../host-runtime/RemoteHostedPipRuntime";
+import { ComputerUseSettingsRuntime } from "../host-runtime/ComputerUseSettingsRuntime";
 import { GitWorkerRuntime } from "../host-runtime/GitWorkerRuntime";
 import { GitActions } from "../git-application/GitActions";
 import {
@@ -415,22 +409,13 @@ import { BrowserApplication } from "../browser-application/BrowserApplication";
 import { BrowserUseRuntime } from "../host-runtime/BrowserUseRuntime";
 import { BrowserProfileRuntime } from "../host-runtime/BrowserProfileRuntime";
 import { BrowserPresentationRuntime } from "../host-runtime/BrowserPresentationRuntime";
-import { AppUpdateRuntime, live as appUpdateRuntimeLive } from "../host-runtime/AppUpdateRuntime";
+import { AppUpdateRuntime } from "../host-runtime/AppUpdateRuntime";
 import * as AppProtocolRuntime from "../host-runtime/AppProtocolRuntime";
 import * as SessionPolicyRuntime from "../host-runtime/SessionPolicyRuntime";
-import {
-  DesktopNotificationRuntime,
-  live as desktopNotificationRuntimeLive,
-} from "../host-runtime/DesktopNotificationRuntime";
-import {
-  RendererClientRuntime,
-  live as rendererClientRuntimeLive,
-} from "../host-runtime/RendererClientRuntime";
-import { DictationRuntime, live as dictationRuntimeLive } from "../host-runtime/DictationRuntime";
-import {
-  ComposerAppshotRuntime,
-  live as composerAppshotRuntimeLive,
-} from "../host-runtime/ComposerAppshotRuntime";
+import { DesktopNotificationRuntime } from "../host-runtime/DesktopNotificationRuntime";
+import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
+import { DictationRuntime } from "../host-runtime/DictationRuntime";
+import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntime";
 import {
   CanvasPresenceRuntime,
@@ -450,20 +435,10 @@ import {
   StoreAdministrationSchedulerRuntime,
   live as storeAdministrationSchedulerRuntimeLive,
 } from "../host-runtime/StoreAdministrationSchedulerRuntime";
-import {
-  McpAppSandboxRuntime,
-  live as mcpAppSandboxRuntimeLive,
-} from "../host-runtime/McpAppSandboxRuntime";
 import { DeepLinkRuntime, live as deepLinkRuntimeLive } from "../host-runtime/DeepLinkRuntime";
 import { ApplicationInitializationRuntime } from "../host-runtime/ApplicationInitializationRuntime";
-import {
-  ApplicationMenuRuntime,
-  live as applicationMenuRuntimeLive,
-} from "../host-runtime/ApplicationMenuRuntime";
-import {
-  ApplicationHostRuntime,
-  live as applicationHostRuntimeLive,
-} from "../host-runtime/ApplicationHostRuntime";
+import { ApplicationMenuRuntime } from "../host-runtime/ApplicationMenuRuntime";
+import { ApplicationHostRuntime } from "../host-runtime/ApplicationHostRuntime";
 import {
   InitialProjectBootstrapRuntime,
   live as initialProjectBootstrapRuntimeLive,
@@ -472,7 +447,6 @@ import { resolveInitialProjectProjectsDirectory } from "../initial-project/initi
 import { resolveInitialProjectJournalPath } from "../initial-project/initial-project-journal-store";
 import {
   getBackupSettings,
-  getCommandKeymapState,
   getHistorySettings,
   getThreadNotificationSettings,
   getWindowRestoreSettings,
@@ -486,7 +460,6 @@ import { ElectronIpc, ElectronSyncIpc } from "../platform/electron/ElectronIpc";
 import * as ElectronNet from "../platform/electron/ElectronNet";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
-import { ElectronPrivacy, live as electronPrivacyLive } from "../platform/electron/ElectronPrivacy";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import * as TerminalProjectAdmission from "../terminal-runtime/TerminalProjectAdmission";
 import * as TerminalRuntimeLive from "../terminal-runtime/TerminalRuntimeLive";
@@ -497,15 +470,11 @@ import { MainConfig } from "./MainConfig";
 import { MainShutdown } from "./MainShutdown";
 import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
-import { APP_RENDERER_URL } from "../../shared/app-renderer-policy";
-import {
-  ApplicationWindowRuntime,
-  live as applicationWindowRuntimeLive,
-} from "../window-runtime/ApplicationWindowRuntime";
-import { live as windowShutdownLive } from "../window-runtime/WindowShutdown";
+import { ApplicationWindowRuntime } from "../window-runtime/ApplicationWindowRuntime";
 import * as CodexApplicationLive from "./CodexApplicationLive";
 import * as CoreApplicationLive from "./CoreApplicationLive";
 import * as HostApplicationLive from "./HostApplicationLive";
+import * as ApplicationStateLive from "./ApplicationStateLive";
 import * as WindowApplicationLive from "./WindowApplicationLive";
 
 const runtimeError = (operation: string, cause: unknown) =>
@@ -533,7 +502,6 @@ export const live: Layer.Layer<
 > = Layer.effect(
   MainApplication,
   Effect.gen(function* () {
-    const electron = yield* ElectronApp;
     const desktop = yield* ElectronDesktop;
     const ipc = yield* ElectronIpc;
     const syncIpc = yield* ElectronSyncIpc;
@@ -545,16 +513,19 @@ export const live: Layer.Layer<
     const terminals = yield* TerminalSessions;
     const fileSystem = yield* FileSystem.FileSystem;
     const runtimeScope = yield* Scope.Scope;
-    const userDataPath = yield* electron.userDataPath;
 
     return yield* Effect.interruptible(
       Effect.gen(function* () {
         const applicationKernelContext = yield* Layer.buildWithScope(
-          HostApplicationLive.live.pipe(
+          WindowApplicationLive.live.pipe(
             Layer.provideMerge(
-              CodexApplicationLive.live.pipe(
+              HostApplicationLive.live.pipe(
                 Layer.provideMerge(
-                  CoreApplicationLive.live.pipe(Layer.provideMerge(WindowApplicationLive.live)),
+                  CodexApplicationLive.live.pipe(
+                    Layer.provideMerge(
+                      CoreApplicationLive.live.pipe(Layer.provideMerge(ApplicationStateLive.live)),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -645,20 +616,30 @@ export const live: Layer.Layer<
         );
         const executionHosts = Context.get(applicationKernelContext, ExecutionHostRuntime);
         const managedWorktrees = Context.get(applicationKernelContext, ManagedWorktreeRuntime);
-        const appUpdateContext = yield* Layer.buildWithScope(
-          appUpdateRuntimeLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronApp, electron),
-                Layer.succeed(ElectronWindowHost, windowHost),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
-              ),
-            ),
-          ),
-          runtimeScope,
+        const appUpdates = Context.get(applicationKernelContext, AppUpdateRuntime);
+        const desktopNotifications = Context.get(
+          applicationKernelContext,
+          DesktopNotificationRuntime,
         );
-        const appUpdates = Context.get(appUpdateContext, AppUpdateRuntime);
+        const rendererClients = Context.get(applicationKernelContext, RendererClientRuntime);
+        const dictation = Context.get(applicationKernelContext, DictationRuntime);
+        const databaseNotifications = Context.get(
+          applicationKernelContext,
+          DatabaseNotifierRuntime.DatabaseNotifierRuntime,
+        );
+        const remoteHostedPip = Context.get(applicationKernelContext, RemoteHostedPipRuntime);
+        const computerUseSettings = Context.get(
+          applicationKernelContext,
+          ComputerUseSettingsRuntime,
+        );
+        const applicationHost = Context.get(applicationKernelContext, ApplicationHostRuntime);
+        const composerAppshots = Context.get(applicationKernelContext, ComposerAppshotRuntime);
+        const applicationWindows = Context.get(applicationKernelContext, ApplicationWindowRuntime);
+        const applicationMenus = Context.get(applicationKernelContext, ApplicationMenuRuntime);
+        const windowSessions = Context.get(
+          applicationKernelContext,
+          WindowSessionCatalog.WindowSessionCatalog,
+        );
         yield* Layer.buildWithScope(
           AppUpdateIpc.live.pipe(
             Layer.provide(
@@ -693,68 +674,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const mcpAppSandboxContext = yield* Layer.buildWithScope(
-          mcpAppSandboxRuntimeLive({
-            allowLocalDevelopment: !config.isPackaged,
-            guestPreloadPath: `${__dirname}/../preload/mcp-app-sandbox-guest.js`,
-            logger: getLogger({ subsystem: "mcp-app-sandbox" }),
-            platform: config.platform as NodeJS.Platform,
-          }),
-          runtimeScope,
-        );
-        const mcpAppSandbox = Context.get(mcpAppSandboxContext, McpAppSandboxRuntime);
-        const desktopNotificationContext = yield* Layer.buildWithScope(
-          desktopNotificationRuntimeLive.pipe(Layer.provide(Layer.succeed(MainConfig, config))),
-          runtimeScope,
-        );
-        const desktopNotifications = Context.get(
-          desktopNotificationContext,
-          DesktopNotificationRuntime,
-        );
-        const rendererClientContext = yield* Layer.buildWithScope(
-          rendererClientRuntimeLive(),
-          runtimeScope,
-        );
-        const rendererClients = Context.get(rendererClientContext, RendererClientRuntime);
-        const electronPrivacyContext = yield* Layer.buildWithScope(
-          electronPrivacyLive,
-          runtimeScope,
-        );
-        const electronPrivacy = Context.get(electronPrivacyContext, ElectronPrivacy);
-        const dictationContext = yield* Layer.buildWithScope(
-          dictationRuntimeLive({
-            preloadPath: `${__dirname}/../preload/global-dictation.js`,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronPrivacy, electronPrivacy),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(RendererClientRuntime, rendererClients),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const dictation = Context.get(dictationContext, DictationRuntime);
-        const databaseNotifierContext = yield* Layer.buildWithScope(
-          DatabaseNotifierRuntime.live.pipe(Layer.provide(Layer.succeed(WindowRuntime, windows))),
-          runtimeScope,
-        );
-        const databaseNotifications = Context.get(
-          databaseNotifierContext,
-          DatabaseNotifierRuntime.DatabaseNotifierRuntime,
-        );
-        const remoteHostedPipContext = yield* Layer.buildWithScope(
-          remoteHostedPipRuntimeLive({
-            browserSidebarEvents: browser.events,
-            isThreadSurfacePresented: browser.projection.hasPresentedSurfaceForThread,
-            platform: config.platform as NodeJS.Platform,
-            preferenceFilePath: `${userDataPath}/remote-hosted-pip-preferences.json`,
-          }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
-          runtimeScope,
-        );
-        const remoteHostedPip = Context.get(remoteHostedPipContext, RemoteHostedPipRuntime);
         yield* Layer.buildWithScope(
           RemoteHostedPipIpc.live.pipe(
             Layer.provide(
@@ -766,25 +685,6 @@ export const live: Layer.Layer<
             ),
           ),
           runtimeScope,
-        );
-        const computerUseSettingsContext = yield* Layer.buildWithScope(
-          computerUseSettingsRuntimeLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
-                Layer.succeed(
-                  RemoteHostedPipRuntime,
-                  Context.get(remoteHostedPipContext, RemoteHostedPipRuntime),
-                ),
-                Layer.succeed(MainConfig, config),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const computerUseSettings = Context.get(
-          computerUseSettingsContext,
-          ComputerUseSettingsRuntime,
         );
         yield* Layer.buildWithScope(
           ComputerUseSettingsIpc.live.pipe(
@@ -881,11 +781,6 @@ export const live: Layer.Layer<
           }),
           Effect.forkIn(runtimeScope),
         );
-        const applicationHostContext = yield* Layer.buildWithScope(
-          applicationHostRuntimeLive().pipe(Layer.provide(Layer.succeed(MainConfig, config))),
-          runtimeScope,
-        );
-        const applicationHost = Context.get(applicationHostContext, ApplicationHostRuntime);
         yield* Layer.buildWithScope(
           ApplicationSyncIpc.live.pipe(
             Layer.provide(
@@ -924,11 +819,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const composerAppshotContext = yield* Layer.buildWithScope(
-          composerAppshotRuntimeLive.pipe(Layer.provide(Layer.succeed(MainConfig, config))),
-          runtimeScope,
-        );
-        const composerAppshots = Context.get(composerAppshotContext, ComposerAppshotRuntime);
         yield* Layer.buildWithScope(
           ComposerAppshotIpc.live.pipe(
             Layer.provide(
@@ -942,33 +832,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const applicationWindowContext = yield* Layer.buildWithScope(
-          applicationWindowRuntimeLive({
-            appUpdates,
-            browser: browser.guest,
-            rendererConversations: rendererConversationCoordinator,
-            desktopNotifications,
-            iconPath: config.isPackaged
-              ? `${config.resourcesPath}/icon.png`
-              : `${config.projectRootPath}/resources/icon.png`,
-            mcpAppSandbox,
-            platform: config.platform as NodeJS.Platform,
-            preloadPath: `${__dirname}/../preload/index.js`,
-            rendererClients,
-            rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,
-            windows,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ComposerAppshotRuntime, composerAppshots),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
-                windowShutdownLive(),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const applicationWindows = Context.get(applicationWindowContext, ApplicationWindowRuntime);
         yield* Layer.buildWithScope(
           ApplicationWindowIpc.live().pipe(
             Layer.provide(
@@ -982,25 +845,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const applicationMenuContext = yield* Layer.buildWithScope(
-          applicationMenuRuntimeLive({
-            checkForUpdates: appUpdates.check,
-            environmentPath: config.environmentPath ?? undefined,
-            initialCommandKeymap: getCommandKeymapState(),
-            isPackaged: config.isPackaged,
-            platform: config.platform as NodeJS.Platform,
-            requestNewWindow: applicationWindows.requestNew,
-            resourcesPath: config.resourcesPath,
-            showMessage: desktop.showMessage,
-            windows,
-          }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
-          runtimeScope,
-        );
-        const applicationMenus = Context.get(applicationMenuContext, ApplicationMenuRuntime);
-        const windowSessions = WindowSessionCatalog.WindowSessionCatalog.of({
-          resolveForWebContents: (webContentsId) =>
-            Effect.sync(() => windows.resolveSessionId(webContentsId)),
-        });
         yield* Layer.buildWithScope(
           BrowserProfileIpc.live.pipe(
             Layer.provide(
