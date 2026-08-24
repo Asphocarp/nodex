@@ -64,6 +64,12 @@ schedulers, cursors, and logical subscriptions survive the physical generation.
 Repeated failures produce one app-wide unavailable state and a bounded circuit,
 not many feature-local retry loops.
 
+The reliable Core event tail advances its cursor only after canonical delivery and checkpoint
+success. A retryable delivery or bounded callback-ingress overflow closes that physical stream and
+reopens from the last durable cursor. A non-retryable canonical delivery failure atomically marks
+Core authority unavailable, fences every later Core operation with the same typed failure, and
+requests `RuntimeFatal`; `connection = failed` is therefore never a mutation-capable half-state.
+
 Core, rather than Electron, owns request admission and completion. Interactive
 work retains reserved execution capacity while background and maintenance work
 use bounded subordinate lanes. One absolute request deadline and cancellation

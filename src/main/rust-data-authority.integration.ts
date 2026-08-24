@@ -127,6 +127,7 @@ const withFinalDataApplications = <A, E>(
           state,
           retry: Effect.void,
           requestRelaunch: Effect.void,
+          failApplication: () => Effect.succeed(true),
         });
         const authorityLayer = Layer.succeed(CoreAuthority, authority);
         const coreContext = yield* Layer.build(coreModulesLive.pipe(Layer.provide(accessLayer)));

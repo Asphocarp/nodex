@@ -2980,7 +2980,10 @@ export const live: Layer.Layer<
               Layer.provide(
                 Layer.merge(
                   Layer.succeed(CoreEventDelivery, coreEventDelivery),
-                  Layer.succeed(CoreSessionAccess, access),
+                  Layer.merge(
+                    Layer.succeed(CoreSessionAccess, access),
+                    Layer.succeed(CoreAuthority, authority),
+                  ),
                 ),
               ),
             ),

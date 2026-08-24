@@ -61,6 +61,8 @@ export class CoreAuthority extends Context.Service<
     readonly state: SubscriptionRef.SubscriptionRef<CoreAuthorityState>;
     readonly retry: Effect.Effect<void, CoreRuntimeError>;
     readonly requestRelaunch: Effect.Effect<void>;
+    /** Permanently fences Core mutations after canonical application truth is lost. */
+    readonly failApplication: (error: CoreRuntimeError) => Effect.Effect<boolean>;
   }
 >()("nodex/main/core-runtime/CoreAuthority") {}
 
@@ -119,6 +121,7 @@ export const live = (
       const recoveryLock = yield* Semaphore.make(1);
       const recoveryAttempt = yield* Ref.make(0);
       const closed = yield* Ref.make(false);
+      const fatalFailure = yield* Ref.make<CoreRuntimeError | null>(null);
       const activeRecovery = yield* Ref.make<
         Deferred.Deferred<AuthoritySession, CoreRuntimeError> | undefined
       >(undefined);
@@ -130,6 +133,8 @@ export const live = (
 
       const assertOpen = Effect.fn("CoreAuthority.assertOpen")(function* () {
         if (!(yield* Ref.get(closed))) return;
+        const fatal = yield* Ref.get(fatalFailure);
+        if (fatal) return yield* fatal;
         return yield* coreRuntimeError({
           operation: "authority",
           reason: "closed",
@@ -245,6 +250,19 @@ export const live = (
       });
 
       const retry = runRecovery(initial, true).pipe(Effect.asVoid);
+      const failApplication = Effect.fn("CoreAuthority.failApplication")(
+        (error: CoreRuntimeError) =>
+          Ref.modify(closed, (current) => [!current, true] as const).pipe(
+            Effect.flatMap((claimed) => {
+              if (!claimed) return Effect.succeed(false);
+              return Ref.set(fatalFailure, error).pipe(
+                Effect.andThen(SubscriptionRef.set(state, { kind: "unavailable", error })),
+                Effect.andThen(shutdown.request({ _tag: "RuntimeFatal" })),
+                Effect.as(true),
+              );
+            }),
+          ),
+      );
       const handshake = Effect.gen(function* () {
         yield* assertOpen();
         return (yield* Ref.get(session)).client.handshake;
@@ -267,6 +285,7 @@ export const live = (
           state,
           retry,
           requestRelaunch,
+          failApplication,
         }),
       ).pipe(Context.add(CoreSessionAccess, CoreSessionAccess.of({ use, handshake })));
     }),

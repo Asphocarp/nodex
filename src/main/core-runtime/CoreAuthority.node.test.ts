@@ -14,6 +14,7 @@ import { createFakeCoreHandshake, FakeCoreClient } from "../core-client/testing/
 import { CoreTransportError } from "../core-client/uds-http";
 import { MainShutdown, layer as shutdownLayer } from "../app/MainShutdown";
 import { CoreAuthority, CoreSessionAccess, live as authorityLive } from "./CoreAuthority";
+import { coreRuntimeError } from "./CoreRuntimeError";
 import type { CoreTransportSession } from "./CoreTransport";
 import { fromLaunch } from "./CoreTransport";
 
@@ -225,5 +226,41 @@ it.effect("releases the current authority generation when its Scope closes", () 
 
     yield* Scope.close(scope, Exit.void);
     assert.strictEqual(releases, 1);
+  }),
+);
+
+it.effect("fences every later Core operation after canonical application failure", () =>
+  Effect.gen(function* () {
+    const client = generationClient({
+      generation: 1,
+      read: () => Promise.resolve(snapshot(1)),
+    });
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(
+      buildAuthority(() => Promise.resolve(session(client))),
+      scope,
+    );
+    const authority = Context.get(context, CoreAuthority);
+    const access = Context.get(context, CoreSessionAccess);
+    const shutdown = Context.get(context, MainShutdown);
+    const failure = coreRuntimeError({
+      operation: "events.deliver",
+      reason: "delivery",
+      retryable: false,
+    });
+
+    assert.isTrue(yield* authority.failApplication(failure));
+    assert.isFalse(yield* authority.failApplication(failure));
+    assert.deepEqual(yield* SubscriptionRef.get(authority.state), {
+      kind: "unavailable",
+      error: failure,
+    });
+    assert.deepEqual(yield* shutdown.awaitRequest, { _tag: "RuntimeFatal" });
+    const later = yield* access
+      .use("library.read", (current) => current.libraryRead({ kind: "metadata" }))
+      .pipe(Effect.result);
+    assert.isTrue(Result.isFailure(later));
+    if (Result.isFailure(later)) assert.strictEqual(later.failure, failure);
+    yield* Scope.close(scope, Exit.void);
   }),
 );

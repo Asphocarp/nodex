@@ -4,11 +4,9 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
-import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
-import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type {
   CoreEventEnvelope,
@@ -16,7 +14,7 @@ import type {
   CoreEventSubscription,
   CoreStreamCheckpoint,
 } from "../core-client/types";
-import { CoreSessionAccess } from "./CoreAuthority";
+import { CoreAuthority, CoreSessionAccess } from "./CoreAuthority";
 import {
   classifyCoreOperationFailure,
   coreRuntimeError,
@@ -45,7 +43,6 @@ export type CoreEventConnectionState =
   | { readonly kind: "stopped" };
 
 export interface CoreEventHubService {
-  readonly events: Stream.Stream<CoreEventEnvelope, CoreRuntimeError>;
   readonly connection: SubscriptionRef.SubscriptionRef<CoreEventConnectionState>;
   readonly cursor: Effect.Effect<number>;
 }
@@ -59,6 +56,7 @@ export interface CoreEventHubOptions {
   readonly retryBase?: Duration.Input;
   readonly retryCap?: Duration.Input;
   readonly jitter?: boolean;
+  readonly inboundCapacity?: number;
 }
 
 type InboundEvent =
@@ -84,11 +82,16 @@ const isOpeningFailure = (error: CoreRuntimeError): boolean =>
 
 export const live = (
   options: CoreEventHubOptions,
-): Layer.Layer<CoreEventHub, CoreRuntimeError, CoreSessionAccess | CoreEventDelivery> =>
+): Layer.Layer<
+  CoreEventHub,
+  CoreRuntimeError,
+  CoreAuthority | CoreSessionAccess | CoreEventDelivery
+> =>
   Layer.effect(
     CoreEventHub,
     Effect.gen(function* () {
       const access = yield* CoreSessionAccess;
+      const authority = yield* CoreAuthority;
       const delivery = yield* CoreEventDelivery;
       const handshake = yield* access.handshake;
       const cursor = yield* Ref.make(options.initialAfter ?? handshake.commit_head);
@@ -96,23 +99,18 @@ export const live = (
         kind: "connecting",
         attempt: 1,
       });
-      const observations = yield* PubSub.unbounded<CoreEventEnvelope>();
-      const terminalFailure = yield* Deferred.make<never, CoreRuntimeError>();
-      const callbackRuntime = yield* FiberSet.makeRuntime<never, boolean, never>();
+      const inboundCapacity = Math.max(1, Math.floor(options.inboundCapacity ?? 2_048));
+      const callbackRuntime = yield* FiberSet.makeRuntime<never, void, never>();
       const connectionAttempt = yield* Ref.make(0);
 
-      yield* Effect.addFinalizer(() =>
-        PubSub.shutdown(observations).pipe(
-          Effect.andThen(SubscriptionRef.set(connection, { kind: "stopped" })),
-          Effect.asVoid,
-        ),
-      );
+      yield* Effect.addFinalizer(() => SubscriptionRef.set(connection, { kind: "stopped" }));
 
       const runPhysical = Effect.fn("CoreEventHub.runPhysical")(() =>
         Effect.scoped(
           Effect.gen(function* () {
-            const inbound = yield* Queue.unbounded<InboundEvent>();
+            const inbound = yield* Queue.dropping<InboundEvent>(inboundCapacity);
             const deliveryFailure = yield* Deferred.make<never, CoreRuntimeError>();
+            const overflowFailure = yield* Deferred.make<never, CoreRuntimeError>();
             const opened = yield* Deferred.make<CoreEventSubscription>();
             const resyncRequested = yield* Ref.make(false);
             yield* Effect.addFinalizer(() => Queue.shutdown(inbound).pipe(Effect.asVoid));
@@ -128,7 +126,6 @@ export const live = (
               }
               if (item.kind === "event") {
                 yield* delivery.event(item.value);
-                yield* PubSub.publish(observations, item.value);
                 return;
               }
               if (item.kind === "checkpoint") {
@@ -153,7 +150,25 @@ export const live = (
             yield* Effect.forkScoped(deliveryWorker);
 
             const enqueue = (event: InboundEvent): void => {
-              void callbackRuntime(Queue.offer(inbound, event));
+              void callbackRuntime(
+                Queue.offer(inbound, event).pipe(
+                  Effect.flatMap((accepted) =>
+                    accepted
+                      ? Effect.void
+                      : Deferred.fail(
+                          overflowFailure,
+                          coreRuntimeError({
+                            operation: "events.inbound-capacity",
+                            reason: "delivery",
+                            retryable: true,
+                            cause: new Error(
+                              `Core event ingress exceeded ${inboundCapacity} entries`,
+                            ),
+                          }),
+                        ).pipe(Effect.asVoid),
+                  ),
+                ),
+              );
             };
             const after = yield* Ref.get(cursor);
             const subscription = yield* Effect.acquireRelease(
@@ -167,6 +182,7 @@ export const live = (
                 ),
               ),
               (active) => Effect.sync(() => active.close()),
+              { interruptible: true },
             );
             yield* Deferred.succeed(opened, subscription);
             const handshake = yield* access.handshake;
@@ -185,10 +201,16 @@ export const live = (
                   handshake.generation.start_nonce,
                 ),
             });
-            yield* Effect.raceFirst(streamDone, Deferred.await(deliveryFailure));
+            yield* Effect.raceFirst(
+              streamDone,
+              Effect.raceFirst(Deferred.await(deliveryFailure), Deferred.await(overflowFailure)),
+            );
             const flush = yield* Deferred.make<void>();
             yield* Queue.offer(inbound, { kind: "flush", ack: flush });
-            yield* Effect.raceFirst(Deferred.await(flush), Deferred.await(deliveryFailure));
+            yield* Effect.raceFirst(
+              Deferred.await(flush),
+              Effect.raceFirst(Deferred.await(deliveryFailure), Deferred.await(overflowFailure)),
+            );
             if (yield* Ref.get(resyncRequested)) return;
             return yield* coreRuntimeError({
               operation: "events.read",
@@ -227,17 +249,13 @@ export const live = (
       const supervisor = Effect.forever(cycle).pipe(
         Effect.catch((error) =>
           SubscriptionRef.set(connection, { kind: "failed", error }).pipe(
-            Effect.andThen(Deferred.fail(terminalFailure, error)),
+            Effect.andThen(authority.failApplication(error)),
             Effect.asVoid,
           ),
         ),
       );
       yield* Effect.forkScoped(supervisor);
 
-      const events = Stream.merge(
-        Stream.fromPubSub(observations),
-        Stream.fromEffect(Deferred.await(terminalFailure)),
-      );
-      return CoreEventHub.of({ events, connection, cursor: Ref.get(cursor) });
+      return CoreEventHub.of({ connection, cursor: Ref.get(cursor) });
     }),
   );
