@@ -6,6 +6,7 @@ import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
 import * as BrowserProfileIpc from "../ipc/handlers/BrowserProfileIpc";
 import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
 import * as ComposerAppshotIpc from "../ipc/handlers/ComposerAppshotIpc";
+import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as CodexPermissionsIpc from "../ipc/handlers/CodexPermissionsIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
 import * as CoreAuthorityIpc from "../ipc/handlers/CoreAuthorityIpc";
@@ -30,6 +31,7 @@ export const live = Layer.mergeAll(
   WorkspaceFileIpc.live(),
   ApplicationLifecycleIpc.live,
   ComposerAppshotIpc.live,
+  CodexApplicationIpc.live,
   CodexPermissionsIpc.live,
   ApplicationWindowIpc.live(),
   BrowserProfileIpc.live,

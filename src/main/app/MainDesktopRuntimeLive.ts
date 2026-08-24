@@ -40,7 +40,6 @@ import {
   live as nodexAgentProtocolToolsLive,
 } from "../nodex-agent-application/NodexAgentProtocolTools";
 import { NodexAgentResourceAccess } from "../nodex-agent-application/NodexAgentResourceAccess";
-import { CodexAccount } from "../codex-application/CodexAccount";
 import { AgentProviderRuntime } from "../codex-application/AgentProviderRuntime";
 import {
   AgentImportRuntime,
@@ -49,8 +48,6 @@ import {
 import { NodexAgentAuthorizationRuntime } from "../codex-application/NodexAgentAuthorizationRuntime";
 import { CodexConnection } from "../codex-application/CodexConnection";
 import { make as makeCodexConnectionLifecycle } from "../codex-application/CodexConnectionLifecycle";
-import { CodexMedia } from "../codex-application/CodexMedia";
-import { ComposerExternalSuggestions } from "../codex-application/ComposerExternalSuggestions";
 import { ComposerCatalog } from "../codex-application/ComposerCatalog";
 import { ConversationCommands } from "../codex-application/ConversationCommands";
 import {
@@ -205,7 +202,6 @@ import {
 } from "../codex-application/ManagedWorktreeCatalog";
 import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
 import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
-import { CodexPreferences } from "../codex-application/CodexPreferences";
 import { CodexPermissions } from "../codex-application/CodexPermissions";
 import { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
 import { ManagedWorktreeConfiguration } from "../codex-application/ExecutionHostConfiguration";
@@ -215,7 +211,6 @@ import {
   live as managedWorktreeRetentionRuntimeLive,
 } from "../codex-application/ManagedWorktreeRetentionRuntime";
 import { CodexAttachments } from "../codex-application/CodexAttachments";
-import { CodexToolRuntime } from "../codex-application/CodexToolRuntime";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import { CodexEphemeralThreadRouting } from "../codex-runtime/CodexEphemeralThreadRouting";
@@ -223,7 +218,6 @@ import { CodexApplicationRequestInbox } from "../codex-runtime/CodexApplicationR
 import * as ApplicationLocalStateIpc from "../ipc/handlers/ApplicationLocalStateIpc";
 import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc";
 import * as AutomationIpc from "../ipc/handlers/AutomationIpc";
-import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as CodexPendingWorktreeIpc from "../ipc/handlers/CodexPendingWorktreeIpc";
 import * as CodexRendererIpc from "../ipc/handlers/CodexRendererIpc";
 import * as CoreDocumentIpc from "../ipc/handlers/CoreDocumentIpc";
@@ -456,22 +450,15 @@ export const live: Layer.Layer<
           applicationKernelContext,
           CodexServerRequestResponses,
         );
-        const preferences = Context.get(applicationKernelContext, CodexPreferences);
         const attachments = Context.get(applicationKernelContext, CodexAttachments);
         const codexPermissions = Context.get(applicationKernelContext, CodexPermissions);
         const agentProviders = Context.get(applicationKernelContext, AgentProviderRuntime);
-        const codexAccountService = Context.get(applicationKernelContext, CodexAccount);
         const composerCatalogService = Context.get(applicationKernelContext, ComposerCatalog);
         const codexConnectionService = Context.get(applicationKernelContext, CodexConnection);
-        const codexToolRuntimeService = Context.get(applicationKernelContext, CodexToolRuntime);
         const browser = Context.get(applicationKernelContext, BrowserApplication);
         const browserUse = Context.get(applicationKernelContext, BrowserUseRuntime);
         const desktopToolRuntime = Context.get(applicationKernelContext, DesktopToolRuntime);
         const gitActions = Context.get(applicationKernelContext, GitActions);
-        const externalSuggestions = Context.get(
-          applicationKernelContext,
-          ComposerExternalSuggestions,
-        );
         const managedWorktreeConfiguration = Context.get(
           applicationKernelContext,
           ManagedWorktreeConfiguration,
@@ -485,7 +472,6 @@ export const live: Layer.Layer<
         );
         const rendererClients = Context.get(applicationKernelContext, RendererClientRuntime);
         const dictation = Context.get(applicationKernelContext, DictationRuntime);
-        const codexMedia = Context.get(applicationKernelContext, CodexMedia);
         const databaseNotifications = Context.get(
           applicationKernelContext,
           DatabaseNotifierRuntime.DatabaseNotifierRuntime,
@@ -613,28 +599,6 @@ export const live: Layer.Layer<
         yield* deepLinks.extractFromArgv(config.argv);
         applicationWindows.openStartup(getWindowRestoreSettings().policy);
         const persistedAtoms = makePersistedAtomStore(config.nodexHome);
-        yield* Layer.buildWithScope(
-          CodexApplicationIpc.live.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(ElectronWindowHost, windowHost),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(AgentProviderRuntime, agentProviders),
-                Layer.succeed(CodexAccount, codexAccountService),
-                Layer.succeed(CodexConnection, codexConnectionService),
-                Layer.succeed(CodexMedia, codexMedia),
-                Layer.succeed(ComposerCatalog, composerCatalogService),
-                Layer.succeed(ConversationCommands, conversationCommands),
-                Layer.succeed(CodexPreferences, preferences),
-                Layer.succeed(CodexAttachments, attachments),
-                Layer.succeed(CodexToolRuntime, codexToolRuntimeService),
-                Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
         const threadCatalog = yield* makeCodexThreadCatalog({
           foldPathCase: config.platform === "win32",
         }).pipe(
