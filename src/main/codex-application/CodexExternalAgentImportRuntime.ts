@@ -13,6 +13,7 @@ import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { MAIN_RELIABLE_COMMAND_CAPACITY } from "../runtime-limits";
 
 export const DEFAULT_CODEX_EXTERNAL_AGENT_IMPORT_TIMEOUT = "2 minutes";
 
@@ -86,7 +87,9 @@ export const make = (
     ) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const notifications = yield* Queue.unbounded<ImportNotification>();
+          const notifications = yield* Queue.bounded<ImportNotification>(
+            MAIN_RELIABLE_COMMAND_CAPACITY,
+          );
           yield* Effect.addFinalizer(() => Queue.shutdown(notifications).pipe(Effect.asVoid));
           yield* gateway.events.pipe(
             Stream.runForEach((event) => {

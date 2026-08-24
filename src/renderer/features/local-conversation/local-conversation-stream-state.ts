@@ -292,8 +292,7 @@ export class LocalConversationStreamState {
     const requestedConversationIds = conversationIds?.length ? new Set(conversationIds) : null;
     const affectedConversationIds = [...this.followedConversationIds].filter(
       (conversationId) =>
-        (requestedConversationIds === null || requestedConversationIds.has(conversationId)) &&
-        this.rolesByConversationId.get(conversationId)?.role !== "owner",
+        requestedConversationIds === null || requestedConversationIds.has(conversationId),
     );
     for (const conversationId of affectedConversationIds) {
       this.rolesByConversationId.delete(conversationId);

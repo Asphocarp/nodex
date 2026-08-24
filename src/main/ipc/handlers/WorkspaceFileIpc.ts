@@ -29,6 +29,7 @@ import { safeSendToWebContents } from "../../ipc-safe-send";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../../runtime-limits";
 import {
   listWorkspaceDirectoryEntries,
   readWorkspaceFile,
@@ -99,9 +100,9 @@ export const live = (
           Layer.effect(
             WorkspaceFileWatch,
             Effect.gen(function* () {
-              const changes = yield* PubSub.unbounded<{
+              const changes = yield* PubSub.sliding<{
                 readonly changedPaths: readonly string[];
-              }>();
+              }>(MAIN_OBSERVATION_EVENT_CAPACITY);
               const ready = yield* Deferred.make<void, FileWatchError>();
               yield* watchHost
                 .watch({

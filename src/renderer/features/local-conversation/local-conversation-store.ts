@@ -4486,6 +4486,40 @@ export class CodexAppServerManager {
     return this.streamState.getRevision(threadId) ?? expectedRevision;
   }
 
+  /**
+   * A failed owner command normally publishes its terminal projection through the owner outbox.
+   * Endpoint loss revokes that role first, so the same semantic failure must still settle the
+   * visible optimistic turn locally while the replacement generation rehydrates canonical state.
+   */
+  private async settleOwnerActionFailure(
+    threadId: string,
+    label: string,
+    buildNextConversation: (
+      conversation: CodexConversationSnapshot,
+    ) => CodexConversationSnapshot | null,
+  ): Promise<number> {
+    if (this.streamState.getRole(threadId)?.role === "owner") {
+      return await this.publishOwnerActionSnapshotMutation(threadId, label, buildNextConversation);
+    }
+
+    const currentConversation = this.conversationsById.get(threadId);
+    if (!currentConversation) return 0;
+    const candidateConversation = buildNextConversation(currentConversation);
+    if (!candidateConversation || candidateConversation === currentConversation) {
+      return this.streamState.getRevision(threadId) ?? 0;
+    }
+
+    const nextConversation = finalizeOwnerConversationMutation(
+      currentConversation,
+      candidateConversation,
+    );
+    this.applyConversationSnapshot(threadId, {
+      ...nextConversation,
+      resumeState: "needs_resume",
+    });
+    return this.streamState.getRevision(threadId) ?? 0;
+  }
+
   async startThreadForSession(
     input: CodexThreadStartForSessionInput & {
       collaborationMode?: CodexCollaborationModeKind;
@@ -5280,7 +5314,7 @@ export class CodexAppServerManager {
         streamRevision || optimisticRevision,
       );
     } catch (error) {
-      const failurePublication = this.publishOwnerActionSnapshotMutation(
+      const failurePublication = this.settleOwnerActionFailure(
         threadId,
         "turn start failure",
         (conversation) =>
@@ -8430,10 +8464,22 @@ export class CodexAppServerManager {
   private handleThreadStreamTransportReset(event: CodexThreadStreamTransportResetEvent): void {
     if (event.hostId !== this.hostId) return;
 
+    const ownerConversationIds = new Set(
+      event.conversationIds.filter(
+        (conversationId) => this.streamState.getRole(conversationId)?.role === "owner",
+      ),
+    );
     const affectedConversationIds = this.streamState.handleTransportReset(event.conversationIds);
     for (const conversationId of affectedConversationIds) {
+      this.setConversationAttachmentState(conversationId, IDLE_LOCAL_CONVERSATION_ATTACHMENT_STATE);
       this.followerAcceptedReplicasByConversationId.delete(conversationId);
       this.conversationVersionById.delete(conversationId);
+      if (ownerConversationIds.has(conversationId)) {
+        this.ownerTextDeltaQueue.discardConversation(conversationId);
+        this.outputDeltaQueue.discardConversation(conversationId);
+        this.discardOwnerNotificationState(conversationId);
+        this.cancelOwnerStreamPublishQueues(conversationId);
+      }
       void this.setThreadStreamFollowingWithOptions(conversationId, true, {
         reannounce: true,
       }).catch(() => {

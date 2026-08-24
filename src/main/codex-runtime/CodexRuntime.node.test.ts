@@ -229,6 +229,42 @@ it.effect("retries one owned session at a time and interrupts backoff on scope c
   }),
 );
 
+it.effect("rotates the physical generation when canonical application consequences fail", () =>
+  Effect.gen(function* () {
+    const fake = fakeEndpoint({ hostId: "local" });
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(
+      endpointLive(fake.config).pipe(Layer.provideMerge(endpointDependencies)),
+      scope,
+    );
+    const endpoint = Context.get(context, CodexEndpoint);
+    const inbox = Context.get(context, CodexApplicationRequestInbox);
+    yield* endpoint.session;
+
+    assert.isTrue(
+      yield* inbox.failGeneration(
+        {
+          kind: "notification",
+          protocol: "extension",
+          hostId: "local",
+          generation: 1,
+          occurrenceId: "test:consequence:1",
+          occurrenceToken: 1,
+          method: "test/failure",
+          params: {},
+        },
+        new Error("canonical projection failed"),
+      ),
+    );
+    yield* waitForConnection(endpoint, "backing-off");
+    assert.deepEqual(fake.releases, [1]);
+    yield* TestClock.adjust("1 second");
+    assert.strictEqual((yield* endpoint.session).generation, 2);
+
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect(
   "admits server requests without blocking later notifications and settles on the same session",
   () =>
@@ -371,6 +407,61 @@ it.effect("routes typed requests explicitly across local and thread execution ho
     assert.isFalse(yield* endpoints.has("remote-a"));
     yield* Scope.close(scope, Exit.void);
   }),
+);
+
+it.effect(
+  "keeps one stable host state cell and subscription across physical config generations",
+  () =>
+    Effect.gen(function* () {
+      const first = fakeEndpoint({ hostId: "local", accountEmail: "first@example.com" });
+      const replacement = fakeEndpoint({
+        hostId: "local",
+        accountEmail: "replacement@example.com",
+      });
+      const hub = eventHubLive;
+      const endpointMap = endpointMapLive(first.config).pipe(
+        Layer.provideMerge(Layer.mergeAll(hub, applicationRequestInboxLive, fakeTransport)),
+      );
+      const resolver = Layer.succeed(
+        CodexThreadHostResolver,
+        CodexThreadHostResolver.of({ resolve: () => Effect.succeed("local") }),
+      );
+      const scope = yield* Scope.make();
+      const context = yield* Layer.buildWithScope(
+        gatewayLive({ requestTimeout: "5 seconds" }).pipe(
+          Layer.provideMerge(Layer.mergeAll(endpointMap, hub, resolver)),
+        ),
+        scope,
+      );
+      const gateway = Context.get(context, CodexGateway);
+      const endpoints = Context.get(context, CodexEndpointMap);
+      yield* gateway.awaitReady("local");
+      const before = yield* endpoints.endpoint("local");
+      const replacementReady = yield* gateway.connectionChanges("local").pipe(
+        Stream.filter((connection) => connection.kind === "ready" && connection.generation === 2),
+        Stream.runHead,
+        Effect.forkIn(scope, { startImmediately: true }),
+      );
+
+      yield* gateway.reconcileHost(replacement.config);
+      const observed = yield* Fiber.join(replacementReady);
+      assert.strictEqual(observed._tag, "Some");
+      const after = yield* endpoints.endpoint("local");
+      assert.strictEqual(after, before);
+      assert.strictEqual(after.state, before.state);
+      assert.deepEqual(first.releases, [1]);
+      assert.deepEqual(
+        replacement.attempts.map(({ generation }) => generation),
+        [2],
+      );
+
+      const account = yield* gateway.requestLocal("account/read", {});
+      assert.strictEqual(account.account?.type, "chatgpt");
+      if (account.account?.type === "chatgpt") {
+        assert.strictEqual(account.account.email, "replacement@example.com");
+      }
+      yield* Scope.close(scope, Exit.void);
+    }),
 );
 
 it.effect("applies the only ordinary request deadline in the gateway", () =>

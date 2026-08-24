@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { RequestId } from "@nodex/codex-app-server-protocol";
 import type { Thread } from "@nodex/codex-app-server-protocol/v2";
 import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
@@ -59,7 +61,7 @@ import {
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export interface CodexProtocolNotificationInput {
   readonly hostId: string;
@@ -69,10 +71,27 @@ export interface CodexProtocolNotificationInput {
   readonly occurrenceToken: number;
 }
 
+export type CodexConversationDisposition = "retain" | "retire";
+
 export class CodexProtocolNotificationEffects extends Context.Service<
   CodexProtocolNotificationEffects,
-  { readonly apply: (input: CodexProtocolNotificationInput) => Effect.Effect<void> }
+  {
+    readonly apply: (
+      input: CodexProtocolNotificationInput,
+    ) => Effect.Effect<CodexConversationDisposition, CodexNotificationConsequenceError>;
+  }
 >()("nodex/main/codex-application/CodexProtocolNotificationEffects") {}
+
+export class CodexNotificationConsequenceError extends Data.TaggedError(
+  "CodexNotificationConsequenceError",
+)<{
+  readonly method: string;
+  readonly threadId: string;
+  readonly cause: Cause.Cause<unknown>;
+}> {}
+
+const isInterruptedOnly = (cause: Cause.Cause<unknown>): boolean =>
+  cause.reasons.length > 0 && cause.reasons.every(Cause.isInterruptReason);
 
 const paramsRecord = (
   notification: CodexServerNotification,
@@ -120,7 +139,7 @@ export const make: Effect.Effect<
   | CodexThreadDirectory
   | CodexThreadGoalRuntime
   | CodexUserInputAutoResolution
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | BrowserUseRuntime
 > = Effect.gen(function* () {
   const activeGoalContinuation = yield* CodexActiveGoalContinuation;
@@ -138,7 +157,7 @@ export const make: Effect.Effect<
   const threadDirectory = yield* CodexThreadDirectory;
   const threadGoals = yield* CodexThreadGoalRuntime;
   const autoResolution = yield* CodexUserInputAutoResolution;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const browserUse = yield* BrowserUseRuntime;
   const terminalInputBuffers = new Map<string, Map<string, string>>();
 
@@ -168,7 +187,7 @@ export const make: Effect.Effect<
   };
 
   const conversationFacts = (threadId: string): CodexNotificationConversationFacts => {
-    const snapshot = conversations.currentConversation(threadId)?.readSnapshot();
+    const snapshot = conversations.current(threadId)?.readSnapshot();
     const parentThreadId = extractCodexThreadSpawnMetadata(snapshot?.source).parentThreadId ?? null;
     return {
       conversationId: threadId,
@@ -187,7 +206,7 @@ export const make: Effect.Effect<
   };
 
   const lastAgentMessage = (threadId: string, turn: Thread["turns"][number]): string | null => {
-    const canonical = conversations.currentConversation(threadId)?.readCanonicalState();
+    const canonical = conversations.current(threadId)?.readCanonicalState();
     const canonicalTurn = canonical?.turns.find((candidate) => candidate.protocol.id === turn.id);
     const canonicalMessage = [...(canonicalTurn?.items ?? [])]
       .reverse()
@@ -208,7 +227,7 @@ export const make: Effect.Effect<
       turn: Extract<CodexServerNotification, { method: "turn/completed" }>["params"]["turn"],
     ) {
       if (turn.status === "inProgress") return;
-      const aggregate = conversations.currentConversation(threadId);
+      const aggregate = conversations.current(threadId);
       const canonical = aggregate?.readCanonicalState();
       const snapshot = aggregate?.readSnapshot();
       const descendants = yield* threadDirectory
@@ -271,7 +290,7 @@ export const make: Effect.Effect<
       if (threadBuffers.size === 0) terminalInputBuffers.delete(threadId);
     }
     if (parsed.commands.length === 0) return;
-    conversations.currentConversation(threadId)?.commitTerminalCommands({
+    conversations.current(threadId)?.commitTerminalCommands({
       update: {
         conversationId: threadId,
         turnId,
@@ -290,7 +309,7 @@ export const make: Effect.Effect<
     observedAtMs: number,
     projectReplica: boolean,
   ): void => {
-    const aggregate = conversations.currentConversation(threadId);
+    const aggregate = conversations.current(threadId);
     const turn = aggregate
       ?.readCanonicalState()
       ?.turns.find((candidate) => candidate.protocol.id === turnId);
@@ -372,7 +391,7 @@ export const make: Effect.Effect<
     ) {
       for (const effect of effects) {
         if (effect.type === "markConversationStreaming") {
-          conversations.currentConversation(threadId)?.setStreaming(true);
+          conversations.current(threadId)?.setStreaming(true);
           continue;
         }
         if (ownerRouted) continue;
@@ -440,11 +459,12 @@ export const make: Effect.Effect<
       return;
     }
     if (notification.method === "item/completed" || notification.method === "turn/completed") {
-      deltas.drainFrameText(threadId);
+      const observedAtMs = yield* Clock.currentTimeMillis;
+      deltas.drainFrameText(threadId, observedAtMs);
     }
 
     const observedAtMs = yield* Clock.currentTimeMillis;
-    const aggregate = conversations.currentConversation(threadId);
+    const aggregate = conversations.current(threadId);
     if (notification.method === "serverRequest/resolved") {
       if (aggregate) {
         const state = aggregate.readServerRequestState();
@@ -486,7 +506,7 @@ export const make: Effect.Effect<
         consumeContextCompactionSource: () => manualCompaction.consumeSource(threadId),
         resolveCollabReceiverThread: (receiverThreadId) =>
           loadedProtocolThread(
-            conversations.currentConversation(receiverThreadId)?.readCanonicalState() ?? null,
+            conversations.current(receiverThreadId)?.readCanonicalState() ?? null,
           ),
       },
     });
@@ -564,11 +584,21 @@ export const make: Effect.Effect<
     apply: (input) =>
       apply(input).pipe(
         Effect.catchCause((cause) =>
-          logFailure(
-            input.notification.method,
-            codexProtocolNotificationThreadId(input.notification) ?? "unknown",
-            cause,
-          ),
+          isInterruptedOnly(cause)
+            ? Effect.interrupt
+            : Effect.fail(
+                new CodexNotificationConsequenceError({
+                  method: input.notification.method,
+                  threadId: codexProtocolNotificationThreadId(input.notification) ?? "unknown",
+                  cause,
+                }),
+              ),
+        ),
+        Effect.as(
+          input.notification.method === "thread/archived" ||
+            input.notification.method === "thread/deleted"
+            ? "retire"
+            : "retain",
         ),
       ),
   });

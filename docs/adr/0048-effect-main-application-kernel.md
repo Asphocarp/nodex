@@ -37,7 +37,7 @@ graph.
 - Core and Codex transports have one physical owner per generation. Their application consumers
   use typed Effect capabilities and generation-fenced Streams; they do not create parallel
   reconnect, request-correlation, timeout, or event-buffer state.
-- Each Codex Thread generation owns one canonical conversation aggregate and causal command lane.
+- Each Codex Thread generation owns one private Conversation Entity state and causal command lane.
   Hydration, protocol ingress, renderer ownership, request responses, Turns, forks, worktrees, and
   projections compose that authority rather than mirroring it in an application facade.
 - Window, Terminal, Browser, worker, scheduler, updater, and notification lifetimes are children of

@@ -27,7 +27,7 @@ import {
 } from "../project-application/ProjectWorkspace";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { buildWorkspaceThreadSummary } from "./CodexThreadCatalogProjection";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 import { ManagedWorktreeRuntime } from "./ManagedWorktreeRuntime";
 import { NodexAgentAuthorizationRuntime } from "./NodexAgentAuthorizationRuntime";
 
@@ -68,7 +68,7 @@ export const make: Effect.Effect<
   | AutomationRoutingIndex
   | CodexApplicationEventHub
   | CodexGateway
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | ManagedWorktreeRuntime
   | NodexAgentAuthorizationRuntime
   | ProjectWorkspace
@@ -77,7 +77,7 @@ export const make: Effect.Effect<
   const automationRouting = yield* AutomationRoutingIndex;
   const events = yield* CodexApplicationEventHub;
   const gateway = yield* CodexGateway;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const managedWorktrees = yield* ManagedWorktreeRuntime;
   const authorizations = yield* NodexAgentAuthorizationRuntime;
   const workspace = yield* ProjectWorkspace;
@@ -193,7 +193,7 @@ export const make: Effect.Effect<
   const resolveAutomationMessages = (
     threadId: string,
   ): Effect.Effect<AutomationArchiveMessages> => {
-    const snapshot = conversations.currentConversation(threadId)?.readSnapshot() ?? null;
+    const snapshot = conversations.current(threadId)?.readSnapshot() ?? null;
     const local = snapshot
       ? resolveAutomationArchiveMessagesFromTranscript(snapshot.turns.flatMap((turn) => turn.items))
       : { archivedUserMessage: null, archivedAssistantMessage: null };
@@ -303,7 +303,7 @@ export const make: Effect.Effect<
           normalizedThreadId,
           workspace.setThreadArchived(normalizedThreadId, true),
         );
-        conversations.currentConversation(normalizedThreadId)?.setHasUnreadTurn(false, true);
+        conversations.current(normalizedThreadId)?.setHasUnreadTurn(false, true);
         if (thread.hasUnreadTurn) {
           events.publish({
             kind: "hostMessage",

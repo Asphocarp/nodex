@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -14,7 +15,7 @@ import type {
 } from "../core-client/types";
 import { createFakeCoreHandshake, FakeCoreClient } from "../core-client/testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "../core-client/testing/local-commit-fixture";
-import { CoreSessionAccess } from "./CoreAuthority";
+import { CoreAuthority, CoreSessionAccess } from "./CoreAuthority";
 import {
   CoreEventHub,
   deliveryFrom,
@@ -147,6 +148,8 @@ const buildHub = (
   client: CoreGenerationClient,
   delivery: CoreEventDeliveryService,
   scope: Scope.Closeable,
+  failApplication: CoreAuthority["Service"]["failApplication"] = () => Effect.succeed(true),
+  options: Partial<Parameters<typeof eventHubLive>[0]> = {},
 ) =>
   Layer.buildWithScope(
     eventHubLive({
@@ -154,7 +157,19 @@ const buildHub = (
       retryBase: "1 second",
       retryCap: "1 second",
       jitter: false,
-    }).pipe(Layer.provideMerge(Layer.merge(accessLayer(client), deliveryFrom(delivery)))),
+      ...options,
+    }).pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          accessLayer(client),
+          deliveryFrom(delivery),
+          Layer.succeed(
+            CoreAuthority,
+            CoreAuthority.of({ failApplication } as CoreAuthority["Service"]),
+          ),
+        ),
+      ),
+    ),
     scope,
   );
 
@@ -277,6 +292,88 @@ it.effect("resyncs explicitly and fences the next subscription at the repaired b
     yield* waitUntil("post-resync stream open", () => opened.length === 2);
     assert.deepEqual(boundaries, [9]);
     assert.strictEqual(opened[1]!.after, 9);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("fails application health when canonical delivery cannot be replayed", () =>
+  Effect.gen(function* () {
+    const opened: OpenedStream[] = [];
+    const failures: string[] = [];
+    const scope = yield* Scope.make();
+    const context = yield* buildHub(
+      eventClient(opened),
+      {
+        event: () =>
+          Effect.fail(
+            coreRuntimeError({
+              operation: "events.deliver",
+              reason: "delivery",
+              retryable: false,
+            }),
+          ),
+        checkpoint: () => Effect.void,
+        resync: () => Effect.void,
+      },
+      scope,
+      (error) =>
+        Effect.sync(() => {
+          failures.push(error.operation);
+          return true;
+        }),
+    );
+    const hub = Context.get(context, CoreEventHub);
+    yield* waitUntil("terminal stream open", () => opened.length === 1);
+
+    opened[0]!.onEvent(envelope(1));
+    yield* waitUntil("application health failure", () => failures.length === 1);
+
+    const connection = yield* SubscriptionRef.get(hub.connection);
+    assert.strictEqual(connection.kind, "failed");
+    assert.deepEqual(failures, ["events.deliver"]);
+    yield* TestClock.adjust("1 hour");
+    assert.strictEqual(opened.length, 1);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("reopens from the durable cursor when callback ingress overflows", () =>
+  Effect.gen(function* () {
+    const opened: OpenedStream[] = [];
+    const blocked = yield* Deferred.make<void>();
+    let deliveries = 0;
+    const fatal: string[] = [];
+    const scope = yield* Scope.make();
+    const context = yield* buildHub(
+      eventClient(opened),
+      {
+        event: () => {
+          deliveries += 1;
+          return Deferred.await(blocked);
+        },
+        checkpoint: () => Effect.void,
+        resync: () => Effect.void,
+      },
+      scope,
+      (error) =>
+        Effect.sync(() => {
+          fatal.push(error.operation);
+          return true;
+        }),
+      { inboundCapacity: 1 },
+    );
+    const hub = Context.get(context, CoreEventHub);
+    yield* waitUntil("capacity stream open", () => opened.length === 1);
+
+    opened[0]!.onEvent(envelope(1));
+    yield* waitUntil("first capacity delivery", () => deliveries === 1);
+    opened[0]!.onEvent(envelope(2));
+    opened[0]!.onEvent(envelope(3));
+    yield* waitForBackoff(hub);
+    assert.deepEqual(fatal, []);
+    yield* TestClock.adjust("1 second");
+    yield* waitUntil("capacity replay stream", () => opened.length === 2);
+    assert.strictEqual(opened[1]!.after, 0);
     yield* Scope.close(scope, Exit.void);
   }),
 );

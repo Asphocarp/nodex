@@ -1,9 +1,13 @@
 import type { RequestId } from "@nodex/codex-app-server-protocol";
-import type { ServerNotificationMethod } from "@nodex/effect-codex-app-server/rpc";
+import type {
+  CodexAppServerNotification,
+  CodexAppServerRequest,
+} from "@nodex/effect-codex-app-server/client";
 import type { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import { randomUUID } from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -15,6 +19,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 
 export interface CodexApplicationRequestOccurrence {
   readonly kind: "request";
+  readonly protocol: CodexAppServerRequest["protocol"];
   readonly hostId: string;
   readonly generation: number;
   readonly occurrenceId: string;
@@ -26,11 +31,12 @@ export interface CodexApplicationRequestOccurrence {
 
 export interface CodexApplicationNotificationOccurrence {
   readonly kind: "notification";
+  readonly protocol: CodexAppServerNotification["protocol"];
   readonly hostId: string;
   readonly generation: number;
   readonly occurrenceId: string;
   readonly occurrenceToken: number;
-  readonly method: ServerNotificationMethod;
+  readonly method: string;
   readonly params: unknown;
 }
 
@@ -57,7 +63,28 @@ export class CodexApplicationRequestGenerationUnavailable extends Schema.TaggedE
   {
     hostId: Schema.String,
     generation: Schema.Int,
-    reason: Schema.Literals(["closed", "conflict", "invalid"]),
+    reason: Schema.Literals(["closed", "conflict", "invalid", "overflow"]),
+  },
+) {}
+
+export class CodexApplicationIngressOverflow extends Schema.TaggedError<CodexApplicationIngressOverflow>()(
+  "CodexApplicationIngressOverflow",
+  {
+    channel: Schema.Literals(["occurrences", "settlements"]),
+    capacity: Schema.Int,
+    hostId: Schema.String,
+    generation: Schema.Int,
+    occurrenceId: Schema.String,
+  },
+) {}
+
+export class CodexApplicationConsequenceFailure extends Schema.TaggedError<CodexApplicationConsequenceFailure>()(
+  "CodexApplicationConsequenceFailure",
+  {
+    hostId: Schema.String,
+    generation: Schema.Int,
+    occurrenceId: Schema.String,
+    cause: Schema.Defect(),
   },
 ) {}
 
@@ -66,6 +93,7 @@ export interface CodexApplicationRequestGeneration {
   readonly generation: number;
   readonly admit: (input: {
     readonly requestId: RequestId;
+    readonly protocol: CodexAppServerRequest["protocol"];
     readonly method: string;
     readonly params: unknown;
   }) => Effect.Effect<
@@ -73,6 +101,8 @@ export interface CodexApplicationRequestGeneration {
     CodexApplicationRequestGenerationUnavailable
   >;
   readonly settlements: Stream.Stream<CodexApplicationRequestSettlement>;
+  /** Fails when canonical application interpretation can no longer preserve this generation. */
+  readonly termination: Effect.Effect<never, CodexApplicationConsequenceFailure>;
   readonly rejectOutstanding: (error: CodexAppServerRequestError) => Effect.Effect<number>;
 }
 
@@ -82,7 +112,8 @@ export interface CodexApplicationRequestInboxService {
   readonly publishNotification: (input: {
     readonly hostId: string;
     readonly generation: number;
-    readonly method: ServerNotificationMethod;
+    readonly protocol: CodexAppServerNotification["protocol"];
+    readonly method: string;
     readonly params: unknown;
   }) => Effect.Effect<void>;
   readonly openGeneration: (
@@ -102,6 +133,11 @@ export interface CodexApplicationRequestInboxService {
     occurrenceToken: number,
     outcome: CodexApplicationRequestOutcome,
   ) => Effect.Effect<boolean>;
+  /** Fails only the exact physical generation that admitted the bad occurrence. */
+  readonly failGeneration: (
+    occurrence: CodexApplicationProtocolOccurrence,
+    cause: unknown,
+  ) => Effect.Effect<boolean>;
   /** Runs semantic interpretation only while the exact Endpoint generation remains alive. */
   readonly interpret: <A, E, R>(
     occurrence: CodexApplicationRequestOccurrence,
@@ -120,10 +156,17 @@ export class CodexApplicationRequestInbox extends Context.Service<
 >()("nodex/main/codex-runtime/CodexApplicationRequestInbox") {}
 
 interface GenerationState {
+  readonly failed: boolean;
   readonly lease: object;
   readonly pending: ReadonlyMap<number, CodexApplicationRequestOccurrence>;
   readonly processingScope: Scope.Scope;
   readonly settlements: Queue.Queue<CodexApplicationRequestSettlement>;
+  readonly termination: Deferred.Deferred<never, CodexApplicationConsequenceFailure>;
+}
+
+export interface CodexApplicationRequestInboxCapacities {
+  readonly occurrences: number;
+  readonly settlements: number;
 }
 
 interface InboxState {
@@ -131,6 +174,13 @@ interface InboxState {
   readonly nextOccurrenceToken: number;
   readonly generations: ReadonlyMap<string, GenerationState>;
 }
+
+type AdmissionResult =
+  | { readonly _tag: "Accepted"; readonly occurrence: CodexApplicationRequestOccurrence }
+  | {
+      readonly _tag: "Unavailable";
+      readonly reason: CodexApplicationRequestGenerationUnavailable["reason"];
+    };
 
 const generationLease = Symbol("CodexApplicationRequestInbox.generationLease");
 type OwnedGeneration = CodexApplicationRequestGeneration & {
@@ -154,9 +204,14 @@ const isInterruptedOnly = (cause: Cause.Cause<unknown>): boolean =>
  * generation receives an exact scoped lease and a lossless settlement queue, so application
  * handlers can return to the wire reader immediately without losing the eventual response.
  */
-export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Scope.Scope> =
+export const makeWithCapacities = (
+  capacities: CodexApplicationRequestInboxCapacities,
+): Effect.Effect<CodexApplicationRequestInboxService, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const occurrences = yield* Queue.unbounded<CodexApplicationProtocolOccurrence>();
+    const occurrenceCapacity = Math.max(1, Math.floor(capacities.occurrences));
+    const settlementCapacity = Math.max(1, Math.floor(capacities.settlements));
+    const occurrences =
+      yield* Queue.dropping<CodexApplicationProtocolOccurrence>(occurrenceCapacity);
     const inboxId = randomUUID();
     const state = yield* SynchronizedRef.make<InboxState>({
       closed: false,
@@ -165,39 +220,96 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
     });
 
     const settle: CodexApplicationRequestInboxService["settle"] = (occurrence, outcome) =>
-      SynchronizedRef.modifyEffect(state, (current) => {
-        const key = generationKey(occurrence.hostId, occurrence.generation);
-        const generation = current.generations.get(key);
-        const pending = generation?.pending.get(occurrence.occurrenceToken);
-        if (!generation || pending !== occurrence) return Effect.succeed([false, current] as const);
+      SynchronizedRef.modifyEffect(
+        state,
+        (current): Effect.Effect<readonly [boolean, InboxState]> => {
+          const key = generationKey(occurrence.hostId, occurrence.generation);
+          const generation = current.generations.get(key);
+          const pending = generation?.pending.get(occurrence.occurrenceToken);
+          if (!generation || generation.failed || pending !== occurrence) {
+            return Effect.succeed([false, current] as const);
+          }
 
-        const nextPending = new Map(generation.pending);
-        nextPending.delete(occurrence.occurrenceToken);
-        const nextGenerations = new Map(current.generations);
-        nextGenerations.set(key, { ...generation, pending: nextPending });
-        return Queue.offer(generation.settlements, { occurrence, outcome }).pipe(
-          Effect.as([true, { ...current, generations: nextGenerations }] as const),
-        );
-      });
+          const nextPending = new Map(generation.pending);
+          nextPending.delete(occurrence.occurrenceToken);
+          const nextGenerations = new Map(current.generations);
+          nextGenerations.set(key, { ...generation, pending: nextPending });
+          return Queue.offer(generation.settlements, { occurrence, outcome }).pipe(
+            Effect.flatMap((accepted): Effect.Effect<readonly [boolean, InboxState]> => {
+              if (accepted) {
+                return Effect.succeed([
+                  true,
+                  { ...current, generations: nextGenerations },
+                ] as const);
+              }
+              const failedGenerations = new Map(nextGenerations);
+              failedGenerations.set(key, { ...generation, failed: true, pending: nextPending });
+              return Deferred.fail(
+                generation.termination,
+                new CodexApplicationConsequenceFailure({
+                  hostId: occurrence.hostId,
+                  generation: occurrence.generation,
+                  occurrenceId: occurrence.occurrenceId,
+                  cause: new CodexApplicationIngressOverflow({
+                    channel: "settlements",
+                    capacity: settlementCapacity,
+                    hostId: occurrence.hostId,
+                    generation: occurrence.generation,
+                    occurrenceId: occurrence.occurrenceId,
+                  }),
+                }),
+              ).pipe(Effect.as([false, { ...current, generations: failedGenerations }] as const));
+            }),
+          );
+        },
+      );
 
     const settleOccurrenceToken: CodexApplicationRequestInboxService["settleOccurrenceToken"] = (
       occurrenceToken,
       outcome,
     ) =>
-      SynchronizedRef.modifyEffect(state, (current) => {
-        for (const [key, generation] of current.generations) {
-          const occurrence = generation.pending.get(occurrenceToken);
-          if (!occurrence) continue;
-          const nextPending = new Map(generation.pending);
-          nextPending.delete(occurrenceToken);
-          const nextGenerations = new Map(current.generations);
-          nextGenerations.set(key, { ...generation, pending: nextPending });
-          return Queue.offer(generation.settlements, { occurrence, outcome }).pipe(
-            Effect.as([true, { ...current, generations: nextGenerations }] as const),
-          );
-        }
-        return Effect.succeed([false, current] as const);
-      });
+      SynchronizedRef.modifyEffect(
+        state,
+        (current): Effect.Effect<readonly [boolean, InboxState]> => {
+          for (const [key, generation] of current.generations) {
+            const occurrence = generation.pending.get(occurrenceToken);
+            if (!occurrence) continue;
+            const nextPending = new Map(generation.pending);
+            nextPending.delete(occurrenceToken);
+            const nextGenerations = new Map(current.generations);
+            nextGenerations.set(key, { ...generation, pending: nextPending });
+            if (generation.failed) return Effect.succeed([false, current] as const);
+            return Queue.offer(generation.settlements, { occurrence, outcome }).pipe(
+              Effect.flatMap((accepted): Effect.Effect<readonly [boolean, InboxState]> => {
+                if (accepted) {
+                  return Effect.succeed([
+                    true,
+                    { ...current, generations: nextGenerations },
+                  ] as const);
+                }
+                const failedGenerations = new Map(nextGenerations);
+                failedGenerations.set(key, { ...generation, failed: true, pending: nextPending });
+                return Deferred.fail(
+                  generation.termination,
+                  new CodexApplicationConsequenceFailure({
+                    hostId: occurrence.hostId,
+                    generation: occurrence.generation,
+                    occurrenceId: occurrence.occurrenceId,
+                    cause: new CodexApplicationIngressOverflow({
+                      channel: "settlements",
+                      capacity: settlementCapacity,
+                      hostId: occurrence.hostId,
+                      generation: occurrence.generation,
+                      occurrenceId: occurrence.occurrenceId,
+                    }),
+                  }),
+                ).pipe(Effect.as([false, { ...current, generations: failedGenerations }] as const));
+              }),
+            );
+          }
+          return Effect.succeed([false, current] as const);
+        },
+      );
 
     const acquireGeneration = Effect.fn("CodexApplicationRequestInbox.acquireGeneration")(
       function* (hostIdInput: string, generation: number) {
@@ -206,7 +318,9 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
           return yield* unavailable(hostId, generation, "invalid");
         }
         const key = generationKey(hostId, generation);
-        const settlements = yield* Queue.unbounded<CodexApplicationRequestSettlement>();
+        const settlements =
+          yield* Queue.dropping<CodexApplicationRequestSettlement>(settlementCapacity);
+        const termination = yield* Deferred.make<never, CodexApplicationConsequenceFailure>();
         const processingScope = yield* Effect.scope;
         const lease = {};
         const registered = yield* SynchronizedRef.modifyEffect(state, (current) => {
@@ -217,7 +331,14 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
             return Effect.succeed([unavailable(hostId, generation, "conflict"), current] as const);
           }
           const generations = new Map(current.generations);
-          generations.set(key, { lease, pending: new Map(), processingScope, settlements });
+          generations.set(key, {
+            failed: false,
+            lease,
+            pending: new Map(),
+            processingScope,
+            settlements,
+            termination,
+          });
           return Effect.succeed([null, { ...current, generations }] as const);
         });
         if (registered) {
@@ -226,37 +347,78 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
         }
 
         const admit: CodexApplicationRequestGeneration["admit"] = (input) =>
-          SynchronizedRef.modifyEffect(state, (current) => {
-            const active = current.generations.get(key);
-            if (current.closed || active?.lease !== lease) {
-              return Effect.fail(unavailable(hostId, generation, "closed"));
-            }
-            const occurrenceToken = current.nextOccurrenceToken;
-            const occurrence: CodexApplicationRequestOccurrence = {
-              kind: "request",
-              hostId,
-              generation,
-              occurrenceId: `${hostId}:${generation}:${inboxId}:${occurrenceToken}`,
-              occurrenceToken,
-              requestId: input.requestId,
-              method: input.method,
-              params: input.params,
-            };
-            const pending = new Map(active.pending);
-            pending.set(occurrence.occurrenceToken, occurrence);
-            const generations = new Map(current.generations);
-            generations.set(key, { ...active, pending });
-            return Queue.offer(occurrences, occurrence).pipe(
-              Effect.as([
-                occurrence,
-                {
-                  ...current,
-                  nextOccurrenceToken: current.nextOccurrenceToken + 1,
-                  generations,
-                },
-              ] as const),
-            );
-          });
+          SynchronizedRef.modifyEffect(
+            state,
+            (current): Effect.Effect<readonly [AdmissionResult, InboxState]> => {
+              const active = current.generations.get(key);
+              if (current.closed || active?.lease !== lease || active.failed) {
+                return Effect.succeed([
+                  { _tag: "Unavailable" as const, reason: active?.failed ? "overflow" : "closed" },
+                  current,
+                ] as const);
+              }
+              const occurrenceToken = current.nextOccurrenceToken;
+              const occurrence: CodexApplicationRequestOccurrence = {
+                kind: "request",
+                protocol: input.protocol,
+                hostId,
+                generation,
+                occurrenceId: `${hostId}:${generation}:${inboxId}:${occurrenceToken}`,
+                occurrenceToken,
+                requestId: input.requestId,
+                method: input.method,
+                params: input.params,
+              };
+              const pending = new Map(active.pending);
+              pending.set(occurrence.occurrenceToken, occurrence);
+              const generations = new Map(current.generations);
+              generations.set(key, { ...active, pending });
+              return Queue.offer(occurrences, occurrence).pipe(
+                Effect.flatMap(
+                  (accepted): Effect.Effect<readonly [AdmissionResult, InboxState]> => {
+                    if (accepted) {
+                      return Effect.succeed([
+                        { _tag: "Accepted" as const, occurrence },
+                        {
+                          ...current,
+                          nextOccurrenceToken: current.nextOccurrenceToken + 1,
+                          generations,
+                        },
+                      ] as const);
+                    }
+                    const failedGenerations = new Map(current.generations);
+                    failedGenerations.set(key, { ...active, failed: true });
+                    return Deferred.fail(
+                      active.termination,
+                      new CodexApplicationConsequenceFailure({
+                        hostId,
+                        generation,
+                        occurrenceId: occurrence.occurrenceId,
+                        cause: new CodexApplicationIngressOverflow({
+                          channel: "occurrences",
+                          capacity: occurrenceCapacity,
+                          hostId,
+                          generation,
+                          occurrenceId: occurrence.occurrenceId,
+                        }),
+                      }),
+                    ).pipe(
+                      Effect.as([
+                        { _tag: "Unavailable" as const, reason: "overflow" as const },
+                        { ...current, generations: failedGenerations },
+                      ] as const),
+                    );
+                  },
+                ),
+              );
+            },
+          ).pipe(
+            Effect.flatMap((result) =>
+              result._tag === "Accepted"
+                ? Effect.succeed(result.occurrence)
+                : Effect.fail(unavailable(hostId, generation, result.reason)),
+            ),
+          );
 
         const rejectOutstanding = (error: CodexAppServerRequestError) =>
           SynchronizedRef.modifyEffect(state, (current) => {
@@ -283,6 +445,7 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
           generation,
           admit,
           settlements: Stream.fromQueue(settlements),
+          termination: Deferred.await(termination),
           rejectOutstanding,
           [generationLease]: lease,
         } satisfies OwnedGeneration;
@@ -320,7 +483,7 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
         const active = current.generations.get(
           generationKey(occurrence.hostId, occurrence.generation),
         );
-        if (active?.pending.get(occurrence.occurrenceToken) !== occurrence) {
+        if (active?.failed || active?.pending.get(occurrence.occurrenceToken) !== occurrence) {
           return { kind: "withdrawn" } as const;
         }
 
@@ -334,6 +497,28 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
         return yield* Effect.failCause(exit.cause);
       });
 
+    const failGeneration: CodexApplicationRequestInboxService["failGeneration"] = (
+      occurrence,
+      cause,
+    ) =>
+      SynchronizedRef.get(state).pipe(
+        Effect.flatMap((current) => {
+          const active = current.generations.get(
+            generationKey(occurrence.hostId, occurrence.generation),
+          );
+          if (!active) return Effect.succeed(false);
+          return Deferred.fail(
+            active.termination,
+            new CodexApplicationConsequenceFailure({
+              hostId: occurrence.hostId,
+              generation: occurrence.generation,
+              occurrenceId: occurrence.occurrenceId,
+              cause,
+            }),
+          );
+        }),
+      );
+
     const interpretNotification: CodexApplicationRequestInboxService["interpretNotification"] = (
       occurrence,
       operation,
@@ -343,7 +528,7 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
         const active = current.generations.get(
           generationKey(occurrence.hostId, occurrence.generation),
         );
-        if (!active) return { kind: "withdrawn" } as const;
+        if (!active || active.failed) return { kind: "withdrawn" } as const;
         const exit = yield* Effect.acquireUseRelease(
           operation.pipe(Effect.forkIn(active.processingScope, { startImmediately: true })),
           Fiber.await,
@@ -359,7 +544,9 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
     ) =>
       SynchronizedRef.modifyEffect(state, (current) => {
         const active = current.generations.get(generationKey(input.hostId, input.generation));
-        if (current.closed || !active) return Effect.succeed([undefined, current] as const);
+        if (current.closed || !active || active.failed) {
+          return Effect.succeed([undefined, current] as const);
+        }
         const occurrenceToken = current.nextOccurrenceToken;
         const occurrence: CodexApplicationNotificationOccurrence = {
           kind: "notification",
@@ -368,10 +555,34 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
           occurrenceToken,
         };
         return Queue.offer(occurrences, occurrence).pipe(
-          Effect.as([
-            undefined,
-            { ...current, nextOccurrenceToken: current.nextOccurrenceToken + 1 },
-          ] as const),
+          Effect.flatMap((accepted) => {
+            if (accepted) {
+              return Effect.succeed([
+                undefined,
+                { ...current, nextOccurrenceToken: current.nextOccurrenceToken + 1 },
+              ] as const);
+            }
+            const generations = new Map(current.generations);
+            generations.set(generationKey(input.hostId, input.generation), {
+              ...active,
+              failed: true,
+            });
+            return Deferred.fail(
+              active.termination,
+              new CodexApplicationConsequenceFailure({
+                hostId: input.hostId,
+                generation: input.generation,
+                occurrenceId: occurrence.occurrenceId,
+                cause: new CodexApplicationIngressOverflow({
+                  channel: "occurrences",
+                  capacity: occurrenceCapacity,
+                  hostId: input.hostId,
+                  generation: input.generation,
+                  occurrenceId: occurrence.occurrenceId,
+                }),
+              }),
+            ).pipe(Effect.as([undefined, { ...current, generations }] as const));
+          }),
         );
       });
 
@@ -394,7 +605,10 @@ export const make: Effect.Effect<CodexApplicationRequestInboxService, never, Sco
       openGeneration,
       settle,
       settleOccurrenceToken,
+      failGeneration,
       interpret,
       interpretNotification,
     });
   });
+
+export const make = makeWithCapacities({ occurrences: 4_096, settlements: 1_024 });

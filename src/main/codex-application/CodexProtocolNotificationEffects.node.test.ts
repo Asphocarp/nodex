@@ -20,7 +20,7 @@ import { CodexThreadDurableProjection } from "./CodexThreadDurableProjection";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
 import { CodexThreadGoalRuntime } from "./CodexThreadGoalRuntime";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 it.effect("drains frame text before terminal turn consequences", () =>
   Effect.gen(function* () {
@@ -109,10 +109,10 @@ it.effect("drains frame text before terminal turn consequences", () =>
         CodexUserInputAutoResolution.of({} as CodexUserInputAutoResolution["Service"]),
       ),
       Effect.provideService(
-        ConversationRuntimeMap,
-        ConversationRuntimeMap.of({
-          currentConversation: () => null,
-        } as unknown as ConversationRuntimeMap["Service"]),
+        ConversationEntityMap,
+        ConversationEntityMap.of({
+          current: () => null,
+        } as unknown as ConversationEntityMap["Service"]),
       ),
       Effect.provideService(
         BrowserUseRuntime,

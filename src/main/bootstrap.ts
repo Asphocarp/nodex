@@ -14,10 +14,11 @@ import {
   type MacApplicationsInstallerEnvironment,
 } from "./macos-applications-installer";
 import * as MainApp from "./app/MainApp";
-import * as MainDesktopRuntimeLive from "./app/MainDesktopRuntimeLive";
+import * as MainApplicationLive from "./app/MainApplicationLive";
 import * as MainEntry from "./app/MainEntry";
 import * as MainFoundationLive from "./app/MainFoundationLive";
-import { MainRuntimeError } from "./app/MainRuntimeLive";
+import { MainApplicationError, type MainExit } from "./app/MainExit";
+import { MainObservability } from "./app/MainObservability";
 import { ScopedCallbackRuntime } from "./app/ScopedCallbackRuntime";
 import { assertRustDataAuthorityEnvironment } from "./data-authority";
 import { registerNodexPrivilegedSchemes } from "./privileged-schemes";
@@ -174,15 +175,22 @@ function createMacApplicationsInstallerEnvironment(): MacApplicationsInstallerEn
   };
 }
 
-async function handleStartupFailure(error: unknown): Promise<void> {
-  logBootstrap("error", "Nodex failed to start", { error });
-  captureMainException(error, {
-    tags: { phase: "startup" },
-  });
+async function handleApplicationFailure(exit: Extract<MainExit, { readonly _tag: "Failure" }>) {
+  const error = Cause.squash(exit.cause);
+  const isRuntimeFailure = exit.phase === "runtime";
+  const message = isRuntimeFailure
+    ? "Nodex encountered an unrecoverable error"
+    : "Nodex failed to start";
+  logBootstrap("error", message, { error, phase: exit.phase });
 
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
     window.destroy();
+  }
+
+  if (exit.phase === "closing") {
+    app.quit();
+    return;
   }
 
   await dialog.showMessageBox({
@@ -191,7 +199,7 @@ async function handleStartupFailure(error: unknown): Promise<void> {
     defaultId: 0,
     cancelId: 0,
     noLink: true,
-    message: "Nodex failed to start",
+    message,
     detail: formatStartupError(error),
   });
 
@@ -228,30 +236,37 @@ function launchMainApplication(): void {
   });
   const application = Effect.gen(function* () {
     const callbacks = yield* ScopedCallbackRuntime;
-    yield* MainApp.program({
+    const observability = yield* MainObservability;
+    const exit = yield* MainApp.program({
       initialEvents: startupEvents,
-      runtimeLayer: MainDesktopRuntimeLive.productionLive,
+      applicationLayer: MainApplicationLive.productionLive,
       runStartupGate: Effect.tryPromise({
         try: async () => {
           await mainSentryInitialization;
           assertRustDataAuthorityEnvironment(process.env);
           return await runMacApplicationsInstallerGate(createMacApplicationsInstallerEnvironment());
         },
-        catch: (cause) => new MainRuntimeError({ operation: "startup-gate", cause }),
+        catch: (cause) =>
+          new MainApplicationError({ phase: "pre-ready", operation: "startup-gate", cause }),
       }),
-      onRuntimeReady: (runtime) =>
+      onApplicationReady: (application) =>
         Effect.acquireRelease(
           Effect.tryPromise({
             try: () =>
               runtimeQueue.attachController({
                 handleOpenUrl: (url) =>
-                  callbacks.runPromise(runtime.handleBootstrapEvent({ type: "open-url", url })),
+                  callbacks.runPromise(application.handleBootstrapEvent({ type: "open-url", url })),
                 handleSecondInstance: (argv) =>
                   callbacks.runPromise(
-                    runtime.handleBootstrapEvent({ type: "second-instance", argv }),
+                    application.handleBootstrapEvent({ type: "second-instance", argv }),
                   ),
               }),
-            catch: (cause) => new MainRuntimeError({ operation: "bootstrap-handoff", cause }),
+            catch: (cause) =>
+              new MainApplicationError({
+                phase: "startup",
+                operation: "bootstrap-handoff",
+                cause,
+              }),
           }),
           (release) => Effect.sync(release),
         ).pipe(
@@ -263,13 +278,22 @@ function launchMainApplication(): void {
           ),
           Effect.asVoid,
         ),
-    });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.succeed({
+          _tag: "Failure",
+          phase: "startup",
+          cause: cause as Cause.Cause<MainApplicationError>,
+        } satisfies MainExit),
+      ),
+    );
+    yield* observability.reportExit(exit);
+    if (exit._tag === "Failure") {
+      yield* Effect.tryPromise(() => handleApplicationFailure(exit)).pipe(Effect.orDie);
+    }
   }).pipe(
     // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the unique process entry that owns the foundation Layer.
     Effect.provide(foundation),
-    Effect.catchCause((cause) =>
-      Effect.tryPromise(() => handleStartupFailure(Cause.squash(cause))).pipe(Effect.orDie),
-    ),
   );
   MainEntry.runMain(application);
 }

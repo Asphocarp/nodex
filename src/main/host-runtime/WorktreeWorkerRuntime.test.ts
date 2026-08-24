@@ -45,6 +45,17 @@ port.on("message", (message) => {
     operation: "create",
     event: { operation: "create", type: "path-allocated", ...roots },
   });
+  if (request.input.threadTitle === "flood") {
+    for (let index = 0; index < 20; index += 1) {
+      port.postMessage({
+        type: "event",
+        id: message.id,
+        operation: "create",
+        event: { operation: "create", type: "setup-started" },
+      });
+    }
+    return;
+  }
   if (request.input.threadTitle === "ordered") {
     port.postMessage({
       type: "event",
@@ -97,11 +108,14 @@ const createInput = (threadTitle: string): CodexWorktreeWorkerCreateInput => ({
   propagateLocalWorkspaceFiles: true,
 });
 
-const acquire = (onInfrastructureError?: (error: Error) => void) =>
+const acquire = (
+  onInfrastructureError?: (error: Error) => void,
+  capacity?: { readonly requestInboxCapacity: number },
+) =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
-      localLive({ hostId: "local", workerPath: fixturePath, onInfrastructureError }),
+      localLive({ hostId: "local", workerPath: fixturePath, onInfrastructureError, ...capacity }),
       scope,
     );
     return { runtime: Context.get(context, WorktreeWorkerRuntime), scope };
@@ -212,6 +226,30 @@ it.effect("isolates event-consumer failure and preserves each request's wire ord
     yield* Fiber.join(ordered);
     assert.deepEqual(order, ["path-start", "path-end", "setup-started"]);
 
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("fails and replaces a worker generation when a request consumer exceeds its budget", () =>
+  Effect.gen(function* () {
+    const infrastructureErrors: string[] = [];
+    const { runtime, scope } = yield* acquire((error) => infrastructureErrors.push(error.message), {
+      requestInboxCapacity: 2,
+    });
+    const flooded = yield* Effect.result(
+      runtime.request(
+        { operation: "create", input: createInput("flood") },
+        { onEvent: () => Effect.never },
+      ),
+    );
+    assert.isTrue(Result.isFailure(flooded));
+    assert.isTrue(infrastructureErrors.some((message) => message.includes("ingress exceeded")));
+
+    const recovered = yield* runtime.request({
+      operation: "create",
+      input: createInput("success"),
+    });
+    assert.isNull(recovered.setupError);
     yield* Scope.close(scope, Exit.void);
   }),
 );

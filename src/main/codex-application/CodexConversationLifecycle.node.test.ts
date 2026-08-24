@@ -14,9 +14,9 @@ import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRun
 import { CodexQueuedFollowUpDispatcher } from "./CodexQueuedFollowUpDispatcher";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 
 const snapshot = (threadId: string): CodexConversationSnapshot =>
   ({
@@ -36,7 +36,7 @@ it.effect("retires every conversation resource from inside its current causal la
   Effect.gen(function* () {
     const ownerScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, ownerScope);
-    const conversations = Context.get(context, ConversationRuntimeMap);
+    const conversations = Context.get(context, ConversationEntityMap);
     const threadId = "thread-a";
     const reason = new Error("thread deleted");
     const calls: string[] = [];
@@ -97,15 +97,15 @@ it.effect("retires every conversation resource from inside its current causal la
       Effect.provideService(CodexPendingServerRequestRuntime, pending),
       Effect.provideService(CodexQueuedFollowUpDispatcher, queuedDispatcher),
       Effect.provideService(CodexRendererConversationCoordinator, renderer),
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
       Effect.provideService(BrowserUseRuntime, browserUse),
     );
 
-    const aggregate = conversations.conversation(threadId);
+    const aggregate = conversations.entity(threadId);
     aggregate.installSnapshot(snapshot(threadId));
     aggregate.setStreaming(true);
 
-    yield* conversations.runExclusive(threadId, lifecycle.close(threadId, reason));
+    yield* conversations.runCommand(threadId, lifecycle.close(threadId, reason));
 
     assert.strictEqual(rejectedReason, reason);
     assert.deepEqual(calls, [
@@ -118,13 +118,13 @@ it.effect("retires every conversation resource from inside its current causal la
       "goal:thread-a",
       "browser:thread-a",
     ]);
-    assert.strictEqual(conversations.currentConversation(threadId), aggregate);
+    assert.strictEqual(conversations.current(threadId), aggregate);
     assert.isNull(aggregate.readSnapshot());
     assert.isFalse(aggregate.isStreaming());
     assert.deepEqual(aggregate.listQueuedFollowUps(), []);
 
     let laneRemainsUsable = false;
-    yield* conversations.runExclusive(
+    yield* conversations.runCommand(
       threadId,
       Effect.sync(() => {
         laneRemainsUsable = true;

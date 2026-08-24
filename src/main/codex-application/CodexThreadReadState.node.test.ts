@@ -19,16 +19,16 @@ import {
 } from "./CodexRendererConversationRegistry";
 import { make } from "./CodexThreadReadState";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 
 const buildRuntime = Effect.fn("CodexThreadReadStateTest.buildRuntime")(function* (
   workspace: ProjectWorkspaceService,
 ) {
   const scope = yield* Scope.make();
   const conversationsContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-  const conversations = Context.get(conversationsContext, ConversationRuntimeMap);
+  const conversations = Context.get(conversationsContext, ConversationEntityMap);
   const events = yield* makeEventHub.pipe(Effect.provideService(Scope.Scope, scope));
   const rendererConversations = yield* makeCodexRendererConversationRegistry().pipe(
     Effect.provideService(Scope.Scope, scope),
@@ -36,7 +36,7 @@ const buildRuntime = Effect.fn("CodexThreadReadStateTest.buildRuntime")(function
   const readState = yield* make.pipe(
     Effect.provideService(CodexApplicationEventHub, events),
     Effect.provideService(CodexRendererConversationRegistry, rendererConversations),
-    Effect.provideService(ConversationRuntimeMap, conversations),
+    Effect.provideService(ConversationEntityMap, conversations),
     Effect.provideService(ProjectWorkspace, ProjectWorkspace.of(workspace)),
     Effect.provideService(Scope.Scope, scope),
   );
@@ -61,7 +61,7 @@ it.effect(
           return Effect.succeed(workspaceThread());
         },
       } as unknown as ProjectWorkspaceService);
-      const aggregate = runtime.conversations.conversation("thread-a");
+      const aggregate = runtime.conversations.entity("thread-a");
       aggregate.seedHasUnreadTurn(true);
       const published = yield* Stream.runHead(runtime.events.events).pipe(
         Effect.forkIn(runtime.scope, { startImmediately: true }),

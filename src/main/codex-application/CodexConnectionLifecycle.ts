@@ -8,9 +8,10 @@ import { CodexConnection } from "./CodexConnection";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
 import { CodexProtocolNotificationEffects } from "./CodexProtocolNotificationEffects";
+import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
 import { CodexUserInputAutoResolution } from "./CodexUserInputAutoResolution";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 export class CodexConnectionLifecycle extends Context.Service<
   CodexConnectionLifecycle,
@@ -29,19 +30,24 @@ export const make: Effect.Effect<
   | CodexConnection
   | CodexPendingServerRequestRuntime
   | CodexProtocolNotificationEffects
+  | CodexRendererConversationCoordinator
   | CodexSidebarSyncRuntime
   | CodexUserInputAutoResolution
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | Scope.Scope
 > = Effect.gen(function* () {
   const connectionState = yield* CodexConnection;
   const events = yield* CodexApplicationEventHub;
   const pending = yield* CodexPendingServerRequestRuntime;
   const protocol = yield* CodexProtocolNotificationEffects;
+  const renderer = yield* CodexRendererConversationCoordinator;
   const sidebar = yield* CodexSidebarSyncRuntime;
   const autoResolution = yield* CodexUserInputAutoResolution;
-  const conversations = yield* ConversationRuntimeMap;
-  let previousStatus: CodexConnectionState["status"] = "disconnected";
+  const conversations = yield* ConversationEntityMap;
+  // The endpoint may already be ready before this dependent Layer subscribes. Seed the transition
+  // fence from the current stable-host state so its first observed disconnect cannot be mistaken
+  // for startup and leave loaded renderer roles attached to a dead generation.
+  let previousStatus: CodexConnectionState["status"] = (yield* connectionState.read).status;
 
   const settleDisconnectedRequests = Effect.fn(
     "CodexConnectionLifecycle.settleDisconnectedRequests",
@@ -49,18 +55,26 @@ export const make: Effect.Effect<
     yield* Effect.forEach(
       pending.disconnectIdentities(),
       ({ threadId, requestId }) =>
-        conversations.runExclusive(
+        conversations.runCommand(
           threadId,
-          protocol.apply({
-            hostId: DEFAULT_CODEX_HOST_ID,
-            generation: 0,
-            notification: {
-              method: "serverRequest/resolved",
-              params: { threadId, requestId },
-            },
-            occurrenceId: `synthetic:connection:${threadId}:${String(requestId)}`,
-            occurrenceToken: 0,
-          }),
+          protocol
+            .apply({
+              hostId: DEFAULT_CODEX_HOST_ID,
+              generation: 0,
+              notification: {
+                method: "serverRequest/resolved",
+                params: { threadId, requestId },
+              },
+              occurrenceId: `synthetic:connection:${threadId}:${String(requestId)}`,
+              occurrenceToken: 0,
+            })
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Failed to reconcile a disconnected Codex request").pipe(
+                  Effect.annotateLogs({ threadId, requestId: String(requestId), error }),
+                ),
+              ),
+            ),
         ),
       { concurrency: "unbounded", discard: true },
     );
@@ -91,8 +105,13 @@ export const make: Effect.Effect<
       },
     });
 
+    if (wasConnected && connection.status !== "connected") {
+      const affectedThreadIds = conversations.markAllNeedsResume();
+      renderer.resetTransport(affectedThreadIds);
+      return;
+    }
+
     if (connection.status !== "connected" || connection.retries <= 0 || wasConnected) return;
-    conversations.markAllNeedsResume();
     yield* sidebar
       .sync({ policy: "stale", reason: "app-server-reconnect" })
       .pipe(

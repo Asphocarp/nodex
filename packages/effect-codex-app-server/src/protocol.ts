@@ -1,8 +1,8 @@
-import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Stdio from "effect/Stdio";
@@ -39,12 +39,22 @@ export const CodexAppServerNoResponse = Symbol.for(
 export interface CodexAppServerPatchedProtocolOptions {
   readonly stdio: Stdio.Stdio;
   readonly terminationError?: Effect.Effect<CodexError.CodexAppServerError>;
+  /** Maximum decoded messages retained when the protocol is used as a raw Stream source. */
+  readonly incomingCapacity?: number;
+  /** Maximum encoded messages waiting for the physical writer. */
+  readonly outgoingCapacity?: number;
+  /** Maximum bytes retained across decoded incoming queues. */
+  readonly incomingByteCapacity?: number;
+  /** Maximum bytes retained by the physical writer queue. */
+  readonly outgoingByteCapacity?: number;
+  /** Maximum bytes accepted for one JSONL message in either direction. */
+  readonly maximumFrameBytes?: number;
   readonly logIncoming?: boolean;
   readonly logOutgoing?: boolean;
   readonly logger?: (event: CodexAppServerProtocolLogEvent) => Effect.Effect<void>;
   readonly onNotification?: (
     notification: CodexAppServerIncomingNotification,
-  ) => Effect.Effect<void>;
+  ) => Effect.Effect<void, CodexError.CodexAppServerError>;
   readonly onRequest?: (
     request: CodexAppServerIncomingRequest,
   ) => Effect.Effect<unknown | typeof CodexAppServerNoResponse, CodexError.CodexAppServerError>;
@@ -52,8 +62,16 @@ export interface CodexAppServerPatchedProtocolOptions {
 }
 
 export interface CodexAppServerPatchedProtocol {
-  readonly incomingNotifications: Stream.Stream<CodexAppServerIncomingNotification>;
-  readonly incomingRequests: Stream.Stream<CodexAppServerIncomingRequest>;
+  readonly incomingNotifications: Stream.Stream<
+    CodexAppServerIncomingNotification,
+    CodexError.CodexAppServerError
+  >;
+  readonly incomingRequests: Stream.Stream<
+    CodexAppServerIncomingRequest,
+    CodexError.CodexAppServerError
+  >;
+  /** Fails exactly once when any physical protocol component stops making progress. */
+  readonly termination: Effect.Effect<never, CodexError.CodexAppServerError>;
   readonly request: (
     method: string,
     payload?: unknown,
@@ -77,6 +95,11 @@ interface CodexAppServerPendingRequest {
   readonly method: string;
 }
 
+interface BufferedMessage<A> {
+  readonly bytes: number;
+  readonly value: A;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -98,6 +121,7 @@ function isIncomingResponse(value: unknown): value is typeof JsonRpcResponseEnve
 
 const encodeJsonString = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeJsonString = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+const wireEncoder = new TextEncoder();
 
 const encodeWireMessage = (
   message: Record<string, unknown>,
@@ -157,15 +181,39 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
   function* (
     options: CodexAppServerPatchedProtocolOptions,
   ): Effect.fn.Return<CodexAppServerPatchedProtocol, never, Scope.Scope> {
-    // The error channel is required so EOF can end the writer stream gracefully.
-    // oxlint-disable-next-line typescript/no-unnecessary-type-arguments
-    const outgoing = yield* Queue.unbounded<string, Cause.Done<void>>();
-    const incomingNotifications = yield* Queue.unbounded<CodexAppServerIncomingNotification>();
-    const incomingRequests = yield* Queue.unbounded<CodexAppServerIncomingRequest>();
+    const incomingCapacity = Math.max(1, Math.floor(options.incomingCapacity ?? 4_096));
+    const outgoingCapacity = Math.max(1, Math.floor(options.outgoingCapacity ?? 1_024));
+    const incomingByteCapacity = Math.max(
+      1,
+      Math.floor(options.incomingByteCapacity ?? 64 * 1_024 * 1_024),
+    );
+    const outgoingByteCapacity = Math.max(
+      1,
+      Math.floor(options.outgoingByteCapacity ?? 16 * 1_024 * 1_024),
+    );
+    const maximumFrameBytes = Math.max(
+      1,
+      Math.floor(options.maximumFrameBytes ?? 16 * 1_024 * 1_024),
+    );
+    const outgoing = yield* Queue.dropping<BufferedMessage<string>, CodexError.CodexAppServerError>(
+      outgoingCapacity,
+    );
+    const incomingNotifications = yield* Queue.dropping<
+      BufferedMessage<CodexAppServerIncomingNotification>,
+      CodexError.CodexAppServerError
+    >(incomingCapacity);
+    const incomingRequests = yield* Queue.dropping<
+      BufferedMessage<CodexAppServerIncomingRequest>,
+      CodexError.CodexAppServerError
+    >(incomingCapacity);
+    const incomingBufferedBytes = yield* Ref.make(0);
+    const outgoingBufferedBytes = yield* Ref.make(0);
+    const outgoingAdmission = yield* Semaphore.make(1);
     const pending = yield* Ref.make(new Map<string, CodexAppServerPendingRequest>());
     const nextRequestId = yield* Ref.make(1);
     const remainder = yield* Ref.make("");
-    const terminationHandled = yield* Ref.make(false);
+    const terminationState = yield* Ref.make<CodexError.CodexAppServerError | null>(null);
+    const termination = yield* Deferred.make<never, CodexError.CodexAppServerError>();
 
     const logProtocol = (event: CodexAppServerProtocolLogEvent) => {
       if (event.direction === "incoming" && !options.logIncoming) {
@@ -191,38 +239,112 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
       );
 
     const handleTermination = (classify: () => Effect.Effect<CodexError.CodexAppServerError>) =>
-      Ref.modify(terminationHandled, (handled) => {
-        if (handled) {
-          return [Effect.void, true] as const;
-        }
-        return [
-          Effect.gen(function* () {
-            const error = yield* classify();
-            yield* failAllPending(error);
-            yield* Queue.end(outgoing);
-            if (options.onTermination) {
-              yield* options.onTermination(error);
-            }
-          }),
-          true,
-        ] as const;
-      }).pipe(Effect.flatten);
-
-    const offerOutgoing = (message: Record<string, unknown>) =>
       Effect.gen(function* () {
-        yield* logProtocol({
-          direction: "outgoing",
-          stage: "decoded",
-          payload: message,
-        });
-        const encoded = yield* encodeWireMessage(message);
-        yield* logProtocol({
-          direction: "outgoing",
-          stage: "raw",
-          payload: encoded,
-        });
-        yield* Queue.offer(outgoing, encoded).pipe(Effect.asVoid);
+        const error = yield* classify();
+        const claimed = yield* Ref.modify(terminationState, (current) =>
+          current === null ? ([true, error] as const) : ([false, current] as const),
+        );
+        if (!claimed) return;
+
+        yield* Effect.all(
+          [
+            failAllPending(error),
+            Queue.fail(outgoing, error),
+            Queue.fail(incomingNotifications, error),
+            Queue.fail(incomingRequests, error),
+            Deferred.fail(termination, error),
+          ],
+          { discard: true },
+        );
+        if (options.onTermination) {
+          yield* options
+            .onTermination(error)
+            .pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("Codex App Server termination observer failed").pipe(
+                  Effect.annotateLogs({ cause }),
+                ),
+              ),
+            );
+        }
+      }).pipe(Effect.uninterruptible);
+
+    const capacityError = (
+      operation: "incoming-capacity" | "outgoing-capacity",
+      capacity: number,
+      unit = "messages",
+    ) =>
+      new CodexError.CodexAppServerTransportError({
+        operation,
+        cause: new Error(`Codex App Server protocol capacity ${capacity} ${unit} is exhausted`),
       });
+
+    const reserveBytes = (
+      bytes: Ref.Ref<number>,
+      amount: number,
+      maximum: number,
+      operation: "incoming-capacity" | "outgoing-capacity",
+    ) =>
+      Effect.gen(function* () {
+        const reserved = yield* Ref.modify(bytes, (current) =>
+          current + amount > maximum
+            ? ([false, current] as const)
+            : ([true, current + amount] as const),
+        );
+        if (reserved) return;
+        return yield* capacityError(operation, maximum, "bytes");
+      });
+
+    const releaseBytes = (bytes: Ref.Ref<number>, amount: number) =>
+      Ref.update(bytes, (current) => Math.max(0, current - amount));
+
+    const terminateOutgoingCapacity = (error: CodexError.CodexAppServerTransportError) =>
+      handleTermination(() => Effect.succeed(error)).pipe(Effect.andThen(Effect.fail(error)));
+
+    const offerOutgoing = (
+      message: Record<string, unknown>,
+    ): Effect.Effect<void, CodexError.CodexAppServerError> =>
+      outgoingAdmission
+        .withPermits(1)(
+          Effect.gen(function* () {
+            const stopped = yield* Ref.get(terminationState);
+            if (stopped !== null) return yield* stopped;
+            yield* logProtocol({
+              direction: "outgoing",
+              stage: "decoded",
+              payload: message,
+            });
+            const encoded = yield* encodeWireMessage(message);
+            const bytes = wireEncoder.encode(encoded).byteLength;
+            if (bytes > maximumFrameBytes) {
+              return yield* capacityError("outgoing-capacity", maximumFrameBytes, "frame bytes");
+            }
+            yield* logProtocol({
+              direction: "outgoing",
+              stage: "raw",
+              payload: encoded,
+            });
+            yield* reserveBytes(
+              outgoingBufferedBytes,
+              bytes,
+              outgoingByteCapacity,
+              "outgoing-capacity",
+            );
+            const accepted = yield* Queue.offer(outgoing, { bytes, value: encoded });
+            if (accepted) return;
+            yield* releaseBytes(outgoingBufferedBytes, bytes);
+            const terminated = yield* Ref.get(terminationState);
+            if (terminated !== null) return yield* terminated;
+            return yield* capacityError("outgoing-capacity", outgoingCapacity);
+          }),
+        )
+        .pipe(
+          Effect.catchTag("CodexAppServerTransportError", (error) =>
+            error.operation === "outgoing-capacity"
+              ? terminateOutgoingCapacity(error)
+              : Effect.fail(error),
+          ),
+        );
 
     const removePending = (requestId: string) =>
       Ref.update(pending, (current) => {
@@ -276,43 +398,52 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
       );
     };
 
-    const handleRequest = (request: CodexAppServerIncomingRequest) =>
-      Queue.offer(incomingRequests, request).pipe(
-        Effect.andThen(
-          options.onRequest
-            ? options.onRequest(request).pipe(
-                Effect.matchEffect({
-                  onFailure: (error) =>
-                    respondError(
-                      request.id,
-                      CodexError.CodexAppServerRequestError.fromAppServerError(
-                        error,
-                        request.method,
-                      ),
-                    ),
-                  onSuccess: (result) =>
-                    result === CodexAppServerNoResponse ? Effect.void : respond(request.id, result),
-                }),
-              )
-            : Effect.void,
-        ),
-        Effect.asVoid,
-      );
+    const offerIncoming = <A>(
+      queue: Queue.Queue<BufferedMessage<A>, CodexError.CodexAppServerError>,
+      value: A,
+      bytes: number,
+    ) =>
+      Effect.gen(function* () {
+        yield* reserveBytes(
+          incomingBufferedBytes,
+          bytes,
+          incomingByteCapacity,
+          "incoming-capacity",
+        );
+        const accepted = yield* Queue.offer(queue, { bytes, value });
+        if (accepted) return;
+        yield* releaseBytes(incomingBufferedBytes, bytes);
+        return yield* capacityError("incoming-capacity", incomingCapacity);
+      });
 
-    const handleNotification = (notification: CodexAppServerIncomingNotification) =>
-      Queue.offer(incomingNotifications, notification).pipe(
-        Effect.andThen(options.onNotification ? options.onNotification(notification) : Effect.void),
-        Effect.asVoid,
-      );
+    const handleRequest = (request: CodexAppServerIncomingRequest, bytes: number) =>
+      Effect.gen(function* () {
+        if (!options.onRequest) {
+          yield* offerIncoming(incomingRequests, request, bytes);
+          return;
+        }
+        const result = yield* options.onRequest(request);
+        if (result !== CodexAppServerNoResponse) yield* respond(request.id, result);
+      });
+
+    const handleNotification = (notification: CodexAppServerIncomingNotification, bytes: number) =>
+      Effect.gen(function* () {
+        if (!options.onNotification) {
+          yield* offerIncoming(incomingNotifications, notification, bytes);
+          return;
+        }
+        yield* options.onNotification(notification);
+      });
 
     const routeMessage = (
       message: unknown,
+      bytes: number,
     ): Effect.Effect<void, CodexError.CodexAppServerError> => {
       if (isIncomingRequest(message)) {
-        return handleRequest(message);
+        return handleRequest(message, bytes);
       }
       if (isIncomingNotification(message)) {
-        return handleNotification(message);
+        return handleNotification(message, bytes);
       }
       if (isIncomingResponse(message)) {
         return handleResponse(message);
@@ -325,6 +456,10 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
     const handleLine = (line: string): Effect.Effect<void, CodexError.CodexAppServerError> => {
       if (line.trim().length === 0) {
         return Effect.void;
+      }
+      const bytes = wireEncoder.encode(line).byteLength;
+      if (bytes > maximumFrameBytes) {
+        return Effect.fail(capacityError("incoming-capacity", maximumFrameBytes, "frame bytes"));
       }
       return logProtocol({
         direction: "incoming",
@@ -355,7 +490,7 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
             },
           }),
         ),
-        Effect.flatMap(routeMessage),
+        Effect.flatMap((message) => routeMessage(message, bytes)),
       );
     };
 
@@ -366,8 +501,20 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
           const combined = current + chunk;
           const lines = combined.split("\n");
           const nextRemainder = lines.pop() ?? "";
-          return [lines.map((line) => line.replace(/\r$/, "")), nextRemainder] as const;
-        }).pipe(Effect.flatMap((lines) => Effect.forEach(lines, handleLine, { discard: true }))),
+          return [
+            {
+              lines: lines.map((line) => line.replace(/\r$/, "")),
+              remainderBytes: wireEncoder.encode(nextRemainder).byteLength,
+            },
+            nextRemainder,
+          ] as const;
+        }).pipe(
+          Effect.flatMap(({ lines, remainderBytes }) =>
+            remainderBytes > maximumFrameBytes
+              ? Effect.fail(capacityError("incoming-capacity", maximumFrameBytes, "frame bytes"))
+              : Effect.forEach(lines, handleLine, { discard: true }),
+          ),
+        ),
       ),
       Effect.matchEffect({
         onFailure: (error) =>
@@ -391,7 +538,39 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
       Effect.forkScoped,
     );
 
-    yield* Stream.fromQueue(outgoing).pipe(Stream.run(options.stdio.stdout()), Effect.forkScoped);
+    yield* Stream.fromQueue(outgoing).pipe(
+      Stream.mapEffect((message) =>
+        releaseBytes(outgoingBufferedBytes, message.bytes).pipe(Effect.as(message.value)),
+      ),
+      Stream.run(options.stdio.stdout()),
+      Effect.matchEffect({
+        onFailure: (error) =>
+          handleTermination(() =>
+            Effect.succeed(normalizeIncomingError(error, "write-output-stream")),
+          ),
+        onSuccess: () =>
+          handleTermination(() =>
+            Effect.succeed(
+              new CodexError.CodexAppServerTransportError({
+                operation: "write-output-stream",
+                cause: new Error("Codex App Server output stream ended"),
+              }),
+            ),
+          ),
+      }),
+      Effect.forkScoped,
+    );
+
+    yield* Effect.addFinalizer(() =>
+      handleTermination(() =>
+        Effect.succeed(
+          new CodexError.CodexAppServerTransportError({
+            operation: "protocol-scope-closed",
+            cause: new Error("Codex App Server protocol Scope closed"),
+          }),
+        ),
+      ),
+    );
 
     const request = (method: string, payload?: unknown) =>
       Effect.gen(function* () {
@@ -420,8 +599,17 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
       });
 
     return {
-      incomingNotifications: Stream.fromQueue(incomingNotifications),
-      incomingRequests: Stream.fromQueue(incomingRequests),
+      incomingNotifications: Stream.fromQueue(incomingNotifications).pipe(
+        Stream.mapEffect((message) =>
+          releaseBytes(incomingBufferedBytes, message.bytes).pipe(Effect.as(message.value)),
+        ),
+      ),
+      incomingRequests: Stream.fromQueue(incomingRequests).pipe(
+        Stream.mapEffect((message) =>
+          releaseBytes(incomingBufferedBytes, message.bytes).pipe(Effect.as(message.value)),
+        ),
+      ),
+      termination: Deferred.await(termination),
       request,
       notify,
       respond,

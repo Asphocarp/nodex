@@ -12826,6 +12826,62 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("endpoint loss settles an optimistic owner turn after revoking its stream role", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      threadRuntimeStatus: { type: "idle" },
+      turns: [],
+    };
+    ownerTurnStartError = null;
+    let releaseTurnStart = () => {};
+    const turnStartGate = new Promise<void>((resolve) => {
+      releaseTurnStart = resolve;
+    });
+    ownerTurnStartGate = () => turnStartGate;
+    const { CodexAppServerManager, __resetLocalConversationStoreForTests } =
+      await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.setThreadViewActive("thread-1", true);
+      await manager.requestThreadStreamResume("thread-1");
+      const startPromise = manager.startTurn("thread-1", "Continue", {
+        permissionMode: "auto",
+      });
+      await flushAsyncWork(3);
+      expect(manager.readConversation("thread-1")?.turns[0]?.status).toBe("inProgress");
+
+      dispatchCodexAppServerMessage("thread-stream-transport-reset", {
+        hostId: "default",
+        conversationIds: ["thread-1"],
+      });
+      ownerTurnStartError = new Error("endpoint generation lost");
+      releaseTurnStart();
+      await expect(startPromise).rejects.toThrow("endpoint generation lost");
+      await flushAsyncWork(3);
+
+      const failed = manager.readConversation("thread-1");
+      expect(failed?.resumeState).toBe("needs_resume");
+      expect(failed?.threadRuntimeStatus?.type).toBe("idle");
+      expect(failed?.turns[0]?.status).toBe("failed");
+      expect(failed?.turns[0]?.errorMessage).toBe("Error submitting message");
+      expect(manager.readConversationAttachmentState("thread-1").status).toBe("idle");
+    } finally {
+      releaseTurnStart();
+      resumeThreadResult = null;
+      ownerTurnStartError = null;
+      ownerTurnStartGate = null;
+      manager.destroy();
+    }
+  });
+
   test("owner action handler returns stream revisions for owner-published mutations", async () => {
     invokeCalls = [];
     invokeRecords = [];
@@ -14498,6 +14554,61 @@ describe("local-conversation-store", () => {
         ),
       ).toBe(false);
     } finally {
+      manager.destroy();
+    }
+  });
+
+  test("revokes a visible owner role when the app-server transport generation is reset", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadError = null;
+    resumeThreadRole = "owner";
+    resumeThreadRevision = 1;
+    const { CodexAppServerManager, __resetLocalConversationStoreForTests } =
+      await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    resetLocalConversationStoreTestHarness(__resetLocalConversationStoreForTests);
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [
+          {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            status: "inProgress",
+            itemIds: ["assistant-1"],
+            items: [buildAssistantMessage("thread-1", "turn-1", "assistant-1", "working")],
+          },
+        ],
+      };
+      resumeThreadResult = baseConversation;
+      await manager.setThreadViewActive("thread-1", true);
+      await manager.requestThreadStreamResume("thread-1");
+      expect(manager.getThreadRoleForRendererClientRequest("thread-1")).toBe("owner");
+
+      dispatchCodexAppServerMessage("thread-stream-transport-reset", {
+        hostId: "default",
+        conversationIds: ["thread-1"],
+      });
+      await flushAsyncWork();
+
+      expect(manager.readConversation("thread-1")?.resumeState).toBe("needs_resume");
+      expect(manager.readConversationAttachmentState("thread-1").status).toBe("idle");
+      expect(
+        invokeRecords.some(
+          (record) =>
+            record.channel === "codex:thread:stream-following:set" &&
+            (record.args[0] as { reannounce?: boolean }).reannounce === true,
+        ),
+      ).toBe(true);
+    } finally {
+      resumeThreadResult = null;
+      resumeThreadRevision = 0;
       manager.destroy();
     }
   });

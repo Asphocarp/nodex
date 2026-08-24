@@ -17,9 +17,9 @@ import { CodexTurnAuthority } from "./CodexTurnAuthority";
 import { make, type CodexTurnCommandsService } from "./CodexTurnCommands";
 import { CodexTurnPreparation, type CodexTurnStartPlan } from "./CodexTurnPreparation";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 
 const response = (): TurnStartResponse =>
   ({
@@ -116,8 +116,8 @@ const makeHarness = (input: {
       accept: () => Effect.sync(() => (events.push("automation:accept"), true)),
     });
     const conversationsContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(conversationsContext, ConversationRuntimeMap);
-    const aggregate = conversations.conversation("thread-a");
+    const conversations = Context.get(conversationsContext, ConversationEntityMap);
+    const aggregate = conversations.entity("thread-a");
     aggregate.appendQueuedFollowUp(
       {
         followUpId: "follow-up:paused",
@@ -146,7 +146,7 @@ const makeHarness = (input: {
       Effect.provideService(CodexGateway, gateway),
       Effect.provideService(CodexTurnAuthority, authority),
       Effect.provideService(CodexTurnPreparation, preparation),
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
       Effect.provideService(CoreModules, core),
       Effect.provideService(ProjectRuntimeLifecycleRuntime, projectLifecycle),
       Effect.provideService(Scope.Scope, scope),

@@ -6,7 +6,14 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type { DesktopNotificationActionPayload } from "../../shared/types";
-import type { CodexApplicationEvent } from "../codex-application/CodexApplicationEventHub";
+import {
+  CodexApplicationEventHub,
+  type CodexApplicationEvent,
+} from "../codex-application/CodexApplicationEventHub";
+import { CodexRendererConversationRegistry } from "../codex-application/CodexRendererConversationRegistry";
+import { WindowRuntime } from "../window-runtime/WindowRuntime";
+import { DesktopNotificationRuntime } from "./DesktopNotificationRuntime";
+import { RendererClientRuntime } from "./RendererClientRuntime";
 import { live } from "./CodexThreadNotificationRuntime";
 
 it.effect("releases every Codex notification listener with the Main Scope", () =>
@@ -19,33 +26,51 @@ it.effect("releases every Codex notification listener with the Main Scope", () =
     const applicationEvents = yield* PubSub.unbounded<CodexApplicationEvent>();
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      live({
-        events: {
-          events: Stream.fromPubSub(applicationEvents),
-          publish: (event) => {
-            PubSub.publishUnsafe(applicationEvents, event);
-          },
-        },
-        getSettings: () => ({
-          turnMode: "unfocused",
-          permissionsEnabled: true,
-          questionsEnabled: true,
-        }),
-        isAppForegrounded: () => false,
-        isConversationPresentedInForeground: () => false,
-        resolveTargetClientId: () => "renderer-1",
-        showNotification: (_notification, _targetClientId, onAction) => {
-          listeners.action = onAction;
-        },
-        dismissNotification: () => {
-          dismissedCount += 1;
-        },
-        dispatchAction: () => {
-          dispatchedActionCount += 1;
-          return true;
-        },
-        focusTargetClient: () => undefined,
-      }),
+      live.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(CodexApplicationEventHub, {
+              events: Stream.fromPubSub(applicationEvents),
+              publish: (event: CodexApplicationEvent) => {
+                PubSub.publishUnsafe(applicationEvents, event);
+              },
+            } as never),
+            Layer.succeed(CodexRendererConversationRegistry, {
+              hasForegroundClient: () => false,
+              isPresentedInForeground: () => false,
+              resolvePresentedSurfaceClient: () => "renderer-1",
+            } as never),
+            Layer.succeed(DesktopNotificationRuntime, {
+              show: (
+                _notification: never,
+                _target: never,
+                onAction: (action: DesktopNotificationActionPayload) => void,
+              ) => {
+                listeners.action = onAction;
+              },
+              dismiss: () => {
+                dismissedCount += 1;
+              },
+            } as never),
+            Layer.succeed(RendererClientRuntime, {
+              getWebContentsIdForClientId: () => 1,
+              sendToClient: () => {
+                dispatchedActionCount += 1;
+                return true;
+              },
+            } as never),
+            Layer.succeed(WindowRuntime, {
+              get: () => ({
+                isDestroyed: () => false,
+                isMinimized: () => false,
+                show: () => undefined,
+                focus: () => undefined,
+                webContents: { id: 1, isDestroyed: () => false },
+              }),
+            } as never),
+          ),
+        ),
+      ),
       scope,
     );
     yield* Effect.yieldNow;

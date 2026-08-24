@@ -3,15 +3,18 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
+import * as Result from "effect/Result";
 import { randomUUID } from "node:crypto";
 import { getLogger, shutdownBackendLogger, type BackendLogger } from "../logging/logger";
 import { captureMainException, shutdownMainSentry } from "../observability/sentry-main";
+import type { MainExit } from "./MainExit";
 
 export class MainObservability extends Context.Service<
   MainObservability,
   {
     readonly backend: BackendLogger;
     readonly captureDefect: (cause: unknown, operation: string) => Effect.Effect<void>;
+    readonly reportExit: (exit: MainExit) => Effect.Effect<void>;
     readonly runId: string;
   }
 >()("nodex/main/app/MainObservability") {}
@@ -23,12 +26,14 @@ const toMessage = (message: unknown): string => {
 
 const backendEffectLogger = (backend: BackendLogger) =>
   Logger.make<unknown, void>((options) => {
-    const fields = Cause.hasFails(options.cause)
-      ? { causeKind: "failure" }
-      : Cause.hasInterruptsOnly(options.cause)
-        ? { causeKind: "interruption" }
-        : {};
-    const message = toMessage(options.message);
+    const formatted = Logger.formatStructured.log(options);
+    const fields = {
+      annotations: formatted.annotations,
+      cause: formatted.cause,
+      fiberId: formatted.fiberId,
+      spans: formatted.spans,
+    };
+    const message = toMessage(formatted.message);
     const level = String(options.logLevel).toLowerCase();
     if (level.includes("trace")) return backend.trace(message, fields);
     if (level.includes("debug")) return backend.debug(message, fields);
@@ -58,6 +63,26 @@ export const layer: Layer.Layer<MainObservability> = Layer.unwrap(
                 backend.error("Unexpected Main runtime defect", { cause, operation });
                 captureMainException(cause, { tags: { operation, runtime: "main-kernel" } });
               }),
+          ),
+          reportExit: Effect.fn("MainObservability.reportExit")((exit: MainExit) =>
+            Effect.sync(() => {
+              if (exit._tag === "Shutdown") {
+                backend.info("Main application stopped", {
+                  cleanupFailures: exit.cleanup.failures.length,
+                  reason: exit.reason._tag,
+                });
+                return;
+              }
+              backend.error("Main application failed", {
+                cause: Cause.pretty(exit.cause),
+                phase: exit.phase,
+              });
+              const defect = Cause.findDefect(exit.cause);
+              if (Result.isFailure(defect)) return;
+              captureMainException(defect.success, {
+                tags: { phase: exit.phase, runtime: "main-kernel" },
+              });
+            }),
           ),
         });
       }),

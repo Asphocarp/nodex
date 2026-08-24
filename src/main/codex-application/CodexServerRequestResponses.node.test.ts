@@ -41,9 +41,9 @@ import {
   USER_INPUT_AUTO_RESOLUTION_COUNTDOWN,
 } from "./CodexUserInputAutoResolution";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 import { make as makeResponses } from "./CodexServerRequestResponses";
 
 interface Completion {
@@ -195,7 +195,7 @@ const makeHarness = (
   Effect.gen(function* () {
     const scope = yield* Scope.Scope;
     const conversationContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
-    const conversations = Context.get(conversationContext, ConversationRuntimeMap);
+    const conversations = Context.get(conversationContext, ConversationEntityMap);
     const completions: Completion[] = [];
     const inbox = yield* makeInbox({
       respond: (threadId, _requestId, occurrenceToken, response) =>
@@ -237,7 +237,7 @@ const makeHarness = (
         }),
       ),
       Effect.provideService(CodexUserInputAutoResolution, autoResolutionRuntime),
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
     );
     return {
       completions,
@@ -255,7 +255,7 @@ it.effect("commits one semantic response and releases duplicate physical occurre
       const harness = yield* makeHarness();
       const threadId = "thread-owner";
       const requestId = "approval-shared";
-      const aggregate = harness.conversations.conversation(threadId);
+      const aggregate = harness.conversations.entity(threadId);
       aggregate.acceptCanonicalState(canonicalApproval(threadId, requestId).state);
       aggregate.setStreamRole("owner");
       harness.inbox.register({
@@ -311,7 +311,7 @@ it.effect("executes timed-out user input through the canonical response capabili
       const harness = yield* makeHarness(undefined, autoResolutionRuntime);
       const threadId = "thread-auto-resolution";
       const requestId = "user-input-timeout";
-      const aggregate = harness.conversations.conversation(threadId);
+      const aggregate = harness.conversations.entity(threadId);
       aggregate.acceptCanonicalState(canonicalUserInput(threadId, requestId));
       aggregate.setStreamRole("owner");
       harness.inbox.register({
@@ -344,7 +344,7 @@ it.effect("executes timed-out user input and resolves the exact renderer owner",
       const harness = yield* makeHarness(undefined, autoResolutionRuntime);
       const threadId = "thread-auto-resolution";
       const requestId = "user-input-timeout";
-      const aggregate = harness.conversations.conversation(threadId);
+      const aggregate = harness.conversations.entity(threadId);
       aggregate.acceptCanonicalState(canonicalUserInput(threadId, requestId));
       aggregate.setStreamRole("owner");
       harness.rendererConversations.setOwner(threadId, "renderer-owner");
@@ -392,7 +392,7 @@ it.effect("keeps a follower occurrence retryable when its host decision fails", 
       const harness = yield* makeHarness(() => Effect.fail(failure));
       const threadId = "thread-follower";
       const requestId = "approval-follower";
-      const aggregate = harness.conversations.conversation(threadId);
+      const aggregate = harness.conversations.entity(threadId);
       aggregate.acceptCanonicalState(canonicalApproval(threadId, requestId).state);
       aggregate.setStreamRole("follower");
       harness.inbox.register({
@@ -425,7 +425,7 @@ it.effect("keeps an exact pending occurrence across renderer owner replacement",
       const harness = yield* makeHarness();
       const threadId = "thread-owner-replacement";
       const requestId = "approval-owner-replacement";
-      const aggregate = harness.conversations.conversation(threadId);
+      const aggregate = harness.conversations.entity(threadId);
       aggregate.acceptCanonicalState(canonicalApproval(threadId, requestId).state);
       aggregate.setStreamRole("owner");
       harness.inbox.register({
@@ -458,8 +458,8 @@ it.effect("never resolves a same-id occurrence from another Thread", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
       const requestId = "approval-shared-across-threads";
-      const first = harness.conversations.conversation("thread-first");
-      const second = harness.conversations.conversation("thread-second");
+      const first = harness.conversations.entity("thread-first");
+      const second = harness.conversations.entity("thread-second");
       first.acceptCanonicalState(canonicalApproval("thread-first", requestId).state);
       second.acceptCanonicalState(canonicalApproval("thread-second", requestId).state);
       first.setStreamRole("owner");

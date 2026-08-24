@@ -13,6 +13,7 @@ import * as Queue from "effect/Queue";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
+import { MAIN_RELIABLE_COMMAND_CAPACITY } from "../runtime-limits";
 
 type TurnCompletedNotification = ServerNotificationParamsByMethod["turn/completed"];
 type TurnStartParams = ClientRequestParamsByMethod["turn/start"];
@@ -74,10 +75,10 @@ export const make = (
     const startAndWait = (params: TurnStartParams) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const completions = yield* Queue.unbounded<{
+          const completions = yield* Queue.bounded<{
             readonly hostId: string;
             readonly notification: TurnCompletedNotification;
-          }>();
+          }>(MAIN_RELIABLE_COMMAND_CAPACITY);
           yield* Effect.addFinalizer(() => Queue.shutdown(completions).pipe(Effect.asVoid));
           yield* options.events.pipe(
             Stream.runForEach((event) => {

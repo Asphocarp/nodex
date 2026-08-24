@@ -27,12 +27,12 @@ import {
   type CodexTurnCommandsError,
   type CodexTurnStartOverrides,
 } from "./CodexTurnCommands";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 import { SIDE_CHAT_BOUNDARY_TEXT } from "./CodexSideChatPolicy";
 import { SIDE_CHAT_DEVELOPER_INSTRUCTIONS } from "./CodexSideChatPolicy";
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexThreadDirectory, type CodexThreadDirectoryEntry } from "./CodexThreadDirectory";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 
 type GatewayThreadForkParams = ClientRequestParamsByMethod["thread/fork"];
 type GatewayThreadInjectItemsParams = ClientRequestParamsByMethod["thread/inject_items"];
@@ -81,17 +81,17 @@ export const make: Effect.Effect<
   | CodexThreadHostResolver
   | CodexEphemeralThreadRouting
   | CodexThreadDirectory
-  | CodexThreadStartNotificationGate
+  | ThreadCreationRuntime
   | CodexTurnCommands
-  | ConversationRuntimeMap
+  | ConversationEntityMap
 > = Effect.gen(function* () {
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const gateway = yield* CodexGateway;
   const hostResolver = yield* CodexThreadHostResolver;
   const routing = yield* CodexEphemeralThreadRouting;
   const turns = yield* CodexTurnCommands;
   const directory = yield* CodexThreadDirectory;
-  const threadStarts = yield* CodexThreadStartNotificationGate;
+  const threadStarts = yield* ThreadCreationRuntime;
   const projection = yield* CodexConversationProjection;
 
   const prepare = Effect.fn("CodexSideChatCommands.prepare")(function* (
@@ -296,7 +296,7 @@ export const make: Effect.Effect<
             }),
         ),
       );
-    const aggregate = conversations.conversation(threadId);
+    const aggregate = conversations.entity(threadId);
     aggregate.setStreaming(true);
     return { parentThreadId: plan.parentThreadId, threadId, conversation };
   });
@@ -324,7 +324,7 @@ export const make: Effect.Effect<
           gateway.requestOnHost(hostId, "thread/unsubscribe", { threadId }),
         ),
         ignoreCleanupFailure("route-remove", threadId, routing.remove(threadId)),
-        ignoreCleanupFailure("projection-rollback", threadId, conversations.close(threadId)),
+        ignoreCleanupFailure("projection-rollback", threadId, conversations.retire(threadId)),
       ],
       { concurrency: 1, discard: true },
     );
@@ -395,10 +395,10 @@ export const make: Effect.Effect<
     const threadId = rawThreadId.trim();
     if (!threadId) return Effect.succeed(false);
     return conversations
-      .runExclusive(
+      .runCommand(
         threadId,
         Effect.sync(() => {
-          const source = conversations.currentConversation(threadId)?.readSnapshot()?.source;
+          const source = conversations.current(threadId)?.readSnapshot()?.source;
           return source?.sideConversation === true && source.parentThreadId
             ? { parentThreadId: source.parentThreadId }
             : null;
@@ -428,7 +428,7 @@ export const make: Effect.Effect<
         ),
       )
       .pipe(
-        Effect.tap((discarded) => (discarded ? conversations.close(threadId) : Effect.void)),
+        Effect.tap((discarded) => (discarded ? conversations.retire(threadId) : Effect.void)),
         Effect.withSpan("CodexSideChatCommands.discard", { attributes: { threadId } }),
       );
   };

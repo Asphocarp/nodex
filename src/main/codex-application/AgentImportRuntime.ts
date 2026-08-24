@@ -22,7 +22,7 @@ import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexExternalAgentImportRuntime } from "./CodexExternalAgentImportRuntime";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
 
 export class AgentImportRuntimeError extends Data.TaggedError("AgentImportRuntimeError")<{
@@ -82,7 +82,7 @@ export const make = (
   | CodexGateway
   | CodexSidebarSyncRuntime
   | CodexThreadDirectory
-  | CodexThreadStartNotificationGate
+  | ThreadCreationRuntime
   | CodexThreadTitlePersistence
   | Scope.Scope
 > =>
@@ -93,7 +93,7 @@ export const make = (
       gateway: yield* CodexGateway,
       sidebarSync: yield* CodexSidebarSyncRuntime,
       threadDirectory: yield* CodexThreadDirectory,
-      threadStarts: yield* CodexThreadStartNotificationGate,
+      threadStarts: yield* ThreadCreationRuntime,
       threadTitles: yield* CodexThreadTitlePersistence,
     });
     const state = yield* Ref.make<AgentImportState>({

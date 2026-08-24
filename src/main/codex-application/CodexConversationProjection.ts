@@ -16,12 +16,12 @@ import type {
   CodexThreadStatusType,
 } from "../../shared/types";
 import type { CodexCanonicalSteeringUserMessageItem } from "../../shared/codex-conversation-state/codex-conversation-state";
-import type { CodexConversationAggregate } from "./CodexConversationAggregate";
+import type { ConversationEntityState } from "./internal/ConversationEntityState";
 import { CoreModuleResponseError } from "../core-client/core-client";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 import { buildCodexCanonicalTurnSummary } from "./CodexConversationServerRequestProjection";
 import { buildCoreWorkspaceThreadSummary } from "./CodexThreadCatalogProjection";
 import { projectCodexThreadDirectorySnapshot } from "./CodexThreadDirectoryProjection";
@@ -160,17 +160,14 @@ export class CodexConversationProjection extends Context.Service<
 export const make: Effect.Effect<
   CodexConversationProjectionService,
   never,
-  | ConversationRuntimeMap
-  | CodexRendererConversationRegistry
-  | CodexApplicationEventHub
-  | CoreModules
+  ConversationEntityMap | CodexRendererConversationRegistry | CodexApplicationEventHub | CoreModules
 > = Effect.gen(function* () {
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
   const rendererConversations = yield* CodexRendererConversationRegistry;
   const events = yield* CodexApplicationEventHub;
   const core = yield* CoreModules;
 
-  const aggregate = (threadId: string) => conversations.currentConversation(threadId);
+  const aggregate = (threadId: string) => conversations.current(threadId);
   const projectReplica = (threadId: string): boolean => !rendererConversations.hasOwner(threadId);
   const publish = (value: import("../../shared/types").CodexEvent): void =>
     events.publish({ kind: "codex", value });
@@ -260,7 +257,7 @@ export const make: Effect.Effect<
   const requireChanged = (
     operation: string,
     threadId: string,
-    change: (conversation: CodexConversationAggregate) => boolean,
+    change: (conversation: ConversationEntityState) => boolean,
   ) =>
     required(operation, threadId).pipe(
       Effect.flatMap((conversation) =>
@@ -294,7 +291,7 @@ export const make: Effect.Effect<
     hydrate: (input) =>
       Effect.try({
         try: () => {
-          const conversation = conversations.conversation(input.threadId);
+          const conversation = conversations.entity(input.threadId);
           const before = conversation.readCanonicalState();
           const accepted = conversation.read().acceptedReplica;
           conversation.acceptCanonicalState(input.canonical);

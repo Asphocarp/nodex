@@ -16,9 +16,9 @@ import {
   makeCodexRendererConversationRegistryState,
 } from "./CodexRendererConversationRegistry";
 import {
-  ConversationRuntimeMap,
+  ConversationEntityMap,
   live as conversationRuntimeMapLive,
-} from "./ConversationRuntimeMap";
+} from "./internal/ConversationEntityMap";
 
 const frame = (delta: string): CodexFrameTextDeltaUpdate => ({
   conversationId: "thread-1",
@@ -31,16 +31,16 @@ const frame = (delta: string): CodexFrameTextDeltaUpdate => ({
 const withRuntime = <A, E>(
   use: (
     runtime: CodexConversationDeltaBufferRuntime["Service"],
-    conversations: ConversationRuntimeMap["Service"],
+    conversations: ConversationEntityMap["Service"],
   ) => Effect.Effect<A, E>,
   options: CodexConversationDeltaBufferRuntimeOptions = {},
 ): Effect.Effect<A, E, Scope.Scope> =>
   Effect.gen(function* () {
     const ownerScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, ownerScope);
-    const conversations = Context.get(context, ConversationRuntimeMap);
+    const conversations = Context.get(context, ConversationEntityMap);
     const runtime = yield* make(options).pipe(
-      Effect.provideService(ConversationRuntimeMap, conversations),
+      Effect.provideService(ConversationEntityMap, conversations),
       Effect.provideService(
         CodexRendererConversationRegistry,
         makeCodexRendererConversationRegistryState(),
@@ -56,11 +56,11 @@ it.effect("drains one Thread synchronously and keeps another Thread scheduled", 
     Effect.gen(function* () {
       runtime.enqueueFrameText(frame("a"));
       runtime.enqueueFrameText({ ...frame("b"), conversationId: "thread-2" });
-      runtime.drainFrameText("thread-1");
-      assert.isFalse(conversations.conversation("thread-1").hasBufferedFrameTextDeltas());
-      assert.isTrue(conversations.conversation("thread-2").hasBufferedFrameTextDeltas());
+      runtime.drainFrameText("thread-1", 1_000);
+      assert.isFalse(conversations.entity("thread-1").hasBufferedFrameTextDeltas());
+      assert.isTrue(conversations.entity("thread-2").hasBufferedFrameTextDeltas());
       yield* TestClock.adjust("20 millis");
-      assert.isFalse(conversations.conversation("thread-2").hasBufferedFrameTextDeltas());
+      assert.isFalse(conversations.entity("thread-2").hasBufferedFrameTextDeltas());
     }),
   ),
 );
@@ -71,7 +71,7 @@ it.effect("clear removes the aggregate-owned buffer before its timer fires", () 
       runtime.enqueueFrameText(frame("discard"));
       runtime.clear("thread-1");
       yield* TestClock.adjust("1 second");
-      assert.isFalse(conversations.conversation("thread-1").hasBufferedFrameTextDeltas());
+      assert.isFalse(conversations.entity("thread-1").hasBufferedFrameTextDeltas());
     }),
   ),
 );

@@ -27,9 +27,9 @@ import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrai
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexThreadCatalog } from "./CodexThreadCatalog";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
 import { CodexThreadTitlePersistence } from "./CodexThreadTitlePersistence";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 type GatewayThreadForkParams = ClientRequestParamsByMethod["thread/fork"];
 
@@ -92,9 +92,9 @@ export const make: Effect.Effect<
   | CodexRendererConversationCoordinator
   | CodexThreadCatalog
   | CodexThreadDirectory
-  | CodexThreadStartNotificationGate
+  | ThreadCreationRuntime
   | CodexThreadTitlePersistence
-  | ConversationRuntimeMap
+  | ConversationEntityMap
   | CoreModules
 > = Effect.gen(function* () {
   const core = yield* CoreModules;
@@ -106,9 +106,9 @@ export const make: Effect.Effect<
   const forkTitles = yield* CodexForkTitlePolicy;
   const catalog = yield* CodexThreadCatalog;
   const directory = yield* CodexThreadDirectory;
-  const threadStarts = yield* CodexThreadStartNotificationGate;
+  const threadStarts = yield* ThreadCreationRuntime;
   const titles = yield* CodexThreadTitlePersistence;
-  const conversations = yield* ConversationRuntimeMap;
+  const conversations = yield* ConversationEntityMap;
 
   const error = (
     operation: CodexConversationForkError["operation"],
@@ -370,7 +370,7 @@ export const make: Effect.Effect<
         );
         return yield* threadStarts.materialize(
           durable.durable.executionHostId,
-          conversations.runExclusive(sourceThreadId, forkPhysical(input)),
+          conversations.runCommand(sourceThreadId, forkPhysical(input)),
           (result) => result.threadId,
         );
       }).pipe(

@@ -30,6 +30,7 @@ import {
   type TerminalRuntime,
   type TerminalRuntimeConfig,
 } from "./TerminalRuntimeMap";
+import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 
 export interface TerminalOwner {
   readonly webContentsId: number;
@@ -181,7 +182,7 @@ export const live: Layer.Layer<
     const metrics = yield* TerminalProcessMetricsReader;
     const runtimes = yield* TerminalRuntimeMap;
     const records = yield* Ref.make<ReadonlyMap<string, TerminalSessionRecord>>(new Map());
-    const events = yield* PubSub.unbounded<TerminalSessionEvent>();
+    const events = yield* PubSub.sliding<TerminalSessionEvent>(MAIN_OBSERVATION_EVENT_CAPACITY);
     const watchers = yield* FiberSet.make<void, never>();
     yield* Effect.addFinalizer(() => PubSub.shutdown(events));
 

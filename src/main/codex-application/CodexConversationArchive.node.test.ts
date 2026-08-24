@@ -10,7 +10,7 @@ import {
 } from "../project-application/ProjectWorkspace";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { make } from "./CodexConversationArchive";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 import {
   ManagedWorktreeRuntime,
   ManagedWorktreeRuntimeError,
@@ -92,8 +92,8 @@ const makeArchive = (input: {
     ),
     Effect.provideService(CodexGateway, gateway),
     Effect.provideService(
-      ConversationRuntimeMap,
-      ConversationRuntimeMap.of({ currentConversation: () => null } as never),
+      ConversationEntityMap,
+      ConversationEntityMap.of({ current: () => null } as never),
     ),
     Effect.provideService(
       ManagedWorktreeRuntime,

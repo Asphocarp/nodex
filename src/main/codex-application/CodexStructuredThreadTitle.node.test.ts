@@ -14,8 +14,8 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
 import { CodexInternalThreadRegistry } from "./CodexInternalThreadRegistry";
-import { CodexThreadStartNotificationGate } from "./CodexThreadStartNotificationGate";
-import { transparentThreadStartNotificationGate } from "./CodexThreadStartNotificationGate.test-support";
+import { ThreadCreationRuntime } from "./ThreadCreationRuntime";
+import { transparentThreadCreationRuntime } from "./ThreadCreationRuntime.test-support";
 import { make, type CodexStructuredThreadTitleOptions } from "./CodexStructuredThreadTitle";
 
 type ThreadStartResponse = ClientRequestResponsesByMethod["thread/start"];
@@ -58,7 +58,7 @@ const makeOptions = (
 
 const makeRuntime = (options: CodexStructuredThreadTitleOptions, lifecycle: string[]) =>
   make(options).pipe(
-    Effect.provideService(CodexThreadStartNotificationGate, transparentThreadStartNotificationGate),
+    Effect.provideService(ThreadCreationRuntime, transparentThreadCreationRuntime),
     Effect.provideService(
       CodexInternalThreadRegistry,
       CodexInternalThreadRegistry.of({

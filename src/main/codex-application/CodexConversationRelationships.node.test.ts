@@ -9,7 +9,7 @@ import { CoreModules, type CoreModuleClients } from "../core-runtime/CoreModules
 import { CodexApplicationEventHub, type CodexApplicationEvent } from "./CodexApplicationEventHub";
 import { make } from "./CodexConversationRelationships";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
-import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
+import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
 type CoreThread = Extract<
   ProjectWorkspaceReadSnapshot["value"],
@@ -104,7 +104,7 @@ const buildRelationships = Effect.fn("CodexConversationRelationshipsTest.build")
     },
     apply: () => Effect.die("unused"),
   };
-  const runExclusive: ConversationRuntimeMap["Service"]["runExclusive"] = (_threadId, operation) =>
+  const runCommand: ConversationEntityMap["Service"]["runCommand"] = (_threadId, operation) =>
     operation;
   return yield* make.pipe(
     Effect.provideService(
@@ -116,14 +116,14 @@ const buildRelationships = Effect.fn("CodexConversationRelationshipsTest.build")
     ),
     Effect.provideService(CodexThreadDirectory, input.directory),
     Effect.provideService(
-      ConversationRuntimeMap,
-      ConversationRuntimeMap.of({
-        currentConversation: (threadId: string) => ({
+      ConversationEntityMap,
+      ConversationEntityMap.of({
+        current: (threadId: string) => ({
           readSnapshot: () => ({ ...conversation, threadId }),
           readCanonicalState: () => null,
         }),
-        runExclusive,
-      } as unknown as ConversationRuntimeMap["Service"]),
+        runCommand,
+      } as unknown as ConversationEntityMap["Service"]),
     ),
     Effect.provideService(
       CoreModules,

@@ -47,13 +47,18 @@ interface WorkerSession {
 }
 
 type PendingMessage = Exclude<CodexWorktreeWorkerThreadMessage, { readonly type: "ready" }>;
+interface QueuedPendingMessage {
+  readonly bytes: number;
+  readonly value: PendingMessage;
+}
 
 interface PendingRequest {
   readonly operation: CodexWorktreeWorkerOperation;
   readonly onEvent: (event: CodexWorktreeWorkerEvent) => Effect.Effect<void>;
-  readonly messages: Queue.Queue<PendingMessage>;
+  readonly messages: Queue.Queue<QueuedPendingMessage>;
   readonly reply: Deferred.Deferred<CodexWorktreeWorkerSuccess, WorktreeWorkerError>;
   readonly session: WorkerSession;
+  queuedBytes: number;
 }
 
 export type WorktreeWorkerSuccessValue<Operation extends CodexWorktreeWorkerOperation> = Extract<
@@ -96,6 +101,11 @@ export interface LocalWorktreeWorkerOptions {
   readonly createProcess?: WorktreeWorkerProcessFactory;
   readonly onInfrastructureError?: (error: Error) => void;
   readonly shutdownTimeoutMs?: number;
+  readonly sessionInboxCapacity?: number;
+  readonly sessionInboxBytes?: number;
+  readonly requestInboxCapacity?: number;
+  readonly requestInboxBytes?: number;
+  readonly maximumPendingRequests?: number;
 }
 
 export interface WorktreeWorkerClientOptions {
@@ -107,9 +117,27 @@ export interface WorktreeWorkerClientOptions {
   readonly onInfrastructureError?: (error: Error) => void;
   readonly expectedReadyEpoch?: (sessionEpoch: number) => number;
   readonly shutdownTimeoutMs?: number;
+  readonly sessionInboxCapacity?: number;
+  readonly sessionInboxBytes?: number;
+  readonly requestInboxCapacity?: number;
+  readonly requestInboxBytes?: number;
+  readonly maximumPendingRequests?: number;
 }
 
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 1_500;
+const DEFAULT_SESSION_INBOX_CAPACITY = 2_048;
+const DEFAULT_SESSION_INBOX_BYTES = 32 * 1024 * 1024;
+const DEFAULT_REQUEST_INBOX_CAPACITY = 256;
+const DEFAULT_REQUEST_INBOX_BYTES = 16 * 1024 * 1024;
+const DEFAULT_MAXIMUM_PENDING_REQUESTS = 32;
+
+const messageBytes = (message: unknown): number => {
+  try {
+    return Buffer.byteLength(JSON.stringify(message), "utf8");
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+};
 
 const createNodeProcess: WorktreeWorkerProcessFactory = (input) => {
   const worker = new Worker(input.workerPath, {
@@ -155,6 +183,26 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
     }
     const onInfrastructureError = options.onInfrastructureError ?? (() => undefined);
     const expectedReadyEpoch = options.expectedReadyEpoch ?? ((epoch: number) => epoch);
+    const sessionInboxCapacity = Math.max(
+      1,
+      Math.floor(options.sessionInboxCapacity ?? DEFAULT_SESSION_INBOX_CAPACITY),
+    );
+    const sessionInboxBytes = Math.max(
+      1,
+      Math.floor(options.sessionInboxBytes ?? DEFAULT_SESSION_INBOX_BYTES),
+    );
+    const requestInboxCapacity = Math.max(
+      1,
+      Math.floor(options.requestInboxCapacity ?? DEFAULT_REQUEST_INBOX_CAPACITY),
+    );
+    const requestInboxBytes = Math.max(
+      1,
+      Math.floor(options.requestInboxBytes ?? DEFAULT_REQUEST_INBOX_BYTES),
+    );
+    const maximumPendingRequests = Math.max(
+      1,
+      Math.floor(options.maximumPendingRequests ?? DEFAULT_MAXIMUM_PENDING_REQUESTS),
+    );
     const stateLock = yield* Semaphore.make(1);
     const current = yield* Ref.make<WorkerSession | null>(null);
     const nextEpoch = yield* Ref.make(1);
@@ -221,7 +269,9 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
     const consumePending = (id: string, pending: PendingRequest): Effect.Effect<void> =>
       Effect.gen(function* () {
         while (true) {
-          const message = yield* Queue.take(pending.messages);
+          const queued = yield* Queue.take(pending.messages);
+          pending.queuedBytes = Math.max(0, pending.queuedBytes - queued.bytes);
+          const message = queued.value;
           if (message.type === "event") {
             const delivered = yield* Effect.exit(pending.onEvent(message.event));
             if (Exit.isSuccess(delivered)) continue;
@@ -273,7 +323,21 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
         if (raw.operation !== pending.operation) {
           return yield* handleFailure(new Error("Worktree worker operation mismatch"), session);
         }
-        yield* Queue.offer(pending.messages, raw);
+        const bytes = messageBytes(raw);
+        if (pending.queuedBytes + bytes > requestInboxBytes) {
+          return yield* handleFailure(
+            new Error(`Worktree request ingress exceeded ${requestInboxBytes} bytes`),
+            session,
+          );
+        }
+        pending.queuedBytes += bytes;
+        const accepted = yield* Queue.offer(pending.messages, { bytes, value: raw });
+        if (accepted) return;
+        pending.queuedBytes = Math.max(0, pending.queuedBytes - bytes);
+        return yield* handleFailure(
+          new Error(`Worktree request ingress exceeded ${requestInboxCapacity} messages`),
+          session,
+        );
       });
 
     const ensureWorker = (): Effect.Effect<WorkerSession, WorktreeWorkerError> =>
@@ -290,16 +354,18 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
           );
         const exit = yield* Deferred.make<number>();
         let releaseListeners = () => undefined;
-        const inbox: unknown[] = [];
+        const inbox: Array<{ readonly bytes: number; readonly value: unknown }> = [];
+        let inboxBytes = 0;
         let draining = false;
         let session!: WorkerSession;
         const drain: Effect.Effect<void> = Effect.suspend(() => {
-          const message = inbox.shift();
-          if (message === undefined) {
+          const queued = inbox.shift();
+          if (queued === undefined) {
             draining = false;
             return Effect.void;
           }
-          return handleMessage(message, session).pipe(Effect.andThen(drain));
+          inboxBytes = Math.max(0, inboxBytes - queued.bytes);
+          return handleMessage(queued.value, session).pipe(Effect.andThen(drain));
         });
         session = {
           epoch,
@@ -307,7 +373,20 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
           process,
           releaseListeners: () => releaseListeners(),
           enqueue: (message) => {
-            inbox.push(message);
+            const bytes = messageBytes(message);
+            if (inbox.length >= sessionInboxCapacity || inboxBytes + bytes > sessionInboxBytes) {
+              runCallback(
+                handleFailure(
+                  new Error(
+                    `Worktree worker ingress exceeded ${sessionInboxCapacity} messages or ${sessionInboxBytes} bytes`,
+                  ),
+                  session,
+                ),
+              );
+              return;
+            }
+            inbox.push({ bytes, value: message });
+            inboxBytes += bytes;
             if (draining) return;
             draining = true;
             runCallback(drain);
@@ -387,15 +466,22 @@ export const makeWorktreeWorkerClient = (options: WorktreeWorkerClientOptions) =
               if (yield* Ref.get(closed)) {
                 return yield* failure("admit-request", "Worktree worker is shutting down");
               }
+              if ((yield* Ref.get(requests)).size >= maximumPendingRequests) {
+                return yield* failure(
+                  "admit-request",
+                  `Worktree worker already has ${maximumPendingRequests} pending requests`,
+                );
+              }
               const session = yield* ensureWorker();
               admittedSession = session;
-              const messages = yield* Queue.unbounded<PendingMessage>();
+              const messages = yield* Queue.dropping<QueuedPendingMessage>(requestInboxCapacity);
               const pending: PendingRequest = {
                 operation: request.operation,
                 onEvent: requestOptions.onEvent ?? (() => Effect.void),
                 messages,
                 reply,
                 session,
+                queuedBytes: 0,
               };
               yield* Ref.update(requests, (state) => new Map(state).set(id, pending));
               yield* FiberSet.run(callbackFibers, consumePending(id, pending));
@@ -477,6 +563,11 @@ export const localLive = (
           catch: (cause) => new WorktreeWorkerProcessStartError({ cause }),
         }),
       onInfrastructureError: options.onInfrastructureError,
+      maximumPendingRequests: options.maximumPendingRequests,
+      requestInboxBytes: options.requestInboxBytes,
+      requestInboxCapacity: options.requestInboxCapacity,
+      sessionInboxBytes: options.sessionInboxBytes,
+      sessionInboxCapacity: options.sessionInboxCapacity,
       shutdownTimeoutMs: options.shutdownTimeoutMs,
     }),
   );

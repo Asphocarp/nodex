@@ -5,7 +5,7 @@ import type { IpcMainInvokeEvent } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
 import { MainConfig } from "../../app/MainConfig";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
-import type { PersistedAtomStore } from "../../local-store/persisted-atoms";
+import { makePersistedAtomStore } from "../../local-store/persisted-atoms";
 import { getLogger } from "../../logging/logger";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
@@ -23,12 +23,11 @@ type Handler<Channel extends keyof IpcApi> = (
 
 const diagnostics = getLogger({ subsystem: "renderer", component: "diagnostics" });
 
-export const live = (options: {
-  readonly persistedAtoms: PersistedAtomStore;
-}): Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =>
+export const live: Layer.Layer<never, never, ElectronIpc | MainConfig | WindowRuntime> =
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
+      const persistedAtoms = makePersistedAtomStore(config.nodexHome);
       const ipc = yield* ElectronIpc;
       const windows = yield* WindowRuntime;
       const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
@@ -55,16 +54,14 @@ export const live = (options: {
         ),
       );
       yield* handle("persisted-atom:sync-request", (event) =>
-        authorize(event).pipe(
-          Effect.andThen(Effect.sync(() => options.persistedAtoms.readSnapshot())),
-        ),
+        authorize(event).pipe(Effect.andThen(Effect.sync(() => persistedAtoms.readSnapshot()))),
       );
       yield* handle("persisted-atom:update", (event, mutation) =>
         authorize(event).pipe(
           Effect.andThen(
             Effect.try({
               try: () => {
-                const persistedEvent = options.persistedAtoms.commitMutation(
+                const persistedEvent = persistedAtoms.commitMutation(
                   mutation,
                   String(event.sender.id),
                 );

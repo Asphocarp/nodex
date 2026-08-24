@@ -141,7 +141,7 @@ Store formats and migration sequences are implementation/recovery contracts, not
 
 Main is an Adapter, coordinator, and runtime host. It may bind Profile/Library/Project/Session identity, perform host preflight, and coordinate external effects around a Core command. It must not open SQLite, reconstruct a semantic transaction, infer authorization from renderer state, or provide a fallback data authority when Core is unavailable.
 
-Electron Main is one Effect 4 application kernel. [`MainEntry`](../src/main/app/MainEntry.ts) is the Main-process Node runtime root; [`MainApp`](../src/main/app/MainApp.ts) owns ready, bootstrap handoff, shutdown admission, and the process Scope; [`MainDesktopRuntimeLive`](../src/main/app/MainDesktopRuntimeLive.ts) composes the Core, Codex, Window, IPC, and host Layers. Startup rollback and every normal or authority-driven quit close that same Scope. Physical Core generations, Codex app-server sessions, windows, workers, PTYs, file watchers, and callback fibers are subordinate scoped resources rather than parallel lifecycle owners. Worker and standalone script processes have their own explicitly allowlisted `NodeRuntime.runMain` entries and never share Main's runtime.
+Electron Main is one Effect 4 application kernel. [`MainEntry`](../src/main/app/MainEntry.ts) is the Main-process Node runtime root; [`MainApp`](../src/main/app/MainApp.ts) owns ready, bootstrap handoff, shutdown admission, and the process Scope; [`MainApplicationLive`](../src/main/app/MainApplicationLive.ts) declaratively composes the Core, Codex, Window, renderer-ingress, and host Layer clusters. `MainApp` acquires that graph with one `Effect.provide`, so startup rollback and every normal or authority-driven quit close the same Scope. Physical Core generations, Codex app-server sessions, windows, workers, PTYs, file watchers, and callback fibers are subordinate scoped resources rather than parallel lifecycle owners. Worker and standalone script processes have their own explicitly allowlisted `NodeRuntime.runMain` entries and never share Main's runtime.
 
 Native filesystem watching is one scoped Stream Adapter around synchronous `fs.watch`; readiness,
 changes, and typed failure flow through the Stream, and stream finalization closes the native handle.
@@ -338,7 +338,7 @@ transactions may re-enter the same Project gate only from the exact owning fiber
 inherits no lock authority and queues normally. This permits deep Modules to compose smaller
 Project-owned commands without either releasing the lifecycle fence between commits or exposing an
 unsafe “already locked” bypass API. `ProjectArchiveBlockers` derives the archive gate from the
-canonical Conversation aggregate, durable Project Session projection, background-process runtime,
+canonical Conversation Entity view, durable Project Session projection, background-process runtime,
 and Terminal runtime. `ProjectLifecycleCommands` owns the double blocker read, durable lifecycle
 commit, and best-effort runtime cleanup under that gate; Project IPC only authorizes and delegates.
 
@@ -396,7 +396,9 @@ shutdown cancel the admitted physical work rather than merely abandoning an IPC 
 
 The Effect architecture gate parses production sources rather than relying on
 path conventions alone. It rejects Effect imports in frontiers, unstable APIs
-outside platform seams, runtime execution outside allowlisted entries, and
+outside platform seams, runtime execution outside allowlisted entries, static-root
+Layer builds, root-wide uninterruptibility, production unbounded channels, private
+Conversation Entity imports outside the owning application/composition seam, and
 ambient process configuration or unscoped Promise/timer/AbortController/
 EventEmitter construction inside application Module roots. The companion
 Oxlint rule also covers `.test-support.ts`, so support code cannot hide a manual
@@ -503,7 +505,8 @@ Codex has four distinct authorities that must not collapse into one another:
 - Rust Core Workspace owns durable Nodex Project, Session, and Thread identity, parentage, recency,
   status, archive state, sidebar placement, and execution location. It does not persist a second
   transcript.
-- One Main-owned generation aggregate holds the accepted application view of a live Thread:
+- One Main-owned private Conversation Entity holds the accepted application view of a live Thread
+  generation:
   canonical protocol state, Nodex sidecars, request lifecycle, resume and pagination fences, and
   renderer replication checkpoints. All commands and protocol consequences for that Thread pass
   through one causal lane.
@@ -525,13 +528,15 @@ lane; the admitted directory/projection value is then passed into the command. A
 call such a capability while already holding the same Thread lane. Creating an ephemeral child such
 as Side Chat does not acquire the parent's lane because it reads but does not mutate the parent.
 
-Every app-server operation that materializes a new Thread (`thread/start` or `thread/fork`) enters
-one host-scoped start-notification gate. Because `thread/started` may arrive before the response
-continuation reveals its Thread id, the gate holds that Thread's protocol lane until the owning
-launch, fork, automation, import, side-chat, or internal-thread transaction has committed its
-canonical and durable identity. Commit emits a one-way release to the protocol actor; application
-transactions never wait for replay acknowledgement. A failed or interrupted transaction drains any
-otherwise-unidentified started Threads when that host's materialization cohort becomes quiescent.
+Every app-server operation that materializes a new Thread (`thread/start` or `thread/fork`) is
+admitted by the application-scoped `ThreadCreationRuntime`. It assigns a local launch intent and
+owns the physical operation after a renderer waiter disappears. Because `thread/started` may arrive
+before the response reveals its Thread id, the runtime temporarily fences that host cohort; the
+response's exact Thread id is the commit correlation. The owning launch, fork, automation, import,
+side-chat, or internal-thread transaction commits canonical and durable identity before emitting a
+one-way release to the protocol actor. Application transactions never wait for replay
+acknowledgement, and a failed or interrupted materialization drains otherwise-unidentified started
+Threads when its launch cohort becomes quiescent.
 Every notification retains its endpoint host and generation through replay and durable projection,
 so a previously unknown remote Thread can never acquire local execution authority by default. Its
 Core idempotency identity also includes a process-unique Inbox namespace in addition to the local
@@ -546,11 +551,11 @@ flowchart LR
     Core["Core Workspace"] --> Directory["Thread directory and durable projection"]
     Inbox --> Lane["Per-Thread generation and causal lane"]
     Directory --> Lane
-    Lane --> Aggregate["Canonical conversation aggregate"]
-    Aggregate --> Events["Application event hub"]
+    Lane --> Entity["Private Conversation Entity state"]
+    Entity --> Events["Application event hub"]
     Events --> Projection["Renderer and native projections"]
     Renderer["Renderer owner/followers"] <--> Coordinator["Renderer conversation coordinator"]
-    Coordinator <--> Aggregate
+    Coordinator <--> Entity
 ```
 
 A Thread directory joins full-fidelity app-server reads with Core's durable identity and execution
@@ -565,8 +570,8 @@ Semantic application capabilities own complete transactions at their domain boun
 and steering, Session launch, resume,
 fork, rollback, side chat, compaction, history, goals and settings, read state, queued follow-ups,
 archive, handoff, and background-process actions compose the same Thread lane, Gateway, Core
-Workspace, and aggregate. Project-owned commands also enter the Project lifecycle gate before
-admission. A transaction that already owns the Thread lane performs its aggregate transitions
+Workspace, and private entity state. Project-owned commands also enter the Project lifecycle gate before
+admission. A transaction that already owns the Thread lane performs its entity transitions
 directly; it never re-enters the lane through a sibling public command. Optimistic state is
 committed or compensated within the owning transaction, and interruption reaches the same physical
 Gateway, worker, or Core operation.
@@ -587,7 +592,7 @@ broaden a Core resource boundary, and Scope close clears every transient grant.
 Renderer client identity and Electron delivery belong to the scoped renderer client runtime. A
 conversation registry records presence and role without owning projection policy; the conversation
 coordinator atomically owns adoption, owner replacement, following, targeted request delivery, and
-client disposal consequences. First-owner adoption converts the aggregate's already-hydrated
+client disposal consequences. First-owner adoption converts the entity's already-hydrated
 canonical snapshot into the initial accepted renderer replica; it never requires that replica to
 exist before adoption and fails closed when no canonical snapshot exists. One observable renderer
 attachment lifecycle spans resume, fresh launch, background-detail materialization, and ephemeral

@@ -44,6 +44,7 @@ const runWithScenarioCore = <A, E>(
           state,
           retry: Effect.void,
           requestRelaunch: Effect.void,
+          failApplication: () => Effect.succeed(true),
         });
         const sessions = CoreSessionAccess.of({
           handshake: Effect.succeed(runtime.rootClient.handshake),
