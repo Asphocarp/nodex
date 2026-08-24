@@ -49,7 +49,7 @@ it.effect("owns all application lifecycle handlers with the Main Scope", () =>
       ),
       scope,
     );
-    assert.strictEqual(channels.size, 4);
+    assert.strictEqual(channels.size, 3);
 
     yield* Scope.close(scope, Exit.void);
     assert.strictEqual(channels.size, 0);

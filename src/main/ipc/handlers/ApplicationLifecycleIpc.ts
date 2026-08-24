@@ -82,22 +82,6 @@ export const live: Layer.Layer<
         Effect.catch(() => Effect.void),
       ),
     );
-    yield* ipc.handle("app:flush-before-close:done", (event, claimedWebContentsId: unknown) =>
-      authorize(event, "Window close flush").pipe(
-        Effect.andThen(
-          Effect.try({
-            try: () => {
-              if (claimedWebContentsId !== event.sender.id) {
-                throw new Error("Window close flush sender does not own the claimed window");
-              }
-              windows.acknowledgeClose(event.sender.id);
-            },
-            catch: (cause) =>
-              new ApplicationLifecycleIpcError({ operation: "acknowledge-window-close", cause }),
-          }),
-        ),
-      ),
-    );
     yield* ipc.on("electron-request-microphone-permission", (event) =>
       authorize(event, "Microphone permission").pipe(
         Effect.andThen(host.requestMicrophonePermission),

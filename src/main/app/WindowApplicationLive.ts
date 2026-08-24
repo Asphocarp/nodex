@@ -58,6 +58,7 @@ import {
 import { NodexAgentResourceAccess } from "../nodex-agent-application/NodexAgentResourceAccess";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
+import { ElectronIpc } from "../platform/electron/ElectronIpc";
 import { ElectronPrivacy, live as electronPrivacyLive } from "../platform/electron/ElectronPrivacy";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import * as ElectronNet from "../platform/electron/ElectronNet";
@@ -223,6 +224,7 @@ export const live: Layer.Layer<
   | DesktopToolRuntime
   | ElectronApp
   | ElectronDesktop
+  | ElectronIpc
   | ElectronSessionHost
   | ElectronWindowHost
   | ElectronNet.ElectronNet

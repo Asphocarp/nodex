@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
@@ -24,6 +25,8 @@ import type {
 } from "../codex/renderer-client-runtime-contracts";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import { MainCleanup } from "../app/MainCleanup";
+import { ElectronIpc } from "../platform/electron/ElectronIpc";
+import { requireTrustedAppRendererSender } from "../platform/electron/TrustedRendererSender";
 import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import type { DesktopNotificationRuntime } from "../host-runtime/DesktopNotificationRuntime";
 import type { McpAppSandboxRuntime } from "../host-runtime/McpAppSandboxRuntime";
@@ -65,6 +68,10 @@ export class ApplicationWindowRuntime extends Context.Service<
   }
 >()("nodex/main/window-runtime/ApplicationWindowRuntime") {}
 
+class WindowCloseHandshakeError extends Data.TaggedError("WindowCloseHandshakeError")<{
+  readonly cause: unknown;
+}> {}
+
 const syncMacWindowTitle = (platform: NodeJS.Platform, window: BrowserWindow): void => {
   if (platform !== "darwin" || window.isDestroyed()) return;
   window.setTitle("Nodex");
@@ -75,7 +82,7 @@ export const live = (
 ): Layer.Layer<
   ApplicationWindowRuntime,
   never,
-  ComposerAppshotRuntime | MainCleanup | ScopedCallbackRuntime | WindowShutdown
+  ComposerAppshotRuntime | ElectronIpc | MainCleanup | ScopedCallbackRuntime | WindowShutdown
 > =>
   Layer.effect(
     ApplicationWindowRuntime,
@@ -83,11 +90,30 @@ export const live = (
       const appshots = yield* ComposerAppshotRuntime;
       const callbacks = yield* ScopedCallbackRuntime;
       const cleanup = yield* MainCleanup;
+      const ipc = yield* ElectronIpc;
       const windowShutdown = yield* WindowShutdown;
       const rendererLoaded = yield* PubSub.sliding<number>(MAIN_OBSERVATION_EVENT_CAPACITY);
       yield* Effect.addFinalizer(() => PubSub.shutdown(rendererLoaded));
       const logger = getLogger({ component: "application-window-runtime" });
       const icon = nativeImage.createFromPath(options.iconPath);
+
+      // This acknowledgement belongs to the Window resource, not the broad IPC cluster. Register
+      // it before the Window finalizer so it remains live while graceful close flushes renderers.
+      yield* ipc.handle("app:flush-before-close:done", (event, claimedWebContentsId: unknown) =>
+        Effect.try({
+          try: () => {
+            requireTrustedAppRendererSender(event, "Window close flush", options.rendererUrl);
+            if (!options.windows.has(event.sender.id)) {
+              throw new Error("Window close flush requires an active Nodex window");
+            }
+            if (claimedWebContentsId !== event.sender.id) {
+              throw new Error("Window close flush sender does not own the claimed window");
+            }
+            options.windows.acknowledgeClose(event.sender.id);
+          },
+          catch: (cause) => new WindowCloseHandshakeError({ cause }),
+        }),
+      );
 
       const create = (session: WindowSessionRecord): BrowserWindow => {
         const windowCreatedAt = performance.now();
