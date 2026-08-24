@@ -8,41 +8,21 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { performance } from "node:perf_hooks";
-import { CoreAuthority, CoreSessionAccess } from "../core-runtime/CoreAuthority";
-import {
-  CoreEventDelivery,
-  CoreEventHub,
-  live as coreEventHubLive,
-} from "../core-runtime/CoreEventHub";
+import { CoreAuthority } from "../core-runtime/CoreAuthority";
+import { CoreEventHub } from "../core-runtime/CoreEventHub";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { AutomationRoutingIndex } from "../core-runtime/AutomationRoutingIndex";
 import { StoreAdministration } from "../core-runtime/StoreAdministration";
-import {
-  ProjectionDeliveryRuntime,
-  live as projectionDeliveryRuntimeLive,
-} from "../core-runtime/ProjectionDeliveryRuntime";
-import {
-  CoreApplicationProjectionRuntime,
-  live as coreApplicationProjectionRuntimeLive,
-} from "../core-runtime/CoreApplicationProjectionRuntime";
+import { ProjectionDeliveryRuntime } from "../core-runtime/ProjectionDeliveryRuntime";
 import { DesktopDocumentSessionRuntime } from "../core-client";
 import { ProjectWorkspace } from "../project-application/ProjectWorkspace";
 import { AutomationApplication } from "../automation-application/AutomationApplication";
-import {
-  AutomationExecution,
-  live as automationExecutionLive,
-} from "../automation-application/AutomationExecution";
+import { AutomationExecution } from "../automation-application/AutomationExecution";
 import { DatabaseModule } from "../database-application/DatabaseModule";
 import { LibraryModule } from "../library-application/LibraryModule";
-import { AgentProviderRuntime } from "../codex-application/AgentProviderRuntime";
 import { AgentImportRuntime } from "../codex-application/AgentImportRuntime";
-import { ComposerCatalog } from "../codex-application/ComposerCatalog";
 import { ConversationCommands } from "../codex-application/ConversationCommands";
-import {
-  CodexBackgroundProcesses,
-  make as makeCodexBackgroundProcesses,
-} from "../codex-application/CodexBackgroundProcesses";
-import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
+import { CodexBackgroundProcesses } from "../codex-application/CodexBackgroundProcesses";
 import { CodexServerRequestResponses } from "../codex-application/CodexServerRequestResponses";
 import { CodexTurnCommands } from "../codex-application/CodexTurnCommands";
 import { CodexSideChatCommands } from "../codex-application/CodexSideChatCommands";
@@ -53,18 +33,14 @@ import { CodexRendererOwnerCommands } from "../codex-application/CodexRendererOw
 import { CodexSidebarSyncRuntime } from "../codex-application/CodexSidebarSyncRuntime";
 import { CodexThreadCatalog } from "../codex-application/CodexThreadCatalog";
 import { CodexThreadReadState } from "../codex-application/CodexThreadReadState";
-import { CodexGitProbe } from "../codex-application/CodexGitProbe";
-import { CodexHeartbeatTurnCompletion } from "../codex-application/CodexHeartbeatTurnCompletion";
 import { CodexStructuredThreadTitle } from "../codex-application/CodexStructuredThreadTitle";
 import { CodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
 import { CodexPendingWorktreeRuntime } from "../codex-application/CodexPendingWorktreeRuntime";
 import { CodexClientThreadIdentity } from "../codex-application/CodexClientThreadIdentity";
 import { CodexConversationHistoryRuntime } from "../codex-application/CodexConversationHistoryRuntime";
 import { CodexSubagentCatalog } from "../codex-application/CodexSubagentCatalog";
-import { CodexThreadDirectory } from "../codex-application/CodexThreadDirectory";
 import { CodexQueuedFollowUps } from "../codex-application/CodexQueuedFollowUps";
 import { CodexQueuedFollowUpDispatcher } from "../codex-application/CodexQueuedFollowUpDispatcher";
-import { CodexTurnAuthority } from "../codex-application/CodexTurnAuthority";
 import { CodexConversationResumeRuntime } from "../codex-application/CodexConversationResumeRuntime";
 import { CodexFreshThreadLaunchRuntime } from "../codex-application/CodexFreshThreadLaunchRuntime";
 import { CodexForkSidePanelTransfer } from "../codex-application/CodexForkSidePanelTransferRuntime";
@@ -73,17 +49,9 @@ import { CodexManualCompactionRuntime } from "../codex-application/CodexManualCo
 import { CodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
 import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTitlePersistence";
 import { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
-import { CodexThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate";
-import {
-  ManagedWorktreeCatalog,
-  make as makeManagedWorktreeCatalog,
-} from "../codex-application/ManagedWorktreeCatalog";
-import { CodexPermissions } from "../codex-application/CodexPermissions";
+import { ManagedWorktreeCatalog } from "../codex-application/ManagedWorktreeCatalog";
 import { ExecutionHostRuntime } from "../codex-application/ExecutionHostRuntime";
-import { ManagedWorktreeConfiguration } from "../codex-application/ExecutionHostConfiguration";
-import { ManagedWorktreeRuntime } from "../codex-application/ManagedWorktreeRuntime";
 import { ManagedWorktreeRetentionRuntime } from "../codex-application/ManagedWorktreeRetentionRuntime";
-import { CodexGateway } from "../codex-runtime/CodexGateway";
 import * as ApplicationLocalStateIpc from "../ipc/handlers/ApplicationLocalStateIpc";
 import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc";
 import * as AutomationIpc from "../ipc/handlers/AutomationIpc";
@@ -101,18 +69,10 @@ import * as StoreAdministrationIpc from "../ipc/handlers/StoreAdministrationIpc"
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import * as WorktreeEnvironmentIpc from "../ipc/handlers/WorktreeEnvironmentIpc";
 import * as CodexWorkspaceIpc from "../ipc/handlers/CodexWorkspaceIpc";
-import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
 import { GitActions } from "../git-application/GitActions";
 import { WorktreeEnvironmentRuntime } from "../host-runtime/WorktreeEnvironmentRuntime";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
-import {
-  ProjectArchiveBlockers,
-  live as projectArchiveBlockersLive,
-} from "../project-application/ProjectArchiveBlockers";
-import {
-  ProjectLifecycleCommands,
-  live as projectLifecycleCommandsLive,
-} from "../project-application/ProjectLifecycleCommands";
+import { ProjectLifecycleCommands } from "../project-application/ProjectLifecycleCommands";
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import { projectSessionIdFromTerminalSessionId } from "../browser/browser-local-server-runtime";
 import { BrowserApplication } from "../browser-application/BrowserApplication";
@@ -120,35 +80,15 @@ import { AppUpdateRuntime } from "../host-runtime/AppUpdateRuntime";
 import { DesktopNotificationRuntime } from "../host-runtime/DesktopNotificationRuntime";
 import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 import { DictationRuntime } from "../host-runtime/DictationRuntime";
-import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntime";
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
-import {
-  ReminderSchedulerRuntime,
-  live as reminderSchedulerRuntimeLive,
-} from "../host-runtime/ReminderSchedulerRuntime";
-import {
-  ScheduledAutomationRuntime,
-  live as scheduledAutomationRuntimeLive,
-} from "../host-runtime/ScheduledAutomationRuntime";
-import {
-  StoreAdministrationSchedulerRuntime,
-  live as storeAdministrationSchedulerRuntimeLive,
-} from "../host-runtime/StoreAdministrationSchedulerRuntime";
+import { ReminderSchedulerRuntime } from "../host-runtime/ReminderSchedulerRuntime";
+import { ScheduledAutomationRuntime } from "../host-runtime/ScheduledAutomationRuntime";
+import { StoreAdministrationSchedulerRuntime } from "../host-runtime/StoreAdministrationSchedulerRuntime";
 import { DeepLinkRuntime } from "../host-runtime/DeepLinkRuntime";
 import { ApplicationInitializationRuntime } from "../host-runtime/ApplicationInitializationRuntime";
 import { ApplicationMenuRuntime } from "../host-runtime/ApplicationMenuRuntime";
-import {
-  InitialProjectBootstrapRuntime,
-  live as initialProjectBootstrapRuntimeLive,
-} from "../initial-project/InitialProjectBootstrapRuntime";
-import { resolveInitialProjectProjectsDirectory } from "../initial-project/initial-project-filesystem";
-import { resolveInitialProjectJournalPath } from "../initial-project/initial-project-journal-store";
-import {
-  getBackupSettings,
-  getHistorySettings,
-  getThreadNotificationSettings,
-  getWindowRestoreSettings,
-} from "../local-store/config";
+import { InitialProjectBootstrapRuntime } from "../initial-project/InitialProjectBootstrapRuntime";
+import { getThreadNotificationSettings, getWindowRestoreSettings } from "../local-store/config";
 import { makePersistedAtomStore } from "../local-store/persisted-atoms";
 import { requestsExplicitNewWindow } from "../main-runtime-startup-events";
 import { getLogger } from "../logging/logger";
@@ -172,6 +112,7 @@ import * as ConversationApplicationLive from "./ConversationApplicationLive";
 import * as CoreApplicationLive from "./CoreApplicationLive";
 import * as HostApplicationLive from "./HostApplicationLive";
 import * as ApplicationStateLive from "./ApplicationStateLive";
+import * as ApplicationOperationsLive from "./ApplicationOperationsLive";
 import * as RendererIngressLive from "./RendererIngressLive";
 import * as WindowApplicationLive from "./WindowApplicationLive";
 
@@ -214,16 +155,20 @@ export const live: Layer.Layer<
         const applicationKernelContext = yield* Layer.buildWithScope(
           RendererIngressLive.live.pipe(
             Layer.provideMerge(
-              ConversationApplicationLive.live.pipe(
+              ApplicationOperationsLive.live.pipe(
                 Layer.provideMerge(
-                  WindowApplicationLive.live.pipe(
+                  ConversationApplicationLive.live.pipe(
                     Layer.provideMerge(
-                      HostApplicationLive.live.pipe(
+                      WindowApplicationLive.live.pipe(
                         Layer.provideMerge(
-                          CodexApplicationLive.live.pipe(
+                          HostApplicationLive.live.pipe(
                             Layer.provideMerge(
-                              CoreApplicationLive.live.pipe(
-                                Layer.provideMerge(ApplicationStateLive.live),
+                              CodexApplicationLive.live.pipe(
+                                Layer.provideMerge(
+                                  CoreApplicationLive.live.pipe(
+                                    Layer.provideMerge(ApplicationStateLive.live),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -243,10 +188,34 @@ export const live: Layer.Layer<
           ApplicationInitializationRuntime,
         );
         const authority = Context.get(applicationKernelContext, CoreAuthority);
-        const access = Context.get(applicationKernelContext, CoreSessionAccess);
         const coreModules = Context.get(applicationKernelContext, CoreModules);
         const automationRouting = Context.get(applicationKernelContext, AutomationRoutingIndex);
         const automationApplication = Context.get(applicationKernelContext, AutomationApplication);
+        const automationExecution = Context.get(applicationKernelContext, AutomationExecution);
+        const backgroundProcesses = Context.get(applicationKernelContext, CodexBackgroundProcesses);
+        const projectLifecycleCommands = Context.get(
+          applicationKernelContext,
+          ProjectLifecycleCommands,
+        );
+        const managedWorktreeCatalog = Context.get(
+          applicationKernelContext,
+          ManagedWorktreeCatalog,
+        );
+        const initialProjectBootstrap = Context.get(
+          applicationKernelContext,
+          InitialProjectBootstrapRuntime,
+        );
+        const scheduledAutomations = Context.get(
+          applicationKernelContext,
+          ScheduledAutomationRuntime,
+        );
+        const projectionDelivery = Context.get(applicationKernelContext, ProjectionDeliveryRuntime);
+        const coreEventHub = Context.get(applicationKernelContext, CoreEventHub);
+        const reminderScheduler = Context.get(applicationKernelContext, ReminderSchedulerRuntime);
+        const storeSchedulers = Context.get(
+          applicationKernelContext,
+          StoreAdministrationSchedulerRuntime,
+        );
         const libraryModule = Context.get(applicationKernelContext, LibraryModule);
         const databaseModule = Context.get(applicationKernelContext, DatabaseModule);
         const storeAdministration = Context.get(applicationKernelContext, StoreAdministration);
@@ -260,14 +229,6 @@ export const live: Layer.Layer<
           applicationKernelContext,
           ProjectRuntimeLifecycleRuntime,
         );
-        const conversationRuntimes = Context.get(applicationKernelContext, ConversationRuntimeMap);
-        const codexGateway = Context.get(applicationKernelContext, CodexGateway);
-        const codexPlatform = Context.get(
-          applicationKernelContext,
-          CodexApplicationLive.CodexPlatform,
-        );
-        const codexRuntime = codexPlatform.runtime;
-        const runtimeStateHome = codexPlatform.runtimeStateHome;
         const codexApplicationEvents = Context.get(
           applicationKernelContext,
           CodexApplicationEventHub,
@@ -281,18 +242,9 @@ export const live: Layer.Layer<
           applicationKernelContext,
           CodexServerRequestResponses,
         );
-        const codexPermissions = Context.get(applicationKernelContext, CodexPermissions);
-        const agentProviders = Context.get(applicationKernelContext, AgentProviderRuntime);
-        const composerCatalogService = Context.get(applicationKernelContext, ComposerCatalog);
         const browser = Context.get(applicationKernelContext, BrowserApplication);
-        const desktopToolRuntime = Context.get(applicationKernelContext, DesktopToolRuntime);
         const gitActions = Context.get(applicationKernelContext, GitActions);
-        const managedWorktreeConfiguration = Context.get(
-          applicationKernelContext,
-          ManagedWorktreeConfiguration,
-        );
         const executionHosts = Context.get(applicationKernelContext, ExecutionHostRuntime);
-        const managedWorktrees = Context.get(applicationKernelContext, ManagedWorktreeRuntime);
         const appUpdates = Context.get(applicationKernelContext, AppUpdateRuntime);
         const desktopNotifications = Context.get(
           applicationKernelContext,
@@ -300,10 +252,6 @@ export const live: Layer.Layer<
         );
         const rendererClients = Context.get(applicationKernelContext, RendererClientRuntime);
         const dictation = Context.get(applicationKernelContext, DictationRuntime);
-        const databaseNotifications = Context.get(
-          applicationKernelContext,
-          DatabaseNotifierRuntime.DatabaseNotifierRuntime,
-        );
         const applicationWindows = Context.get(applicationKernelContext, ApplicationWindowRuntime);
         const applicationMenus = Context.get(applicationKernelContext, ApplicationMenuRuntime);
         const windowSessions = Context.get(
@@ -311,17 +259,7 @@ export const live: Layer.Layer<
           WindowSessionCatalog.WindowSessionCatalog,
         );
         const deepLinks = Context.get(applicationKernelContext, DeepLinkRuntime);
-        const threadDirectory = Context.get(applicationKernelContext, CodexThreadDirectory);
-        const threadStartNotifications = Context.get(
-          applicationKernelContext,
-          CodexThreadStartNotificationGate,
-        );
         const sidebarSync = Context.get(applicationKernelContext, CodexSidebarSyncRuntime);
-        const gitProbe = Context.get(applicationKernelContext, CodexGitProbe);
-        const heartbeatTurnCompletion = Context.get(
-          applicationKernelContext,
-          CodexHeartbeatTurnCompletion,
-        );
         const structuredThreadTitle = Context.get(
           applicationKernelContext,
           CodexStructuredThreadTitle,
@@ -340,7 +278,6 @@ export const live: Layer.Layer<
           CodexConversationHistoryRuntime,
         );
         const subagentCatalog = Context.get(applicationKernelContext, CodexSubagentCatalog);
-        const turnAuthority = Context.get(applicationKernelContext, CodexTurnAuthority);
         const queuedFollowUps = Context.get(applicationKernelContext, CodexQueuedFollowUps);
         const turnCommands = Context.get(applicationKernelContext, CodexTurnCommands);
         const freshThreadLaunch = Context.get(
@@ -421,101 +358,12 @@ export const live: Layer.Layer<
         yield* deepLinks.extractFromArgv(config.argv);
         applicationWindows.openStartup(getWindowRestoreSettings().policy);
         const persistedAtoms = makePersistedAtomStore(config.nodexHome);
-        const automationExecutionContext = yield* Layer.buildWithScope(
-          automationExecutionLive({
-            runtimeStateHome,
-            runtimeVersion: codexRuntime.codexCompatibilityVersion ?? codexRuntime.version,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(AgentProviderRuntime, agentProviders),
-                Layer.succeed(AutomationApplication, automationApplication),
-                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
-                Layer.succeed(CodexGateway, codexGateway),
-                Layer.succeed(CodexGitProbe, gitProbe),
-                Layer.succeed(CodexHeartbeatTurnCompletion, heartbeatTurnCompletion),
-                Layer.succeed(CodexPermissions, codexPermissions),
-                Layer.succeed(CodexRendererConversationRegistry, rendererConversations),
-                Layer.succeed(CodexThreadDirectory, threadDirectory),
-                Layer.succeed(CodexThreadStartNotificationGate, threadStartNotifications),
-                Layer.succeed(CodexThreadSettingsRuntime, threadSettingsRuntime),
-                Layer.succeed(CodexThreadTitlePersistence, threadTitlePersistence),
-                Layer.succeed(CodexTurnAuthority, turnAuthority),
-                Layer.succeed(CodexTurnCommands, turnCommands),
-                Layer.succeed(ComposerCatalog, composerCatalogService),
-                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
-                Layer.succeed(DesktopToolRuntime, desktopToolRuntime),
-                Layer.succeed(ExecutionHostRuntime, executionHosts),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(ManagedWorktreeRetentionRuntime, managedWorktreeRetention),
-                Layer.succeed(ManagedWorktreeRuntime, managedWorktrees),
-                Layer.succeed(ProjectWorkspace, projectWorkspace),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const automationExecution = Context.get(automationExecutionContext, AutomationExecution);
         yield* threadHandoffRuntime.recover().pipe(
           Effect.catch((cause) =>
             Effect.sync(() => applicationLogger.error("Task handoff recovery failed", { cause })),
           ),
           Effect.forkIn(runtimeScope, { startImmediately: true }),
           Effect.asVoid,
-        );
-        const backgroundProcesses = yield* makeCodexBackgroundProcesses.pipe(
-          Effect.provideService(CodexGateway, codexGateway),
-          Effect.provideService(CodexThreadDirectory, threadDirectory),
-          Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
-          Effect.provideService(CoreModules, coreModules),
-          Effect.provideService(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
-          Effect.provideService(Scope.Scope, runtimeScope),
-          Effect.provideService(TerminalSessions, terminals),
-        );
-        const projectArchiveBlockersContext = yield* Layer.buildWithScope(
-          projectArchiveBlockersLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CodexBackgroundProcesses, backgroundProcesses),
-                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
-                Layer.succeed(TerminalSessions, terminals),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const projectArchiveBlockers = Context.get(
-          projectArchiveBlockersContext,
-          ProjectArchiveBlockers,
-        );
-        const projectLifecycleCommandsContext = yield* Layer.buildWithScope(
-          projectLifecycleCommandsLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(BrowserApplication, browser),
-                Layer.succeed(ProjectArchiveBlockers, projectArchiveBlockers),
-                Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
-                Layer.succeed(ProjectWorkspace, projectWorkspace),
-                Layer.succeed(TerminalSessions, terminals),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const projectLifecycleCommands = Context.get(
-          projectLifecycleCommandsContext,
-          ProjectLifecycleCommands,
-        );
-        const managedWorktreeCatalog = yield* makeManagedWorktreeCatalog({
-          defaultManagedRoot: `${config.nodexHome}/worktrees`,
-        }).pipe(
-          Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),
-          Effect.provideService(ExecutionHostRuntime, executionHosts),
-          Effect.provideService(ManagedWorktreeConfiguration, managedWorktreeConfiguration),
-          Effect.provideService(ManagedWorktreeRetentionRuntime, managedWorktreeRetention),
-          Effect.provideService(ManagedWorktreeRuntime, managedWorktrees),
-          Effect.provideService(ProjectWorkspace, projectWorkspace),
-          Effect.provideService(Scope.Scope, runtimeScope),
         );
         yield* SubscriptionRef.changes(executionHosts.activeSshHosts).pipe(
           Stream.runForEach(() => Effect.sync(sidebarSync.invalidate)),
@@ -537,20 +385,6 @@ export const live: Layer.Layer<
             ),
           ),
           runtimeScope,
-        );
-        const initialProjectBootstrapContext = yield* Layer.buildWithScope(
-          initialProjectBootstrapRuntimeLive({
-            projectsDirectory: resolveInitialProjectProjectsDirectory({
-              configuredDirectory: config.initialProjectsDirectory ?? undefined,
-              documentsDirectory: config.documentsPath,
-            }),
-            journalPath: resolveInitialProjectJournalPath(config.nodexHome),
-          }).pipe(Layer.provide(Layer.succeed(ProjectWorkspace, projectWorkspace))),
-          runtimeScope,
-        );
-        const initialProjectBootstrap = Context.get(
-          initialProjectBootstrapContext,
-          InitialProjectBootstrapRuntime,
         );
         yield* Layer.buildWithScope(
           CoreDocumentIpc.live({
@@ -617,23 +451,6 @@ export const live: Layer.Layer<
             ),
           ),
           runtimeScope,
-        );
-        const scheduledAutomationContext = yield* Layer.buildWithScope(
-          scheduledAutomationRuntimeLive().pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(AutomationApplication, automationApplication),
-                Layer.succeed(AutomationExecution, automationExecution),
-                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
-                Layer.succeed(CoreAuthority, authority),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const scheduledAutomations = Context.get(
-          scheduledAutomationContext,
-          ScheduledAutomationRuntime,
         );
         yield* Layer.buildWithScope(
           AutomationIpc.live({
@@ -731,43 +548,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const coreApplicationProjectionContext = yield* Layer.buildWithScope(
-          coreApplicationProjectionRuntimeLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(AutomationRoutingIndex, automationRouting),
-                Layer.succeed(CodexApplicationEventHub, codexApplicationEvents),
-                Layer.succeed(
-                  DatabaseNotifierRuntime.DatabaseNotifierRuntime,
-                  databaseNotifications,
-                ),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const coreApplicationProjection = Context.get(
-          coreApplicationProjectionContext,
-          CoreApplicationProjectionRuntime,
-        );
-        const projectionDeliveryContext = yield* Layer.buildWithScope(
-          projectionDeliveryRuntimeLive.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(CoreApplicationProjectionRuntime, coreApplicationProjection),
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(CoreSessionAccess, access),
-                Layer.succeed(DesktopDocumentSessionRuntime, documentSync),
-              ),
-            ),
-          ),
-          runtimeScope,
-        ).pipe(Effect.mapError((cause) => runtimeError("projection-delivery", cause)));
-        const projectionDelivery = Context.get(
-          projectionDeliveryContext,
-          ProjectionDeliveryRuntime,
-        );
-        const coreEventDelivery = Context.get(projectionDeliveryContext, CoreEventDelivery);
         yield* Layer.buildWithScope(
           ProjectionDeliveryIpc.live.pipe(
             Layer.provide(
@@ -780,37 +560,6 @@ export const live: Layer.Layer<
             ),
           ),
           runtimeScope,
-        );
-        const reminderSchedulerContext = yield* Layer.buildWithScope(
-          reminderSchedulerRuntimeLive({}).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(AutomationApplication, automationApplication),
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(ElectronDesktop, desktop),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const reminderScheduler = Context.get(reminderSchedulerContext, ReminderSchedulerRuntime);
-        const storeSchedulerContext = yield* Layer.buildWithScope(
-          storeAdministrationSchedulerRuntimeLive({
-            readBackupSettings: getBackupSettings,
-            readBlockRetentionCount: () => getHistorySettings().retentionCount,
-          }).pipe(
-            Layer.provide(
-              Layer.merge(
-                Layer.succeed(CoreAuthority, authority),
-                Layer.succeed(StoreAdministration, storeAdministration),
-              ),
-            ),
-          ),
-          runtimeScope,
-        );
-        const storeSchedulers = Context.get(
-          storeSchedulerContext,
-          StoreAdministrationSchedulerRuntime,
         );
         yield* Layer.buildWithScope(
           ApplicationSettingsIpc.live.pipe(
@@ -858,25 +607,7 @@ export const live: Layer.Layer<
             totalMs: Math.round(authority.initialLaunch.timings.totalMs),
           });
           let coreStreamInterruptionPublished = false;
-          const coreHandshake = yield* access.handshake.pipe(
-            Effect.mapError((cause) => runtimeError("core-handshake", cause)),
-          );
-          const eventContext = yield* Layer.buildWithScope(
-            coreEventHubLive({ initialAfter: coreHandshake.commit_head }).pipe(
-              Layer.provide(
-                Layer.merge(
-                  Layer.succeed(CoreEventDelivery, coreEventDelivery),
-                  Layer.merge(
-                    Layer.succeed(CoreSessionAccess, access),
-                    Layer.succeed(CoreAuthority, authority),
-                  ),
-                ),
-              ),
-            ),
-            runtimeScope,
-          );
-          const hub = Context.get(eventContext, CoreEventHub);
-          yield* SubscriptionRef.changes(hub.connection).pipe(
+          yield* SubscriptionRef.changes(coreEventHub.connection).pipe(
             Stream.runForEach((connection) => {
               if (connection.kind === "ready") {
                 coreStreamInterruptionPublished = false;
