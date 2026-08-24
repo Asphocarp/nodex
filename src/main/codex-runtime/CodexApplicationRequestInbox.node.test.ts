@@ -6,8 +6,14 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { CodexApplicationRequestGenerationUnavailable, make } from "./CodexApplicationRequestInbox";
+import {
+  CodexApplicationIngressOverflow,
+  CodexApplicationRequestGenerationUnavailable,
+  make,
+  makeWithCapacities,
+} from "./CodexApplicationRequestInbox";
 
 it.effect("keeps exact request occurrences lossless and settles each at most once", () =>
   Effect.gen(function* () {
@@ -223,6 +229,98 @@ it.effect("fails only the exact generation after a canonical consequence failure
     assert.strictEqual(error.occurrenceId, occurrence.occurrenceId);
     assert.strictEqual(error.cause, cause);
 
+    yield* Scope.close(generationScope, Exit.void);
+    yield* Scope.close(rootScope, Exit.void);
+  }),
+);
+
+it.effect("fails closed when canonical occurrence capacity is exhausted", () =>
+  Effect.gen(function* () {
+    const rootScope = yield* Scope.make();
+    const generationScope = yield* Scope.make();
+    const inbox = yield* makeWithCapacities({ occurrences: 1, settlements: 1 }).pipe(
+      Effect.provideService(Scope.Scope, rootScope),
+    );
+    const generation = yield* inbox
+      .openGeneration("local", 5)
+      .pipe(Effect.provideService(Scope.Scope, generationScope));
+    const termination = yield* generation.termination.pipe(Effect.flip, Effect.forkChild);
+
+    yield* inbox.publishNotification({
+      hostId: "local",
+      generation: 5,
+      protocol: "extension",
+      method: "test/first",
+      params: {},
+    });
+    yield* inbox.publishNotification({
+      hostId: "local",
+      generation: 5,
+      protocol: "extension",
+      method: "test/overflow",
+      params: {},
+    });
+    const error = yield* Fiber.join(termination);
+
+    assert.isTrue(Schema.is(CodexApplicationIngressOverflow)(error.cause));
+    if (Schema.is(CodexApplicationIngressOverflow)(error.cause)) {
+      assert.strictEqual(error.cause.channel, "occurrences");
+      assert.strictEqual(error.cause.capacity, 1);
+    }
+    const late = yield* generation
+      .admit({
+        requestId: "late",
+        protocol: "extension",
+        method: "test/late",
+        params: {},
+      })
+      .pipe(Effect.exit);
+    assert.isTrue(Exit.isFailure(late));
+    if (Exit.isFailure(late)) {
+      assert.strictEqual(
+        (Cause.squash(late.cause) as CodexApplicationRequestGenerationUnavailable).reason,
+        "overflow",
+      );
+    }
+
+    yield* Scope.close(generationScope, Exit.void);
+    yield* Scope.close(rootScope, Exit.void);
+  }),
+);
+
+it.effect("fails the exact generation instead of dropping a request settlement", () =>
+  Effect.gen(function* () {
+    const rootScope = yield* Scope.make();
+    const generationScope = yield* Scope.make();
+    const inbox = yield* makeWithCapacities({ occurrences: 4, settlements: 1 }).pipe(
+      Effect.provideService(Scope.Scope, rootScope),
+    );
+    const generation = yield* inbox
+      .openGeneration("remote:a", 6)
+      .pipe(Effect.provideService(Scope.Scope, generationScope));
+    const first = yield* generation.admit({
+      requestId: "first",
+      protocol: "extension",
+      method: "test/first",
+      params: {},
+    });
+    const second = yield* generation.admit({
+      requestId: "second",
+      protocol: "extension",
+      method: "test/second",
+      params: {},
+    });
+    const termination = yield* generation.termination.pipe(Effect.flip, Effect.forkChild);
+
+    assert.isTrue(yield* inbox.settle(first, { kind: "result", value: null }));
+    assert.isFalse(yield* inbox.settle(second, { kind: "result", value: null }));
+    const error = yield* Fiber.join(termination);
+
+    assert.isTrue(Schema.is(CodexApplicationIngressOverflow)(error.cause));
+    if (Schema.is(CodexApplicationIngressOverflow)(error.cause)) {
+      assert.strictEqual(error.cause.channel, "settlements");
+      assert.strictEqual(error.cause.capacity, 1);
+    }
     yield* Scope.close(generationScope, Exit.void);
     yield* Scope.close(rootScope, Exit.void);
   }),

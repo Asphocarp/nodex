@@ -5,8 +5,6 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type * as Scope from "effect/Scope";
-import * as Stream from "effect/Stream";
 import type {
   CodexApprovalRequest,
   CodexMcpServerElicitationRequest,
@@ -70,6 +68,8 @@ export class CodexApplicationProtocol extends Context.Service<
     readonly releaseResume: (threadId: string) => Effect.Effect<void>;
     readonly discardResume: (threadId: string, reason: unknown) => Effect.Effect<void>;
     readonly clearConversationBuffer: (threadId: string, reason: unknown) => Effect.Effect<void>;
+    /** Replays a notification that arrived before its local Thread materialization committed. */
+    readonly releaseThreadStart: (threadId: string) => Effect.Effect<void>;
   }
 >()("nodex/main/codex-application/CodexApplicationProtocol") {}
 
@@ -313,7 +313,6 @@ export const make: Effect.Effect<
   | CodexUserInputAutoResolution
   | ConversationRuntimeMap
   | NodexAgentProtocolTools
-  | Scope.Scope
 > = Effect.gen(function* () {
   const applicationEvents = yield* CodexApplicationEventHub;
   const codexAppTools = yield* CodexAppProtocolTools;
@@ -809,31 +808,8 @@ export const make: Effect.Effect<
       const aggregate = conversations.currentConversation(threadId);
       return aggregate ? rejectBuffered(aggregate.clearBufferedEvents(), reason) : Effect.void;
     },
+    releaseThreadStart,
   });
-  yield* threadStarts.releases.pipe(
-    Stream.runForEach((release) =>
-      releaseThreadStart(release.threadId).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logError("Failed to replay deferred Codex thread start").pipe(
-            Effect.annotateLogs({
-              hostId: release.hostId,
-              threadId: release.threadId,
-              cause,
-            }),
-          ),
-        ),
-      ),
-    ),
-    Effect.forkScoped({ startImmediately: true }),
-  );
-  yield* inbox.occurrences.pipe(
-    Stream.mapEffect(
-      (occurrence) => (occurrence.kind === "request" ? interpret(occurrence) : observe(occurrence)),
-      { concurrency: "unbounded", unordered: true },
-    ),
-    Stream.runDrain,
-    Effect.forkScoped({ startImmediately: true }),
-  );
   return service;
 });
 

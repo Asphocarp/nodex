@@ -214,6 +214,13 @@ interrupts its buffers and command fibers; recovery seeds durable Core facts, pe
 full-fidelity app-server read, and publishes one complete replacement generation. Sidebar summaries
 and persisted renderer artifacts are never treated as a second transcript.
 
+The canonical protocol ingress is a supervised application actor with explicit health. Physical
+reader/writer/decode failure, application occurrence or settlement overflow, deferred Thread-start
+release overflow, and canonical consequence failure all terminate the exact endpoint generation;
+an actor defect requests typed runtime shutdown instead of leaving a ready-looking queue without a
+consumer. Generated protocol payloads are decoded once at the connection boundary. Internal
+extensions remain explicitly tagged and cannot weaken generated-message validation.
+
 One renderer owner is the sole visible conversation writer. Main validates and retains its accepted
 document as a relay/recovery replica; followers first acknowledge an exact snapshot barrier and then
 accept only contiguous patches from the same owner epoch. A revision gap, hash mismatch, owner

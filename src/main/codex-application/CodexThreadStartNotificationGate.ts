@@ -1,7 +1,9 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
@@ -24,6 +26,8 @@ export interface CodexThreadStartNotificationGateService {
   readonly defer: (hostId: string, threadId: string) => boolean;
   /** Internal protocol-consumer stream. */
   readonly releases: Stream.Stream<CodexThreadStartNotificationRelease>;
+  /** Fails if release admission can no longer preserve canonical notification delivery. */
+  readonly termination: Effect.Effect<never, CodexThreadStartNotificationOverflow>;
   readonly clear: (threadId: string) => void;
 }
 
@@ -32,15 +36,28 @@ export class CodexThreadStartNotificationGate extends Context.Service<
   CodexThreadStartNotificationGateService
 >()("nodex/main/codex-application/CodexThreadStartNotificationGate") {}
 
+export class CodexThreadStartNotificationOverflow extends Schema.TaggedError<CodexThreadStartNotificationOverflow>()(
+  "CodexThreadStartNotificationOverflow",
+  {
+    capacity: Schema.Int,
+    hostId: Schema.String,
+    threadId: Schema.String,
+  },
+) {}
+
 /**
  * Owns the response/notification race shared by every app-server Thread materializer. The gate is
  * host-scoped because `thread/started` can arrive before the response continuation reveals which
  * concurrent request created it; exact Thread ids become ready as soon as their local transaction
  * commits. Release is intentionally one-way: application commits never wait on the protocol actor.
  */
-export const make: Effect.Effect<CodexThreadStartNotificationGateService, never, Scope.Scope> =
+export const makeWithCapacity = (
+  capacity: number,
+): Effect.Effect<CodexThreadStartNotificationGateService, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const releases = yield* Queue.unbounded<CodexThreadStartNotificationRelease>();
+    const normalizedCapacity = Math.max(1, Math.floor(capacity));
+    const releases = yield* Queue.dropping<CodexThreadStartNotificationRelease>(normalizedCapacity);
+    const termination = yield* Deferred.make<never, CodexThreadStartNotificationOverflow>();
     const ownerScope = yield* Effect.scope;
     const hosts = new Map<
       string,
@@ -67,7 +84,20 @@ export const make: Effect.Effect<CodexThreadStartNotificationGateService, never,
     };
 
     const offerRelease = (hostId: string, threadId: string): Effect.Effect<void> =>
-      Queue.offer(releases, { hostId, threadId }).pipe(Effect.asVoid);
+      Queue.offer(releases, { hostId, threadId }).pipe(
+        Effect.flatMap((accepted) =>
+          accepted
+            ? Effect.void
+            : Deferred.fail(
+                termination,
+                new CodexThreadStartNotificationOverflow({
+                  capacity: normalizedCapacity,
+                  hostId,
+                  threadId,
+                }),
+              ).pipe(Effect.asVoid),
+        ),
+      );
 
     const release = (hostId: string, threadId: string): Effect.Effect<void> =>
       Effect.suspend(() => {
@@ -128,6 +158,7 @@ export const make: Effect.Effect<CodexThreadStartNotificationGateService, never,
         return true;
       },
       releases: Stream.fromQueue(releases),
+      termination: Deferred.await(termination),
       clear: (threadId) => {
         const normalized = threadId.trim();
         if (!normalized) return;
@@ -138,3 +169,5 @@ export const make: Effect.Effect<CodexThreadStartNotificationGateService, never,
       },
     });
   });
+
+export const make = makeWithCapacity(1_024);

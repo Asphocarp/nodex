@@ -343,6 +343,7 @@ import {
   CodexApplicationProtocol,
   make as makeCodexApplicationProtocol,
 } from "../codex-application/CodexApplicationProtocol";
+import { live as codexProtocolIngressLive } from "../codex-application/CodexProtocolIngress";
 import {
   CodexThreadStartNotificationGate,
   make as makeCodexThreadStartNotificationGate,
@@ -2461,6 +2462,19 @@ export const live: Layer.Layer<
           Effect.provideService(ConversationRuntimeMap, conversationRuntimes),
           Effect.provideService(NodexAgentProtocolTools, nodexAgentProtocolTools),
           Effect.provideService(Scope.Scope, runtimeScope),
+        );
+        yield* Layer.buildWithScope(
+          codexProtocolIngressLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(CodexApplicationProtocol, applicationProtocol),
+                Layer.succeed(CodexApplicationRequestInbox, applicationRequestInbox),
+                Layer.succeed(CodexThreadStartNotificationGate, threadStartNotifications),
+                Layer.succeed(MainShutdown, shutdown),
+              ),
+            ),
+          ),
+          runtimeScope,
         );
         yield* makeCodexConnectionLifecycle.pipe(
           Effect.provideService(CodexApplicationEventHub, codexApplicationEvents),

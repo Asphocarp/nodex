@@ -74,6 +74,7 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
     releaseResume: (id) => Effect.sync(() => void buffers.delete(id)),
     discardResume: (id) => Effect.sync(() => void buffers.delete(id)),
     clearConversationBuffer: () => Effect.void,
+    releaseThreadStart: () => Effect.void,
   });
   const coordinator = CodexRendererConversationCoordinator.of({
     readRendererState: (id: string) => {

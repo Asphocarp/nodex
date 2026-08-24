@@ -6,7 +6,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import { make } from "./CodexThreadStartNotificationGate";
+import { make, makeWithCapacity } from "./CodexThreadStartNotificationGate";
 
 it.effect("releases notification-first starts only after local materialization", () =>
   Effect.gen(function* () {
@@ -82,6 +82,34 @@ it.effect("keeps the physical materialization alive after its renderer waiter is
       threadId: "thread-detached",
     });
 
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("fails health instead of dropping a deferred canonical start release", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const gate = yield* makeWithCapacity(1).pipe(Effect.provideService(Scope.Scope, scope));
+    const response = yield* Deferred.make<void>();
+    const materialization = yield* gate
+      .materialize(
+        "local",
+        Deferred.await(response).pipe(Effect.andThen(Effect.fail("request failed"))),
+        () => null,
+      )
+      .pipe(Effect.forkChild);
+    const termination = yield* gate.termination.pipe(Effect.flip, Effect.forkChild);
+
+    yield* Effect.yieldNow;
+    assert.isTrue(gate.defer("local", "thread-a"));
+    assert.isTrue(gate.defer("local", "thread-b"));
+    yield* Deferred.succeed(response, undefined);
+    yield* Fiber.await(materialization);
+    const overflow = yield* Fiber.join(termination);
+
+    assert.strictEqual(overflow.capacity, 1);
+    assert.strictEqual(overflow.hostId, "local");
+    assert.strictEqual(overflow.threadId, "thread-b");
     yield* Scope.close(scope, Exit.void);
   }),
 );

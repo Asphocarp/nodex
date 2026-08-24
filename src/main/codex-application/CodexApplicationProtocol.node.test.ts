@@ -46,11 +46,13 @@ import {
   live as conversationRuntimeMapLive,
 } from "./ConversationRuntimeMap";
 import { CodexApplicationProtocol, make as makeProtocol } from "./CodexApplicationProtocol";
+import { live as protocolIngressLive } from "./CodexProtocolIngress";
 import {
   CodexThreadStartNotificationGate,
   make as makeThreadStartNotificationGate,
 } from "./CodexThreadStartNotificationGate";
 import { NodexAgentProtocolTools } from "../nodex-agent-application/NodexAgentProtocolTools";
+import { MainShutdown, layer as mainShutdownLayer } from "../app/MainShutdown";
 
 const coordinator = CodexRendererConversationCoordinator.of({
   forwardNotificationForConversation: () => false,
@@ -99,6 +101,8 @@ const withProtocol = <A, E>(
 ) =>
   Effect.gen(function* () {
     const rootScope = yield* Scope.make();
+    const shutdownContext = yield* Layer.buildWithScope(mainShutdownLayer, rootScope);
+    const shutdown = Context.get(shutdownContext, MainShutdown);
     const inbox = yield* makeInbox.pipe(Effect.provideService(Scope.Scope, rootScope));
     const conversationContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, rootScope);
     const conversations = Context.get(conversationContext, ConversationRuntimeMap);
@@ -182,6 +186,19 @@ const withProtocol = <A, E>(
       Effect.provideService(ConversationRuntimeMap, conversations),
       Effect.provideService(NodexAgentProtocolTools, nodexAgentTools),
       Effect.provideService(Scope.Scope, rootScope),
+    );
+    yield* Layer.buildWithScope(
+      protocolIngressLive.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(CodexApplicationProtocol, protocol),
+            Layer.succeed(CodexApplicationRequestInbox, inbox),
+            Layer.succeed(CodexThreadStartNotificationGate, threadStarts),
+            Layer.succeed(MainShutdown, shutdown),
+          ),
+        ),
+      ),
+      rootScope,
     );
 
     const result = yield* run({
