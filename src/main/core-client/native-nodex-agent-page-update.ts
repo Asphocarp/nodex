@@ -482,7 +482,6 @@ export const prepareNativeNodexAgentPageUpdate = async (
       document_id: content.document_id,
       generation: content.document_generation,
       expected_head_seq: content.document_head_seq,
-      allow_deleting_owned_blocks: request.input.safety?.allowDeletingOwnedBlocks === true,
       commands,
     };
     const clientSessionId = `nodex-agent:${request.threadId}`.slice(0, 512);
