@@ -174,6 +174,27 @@ import {
   CodexAppProtocolTools,
   make as makeCodexAppProtocolTools,
 } from "../codex-application/CodexAppProtocolTools";
+import { live as codexAutomationInboxLive } from "../codex-application/CodexAutomationInbox";
+import { live as codexOneShotServerRequestsLive } from "../codex-application/CodexOneShotServerRequests";
+import { live as codexProtocolNotificationProjectionLive } from "../codex-application/CodexProtocolNotificationProjection";
+import { live as codexAutomationTurnCompletionLive } from "../codex-application/CodexAutomationTurnCompletion";
+import {
+  CodexConversationLifecycle,
+  make as makeCodexConversationLifecycle,
+} from "../codex-application/CodexConversationLifecycle";
+import { live as codexThreadDurableProjectionLive } from "../codex-application/CodexThreadDurableProjection";
+import { live as codexProtocolNotificationEffectsLive } from "../codex-application/CodexProtocolNotificationEffects";
+import { live as nodexAgentProtocolToolsLive } from "../nodex-agent-application/NodexAgentProtocolTools";
+import { live as codexApplicationProtocolLive } from "../codex-application/CodexApplicationProtocol";
+import { live as codexProtocolIngressLive } from "../codex-application/CodexProtocolIngress";
+import {
+  CodexConnectionLifecycle,
+  make as makeCodexConnectionLifecycle,
+} from "../codex-application/CodexConnectionLifecycle";
+import {
+  CodexConversationResumeRuntime,
+  make as makeCodexConversationResumeRuntime,
+} from "../codex-application/CodexConversationResumeRuntime";
 import {
   CodexThreadSettingsRuntime,
   make as makeCodexThreadSettingsRuntime,
@@ -188,6 +209,7 @@ import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-hand
 import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
 import { CodexPlatform } from "./CodexApplicationLive";
 import { MainConfig } from "./MainConfig";
+import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
 
 const conversationContext = Layer.effect(CodexConversationContext, makeCodexConversationContext);
 const conversationProjection = Layer.effect(
@@ -507,6 +529,41 @@ const sessionThreadLaunch = Layer.effect(
 const protocolTools = Layer.effect(CodexAppProtocolTools, makeCodexAppProtocolTools).pipe(
   Layer.provideMerge(sessionThreadLaunch),
 );
+const automationInbox = codexAutomationInboxLive.pipe(Layer.provideMerge(protocolTools));
+const oneShotServerRequests = codexOneShotServerRequestsLive.pipe(
+  Layer.provideMerge(automationInbox),
+);
+const protocolProjection = codexProtocolNotificationProjectionLive({
+  supportsChatGptApps: CODEX_INTEGRATION_CAPABILITIES.chatGptApps,
+}).pipe(Layer.provideMerge(oneShotServerRequests));
+const automationTurnCompletion = codexAutomationTurnCompletionLive.pipe(
+  Layer.provideMerge(protocolProjection),
+);
+const conversationLifecycle = Layer.effect(
+  CodexConversationLifecycle,
+  makeCodexConversationLifecycle,
+).pipe(Layer.provideMerge(automationTurnCompletion));
+const durableProjection = codexThreadDurableProjectionLive.pipe(
+  Layer.provideMerge(conversationLifecycle),
+);
+const notificationEffects = codexProtocolNotificationEffectsLive.pipe(
+  Layer.provideMerge(durableProjection),
+);
+const nodexAgentProtocolTools = nodexAgentProtocolToolsLive.pipe(
+  Layer.provideMerge(notificationEffects),
+);
+const applicationProtocol = codexApplicationProtocolLive.pipe(
+  Layer.provideMerge(nodexAgentProtocolTools),
+);
+const protocolIngress = codexProtocolIngressLive.pipe(Layer.provideMerge(applicationProtocol));
+const connectionLifecycle = Layer.effect(
+  CodexConnectionLifecycle,
+  makeCodexConnectionLifecycle,
+).pipe(Layer.provideMerge(protocolIngress));
+const conversationResume = Layer.effect(
+  CodexConversationResumeRuntime,
+  makeCodexConversationResumeRuntime,
+).pipe(Layer.provideMerge(connectionLifecycle));
 
 /** Canonical Conversation projections and semantic command capabilities. */
-export const live = protocolTools;
+export const live = conversationResume;
