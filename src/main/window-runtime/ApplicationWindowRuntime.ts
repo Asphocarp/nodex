@@ -23,6 +23,7 @@ import type {
   RendererClientRuntimeService,
 } from "../codex/renderer-client-runtime-contracts";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
+import { MainCleanup } from "../app/MainCleanup";
 import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import type { DesktopNotificationRuntime } from "../host-runtime/DesktopNotificationRuntime";
 import type { McpAppSandboxRuntime } from "../host-runtime/McpAppSandboxRuntime";
@@ -73,13 +74,14 @@ export const live = (
 ): Layer.Layer<
   ApplicationWindowRuntime,
   never,
-  ComposerAppshotRuntime | ScopedCallbackRuntime | WindowShutdown
+  ComposerAppshotRuntime | MainCleanup | ScopedCallbackRuntime | WindowShutdown
 > =>
   Layer.effect(
     ApplicationWindowRuntime,
     Effect.gen(function* () {
       const appshots = yield* ComposerAppshotRuntime;
       const callbacks = yield* ScopedCallbackRuntime;
+      const cleanup = yield* MainCleanup;
       const windowShutdown = yield* WindowShutdown;
       const rendererLoaded = yield* PubSub.unbounded<number>();
       yield* Effect.addFinalizer(() => PubSub.shutdown(rendererLoaded));
@@ -365,6 +367,15 @@ export const live = (
                   }),
                 )
               : Effect.void,
+          ),
+          Effect.tap((report) =>
+            cleanup.report(
+              report.failures.map((failure) => ({
+                subsystem: "window",
+                operation: failure.phase,
+                reason: failure.reason,
+              })),
+            ),
           ),
           Effect.asVoid,
         ),

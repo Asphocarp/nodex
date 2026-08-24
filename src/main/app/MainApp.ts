@@ -1,13 +1,13 @@
 import * as Cause from "effect/Cause";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 import { ElectronApp } from "../platform/electron/ElectronApp";
+import { MainCleanup } from "./MainCleanup";
 import { MainApplication } from "./MainApplication";
 import { MainConfig } from "./MainConfig";
-import { emptyCleanupReport, MainApplicationError, type MainExit } from "./MainExit";
+import { MainApplicationError, type MainExit } from "./MainExit";
 import { MainShutdown } from "./MainShutdown";
 
 export type MainStartupGateResult = "continue" | "moved" | "quit";
@@ -28,28 +28,27 @@ const runApplication = <R>(
   Effect.scoped(
     Effect.gen(function* () {
       const shutdown = yield* MainShutdown;
-      return yield* Effect.raceFirst(
-        Effect.gen(function* () {
-          const context = yield* Layer.build(options.applicationLayer);
-          const application = Context.get(context, MainApplication);
-          onAcquired(application);
-          yield* Effect.addFinalizer(() =>
-            Effect.sync(() => {
-              onAcquired(null);
-            }),
-          );
-          for (const event of options.initialEvents) yield* application.handleBootstrapEvent(event);
-          if (options.onApplicationReady) yield* options.onApplicationReady(application);
-          return yield* shutdown.awaitRequest;
-        }),
-        shutdown.awaitRequest,
-      );
+      const acquireApplication = Effect.gen(function* () {
+        const application = yield* MainApplication;
+        onAcquired(application);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            onAcquired(null);
+          }),
+        );
+        for (const event of options.initialEvents) yield* application.handleBootstrapEvent(event);
+        if (options.onApplicationReady) yield* options.onApplicationReady(application);
+        return yield* shutdown.awaitRequest;
+      }).pipe(Effect.provide(options.applicationLayer));
+
+      return yield* Effect.raceFirst(acquireApplication, shutdown.awaitRequest);
     }),
   );
 
 export const program = <R>(options: MainAppOptions<R>) =>
   Effect.gen(function* () {
     const electron = yield* ElectronApp;
+    const cleanup = yield* MainCleanup;
     const config = yield* MainConfig;
     const shutdown = yield* MainShutdown;
     let quitAllowed = false;
@@ -75,7 +74,7 @@ export const program = <R>(options: MainAppOptions<R>) =>
       return {
         _tag: "Shutdown",
         reason: { _tag: "UserQuit" },
-        cleanup: emptyCleanupReport,
+        cleanup: yield* cleanup.snapshot,
       } satisfies MainExit;
     }
     if (gate === "quit") {
@@ -83,7 +82,7 @@ export const program = <R>(options: MainAppOptions<R>) =>
       return {
         _tag: "Shutdown",
         reason: { _tag: "UserQuit" },
-        cleanup: emptyCleanupReport,
+        cleanup: yield* cleanup.snapshot,
       } satisfies MainExit;
     }
 
@@ -125,6 +124,6 @@ export const program = <R>(options: MainAppOptions<R>) =>
     return {
       _tag: "Shutdown",
       reason: applicationExit.value,
-      cleanup: emptyCleanupReport,
+      cleanup: yield* cleanup.snapshot,
     } satisfies MainExit;
   }).pipe(Effect.scoped);

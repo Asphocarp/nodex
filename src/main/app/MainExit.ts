@@ -1,5 +1,7 @@
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
+export { type CleanupFailure, type CleanupReport, emptyCleanupReport } from "./MainCleanup";
+import type { CleanupReport } from "./MainCleanup";
 import type { MainShutdownReason } from "./MainShutdown";
 
 export const MainApplicationPhase = Schema.Literals(["pre-ready", "startup", "runtime", "closing"]);
@@ -15,18 +17,6 @@ export class MainApplicationError extends Schema.TaggedError<MainApplicationErro
     cause: Schema.Defect(),
   },
 ) {}
-
-export interface CleanupFailure {
-  readonly operation: string;
-  readonly reason: string;
-  readonly subsystem: string;
-}
-
-export interface CleanupReport {
-  readonly failures: readonly CleanupFailure[];
-}
-
-export const emptyCleanupReport: CleanupReport = { failures: [] };
 
 export type MainExit =
   | {

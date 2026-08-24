@@ -14,7 +14,7 @@ import {
   type MacApplicationsInstallerEnvironment,
 } from "./macos-applications-installer";
 import * as MainApp from "./app/MainApp";
-import * as MainDesktopRuntimeLive from "./app/MainDesktopRuntimeLive";
+import * as MainApplicationLive from "./app/MainApplicationLive";
 import * as MainEntry from "./app/MainEntry";
 import * as MainFoundationLive from "./app/MainFoundationLive";
 import { MainApplicationError, type MainExit } from "./app/MainExit";
@@ -239,7 +239,7 @@ function launchMainApplication(): void {
     const observability = yield* MainObservability;
     const exit = yield* MainApp.program({
       initialEvents: startupEvents,
-      applicationLayer: MainDesktopRuntimeLive.productionLive,
+      applicationLayer: MainApplicationLive.productionLive,
       runStartupGate: Effect.tryPromise({
         try: async () => {
           await mainSentryInitialization;

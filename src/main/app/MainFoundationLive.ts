@@ -8,12 +8,14 @@ import * as ElectronSessionHost from "../platform/electron/ElectronSessionHost";
 import * as ElectronWindowHost from "../platform/electron/ElectronWindowHost";
 import * as BrowserProfileHelperNode from "../platform/node/BrowserProfileHelperNode";
 import * as MainConfig from "./MainConfig";
+import * as MainCleanup from "./MainCleanup";
 import * as MainObservability from "./MainObservability";
 import * as MainShutdown from "./MainShutdown";
 import * as ScopedCallbackRuntime from "./ScopedCallbackRuntime";
 
 export type MainFoundation =
   | MainConfig.MainConfig
+  | MainCleanup.MainCleanup
   | MainObservability.MainObservability
   | MainShutdown.MainShutdown
   | ScopedCallbackRuntime.ScopedCallbackRuntime
@@ -39,6 +41,7 @@ const nodePlatform = BrowserProfileHelperNode.live.pipe(Layer.provideMerge(NodeS
 export const make = (config: unknown): Layer.Layer<MainFoundation, MainConfig.MainConfigError> => {
   const base = Layer.mergeAll(
     MainConfig.layer(config),
+    MainCleanup.layer,
     MainObservability.layer,
     MainShutdown.layer,
     ScopedCallbackRuntime.layer,

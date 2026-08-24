@@ -16,6 +16,7 @@ import {
   type ElectronTerminationSignal,
 } from "../platform/electron/ElectronApp";
 import { program } from "./MainApp";
+import { layer as cleanupLayer } from "./MainCleanup";
 import { testLayer as configLayer } from "./MainConfig";
 import { mainApplicationTestLayer } from "./MainApplication.test-support";
 import { MainApplicationError } from "./MainApplication";
@@ -47,7 +48,12 @@ it.effect("starts, replays bootstrap events, closes runtime, then quits", () =>
   Effect.gen(function* () {
     const events: string[] = [];
     const started = yield* Deferred.make<void>();
-    const foundation = Layer.mergeAll(shutdownLayer, fakeElectronLayer(events), configLayer());
+    const foundation = Layer.mergeAll(
+      shutdownLayer,
+      cleanupLayer,
+      fakeElectronLayer(events),
+      configLayer(),
+    );
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
@@ -94,7 +100,12 @@ it.effect("starts, replays bootstrap events, closes runtime, then quits", () =>
 it.effect("rolls back an acquired runtime and publishes the startup failure exit", () =>
   Effect.gen(function* () {
     const events: string[] = [];
-    const foundation = Layer.mergeAll(shutdownLayer, fakeElectronLayer(events), configLayer());
+    const foundation = Layer.mergeAll(
+      shutdownLayer,
+      cleanupLayer,
+      fakeElectronLayer(events),
+      configLayer(),
+    );
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
@@ -126,7 +137,12 @@ it.effect("relaunches only after an authority-drift shutdown has released the ru
   Effect.gen(function* () {
     const events: string[] = [];
     const started = yield* Deferred.make<void>();
-    const foundation = Layer.mergeAll(shutdownLayer, fakeElectronLayer(events), configLayer());
+    const foundation = Layer.mergeAll(
+      shutdownLayer,
+      cleanupLayer,
+      fakeElectronLayer(events),
+      configLayer(),
+    );
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
@@ -152,7 +168,12 @@ it.effect("relaunches after a Store restore only once the Main Scope is released
   Effect.gen(function* () {
     const events: string[] = [];
     const started = yield* Deferred.make<void>();
-    const foundation = Layer.mergeAll(shutdownLayer, fakeElectronLayer(events), configLayer());
+    const foundation = Layer.mergeAll(
+      shutdownLayer,
+      cleanupLayer,
+      fakeElectronLayer(events),
+      configLayer(),
+    );
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
@@ -179,7 +200,12 @@ it.effect("returns a typed runtime failure after fatal application truth loss", 
   Effect.gen(function* () {
     const events: string[] = [];
     const ready = yield* Deferred.make<void>();
-    const foundation = Layer.mergeAll(shutdownLayer, fakeElectronLayer(events), configLayer());
+    const foundation = Layer.mergeAll(
+      shutdownLayer,
+      cleanupLayer,
+      fakeElectronLayer(events),
+      configLayer(),
+    );
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
@@ -237,7 +263,7 @@ it.effect("routes Electron activation through the scoped Main runtime", () =>
         onWindowAllClosed: () => Effect.void,
       }),
     );
-    const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+    const foundation = Layer.mergeAll(shutdownLayer, cleanupLayer, electron, configLayer());
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
@@ -293,7 +319,7 @@ it.effect("routes process termination signals through Main shutdown before quitt
         onWindowAllClosed: () => Effect.void,
       }),
     );
-    const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+    const foundation = Layer.mergeAll(shutdownLayer, cleanupLayer, electron, configLayer());
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
@@ -347,7 +373,7 @@ it.effect("interrupts an in-flight runtime acquisition when a termination signal
         onWindowAllClosed: () => Effect.void,
       }),
     );
-    const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+    const foundation = Layer.mergeAll(shutdownLayer, cleanupLayer, electron, configLayer());
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);
@@ -406,7 +432,7 @@ it.effect(
           onWindowAllClosed: () => Effect.void,
         }),
       );
-      const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+      const foundation = Layer.mergeAll(shutdownLayer, cleanupLayer, electron, configLayer());
       const foundationScope = yield* Scope.make();
       const context = yield* Layer.buildWithScope(foundation, foundationScope);
       const shutdown = Context.get(context, MainShutdown);
@@ -465,7 +491,7 @@ it.effect("turns the first ready-state before-quit into the same scoped shutdown
         onWindowAllClosed: () => Effect.void,
       }),
     );
-    const foundation = Layer.mergeAll(shutdownLayer, electron, configLayer());
+    const foundation = Layer.mergeAll(shutdownLayer, cleanupLayer, electron, configLayer());
     const foundationScope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(foundation, foundationScope);
     const shutdown = Context.get(context, MainShutdown);

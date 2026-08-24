@@ -83,7 +83,7 @@ const applicationGraph = RendererIngressLive.live.pipe(
   ),
 );
 
-/** Fully acquired production desktop application. */
+/** Fully acquired production desktop application graph. */
 export const live: Layer.Layer<
   MainApplication,
   MainApplicationError,
