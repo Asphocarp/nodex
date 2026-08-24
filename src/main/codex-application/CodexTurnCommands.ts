@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type {
   TurnStartParams,
   TurnStartResponse,
-  TurnSteerParams,
   TurnSteerResponse,
 } from "@nodex/codex-app-server-protocol/v2";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
@@ -90,9 +89,6 @@ export interface CodexTurnCommandsService {
   readonly steer: (
     input: CodexSteerTurnInput,
   ) => Effect.Effect<{ readonly turnId: string } | null, CodexTurnCommandsError>;
-  readonly steerRendererOwned: (
-    params: TurnSteerParams,
-  ) => Effect.Effect<TurnSteerResponse, CodexRuntimeError>;
   /** Starts the next autonomous goal turn without projecting a synthetic user message. */
   readonly continueGoal: (threadId: string) => Effect.Effect<void, CodexTurnCommandsError>;
 }
@@ -139,6 +135,19 @@ const isThreadNotFound = (error: unknown): boolean => {
   );
 };
 
+const parseSteerTurnMismatchActualTurnId = (error: unknown): string | null => {
+  const cause =
+    typeof error === "object" && error !== null && "cause" in error
+      ? (error as { readonly cause: unknown }).cause
+      : error;
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return (
+    /expected active turn id [`']?[^`'\s]+[`']? but found [`']?([^`'\s]+)[`']?/iu.exec(
+      message,
+    )?.[1] ?? null
+  );
+};
+
 export const make: Effect.Effect<
   CodexTurnCommandsService,
   never,
@@ -162,11 +171,6 @@ export const make: Effect.Effect<
   const preparation = yield* CodexTurnPreparation;
   const authority = yield* CodexTurnAuthority;
   const core = yield* CoreModules;
-
-  /** This mutation participates in the already-held Thread transaction; reacquiring its lane deadlocks. */
-  const clearPausedFollowUps = (threadId: string, projectReplica: boolean): void => {
-    conversations.current(threadId)?.clearPausedQueuedFollowUps(projectReplica);
-  };
 
   const commandError = (
     operation: "start" | "steer",
@@ -349,7 +353,6 @@ export const make: Effect.Effect<
             ),
           );
 
-          clearPausedFollowUps(plan.threadId, !plan.rendererOwnsState);
           yield* projection
             .markThreadActive(plan.threadId)
             .pipe(
@@ -433,10 +436,29 @@ export const make: Effect.Effect<
     Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis;
       const nonce = yield* Random.nextIntBetween(0, 36 ** 6);
+      const intent =
+        input.intent ??
+        ({
+          steerId: `steer:${input.threadId}:${now}:${nonce.toString(36).padStart(6, "0")}`,
+          recoveryRow: {
+            followUpId: `follow-up:${randomUUID()}`,
+            clientUserMessageId: randomUUID(),
+            threadId: input.threadId,
+            prompt: input.prompt,
+            promptInput: input.promptInput ?? { text: input.prompt },
+            createdAtMs: now,
+            collaborationMode: input.collaborationMode ?? null,
+            serviceTier: input.serviceTier ?? null,
+            summary: input.summary ?? null,
+            pause: null,
+            payloadRef: null,
+          },
+        } as const);
       const plan = yield* preparation
         .steer({
           command: input,
-          steerId: `steer:${input.threadId}:${now}:${nonce.toString(36).padStart(6, "0")}`,
+          steerId: intent.steerId,
+          recoveryRow: intent.recoveryRow,
         })
         .pipe(Effect.mapError((cause) => commandError("steer", input.threadId, cause)));
       return yield* runSteerTransaction(plan);
@@ -444,18 +466,45 @@ export const make: Effect.Effect<
 
   const runSteerTransaction = (plan: CodexTurnSteerPlan) => {
     let optimisticAdmitted = false;
-    const rollback = Clock.currentTimeMillis.pipe(
-      Effect.flatMap((observedAtMs) =>
-        optimisticAdmitted
-          ? projection.rejectSteer({
-              threadId: plan.threadId,
-              turnId: plan.expectedTurnId,
-              itemId: plan.steerId,
-              observedAtMs,
-            })
-          : Effect.void,
-      ),
-    );
+    let targetTurnId = plan.expectedTurnId;
+    let item = plan.item;
+    const rollback = () =>
+      Clock.currentTimeMillis.pipe(
+        Effect.flatMap((observedAtMs) =>
+          optimisticAdmitted
+            ? projection.rejectSteer({
+                threadId: plan.threadId,
+                turnId: targetTurnId,
+                itemId: plan.steerId,
+                observedAtMs,
+              })
+            : Effect.void,
+        ),
+      );
+    const retarget = (nextTurnId: string) =>
+      Effect.gen(function* () {
+        if (nextTurnId === targetTurnId) return;
+        const observedAtMs = yield* Clock.currentTimeMillis;
+        yield* projection.rejectSteer({
+          threadId: plan.threadId,
+          turnId: targetTurnId,
+          itemId: plan.steerId,
+          observedAtMs,
+        });
+        item = { ...item, targetTurnId: nextTurnId };
+        yield* projection.admitSteer({
+          threadId: plan.threadId,
+          turnId: nextTurnId,
+          item,
+          observedAtMs,
+        });
+        targetTurnId = nextTurnId;
+      });
+    const request = (expectedTurnId: string) =>
+      gateway.requestForThread(plan.threadId, "turn/steer", {
+        ...plan.request,
+        expectedTurnId,
+      } as GatewayTurnSteerParams) as Effect.Effect<TurnSteerResponse, CodexRuntimeError>;
     return Effect.gen(function* () {
       const observedAtMs = yield* Clock.currentTimeMillis;
       yield* projection.admitSteer({
@@ -465,23 +514,30 @@ export const make: Effect.Effect<
         observedAtMs,
       });
       optimisticAdmitted = true;
-      const response = (yield* gateway.requestForThread(
-        plan.threadId,
-        "turn/steer",
-        plan.request as GatewayTurnSteerParams,
-      )) as unknown as TurnSteerResponse;
+      let response: TurnSteerResponse;
+      const firstAttempt = yield* Effect.exit(request(targetTurnId));
+      if (firstAttempt._tag === "Success") {
+        response = firstAttempt.value;
+      } else {
+        const actualTurnId = parseSteerTurnMismatchActualTurnId(firstAttempt.cause);
+        if (!actualTurnId || actualTurnId === targetTurnId) {
+          return yield* Effect.failCause(firstAttempt.cause);
+        }
+        yield* retarget(actualTurnId);
+        response = yield* request(actualTurnId);
+      }
       if (typeof response.turnId !== "string") {
-        yield* rollback;
+        yield* rollback();
         optimisticAdmitted = false;
         return null;
       }
-      clearPausedFollowUps(plan.threadId, true);
+      yield* retarget(response.turnId);
       return { turnId: response.turnId };
     }).pipe(
-      Effect.onExit((exit) => (Exit.isFailure(exit) ? rollback : Effect.void)),
+      Effect.onExit((exit) => (Exit.isFailure(exit) ? rollback() : Effect.void)),
       Effect.catch((error) => {
         if (!isSteerTurnInactive(error)) return Effect.fail(error);
-        return rollback.pipe(
+        return rollback().pipe(
           Effect.andThen(
             startInLane(
               plan.threadId,
@@ -567,19 +623,6 @@ export const make: Effect.Effect<
           attributes: { threadId: input.threadId },
         }),
       ),
-    steerRendererOwned: (params) =>
-      conversations
-        .runCommand(
-          params.threadId,
-          gateway
-            .requestForThread(params.threadId, "turn/steer", params as GatewayTurnSteerParams)
-            .pipe(Effect.map((response) => response as unknown as TurnSteerResponse)),
-        )
-        .pipe(
-          Effect.withSpan("CodexTurnCommands.steerRendererOwned", {
-            attributes: { threadId: params.threadId },
-          }),
-        ),
     continueGoal: (threadId) =>
       conversations
         .runCommand(

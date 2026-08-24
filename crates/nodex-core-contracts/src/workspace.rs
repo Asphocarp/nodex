@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 16;
+pub const PROJECT_WORKSPACE_CONTRACT_VERSION: u32 = 17;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -47,6 +47,9 @@ pub enum ProjectWorkspaceRead {
         session_id: String,
     },
     Thread {
+        thread_id: String,
+    },
+    QueuedFollowUpLedger {
         thread_id: String,
     },
     ChildThreadWindow {
@@ -114,6 +117,9 @@ pub enum ProjectWorkspaceReadValue {
     },
     Thread {
         thread: Box<ProjectWorkspaceThread>,
+    },
+    QueuedFollowUpLedger {
+        ledger: ProjectWorkspaceQueuedFollowUpLedger,
     },
     ChildThreadWindow {
         threads: CollectionWindow<ProjectWorkspaceThreadSummary>,
@@ -752,6 +758,47 @@ pub struct ProjectWorkspaceStarterPage {
     pub nfm: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceQueuedFollowUpPayloadRef {
+    pub schema_version: u32,
+    pub asset_uri: String,
+    pub sha256: String,
+    pub byte_length: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProjectWorkspaceQueuedFollowUpPause {
+    Interrupted { reason: String },
+    Failed { reason: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceQueuedFollowUpEntry {
+    pub follow_up_id: String,
+    pub client_user_message_id: String,
+    pub created_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pause: Option<ProjectWorkspaceQueuedFollowUpPause>,
+    pub payload: ProjectWorkspaceQueuedFollowUpPayloadRef,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceQueuedFollowUpLedger {
+    pub thread_id: String,
+    pub revision: i64,
+    pub ledger_hash: String,
+    pub entries: Vec<ProjectWorkspaceQueuedFollowUpEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceQueuedFollowUpLedgerCommit {
+    pub thread_id: String,
+    pub revision: i64,
+    pub ledger_hash: String,
+    pub changed: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceIntent {
@@ -836,6 +883,11 @@ pub enum ProjectWorkspaceIntent {
     },
     DeleteThread {
         thread_id: String,
+    },
+    CommitQueuedFollowUpLedger {
+        thread_id: String,
+        expected_revision: i64,
+        entries: Vec<ProjectWorkspaceQueuedFollowUpEntry>,
     },
     ObserveAppServerThreadWindow {
         sweep_id: String,
@@ -962,6 +1014,8 @@ pub struct ProjectWorkspaceCommitValue {
     pub affected_project_ids: Vec<String>,
     pub affected_session_ids: Vec<String>,
     pub affected_thread_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_follow_up_ledger: Option<ProjectWorkspaceQueuedFollowUpLedgerCommit>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1028,7 +1082,9 @@ mod tests {
 
     use super::{
         ProjectAppearance, ProjectMarker, ProjectMarkerColor, ProjectMarkerIcon,
-        ProjectWorkspaceIntent, ProjectWorkspaceThreadLane, ProjectWorkspaceThreadPlacement,
+        ProjectWorkspaceIntent, ProjectWorkspaceQueuedFollowUpEntry,
+        ProjectWorkspaceQueuedFollowUpPause, ProjectWorkspaceQueuedFollowUpPayloadRef,
+        ProjectWorkspaceThreadLane, ProjectWorkspaceThreadPlacement,
     };
 
     #[test]
@@ -1180,5 +1236,33 @@ mod tests {
                 initial_page_ids: vec!["page-1".to_owned()],
             }
         );
+    }
+
+    #[test]
+    fn queued_follow_up_contract_keeps_queue_and_wire_identities_distinct() {
+        let intent = ProjectWorkspaceIntent::CommitQueuedFollowUpLedger {
+            thread_id: "thread-1".to_owned(),
+            expected_revision: 7,
+            entries: vec![ProjectWorkspaceQueuedFollowUpEntry {
+                follow_up_id: "follow-up-1".to_owned(),
+                client_user_message_id: "message-1".to_owned(),
+                created_at_ms: 42,
+                pause: Some(ProjectWorkspaceQueuedFollowUpPause::Interrupted {
+                    reason: "Interrupted before the steer was accepted.".to_owned(),
+                }),
+                payload: ProjectWorkspaceQueuedFollowUpPayloadRef {
+                    schema_version: 1,
+                    asset_uri: "nodex://assets/queued-follow-up-v1-abc.json".to_owned(),
+                    sha256: "a".repeat(64),
+                    byte_length: 123,
+                },
+            }],
+        };
+        let encoded = serde_json::to_value(intent).expect("queued follow-up intent");
+        assert_eq!(encoded["kind"], "commit_queued_follow_up_ledger");
+        assert_eq!(encoded["entries"][0]["follow_up_id"], "follow-up-1");
+        assert_eq!(encoded["entries"][0]["client_user_message_id"], "message-1");
+        assert_eq!(encoded["entries"][0]["pause"]["kind"], "interrupted");
+        assert_eq!(encoded["entries"][0]["payload"]["schema_version"], 1);
     }
 }

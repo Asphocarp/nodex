@@ -42,7 +42,10 @@ import {
   reduceCodexConversationServerRequestResolved,
   type CodexServerRequestLifecycleEffect,
 } from "./codex-server-request-lifecycle";
-import { reduceCodexConversationTurnLifecycle } from "./codex-turn-lifecycle";
+import {
+  reduceCodexConversationTurnLifecycle,
+  type CodexTurnLifecycleEffect,
+} from "./codex-turn-lifecycle";
 import {
   reduceCodexConversationThreadGoalCleared,
   reduceCodexConversationThreadGoalUpdated,
@@ -103,7 +106,8 @@ export type CodexConversationReducerEffect =
   | CodexHydrateCollabThreadsEffect
   | CodexServerRequestLifecycleEffect
   | CodexThreadMetadataEffect
-  | CodexTurnMetadataEffect;
+  | CodexTurnMetadataEffect
+  | CodexTurnLifecycleEffect;
 
 export interface CodexConversationReducerResult {
   readonly state: CodexCanonicalConversationState;
@@ -1031,13 +1035,15 @@ export function reduceCodexConversationEventWithEffects(
     event.notification.method === "turn/started" ||
     event.notification.method === "turn/completed"
   ) {
+    const lifecycle = reduceCodexConversationTurnLifecycle(state, {
+      conversationId: event.notification.params.threadId,
+      method: event.notification.method,
+      turn: event.notification.params.turn,
+      observedAtMs: context.now(),
+    });
+    effects.push(...lifecycle.effects);
     return {
-      state: reduceCodexConversationTurnLifecycle(state, {
-        conversationId: event.notification.params.threadId,
-        method: event.notification.method,
-        turn: event.notification.params.turn,
-        observedAtMs: context.now(),
-      }).state,
+      state: lifecycle.state,
       effects,
     };
   }

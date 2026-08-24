@@ -13,6 +13,7 @@ import { CodexConversationRelationships } from "./CodexConversationRelationships
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { CodexPostResumeGoalRuntime } from "./CodexPostResumeGoalRuntime";
+import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import { make } from "./CodexConversationResumeRuntime";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import {
@@ -35,7 +36,15 @@ const conversation = (): CodexConversationSnapshot =>
     threadId,
     resumeState: "resumed",
     requests: [],
-    queuedFollowUps: [],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 0,
+      projectionRevision: 0,
+      entries: [],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
   }) as unknown as CodexConversationSnapshot;
 
 const entry = (
@@ -113,6 +122,29 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
       }),
     reconcileOwnership: () => undefined,
   } as unknown as CodexRendererConversationCoordinator["Service"]);
+  const queuedFollowUps = CodexQueuedFollowUps.of({
+    read: () =>
+      Effect.succeed({
+        status: "ready",
+        ledgerRevision: 0,
+        projectionRevision: 0,
+        entries: [],
+        inFlightFollowUpId: null,
+        editingFollowUpId: null,
+        error: null,
+      }),
+    list: () => [],
+    enqueue: () => Effect.die("unused"),
+    remove: () => Effect.die("unused"),
+    replace: () => Effect.die("unused"),
+    reorder: () => Effect.die("unused"),
+    resumeInterrupted: () => Effect.die("unused"),
+    resolveAfterFreshStart: () => Effect.die("unused"),
+    requestDispatch: () => Effect.void,
+    sendNow: () => Effect.die("unused"),
+    acceptTerminalOutcomeInCurrentLane: () => Effect.die("unused"),
+    closeThread: () => Effect.void,
+  });
   const runtime = yield* make.pipe(
     Effect.provideService(CodexApplicationProtocol, protocol),
     Effect.provideService(
@@ -157,6 +189,7 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
         clear: () => undefined,
       }),
     ),
+    Effect.provideService(CodexQueuedFollowUps, queuedFollowUps),
     Effect.provideService(CodexRendererConversationCoordinator, coordinator),
     Effect.provideService(CodexRendererConversationRegistry, registry),
     Effect.provideService(CodexThreadDirectory, directory),

@@ -5495,6 +5495,13 @@ export interface components {
                 readonly kind: "delete_thread";
                 readonly thread_id: string;
             } | {
+                readonly entries: readonly components["schemas"]["ProjectWorkspaceQueuedFollowUpEntry"][];
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "commit_queued_follow_up_ledger";
+                readonly thread_id: string;
+            } | {
                 /** @enum {string} */
                 readonly kind: "observe_app_server_thread_window";
                 readonly sweep_id: string;
@@ -6253,6 +6260,10 @@ export interface components {
                 readonly kind: "thread";
                 readonly thread_id: string;
             } | {
+                /** @enum {string} */
+                readonly kind: "queued_follow_up_ledger";
+                readonly thread_id: string;
+            } | {
                 readonly include_archived?: boolean | null;
                 /** @enum {string} */
                 readonly kind: "child_thread_window";
@@ -6780,6 +6791,45 @@ export interface components {
             readonly unread_count: number;
             /** Format: int32 */
             readonly waiting_count: number;
+        };
+        readonly ProjectWorkspaceQueuedFollowUpEntry: {
+            readonly client_user_message_id: string;
+            /** Format: int64 */
+            readonly created_at_ms: number;
+            readonly follow_up_id: string;
+            readonly pause?: null | components["schemas"]["ProjectWorkspaceQueuedFollowUpPause"];
+            readonly payload: components["schemas"]["ProjectWorkspaceQueuedFollowUpPayloadRef"];
+        };
+        readonly ProjectWorkspaceQueuedFollowUpLedger: {
+            readonly entries: readonly components["schemas"]["ProjectWorkspaceQueuedFollowUpEntry"][];
+            readonly ledger_hash: string;
+            /** Format: int64 */
+            readonly revision: number;
+            readonly thread_id: string;
+        };
+        readonly ProjectWorkspaceQueuedFollowUpLedgerCommit: {
+            readonly changed: boolean;
+            readonly ledger_hash: string;
+            /** Format: int64 */
+            readonly revision: number;
+            readonly thread_id: string;
+        };
+        readonly ProjectWorkspaceQueuedFollowUpPause: {
+            /** @enum {string} */
+            readonly kind: "interrupted";
+            readonly reason: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "failed";
+            readonly reason: string;
+        };
+        readonly ProjectWorkspaceQueuedFollowUpPayloadRef: {
+            readonly asset_uri: string;
+            /** Format: int64 */
+            readonly byte_length: number;
+            /** Format: int32 */
+            readonly schema_version: number;
+            readonly sha256: string;
         };
         readonly ProjectWorkspaceReadRequest: components["schemas"]["ModuleReadRequest_ProjectWorkspaceRead"];
         readonly ProjectWorkspaceReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_ProjectWorkspaceReadValue"];
@@ -7359,6 +7409,7 @@ export interface components {
                     readonly affected_project_ids: readonly string[];
                     readonly affected_session_ids: readonly string[];
                     readonly affected_thread_ids: readonly string[];
+                    readonly queued_follow_up_ledger?: null | components["schemas"]["ProjectWorkspaceQueuedFollowUpLedgerCommit"];
                 };
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_project_ids: readonly string[];
@@ -7372,6 +7423,7 @@ export interface components {
                     readonly affected_project_ids: readonly string[];
                     readonly affected_session_ids: readonly string[];
                     readonly affected_thread_ids: readonly string[];
+                    readonly queued_follow_up_ledger?: null | components["schemas"]["ProjectWorkspaceQueuedFollowUpLedgerCommit"];
                 };
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_project_ids: readonly string[];
@@ -7892,6 +7944,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "thread";
                     readonly thread: components["schemas"]["ProjectWorkspaceThread"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "queued_follow_up_ledger";
+                    readonly ledger: components["schemas"]["ProjectWorkspaceQueuedFollowUpLedger"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "child_thread_window";

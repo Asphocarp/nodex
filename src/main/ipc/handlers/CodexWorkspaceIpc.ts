@@ -16,7 +16,6 @@ import { CodexConversationHistoryRuntime } from "../../codex-application/CodexCo
 import { CodexConversationResumeRuntime } from "../../codex-application/CodexConversationResumeRuntime";
 import { CodexFreshThreadLaunchRuntime } from "../../codex-application/CodexFreshThreadLaunchRuntime";
 import { CodexManualCompactionRuntime } from "../../codex-application/CodexManualCompactionRuntime";
-import { CodexQueuedFollowUpDispatcher } from "../../codex-application/CodexQueuedFollowUpDispatcher";
 import { CodexQueuedFollowUps } from "../../codex-application/CodexQueuedFollowUps";
 import { CodexRendererOwnerCommands } from "../../codex-application/CodexRendererOwnerCommands";
 import { CodexServerRequestResponses } from "../../codex-application/CodexServerRequestResponses";
@@ -129,7 +128,6 @@ export const live = Layer.effectDiscard(
     const conversationHistory = yield* CodexConversationHistoryRuntime;
     const conversationResume = yield* CodexConversationResumeRuntime;
     const queuedFollowUps = yield* CodexQueuedFollowUps;
-    const queuedFollowUpDispatcher = yield* CodexQueuedFollowUpDispatcher;
     const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
     const structuredThreadTitle = yield* CodexStructuredThreadTitle;
     const backgroundProcesses = yield* CodexBackgroundProcesses;
@@ -813,19 +811,30 @@ export const live = Layer.effectDiscard(
     registerEffectHandle(
       "codex:thread:follow-up:remove",
       (_, threadId: string, followUpId: string) =>
-        queuedFollowUps.remove(threadId, followUpId).pipe(Effect.asVoid),
+        queuedFollowUps.remove(threadId, followUpId).pipe(
+          Effect.asVoid,
+          Effect.mapError(
+            (cause) => new CodexIpcError({ operation: "codex:thread:follow-up:remove", cause }),
+          ),
+        ),
     );
 
     registerEffectHandle(
       "codex:thread:follow-up:reorder",
       (_, threadId: string, orderedFollowUpIds: string[]) =>
-        queuedFollowUps.reorder(threadId, orderedFollowUpIds),
+        queuedFollowUps
+          .reorder(threadId, orderedFollowUpIds)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:follow-up:reorder", cause }),
+            ),
+          ),
     );
 
     registerEffectHandle(
       "codex:thread:follow-up:send-now",
       (_, threadId: string, followUpId: string) =>
-        queuedFollowUpDispatcher
+        queuedFollowUps
           .sendNow(threadId, followUpId)
           .pipe(
             Effect.mapError(
@@ -879,6 +888,59 @@ export const live = Layer.effectDiscard(
         .steer(input)
         .pipe(
           Effect.mapError((cause) => new CodexIpcError({ operation: "codex:turn:steer", cause })),
+        ),
+    );
+
+    registerEffectHandle("codex:thread:follow-up:resume", (_, threadId: string) =>
+      queuedFollowUps
+        .resumeInterrupted(threadId)
+        .pipe(
+          Effect.mapError(
+            (cause) => new CodexIpcError({ operation: "codex:thread:follow-up:resume", cause }),
+          ),
+        ),
+    );
+
+    registerEffectHandle(
+      "codex:thread:follow-up:replace",
+      (
+        _,
+        threadId: string,
+        followUpId: string,
+        expectedLedgerRevision: number,
+        prompt: string,
+        opts?: CodexTurnStartOptions,
+      ) =>
+        queuedFollowUps
+          .replace(threadId, followUpId, expectedLedgerRevision, {
+            prompt,
+            collaborationMode: opts?.collaborationMode,
+            serviceTier: opts?.serviceTier,
+            promptInput: opts?.promptInput,
+            summary: opts?.summary,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new CodexIpcError({
+                  operation: "codex:thread:follow-up:replace",
+                  cause,
+                }),
+            ),
+          ),
+    );
+
+    registerEffectHandle(
+      "codex:thread:follow-up:resolve-after-fresh-start",
+      (_, threadId: string, expectedLedgerRevision: number, resolution: "resume" | "clear") =>
+        queuedFollowUps.resolveAfterFreshStart(threadId, expectedLedgerRevision, resolution).pipe(
+          Effect.mapError(
+            (cause) =>
+              new CodexIpcError({
+                operation: "codex:thread:follow-up:resolve-after-fresh-start",
+                cause,
+              }),
+          ),
         ),
     );
 

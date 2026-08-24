@@ -7,7 +7,7 @@ import type {
   CodexCollaborationModeState,
   CodexConversationResumeState,
   CodexPendingSteer,
-  CodexQueuedFollowUp,
+  CodexQueuedFollowUpProjection,
   CodexConversationServerRequest,
   CodexConversationSnapshot,
   CodexConversationTurn,
@@ -15,6 +15,7 @@ import type {
   CodexThreadDetail,
   CodexTranscriptEntry,
 } from "../../shared/types";
+import { EMPTY_CODEX_QUEUED_FOLLOW_UP_PROJECTION } from "../../shared/codex-queued-follow-up-state";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 
 const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
@@ -95,7 +96,7 @@ export function buildCodexConversationSnapshot(input: {
   canonicalRequests?: readonly CodexCanonicalServerRequest[];
   hasUnreadTurn?: boolean;
   unreadMessageCount?: number;
-  queuedFollowUps?: CodexQueuedFollowUp[];
+  queuedFollowUps?: CodexQueuedFollowUpProjection;
   pendingSteers?: CodexPendingSteer[];
   backgroundTerminalRows?: CodexBackgroundTerminalRow[];
   capabilityFlags: CodexConversationCapabilityFlags;
@@ -134,9 +135,9 @@ export function buildCodexConversationSnapshot(input: {
       ? {}
       : { unreadMessageCount: input.unreadMessageCount }),
     requests: [...input.requests],
-    queuedFollowUps: [...(input.queuedFollowUps ?? [])].sort(
-      (left, right) => left.createdAt - right.createdAt,
-    ),
+    queuedFollowUps: input.queuedFollowUps
+      ? { ...input.queuedFollowUps, entries: [...input.queuedFollowUps.entries] }
+      : EMPTY_CODEX_QUEUED_FOLLOW_UP_PROJECTION,
     pendingSteers: [...(input.pendingSteers ?? [])].sort(
       (left, right) => left.createdAt - right.createdAt,
     ),

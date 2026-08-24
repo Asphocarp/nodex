@@ -11,7 +11,6 @@ import * as Layer from "effect/Layer";
 import {
   isCodexCanonicalProtocolItem,
   type CodexCanonicalConversationState,
-  type CodexCanonicalSteeringUserMessageItem,
 } from "../../shared/codex-conversation-state/codex-conversation-state";
 import type { CodexConversationReducerEffect } from "../../shared/codex-conversation-state/codex-conversation-reducer";
 import { extractCodexThreadSpawnMetadata } from "../../shared/codex-subagent-metadata";
@@ -33,7 +32,6 @@ import {
   toCodexFrameTextDelta,
 } from "../../shared/codex-conversation-state/codex-frame-text-delta";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
-import type { CodexQueuedFollowUp } from "../../shared/types";
 import { parseTerminalInteractionInput } from "../../shared/codex-terminal-interaction";
 import {
   getCodexThreadOwnerNotificationThreadId,
@@ -253,7 +251,7 @@ export const make: Effect.Effect<
           hasPendingContinuation: hasCodexPendingContinuation({
             terminalStatus: turn.status,
             queuedResourceLoading: false,
-            queuedHeadPausedReason: queuedHead ? (queuedHead.pausedReason ?? null) : undefined,
+            queuedHeadPausedReason: queuedHead ? (queuedHead.pause?.reason ?? null) : undefined,
             threadGoalStatus: snapshot?.threadGoal?.status ?? null,
             latestMergedTurnStatus: canonical?.turns.at(-1)?.protocol.status ?? null,
             hasRunningCollabAgent:
@@ -302,59 +300,6 @@ export const make: Effect.Effect<
     });
   };
 
-  const restoreUnacceptedSteers = (
-    threadId: string,
-    turnId: string,
-    status: "completed" | "failed" | "interrupted",
-    observedAtMs: number,
-    projectReplica: boolean,
-  ): void => {
-    const aggregate = conversations.current(threadId);
-    const turn = aggregate
-      ?.readCanonicalState()
-      ?.turns.find((candidate) => candidate.protocol.id === turnId);
-    if (!aggregate || !turn) return;
-    const pendingSteers = turn.items.filter(
-      (item): item is CodexCanonicalSteeringUserMessageItem =>
-        item.type === "steeringUserMessage" && item.status === "pending",
-    );
-    for (const item of pendingSteers) {
-      const restore = item.restoreMessage as Readonly<Record<string, unknown>>;
-      const prompt = typeof restore.prompt === "string" ? restore.prompt.trim() : "";
-      aggregate.rejectSteeringItem({
-        turnId,
-        itemId: item.id,
-        observedAtMs,
-        projectReplica,
-      });
-      if (!prompt) continue;
-      aggregate.appendQueuedFollowUp(
-        {
-          followUpId: `restored-steer:${threadId}:${item.id}`,
-          threadId,
-          prompt,
-          ...(typeof restore.promptInput === "object" && restore.promptInput !== null
-            ? { promptInput: restore.promptInput as CodexQueuedFollowUp["promptInput"] }
-            : {}),
-          createdAt: observedAtMs,
-          collaborationMode:
-            typeof restore.collaborationMode === "string"
-              ? (restore.collaborationMode as CodexQueuedFollowUp["collaborationMode"])
-              : null,
-          serviceTier: typeof restore.serviceTier === "string" ? restore.serviceTier : null,
-          ...(restore.summary !== undefined
-            ? { summary: restore.summary as CodexQueuedFollowUp["summary"] }
-            : {}),
-          pausedReason:
-            status === "interrupted"
-              ? "Turn was interrupted before the steer was accepted"
-              : "Turn ended before the steer was accepted",
-        },
-        projectReplica,
-      );
-    }
-  };
-
   const settleResolvedRequest = Effect.fn("CodexProtocolNotificationEffects.settleResolvedRequest")(
     function* (threadId: string, requestId: RequestId) {
       renderer.clearRequestDelivery(threadId, requestId);
@@ -392,6 +337,14 @@ export const make: Effect.Effect<
       for (const effect of effects) {
         if (effect.type === "markConversationStreaming") {
           conversations.current(threadId)?.setStreaming(true);
+          continue;
+        }
+        if (effect.type === "restoreUnacceptedSteers") {
+          yield* queued.acceptTerminalOutcomeInCurrentLane({
+            threadId,
+            rows: effect.rows,
+            interrupted: effect.terminalStatus === "interrupted",
+          });
           continue;
         }
         if (ownerRouted) continue;
@@ -510,6 +463,8 @@ export const make: Effect.Effect<
           ),
       },
     });
+    const hasTerminalQueueRecoveryEffect =
+      committed?.effects.some((effect) => effect.type === "restoreUnacceptedSteers") ?? false;
     if (committed) yield* consumeReducerEffects(threadId, ownerRouted, committed.effects);
     if (committed?.stateChanged && !ownerRouted) {
       const after = aggregate?.readCanonicalState();
@@ -547,17 +502,18 @@ export const make: Effect.Effect<
     if (notification.method === "turn/completed") {
       yield* browserUse.turnEnded({ sessionId: threadId, turnId: notification.params.turn.id });
       yield* automation.complete(threadId, notification.params.turn);
-      if (notification.params.turn.status !== "inProgress") {
-        restoreUnacceptedSteers(
-          threadId,
-          notification.params.turn.id,
-          notification.params.turn.status,
-          observedAtMs,
-          !ownerRouted,
-        );
-      }
       yield* publishTurnCompleted(threadId, notification.params.turn);
-      if (notification.params.turn.status !== "inProgress") yield* queued.requestDispatch(threadId);
+      if (notification.params.turn.status === "interrupted") {
+        if (!hasTerminalQueueRecoveryEffect) {
+          yield* queued.acceptTerminalOutcomeInCurrentLane({
+            threadId,
+            rows: [],
+            interrupted: true,
+          });
+        }
+      } else if (notification.params.turn.status !== "inProgress") {
+        yield* queued.requestDispatch(threadId);
+      }
       yield* conversationProjection.reconcileThreadStatus(threadId);
     }
     if (isCodexThreadDurableProjectionNotification(notification)) {

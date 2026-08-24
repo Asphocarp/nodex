@@ -3,6 +3,7 @@ import { assert, it } from "@effect/vitest";
 import type { CodexConversationSnapshot } from "../../../shared/types";
 import { CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID } from "../../../shared/codex-conversation-state/codex-conversation-reducer";
 import { createCodexCanonicalConversationState } from "../../../shared/codex-conversation-state/codex-conversation-state";
+import { createCodexQueuedFollowUp } from "../../../shared/codex-queued-follow-up-state";
 import { makeConversationEntityStateRegistry } from "./ConversationEntityState";
 
 const threadId = "thread-canonical-projection";
@@ -46,7 +47,15 @@ const snapshot = (): CodexConversationSnapshot =>
     resumeState: "resumed",
     turns: [],
     requests: [],
-    queuedFollowUps: [],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 0,
+      projectionRevision: 0,
+      entries: [],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
     pendingSteers: [],
   }) as unknown as CodexConversationSnapshot;
 
@@ -118,4 +127,50 @@ it("invalidates generation-bound renderer checkpoints when the endpoint is lost"
   assert.strictEqual(state.revision, 0);
   assert.strictEqual(state.checkpoint, null);
   assert.strictEqual(aggregate.readSnapshot()?.resumeState, "needs_resume");
+});
+
+it("installs exact Main queue projections without trusting the renderer replica", () => {
+  const aggregate = makeConversationEntityStateRegistry().acquire(threadId);
+  aggregate.acceptReplica({ conversation: snapshot(), revision: 4, ownerEpoch: 2 });
+  const row = createCodexQueuedFollowUp({
+    followUpId: "follow-up-1",
+    clientUserMessageId: "client-follow-up-1",
+    threadId,
+    prompt: "Preserve the exact projection.",
+    createdAtMs: 5,
+  });
+  const projection = {
+    status: "error" as const,
+    ledgerRevision: 9,
+    projectionRevision: 12,
+    entries: [row],
+    inFlightFollowUpId: row.followUpId,
+    editingFollowUpId: row.followUpId,
+    error: "Awaiting retry",
+  };
+
+  assert.isTrue(aggregate.installQueuedFollowUpProjection(projection, true));
+  assert.deepEqual(aggregate.readQueuedFollowUpProjection(), projection);
+  assert.deepEqual(aggregate.readSnapshot()?.queuedFollowUps, projection);
+  assert.deepEqual(aggregate.read().acceptedReplica?.conversation.queuedFollowUps, projection);
+  assert.strictEqual(aggregate.read().revision, 5);
+  assert.isFalse(aggregate.installQueuedFollowUpProjection(projection, true));
+
+  aggregate.acceptReplica({
+    conversation: {
+      ...snapshot(),
+      queuedFollowUps: {
+        status: "ready",
+        ledgerRevision: 99,
+        projectionRevision: 99,
+        entries: [],
+        inFlightFollowUpId: null,
+        editingFollowUpId: null,
+        error: null,
+      },
+    },
+    revision: 6,
+    ownerEpoch: 2,
+  });
+  assert.deepEqual(aggregate.read().acceptedReplica?.conversation.queuedFollowUps, projection);
 });

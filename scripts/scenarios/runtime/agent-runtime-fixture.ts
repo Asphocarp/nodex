@@ -13,14 +13,17 @@ export interface AgentRuntimeFixture {
   readonly metadataPath: string;
 }
 
-export const prepareScenarioAgentRuntimeSync = (repositoryRoot: string): AgentRuntimeFixture => {
+const writeScenarioAgentRuntime = (
+  repositoryRoot: string,
+  executableBody: string,
+  version: string,
+): AgentRuntimeFixture => {
   const runtimeRoot = path.join(repositoryRoot, ".generated/codex-runtime/agent-runtime");
   const executable = path.join(runtimeRoot, "bin/interpreter");
   const packagePath = path.join(runtimeRoot, "codex-package.json");
   fs.mkdirSync(path.dirname(executable), { recursive: true });
   fs.mkdirSync(path.join(runtimeRoot, "codex-path"), { recursive: true });
   fs.mkdirSync(path.join(runtimeRoot, "codex-resources"), { recursive: true });
-  const executableBody = "#!/bin/sh\nexit 0\n";
   const packageBody = JSON.stringify({
     entrypoint: "bin/interpreter",
     layoutVersion: 1,
@@ -28,7 +31,7 @@ export const prepareScenarioAgentRuntimeSync = (repositoryRoot: string): AgentRu
     resourcesDir: "codex-resources",
     target: `${process.arch}-${process.platform}`,
     variant: "open-interpreter",
-    version: "0.0.0-scenario",
+    version,
   });
   fs.writeFileSync(executable, executableBody, { mode: 0o755 });
   fs.writeFileSync(packagePath, packageBody);
@@ -51,12 +54,12 @@ export const prepareScenarioAgentRuntimeSync = (repositoryRoot: string): AgentRu
       sha256: createHash("sha256").update(body).digest("hex"),
       size: Buffer.byteLength(body),
     })),
-    codexCompatibilityVersion: "0.0.0-scenario",
+    codexCompatibilityVersion: version,
     entrypoint: "bin/interpreter",
     layoutVersion: AGENT_RUNTIME_LAYOUT_VERSION,
     packageManifest: JSON.parse(packageBody) as object,
     runtimeFamily: "open-interpreter",
-    runtimeVersion: "0.0.0-scenario",
+    runtimeVersion: version,
     searchPaths: ["codex-path"],
     sourceRevision: {
       commit: "0".repeat(40),
@@ -74,6 +77,19 @@ export const prepareScenarioAgentRuntimeSync = (repositoryRoot: string): AgentRu
   fs.writeFileSync(metadataPath, JSON.stringify(metadata));
   return { root: runtimeRoot, executable, metadataPath };
 };
+
+export const prepareScenarioAgentRuntimeSync = (repositoryRoot: string): AgentRuntimeFixture =>
+  writeScenarioAgentRuntime(repositoryRoot, "#!/bin/sh\nexit 0\n", "0.0.0-scenario");
+
+export const prepareScenarioCodexAppServerRuntimeSync = (
+  repositoryRoot: string,
+  mockPeerPath: string,
+): AgentRuntimeFixture =>
+  writeScenarioAgentRuntime(
+    repositoryRoot,
+    fs.readFileSync(mockPeerPath, "utf8"),
+    "0.0.0-queue-parity-scenario",
+  );
 
 export const prepareScenarioAgentRuntime = async (
   repositoryRoot: string,

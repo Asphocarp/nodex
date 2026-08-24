@@ -35,6 +35,10 @@ Browser `Send to chat` publishes one canonical managed-asset source. The Compose
 
 Draft transfer, queued follow-up, completed-draft, image-edit follow-up, and thread-goal paths capture immutable attachment values. Image bytes are session-scoped and are not written to localStorage.
 
+Queue capture adds a durable portability boundary. Main rejects renderer-only object URLs and relative file sources, preserves HTTP sources, and copies data-image, absolute-file, and file-URL bytes into content-addressed managed assets before committing the row. It writes the complete prepared prompt input to a content-addressed queue manifest with hash and byte-length evidence for every managed locator. Hydration verifies the manifest and all referenced bytes before exposing the row; unreadable evidence produces an explicit queue load error rather than an empty queue.
+
+Core retains manifest references with the ordered Thread ledger across restart, backup, and restore. Removing or replacing the final ledger reference schedules only the private `queued-follow-up-v1-*` manifest for collection. The image/file assets referenced by that manifest remain ordinary managed assets and are not deleted merely because a queue row was removed.
+
 ## Attachment row and thumbnail
 
 Visible attachments occupy the Composer attachment slot above the prompt. The row scrolls horizontally without wrapping and aligns all attachment surfaces to the bottom with an 8px gap.

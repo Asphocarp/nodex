@@ -55,7 +55,6 @@ import type {
   ThreadTokenUsage as CodexAppServerThreadTokenUsage,
   TokenUsageBreakdown as CodexAppServerTokenUsageBreakdown,
   TurnItemsView as CodexAppServerTurnItemsView,
-  TurnSteerParams as CodexAppServerTurnSteerParams,
   UserInput as CodexAppServerUserInput,
   ToolRequestUserInputOption as CodexAppServerUserInputOption,
   TurnStatus as CodexAppServerTurnStatus,
@@ -99,6 +98,18 @@ import type {
   CodexCanonicalSetupCodexStepResponse,
 } from "./codex-conversation-state/codex-conversation-state";
 import type { WorkbenchPanelSplitSide } from "./workbench-session-view";
+export type {
+  CodexQueuedFollowUp,
+  CodexQueuedFollowUpFreshStartResolution,
+  CodexQueuedFollowUpPause,
+  CodexQueuedFollowUpPayloadRef,
+  CodexQueuedFollowUpProjection,
+  CodexQueuedFollowUpProjectionStatus,
+  CodexQueueOwnerTranscriptDirective,
+  CodexQueueOwnerUpdateRejectionReason,
+  CodexQueueOwnerUpdateRequest,
+  CodexQueueOwnerUpdateResult,
+} from "./codex-queued-follow-up-state";
 export type {
   WorkbenchPanelLayout,
   WorkbenchPanelNode,
@@ -2687,6 +2698,13 @@ export interface CodexSteerTurnInput {
   collaborationMode?: CodexCollaborationModeKind | null;
   serviceTier?: CodexServiceTier;
   summary?: CodexAppServerReasoningSummary | null;
+  /** Stable semantic identity allocated by the visible owner before Main admits the steer. */
+  intent?: CodexSteerIntent;
+}
+
+export interface CodexSteerIntent {
+  steerId: string;
+  recoveryRow: import("./codex-queued-follow-up-state").CodexQueuedFollowUp;
 }
 
 export interface CodexComposerIntent {
@@ -2695,6 +2713,10 @@ export interface CodexComposerIntent {
   promptInput?: CodexPromptInput;
   clearText?: boolean;
   attachmentMode?: "append" | "replace";
+  queuedFollowUpEdit?: {
+    followUpId: string;
+    ledgerRevision: number;
+  };
 }
 
 export interface CodexThreadActionResult {
@@ -2737,7 +2759,6 @@ export type CodexOwnerAppServerRequest =
         launchId: string;
       };
     }
-  | { method: "turn/steer"; params: CodexAppServerTurnSteerParams }
   | {
       method: "turn/interrupt";
       params: { threadId: string; turnId?: string };
@@ -3488,18 +3509,6 @@ export interface CodexPendingSteer {
   turnId: string;
   prompt: string;
   createdAt: number;
-}
-
-export interface CodexQueuedFollowUp {
-  followUpId: string;
-  threadId: string;
-  prompt: string;
-  promptInput?: CodexPromptInput;
-  createdAt: number;
-  collaborationMode?: CodexCollaborationModeKind | null;
-  serviceTier: CodexServiceTier;
-  summary?: CodexAppServerReasoningSummary | null;
-  pausedReason?: string | null;
 }
 
 export interface CodexBackgroundTerminalRow {
@@ -4385,7 +4394,7 @@ export interface CodexConversationSnapshot extends CodexThreadSummary {
   /** Exact explicit-read side effect; absent hydrated values read as zero. */
   unreadMessageCount?: number;
   requests: CodexConversationServerRequest[];
-  queuedFollowUps: CodexQueuedFollowUp[];
+  queuedFollowUps: import("./codex-queued-follow-up-state").CodexQueuedFollowUpProjection;
   pendingSteers: CodexPendingSteer[];
   backgroundTerminalRows: CodexBackgroundTerminalRow[];
   capabilityFlags: CodexConversationCapabilityFlags;
@@ -4662,9 +4671,27 @@ export type CodexThreadOwnerActionRequest =
       followUpId: string;
     }
   | {
+      type: "replaceQueuedFollowUp";
+      threadId: string;
+      followUpId: string;
+      expectedLedgerRevision: number;
+      prompt: string;
+      opts?: CodexTurnStartOptions;
+    }
+  | {
       type: "reorderQueuedFollowUps";
       threadId: string;
       orderedFollowUpIds: string[];
+    }
+  | {
+      type: "resumeQueuedFollowUps";
+      threadId: string;
+    }
+  | {
+      type: "resolveQueuedFollowUpsAfterFreshStart";
+      threadId: string;
+      expectedLedgerRevision: number;
+      resolution: import("./codex-queued-follow-up-state").CodexQueuedFollowUpFreshStartResolution;
     }
   | {
       type: "sendQueuedFollowUpNow";
@@ -4762,12 +4789,14 @@ export type CodexRendererConversationResumeResult =
   | {
       role: "owner";
       conversation: CodexConversationSnapshot;
+      threadGeneration: number;
       revision: number;
       checkpoint: CodexThreadStreamCheckpoint;
     }
   | {
       role: "follower";
       conversation: CodexConversationSnapshot;
+      threadGeneration: number;
       revision: number;
       ownerClientId: string;
       checkpoint: CodexThreadStreamCheckpoint;

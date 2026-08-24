@@ -1482,11 +1482,13 @@ describe("workbench session shell / automations-conversation", () => {
           followUpId: string;
           prompt: string;
           promptInput?: unknown;
+          ledgerRevision?: number;
         }) => Promise<void>
       )({
         threadId: "thread-alpha",
         followUpId: "follow-3",
         prompt: "Edit queued message",
+        ledgerRevision: 7,
         promptInput: {
           text: "Edit queued message",
           mentions: [{ name: "README.md", path: "/repo/README.md" }],
@@ -1505,10 +1507,7 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
 
     expect(JSON.stringify(removeQueuedFollowUpCalls)).toBe(
-      JSON.stringify([
-        ["thread-alpha", "follow-1"],
-        ["thread-alpha", "follow-3"],
-      ]),
+      JSON.stringify([["thread-alpha", "follow-1"]]),
     );
     expect(JSON.stringify(reorderQueuedFollowUpsCalls)).toBe(
       JSON.stringify([["thread-alpha", ["follow-2", "follow-1"]]]),
@@ -1526,6 +1525,7 @@ describe("workbench session shell / automations-conversation", () => {
               text: "Edit queued message",
               mentions: [{ name: "README.md", path: "/repo/README.md" }],
             },
+            queuedFollowUpEdit: { followUpId: "follow-3", ledgerRevision: 7 },
             focusNonce: (setComposerIntentCalls[0]?.[1] as { focusNonce?: number } | undefined)
               ?.focusNonce,
           },

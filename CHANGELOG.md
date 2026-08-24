@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed queued follow-ups disappearing or running after interruption: queues now survive restarts, pause atomically when a turn is stopped, preserve in-flight and failed rows for retry, resume in strict order, and keep fresh steers independent from the existing queue.
 - Fixed chats and Side chats sometimes remaining on a loading screen after restoration completed or failed; renderer attachment now updates atomically, failures are explicit and retryable, and cached transcript content remains visible during recovery.
 - Fixed packaged macOS dictation failing before capture by aligning signed microphone capability, awaited TCC permission, and trusted audio-only Electron Session access.
 - Fixed retained Page editors crashing the renderer when table handles or another floating editor control survived a tab switch; mounted DOM capabilities and transient UI state now follow each EditorView attachment while document and undo state remain retained.

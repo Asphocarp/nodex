@@ -319,7 +319,15 @@ function makeSubagentConversation(
     resumeState: "resumed",
     turns: [],
     requests: [],
-    queuedFollowUps: [],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 0,
+      projectionRevision: 0,
+      entries: [],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
     pendingSteers: [],
     backgroundTerminalRows: [],
     capabilityFlags: {

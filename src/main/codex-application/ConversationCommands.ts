@@ -17,7 +17,6 @@ import {
   CodexConversationProjection,
   type CodexConversationProjectionError,
 } from "./CodexConversationProjection";
-import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import {
   CodexServerRequestResponses,
   type CodexServerRequestResponseProjectionError,
@@ -85,7 +84,6 @@ export const live: Layer.Layer<
   | CodexConversationArchive
   | CodexConversationProjection
   | CodexGateway
-  | CodexQueuedFollowUps
   | CodexServerRequestResponses
   | CodexThreadGoalRuntime
   | ConversationEntityMap
@@ -97,7 +95,6 @@ export const live: Layer.Layer<
     const conversations = yield* ConversationEntityMap;
     const serverRequestResponses = yield* CodexServerRequestResponses;
     const projection = yield* CodexConversationProjection;
-    const queuedFollowUps = yield* CodexQueuedFollowUps;
     const threadGoals = yield* CodexThreadGoalRuntime;
 
     const runSerial = <A, E>(threadId: string, operation: Effect.Effect<A, E>) =>
@@ -161,7 +158,6 @@ export const live: Layer.Layer<
               ),
             ),
           );
-        yield* queuedFollowUps.requestDispatch(threadId);
         return true;
       });
 

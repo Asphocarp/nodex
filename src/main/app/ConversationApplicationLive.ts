@@ -76,6 +76,7 @@ import {
   CodexQueuedFollowUps,
   make as makeCodexQueuedFollowUps,
 } from "../codex-application/CodexQueuedFollowUps";
+import { codexQueuedFollowUpPayloadStoreLive } from "../codex-application/CodexQueuedFollowUpPayloadStore";
 import {
   CodexTurnCommands,
   make as makeCodexTurnCommands,
@@ -92,10 +93,6 @@ import {
   CodexFreshThreadLaunchRuntime,
   make as makeCodexFreshThreadLaunchRuntime,
 } from "../codex-application/CodexFreshThreadLaunchRuntime";
-import {
-  CodexQueuedFollowUpDispatcher,
-  make as makeCodexQueuedFollowUpDispatcher,
-} from "../codex-application/CodexQueuedFollowUpDispatcher";
 import {
   CodexConversationArchive,
   make as makeCodexConversationArchive,
@@ -397,16 +394,16 @@ const notificationAdmission = Layer.effect(
 const turnPreparation = Layer.effect(CodexTurnPreparation, makeCodexTurnPreparation).pipe(
   Layer.provideMerge(notificationAdmission),
 );
-const queuedFollowUps = Layer.effect(CodexQueuedFollowUps, makeCodexQueuedFollowUps).pipe(
+const turnCommands = Layer.effect(CodexTurnCommands, makeCodexTurnCommands).pipe(
   Layer.provideMerge(turnPreparation),
 );
-const turnCommands = Layer.effect(CodexTurnCommands, makeCodexTurnCommands).pipe(
-  Layer.provideMerge(queuedFollowUps),
+const queuedFollowUps = Layer.effect(CodexQueuedFollowUps, makeCodexQueuedFollowUps).pipe(
+  Layer.provideMerge(Layer.mergeAll(turnCommands, codexQueuedFollowUpPayloadStoreLive)),
 );
 const activeGoalContinuation = Layer.effect(
   CodexActiveGoalContinuation,
   makeCodexActiveGoalContinuation,
-).pipe(Layer.provideMerge(turnCommands));
+).pipe(Layer.provideMerge(queuedFollowUps));
 const launchCompletion = Layer.effect(
   CodexThreadLaunchCompletion,
   makeCodexThreadLaunchCompletion,
@@ -415,14 +412,10 @@ const freshThreadLaunch = Layer.effect(
   CodexFreshThreadLaunchRuntime,
   makeCodexFreshThreadLaunchRuntime,
 ).pipe(Layer.provideMerge(launchCompletion));
-const queuedFollowUpDispatcher = Layer.effect(
-  CodexQueuedFollowUpDispatcher,
-  makeCodexQueuedFollowUpDispatcher,
-).pipe(Layer.provideMerge(freshThreadLaunch));
 const conversationArchive = Layer.effect(
   CodexConversationArchive,
   makeCodexConversationArchive,
-).pipe(Layer.provideMerge(queuedFollowUpDispatcher));
+).pipe(Layer.provideMerge(freshThreadLaunch));
 const commands = conversationCommandsLive.pipe(Layer.provideMerge(conversationArchive));
 const deltaBuffer = Layer.effect(
   CodexConversationDeltaBufferRuntime,

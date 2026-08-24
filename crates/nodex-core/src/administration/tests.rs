@@ -9,6 +9,9 @@ use nodex_core_contracts::administration::{
     StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::collection::CollectionWindowRequest;
+use nodex_core_contracts::workspace::{
+    ProjectWorkspaceQueuedFollowUpEntry, ProjectWorkspaceQueuedFollowUpPayloadRef,
+};
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CoreErrorCode, LibraryId, ModuleApplyRequest,
     ModuleReadRequest, ProfileId, STORE_ADMINISTRATION_CONTRACT_VERSION, StoreEpoch,
@@ -766,17 +769,103 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
     let fixture = Fixture::new();
     fs::create_dir(fixture.home().join("assets")).expect("assets root");
     fs::write(fixture.home().join("assets/managed.bin"), b"backup asset").expect("backup asset");
+    let managed_hash = crate::document::sha256(b"backup asset");
+    let queue_manifest = serde_json::to_vec(&serde_json::json!({
+        "schema_version": 1,
+        "payload": {
+            "prompt": "restore me",
+            "prompt_input": { "source": "nodex://assets/managed.bin" }
+        },
+        "asset_references": [{
+            "asset_uri": "nodex://assets/managed.bin",
+            "sha256": managed_hash,
+            "byte_length": b"backup asset".len()
+        }]
+    }))
+    .expect("queued follow-up manifest");
+    let queue_manifest_hash = crate::document::sha256(&queue_manifest);
+    let queue_manifest_name = format!("queued-follow-up-v1-{queue_manifest_hash}.json");
+    let queue_manifest_length = queue_manifest.len();
+    let queue_ledger_hash = crate::document::sha256(
+        &serde_json::to_vec(&vec![ProjectWorkspaceQueuedFollowUpEntry {
+            follow_up_id: "follow-up:backup".to_owned(),
+            client_user_message_id: "message:backup".to_owned(),
+            created_at_ms: 1,
+            pause: None,
+            payload: ProjectWorkspaceQueuedFollowUpPayloadRef {
+                schema_version: 1,
+                asset_uri: format!("nodex://assets/{queue_manifest_name}"),
+                sha256: queue_manifest_hash.clone(),
+                byte_length: queue_manifest_length as u64,
+            },
+        }])
+        .expect("queued follow-up ledger JSON"),
+    );
+    fs::write(
+        fixture.home().join("assets").join(&queue_manifest_name),
+        &queue_manifest,
+    )
+    .expect("queued follow-up manifest asset");
     fixture
         .kernel
         .writer()
-        .call(|connection| {
-            connection.execute_batch(
-                "CREATE TABLE administration_restore_probe(\
+        .call({
+            let queue_manifest_name = queue_manifest_name.clone();
+            let queue_manifest_hash = queue_manifest_hash.clone();
+            let queue_ledger_hash = queue_ledger_hash.clone();
+            move |connection| {
+                connection.execute_batch(
+                    "CREATE TABLE administration_restore_probe(\
                    id INTEGER PRIMARY KEY CHECK (id = 1), marker TEXT NOT NULL\
                  ) STRICT; \
                  INSERT INTO administration_restore_probe(id, marker) VALUES (1, 'backup');",
-            )?;
-            Ok(())
+                )?;
+                connection.execute(
+                    "INSERT INTO codex_threads( \
+                   thread_id, project_id, thread_preview, model_provider, status_type, \
+                   status_active_flags_json, archived, created_at, updated_at, recency_at, \
+                   linked_at, execution_host_id \
+                 ) VALUES ( \
+                   'thread:backup-queue', 'project:administration-test', '', 'openai', \
+                   'notLoaded', '[]', 0, 1, 1, 1, '2026-07-19T00:00:00.000Z', 'local' \
+                 )",
+                    [],
+                )?;
+                connection.execute(
+                    "INSERT INTO codex_queued_follow_up_ledgers( \
+                   thread_id, revision, ledger_hash, updated_at \
+                 ) VALUES ('thread:backup-queue', 1, ?1, '2026-07-19T00:00:00.000Z')",
+                    [queue_ledger_hash],
+                )?;
+                connection.execute(
+                    "INSERT INTO codex_queued_follow_up_payload_manifests( \
+                   payload_sha256, schema_version, asset_uri, byte_length \
+                 ) VALUES (?1, 1, ?2, ?3)",
+                    rusqlite::params![
+                        queue_manifest_hash,
+                        format!("nodex://assets/{queue_manifest_name}"),
+                        i64::try_from(queue_manifest_length).expect("manifest length"),
+                    ],
+                )?;
+                connection.execute(
+                    "INSERT INTO codex_queued_follow_up_payload_asset_refs( \
+                   payload_sha256, ordinal, asset_uri, sha256, byte_length \
+                 ) VALUES (?1, 0, 'nodex://assets/managed.bin', ?2, ?3)",
+                    rusqlite::params![
+                        queue_manifest_hash,
+                        crate::document::sha256(b"backup asset"),
+                        i64::try_from(b"backup asset".len()).expect("asset length"),
+                    ],
+                )?;
+                connection.execute(
+                    "INSERT INTO codex_queued_follow_up_entries( \
+                   thread_id, follow_up_id, position, client_user_message_id, created_at_ms, \
+                   payload_sha256 \
+                 ) VALUES ('thread:backup-queue', 'follow-up:backup', 0, 'message:backup', 1, ?1)",
+                    [queue_manifest_hash],
+                )?;
+                Ok(())
+            }
         })
         .expect("restore probe");
     fixture.create_backup(
@@ -876,6 +965,26 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
         fs::read(fixture.home().join("assets/managed.bin")).expect("restored asset"),
         b"backup asset"
     );
+    assert_eq!(
+        fs::read(fixture.home().join("assets").join(&queue_manifest_name))
+            .expect("restored queued follow-up manifest"),
+        queue_manifest
+    );
+    let restored_queue_rows = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            connection
+                .query_row(
+                    "SELECT count(*) FROM codex_queued_follow_up_entries \
+                     WHERE thread_id = 'thread:backup-queue'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(Into::into)
+        })
+        .expect("restored queued follow-up rows");
+    assert_eq!(restored_queue_rows, 1);
     assert!(
         fixture
             .home()

@@ -11,7 +11,7 @@ import { make as makeCodexConversationLifecycle } from "./CodexConversationLifec
 import { CodexConversationDeltaBufferRuntime } from "./CodexConversationDeltaBufferRuntime";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
-import { CodexQueuedFollowUpDispatcher } from "./CodexQueuedFollowUpDispatcher";
+import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import {
   ConversationEntityMap,
@@ -21,13 +21,21 @@ import {
 const snapshot = (threadId: string): CodexConversationSnapshot =>
   ({
     threadId,
-    queuedFollowUps: [
-      {
-        threadId,
-        followUpId: "follow-up-1",
-        prompt: "ship",
-      },
-    ],
+    queuedFollowUps: {
+      status: "ready",
+      ledgerRevision: 1,
+      projectionRevision: 1,
+      entries: [
+        {
+          threadId,
+          followUpId: "follow-up-1",
+          prompt: "ship",
+        },
+      ],
+      inFlightFollowUpId: null,
+      editingFollowUpId: null,
+      error: null,
+    },
     requests: [],
     resumeState: "resumed",
   }) as unknown as CodexConversationSnapshot;
@@ -57,12 +65,12 @@ it.effect("retires every conversation resource from inside its current causal la
     const manualCompaction = CodexManualCompactionRuntime.of({
       clear: (candidate: string) => calls.push(`compaction:${candidate}`),
     } as unknown as CodexManualCompactionRuntime["Service"]);
-    const queuedDispatcher = CodexQueuedFollowUpDispatcher.of({
-      cancel: (candidate: string) =>
+    const queuedFollowUps = CodexQueuedFollowUps.of({
+      closeThread: (candidate: string) =>
         Effect.sync(() => {
           calls.push(`queue-cancel:${candidate}`);
         }),
-    } as unknown as CodexQueuedFollowUpDispatcher["Service"]);
+    } as unknown as CodexQueuedFollowUps["Service"]);
     const renderer = CodexRendererConversationCoordinator.of({
       clearConversation: (candidate: string) =>
         Effect.sync(() => {
@@ -95,7 +103,7 @@ it.effect("retires every conversation resource from inside its current causal la
       Effect.provideService(CodexConversationDeltaBufferRuntime, deltas),
       Effect.provideService(CodexManualCompactionRuntime, manualCompaction),
       Effect.provideService(CodexPendingServerRequestRuntime, pending),
-      Effect.provideService(CodexQueuedFollowUpDispatcher, queuedDispatcher),
+      Effect.provideService(CodexQueuedFollowUps, queuedFollowUps),
       Effect.provideService(CodexRendererConversationCoordinator, renderer),
       Effect.provideService(ConversationEntityMap, conversations),
       Effect.provideService(BrowserUseRuntime, browserUse),
@@ -121,7 +129,7 @@ it.effect("retires every conversation resource from inside its current causal la
     assert.strictEqual(conversations.current(threadId), aggregate);
     assert.isNull(aggregate.readSnapshot());
     assert.isFalse(aggregate.isStreaming());
-    assert.deepEqual(aggregate.listQueuedFollowUps(), []);
+    assert.deepEqual(aggregate.readQueuedFollowUpProjection().entries, []);
 
     let laneRemainsUsable = false;
     yield* conversations.runCommand(

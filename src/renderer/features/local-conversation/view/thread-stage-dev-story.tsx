@@ -610,18 +610,26 @@ export function ThreadStageDevStoryPage({
         setRuntime((current) => {
           const nextRuntime = updateConversationForThread(current, threadId, (conversation) => ({
             ...conversation,
-            queuedFollowUps: [
+            queuedFollowUps: {
               ...conversation.queuedFollowUps,
-              {
-                followUpId: `followup_${Date.now()}`,
-                threadId,
-                prompt,
-                createdAt: getNextTimestamp(conversation),
-                collaborationMode: null,
-                serviceTier: null,
-                pausedReason: null,
-              },
-            ],
+              projectionRevision: conversation.queuedFollowUps.projectionRevision + 1,
+              entries: [
+                ...conversation.queuedFollowUps.entries,
+                {
+                  followUpId: `followup_${Date.now()}`,
+                  clientUserMessageId: `client_followup_${Date.now()}`,
+                  threadId,
+                  prompt,
+                  promptInput: { text: prompt },
+                  createdAtMs: getNextTimestamp(conversation),
+                  collaborationMode: null,
+                  serviceTier: null,
+                  summary: null,
+                  pause: null,
+                  payloadRef: null,
+                },
+              ],
+            },
             updatedAt: getNextTimestamp(conversation),
           }));
           return setStoryLog(nextRuntime, `Queued follow-up: ${prompt}`);
@@ -631,9 +639,13 @@ export function ThreadStageDevStoryPage({
         setRuntime((current) => {
           const nextRuntime = updateConversationForThread(current, threadId, (conversation) => ({
             ...conversation,
-            queuedFollowUps: conversation.queuedFollowUps.filter(
-              (followUp) => followUp.followUpId !== followUpId,
-            ),
+            queuedFollowUps: {
+              ...conversation.queuedFollowUps,
+              projectionRevision: conversation.queuedFollowUps.projectionRevision + 1,
+              entries: conversation.queuedFollowUps.entries.filter(
+                (followUp) => followUp.followUpId !== followUpId,
+              ),
+            },
             updatedAt: getNextTimestamp(conversation),
           }));
           return setStoryLog(nextRuntime, `Removed queued follow-up: ${followUpId}`);
@@ -643,23 +655,30 @@ export function ThreadStageDevStoryPage({
         setRuntime((current) => {
           const nextRuntime = updateConversationForThread(current, threadId, (conversation) => {
             const byId = new Map(
-              conversation.queuedFollowUps.map((followUp) => [followUp.followUpId, followUp]),
+              conversation.queuedFollowUps.entries.map((followUp) => [
+                followUp.followUpId,
+                followUp,
+              ]),
             );
             const ordered = orderedFollowUpIds
               .map((followUpId) => byId.get(followUpId) ?? null)
               .filter(
-                (followUp): followUp is (typeof conversation.queuedFollowUps)[number] =>
+                (followUp): followUp is (typeof conversation.queuedFollowUps.entries)[number] =>
                   followUp !== null,
               );
             const seen = new Set(ordered.map((followUp) => followUp.followUpId));
             return {
               ...conversation,
-              queuedFollowUps: [
-                ...ordered,
-                ...conversation.queuedFollowUps.filter(
-                  (followUp) => !seen.has(followUp.followUpId),
-                ),
-              ],
+              queuedFollowUps: {
+                ...conversation.queuedFollowUps,
+                projectionRevision: conversation.queuedFollowUps.projectionRevision + 1,
+                entries: [
+                  ...ordered,
+                  ...conversation.queuedFollowUps.entries.filter(
+                    (followUp) => !seen.has(followUp.followUpId),
+                  ),
+                ],
+              },
               updatedAt: getNextTimestamp(conversation),
             };
           });
@@ -673,17 +692,22 @@ export function ThreadStageDevStoryPage({
         setRuntime((current) => {
           const conversation = current.knownConversationsById[threadId];
           const queued =
-            conversation?.queuedFollowUps.find((followUp) => followUp.followUpId === followUpId) ??
-            null;
+            conversation?.queuedFollowUps.entries.find(
+              (followUp) => followUp.followUpId === followUpId,
+            ) ?? null;
           if (!conversation || !queued) return current;
 
           const nextRuntime = updateConversationForThread(current, threadId, (activeConversation) =>
             appendCompletedTurn(
               {
                 ...activeConversation,
-                queuedFollowUps: activeConversation.queuedFollowUps.filter(
-                  (followUp) => followUp.followUpId !== followUpId,
-                ),
+                queuedFollowUps: {
+                  ...activeConversation.queuedFollowUps,
+                  projectionRevision: activeConversation.queuedFollowUps.projectionRevision + 1,
+                  entries: activeConversation.queuedFollowUps.entries.filter(
+                    (followUp) => followUp.followUpId !== followUpId,
+                  ),
+                },
                 updatedAt: getNextTimestamp(activeConversation),
               },
               queued.prompt,
@@ -697,9 +721,13 @@ export function ThreadStageDevStoryPage({
         setRuntime((current) => {
           const nextRuntime = updateConversationForThread(current, threadId, (conversation) => ({
             ...conversation,
-            queuedFollowUps: conversation.queuedFollowUps.filter(
-              (followUp) => followUp.followUpId !== followUpId,
-            ),
+            queuedFollowUps: {
+              ...conversation.queuedFollowUps,
+              projectionRevision: conversation.queuedFollowUps.projectionRevision + 1,
+              entries: conversation.queuedFollowUps.entries.filter(
+                (followUp) => followUp.followUpId !== followUpId,
+              ),
+            },
             updatedAt: getNextTimestamp(conversation),
           }));
           return {

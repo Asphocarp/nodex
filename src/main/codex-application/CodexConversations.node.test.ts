@@ -34,7 +34,15 @@ it.effect("projects private entity state into one immutable cross-subsystem capa
         turns: [],
         requests: [],
         pendingSteers: [],
-        queuedFollowUps: [],
+        queuedFollowUps: {
+          status: "ready",
+          ledgerRevision: 0,
+          projectionRevision: 0,
+          entries: [],
+          inFlightFollowUpId: null,
+          editingFollowUpId: null,
+          error: null,
+        },
       } as unknown as CodexConversationSnapshot);
 
       assert.strictEqual(conversations.latestTurnId("thread-a"), "turn-current");

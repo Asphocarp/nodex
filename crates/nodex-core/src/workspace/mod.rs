@@ -6,6 +6,7 @@ mod mutation;
 mod page_chat;
 mod project_activity_summary;
 mod project_window;
+pub(crate) mod queued_follow_up;
 mod read;
 mod session_lifecycle;
 mod session_mutation;
@@ -54,18 +55,21 @@ impl ProjectWorkspaceModule {
         library_id: impl Into<String>,
         kernel: &SqliteStoreKernel,
     ) -> Result<Self, CoreError> {
+        let writer = kernel.writer();
+        let assets_root = kernel
+            .database_path()
+            .parent()
+            .expect("Profile database has a parent")
+            .join("assets");
+        let sweep_root = assets_root.clone();
+        let _ = writer
+            .call(move |connection| queued_follow_up::sweep_manifest_gc(connection, &sweep_root));
         Ok(Self {
             profile_id: profile_id.into(),
             library_id: library_id.into(),
             readers: Some(kernel.readers()),
-            writer: Some(kernel.writer()),
-            assets_root: Some(
-                kernel
-                    .database_path()
-                    .parent()
-                    .expect("Profile database has a parent")
-                    .join("assets"),
-            ),
+            writer: Some(writer),
+            assets_root: Some(assets_root),
         })
     }
 
@@ -83,6 +87,10 @@ impl ProjectWorkspaceModule {
         };
         let profile_id = self.profile_id.clone();
         let library_id = self.library_id.clone();
+        let assets_root = self
+            .assets_root
+            .clone()
+            .ok_or_else(|| unavailable("Project Workspace Module has no durable asset store"))?;
         readers
             .read_default(move |connection| {
                 let transaction = connection.unchecked_transaction()?;
@@ -114,7 +122,13 @@ impl ProjectWorkspaceModule {
                     store_epoch: StoreEpoch(store_epoch),
                     commit_head: commit_seq,
                     authorization: None,
-                    value: read::read(&transaction, &library_id, commit_seq, request.read)?,
+                    value: read::read(
+                        &transaction,
+                        &library_id,
+                        commit_seq,
+                        &assets_root,
+                        request.read,
+                    )?,
                 })
             })
             .map_err(core_error)
@@ -132,17 +146,35 @@ impl ProjectWorkspaceModule {
         let Some(writer) = &self.writer else {
             return Err(unavailable("Project Workspace Module has no durable store"));
         };
-        mutation::apply(
+        let should_sweep_queue_manifests = matches!(
+            &request.intent,
+            ProjectWorkspaceIntent::CommitQueuedFollowUpLedger { .. }
+                | ProjectWorkspaceIntent::DeleteThread { .. }
+                | ProjectWorkspaceIntent::ReconcileAppServerThreadSweep { .. }
+        );
+        let assets_root = self
+            .assets_root
+            .as_deref()
+            .expect("persistent Workspace has an assets root");
+        let outcome = mutation::apply(
             writer,
             &self.profile_id,
             &self.library_id,
             context,
             request,
-            self.assets_root
-                .as_deref()
-                .expect("persistent Workspace has an assets root"),
+            assets_root,
         )
-        .map_err(core_error)
+        .map_err(core_error)?;
+        if should_sweep_queue_manifests {
+            let assets_root = assets_root.to_path_buf();
+            // The durable tombstone is the ownership boundary. Sweeping is best-effort so an
+            // already-committed queue mutation is never reported as failed because unlinking a
+            // private manifest was temporarily unavailable.
+            let _ = writer.call(move |connection| {
+                queued_follow_up::sweep_manifest_gc(connection, &assets_root)
+            });
+        }
+        Ok(outcome)
     }
 
     #[cfg(test)]

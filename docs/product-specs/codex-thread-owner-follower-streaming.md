@@ -153,7 +153,7 @@ Follower-originated state-changing actions route to the owner:
 - complete-history load
 - fork from turn
 
-The owner performs visible mutations locally and publishes the resulting stream revision. Main validates ownership and executes allowlisted app-server requests through the owner-scoped request facade.
+The owner performs visible mutations locally and publishes the resulting stream revision. Main validates ownership and executes allowlisted app-server requests through the owner-scoped request facade. Queue and steer semantic commands additionally commit through Main's durable queue Module; their owner requests are short, idempotent projection updates and never enclose the app-server transport.
 
 ### Start Turn
 
@@ -169,7 +169,7 @@ A visible local conversation with no stream role resumes and adopts renderer own
 
 All ordinary state-changing conversation actions use one authority router: owners execute locally, followers forward to the current owner, and no-role renderers resume/adopt before executing locally. There is no per-action main/no-owner transcript fallback; local interrupt is the explicit idempotent control-plane recovery exception.
 
-Ordinary owner mutations commit against the latest renderer document synchronously. The owner action boundary automatically materializes canonical mutations into the visible projection, so callers such as start and steer cannot update canonical input while forgetting the transcript view. The per-conversation publication cursor computes patches from its last accepted shared document, coalesces mutations that arrive while a publish is in flight, and repairs a rejected patch with a full snapshot. Action receipts may wait for the outbox to reach the required revision, but local visibility and the app-server RPC never wait for publication. Full snapshots remain explicit barriers for resume, complete-history replacement, rollback, and repair.
+Ordinary owner mutations commit against the latest renderer document synchronously. The owner action boundary automatically materializes canonical mutations into the visible projection, so a local start or a Main-staged steer cannot update canonical input while forgetting the transcript view. The per-conversation publication cursor computes patches from its last accepted shared document, coalesces mutations that arrive while a publish is in flight, and repairs a rejected patch with a full snapshot. Action receipts may wait for the outbox to reach the required revision, but local visibility and the app-server RPC never wait for publication. Full snapshots remain explicit barriers for resume, complete-history replacement, rollback, and repair.
 
 Direct new-thread creation prepares the same input and client identity before transport and adopts the actual app-server thread as the route identity. Main first hydrates the response into the canonical dormant snapshot, then owner adoption atomically turns that snapshot into the first accepted renderer replica and checkpoint. The renderer installs that owner checkpoint before publishing the first visible conversation snapshot, using the same attachment lifecycle as resume. The first adoption must not require an accepted replica as its own precondition; absence of a canonical snapshot fails closed. Main does not publish the dormant document as a visible source-null stream or add a separate transcript-only user row after the response.
 
@@ -181,7 +181,15 @@ Later app-server user-message echoes remain canonical raw turn items but never c
 
 ### Steer Turn
 
-Steer uses the same renderer-owned transaction model. The owner compiles one exact `TurnSteerParams`, creates a pending canonical steering item with the same `clientUserMessageId`, commits it synchronously, and dispatches that exact payload through main's transport-only owner facade. Identical steer text is reconciled by client id, not by content order. If app-server reports `expected active turn id ... but found ...`, the owner moves the same pending item to the reported active turn and retries once with unchanged client id, input, and additional context. Failure removes that identity; success leaves it for the authoritative user-message echo to accept.
+Steer enters Main as one complete typed intent containing the expected turn, prepared input, stable `clientUserMessageId`, distinct recovery-row identity, and comparison context. Main first sends the owner a closed staging directive for that same identity, then performs transport in the Thread causal lane. If app-server identifies a different active turn, Main retargets the same intent once; if the target ended before acceptance, it falls back to ordinary `turn/start` with the same wire identity. No retry creates a second optimistic item. The authoritative matching user-message completion accepts the pending item; terminal completion restores an unaccepted item exactly once through the durable queue transition.
+
+### Queued Follow-ups
+
+Core owns one exact-revision ordered ledger per Thread. Main's scoped `CodexQueuedFollowUps` Module hydrates that ledger, freezes and verifies payload manifests, serializes mutations through the Thread lane, and owns one bounded per-Thread delivery fiber. The renderer never runs a queue reducer or drain loop.
+
+Main projects a complete queue snapshot with `threadGeneration`, `ownerEpoch`, `ledgerRevision`, and process-local `projectionRevision`. The active renderer owner accepts only newer coordinates, applies the snapshot atomically to its conversation document, and publishes the resulting owner revision. Followers therefore see queue state from the same visible writer as the transcript without gaining ledger or transport authority. Owner loss interrupts the scoped attempt but retains the durable row; a replacement owner receives the current projection before another attempt.
+
+An in-flight row remains in the durable ledger and visible projection. Only successful transport followed by successful exact-revision removal may make it disappear. Failure updates that same row in place. Interruption recovery is driven by authoritative `turn/completed` and atomically pauses the existing queue even when there was no pending optimistic steer to restore.
 
 ### Edit Last User Turn
 
@@ -275,6 +283,7 @@ The current implementation covers these owner/follower contract areas:
 | Accepted-cache lease                   | complete | Accidental owner disposal preserves recovery state; deliberate cleanup evicts only after follower/reconnect eligibility checks.                                                                                                                                      |
 | Empty in-progress file-change activity | complete | Empty active file changes retain stable identity and render `Editing files`; terminal empty policy remains separate.                                                                                                                                                 |
 | Projectless Review affordance          | complete | Session-scoped Review is available when a valid turn target/diff exists; invalid targets hide the affordance without hiding live activity.                                                                                                                           |
+| Durable queued follow-ups              | complete | Core owns the ordered ledger; Main owns terminal recovery and scoped delivery; the renderer owner publishes fenced full projections and followers remain presentation-only.                                                                                          |
 
 Covered owner-routed actions include start turn, edit last user turn, steer turn, interrupt turn, thread settings, goal changes, memory mode, compaction, complete history, queued follow-ups, request responses, fork from turn, and plan-implementation request removal.
 
@@ -313,3 +322,6 @@ Required regression coverage includes:
 - missing/destroyed targeted clients trigger reset/reannounce handling; no target falls back to global stream broadcast
 - accidental owner disposal retains the accepted recovery cache while deliberate inactive cleanup can evict only after the lease gate
 - Projectless Review hides an invalid/dead affordance while `Edited files, read files` and live file-change activity remain visible
+- queue projections reject stale generation/epoch/revision coordinates, survive owner replacement, and never create a source-null competing visible writer
+- interrupted terminal completion pauses an ordinary queue even when no pending steer recovery effect exists
+- an in-flight row remains visible until transport and exact-revision removal both succeed; failure stays in place and blocks automatic FIFO

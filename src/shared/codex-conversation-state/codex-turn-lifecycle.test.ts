@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vite-plus/test";
+import { createCodexQueuedFollowUp } from "../codex-queued-follow-up-state";
 import {
   createCodexCanonicalHydratedConversationState,
   type CodexCanonicalPlanImplementationItem,
+  type CodexCanonicalSteeringUserMessageItem,
 } from "./codex-conversation-state";
 import { appendCodexCanonicalOptimisticTurn } from "./codex-optimistic-turn";
 import { createCodexCanonicalPlanImplementationRequest } from "./codex-server-request-lifecycle";
@@ -221,5 +223,86 @@ describe("Codex 30751 turn lifecycle", () => {
     });
     expect(result.state === state).toBe(true);
     expect(result.disposition).toBe("missingTurn");
+  });
+
+  test("removes pending steers and emits their complete recovery rows once in canonical order", () => {
+    const started = reduceCodexConversationTurnLifecycle(appendPlaceholder(), {
+      conversationId: THREAD_ID,
+      method: "turn/started",
+      observedAtMs: 99,
+      turn: {
+        id: "turn-1",
+        status: "inProgress",
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+      },
+    }).state;
+    const steer = (id: string, status: "pending" | "accepted") =>
+      ({
+        type: "steeringUserMessage",
+        id,
+        targetTurnId: "turn-1",
+        targetTurnStartedAtMs: 41,
+        status,
+        clientUserMessageId: `client-${id}`,
+        input: [{ type: "text", text: id, text_elements: [] }],
+        attachments: [],
+        restoreMessage: {
+          queueRow: createCodexQueuedFollowUp({
+            followUpId: `follow-up-${id}`,
+            clientUserMessageId: `client-${id}`,
+            threadId: THREAD_ID,
+            prompt: id,
+            createdAtMs: 100,
+          }),
+          context: { commentAttachments: [] },
+        },
+        compareKey: { rawText: id, imageCount: 0 },
+      }) satisfies CodexCanonicalSteeringUserMessageItem;
+    const state = {
+      ...started,
+      turns: [
+        {
+          ...started.turns[0]!,
+          items: [
+            steer("first", "pending"),
+            steer("accepted", "accepted"),
+            steer("second", "pending"),
+          ],
+        },
+      ],
+    };
+    const update = {
+      conversationId: THREAD_ID,
+      method: "turn/completed" as const,
+      observedAtMs: 120,
+      turn: {
+        id: "turn-1",
+        status: "interrupted" as const,
+        error: null,
+        startedAt: null,
+        completedAt: 1,
+        durationMs: 20,
+      },
+    };
+
+    const completed = reduceCodexConversationTurnLifecycle(state, update);
+    expect(completed.effects).toEqual([
+      {
+        type: "restoreUnacceptedSteers",
+        terminalStatus: "interrupted",
+        rows: [
+          expect.objectContaining({ followUpId: "follow-up-first" }),
+          expect.objectContaining({ followUpId: "follow-up-second" }),
+        ],
+      },
+    ]);
+    expect(completed.state.turns[0]?.items.map((item) => item.id)).toEqual(["accepted"]);
+
+    const replay = reduceCodexConversationTurnLifecycle(completed.state, update);
+    expect(replay.effects).toEqual([]);
+    expect(replay.state.turns[0]?.items.map((item) => item.id)).toEqual(["accepted"]);
   });
 });

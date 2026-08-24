@@ -92,6 +92,11 @@ const MIGRATION_STEPS: &[MigrationStep] = &[
         to_revision: 133,
         apply: migrate_v132_to_v133,
     },
+    MigrationStep {
+        from_revision: 133,
+        to_revision: 134,
+        apply: migrate_v133_to_v134,
+    },
 ];
 
 fn resolve_migration_path(
@@ -567,6 +572,84 @@ fn migrate_v132_to_v133(
     Ok(())
 }
 
+fn migrate_v133_to_v134(
+    connection: &Connection,
+    context: &MigrationContext,
+) -> Result<(), StoreError> {
+    connection.execute_batch(
+        "CREATE TABLE codex_queued_follow_up_ledgers ( \
+           thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE, \
+           revision INTEGER NOT NULL CHECK (revision >= 0), \
+           ledger_hash TEXT NOT NULL CHECK (length(ledger_hash) = 64), \
+           updated_at TEXT NOT NULL CHECK (length(updated_at) > 0) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE TABLE codex_queued_follow_up_payload_manifests ( \
+           payload_sha256 TEXT PRIMARY KEY CHECK (length(payload_sha256) = 64), \
+           schema_version INTEGER NOT NULL CHECK (schema_version = 1), \
+           asset_uri TEXT NOT NULL UNIQUE CHECK ( \
+             asset_uri LIKE 'nodex://assets/queued-follow-up-v1-%.json' \
+           ), \
+           byte_length INTEGER NOT NULL CHECK (byte_length >= 2) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE TABLE codex_queued_follow_up_payload_asset_refs ( \
+           payload_sha256 TEXT NOT NULL REFERENCES codex_queued_follow_up_payload_manifests(payload_sha256) ON DELETE CASCADE, \
+           ordinal INTEGER NOT NULL CHECK (ordinal >= 0), \
+           asset_uri TEXT NOT NULL CHECK (asset_uri LIKE 'nodex://assets/%'), \
+           sha256 TEXT NOT NULL CHECK (length(sha256) = 64), \
+           byte_length INTEGER NOT NULL CHECK (byte_length >= 0), \
+           PRIMARY KEY (payload_sha256, ordinal), \
+           UNIQUE (payload_sha256, asset_uri) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE TABLE codex_queued_follow_up_entries ( \
+           thread_id TEXT NOT NULL REFERENCES codex_queued_follow_up_ledgers(thread_id) ON DELETE CASCADE, \
+           follow_up_id TEXT NOT NULL, \
+           position INTEGER NOT NULL CHECK (position >= 0), \
+           client_user_message_id TEXT NOT NULL, \
+           created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0), \
+           pause_kind TEXT CHECK (pause_kind IN ('interrupted', 'failed')), \
+           pause_reason TEXT, \
+           payload_sha256 TEXT NOT NULL REFERENCES codex_queued_follow_up_payload_manifests(payload_sha256), \
+           PRIMARY KEY (thread_id, follow_up_id), \
+           UNIQUE (thread_id, position), \
+           UNIQUE (thread_id, client_user_message_id), \
+           CHECK (length(trim(follow_up_id)) BETWEEN 1 AND 512), \
+           CHECK (length(trim(client_user_message_id)) BETWEEN 1 AND 512), \
+           CHECK ( \
+             (pause_kind IS NULL AND pause_reason IS NULL) \
+             OR (pause_kind IS NOT NULL AND length(trim(pause_reason)) BETWEEN 1 AND 4096) \
+           ) \
+         ) WITHOUT ROWID, STRICT; \
+         CREATE INDEX idx_codex_queued_follow_up_entries_payload \
+           ON codex_queued_follow_up_entries(payload_sha256); \
+         CREATE TABLE codex_queued_follow_up_manifest_gc ( \
+           asset_uri TEXT PRIMARY KEY CHECK ( \
+             asset_uri LIKE 'nodex://assets/queued-follow-up-v1-%.json' \
+           ), \
+           sha256 TEXT NOT NULL CHECK (length(sha256) = 64), \
+           enqueued_at TEXT NOT NULL CHECK (length(enqueued_at) > 0), \
+           attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0), \
+           last_attempt_at TEXT CHECK (last_attempt_at IS NULL OR length(last_attempt_at) > 0), \
+           last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 4096) \
+         ) WITHOUT ROWID, STRICT;",
+    )?;
+    connection.execute(
+        "INSERT INTO core_store_migration_history( \
+           source_revision, target_revision, source_schema_fingerprint, \
+           target_schema_fingerprint, backup_name, completed_at_unix_ms \
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            context.source_revision,
+            context.target_revision,
+            context.source_schema_fingerprint,
+            context.target_schema_fingerprint,
+            context.backup_name,
+            context.completed_at_unix_ms,
+        ],
+    )?;
+    connection.pragma_update(None, "user_version", context.target_revision)?;
+    Ok(())
+}
+
 fn install_fresh_profile(connection: &mut Connection, now: u64) -> Result<(), StoreError> {
     install_fresh_profile_with(connection, |transaction| {
         initialize_fresh_profile(transaction, now)
@@ -818,6 +901,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
+    use rusqlite::OptionalExtension;
     use tempfile::tempdir;
 
     use super::super::sqlite::open_writer;
@@ -950,6 +1034,14 @@ mod tests {
         .expect("frozen v132 Store");
     }
 
+    fn install_v133_fixture(home: &Path) {
+        fs::write(
+            home.join("nodex.db"),
+            include_bytes!("../../tests/fixtures/store-v133.db"),
+        )
+        .expect("frozen v133 Store");
+    }
+
     fn profile_secrets(connection: &Connection) -> (Vec<u8>, String) {
         let token = connection
             .query_row(
@@ -1065,17 +1157,25 @@ mod tests {
                     from_version: 132,
                     to_version: 133,
                 },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 133,
+                    to_version: 134,
+                },
                 StorePreparationEvent::MigrationProgress {
                     completed: 1,
-                    total: 3,
+                    total: 4,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 2,
-                    total: 3,
+                    total: 4,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 3,
-                    total: 3,
+                    total: 4,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 4,
+                    total: 4,
                 },
             ]
         );
@@ -1099,10 +1199,11 @@ mod tests {
             .expect("migration history")
             .collect::<rusqlite::Result<Vec<_>>>()
             .expect("migration history rows");
-        assert_eq!(history.len(), 3);
+        assert_eq!(history.len(), 4);
         assert_eq!((history[0].0, history[0].1), (130, 131));
         assert_eq!((history[1].0, history[1].1), (131, 132));
         assert_eq!((history[2].0, history[2].1), (132, 133));
+        assert_eq!((history[3].0, history[3].1), (133, 134));
         assert_eq!(
             history[0].2,
             published_format(130)
@@ -1139,8 +1240,20 @@ mod tests {
                 .expect("v133 format")
                 .schema_fingerprint
         );
+        assert_eq!(
+            history[3].2,
+            published_format(133)
+                .expect("v133 format")
+                .schema_fingerprint
+        );
+        assert_eq!(
+            history[3].3,
+            published_format(134)
+                .expect("v134 format")
+                .schema_fingerprint
+        );
         assert!(history.iter().all(|row| row.4 == history[0].4));
-        assert!(history[0].4.starts_with("v130-to-v133-"));
+        assert!(history[0].4.starts_with("v130-to-v134-"));
         assert!(history[0].4.ends_with(".db"));
         assert!(history.iter().all(|row| row.5 > 0));
         let backup_path = directory
@@ -1172,7 +1285,7 @@ mod tests {
                     |row| { row.get::<_, i64>(0) }
                 )
                 .expect("stable history"),
-            3
+            4
         );
         assert_eq!(
             fs::read_dir(directory.path().join("backups/core-migrations"))
@@ -1196,7 +1309,7 @@ mod tests {
             .expect("migrate v131");
 
         assert_eq!(preparation.migrated_from_version, Some(131));
-        assert_eq!(preparation.schema_version, 133);
+        assert_eq!(preparation.schema_version, 134);
         assert_eq!(
             events,
             vec![
@@ -1207,6 +1320,64 @@ mod tests {
                 StorePreparationEvent::MigrationStarted {
                     from_version: 132,
                     to_version: 133,
+                },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 133,
+                    to_version: 134,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 1,
+                    total: 3,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 2,
+                    total: 3,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 3,
+                    total: 3,
+                },
+            ]
+        );
+        validate_current_store(&connection).expect("current Store");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM core_store_migration_history",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("migration history"),
+            4
+        );
+    }
+
+    #[test]
+    fn frozen_v132_store_migrates_directly_to_current_once() {
+        let directory = tempdir().expect("Profile");
+        install_v132_fixture(directory.path());
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        validate_schema_identity(&connection, 132).expect("exact frozen v132 Store");
+        let mut events = Vec::new();
+
+        let preparation =
+            prepare_profile_store_with_observer(&mut connection, directory.path(), &mut |event| {
+                events.push(event)
+            })
+            .expect("migrate v132");
+
+        assert_eq!(preparation.migrated_from_version, Some(132));
+        assert_eq!(preparation.schema_version, 134);
+        assert_eq!(
+            events,
+            vec![
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 132,
+                    to_version: 133,
+                },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 133,
+                    to_version: 134,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 1,
@@ -1227,49 +1398,7 @@ mod tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .expect("migration history"),
-            3
-        );
-    }
-
-    #[test]
-    fn frozen_v132_store_migrates_directly_to_current_once() {
-        let directory = tempdir().expect("Profile");
-        install_v132_fixture(directory.path());
-        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
-        validate_schema_identity(&connection, 132).expect("exact frozen v132 Store");
-        let mut events = Vec::new();
-
-        let preparation =
-            prepare_profile_store_with_observer(&mut connection, directory.path(), &mut |event| {
-                events.push(event)
-            })
-            .expect("migrate v132");
-
-        assert_eq!(preparation.migrated_from_version, Some(132));
-        assert_eq!(preparation.schema_version, 133);
-        assert_eq!(
-            events,
-            vec![
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 132,
-                    to_version: 133,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 1,
-                    total: 1,
-                },
-            ]
-        );
-        validate_current_store(&connection).expect("current Store");
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT count(*) FROM core_store_migration_history",
-                    [],
-                    |row| row.get::<_, i64>(0)
-                )
-                .expect("migration history"),
-            1
+            2
         );
         assert_eq!(
             connection
@@ -1292,6 +1421,56 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn published_v133_store_migrates_to_queued_follow_up_schema_once() {
+        let directory = tempdir().expect("Profile");
+        install_v133_fixture(directory.path());
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        validate_schema_identity(&connection, 133).expect("exact published v133 Store");
+        let mut events = Vec::new();
+
+        let preparation =
+            prepare_profile_store_with_observer(&mut connection, directory.path(), &mut |event| {
+                events.push(event)
+            })
+            .expect("migrate v133");
+
+        assert_eq!(preparation.migrated_from_version, Some(133));
+        assert_eq!(preparation.schema_version, 134);
+        assert_eq!(
+            events,
+            vec![
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 133,
+                    to_version: 134,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 1,
+                    total: 1,
+                },
+            ]
+        );
+        validate_current_store(&connection).expect("current Store");
+        for table in [
+            "codex_queued_follow_up_ledgers",
+            "codex_queued_follow_up_entries",
+            "codex_queued_follow_up_payload_manifests",
+            "codex_queued_follow_up_payload_asset_refs",
+            "codex_queued_follow_up_manifest_gc",
+        ] {
+            let exists = connection
+                .query_row(
+                    "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |_| Ok(()),
+                )
+                .optional()
+                .expect("schema query")
+                .is_some();
+            assert!(exists, "missing {table}");
+        }
     }
 
     #[test]
@@ -1524,7 +1703,7 @@ mod tests {
         install_baseline_fixture(non_file.path());
         let backup_directory = non_file.path().join("backups/core-migrations");
         fs::create_dir_all(&backup_directory).expect("backup directory");
-        fs::create_dir(backup_directory.join(".v130-to-v133.pending.db"))
+        fs::create_dir(backup_directory.join(".v130-to-v134.pending.db"))
             .expect("non-file pending candidate");
         let mut connection = open_writer(&non_file.path().join("nodex.db")).expect("writer");
         let error = prepare_profile_store(&mut connection, non_file.path())
@@ -1534,7 +1713,7 @@ mod tests {
 
     #[test]
     fn migration_registry_is_contiguous_and_forward_only() {
-        assert_eq!(MIGRATION_STEPS.len(), 3);
+        assert_eq!(MIGRATION_STEPS.len(), 4);
         for (index, step) in MIGRATION_STEPS.iter().enumerate() {
             assert!(step.from_revision < step.to_revision);
             if let Some(next) = MIGRATION_STEPS.get(index + 1) {

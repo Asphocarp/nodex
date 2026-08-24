@@ -118,15 +118,29 @@ const makeHarness = (input: {
     const conversationsContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
     const conversations = Context.get(conversationsContext, ConversationEntityMap);
     const aggregate = conversations.entity("thread-a");
-    aggregate.appendQueuedFollowUp(
+    aggregate.installQueuedFollowUpProjection(
       {
-        followUpId: "follow-up:paused",
-        threadId: "thread-a",
-        prompt: "later",
-        createdAt: 1,
-        collaborationMode: null,
-        serviceTier: null,
-        pausedReason: "wait",
+        status: "ready",
+        ledgerRevision: 1,
+        projectionRevision: 1,
+        entries: [
+          {
+            followUpId: "follow-up:paused",
+            clientUserMessageId: "client-follow-up-paused",
+            threadId: "thread-a",
+            prompt: "later",
+            promptInput: { text: "later" },
+            createdAtMs: 1,
+            collaborationMode: null,
+            serviceTier: null,
+            summary: null,
+            pause: { kind: "failed", reason: "wait" },
+            payloadRef: null,
+          },
+        ],
+        inFlightFollowUpId: null,
+        editingFollowUpId: null,
+        error: null,
       },
       true,
     );
@@ -188,7 +202,10 @@ it.effect("rematerializes once after thread-not-found and retries a fresh transa
       "automation:accept",
       "active",
     ]);
-    assert.isNull(harness.aggregate.listQueuedFollowUps()[0]?.pausedReason ?? null);
+    assert.deepEqual(harness.aggregate.readQueuedFollowUpProjection().entries[0]?.pause, {
+      kind: "failed",
+      reason: "wait",
+    });
     yield* Scope.close(harness.scope, Exit.void);
   }),
 );

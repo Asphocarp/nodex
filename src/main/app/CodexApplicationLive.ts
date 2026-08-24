@@ -105,11 +105,15 @@ const platform: Layer.Layer<CodexPlatform, MainApplicationError, MainConfig> = L
   CodexPlatform,
   Effect.gen(function* () {
     const config = yield* MainConfig;
+    const testRuntimeProjectRoot =
+      config.environment.NODE_ENV === "test"
+        ? config.environment.NODEX_TEST_AGENT_RUNTIME_PROJECT_ROOT?.trim()
+        : undefined;
     const runtime = yield* Effect.try({
       try: () =>
         resolveCodexRuntime({
           isPackaged: config.isPackaged,
-          projectRootPath: config.projectRootPath,
+          projectRootPath: testRuntimeProjectRoot || config.projectRootPath,
           resourcesPath: config.resourcesPath,
         }),
       catch: (cause) =>

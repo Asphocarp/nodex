@@ -81,6 +81,7 @@ interface DerivedTheme {
 
 const BLACK: Rgb = { blue: 0, green: 0, red: 0 };
 const WHITE: Rgb = { blue: 255, green: 255, red: 255 };
+const DARK_PRIMARY_FOREGROUND = "#dfdfdf";
 
 const DEFAULT_THEMES: Record<ThemeVariant, BaseTheme> = {
   dark: {
@@ -343,7 +344,7 @@ function deriveDarkTheme(theme: PreparedTheme): DerivedTheme {
     textButtonPrimary: toRgb(buttonPrimaryBase),
     textButtonSecondary: mixHex(theme.ink, theme.surface, 0.7 + theme.contrast * 0.1),
     textButtonTertiary: toRgba(theme.ink, 0.45 + theme.contrast * 0.1),
-    textForeground: theme.theme.ink,
+    textForeground: DARK_PRIMARY_FOREGROUND,
     textForegroundSecondary: toRgba(theme.ink, 0.65 + theme.contrast * 0.1),
     textForegroundTertiary: toRgba(theme.ink, 0.42 + theme.contrast * 0.13),
   };

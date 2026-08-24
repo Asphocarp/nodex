@@ -927,6 +927,7 @@ fn finish_execution_mutation(
             view_ids: Vec::new(),
             document_heads: Vec::new(),
             committed_at: sqlite_now(connection)?,
+            queued_follow_up_ledger: None,
         },
     )
 }

@@ -267,6 +267,12 @@ const VERSION_SURFACES: readonly Surface[] = [
     "decode or reject snapshot manifests",
   ],
   [
+    "crates/nodex-core/src/workspace/queued_follow_up.rs:MANIFEST_SCHEMA_VERSION",
+    "durableFormat",
+    "queued follow-up payload manifest",
+    "decode or reject queued payload manifests",
+  ],
+  [
     "crates/nodex-core/src/workspace/execution.rs:AUTHORITY_PROVENANCE_VERSION",
     "durableFormat",
     "execution authority provenance",
@@ -397,6 +403,12 @@ const VERSION_SURFACES: readonly Surface[] = [
     "durableFormat",
     "authorized delivery packet",
     "decode delivery evidence",
+  ],
+  [
+    "src/shared/codex-queued-follow-up-state.ts:CODEX_QUEUED_FOLLOW_UP_PAYLOAD_SCHEMA_VERSION",
+    "durableFormat",
+    "queued follow-up payload manifest",
+    "decode or reject queued payload manifests",
   ],
   [
     "src/shared/block-documents/additional-document-bearing-blocks.ts:REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION",

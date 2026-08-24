@@ -5,7 +5,7 @@ import { CodexActiveGoalContinuation } from "./CodexActiveGoalContinuation";
 import { CodexConversationDeltaBufferRuntime } from "./CodexConversationDeltaBufferRuntime";
 import { CodexManualCompactionRuntime } from "./CodexManualCompactionRuntime";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
-import { CodexQueuedFollowUpDispatcher } from "./CodexQueuedFollowUpDispatcher";
+import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { ConversationEntityMap } from "./internal/ConversationEntityMap";
 
@@ -33,7 +33,7 @@ export const make: Effect.Effect<
   | CodexConversationDeltaBufferRuntime
   | CodexManualCompactionRuntime
   | CodexPendingServerRequestRuntime
-  | CodexQueuedFollowUpDispatcher
+  | CodexQueuedFollowUps
   | CodexRendererConversationCoordinator
   | ConversationEntityMap
   | BrowserUseRuntime
@@ -42,7 +42,7 @@ export const make: Effect.Effect<
   const deltas = yield* CodexConversationDeltaBufferRuntime;
   const manualCompaction = yield* CodexManualCompactionRuntime;
   const pending = yield* CodexPendingServerRequestRuntime;
-  const queuedDispatcher = yield* CodexQueuedFollowUpDispatcher;
+  const queuedFollowUps = yield* CodexQueuedFollowUps;
   const renderer = yield* CodexRendererConversationCoordinator;
   const conversations = yield* ConversationEntityMap;
   const browserUse = yield* BrowserUseRuntime;
@@ -60,7 +60,7 @@ export const make: Effect.Effect<
     manualCompaction.clear(threadId);
 
     // Cancellation must finish before entity reset invalidates a claimed queue generation.
-    yield* queuedDispatcher.cancel(threadId);
+    yield* queuedFollowUps.closeThread(threadId);
     yield* renderer.clearConversation(threadId);
     yield* activeGoalContinuation.clear(threadId);
 

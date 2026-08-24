@@ -4,9 +4,11 @@ import {
   buildCodexCanonicalSyntheticTurnParams,
   type CodexCanonicalConversationState,
   type CodexCanonicalPlanImplementationItem,
+  type CodexCanonicalSteeringUserMessageItem,
   type CodexCanonicalSyntheticTurnParams,
   type CodexCanonicalTurnState,
 } from "./codex-conversation-state";
+import type { CodexQueuedFollowUp } from "../codex-queued-follow-up-state";
 import {
   applyCodexCanonicalPlanImplementationTurnStartedState,
   createCodexCanonicalPlanImplementationRequest,
@@ -26,7 +28,16 @@ export interface CodexTurnLifecycleResult {
   readonly state: CodexCanonicalConversationState;
   readonly disposition: "applied" | "foreignConversation" | "missingTurn";
   readonly stateChanged: boolean;
+  readonly effects: readonly CodexTurnLifecycleEffect[];
 }
+
+export interface CodexRestoreUnacceptedSteersEffect {
+  readonly type: "restoreUnacceptedSteers";
+  readonly terminalStatus: Turn["status"];
+  readonly rows: readonly CodexQueuedFollowUp[];
+}
+
+export type CodexTurnLifecycleEffect = CodexRestoreUnacceptedSteersEffect;
 
 function protocolSecondsToMilliseconds(value: number | null): number | null {
   return value === null ? null : value * 1_000;
@@ -197,13 +208,23 @@ function applyCompletedPlanFollowUp(
 function applyTurnCompleted(
   state: CodexCanonicalConversationState,
   update: CodexTurnLifecycleUpdate,
-): CodexCanonicalConversationState | null {
+): {
+  readonly state: CodexCanonicalConversationState;
+  readonly pendingSteers: readonly CodexCanonicalSteeringUserMessageItem[];
+} | null {
   const turnIndex = state.turns.findIndex((turn) => turn.protocol.id === update.turn.id);
   const existing = state.turns[turnIndex];
   if (turnIndex < 0 || !existing) return null;
   const turns = [...state.turns];
+  const pendingSteers = existing.items.filter(
+    (item): item is CodexCanonicalSteeringUserMessageItem =>
+      item.type === "steeringUserMessage" && item.status === "pending",
+  );
   turns[turnIndex] = {
     ...existing,
+    items: existing.items.filter(
+      (item) => item.type !== "steeringUserMessage" || item.status !== "pending",
+    ),
     protocol: {
       ...existing.protocol,
       id: update.turn.id,
@@ -216,7 +237,10 @@ function applyTurnCompleted(
       completedAtMs: protocolSecondsToMilliseconds(update.turn.completedAt),
     },
   };
-  return applyCompletedPlanFollowUp({ ...state, turns }, turnIndex, update.observedAtMs);
+  return {
+    state: applyCompletedPlanFollowUp({ ...state, turns }, turnIndex, update.observedAtMs),
+    pendingSteers,
+  };
 }
 
 export function reduceCodexConversationTurnLifecycle(
@@ -224,15 +248,32 @@ export function reduceCodexConversationTurnLifecycle(
   update: CodexTurnLifecycleUpdate,
 ): CodexTurnLifecycleResult {
   if (state.protocol.id !== update.conversationId) {
-    return { state, disposition: "foreignConversation", stateChanged: false };
+    return { state, disposition: "foreignConversation", stateChanged: false, effects: [] };
   }
 
   if (update.method === "turn/started") {
     const next = applyTurnStarted(state, update);
-    return { state: next, disposition: "applied", stateChanged: next !== state };
+    return { state: next, disposition: "applied", stateChanged: next !== state, effects: [] };
   }
 
-  const next = applyTurnCompleted(state, update);
-  if (!next) return { state, disposition: "missingTurn", stateChanged: false };
-  return { state: next, disposition: "applied", stateChanged: next !== state };
+  const completed = applyTurnCompleted(state, update);
+  if (!completed) {
+    return { state, disposition: "missingTurn", stateChanged: false, effects: [] };
+  }
+  const effects: readonly CodexTurnLifecycleEffect[] =
+    completed.pendingSteers.length === 0
+      ? []
+      : [
+          {
+            type: "restoreUnacceptedSteers",
+            terminalStatus: update.turn.status,
+            rows: completed.pendingSteers.map((item) => item.restoreMessage.queueRow),
+          },
+        ];
+  return {
+    state: completed.state,
+    disposition: "applied",
+    stateChanged: completed.state !== state,
+    effects,
+  };
 }

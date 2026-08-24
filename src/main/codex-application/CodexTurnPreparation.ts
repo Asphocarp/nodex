@@ -23,6 +23,7 @@ import type {
   CodexPreparedPrompt,
   CodexPromptAgentConfigInput,
   CodexPromptInput,
+  CodexQueuedFollowUp,
   CodexReasoningEffort,
   CodexReviewDiffCommentAttachment,
   CodexServiceTier,
@@ -72,6 +73,7 @@ export interface CodexTurnSteerPlan {
       readonly serviceTier?: CodexServiceTier;
       readonly summary?: TurnStartParams["summary"];
       readonly promptInput?: CodexPromptInput;
+      readonly clientUserMessageId?: string;
     };
   };
 }
@@ -107,6 +109,7 @@ export interface CodexTurnStartPreparationInput {
 export interface CodexTurnSteerPreparationInput {
   readonly command: CodexSteerTurnInput;
   readonly steerId: string;
+  readonly recoveryRow: CodexQueuedFollowUp;
 }
 
 export class CodexTurnPreparation extends Context.Service<
@@ -498,6 +501,15 @@ export const make: Effect.Effect<
       }
       if (!prepared.promptText.trim())
         return yield* fail(new Error("Turn steer requires a non-empty prompt"));
+      if (
+        input.recoveryRow.threadId !== threadId ||
+        input.recoveryRow.prompt !== input.command.prompt ||
+        !input.recoveryRow.followUpId.trim() ||
+        !input.recoveryRow.clientUserMessageId.trim() ||
+        input.recoveryRow.pause !== null
+      ) {
+        return yield* fail(new Error("Turn steer recovery identity is invalid"));
+      }
       const activeTurn = input.command.expectedTurnId
         ? state.canonical.turns.find((turn) => turn.protocol.id === input.command.expectedTurnId)
         : state.canonical.turns.findLast((turn) => turn.protocol.status === "inProgress");
@@ -506,16 +518,9 @@ export const make: Effect.Effect<
       const request: TurnSteerParams = {
         threadId,
         expectedTurnId,
-        clientUserMessageId: input.steerId,
+        clientUserMessageId: input.recoveryRow.clientUserMessageId,
         input: prepared.inputItems,
         ...(prepared.additionalContext ? { additionalContext: prepared.additionalContext } : {}),
-      };
-      const restoreMessage = {
-        prompt: input.command.prompt,
-        ...(input.command.promptInput ? { promptInput: input.command.promptInput } : {}),
-        collaborationMode: input.command.collaborationMode ?? null,
-        serviceTier: normalizeServiceTier(input.command.serviceTier),
-        ...(input.command.summary !== undefined ? { summary: input.command.summary } : {}),
       };
       const item: CodexCanonicalSteeringUserMessageItem = {
         type: "steeringUserMessage",
@@ -523,14 +528,14 @@ export const make: Effect.Effect<
         targetTurnId: expectedTurnId,
         targetTurnStartedAtMs: activeTurn?.sidecar.turnStartedAtMs ?? null,
         status: "pending",
-        clientUserMessageId: input.steerId,
+        clientUserMessageId: input.recoveryRow.clientUserMessageId,
         input: prepared.inputItems,
         attachments: dedupeCodexLiveFileAttachments([
           ...prepared.fileAttachments,
           ...prepared.addedFiles,
         ]),
         restoreMessage: {
-          ...restoreMessage,
+          queueRow: input.recoveryRow,
           context: { commentAttachments: [...prepared.commentAttachments] },
         },
         compareKey: buildCodexSteeringCompareKey(prepared.inputItems, prepared.commentAttachments),
@@ -544,6 +549,7 @@ export const make: Effect.Effect<
         fallbackStart: {
           prompt: input.command.prompt,
           overrides: {
+            clientUserMessageId: input.recoveryRow.clientUserMessageId,
             ...(input.command.collaborationMode
               ? { collaborationMode: input.command.collaborationMode }
               : {}),

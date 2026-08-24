@@ -20,6 +20,7 @@ import type {
   CodexConversationChildMembership,
   CodexConversationResumeState,
   CodexConversationServerRequest,
+  CodexConversationSnapshot,
   CodexConversationTurn,
   CodexConversationTurnPagination,
   CodexThreadStatusType,
@@ -401,7 +402,7 @@ export function LocalConversationThreadBodyOwner({
     void actions.onRetryThreadAttachment(threadId);
   }, [actions, threadId]);
   const [isOlderHistoryLoading, setIsOlderHistoryLoading] = useState(false);
-  const conversation = useMemo(
+  const conversation = useMemo<CodexConversationSnapshot | null>(
     () =>
       threadId
         ? {
@@ -425,7 +426,15 @@ export function LocalConversationThreadBodyOwner({
             turns,
             requests,
             canonicalRequests,
-            queuedFollowUps: [],
+            queuedFollowUps: {
+              status: "ready",
+              ledgerRevision: 0,
+              projectionRevision: 0,
+              entries: [],
+              inFlightFollowUpId: null,
+              editingFollowUpId: null,
+              error: null,
+            },
             pendingSteers: [],
             backgroundTerminalRows: [],
             capabilityFlags,

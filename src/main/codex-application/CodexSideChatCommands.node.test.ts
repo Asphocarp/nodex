@@ -122,7 +122,6 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       startRendererOwned: () => Effect.die("unused"),
       acceptPreparedRendererTurn: () => Effect.die("unused"),
       steer: () => Effect.die("unused"),
-      steerRendererOwned: () => Effect.die("unused"),
       continueGoal: () => Effect.die("unused"),
     } satisfies CodexTurnCommandsService);
     const parentSnapshot = {
@@ -131,7 +130,15 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
       source: { parentThreadId: null },
       cwd: "/workspace",
       executionProfile: null,
-      queuedFollowUps: [],
+      queuedFollowUps: {
+        status: "ready",
+        ledgerRevision: 0,
+        projectionRevision: 0,
+        entries: [],
+        inFlightFollowUpId: null,
+        editingFollowUpId: null,
+        error: null,
+      },
     } as unknown as CodexConversationSnapshot;
     const directoryEntry = {
       fidelity: "full",
@@ -163,7 +170,15 @@ const makeHarness = (scope: Scope.Scope, options: SideChatHarnessOptions = {}) =
             resumeState: "resumed",
             turns: [],
             requests: [],
-            queuedFollowUps: [],
+            queuedFollowUps: {
+              status: "ready",
+              ledgerRevision: 0,
+              projectionRevision: 0,
+              entries: [],
+              inFlightFollowUpId: null,
+              editingFollowUpId: null,
+              error: null,
+            },
           } as unknown as CodexConversationSnapshot;
           const aggregate = conversations.entity(input.threadId);
           aggregate.acceptCanonicalState(input.canonical);

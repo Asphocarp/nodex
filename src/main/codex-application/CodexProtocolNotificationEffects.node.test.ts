@@ -75,6 +75,14 @@ it.effect("drains frame text before terminal turn consequences", () =>
         CodexQueuedFollowUps.of({
           list: () => [],
           requestDispatch: () => Effect.sync(() => trace.push("queue")),
+          acceptTerminalOutcomeInCurrentLane: (
+            input: Parameters<
+              CodexQueuedFollowUps["Service"]["acceptTerminalOutcomeInCurrentLane"]
+            >[0],
+          ) =>
+            Effect.sync(() =>
+              trace.push(`queue-terminal:${input.interrupted}:${input.rows.length}`),
+            ),
         } as unknown as CodexQueuedFollowUps["Service"]),
       ),
       Effect.provideService(
@@ -146,5 +154,36 @@ it.effect("drains frame text before terminal turn consequences", () =>
     });
 
     assert.deepEqual(trace, ["drain", "browser", "automation", "queue", "durable:remote-a:7"]);
+
+    trace.length = 0;
+    yield* service.apply({
+      hostId: "remote-a",
+      generation: 7,
+      notification: {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-a",
+          turn: {
+            id: "turn-a",
+            status: "interrupted",
+            items: [],
+            error: null,
+            startedAt: 1,
+            completedAt: 2,
+            durationMs: 1,
+          },
+        },
+      } as unknown as CodexServerNotification,
+      occurrenceId: "remote-a:7:inbox-a:92",
+      occurrenceToken: 92,
+    });
+
+    assert.deepEqual(trace, [
+      "drain",
+      "browser",
+      "automation",
+      "queue-terminal:true:0",
+      "durable:remote-a:7",
+    ]);
   }),
 );

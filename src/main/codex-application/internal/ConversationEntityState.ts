@@ -9,9 +9,10 @@ import type {
   CodexConversationTurnPagination,
   CodexConversationResumeState,
   CodexConversationSnapshot,
-  CodexQueuedFollowUp,
+  CodexQueuedFollowUpProjection,
   CodexThreadStreamCheckpoint,
 } from "../../../shared/types";
+import { EMPTY_CODEX_QUEUED_FOLLOW_UP_PROJECTION } from "../../../shared/codex-queued-follow-up-state";
 import * as Data from "effect/Data";
 import {
   appendCodexCanonicalWorktreeInitItem,
@@ -158,13 +159,7 @@ interface MutableConversationEntityState {
   threadStartEventBuffer: CodexApplicationProtocolOccurrence[] | null;
   threadStartEventBufferBytes: number;
   threadStartDeferred: boolean;
-  queuedFollowUps: readonly CodexQueuedFollowUp[];
-  queuedFollowUpGeneration: number;
-}
-
-export interface CodexQueuedFollowUpClaim {
-  readonly generation: number;
-  readonly followUp: CodexQueuedFollowUp;
+  queuedFollowUps: CodexQueuedFollowUpProjection;
 }
 
 export type CodexProtocolOccurrenceAdmission = "buffered" | "unbuffered" | "overflow";
@@ -373,28 +368,12 @@ export interface ConversationEntityState {
     readonly projectReplica: boolean;
   }) => boolean;
   readonly setThreadStatus: (statusType: CodexThreadStatusType, projectReplica: boolean) => boolean;
-  readonly listQueuedFollowUps: () => readonly CodexQueuedFollowUp[];
-  readonly appendQueuedFollowUp: (
-    followUp: CodexQueuedFollowUp,
+  readonly readQueuedFollowUpProjection: () => CodexQueuedFollowUpProjection;
+  /** Installs an exact Main/Core-authored projection without synthesizing revisions. */
+  readonly installQueuedFollowUpProjection: (
+    projection: CodexQueuedFollowUpProjection,
     projectReplica: boolean,
   ) => boolean;
-  readonly removeQueuedFollowUp: (followUpId: string, projectReplica: boolean) => boolean;
-  readonly reorderQueuedFollowUps: (
-    orderedFollowUpIds: readonly string[],
-    projectReplica: boolean,
-  ) => boolean;
-  readonly clearPausedQueuedFollowUps: (projectReplica: boolean) => boolean;
-  readonly claimQueuedFollowUp: (
-    followUpId: string | null,
-    projectReplica: boolean,
-  ) => CodexQueuedFollowUpClaim | null;
-  readonly restoreQueuedFollowUp: (
-    claim: CodexQueuedFollowUpClaim,
-    reason: string,
-    projectReplica: boolean,
-  ) => boolean;
-  readonly resetQueuedFollowUps: (projectReplica: boolean) => void;
-  readonly clearQueuedFollowUps: () => void;
   readonly readStreamRole: () => CodexConversationStreamRole;
   readonly setStreamRole: (role: CodexConversationStreamRole) => void;
   readonly acceptCanonicalState: (
@@ -480,8 +459,7 @@ const initialAggregate = (generation: number): MutableConversationEntityState =>
   threadStartEventBuffer: null,
   threadStartEventBufferBytes: 0,
   threadStartDeferred: false,
-  queuedFollowUps: [],
-  queuedFollowUpGeneration: 0,
+  queuedFollowUps: EMPTY_CODEX_QUEUED_FOLLOW_UP_PROJECTION,
 });
 
 const snapshot = (aggregate: MutableConversationEntityState): ConversationEntitySnapshot => ({
@@ -544,8 +522,7 @@ export function makeConversationEntityStateRegistry(): ConversationEntityStateRe
     aggregate.threadStartEventBuffer = null;
     aggregate.threadStartEventBufferBytes = 0;
     aggregate.threadStartDeferred = false;
-    aggregate.queuedFollowUps = [];
-    aggregate.queuedFollowUpGeneration += 1;
+    aggregate.queuedFollowUps = EMPTY_CODEX_QUEUED_FOLLOW_UP_PROJECTION;
   };
 
   const makeCapability = (
@@ -557,15 +534,21 @@ export function makeConversationEntityStateRegistry(): ConversationEntityStateRe
       readonly revision: number;
       readonly ownerEpoch: number;
     }): CodexThreadStreamReplica => {
+      const conversation = {
+        ...input.conversation,
+        queuedFollowUps: {
+          ...aggregate.queuedFollowUps,
+          entries: [...aggregate.queuedFollowUps.entries],
+        },
+      };
       const checkpoint = buildCodexThreadStreamCheckpoint({
         ownerEpoch: input.ownerEpoch,
         revision: input.revision,
-        conversation: input.conversation,
+        conversation,
       });
-      const replica = { checkpoint, conversation: input.conversation };
+      const replica = { checkpoint, conversation };
       aggregate.acceptedReplica = replica;
-      aggregate.snapshot = input.conversation;
-      aggregate.queuedFollowUps = [...input.conversation.queuedFollowUps];
+      aggregate.snapshot = conversation;
       aggregate.revision = input.revision;
       aggregate.checkpoint = checkpoint;
       return replica;
@@ -602,26 +585,35 @@ export function makeConversationEntityStateRegistry(): ConversationEntityStateRe
       return true;
     };
 
-    const projectQueuedFollowUps = (
-      entries: readonly CodexQueuedFollowUp[],
+    const installQueuedFollowUpProjection = (
+      projection: CodexQueuedFollowUpProjection,
       projectReplica: boolean,
     ): boolean => {
       const previous = aggregate.queuedFollowUps;
       if (
-        previous.length === entries.length &&
-        previous.every((entry, index) => entry === entries[index])
+        previous.status === projection.status &&
+        previous.ledgerRevision === projection.ledgerRevision &&
+        previous.projectionRevision === projection.projectionRevision &&
+        previous.inFlightFollowUpId === projection.inFlightFollowUpId &&
+        previous.editingFollowUpId === projection.editingFollowUpId &&
+        previous.error === projection.error &&
+        previous.entries.length === projection.entries.length &&
+        previous.entries.every((entry, index) => entry === projection.entries[index])
       ) {
         return false;
       }
-      aggregate.queuedFollowUps = [...entries];
+      aggregate.queuedFollowUps = {
+        ...projection,
+        entries: [...projection.entries],
+      };
       if (aggregate.snapshot) {
-        aggregate.snapshot = { ...aggregate.snapshot, queuedFollowUps: [...entries] };
+        aggregate.snapshot = { ...aggregate.snapshot, queuedFollowUps: aggregate.queuedFollowUps };
       }
       if (projectReplica && aggregate.acceptedReplica) {
         acceptReplica({
           conversation: {
             ...aggregate.acceptedReplica.conversation,
-            queuedFollowUps: [...entries],
+            queuedFollowUps: aggregate.queuedFollowUps,
           },
           ownerEpoch: aggregate.acceptedReplica.checkpoint.ownerEpoch,
           revision: aggregate.revision + 1,
@@ -641,12 +633,9 @@ export function makeConversationEntityStateRegistry(): ConversationEntityStateRe
         aggregate.canonicalState?.sidecar.hasUnreadTurn ?? aggregate.preHydrationHasUnreadTurn,
       readSnapshot: () => aggregate.snapshot,
       installSnapshot: (conversation) => {
-        if (aggregate.queuedFollowUpGeneration === 0 && aggregate.queuedFollowUps.length === 0) {
-          aggregate.queuedFollowUps = [...conversation.queuedFollowUps];
-        }
         aggregate.snapshot = {
           ...conversation,
-          queuedFollowUps: [...aggregate.queuedFollowUps],
+          queuedFollowUps: aggregate.queuedFollowUps,
         };
       },
       seedHasUnreadTurn: (hasUnreadTurn) => {
@@ -1506,79 +1495,11 @@ export function makeConversationEntityStateRegistry(): ConversationEntityStateRe
         }
         return beforeStatus !== statusType || snapshotChanged || (projectReplica && replicaChanged);
       },
-      listQueuedFollowUps: () => [...aggregate.queuedFollowUps],
-      appendQueuedFollowUp: (followUp, projectReplica) =>
-        projectQueuedFollowUps(
-          [
-            ...aggregate.queuedFollowUps.filter(
-              (entry) => entry.followUpId !== followUp.followUpId,
-            ),
-            followUp,
-          ],
-          projectReplica,
-        ),
-      removeQueuedFollowUp: (followUpId, projectReplica) =>
-        projectQueuedFollowUps(
-          aggregate.queuedFollowUps.filter((entry) => entry.followUpId !== followUpId),
-          projectReplica,
-        ),
-      reorderQueuedFollowUps: (orderedFollowUpIds, projectReplica) => {
-        if (aggregate.queuedFollowUps.length <= 1) return false;
-        const byId = new Map(
-          aggregate.queuedFollowUps.map((entry) => [entry.followUpId, entry] as const),
-        );
-        const seen = new Set<string>();
-        const ordered: CodexQueuedFollowUp[] = [];
-        for (const rawId of orderedFollowUpIds) {
-          const followUpId = rawId.trim();
-          const entry = byId.get(followUpId);
-          if (!entry || seen.has(followUpId)) continue;
-          seen.add(followUpId);
-          ordered.push(entry);
-        }
-        return projectQueuedFollowUps(
-          [...ordered, ...aggregate.queuedFollowUps.filter((entry) => !seen.has(entry.followUpId))],
-          projectReplica,
-        );
-      },
-      clearPausedQueuedFollowUps: (projectReplica) =>
-        projectQueuedFollowUps(
-          aggregate.queuedFollowUps.map((entry) =>
-            entry.pausedReason ? { ...entry, pausedReason: null } : entry,
-          ),
-          projectReplica,
-        ),
-      claimQueuedFollowUp: (followUpId, projectReplica) => {
-        const index = followUpId
-          ? aggregate.queuedFollowUps.findIndex((entry) => entry.followUpId === followUpId)
-          : 0;
-        const followUp = aggregate.queuedFollowUps[index];
-        if (!followUp) return null;
-        projectQueuedFollowUps(
-          aggregate.queuedFollowUps.filter((_, entryIndex) => entryIndex !== index),
-          projectReplica,
-        );
-        return { generation: aggregate.queuedFollowUpGeneration, followUp };
-      },
-      restoreQueuedFollowUp: (claim, reason, projectReplica) => {
-        if (claim.generation !== aggregate.queuedFollowUpGeneration) return false;
-        return projectQueuedFollowUps(
-          [
-            { ...claim.followUp, pausedReason: reason },
-            ...aggregate.queuedFollowUps.filter(
-              (entry) => entry.followUpId !== claim.followUp.followUpId,
-            ),
-          ],
-          projectReplica,
-        );
-      },
-      resetQueuedFollowUps: (projectReplica) => {
-        projectQueuedFollowUps([], projectReplica);
-      },
-      clearQueuedFollowUps: () => {
-        aggregate.queuedFollowUpGeneration += 1;
-        aggregate.queuedFollowUps = [];
-      },
+      readQueuedFollowUpProjection: () => ({
+        ...aggregate.queuedFollowUps,
+        entries: [...aggregate.queuedFollowUps.entries],
+      }),
+      installQueuedFollowUpProjection,
       readStreamRole: () => aggregate.streamRole,
       setStreamRole: (role) => {
         aggregate.streamRole = role;

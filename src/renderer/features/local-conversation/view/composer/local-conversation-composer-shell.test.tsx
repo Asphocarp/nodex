@@ -377,6 +377,117 @@ describe("LocalConversationComposerShell", () => {
     expect(view.queryByLabelText("Stop generating") === null).toBe(true);
   });
 
+  test("renders interruption pause and resumes only the queued-follow-up lane", async () => {
+    installComposerShellWindowApi();
+    const base = buildComposerShellModel();
+    const row = base.composerShell.queuedFollowUpRows[0];
+    if (!row) throw new Error("Expected queue story row");
+    let resumeCalls = 0;
+    const view = renderComposerShell(
+      {
+        ...base,
+        composerShell: {
+          ...base.composerShell,
+          hasInterruptedQueuedFollowUps: true,
+          queuedFollowUpRows: [
+            {
+              ...row,
+              pauseKind: "interrupted",
+              pausedReason: "Interrupted before the steer was accepted.",
+            },
+          ],
+        },
+      },
+      buildActions({
+        onResumeQueuedFollowUps: async () => {
+          resumeCalls += 1;
+        },
+      }),
+    );
+    await settleAsyncRender();
+
+    expect(view.getByText("Queue paused because you interrupted")).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Resume" }));
+      await Promise.resolve();
+    });
+    expect(resumeCalls).toBe(1);
+  });
+
+  test("shows failed rows as Retry and locks every destructive action while in flight", async () => {
+    installComposerShellWindowApi();
+    const base = buildComposerShellModel();
+    const row = base.composerShell.queuedFollowUpRows[0];
+    if (!row) throw new Error("Expected queue story row");
+    const view = renderComposerShell({
+      ...base,
+      composerShell: {
+        ...base.composerShell,
+        queuedFollowUpRows: [
+          {
+            ...row,
+            pauseKind: "failed",
+            pausedReason: "gateway unavailable",
+            isInFlight: true,
+          },
+        ],
+      },
+    });
+    await settleAsyncRender();
+
+    expect(view.getByText("Retry")).not.toBeNull();
+    expect(
+      (
+        view.getByRole("button", {
+          name: "Try sending this queued message again",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (view.getByRole("button", { name: "Delete queued message" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (view.getByRole("button", { name: "Queued message actions" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  test("offers the bidirectional queueing preference action", async () => {
+    installComposerShellWindowApi();
+    const base = buildComposerShellModel();
+    const row = base.composerShell.queuedFollowUpRows[0];
+    if (!row) throw new Error("Expected queue story row");
+    let nextQueueingValue: boolean | null = null;
+    const view = renderComposerShell(
+      {
+        ...base,
+        isQueueingEnabled: false,
+        composerShell: {
+          ...base.composerShell,
+          hasInterruptedQueuedFollowUps: false,
+          queuedFollowUpRows: [{ ...row, pauseKind: null, pausedReason: null, isInFlight: false }],
+        },
+      },
+      buildActions({
+        onQueueingEnabledChange: (enabled) => {
+          nextQueueingValue = enabled;
+        },
+      }),
+    );
+    await settleAsyncRender();
+    const menuTrigger = view.getByRole("button", { name: "Queued message actions" });
+    expect((menuTrigger as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => {
+      fireEvent.keyDown(menuTrigger, { key: "Enter", code: "Enter" });
+      await settleAsyncRender();
+    });
+    const item = await view.findByText("Turn on queueing");
+    await act(async () => {
+      fireEvent.click(item);
+      await Promise.resolve();
+    });
+    expect(nextQueueingValue).toBe(true);
+  });
+
   test("gives only the active implement-plan request one sibling intelligence footer", async () => {
     installComposerShellWindowApi();
     const controls: ThreadStageStoryControls = {

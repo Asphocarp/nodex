@@ -46,6 +46,7 @@ fn workspace_policy(read: &ProjectWorkspaceRead) -> ReadBudgetPolicy {
         | ProjectWorkspaceRead::ProjectlessPermissionMode
         | ProjectWorkspaceRead::Session { .. }
         | ProjectWorkspaceRead::Thread { .. }
+        | ProjectWorkspaceRead::QueuedFollowUpLedger { .. }
         | ProjectWorkspaceRead::ExecutionContext { .. }
         | ProjectWorkspaceRead::TurnAuthority { .. } => ReadBudgetPolicy::Identity,
     }

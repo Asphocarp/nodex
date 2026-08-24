@@ -25,6 +25,7 @@ import type {
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadTokenUsage } from "@nodex/codex-app-server-protocol/v2/ThreadTokenUsage";
 import { isCodexProtocolThreadItem } from "../codex-protocol-thread-item";
+import type { CodexQueuedFollowUp } from "../codex-queued-follow-up-state";
 import type { CodexItemStatus } from "../types";
 
 export type CodexProtocolRequestId = RequestId;
@@ -283,11 +284,10 @@ export interface CodexCanonicalSteeringCompareKey {
 }
 
 export interface CodexCanonicalSteeringRestoreMessage {
+  readonly queueRow: CodexQueuedFollowUp;
   readonly context: {
     readonly commentAttachments: readonly unknown[];
-    readonly [key: string]: unknown;
   };
-  readonly [key: string]: unknown;
 }
 
 /** Exact live steering row stored beside generated items until it is accepted. */

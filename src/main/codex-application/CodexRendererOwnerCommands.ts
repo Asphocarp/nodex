@@ -1,6 +1,5 @@
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
 import type { ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetParams";
-import type { TurnSteerParams } from "@nodex/codex-app-server-protocol/v2/TurnSteerParams";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -44,10 +43,11 @@ export class CodexRendererOwnerCommands extends Context.Service<
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 
-const isOwnerTurnUserInput = (value: unknown): value is TurnSteerParams["input"][number] => {
+const isOwnerTurnUserInput = (
+  value: unknown,
+): value is CodexPreparedPrompt["inputItems"][number] => {
   const input = asRecord(value);
   if (!input || typeof input.type !== "string") return false;
-
   switch (input.type) {
     case "text":
       return typeof input.text === "string" && Array.isArray(input.text_elements);
@@ -61,38 +61,6 @@ const isOwnerTurnUserInput = (value: unknown): value is TurnSteerParams["input"]
     default:
       return false;
   }
-};
-
-const readSteerParams = (threadId: string, value: unknown): TurnSteerParams => {
-  const params = asRecord(value);
-  if (!params || params.threadId !== threadId) {
-    throw new Error(`Owner turn/steer request must target ${threadId}`);
-  }
-  if (typeof params.expectedTurnId !== "string" || !params.expectedTurnId.trim()) {
-    throw new Error("Owner turn/steer request requires expectedTurnId");
-  }
-  if (
-    params.clientUserMessageId !== undefined &&
-    params.clientUserMessageId !== null &&
-    typeof params.clientUserMessageId !== "string"
-  ) {
-    throw new Error("Owner turn/steer request has an invalid clientUserMessageId");
-  }
-  if (
-    !Array.isArray(params.input) ||
-    params.input.length === 0 ||
-    !params.input.every(isOwnerTurnUserInput)
-  ) {
-    throw new Error("Owner turn/steer request requires valid input");
-  }
-  if (
-    params.additionalContext !== undefined &&
-    params.additionalContext !== null &&
-    !asRecord(params.additionalContext)
-  ) {
-    throw new Error("Owner turn/steer request has invalid additionalContext");
-  }
-  return value as TurnSteerParams;
 };
 
 const isLiveFileAttachment = (value: unknown): value is CodexLiveFileAttachment => {
@@ -285,11 +253,6 @@ export const make: Effect.Effect<
               launchId: request.params.launchId,
               ownerClientId,
             });
-          case "turn/steer":
-            return Effect.try({
-              try: () => readSteerParams(threadId, request.params),
-              catch: (cause) => new CodexRendererOwnerCommandError({ method, threadId, cause }),
-            }).pipe(Effect.flatMap(turnCommands.steerRendererOwned));
           case "turn/interrupt":
             return conversations.interrupt(threadId, request.params.turnId);
           case "thread/settings/update":

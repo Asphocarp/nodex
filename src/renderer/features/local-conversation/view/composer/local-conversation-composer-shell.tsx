@@ -18,14 +18,31 @@ import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion } from "motion/react";
 import {
   useEffect,
+  forwardRef,
   useLayoutEffect,
   useMemo,
   useState,
+  type ButtonHTMLAttributes,
   type FormEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRightIcon, StopIcon } from "@/components/shared/icons";
+import {
+  ActivitySpinnerIcon,
+  AutomationMoreIcon,
+  ChevronRightIcon,
+  ComposerResumeIcon,
+  GoalEditIcon,
+  GoalTrashIcon,
+  QueueFailureIcon,
+  QueuePauseIcon,
+  QueuePendingInfoIcon,
+  QueueSteerIcon,
+  QueuedFollowUpIcon,
+  SidePanelSideChatIcon,
+  SidebarManualOrderIcon,
+  StopIcon,
+} from "@/components/shared/icons";
 import {
   NodexDialog,
   NodexDialogAction,
@@ -100,114 +117,6 @@ interface LocalConversationComposerShellProps {
   hasFixedPortalContent?: boolean;
 }
 
-function QueuedMessageReorderGripIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={cn("icon-2xs text-token-input-placeholder-foreground/70", className)}
-      fill="none"
-      aria-hidden="true"
-    >
-      <circle cx="9.5" cy="5.5" r="1.5" fill="currentColor" />
-      <circle cx="9.5" cy="12" r="1.5" fill="currentColor" />
-      <circle cx="9.5" cy="18.5" r="1.5" fill="currentColor" />
-      <circle cx="14.5" cy="5.5" r="1.5" fill="currentColor" />
-      <circle cx="14.5" cy="12" r="1.5" fill="currentColor" />
-      <circle cx="14.5" cy="18.5" r="1.5" fill="currentColor" />
-    </svg>
-  );
-}
-
-function QueueLaneHandleIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      className={cn("icon-2xs text-token-input-placeholder-foreground/70", className)}
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M2.66797 11V3.33301C2.66797 2.96574 2.96574 2.66797 3.33301 2.66797C3.70028 2.66797 3.99805 2.96574 3.99805 3.33301V11C3.99805 11.7109 3.99894 12.2044 4.03027 12.5879C4.06098 12.9634 4.11776 13.175 4.19824 13.333L4.26856 13.459C4.44487 13.7465 4.69781 13.9808 5 14.1348L5.12988 14.1904C5.27366 14.2419 5.46311 14.2797 5.74512 14.3027C6.12864 14.3341 6.62197 14.335 7.33301 14.335H15L15.0674 14.3418L14.1123 13.3867L14.0273 13.2822C13.8571 13.0242 13.8854 12.6735 14.1123 12.4463C14.3397 12.2189 14.6911 12.1906 14.9492 12.3613L15.0537 12.4463L17.1367 14.5293C17.3964 14.7889 17.3963 15.21 17.1367 15.4697L15.0537 17.5537C14.794 17.8134 14.372 17.8134 14.1123 17.5537C13.8526 17.294 13.8526 16.872 14.1123 16.6123L15.0664 15.6582L15 15.665H7.33301C6.64392 15.665 6.08696 15.6647 5.63672 15.6279C5.23614 15.5952 4.87531 15.5309 4.53906 15.3867L4.39649 15.3193C3.87528 15.0538 3.43887 14.6502 3.13477 14.1543L3.0127 13.9365C2.82084 13.5599 2.74153 13.1541 2.7041 12.6963C2.66732 12.2461 2.66797 11.6889 2.66797 11ZM15.665 15C15.665 15.0226 15.6594 15.0444 15.6572 15.0664L15.7256 14.999L15.6572 14.9316C15.6595 14.9541 15.665 14.9769 15.665 15ZM11.666 8.91797L11.8008 8.93164C12.1036 8.99381 12.3311 9.2618 12.3311 9.58301C12.3311 9.90422 12.1036 10.1722 11.8008 10.2344L11.666 10.248H7.5C7.13273 10.248 6.83496 9.95028 6.83496 9.58301C6.83496 9.21574 7.13273 8.91797 7.5 8.91797H11.666ZM14.166 4.33496L14.3008 4.34863C14.6036 4.41083 14.8311 4.67881 14.8311 5C14.8309 5.32109 14.6035 5.58924 14.3008 5.65137L14.166 5.66504H7.5C7.13284 5.66504 6.83514 5.36712 6.83496 5C6.83496 4.63273 7.13273 4.33496 7.5 4.33496H14.166Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function SteerIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 21 21"
-      className={cn("icon-2xs shrink-0", className)}
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M13.1293 7.34753C13.3565 7.12027 13.7081 7.09207 13.9662 7.26257L14.0707 7.34753L18.0707 11.3475C18.3304 11.6072 18.3304 12.0292 18.0707 12.2889L14.0707 16.2889C13.811 16.5486 13.389 16.5486 13.1293 16.2889C12.8696 16.0292 12.8696 15.6072 13.1293 15.3475L15.9935 12.4833H6.59998C4.57585 12.4833 2.93494 10.8424 2.93494 8.81824V5.31824C2.93494 4.95097 3.23271 4.6532 3.59998 4.6532C3.96724 4.6532 4.26501 4.95097 4.26501 5.31824V8.81824C4.26501 10.1078 5.31039 11.1532 6.59998 11.1532H15.9935L13.1293 8.28894L13.0443 8.18445C12.8738 7.92632 12.902 7.5748 13.1293 7.34753Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function InfoIcon() {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      className="icon-2xs text-token-input-placeholder-foreground/80"
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M10 14.25V9.5m0-3.75h.0075M17 10a7 7 0 11-14 0 7 7 0 0114 0Z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function MoreIcon() {
-  return (
-    <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
-      <path
-        d="M5 10a1.25 1.25 0 112.5 0A1.25 1.25 0 015 10Zm3.75 0a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0Zm3.75 0a1.25 1.25 0 112.5 0 1.25 1.25 0 01-2.5 0Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
-      <path
-        d="M6.5 6.5v7m3.5-7v7m3.5-7v7M3.75 5.25h12.5m-9.25 0 .4-1.2A1.25 1.25 0 018.59 3.2h2.82a1.25 1.25 0 011.19.85l.4 1.2m-8.75 0v9A1.75 1.75 0 006 16h8a1.75 1.75 0 001.75-1.75v-9"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function EditIcon() {
-  return (
-    <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
-      <path
-        d="M4.75 13.75 4 16l2.25-.75L14.5 7 13 5.5l-8.25 8.25Zm9-9L15.25 3.5a1.06 1.06 0 011.5 0l.75.75a1.06 1.06 0 010 1.5L16 7.25l-2.25-2.5Z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function TerminalIcon() {
   return (
     <svg
@@ -224,26 +133,31 @@ function TerminalIcon() {
   );
 }
 
-function QueueActionButton({
-  ariaLabel,
-  onClick,
-  children,
-}: {
-  ariaLabel: string;
-  onClick?: () => void;
-  children: ReactNode;
-}) {
+const QUEUE_GHOST_BUTTON_CLASS_NAME =
+  "no-drag cursor-interaction inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-transparent text-token-text-tertiary select-none electron:rounded-md enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background focus:outline-none focus-visible:ring-2 focus-visible:ring-token-focus focus-visible:ring-offset-0 disabled:cursor-default disabled:opacity-40";
+const QUEUE_MENU_ICON_CLASS_NAME =
+  "icon-xs text-token-foreground opacity-75 group-focus:opacity-100 group-hover:opacity-100";
+
+const QueueActionButton = forwardRef<
+  HTMLButtonElement,
+  Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label"> & { ariaLabel: string }
+>(function QueueActionButton({ ariaLabel, className, children, ...buttonProps }, ref) {
   return (
     <button
+      {...buttonProps}
+      ref={ref}
       type="button"
       aria-label={ariaLabel}
-      className="inline-flex size-6 items-center justify-center rounded-md text-token-input-placeholder-foreground transition-colors hover:bg-token-foreground/5 hover:text-token-foreground focus-visible:outline-none"
-      onClick={onClick}
+      className={cn(
+        QUEUE_GHOST_BUTTON_CLASS_NAME,
+        "flex items-center justify-center p-0.5 electron:p-1 electron:[&>svg]:icon-sm [&>svg]:icon-2xs",
+        className,
+      )}
     >
       {children}
     </button>
   );
-}
+});
 
 function ComposerGhostIconButton({
   ariaLabel,
@@ -266,21 +180,24 @@ function ComposerGhostIconButton({
   );
 }
 
-function QueueSteerActionButton({
+function QueueLabelActionButton({
   ariaLabel,
   onClick,
+  disabled = false,
   children,
 }: {
   ariaLabel: string;
   onClick?: () => void;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
-      className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-token-foreground/5 px-2 py-1 text-size-chat text-token-foreground transition-colors hover:bg-token-foreground/10 focus-visible:outline-none"
+      className={cn(QUEUE_GHOST_BUTTON_CLASS_NAME, "px-2 py-0.5 text-sm leading-[18px]")}
       aria-label={ariaLabel}
       onClick={onClick}
+      disabled={disabled}
     >
       {children}
     </button>
@@ -375,10 +292,23 @@ function PendingSteerTooltipContent() {
 }
 
 function QueuedFollowUpTooltipContent() {
+  return <>Submit without interrupting the model</>;
+}
+
+function FailedQueuedFollowUpWarningTooltipContent() {
   return (
-    <div className="space-y-1 text-center">
-      <p>Submit without interrupting the model</p>
-      <p className="text-token-description-foreground">After next model tool call</p>
+    <div className="max-w-sm space-y-1 text-center whitespace-normal">
+      <p>This queued message could not be sent</p>
+      <p className="opacity-65">Retry, edit, or delete it to continue the queue</p>
+    </div>
+  );
+}
+
+function FailedQueuedFollowUpRetryTooltipContent() {
+  return (
+    <div className="max-w-sm space-y-1 text-center whitespace-normal">
+      <p>Try sending this queued message again</p>
+      <p className="opacity-65">Edit or delete it if retry keeps failing</p>
     </div>
   );
 }
@@ -386,17 +316,21 @@ function QueuedFollowUpTooltipContent() {
 function PendingSteerRow({ row }: { row: ThreadComposerShellPendingSteerRowModel }) {
   return (
     <div className="flex min-w-0 items-center justify-between gap-2 py-0.5 text-sm">
-      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-        <SteerIcon className="text-token-input-placeholder-foreground/70" />
-        <span className="line-clamp-2 min-w-0 flex-1 leading-4 text-token-description-foreground">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className="flex h-4 shrink-0 items-center justify-center">
+          <QueueSteerIcon className="text-token-text-tertiary/70" />
+        </span>
+        <span className="text-size-chat line-clamp-2 min-w-0 flex-1 leading-4 text-token-foreground">
           {row.displayText}
         </span>
-      </span>
-      <NodexTooltip tooltipContent={<PendingSteerTooltipContent />}>
-        <QueueActionButton ariaLabel="Why this steer is pending">
-          <InfoIcon />
-        </QueueActionButton>
-      </NodexTooltip>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <NodexTooltip tooltipContent={<PendingSteerTooltipContent />}>
+          <QueueActionButton ariaLabel="Why this steer is pending">
+            <QueuePendingInfoIcon />
+          </QueueActionButton>
+        </NodexTooltip>
+      </div>
     </div>
   );
 }
@@ -406,11 +340,13 @@ function QueuedFollowUpRow({
   actions,
   isQueueingEnabled,
   threadId,
+  canDrag,
 }: {
   row: ThreadComposerShellQueuedFollowUpRowModel;
   actions: ThreadStageActions;
   isQueueingEnabled: boolean;
   threadId: string;
+  canDrag: boolean;
 }) {
   const {
     attributes,
@@ -420,7 +356,9 @@ function QueuedFollowUpRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: row.followUpId });
+  } = useSortable({ id: row.followUpId, disabled: !canDrag });
+  const isFailed = row.pauseKind === "failed";
+  const disabled = row.isInFlight === true;
 
   return (
     <motion.div
@@ -436,56 +374,97 @@ function QueuedFollowUpRow({
       className="overflow-visible"
     >
       <div
+        data-queued-follow-up-row={row.followUpId}
         className={cn(
           "group flex min-w-0 items-center justify-between gap-2 py-0.5 text-sm",
-          isDragging && "opacity-60",
+          (isDragging || disabled) && "opacity-60",
         )}
       >
-        <span
-          ref={setActivatorNodeRef}
-          className="relative flex h-4 cursor-grab items-center justify-center active:cursor-grabbing"
-          {...attributes}
-          {...listeners}
-        >
-          <QueuedMessageReorderGripIcon
-            className={cn(
-              "icon-2xs text-token-input-placeholder-foreground/70 pointer-events-none absolute right-full top-1/2 -mr-0.5 -translate-y-1/2 transition-opacity",
-              isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="flex h-4 shrink-0 items-center justify-center">
+            {canDrag ? (
+              <span
+                ref={setActivatorNodeRef}
+                className="relative -ms-3 flex h-4 cursor-grab items-center justify-center ps-3 active:cursor-grabbing"
+                {...attributes}
+                {...listeners}
+              >
+                <SidebarManualOrderIcon
+                  className={cn(
+                    "icon-2xs text-token-text-tertiary/70 pointer-events-none absolute start-0 top-1/2 -translate-y-1/2 transition-opacity",
+                    isDragging ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                  )}
+                />
+                <QueuedFollowUpIcon className="text-token-text-tertiary/70" />
+              </span>
+            ) : (
+              <QueuedFollowUpIcon className="text-token-text-tertiary/70" />
             )}
-          />
-          <QueueLaneHandleIcon />
-        </span>
-        <span className="line-clamp-2 min-w-0 flex-1 leading-4 text-token-description-foreground">
-          {row.displayText}
-        </span>
+          </span>
+          <div className="min-w-0 flex-1 leading-4">
+            <div className="flex min-w-0 items-start gap-1.5">
+              {isFailed ? (
+                <NodexTooltip tooltipContent={<FailedQueuedFollowUpWarningTooltipContent />}>
+                  <span className="mt-0.5 inline-flex shrink-0" aria-label="Queue delivery failed">
+                    <QueueFailureIcon className="text-[var(--color-text-warning)]" />
+                  </span>
+                </NodexTooltip>
+              ) : null}
+              {row.imagePreviewSource ? (
+                <img
+                  src={row.imagePreviewSource}
+                  alt="Image attachment"
+                  draggable={false}
+                  className="composer-attachment-surface size-6 shrink-0 rounded border border-strong object-cover"
+                />
+              ) : null}
+              <span className="text-size-chat line-clamp-1 max-h-lh min-w-0 self-center leading-5 whitespace-pre-wrap text-token-foreground">
+                {row.displayText || "Queued follow-up"}
+              </span>
+            </div>
+          </div>
+        </div>
+        {disabled ? <ActivitySpinnerIcon className="icon-2xs shrink-0" /> : null}
         <div className="flex shrink-0 items-center gap-1">
           <NodexTooltip
             side="top"
-            tooltipContent={<QueuedFollowUpTooltipContent />}
+            tooltipContent={
+              isFailed ? (
+                <FailedQueuedFollowUpRetryTooltipContent />
+              ) : (
+                <QueuedFollowUpTooltipContent />
+              )
+            }
             tooltipBodyClassName="max-w-80 text-center whitespace-normal leading-snug"
           >
-            <QueueSteerActionButton
-              ariaLabel="Steer"
+            <QueueLabelActionButton
+              ariaLabel={
+                isFailed
+                  ? "Try sending this queued message again"
+                  : "Submit without interrupting the model"
+              }
+              disabled={disabled}
               onClick={() => {
                 void actions.onSendQueuedFollowUpNow(threadId, row.followUpId);
               }}
             >
-              <SteerIcon />
-              <span>Steer</span>
-            </QueueSteerActionButton>
+              <QueueSteerIcon />
+              <span>{isFailed ? "Retry" : "Steer"}</span>
+            </QueueLabelActionButton>
           </NodexTooltip>
           <QueueActionButton
             ariaLabel="Delete queued message"
+            disabled={disabled}
             onClick={() => {
               void actions.onRemoveQueuedFollowUp(threadId, row.followUpId);
             }}
           >
-            <TrashIcon />
+            <GoalTrashIcon className="icon-2xs" />
           </QueueActionButton>
           <NodexDropdownMenu
             triggerButton={
-              <QueueActionButton ariaLabel="Queued message actions">
-                <MoreIcon />
+              <QueueActionButton ariaLabel="Queued message actions" disabled={disabled}>
+                <AutomationMoreIcon className="icon-2xs" />
               </QueueActionButton>
             }
             side="top"
@@ -493,26 +472,42 @@ function QueuedFollowUpRow({
             contentWidth="xs"
           >
             <NodexDropdownItem
+              disabled={disabled}
               onSelect={() => {
                 void actions.onEditQueuedFollowUp({
                   threadId,
                   followUpId: row.followUpId,
                   prompt: row.prompt,
                   promptInput: row.promptInput,
+                  ledgerRevision: row.ledgerRevision,
                 });
               }}
-              leftSlot={<EditIcon />}
+              leftSlot={<GoalEditIcon className={QUEUE_MENU_ICON_CLASS_NAME} />}
             >
               Edit message
             </NodexDropdownItem>
+            {actions.onOpenSideChat ? (
+              <NodexDropdownItem
+                disabled={disabled}
+                onSelect={() => {
+                  void actions.onOpenSideChat?.({
+                    kind: "submit",
+                    prompt: row.prompt,
+                    promptInput: row.promptInput,
+                  });
+                }}
+                leftSlot={<SidePanelSideChatIcon className={QUEUE_MENU_ICON_CLASS_NAME} />}
+              >
+                Open in side chat
+              </NodexDropdownItem>
+            ) : null}
             <NodexDropdownItem
-              disabled={!isQueueingEnabled}
               onSelect={() => {
-                actions.onQueueingEnabledChange(false);
+                actions.onQueueingEnabledChange(!isQueueingEnabled);
               }}
-              leftSlot={<QueueLaneHandleIcon className="icon-2xs" />}
+              leftSlot={<QueuedFollowUpIcon className={QUEUE_MENU_ICON_CLASS_NAME} />}
             >
-              Turn off queueing
+              {isQueueingEnabled ? "Turn off queueing" : "Turn on queueing"}
             </NodexDropdownItem>
           </NodexDropdownMenu>
         </div>
@@ -533,6 +528,11 @@ function QueuePanel({
   const threadId = model.threadId;
   const pendingSteerRows = model.composerShell.pendingSteerRows;
   const queuedFollowUpRows = model.composerShell.queuedFollowUpRows;
+  const queueStatus = model.composerShell.queuedFollowUpStatus ?? "ready";
+  const queueError = model.composerShell.queuedFollowUpError ?? null;
+  const hasInterruptedRows = queuedFollowUpRows.some((row) => row.pauseKind === "interrupted");
+  const hasInFlightRow = queuedFollowUpRows.some((row) => row.isInFlight === true);
+  const [isResumePending, setResumePending] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -541,13 +541,17 @@ function QueuePanel({
     }),
   );
 
-  if (!threadId || (pendingSteerRows.length === 0 && queuedFollowUpRows.length === 0)) {
+  if (
+    !threadId ||
+    (queueStatus === "ready" && pendingSteerRows.length === 0 && queuedFollowUpRows.length === 0)
+  ) {
     return null;
   }
 
   const queuedFollowUpIds = queuedFollowUpRows.map((entry) => entry.followUpId);
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (hasInFlightRow) return;
     const overId = event.over?.id;
     if (!overId) {
       return;
@@ -571,9 +575,65 @@ function QueuePanel({
     );
   };
 
+  const handleResume = async () => {
+    if (!actions.onResumeQueuedFollowUps || isResumePending) return;
+    setResumePending(true);
+    try {
+      await actions.onResumeQueuedFollowUps(threadId);
+    } catch (error) {
+      toast.danger(error instanceof Error ? error.message : "Could not resume the queue", {
+        id: "queued-follow-up-resume-failed",
+      });
+    } finally {
+      setResumePending(false);
+    }
+  };
+
   return (
     <ComposerShellCard showRoundedTop={showRoundedTop}>
-      <div className="vertical-scroll-fade-mask flex max-h-[30dvh] flex-col gap-px overflow-y-auto px-5 py-row-y">
+      <div className="vertical-scroll-fade-mask hide-scrollbar flex max-h-[30dvh] flex-col gap-px overflow-x-hidden overflow-y-auto px-3 py-row-y">
+        {hasInterruptedRows ? (
+          <>
+            <div className="group flex min-w-0 items-center justify-between gap-2 py-0.5 text-sm">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                <span className="flex h-4 shrink-0 items-center justify-center">
+                  <QueuePauseIcon className="text-token-text-tertiary/70" />
+                </span>
+                <div className="text-size-chat min-w-0 flex-1 leading-4 text-token-foreground">
+                  Queue paused because you interrupted
+                </div>
+              </div>
+              <QueueLabelActionButton
+                ariaLabel="Resume"
+                disabled={isResumePending || !actions.onResumeQueuedFollowUps}
+                onClick={() => void handleResume()}
+              >
+                {isResumePending ? (
+                  <ActivitySpinnerIcon className="icon-2xs shrink-0" />
+                ) : (
+                  <ComposerResumeIcon className="icon-2xs shrink-0" />
+                )}
+                <span>Resume</span>
+              </QueueLabelActionButton>
+            </div>
+            <div className="border-t border-subtle" aria-hidden="true" />
+          </>
+        ) : null}
+        {queueStatus === "loading" ? (
+          <div
+            className="semantic-text-secondary flex items-center gap-2 py-1 text-sm"
+            role="status"
+          >
+            <ActivitySpinnerIcon className="icon-2xs" />
+            <span>Loading queued messages…</span>
+          </div>
+        ) : null}
+        {queueStatus === "error" ? (
+          <div className="flex items-start gap-2 py-1 text-sm text-danger" role="alert">
+            <QueueFailureIcon />
+            <span>{queueError || "Queued messages could not be loaded"}</span>
+          </div>
+        ) : null}
         {pendingSteerRows.map((row) => (
           <PendingSteerRow key={row.steerId} row={row} />
         ))}
@@ -592,6 +652,7 @@ function QueuePanel({
                   actions={actions}
                   isQueueingEnabled={model.isQueueingEnabled}
                   threadId={threadId}
+                  canDrag={queuedFollowUpRows.length > 1 && !hasInFlightRow}
                 />
               ))}
             </AnimatePresence>

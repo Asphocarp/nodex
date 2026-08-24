@@ -20,6 +20,7 @@ import { CodexConversationRelationships } from "./CodexConversationRelationships
 import { CodexFreshThreadLaunchRuntime } from "./CodexFreshThreadLaunchRuntime";
 import { CodexOwnerNotificationDrainRuntime } from "./CodexOwnerNotificationDrainRuntime";
 import { CodexPostResumeGoalRuntime } from "./CodexPostResumeGoalRuntime";
+import { CodexQueuedFollowUps } from "./CodexQueuedFollowUps";
 import { CodexRendererConversationCoordinator } from "./CodexRendererConversationCoordinator";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { CodexThreadDirectory } from "./CodexThreadDirectory";
@@ -49,6 +50,7 @@ export interface CodexConversationResumeRendererState {
   readonly resumeState: CodexConversationResumeState | null;
   readonly revision: number;
   readonly serializedConversation: CodexConversationSnapshot | null;
+  readonly threadGeneration: number | null;
 }
 
 export class CodexConversationResumeRuntime extends Context.Service<
@@ -94,7 +96,7 @@ const invalidIdentity = (kind: "renderer client" | "Thread"): CodexConversationR
 
 const unavailableReplica = (
   threadId: string,
-  role: "follower" | "owner",
+  role: "follower" | "owner" | "generation",
 ): CodexConversationResumeError =>
   new CodexConversationResumeError({
     cause: new Error(`Accepted ${role} replica is unavailable for '${threadId}'`),
@@ -109,6 +111,7 @@ export const make: Effect.Effect<
   | CodexFreshThreadLaunchRuntime
   | CodexOwnerNotificationDrainRuntime
   | CodexPostResumeGoalRuntime
+  | CodexQueuedFollowUps
   | CodexRendererConversationCoordinator
   | CodexRendererConversationRegistry
   | CodexThreadDirectory
@@ -121,6 +124,7 @@ export const make: Effect.Effect<
   const freshThreadLaunch = yield* CodexFreshThreadLaunchRuntime;
   const ownerNotificationDrain = yield* CodexOwnerNotificationDrainRuntime;
   const postResumeGoals = yield* CodexPostResumeGoalRuntime;
+  const queuedFollowUps = yield* CodexQueuedFollowUps;
   const rendererCoordinator = yield* CodexRendererConversationCoordinator;
   const rendererRegistry = yield* CodexRendererConversationRegistry;
   const threadDirectory = yield* CodexThreadDirectory;
@@ -166,6 +170,9 @@ export const make: Effect.Effect<
     const threadId = demand.threadId.trim();
     if (!threadId) return yield* invalidIdentity("Thread");
     const aggregate = conversations.entity(threadId);
+    const hydrateQueue = queuedFollowUps
+      .read(threadId)
+      .pipe(Effect.mapError((cause) => new CodexConversationResumeError({ cause })));
     const current = aggregate.readSnapshot();
     if (current && (aggregate.readResumeState() !== "needs_resume" || aggregate.isStreaming())) {
       const hadBuffer = protocol.hasResume(threadId);
@@ -176,6 +183,7 @@ export const make: Effect.Effect<
           postResumeGoals.request(threadId, revision);
         }
       }
+      yield* hydrateQueue;
       return aggregate.readSnapshot();
     }
 
@@ -188,6 +196,7 @@ export const make: Effect.Effect<
         .pipe(Effect.mapError((cause) => new CodexConversationResumeError({ cause })));
       const archivedAggregate = conversations.current(threadId);
       archivedAggregate?.setResumeState("needs_resume");
+      yield* hydrateQueue;
       rendererCoordinator.reconcileOwnership(threadId);
       return archivedAggregate?.readSnapshot() ?? archived?.snapshot ?? null;
     }
@@ -216,6 +225,7 @@ export const make: Effect.Effect<
       return null;
     }
     aggregate.setResumeState("resumed");
+    yield* hydrateQueue;
     if (demand.replayBufferedNotifications) {
       yield* releasePhysical(threadId);
       const revision = aggregate.read().revision;
@@ -346,9 +356,13 @@ export const make: Effect.Effect<
   ): Effect.Effect<CodexRendererConversationResumeResult | null, CodexConversationResumeError> => {
     if (!state.acceptedConversation) return Effect.succeed(null);
     if (!state.checkpoint) return Effect.fail(unavailableReplica(threadId, "follower"));
+    if (state.threadGeneration === null) {
+      return Effect.fail(unavailableReplica(threadId, "generation"));
+    }
     return Effect.succeed({
       role: "follower",
       conversation: state.acceptedConversation,
+      threadGeneration: state.threadGeneration,
       revision: state.revision,
       ownerClientId,
       checkpoint: state.checkpoint,
@@ -441,9 +455,13 @@ export const make: Effect.Effect<
         if (!adoption.checkpoint) {
           return yield* Effect.fail(unavailableReplica(threadId, "owner"));
         }
+        if (adoption.threadGeneration === null) {
+          return yield* Effect.fail(unavailableReplica(threadId, "generation"));
+        }
         return {
           role: "owner",
           conversation: resumed,
+          threadGeneration: adoption.threadGeneration,
           revision: adoption.revision,
           checkpoint: adoption.checkpoint,
         };
