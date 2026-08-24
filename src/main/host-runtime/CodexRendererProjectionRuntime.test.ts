@@ -5,13 +5,21 @@ import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
-import type { CodexApplicationEvent } from "../codex-application/CodexApplicationEventHub";
-import type { CodexRendererConversationCoordinator } from "../codex-application/CodexRendererConversationCoordinator";
+import {
+  CodexApplicationEventHub,
+  type CodexApplicationEvent,
+} from "../codex-application/CodexApplicationEventHub";
+import { CodexFreshThreadLaunchRuntime } from "../codex-application/CodexFreshThreadLaunchRuntime";
+import { CodexRendererConversationCoordinator } from "../codex-application/CodexRendererConversationCoordinator";
+import { CodexRendererConversationRegistry } from "../codex-application/CodexRendererConversationRegistry";
+import { CodexUserInputAutoResolution } from "../codex-application/CodexUserInputAutoResolution";
 import type {
   RendererClientEvent,
   RendererClientRuntimeService,
 } from "../codex/renderer-client-runtime-contracts";
 import { live } from "./CodexRendererProjectionRuntime";
+import { RendererClientRuntime } from "./RendererClientRuntime";
+import { WindowRuntime } from "../window-runtime/WindowRuntime";
 
 it.effect("releases Codex projection and renderer-client subscriptions with the Main Scope", () =>
   Effect.gen(function* () {
@@ -31,34 +39,42 @@ it.effect("releases Codex projection and renderer-client subscriptions with the 
     } as unknown as RendererClientRuntimeService;
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      live({
-        coordinator,
-        events: {
-          events: Stream.fromPubSub(applicationEvents),
-          publish: (event) => {
-            PubSub.publishUnsafe(applicationEvents, event);
-          },
-        },
-        freshThreadLaunch: { releaseRenderer: () => undefined } as never,
-        registry: { getFollowerClientIds: () => null } as never,
-        rendererClients,
-        userInputAutoResolution: {
-          changes: Stream.fromPubSub(autoResolutionChanges),
-        } as never,
-        windows: {
-          all: () => [
-            {
-              isDestroyed: () => false,
-              webContents: {
-                isDestroyed: () => false,
-                send: (channel: string, change: unknown) => {
-                  projectedChanges.push([channel, change]);
-                },
+      live.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeed(CodexRendererConversationCoordinator, coordinator),
+            Layer.succeed(CodexApplicationEventHub, {
+              events: Stream.fromPubSub(applicationEvents),
+              publish: (event: CodexApplicationEvent) => {
+                PubSub.publishUnsafe(applicationEvents, event);
               },
-            },
-          ],
-        } as never,
-      }),
+            } as never),
+            Layer.succeed(CodexFreshThreadLaunchRuntime, {
+              releaseRenderer: () => undefined,
+            } as never),
+            Layer.succeed(CodexRendererConversationRegistry, {
+              getFollowerClientIds: () => null,
+            } as never),
+            Layer.succeed(RendererClientRuntime, rendererClients),
+            Layer.succeed(CodexUserInputAutoResolution, {
+              changes: Stream.fromPubSub(autoResolutionChanges),
+            } as never),
+            Layer.succeed(WindowRuntime, {
+              all: () => [
+                {
+                  isDestroyed: () => false,
+                  webContents: {
+                    isDestroyed: () => false,
+                    send: (channel: string, change: unknown) => {
+                      projectedChanges.push([channel, change]);
+                    },
+                  },
+                },
+              ],
+            } as never),
+          ),
+        ),
+      ),
       scope,
     );
 

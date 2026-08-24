@@ -43,14 +43,12 @@ import {
   make as makeCodexBackgroundProcesses,
 } from "../codex-application/CodexBackgroundProcesses";
 import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
-import { CodexAppProtocolTools } from "../codex-application/CodexAppProtocolTools";
 import { CodexServerRequestResponses } from "../codex-application/CodexServerRequestResponses";
 import { CodexTurnCommands } from "../codex-application/CodexTurnCommands";
 import { CodexSideChatCommands } from "../codex-application/CodexSideChatCommands";
 import { CodexSessionThreadLaunch } from "../codex-application/CodexSessionThreadLaunch";
 import { CodexProjectSessionFork } from "../codex-application/CodexProjectSessionFork";
 import { CodexRendererConversationRegistry } from "../codex-application/CodexRendererConversationRegistry";
-import { CodexRendererConversationCoordinator } from "../codex-application/CodexRendererConversationCoordinator";
 import { CodexRendererOwnerCommands } from "../codex-application/CodexRendererOwnerCommands";
 import { CodexSidebarSyncRuntime } from "../codex-application/CodexSidebarSyncRuntime";
 import { CodexThreadCatalog } from "../codex-application/CodexThreadCatalog";
@@ -74,7 +72,6 @@ import { CodexThreadGoalRuntime } from "../codex-application/CodexThreadGoalRunt
 import { CodexManualCompactionRuntime } from "../codex-application/CodexManualCompactionRuntime";
 import { CodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
 import { CodexThreadTitlePersistence } from "../codex-application/CodexThreadTitlePersistence";
-import { CodexUserInputAutoResolution } from "../codex-application/CodexUserInputAutoResolution";
 import { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
 import { CodexThreadStartNotificationGate } from "../codex-application/CodexThreadStartNotificationGate";
 import {
@@ -91,7 +88,6 @@ import * as ApplicationLocalStateIpc from "../ipc/handlers/ApplicationLocalState
 import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc";
 import * as AutomationIpc from "../ipc/handlers/AutomationIpc";
 import * as CodexPendingWorktreeIpc from "../ipc/handlers/CodexPendingWorktreeIpc";
-import * as CodexRendererIpc from "../ipc/handlers/CodexRendererIpc";
 import * as CoreDocumentIpc from "../ipc/handlers/CoreDocumentIpc";
 import * as CoreMutationIpc from "../ipc/handlers/CoreMutationIpc";
 import * as DatabaseProjectionIpc from "../ipc/handlers/DatabaseProjectionIpc";
@@ -126,7 +122,6 @@ import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 import { DictationRuntime } from "../host-runtime/DictationRuntime";
 import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntime";
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
-import { live as codexRendererProjectionRuntimeLive } from "../host-runtime/CodexRendererProjectionRuntime";
 import {
   ReminderSchedulerRuntime,
   live as reminderSchedulerRuntimeLive,
@@ -282,14 +277,6 @@ export const live: Layer.Layer<
           CodexRendererConversationRegistry,
         );
         const threadReadState = Context.get(applicationKernelContext, CodexThreadReadState);
-        const userInputAutoResolution = Context.get(
-          applicationKernelContext,
-          CodexUserInputAutoResolution,
-        );
-        const rendererConversationCoordinator = Context.get(
-          applicationKernelContext,
-          CodexRendererConversationCoordinator,
-        );
         const serverRequestResponses = Context.get(
           applicationKernelContext,
           CodexServerRequestResponses,
@@ -395,7 +382,6 @@ export const live: Layer.Layer<
         );
         const sideChatCommands = Context.get(applicationKernelContext, CodexSideChatCommands);
         const sessionThreadLaunch = Context.get(applicationKernelContext, CodexSessionThreadLaunch);
-        const codexAppProtocolTools = Context.get(applicationKernelContext, CodexAppProtocolTools);
         const conversationResume = Context.get(
           applicationKernelContext,
           CodexConversationResumeRuntime,
@@ -535,39 +521,6 @@ export const live: Layer.Layer<
           Stream.runForEach(() => Effect.sync(sidebarSync.invalidate)),
           Effect.forkIn(runtimeScope),
           Effect.asVoid,
-        );
-        yield* Layer.buildWithScope(
-          codexRendererProjectionRuntimeLive({
-            coordinator: rendererConversationCoordinator,
-            events: codexApplicationEvents,
-            freshThreadLaunch,
-            registry: rendererConversations,
-            rendererClients,
-            userInputAutoResolution,
-            windows,
-          }),
-          runtimeScope,
-        );
-        yield* Layer.buildWithScope(
-          CodexRendererIpc.live({
-            rendererClients,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(
-                  CodexRendererConversationCoordinator,
-                  rendererConversationCoordinator,
-                ),
-                Layer.succeed(CodexAppProtocolTools, codexAppProtocolTools),
-                Layer.succeed(CodexRendererConversationRegistry, rendererConversations),
-                Layer.succeed(CodexUserInputAutoResolution, userInputAutoResolution),
-                Layer.succeed(MainConfig, config),
-                Layer.succeed(WindowRuntime, windows),
-              ),
-            ),
-          ),
-          runtimeScope,
         );
         yield* Layer.buildWithScope(
           CodexPendingWorktreeIpc.live.pipe(
