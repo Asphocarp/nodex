@@ -17,6 +17,8 @@ Whole-Block selection visuals follow that authoritative editor selection and use
 
 Ordinary text ranges use the editor's semantic translucent-blue selection paint in both light and dark appearances. The source color remains alpha-based so it composes with the active surface instead of assuming a light background.
 
+An open character-scoped picker, such as Link or Color, retains that inline paint. An open Block-scoped picker, such as Send to chat or Move to, instead projects the retained target through the same whole-Block fill used by the side menu and suppresses both native and retained inline paint. The underlying text range is left intact so the formatting toolbar remains mounted, while the command and its presentation share one frozen Block-ID target until the picker closes.
+
 An inline Page context has a separate quiet boundary halo. The halo is visible while the Page itself is selected or while the active caret or Block selection is inside its title or body; nested Page contexts show the halo on every containing Page. Moving the active selection outside the context hides the halo. Context halos never imply that their descendant Blocks are selected.
 
 Core normalizes the selection in current Document order. A selected descendant is omitted when its selected ancestor already contains it; owned descendants are still discovered while Core expands the ancestor's complete ownership closure. A stale root, causal-head mismatch, authorization failure, or protected primary Database rejects the whole operation before content changes.

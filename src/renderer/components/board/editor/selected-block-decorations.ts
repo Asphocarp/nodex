@@ -10,6 +10,7 @@ import {
   EMBEDDED_EDITOR_SELECTION_CONTEXT_ATTRIBUTE,
   releaseEditorSelectionSurface,
 } from "@/lib/editor-selection-presentation";
+import { resolveTopLevelDraggedBlocks } from "./dragged-block-roots";
 
 const BLOCK_CONTAINER_TYPE = "blockContainer";
 const pluginKey = new PluginKey<DecorationSet>("nodex-selected-blocks");
@@ -18,11 +19,12 @@ export const SELECTED_BLOCK_CLASS = "nodex-selected-block";
 export const SELECTED_BLOCK_CONTENT_ATTRIBUTE = "data-nodex-selected-block-content";
 export const SELECTED_BLOCK_SCOPE_ATTRIBUTE = "data-nodex-selected-block-scope";
 export const BLOCK_SELECTION_PRESENTATION_ATTRIBUTE = "data-nodex-block-selection-presentation";
+export const BLOCK_ACTION_SELECTION_PRESENTATION_ATTRIBUTE = "data-nodex-block-action-selection";
 
 const EDITOR_SELECTION_SURFACE_SELECTOR = `[${EDITOR_SELECTION_SURFACE_ATTRIBUTE}]`;
 const EMBEDDED_EDITOR_SELECTION_CONTEXT_SELECTOR = `[${EMBEDDED_EDITOR_SELECTION_CONTEXT_ATTRIBUTE}]`;
 
-export type SelectedBlockDecorationKind = "structural" | "atomic-range";
+export type SelectedBlockDecorationKind = "structural" | "atomic-range" | "block-action";
 
 export interface SelectedBlockDecorationRange {
   readonly from: number;
@@ -50,7 +52,25 @@ function getStructurallySelectedNodes(selection: Selection): ReadonlySet<Node> {
 export function collectSelectedBlockDecorationRanges(
   doc: Node,
   selection: Selection,
+  blockActionIds: ReadonlySet<string> = new Set(),
 ): SelectedBlockDecorationRange[] {
+  if (blockActionIds.size > 0) {
+    const ranges: SelectedBlockDecorationRange[] = [];
+    doc.descendants((node, pos) => {
+      if (node.type.name !== BLOCK_CONTAINER_TYPE) return true;
+      const blockId = node.attrs.id;
+      if (typeof blockId !== "string" || !blockActionIds.has(blockId)) return true;
+
+      ranges.push({
+        from: pos,
+        to: pos + node.nodeSize,
+        kind: "block-action",
+      });
+      return false;
+    });
+    return ranges;
+  }
+
   if (selection.empty) return [];
 
   const from = Math.min(selection.from, selection.to);
@@ -85,8 +105,12 @@ export function collectSelectedBlockDecorationRanges(
   return ranges;
 }
 
-function buildSelectedBlockDecorationSet(doc: Node, selection: Selection): DecorationSet {
-  const ranges = collectSelectedBlockDecorationRanges(doc, selection);
+function buildSelectedBlockDecorationSet(
+  doc: Node,
+  selection: Selection,
+  blockActionIds: ReadonlySet<string>,
+): DecorationSet {
+  const ranges = collectSelectedBlockDecorationRanges(doc, selection, blockActionIds);
   if (ranges.length === 0) return DecorationSet.empty;
 
   return DecorationSet.create(
@@ -95,7 +119,7 @@ function buildSelectedBlockDecorationSet(doc: Node, selection: Selection): Decor
       const blockContainer = doc.nodeAt(range.from);
       const blockContent = blockContainer?.firstChild;
       const scope =
-        range.kind === "structural" && blockContainer?.lastChild?.type.name === "blockGroup"
+        range.kind !== "atomic-range" && blockContainer?.lastChild?.type.name === "blockGroup"
           ? "subtree"
           : "content";
       const blockDecoration = Decoration.node(
@@ -124,12 +148,34 @@ function buildSelectedBlockDecorationSet(doc: Node, selection: Selection): Decor
   );
 }
 
-export function selectedBlockDecorationsExtension() {
-  return createExtension({
+export const SelectedBlockDecorationsExtension = createExtension(({ editor }) => {
+  const blockActionIdsByOwner = new Map<string, readonly string[]>();
+  const mountedEditorDoms = new Set<HTMLElement>();
+
+  const getBlockActionIds = (): ReadonlySet<string> => {
+    const candidateIds = Array.from(new Set(Array.from(blockActionIdsByOwner.values()).flat()));
+    return new Set(resolveTopLevelDraggedBlocks(editor, candidateIds).map((block) => block.id));
+  };
+
+  const syncMountedPresentation = () => {
+    const active = getBlockActionIds().size > 0;
+    for (const dom of mountedEditorDoms) {
+      dom.toggleAttribute(BLOCK_ACTION_SELECTION_PRESENTATION_ATTRIBUTE, active);
+    }
+  };
+
+  const refreshDecorations = () => {
+    syncMountedPresentation();
+    editor.transact((transaction) => transaction.setMeta(pluginKey, {}));
+  };
+
+  return {
     key: "selected-block-decorations",
     mount({ dom }) {
+      mountedEditorDoms.add(dom);
       dom.setAttribute(BLOCK_SELECTION_PRESENTATION_ATTRIBUTE, "");
       dom.setAttribute(EDITOR_SELECTION_SURFACE_ATTRIBUTE, "");
+      syncMountedPresentation();
       const root = dom.getRootNode();
 
       const handleSelectionPresentationIntent = (event: Event) => {
@@ -154,9 +200,11 @@ export function selectedBlockDecorationsExtension() {
       }
 
       return () => {
+        mountedEditorDoms.delete(dom);
         dom.removeEventListener("focusin", handleSelectionPresentationIntent);
         dom.removeEventListener("pointerdown", handleSelectionPresentationIntent);
         releaseEditorSelectionSurface(dom);
+        dom.removeAttribute(BLOCK_ACTION_SELECTION_PRESENTATION_ATTRIBUTE);
         dom.removeAttribute(ACTIVE_EDITOR_SELECTION_SURFACE_ATTRIBUTE);
         dom.removeAttribute(EDITOR_SELECTION_SURFACE_ATTRIBUTE);
         dom.removeAttribute(BLOCK_SELECTION_PRESENTATION_ATTRIBUTE);
@@ -166,12 +214,21 @@ export function selectedBlockDecorationsExtension() {
       new Plugin({
         key: pluginKey,
         state: {
-          init: (_config, state) => buildSelectedBlockDecorationSet(state.doc, state.selection),
+          init: (_config, state) =>
+            buildSelectedBlockDecorationSet(state.doc, state.selection, getBlockActionIds()),
           apply: (transaction, previousDecorations, _oldState, newState) => {
-            if (!transaction.docChanged && !transaction.selectionSet) {
+            if (
+              !transaction.docChanged &&
+              !transaction.selectionSet &&
+              transaction.getMeta(pluginKey) === undefined
+            ) {
               return previousDecorations;
             }
-            return buildSelectedBlockDecorationSet(newState.doc, newState.selection);
+            return buildSelectedBlockDecorationSet(
+              newState.doc,
+              newState.selection,
+              getBlockActionIds(),
+            );
           },
         },
         props: {
@@ -181,5 +238,47 @@ export function selectedBlockDecorationsExtension() {
         },
       }),
     ],
-  });
-}
+    /**
+     * Retains the current command target as whole Blocks without changing the
+     * underlying text range used by the open formatting-toolbar workflow.
+     */
+    showSelectionAsBlocks(
+      shouldShow: boolean,
+      owner: string,
+      selectedBlockIds?: readonly string[],
+    ) {
+      if (!shouldShow) {
+        if (!blockActionIdsByOwner.delete(owner)) return;
+        refreshDecorations();
+        return;
+      }
+
+      const candidateIds =
+        selectedBlockIds ??
+        editor
+          .getSelection()
+          ?.blocks.map((block) => block.id)
+          .filter((blockId): blockId is string => typeof blockId === "string") ??
+        [];
+      const nextIds = resolveTopLevelDraggedBlocks(editor, candidateIds).map((block) => block.id);
+      if (nextIds.length === 0) {
+        if (!blockActionIdsByOwner.delete(owner)) return;
+        refreshDecorations();
+        return;
+      }
+
+      const previousIds = blockActionIdsByOwner.get(owner);
+      if (
+        previousIds?.length === nextIds.length &&
+        previousIds.every((blockId, index) => blockId === nextIds[index])
+      ) {
+        return;
+      }
+
+      blockActionIdsByOwner.set(owner, nextIds);
+      refreshDecorations();
+    },
+  } as const;
+});
+
+export const selectedBlockDecorationsExtension = SelectedBlockDecorationsExtension;

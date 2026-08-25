@@ -86,6 +86,22 @@ describe("resolveSendBlockSelection", () => {
     expect(JSON.stringify(result.blockIds)).toBe(JSON.stringify(["parent"]));
   });
 
+  test("uses the retained menu target even if the live editor selection later changes", () => {
+    const editor = createEditor([
+      { id: "retained-a", type: "paragraph" },
+      { id: "retained-b", type: "paragraph" },
+      { id: "later", type: "paragraph" },
+    ]);
+    editor.setSelectedIds(["later"]);
+
+    const result = resolveSendBlockSelection(editor, createContainer(), "later", [
+      "retained-a",
+      "retained-b",
+    ]);
+
+    expect(JSON.stringify(result.blockIds)).toBe(JSON.stringify(["retained-a", "retained-b"]));
+  });
+
   test("returns empty when fallback block id does not exist", () => {
     const editor = createEditor([{ id: "one", type: "paragraph" }]);
 

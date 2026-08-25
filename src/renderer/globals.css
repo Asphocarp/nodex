@@ -185,12 +185,26 @@
   position: relative;
 }
 
-[data-nodex-editor-selection-surface] ::selection {
-  background-color: var(--color-background-editor-text-selection);
+[data-nodex-editor-selection-surface] {
+  --nfm-owned-selection-background: var(--color-background-editor-text-selection);
+  --nfm-owned-selection-padding: 2px 0;
 }
 
-[data-nodex-editor-selection-surface].ProseMirror-hideselection ::selection {
-  background-color: transparent;
+[data-nodex-editor-selection-surface]:is(
+  .ProseMirror-hideselection,
+  [data-nodex-block-action-selection]
+) {
+  --nfm-owned-selection-background: transparent;
+  --nfm-owned-selection-padding: 0;
+}
+
+[data-nodex-editor-selection-surface] ::selection,
+[data-nodex-editor-selection-surface] [data-show-selection] {
+  background-color: var(--nfm-owned-selection-background);
+}
+
+[data-nodex-editor-selection-surface] [data-show-selection] {
+  padding: var(--nfm-owned-selection-padding);
 }
 
 /* Interactive editor links use the same compact link treatment as message links. */

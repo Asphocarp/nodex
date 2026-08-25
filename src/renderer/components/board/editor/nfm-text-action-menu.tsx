@@ -13,6 +13,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -88,7 +89,10 @@ import {
   type TextActionNodexRow,
 } from "./nfm-text-action-menu-model";
 import { useNfmTextActionMenuRuntime } from "./nfm-text-action-menu-runtime";
-import { useNfmShowSelection } from "./nfm-show-selection";
+import {
+  useNfmRetainedSelectionPresentation,
+  type NfmRetainedSelectionPresentation,
+} from "./nfm-retained-selection-presentation";
 
 interface TextActionBlockTypeItem {
   key: string;
@@ -101,6 +105,7 @@ interface TextActionBlockTypeItem {
 interface TextActionMenuSnapshot {
   eligible: boolean;
   currentBlockId: string | null;
+  selectedBlockIds: readonly string[];
   currentBlockType: string | null;
   currentBlockTypeLabel: string;
   blockTypeItems: TextActionBlockTypeItem[];
@@ -186,7 +191,7 @@ export interface NfmTextActionMenuSurfaceProps {
   onNodexRow: (row: TextActionNodexRow) => void;
   onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
   onSendBlocksToThread?: (request: NfmSendToThreadRequest) => Promise<void> | void;
-  onSelectionHoldChange?: (active: boolean) => void;
+  onSelectionPresentationChange?: (presentation: NfmRetainedSelectionPresentation) => void;
   renderMoveToMenu?: (props: TextActionMoveToMenuRenderProps) => ReactNode;
   renderSendToThreadMenu?: (props: TextActionSendToThreadMenuRenderProps) => ReactNode;
 }
@@ -374,6 +379,9 @@ function createTextActionMenuSnapshot(editor: TextActionSnapshotEditor): TextAct
       selectionTo: selection.to,
     }),
     currentBlockId: typeof firstSelectedBlock?.id === "string" ? firstSelectedBlock.id : null,
+    selectedBlockIds: selectedBlocks
+      .map((block) => block.id)
+      .filter((blockId): blockId is string => typeof blockId === "string"),
     currentBlockType: typeof firstSelectedBlock?.type === "string" ? firstSelectedBlock.type : null,
     currentBlockTypeLabel: resolveBlockTypeLabel(blockTypeItems),
     blockTypeItems,
@@ -1479,15 +1487,24 @@ export function NfmTextActionMenuSurface({
   onNodexRow,
   onMoveBlocksToDestination,
   onSendBlocksToThread,
-  onSelectionHoldChange,
+  onSelectionPresentationChange,
   renderMoveToMenu,
   renderSendToThreadMenu,
 }: NfmTextActionMenuSurfaceProps) {
   const showAiPane = showReferenceMocks || nodexRows.length > 0;
   const [toolbarFocusWithin, setToolbarFocusWithin] = useState(false);
-  const [actionPopoverOpen, setActionPopoverOpen] = useState(false);
+  const [blockActionPopoverOpen, setBlockActionPopoverOpen] = useState(false);
   const actionPopoverCloseFrameRef = useRef<number | null>(null);
-  const selectionHoldActive = toolbarFocusWithin || actionPopoverOpen;
+  const selectionPresentation: NfmRetainedSelectionPresentation = blockActionPopoverOpen
+    ? "blocks"
+    : toolbarFocusWithin
+      ? "inline"
+      : "none";
+  const reportSelectionPresentation = useEffectEvent(
+    (presentation: NfmRetainedSelectionPresentation) => {
+      onSelectionPresentationChange?.(presentation);
+    },
+  );
 
   useEffect(
     () => () => {
@@ -1497,15 +1514,15 @@ export function NfmTextActionMenuSurface({
     [],
   );
 
-  useEffect(() => {
-    onSelectionHoldChange?.(selectionHoldActive);
-  }, [onSelectionHoldChange, selectionHoldActive]);
+  useLayoutEffect(() => {
+    reportSelectionPresentation(selectionPresentation);
+  }, [selectionPresentation]);
 
-  useEffect(
+  useLayoutEffect(
     () => () => {
-      onSelectionHoldChange?.(false);
+      reportSelectionPresentation("none");
     },
-    [onSelectionHoldChange],
+    [],
   );
 
   const handleToolbarFocusCapture = () => {
@@ -1528,13 +1545,13 @@ export function NfmTextActionMenuSurface({
     }
 
     if (open) {
-      setActionPopoverOpen(true);
+      setBlockActionPopoverOpen(true);
       return;
     }
 
     actionPopoverCloseFrameRef.current = requestAnimationFrame(() => {
       actionPopoverCloseFrameRef.current = null;
-      setActionPopoverOpen(false);
+      setBlockActionPopoverOpen(false);
     });
   }, []);
 
@@ -1690,13 +1707,25 @@ export function NfmTextActionMenu() {
   });
   const runtime = useNfmTextActionMenuRuntime();
   const sideMenuOpenController = useNfmSideMenuOpenController();
-  const [selectionHoldActive, setSelectionHoldActive] = useState(false);
+  const [selectionPresentationState, setSelectionPresentationState] = useState<{
+    presentation: NfmRetainedSelectionPresentation;
+    retainedBlockIds: readonly string[];
+  }>({ presentation: "none", retainedBlockIds: [] });
   const snapshot = useEditorState({
     editor,
     selector: ({ editor }) =>
       createTextActionMenuSnapshot(editor as unknown as TextActionSnapshotEditor),
   });
-  useNfmShowSelection(snapshot.eligible && selectionHoldActive, NFM_TEXT_ACTION_MENU_SELECTION_KEY);
+  const selectionPresentation = selectionPresentationState.presentation;
+  const commandBlockIds =
+    selectionPresentation === "blocks"
+      ? selectionPresentationState.retainedBlockIds
+      : snapshot.selectedBlockIds;
+  useNfmRetainedSelectionPresentation(
+    snapshot.eligible ? selectionPresentation : "none",
+    NFM_TEXT_ACTION_MENU_SELECTION_KEY,
+    commandBlockIds,
+  );
 
   const nodexRows = useMemo(
     () =>
@@ -1782,13 +1811,24 @@ export function NfmTextActionMenu() {
   };
 
   const handleMoveBlocksToDestination = async (destination: NfmMoveToDestination) => {
-    if (!snapshot.currentBlockId) return;
-    await runtime.onMoveBlocksToDestination?.(destination, snapshot.currentBlockId);
+    if (commandBlockIds.length === 0) return;
+    await runtime.onMoveBlocksToDestination?.(destination, commandBlockIds);
   };
 
   const handleSendBlocksToThread = async (request: NfmSendToThreadRequest) => {
-    if (!snapshot.currentBlockId) return;
-    await runtime.onSendBlocksToThread?.(request, snapshot.currentBlockId);
+    if (commandBlockIds.length === 0) return;
+    await runtime.onSendBlocksToThread?.(request, commandBlockIds);
+  };
+
+  const handleSelectionPresentationChange = (presentation: NfmRetainedSelectionPresentation) => {
+    setSelectionPresentationState((current) => {
+      if (current.presentation === presentation) return current;
+      return {
+        presentation,
+        retainedBlockIds:
+          presentation === "blocks" ? snapshot.selectedBlockIds : current.retainedBlockIds,
+      };
+    });
   };
 
   return (
@@ -1817,7 +1857,7 @@ export function NfmTextActionMenu() {
       onNodexRow={handleNodexRow}
       onMoveBlocksToDestination={handleMoveBlocksToDestination}
       onSendBlocksToThread={handleSendBlocksToThread}
-      onSelectionHoldChange={setSelectionHoldActive}
+      onSelectionPresentationChange={handleSelectionPresentationChange}
     />
   );
 }

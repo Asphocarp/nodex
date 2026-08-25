@@ -112,6 +112,32 @@ describe("selected Block decorations", () => {
     expect(collectSelectedBlockDecorationRanges(doc, selection)).toEqual([]);
   });
 
+  test("projects a retained command target as complete Blocks without changing its text range", () => {
+    const doc = fixtureDoc();
+    const before = blockPosition(doc, "before");
+    const after = blockPosition(doc, "after");
+    const selection = TextSelection.create(
+      doc,
+      inlinePosition(doc, "before", 6),
+      inlinePosition(doc, "before", 7),
+    );
+
+    expect(
+      collectSelectedBlockDecorationRanges(doc, selection, new Set(["before", "after"])),
+    ).toEqual([
+      {
+        from: before.pos,
+        to: before.pos + before.node.nodeSize,
+        kind: "block-action",
+      },
+      {
+        from: after.pos,
+        to: after.pos + after.node.nodeSize,
+        kind: "block-action",
+      },
+    ]);
+  });
+
   test("does not decorate an atomic Block when a text range ends before it", () => {
     const doc = fixtureDoc();
     const selection = TextSelection.create(
