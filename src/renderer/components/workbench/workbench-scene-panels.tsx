@@ -3,6 +3,9 @@ import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favico
 import { isPanelActionTargetAllowed, type PanelNewTabAction } from "@/lib/workbench-panel-actions";
 import { resolveWorkbenchSceneTabPresentation } from "@/lib/workbench-scene-tab-presentation";
 import type { WorkbenchSceneDurablePanelCommands } from "@/lib/use-workbench-panel-controller";
+import { resolvePanelTabCloseReplacement } from "@/lib/panel-tab-close-routing";
+import { makeWorkbenchPanelSlotKey } from "@/lib/workbench-panel-slot-key";
+import type { WorkbenchPanelTabOpenerStore } from "@/lib/workbench-panel-tab-opener-state";
 import type { PanelId, Project } from "@/lib/types";
 import {
   makePageTitleResourceKey,
@@ -34,6 +37,7 @@ export interface WorkbenchScenePanelsProps {
   readonly browserTabSnapshotByKey: ReadonlyMap<string, BrowserSidebarTabSnapshot>;
   readonly pageTitleStore: PageTitleProjectionStore;
   readonly commands: WorkbenchSceneDurablePanelCommands;
+  readonly tabOpenerStore: WorkbenchPanelTabOpenerStore;
   readonly previewSurfaceIds: ReadonlySet<string>;
   readonly isMac: boolean;
   readonly commandKeymapState?: CommandKeymapState | null;
@@ -167,6 +171,7 @@ export function buildWorkbenchScenePanels({
   browserTabSnapshotByKey,
   pageTitleStore,
   commands,
+  tabOpenerStore,
   previewSurfaceIds,
   isMac,
   commandKeymapState,
@@ -238,8 +243,19 @@ export function buildWorkbenchScenePanels({
             }
             const surface = resolveWorkbenchSceneSurface(scene, surfaceId);
             if (!surface) return;
+            const replacementSurfaceId = resolvePanelTabCloseReplacement({
+              tabs: projection.itemsByLeafId[_leafId] ?? [],
+              activeTabId: projection.activeTabIdsByLeafId[_leafId] ?? null,
+              closingTabId: surfaceId,
+              openerState: tabOpenerStore.get(
+                makeWorkbenchPanelSlotKey(ownerKey, panelId, _leafId),
+              ),
+            });
             const removeDescriptor = () => {
-              commands.removeSurface(scene.owner, surfaceId);
+              commands.removeSurface(scene.owner, surfaceId, {
+                preferredActiveLeafId: replacementSurfaceId ? _leafId : undefined,
+                preferredActiveSurfaceId: replacementSurfaceId ?? undefined,
+              });
             };
             if (!onCloseSurface) {
               removeDescriptor();
@@ -262,12 +278,14 @@ export function buildWorkbenchScenePanels({
             const orderedSurfaceIds = [...leaf.tabIds];
             const sourceIndex = orderedSurfaceIds.indexOf(surfaceId);
             if (sourceIndex < 0) return;
+            if (sourceIndex === targetIndex) return;
             orderedSurfaceIds.splice(sourceIndex, 1);
             orderedSurfaceIds.splice(targetIndex, 0, surfaceId);
             commands.reorderSurfaces(scene.owner, {
               panelId,
               leafId,
               orderedSurfaceIds,
+              movedSurfaceId: surfaceId,
             });
           },
           moveTab: (surfaceId, targetPanelId, targetLeafId, targetIndex, splitTarget) => {

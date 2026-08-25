@@ -31,7 +31,10 @@ import {
   resolvePanelTabCycleDirection,
   type PanelTabCycleDirection,
 } from "./workbench-panel-tab-cycle";
-import { findWorkbenchPanelLeaf } from "../../shared/workbench-panel-layout";
+import {
+  findWorkbenchPanelLeaf,
+  findWorkbenchPanelLeafForTab,
+} from "../../shared/workbench-panel-layout";
 import {
   requireWorkbenchBrowserTabProjectionId,
   type BrowserSidebarOpenNewTabRequest,
@@ -170,8 +173,12 @@ export function useWorkbenchPanelCommandRouter({
       if (!activeSession) return;
       const sessionProjectId = activeSession.projectId;
       const panelId = sourceTab.panelId;
-      const panelTabs = activeSession.tabs.filter((tab) => tab.panelId === panelId);
-      const sourceIndex = panelTabs.findIndex((tab) => tab.id === sourceTab.id);
+      const sourceLeaf = findWorkbenchPanelLeafForTab(
+        activeSession.panels[panelId].layout,
+        sourceTab.id,
+      );
+      if (!sourceLeaf) return;
+      const sourceIndex = sourceLeaf.tabIds.indexOf(sourceTab.id);
       const sourceConfig =
         sourceTab.kind === "browser" && "projectId" in sourceTab.config
           ? sourceTab.config
@@ -179,6 +186,10 @@ export function useWorkbenchPanelCommandRouter({
       const created = createSessionViewTab({
         sessionId: activeSession.id,
         panelId,
+        presentation: openRequest?.background ? "background" : "activate",
+        targetLeafId: sourceLeaf.id,
+        targetIndex: sourceIndex + 1,
+        openerTabId: sourceTab.id,
         kind: "browser",
         title: duplicate
           ? sourceTab.title || "Browser"
@@ -208,16 +219,8 @@ export function useWorkbenchPanelCommandRouter({
             },
       });
       if (!created) return;
-
-      if (sourceIndex >= 0) {
-        panelControllerRef.current.durable.moveTab(activeSession, {
-          tabId: created.id,
-          targetPanelId: panelId,
-          targetIndex: sourceIndex + 1,
-        });
-      }
       if (!openRequest?.background) {
-        await setActivePanelTab(panelId, created.id, { openPanel: true });
+        await setActivePanelTab(panelId, created.id, { openPanel: true, leafId: sourceLeaf.id });
       }
     },
     [activeSession, createSessionViewTab, setActivePanelTab],

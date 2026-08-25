@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vite-plus/test";
 import { WorkbenchSceneSnapshotSchema } from "./schemas/workbench-scene";
-import { flattenWorkbenchPanelTabIds } from "./workbench-panel-layout";
+import { flattenWorkbenchPanelTabIds, getWorkbenchPanelActiveLeaf } from "./workbench-panel-layout";
 import {
   WORKBENCH_SCENE_MAX_PANEL_SURFACES,
+  activateWorkbenchSceneSurface,
   cloneWorkbenchSceneLayoutForNewWindow,
   collectWorkbenchScenePresentedPageIds,
   createWorkbenchSceneSurface,
@@ -286,6 +287,38 @@ describe("WorkbenchScene", () => {
     const empty = removeWorkbenchSceneSurface(withPage, "library-page");
     expect(empty.panelSurfacesById).toEqual({});
     expect(WorkbenchSceneSnapshotSchema.parse(empty)).toEqual(empty);
+  });
+
+  test("keeps Scene close selection at the active tab's physical index", () => {
+    const withMiddle = createWorkbenchSceneSurface(projectScene(), {
+      panelId: "right",
+      surface: browserSurface("middle-browser"),
+    });
+    const withRight = createWorkbenchSceneSurface(withMiddle, {
+      panelId: "right",
+      surface: {
+        id: "right-page",
+        kind: "page_stage",
+        titleSnapshot: "Right Page",
+        config: {
+          accessContext: { kind: "project", projectId: "project-1" },
+          pageId: "page:right",
+        },
+        stateKey: 0,
+        state: null,
+      },
+    });
+    const leafId = withRight.panels.right.layout.activeLeafId;
+    const middleActive = activateWorkbenchSceneSurface(
+      withRight,
+      "right",
+      leafId,
+      "middle-browser",
+    );
+
+    const removed = removeWorkbenchSceneSurface(middleActive, "middle-browser");
+
+    expect(getWorkbenchPanelActiveLeaf(removed.panels.right.layout).activeTabId).toBe("right-page");
   });
 
   test("collects Page presence only from visible active Scene tabs", () => {

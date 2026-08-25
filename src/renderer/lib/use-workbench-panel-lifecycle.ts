@@ -61,7 +61,6 @@ interface WorkbenchPanelLifecycleInput {
   readonly createSessionViewTab: (input: WorkbenchTabCreateInput) => WorkbenchTabProjection | null;
   readonly codexControl: ReturnType<typeof useCodexAppServerControl>;
   readonly panelGroupTabsRef: MutableRefObject<PanelGroupTabsByPanel>;
-  readonly panelTabMruByLeafRef: MutableRefObject<Record<string, string[]>>;
   readonly pinningPreviewTabIdsRef: MutableRefObject<Set<string>>;
   readonly windowSessionId: string;
 }
@@ -76,7 +75,6 @@ export function useWorkbenchPanelLifecycle({
   createSessionViewTab,
   codexControl: workbenchCodexControl,
   panelGroupTabsRef,
-  panelTabMruByLeafRef,
   pinningPreviewTabIdsRef,
   windowSessionId,
 }: WorkbenchPanelLifecycleInput) {
@@ -196,6 +194,7 @@ export function useWorkbenchPanelLifecycle({
         targetIndex,
       });
       if (fromIndex < 0 || normalizedTargetIndex === null) return;
+      if (fromIndex === normalizedTargetIndex) return;
       const next = [...order];
       const [item] = next.splice(fromIndex, 1);
       if (!item) return;
@@ -204,6 +203,7 @@ export function useWorkbenchPanelLifecycle({
         panelId,
         leafId: leafId ?? activeSession.panels[panelId].layout.activeLeafId,
         orderedTabIds: next,
+        movedTabId: tabId,
       });
     },
     [activeSession],
@@ -324,13 +324,12 @@ export function useWorkbenchPanelLifecycle({
         tabs,
         activeTabId,
         closingTabId: tabId,
-        mruTabIds:
-          panelTabMruByLeafRef.current[
-            makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId, leafId)
-          ] ?? [],
+        openerState: panelControllerRef.current.tabOpenerStore.get(
+          makeWorkbenchSessionPanelSlotKey(activeSession.id, panelId, leafId),
+        ),
       });
     },
-    [activeSession, panelGroupTabsRef, panelTabMruByLeafRef],
+    [activeSession, panelGroupTabsRef],
   );
 
   const activatePanelTabAfterClose = useCallback(

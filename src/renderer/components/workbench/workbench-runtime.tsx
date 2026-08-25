@@ -866,7 +866,6 @@ export function WorkbenchRuntime({
     right: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
     bottom: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
   });
-  const panelTabMruByLeafRef = useRef<Record<string, string[]>>({});
   const pendingWorkbenchCommandInvocationsRef = useRef<WorkbenchCommandInvocation[]>([]);
   const activeThreadIdRef = useRef<string | null>(null);
   const activeThreadWaitersRef = useRef(
@@ -1238,6 +1237,8 @@ export function WorkbenchRuntime({
         panelId: input.panelId,
         presentation: input.presentation,
         targetLeafId: input.targetLeafId,
+        targetIndex: input.targetIndex,
+        openerTabId: input.openerTabId,
         tab,
       });
       return (
@@ -1979,7 +1980,6 @@ export function WorkbenchRuntime({
     createSessionViewTab,
     codexControl: workbenchCodexControl,
     panelGroupTabsRef,
-    panelTabMruByLeafRef,
     pinningPreviewTabIdsRef,
     windowSessionId,
   });
@@ -2396,7 +2396,6 @@ export function WorkbenchRuntime({
       panelTabPresentationRegistry,
       panelTabPresentationControllerKeysRef,
       panelGroupTabsRef,
-      panelTabMruByLeafRef,
       terminalSessionVersion,
       browserTabSnapshotByKey,
       browserBoundsSyncTriggerByPanel: {
@@ -3832,6 +3831,7 @@ export function WorkbenchRuntime({
           browserTabSnapshotByKey,
           pageTitleStore,
           commands: panelController.sceneDurable,
+          tabOpenerStore: panelController.tabOpenerStore,
           previewSurfaceIds: projectScenePresentation.previewSurfaceIds,
           isMac: isMacPlatform,
           commandKeymapState,
@@ -3957,6 +3957,7 @@ export function WorkbenchRuntime({
           browserTabSnapshotByKey,
           pageTitleStore,
           commands: panelController.sceneDurable,
+          tabOpenerStore: panelController.tabOpenerStore,
           previewSurfaceIds: pagesScenePresentation.previewSurfaceIds,
           isMac: isMacPlatform,
           commandKeymapState,

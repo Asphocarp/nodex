@@ -1926,7 +1926,6 @@ describe("workbench session shell / pages-shell-navigation", () => {
         },
       ],
       id: "session-1",
-      rightLayout: makePanelLayout(["db-tab", "terminal-tab"], "db-tab"),
     });
     const screen = renderWorkbench({ sessionsByProject: { alpha: [session] } });
     await settleAsyncRender();

@@ -288,6 +288,7 @@ export interface WorkbenchSceneSurfaceCreateInput {
   readonly panelId: WorkbenchPanelId;
   readonly presentation?: WorkbenchSurfacePresentation;
   readonly targetLeafId?: string;
+  readonly targetIndex?: number;
   readonly surface: WorkbenchSurfaceDescriptor;
 }
 
@@ -973,6 +974,7 @@ export function createWorkbenchSceneSurface(
     panelId: input.panelId,
     presentation: input.presentation,
     targetLeafId: input.targetLeafId,
+    targetIndex: input.targetIndex,
     tab: input.surface as WorkbenchSessionViewTab,
   });
   return fromLegacyPanelView(scene, view);

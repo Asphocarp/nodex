@@ -442,7 +442,7 @@ export function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSes
   );
   const rightTabIds = tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
   const bottomTabIds = tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
-  const panels =
+  const basePanels =
     overrides.panels ??
     makePanels({
       rightTabIds,
@@ -454,6 +454,15 @@ export function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSes
       bottomActiveTabId: bottomTabIds[0] ?? null,
       bottomCollapsed: bottomTabIds.length === 0,
     });
+  const panels = rightLayout
+    ? {
+        ...basePanels,
+        right: {
+          ...basePanels.right,
+          layout: rightLayout,
+        },
+      }
+    : basePanels;
   return {
     id: sessionId,
     projectId,

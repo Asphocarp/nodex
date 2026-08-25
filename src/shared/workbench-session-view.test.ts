@@ -282,6 +282,11 @@ describe("WorkbenchSessionView", () => {
       panelId: "bottom",
       tab: pageTab("bottom-tab", "bottom-page"),
     });
+    view = createWorkbenchSessionViewTab(view, {
+      panelId: "right",
+      presentation: "background",
+      tab: pageTab("right-tail", "right-tail-page"),
+    });
     view = {
       ...view,
       panels: {
@@ -297,6 +302,7 @@ describe("WorkbenchSessionView", () => {
     const created = createWorkbenchSessionViewTab(view, {
       panelId: "right",
       presentation: "background",
+      targetIndex: 1,
       tab: pageTab("background-tab", "background-page"),
     });
 
@@ -309,7 +315,7 @@ describe("WorkbenchSessionView", () => {
     expect(activeLeaf.type).toBe("leaf");
     if (activeLeaf.type !== "leaf") throw new Error("Expected right root leaf");
     expect(activeLeaf.activeTabId).toBe(existingRightTabId);
-    expect(activeLeaf.tabIds).toEqual([existingRightTabId, "background-tab"]);
+    expect(activeLeaf.tabIds).toEqual([existingRightTabId, "background-tab", "right-tail"]);
     expect(WorkbenchSessionViewSnapshotSchema.parse(created)).toEqual(created);
   });
 

@@ -42,10 +42,7 @@ import {
   shouldExpandImageEditorPanelForViewChange,
   type SessionPanelRenderModel,
 } from "@/lib/workbench-panel-projection";
-import {
-  makeWorkbenchSessionPanelOwnerKey,
-  makeWorkbenchSessionPanelSlotKey,
-} from "@/lib/workbench-panel-slot-key";
+import { makeWorkbenchSessionPanelSlotKey } from "@/lib/workbench-panel-slot-key";
 import {
   isAutomationPanelTab,
   isBackgroundAgentPanelTab,
@@ -71,10 +68,7 @@ import {
   makeBrowserSidebarTabKey,
   type BrowserSidebarTabSnapshot,
 } from "../../../shared/browser-sidebar";
-import {
-  findWorkbenchPanelLeaf,
-  listWorkbenchPanelLeaves,
-} from "../../../shared/workbench-panel-layout";
+import { listWorkbenchPanelLeaves } from "../../../shared/workbench-panel-layout";
 import type { AppShellTabItem } from "./app-shell-tabs";
 import { buildAutomationsPath } from "./workbench-automations-routes";
 import { WorkbenchAutomationSidePanelTab } from "./workbench-automations-overlay";
@@ -140,7 +134,6 @@ interface WorkbenchPanelProjectionInput {
   readonly panelTabPresentationRegistry: PanelTabPresentationRegistry;
   readonly panelTabPresentationControllerKeysRef: MutableRefObject<Set<string>>;
   readonly panelGroupTabsRef: MutableRefObject<PanelGroupTabsByPanel>;
-  readonly panelTabMruByLeafRef: MutableRefObject<Record<string, string[]>>;
   readonly terminalSessionVersion: number;
   readonly browserTabSnapshotByKey: ReadonlyMap<string, BrowserSidebarTabSnapshot>;
   readonly browserBoundsSyncTriggerByPanel: Partial<Record<PanelId, MotionValue<number>>>;
@@ -230,17 +223,6 @@ function resolveProjectTargetTabChromeContext(
   };
 }
 
-function uniqueStringList(values: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of values) {
-    if (seen.has(value)) continue;
-    seen.add(value);
-    result.push(value);
-  }
-  return result;
-}
-
 function createBackgroundAgentTabIcon(threadId: string): ComponentType<{ className?: string }> {
   function BackgroundAgentTabIcon({ className }: { className?: string }) {
     return <SubagentAvatar seed={threadId} className={className} />;
@@ -271,7 +253,6 @@ export function useWorkbenchPanelProjection({
   panelTabPresentationRegistry,
   panelTabPresentationControllerKeysRef,
   panelGroupTabsRef,
-  panelTabMruByLeafRef,
   terminalSessionVersion,
   browserTabSnapshotByKey,
   browserBoundsSyncTriggerByPanel,
@@ -860,48 +841,6 @@ export function useWorkbenchPanelProjection({
     panelTabPresentationControllerKeysRef,
     panelTabPresentationRegistry,
   ]);
-
-  useEffect(() => {
-    if (!activeRenderSession) return;
-    const activeSessionPrefix = `${makeWorkbenchSessionPanelOwnerKey(activeRenderSession.id)}:`;
-    const currentKeys = new Set<string>();
-
-    for (const panelId of ["right", "bottom"] as const) {
-      const panelTabs = panelGroupTabs[panelId];
-      for (const [leafId, tabs] of Object.entries(panelTabs.itemsByLeafId)) {
-        const key = makeWorkbenchSessionPanelSlotKey(activeRenderSession.id, panelId, leafId);
-        currentKeys.add(key);
-        const visibleTabIds = new Set(tabs.map((tab) => tab.id));
-        const activeTabId = panelTabs.activeTabIdsByLeafId[leafId] ?? null;
-        const durableLeaf = findWorkbenchPanelLeaf(
-          activeRenderSession.panels[panelId].layout,
-          leafId,
-        );
-        const durableMru = durableLeaf?.mruTabIds ?? [];
-        const currentMru = panelTabMruByLeafRef.current[key] ?? [];
-        const prunedMru = uniqueStringList([...currentMru, ...durableMru]).filter((tabId) =>
-          visibleTabIds.has(tabId),
-        );
-        const nextMru =
-          activeTabId && visibleTabIds.has(activeTabId)
-            ? [activeTabId, ...prunedMru.filter((tabId) => tabId !== activeTabId)]
-            : prunedMru;
-
-        if (nextMru.length === 0) {
-          delete panelTabMruByLeafRef.current[key];
-          continue;
-        }
-
-        panelTabMruByLeafRef.current[key] = nextMru;
-      }
-    }
-
-    for (const key of Object.keys(panelTabMruByLeafRef.current)) {
-      if (!key.startsWith(activeSessionPrefix)) continue;
-      if (currentKeys.has(key)) continue;
-      delete panelTabMruByLeafRef.current[key];
-    }
-  }, [activeRenderSession, panelGroupTabs, panelTabMruByLeafRef]);
 
   return {
     panelGroupTabs,
