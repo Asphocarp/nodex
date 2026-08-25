@@ -299,6 +299,11 @@ verifies Agent/Desktop Tool schemas and runtime conformance on macOS. Neither
 proves Apple signing, Sparkle finalization, or Intel behavior; the
 dual-architecture Distribution is that deeper Implementation.
 
+Prepared Electron Main output must bundle source-only workspace packages. They
+are build-time dependencies, not files for Electron's embedded Node runtime to
+load from `app.asar/node_modules`; the prepared-build gate rejects any remaining
+bare runtime load of such a package before packaging begins.
+
 Every distribution first consumes an exact-source certificate produced without
 signing secrets. The certificate binds the full commit SHA and Git tree to the
 deterministic source, browser, stress, and macOS runtime gates. Distribution

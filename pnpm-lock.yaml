@@ -39,9 +39,6 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-rc.111
         version: 4.0.0-rc.111(effect@4.0.0-rc.111)(redis@6.2.1(@opentelemetry/api@1.9.1))
-      '@nodex/effect-codex-app-server':
-        specifier: workspace:*
-        version: link:packages/effect-codex-app-server
       '@radix-ui/react-slider':
         specifier: 1.4.7
         version: 1.4.7(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -130,6 +127,9 @@ importers:
       '@nodex/core-protocol':
         specifier: workspace:*
         version: link:packages/core-protocol
+      '@nodex/effect-codex-app-server':
+        specifier: workspace:*
+        version: link:packages/effect-codex-app-server
       '@oxlint/plugins':
         specifier: 1.79.0
         version: 1.79.0
