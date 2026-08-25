@@ -2,8 +2,7 @@ import { readFile, readFileSync, readdirSync } from "node:fs";
 import { readFile as readFileAsync } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Plugin as EsbuildPlugin } from "esbuild";
-import type { Plugin } from "vite";
+import type { Plugin, Rolldown } from "vite";
 
 const EXCALIDRAW_FONT_REQUEST_PREFIX = "/excalidraw-assets/fonts/";
 const EXCALIDRAW_FONT_OUTPUT_PREFIX = "excalidraw-assets/fonts";
@@ -47,19 +46,20 @@ function transformExcalidrawFontModule(source: string, id: string): string | nul
 
 /**
  * Keep Excalidraw inside Vite's dependency prebundle so its nested CommonJS
- * packages receive esbuild interop. The optimizer does not run normal Vite
+ * packages receive optimizer interop. The optimizer does not run normal Vite
  * transform hooks, so apply the offline-font rewrite at that boundary too.
  */
-export function createExcalidrawDependencyOptimizerPlugin(): EsbuildPlugin {
+export function createExcalidrawDependencyOptimizerPlugin(): Rolldown.Plugin {
   return {
     name: "nodex:excalidraw-font-assets:optimizer",
-    setup(build) {
-      build.onLoad({ filter: EXCALIDRAW_DISTRIBUTION_FILE_PATTERN }, async (args) => {
-        const source = await readFileAsync(args.path, "utf8");
-        const code = transformExcalidrawFontModule(source, args.path);
-        if (code === null) return undefined;
-        return { contents: code, loader: "js" };
-      });
+    load: {
+      filter: { id: EXCALIDRAW_DISTRIBUTION_FILE_PATTERN },
+      async handler(id) {
+        const source = await readFileAsync(id, "utf8");
+        const code = transformExcalidrawFontModule(source, id);
+        if (code === null) return null;
+        return { code, map: null };
+      },
     },
   };
 }
@@ -133,9 +133,9 @@ export function createExcalidrawFontAssetPlugins(): Plugin[] {
     config() {
       return {
         optimizeDeps: {
-          esbuildOptions: {
-            target: "es2022",
-            treeShaking: true,
+          rolldownOptions: {
+            treeshake: true,
+            transform: { target: "es2022" },
             plugins: [createExcalidrawDependencyOptimizerPlugin()],
           },
         },

@@ -1,13 +1,13 @@
 import { createServer as createHttpServer } from "node:http";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build as esbuild } from "esbuild";
 import { afterEach, describe, expect, test } from "vite-plus/test";
 import {
   build as viteBuild,
   createLogger,
   createServer as createViteServer,
-  resolveConfig,
   type Logger,
   type Plugin,
   type Rollup,
@@ -16,10 +16,6 @@ import {
 import { createExcalidrawFontAssetPlugins } from "./excalidraw-font-assets";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const excalidrawRuntimeEntry = resolve(
-  repositoryRoot,
-  "node_modules/@excalidraw/excalidraw/dist/dev/index.js",
-);
 const representativeFontPath = "Assistant/Assistant-Regular.woff2";
 
 const virtualEntryPlugin: Plugin = {
@@ -50,60 +46,96 @@ const closeHttpServer = (server: ReturnType<typeof createHttpServer>): Promise<v
     server.close((error) => (error ? reject(error) : resolveClose()));
   });
 
+function createWarningCapturingLogger(): { logger: Logger; warnings: string[] } {
+  const warnings: string[] = [];
+  const logger = createLogger("info", { allowClearScreen: false });
+  logger.warn = (message) => warnings.push(message);
+  logger.warnOnce = (message) => warnings.push(message);
+  return { logger, warnings };
+}
+
 describe("createExcalidrawFontAssetPlugins", () => {
   let viteServer: ViteDevServer | undefined;
   let httpServer: ReturnType<typeof createHttpServer> | undefined;
+  let optimizerCacheDirectory: string | undefined;
 
   afterEach(async () => {
     await viteServer?.close();
     if (httpServer?.listening) await closeHttpServer(httpServer);
+    if (optimizerCacheDirectory) {
+      await rm(optimizerCacheDirectory, { recursive: true, force: true });
+    }
     viteServer = undefined;
     httpServer = undefined;
+    optimizerCacheDirectory = undefined;
   });
 
-  test("keeps Excalidraw prebundled with nested CommonJS interop", async () => {
-    const config = await resolveConfig(
-      {
-        configFile: false,
-        plugins: createExcalidrawFontAssetPlugins(),
+  test("prebundles Excalidraw through the native Rolldown optimizer", async () => {
+    const { logger, warnings } = createWarningCapturingLogger();
+    optimizerCacheDirectory = await mkdtemp(resolve(tmpdir(), "nodex-excalidraw-font-optimizer-"));
+    viteServer = await createViteServer({
+      cacheDir: optimizerCacheDirectory,
+      configFile: false,
+      customLogger: logger,
+      optimizeDeps: {
+        force: true,
+        include: ["@excalidraw/excalidraw"],
+        noDiscovery: true,
       },
-      "serve",
-    );
-    const optimizerPlugins = config.optimizeDeps.esbuildOptions?.plugins ?? [];
-
-    expect(config.optimizeDeps.exclude).not.toContain("@excalidraw/excalidraw");
-    expect(optimizerPlugins.map((plugin) => plugin.name)).toContain(
-      "nodex:excalidraw-font-assets:optimizer",
-    );
-
-    const result = await esbuild({
-      entryPoints: [excalidrawRuntimeEntry],
-      bundle: true,
-      format: "esm",
-      logLevel: "silent",
-      metafile: true,
-      platform: "browser",
-      plugins: optimizerPlugins,
-      target: "es2022",
-      treeShaking: true,
-      write: false,
+      plugins: createExcalidrawFontAssetPlugins(),
+      root: repositoryRoot,
+      server: { middlewareMode: true },
     });
 
-    expect(
-      Object.keys(result.metafile.inputs).some((input) => input.includes("es6-promise-pool")),
-    ).toBe(true);
-    expect(result.outputFiles[0]?.text).toContain("urls.length === 0 && urls.push(new URL");
+    const rolldownOptions = viteServer.config.optimizeDeps.rolldownOptions;
+    expect(rolldownOptions?.treeshake).toBe(true);
+    expect(rolldownOptions?.transform?.target).toBe("es2022");
+    expect(viteServer.config.optimizeDeps.esbuildOptions?.plugins).toBeUndefined();
+
+    const optimizer = viteServer.environments.client.depsOptimizer;
+    if (!optimizer) throw new Error("Expected the client dependency optimizer to be available.");
+    const pendingDependency =
+      optimizer.metadata.discovered["@excalidraw/excalidraw"] ??
+      optimizer.metadata.optimized["@excalidraw/excalidraw"];
+    if (!pendingDependency)
+      throw new Error("Expected Excalidraw dependency optimization to start.");
+    await pendingDependency.processing;
+
+    const optimizedDependency = optimizer.metadata.optimized["@excalidraw/excalidraw"];
+    if (!optimizedDependency) {
+      throw new Error("Expected Excalidraw dependency optimization to complete.");
+    }
+    const outputPaths = [
+      optimizedDependency.file,
+      ...Object.values(optimizer.metadata.chunks).map((chunk) => chunk.file),
+    ];
+    const output = (await Promise.all(outputPaths.map((path) => readFile(path, "utf8")))).join(
+      "\n",
+    );
+    const sourceMapPaths = (await readdir(resolve(optimizerCacheDirectory, "deps")))
+      .filter((fileName) => fileName.endsWith(".js.map"))
+      .map((fileName) => resolve(optimizerCacheDirectory, "deps", fileName));
+    const inputSources = (
+      await Promise.all(
+        sourceMapPaths.map(async (path) => {
+          const sourceMap = JSON.parse(await readFile(path, "utf8")) as { sources: string[] };
+          return sourceMap.sources;
+        }),
+      )
+    ).flat();
+
+    expect(inputSources.some((source) => source.includes("es6-promise-pool"))).toBe(true);
+    expect(output).toContain("urls.length === 0 && urls.push(new URL");
+    expect(warnings.some((warning) => warning.includes("optimizeDeps.esbuildOptions"))).toBe(false);
   });
 
   test("serves fonts without installing build-only hooks in development", async () => {
-    const warnings: string[] = [];
-    const logger: Logger = createLogger("info", { allowClearScreen: false });
-    logger.warn = (message) => warnings.push(message);
-    logger.warnOnce = (message) => warnings.push(message);
+    const { logger, warnings } = createWarningCapturingLogger();
 
     viteServer = await createViteServer({
       configFile: false,
       customLogger: logger,
+      optimizeDeps: { noDiscovery: true },
       plugins: createExcalidrawFontAssetPlugins(),
       server: { middlewareMode: true },
     });
