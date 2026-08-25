@@ -1,5 +1,6 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, test } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 import "../../globals.css";
 
 import {
@@ -21,7 +22,13 @@ function ContextMenuProbe() {
   const submenu = (label: string) => (
     <NodexContextMenuSubmenu
       trigger={<NodexContextMenuSubmenuTrigger>{label}</NodexContextMenuSubmenuTrigger>}
-      renderContent={() => <NodexContextMenuItem>{label} action</NodexContextMenuItem>}
+      renderContent={() => (
+        <>
+          <NodexContextMenuItem>{label} action</NodexContextMenuItem>
+          <NodexContextMenuItem>{label} secondary action</NodexContextMenuItem>
+          <NodexContextMenuItem>{label} tertiary action</NodexContextMenuItem>
+        </>
+      )}
     />
   );
 
@@ -33,6 +40,7 @@ function ContextMenuProbe() {
       <NodexContextMenuPortal>
         <NodexContextMenuContent>
           {submenu("First")}
+          <NodexContextMenuItem>Plain action</NodexContextMenuItem>
           {submenu("Second")}
         </NodexContextMenuContent>
       </NodexContextMenuPortal>
@@ -56,33 +64,35 @@ describe("context menu interaction in Chromium", () => {
     if (!root) throw new Error("Expected the root context menu surface.");
     expect(getComputedStyle(root).animationName).toBe("none");
 
-    await act(async () => {
-      fireEvent.pointerMove(view.getByText("First"), {
-        pointerType: "mouse",
-        movementY: 2,
-      });
-      await Promise.resolve();
-    });
+    await act(async () => userEvent.hover(view.getByText("First")));
     expect(view.getByText("First action")).toBeTruthy();
 
-    await act(async () => {
-      fireEvent.pointerLeave(view.getByText("First"), { pointerType: "mouse" });
-      fireEvent.pointerMove(view.getByText("Second"), {
-        pointerType: "mouse",
-        movementY: 2,
-      });
-      await Promise.resolve();
-    });
+    await act(async () => userEvent.hover(view.getByText("First tertiary action")));
+    expect(view.getByText("First action")).toBeTruthy();
+    expect(view.queryByText("Second action")).toBeNull();
+
+    await act(async () => userEvent.hover(view.getByText("First")));
+    const startedAt = performance.now();
+    await act(async () => userEvent.hover(view.getByText("Second")));
+    const elapsed = performance.now() - startedAt;
 
     expect(view.queryByText("First action")).toBeNull();
     expect(view.getByText("Second action")).toBeTruthy();
+    expect(elapsed).toBeLessThan(80);
+
+    const dismissStartedAt = performance.now();
+    await act(async () => userEvent.hover(view.getByText("Plain action")));
+    const dismissElapsed = performance.now() - dismissStartedAt;
+    expect(view.queryByText("Second action")).toBeNull();
+    expect(dismissElapsed).toBeLessThan(80);
 
     await act(async () => {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
     });
     expect(view.queryByText("First action")).toBeNull();
-    expect(view.getByText("Second action")).toBeTruthy();
+    expect(view.queryByText("Second action")).toBeNull();
 
+    await act(async () => userEvent.hover(view.getByText("Second")));
     await act(settleFloatingSurface);
     const content = view
       .getByText("Second action")

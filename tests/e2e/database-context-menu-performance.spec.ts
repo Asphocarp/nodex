@@ -93,6 +93,77 @@ const measureCopySubmenuOpen = async (page: Page): Promise<number> =>
     return performance.now() - startedAt;
   });
 
+const measureSiblingSubmenuSwitch = async (page: Page): Promise<number> => {
+  const copyTrigger = page
+    .locator("[data-nodex-context-menu-subtrigger='true']")
+    .filter({ hasText: "Copy" });
+  const moveTrigger = page
+    .locator("[data-nodex-context-menu-subtrigger='true']")
+    .filter({ hasText: "Move" });
+  const [copyBox, moveBox] = await Promise.all([
+    copyTrigger.boundingBox(),
+    moveTrigger.boundingBox(),
+  ]);
+  if (!copyBox || !moveBox) throw new Error("Context menu submenu trigger geometry is missing");
+
+  await page.mouse.move(copyBox.x + copyBox.width / 2, copyBox.y + copyBox.height / 2, {
+    steps: 4,
+  });
+  await expect(
+    page.locator("[data-slot='context-menu-subcontent'][data-state='open']", {
+      hasText: "Copy title",
+    }),
+  ).toBeVisible();
+
+  const measurement = page.evaluate(async () => {
+    const trigger = [
+      ...document.querySelectorAll<HTMLElement>("[data-nodex-context-menu-subtrigger='true']"),
+    ].find((element) => element.textContent?.trim().startsWith("Move"));
+    if (!trigger) throw new Error("Move submenu trigger is missing");
+
+    return await new Promise<number>((resolve, reject) => {
+      let startedAt: number | null = null;
+      const timer = window.setTimeout(() => {
+        observer.disconnect();
+        reject(new Error("Sibling submenu switch did not complete"));
+      }, 1_000);
+      const finishIfOpen = (): void => {
+        const openedAt = startedAt;
+        if (openedAt === null) return;
+        const openMoveSubmenu = [
+          ...document.querySelectorAll<HTMLElement>(
+            "[data-slot='context-menu-subcontent'][data-state='open']",
+          ),
+        ].some((element) => element.textContent?.includes("Move to top"));
+        if (!openMoveSubmenu) return;
+        window.clearTimeout(timer);
+        observer.disconnect();
+        requestAnimationFrame(() => resolve(performance.now() - openedAt));
+      };
+      const observer = new MutationObserver(finishIfOpen);
+      observer.observe(document.body, {
+        attributes: true,
+        childList: true,
+        subtree: true,
+        attributeFilter: ["data-state"],
+      });
+      trigger.addEventListener(
+        "pointerenter",
+        () => {
+          startedAt = performance.now();
+          finishIfOpen();
+        },
+        { once: true },
+      );
+    });
+  });
+
+  await page.mouse.move(moveBox.x + moveBox.width / 2, moveBox.y + moveBox.height / 2, {
+    steps: 4,
+  });
+  return await measurement;
+};
+
 test("keeps production-scale Database context menus inside the interaction budget @performance", async ({}, testInfo) => {
   test.setTimeout(300_000);
   await withElectronScenario(
@@ -126,9 +197,11 @@ test("keeps production-scale Database context menus inside the interaction budge
 
       const rootSamples: number[] = [];
       const submenuSamples: number[] = [];
+      const siblingSwitchSamples: number[] = [];
       for (let index = 0; index < sampleCount; index += 1) {
         rootSamples.push(await measureRootOpen(page, pageId));
         submenuSamples.push(await measureCopySubmenuOpen(page));
+        siblingSwitchSamples.push(await measureSiblingSubmenuSwitch(page));
         await page.keyboard.press("Escape");
         await expect(page.locator("[data-slot='context-menu-content']")).toHaveCount(0);
       }
@@ -140,8 +213,10 @@ test("keeps production-scale Database context menus inside the interaction budge
       const evidence = {
         rootSamples,
         submenuSamples,
+        siblingSwitchSamples,
         rootP95: percentile95(rootSamples),
         submenuP95: percentile95(submenuSamples),
+        siblingSwitchP95: percentile95(siblingSwitchSamples),
         longTasks,
       };
       await testInfo.attach("database-context-menu-performance", {
@@ -152,6 +227,7 @@ test("keeps production-scale Database context menus inside the interaction budge
       if (process.env.NODEX_SKIP_PERFORMANCE_GATES === "1") return;
       expect(evidence.rootP95).toBeLessThanOrEqual(50);
       expect(evidence.submenuP95).toBeLessThanOrEqual(32);
+      expect(evidence.siblingSwitchP95).toBeLessThanOrEqual(32);
       expect(longTasks.filter((duration) => duration >= 100)).toEqual([]);
     },
   );
