@@ -168,7 +168,6 @@
   },
   "dependencies": {
     "@effect/platform-node": "4.0.0-rc.111",
-    "@nodex/effect-codex-app-server": "workspace:*",
     "@radix-ui/react-slider": "1.4.7",
     "@sentry/electron": "7.13.0",
     "effect": "4.0.0-rc.111",
@@ -200,6 +199,7 @@
     "@noble/hashes": "2.2.0",
     "@nodex/codex-app-server-protocol": "workspace:*",
     "@nodex/core-protocol": "workspace:*",
+    "@nodex/effect-codex-app-server": "workspace:*",
     "@oxlint/plugins": "1.79.0",
     "@pierre/diffs": "1.3.0-rc.1",
     "@pierre/trees": "1.0.0-beta.6",

@@ -84,6 +84,7 @@ const makeFixture = (): {
     "native/macos-sparkle/binding.gyp",
     "packages/codex-app-server-protocol/value.ts",
     "packages/core-protocol/value.ts",
+    "packages/effect-codex-app-server/value.ts",
     "resources/icon.icon/value.json",
     "resources/icon.png",
     "resources/nodex-icon.svg",
@@ -224,6 +225,18 @@ describe("prepared Electron build", () => {
     recordPreparedElectronBuild(fixture);
     fs.writeFileSync(path.join(fixture.repositoryRoot, "out/main/extra.js"), "extra\n");
     expect(() => verifyPreparedElectronBuild(fixture)).toThrow("outputs are stale or damaged");
+  });
+
+  test("rejects source-only workspace dependencies left external in Electron Main", () => {
+    const fixture = makeFixture();
+    fs.writeFileSync(
+      path.join(fixture.repositoryRoot, "out/main/bootstrap.js"),
+      'require("@nodex/effect-codex-app-server/client");\n',
+    );
+
+    expect(() => recordPreparedElectronBuild(fixture)).toThrow(
+      "externalizes source-only workspace dependency @nodex/effect-codex-app-server",
+    );
   });
 
   test("binds the exact generated Agent Skills artifact", () => {
