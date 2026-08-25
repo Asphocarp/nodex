@@ -125,6 +125,17 @@ describe("composer image DataTransfer classification", () => {
     expect(isComposerMediaOnlyHtml(`<img src='x'>${"x".repeat(100_001)}`)).toBe(false);
   });
 
+  test("classifies clipboard markup without instantiating executable browser DOM", () => {
+    expect(
+      isComposerMediaOnlyHtml(
+        '<img src="invalid" onerror="globalThis.clipboardMarkupExecuted = true"><script>globalThis.clipboardMarkupExecuted = true</script>',
+      ),
+    ).toBe(true);
+    expect((globalThis as { clipboardMarkupExecuted?: boolean }).clipboardMarkupExecuted).toBe(
+      undefined,
+    );
+  });
+
   test("consumes ordinary files even when clipboard text is meaningful", () => {
     const documentFile = new File(["content"], "notes.md", { type: "text/markdown" });
     expect(

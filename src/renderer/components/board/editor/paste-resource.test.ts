@@ -7,6 +7,7 @@ import {
   createPastedTextUploadFile,
   derivePastedTextAttachmentName,
   insertAttachmentsAtPasteTarget,
+  looksLikeMarkdown,
   normalizeClipboardFileDraftItems,
   shouldPromptForOversizedText,
 } from "./paste-resource";
@@ -52,6 +53,11 @@ describe("paste resource helpers", () => {
       shouldPromptForOversizedText("x".repeat(10), 749_995, DEFAULT_PASTE_RESOURCE_SETTINGS),
     ).toBe(true);
     expect(shouldPromptForOversizedText("   ", 900_000)).toBe(false);
+  });
+
+  test("detects Markdown tables with a linear delimiter scan", () => {
+    expect(looksLikeMarkdown("| Name | Status |\n| --- | :---: |\n| Nodex | Ready |")).toBe(true);
+    expect(looksLikeMarkdown(`|${"a|".repeat(100_000)}not-a-closed-row`)).toBe(false);
   });
 
   test("normalizeClipboardFileDraftItems marks pasted blobs as files without links", () => {

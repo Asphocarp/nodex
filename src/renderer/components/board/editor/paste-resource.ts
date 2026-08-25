@@ -243,7 +243,14 @@ export function shouldPromptForOversizedText(
   );
 }
 
-function looksLikeMarkdown(src: string): boolean {
+function hasMarkdownTableRow(src: string): boolean {
+  return src.split(/\r?\n/u).some((line) => {
+    const trimmed = line.trim();
+    return trimmed.length > 2 && trimmed.startsWith("|") && trimmed.endsWith("|");
+  });
+}
+
+export function looksLikeMarkdown(src: string): boolean {
   const h1 = /(^|\n) {0,3}#{1,6} {1,8}[^\n]{1,64}\r?\n\r?\n\s{0,32}\S/;
   const bold = /(_|__|\*|\*\*|~~|==|\+\+)(?!\s)(?:[^\s](?:.{0,62}[^\s])?|\S)(?=\1)/;
   const link = /\[[^\]]{1,128}\]\(https?:\/\/\S{1,999}\)/;
@@ -255,9 +262,7 @@ function looksLikeMarkdown(src: string): boolean {
     /(?:\n|^)(```|~~~|\$\$)(?!`|~)[^\s]{0,64} {0,64}[^\n]{0,64}\n[\s\S]{0,9999}?\s*\1 {0,64}(?:\n+|$)/;
   const title = /(?:\n|^)(?!\s)\w[^\n]{0,64}\r?\n(-|=)\1{0,64}\n\n\s{0,64}(\w|$)/;
   const blockquote = /(?:^|(\r?\n\r?\n))( {0,3}>[^\n]{1,333}\n){1,999}($|(\r?\n))/;
-  const tableHeader = /^\s*\|(.+\|)+\s*$/m;
-  const tableDivider = /^\s*\|(\s*[-:]+[-:]\s*\|)+\s*$/m;
-  const tableRow = /^\s*\|(.+\|)+\s*$/m;
+  const tableRow = hasMarkdownTableRow(src);
 
   return (
     h1.test(src) ||
@@ -270,9 +275,7 @@ function looksLikeMarkdown(src: string): boolean {
     fences.test(src) ||
     title.test(src) ||
     blockquote.test(src) ||
-    tableHeader.test(src) ||
-    tableDivider.test(src) ||
-    tableRow.test(src)
+    tableRow
   );
 }
 

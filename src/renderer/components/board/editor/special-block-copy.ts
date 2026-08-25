@@ -1,5 +1,6 @@
 import { invoke } from "../../../lib/api";
 import { blockNoteToNfm, serializeClipboardText } from "../../../lib/nfm";
+import { decodeXmlCharacterReferences } from "../../../../shared/xml-character-references";
 import { TextSelection } from "@tiptap/pm/state";
 
 const NODEX_ASSET_SOURCE_PATTERN = /nodex:\/\/assets\/[A-Za-z0-9._%-]+/g;
@@ -117,14 +118,6 @@ function applySourceReplacements(value: string, replacements: Map<string, string
   return next;
 }
 
-function decodeXmlAttributeValue(value: string): string {
-  return value
-    .replaceAll("&quot;", '"')
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">");
-}
-
 function escapeMarkdownImageAltText(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
 }
@@ -158,7 +151,7 @@ function convertNfmImageLineToMarkdown(line: string): string {
   const sourceMatch = NFM_IMAGE_SOURCE_ATTRIBUTE_PATTERN.exec(attributes);
   if (!sourceMatch) return line;
 
-  const source = decodeXmlAttributeValue(sourceMatch[1] ?? "").trim();
+  const source = decodeXmlCharacterReferences(sourceMatch[1] ?? "").trim();
   if (source.length === 0) return line;
 
   const destination = toMarkdownImageDestination(source);

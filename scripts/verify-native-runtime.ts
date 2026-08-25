@@ -54,6 +54,7 @@ import {
   make as makeProjectWorkspace,
   ProjectWorkspace,
 } from "../src/main/project-application/ProjectWorkspace";
+import { decodeXmlCharacterReferences } from "../src/shared/xml-character-references";
 
 export class PackagedNativeRuntimeVerificationError extends Schema.TaggedError<PackagedNativeRuntimeVerificationError>()(
   "PackagedNativeRuntimeVerificationError",
@@ -123,15 +124,6 @@ const ELECTRON_RUNTIME_ENTITLEMENTS = [
   "com.apple.security.cs.disable-library-validation",
 ] as const;
 
-function decodeXmlText(value: string): string {
-  return value
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'");
-}
-
 /** Parses the boolean capability shape emitted by `codesign --entitlements :-`. */
 export function parseMacCodeSigningEntitlements(
   output: string,
@@ -140,7 +132,7 @@ export function parseMacCodeSigningEntitlements(
   const entries = output.matchAll(/<key>\s*([^<]+?)\s*<\/key>\s*(?:<(true|false)\s*\/>|<[^>]+>)/gu);
   for (const [, rawKey, booleanValue] of entries) {
     if (!rawKey) continue;
-    const key = decodeXmlText(rawKey.trim());
+    const key = decodeXmlCharacterReferences(rawKey.trim());
     if (!key || Object.hasOwn(entitlements, key)) {
       throw new Error("Code signing entitlements contain an invalid or duplicate key");
     }

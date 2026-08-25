@@ -39,6 +39,7 @@ import type {
   CodexBackgroundProcessRow,
   CodexBackgroundProcessRunActionInput,
 } from "../../../shared/types";
+import { createSecureRuntimeId } from "../../../shared/secure-runtime-id";
 
 const PROCESS_MANAGER_MIN_ROWS = 5;
 
@@ -68,10 +69,7 @@ export interface WorkbenchProcessManagerDialogProps {
 type ProcessActionState = "starting" | "stopping";
 
 function makeBackgroundProcessTerminalSessionId(row: CodexBackgroundTerminalProcessRow): string {
-  const randomId =
-    globalThis.crypto?.randomUUID?.() ??
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `process:${row.threadId}:${row.itemId}:${randomId}`;
+  return createSecureRuntimeId(`process:${row.threadId}:${row.itemId}`);
 }
 
 function readProcessManagerControlFromQueryMeta(meta: unknown): WorkbenchProcessManagerControl {

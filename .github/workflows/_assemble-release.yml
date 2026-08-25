@@ -20,8 +20,20 @@ permissions:
   contents: read
 
 jobs:
+  guard:
+    name: verify protected-main source
+    runs-on: ubuntu-latest
+    environment: release-source
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false, ref: main }
+      - uses: ./.github/actions/verify-protected-main-source
+        with:
+          source_sha: ${{ inputs.source_sha }}
+
   assemble:
     name: assemble Release Bundle
+    needs: guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

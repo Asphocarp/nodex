@@ -59,11 +59,15 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   are not committed back to Dependabot or other pull-request branches. No
   privileged `pull_request_target` materializer is needed to make dependency
   checks pass.
-- The privileged release `workflow_run` validates the originating repository,
-  protected-main push event, successful CI conclusion, and main reachability
-  before it checks out or executes the source commit. Release and recovery also
-  require the exact linear parent diff to be a metadata-only Release Identity
-  transition.
+- Every scheduled, dispatched, or reusable exact-source release job is dominated
+  by the secret-free `release-source` environment and one shared provenance
+  guard before it checks out or executes that source. The environment admits
+  only protected-branch workflow definitions; the guard accepts only an
+  immutable full SHA reachable from protected `main` with a successful `Main
+CI` push run. The privileged release `workflow_run` additionally validates the
+  originating repository, protected-main push event, and successful conclusion.
+  Release and recovery also require the exact linear parent diff to be a
+  metadata-only Release Identity transition.
 - Release credentials use dedicated repository Action secrets and explicit,
   named `workflow_call.secrets` mappings. Lowercase reusable-workflow aliases
   prevent environment-secret precedence from changing the transport contract;

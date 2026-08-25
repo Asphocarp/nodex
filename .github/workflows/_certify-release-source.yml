@@ -17,8 +17,20 @@ permissions:
   contents: read
 
 jobs:
+  guard:
+    name: verify protected-main source
+    runs-on: ubuntu-latest
+    environment: release-source
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false, ref: main }
+      - uses: ./.github/actions/verify-protected-main-source
+        with:
+          source_sha: ${{ inputs.source_sha }}
+
   static-contracts:
     name: certify static contracts
+    needs: guard
     uses: ./.github/workflows/_static-checks.yml
     with:
       groups_json: '["types","ui-contracts","ci-contracts","repository-contracts","generated","landing"]'
@@ -27,6 +39,7 @@ jobs:
 
   rust-checks:
     name: certify rust checks
+    needs: guard
     uses: ./.github/workflows/_rust-checks.yml
     with:
       full_workspace: true
@@ -38,6 +51,7 @@ jobs:
 
   app-tests:
     name: certify application and browser tests
+    needs: guard
     uses: ./.github/workflows/_app-tests.yml
     with:
       gate_plan_json: '{"allGates":true,"appTestSuites":["unit","core-client","main","renderer","integration","browser"],"dependencyKind":"source","docsOnly":false,"landingOnly":false,"protocolContracts":true,"relatedPaths":[],"releaseTransition":false,"rustFast":true,"rustFull":true,"rustMigration":true,"staticGroups":["types","ui-contracts","ci-contracts","repository-contracts","generated","landing"],"testMode":"full"}'
@@ -47,6 +61,7 @@ jobs:
 
   stress:
     name: certify stress contracts
+    needs: guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,6 +72,7 @@ jobs:
 
   runtime-contracts:
     name: certify macOS runtime contracts
+    needs: guard
     runs-on: macos-26
     env:
       RUSTC_WRAPPER: sccache

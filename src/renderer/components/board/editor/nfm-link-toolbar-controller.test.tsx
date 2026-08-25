@@ -145,8 +145,8 @@ describe("NfmLinkToolbarController", () => {
 
     expect(Boolean(view.getByTestId("toolbar"))).toBe(true);
     expect(
-      view.container.textContent?.includes("https://community.openai.com/t/example") ?? false,
-    ).toBe(true);
+      view.getByText("https://community.openai.com/t/example", { exact: true }).textContent,
+    ).toBe("https://community.openai.com/t/example");
   });
 
   test("does not retarget the frozen snapshot when editor selection changes", async () => {
@@ -196,11 +196,9 @@ describe("NfmLinkToolbarController", () => {
     });
 
     expect(
-      view.container.textContent?.includes("https://community.openai.com/t/example") ?? false,
-    ).toBe(true);
-    expect(view.container.textContent?.includes("https://example.com/changed") ?? false).toBe(
-      false,
-    );
+      view.getByText("https://community.openai.com/t/example", { exact: true }).textContent,
+    ).toBe("https://community.openai.com/t/example");
+    expect(view.queryByText("https://example.com/changed", { exact: true })).toBeNull();
   });
 
   test("clears the toolbar when the editor loses the selected link without freezing", async () => {

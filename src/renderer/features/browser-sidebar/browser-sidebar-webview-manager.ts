@@ -10,6 +10,7 @@ import {
   type BrowserSidebarWebviewHostKind,
 } from "../../../shared/browser-sidebar";
 import type { BrowserAnnotationDesignChange } from "../../../shared/browser-annotation";
+import { createSecureUuid } from "../../../shared/secure-runtime-id";
 import { APP_SHELL_BROWSER_WEBVIEW_LAYER_INDEX } from "../../lib/app-shell-layers";
 import {
   isAllowedBrowserNavigationUrl,
@@ -620,7 +621,5 @@ function resolveBrowserSidebarVisibleWebviewZIndex(
 export const browserSidebarRendererWebviewManager = new BrowserSidebarRendererWebviewManager();
 
 function makeRendererInstanceId(): string {
-  const randomUuid = globalThis.crypto?.randomUUID?.();
-  if (randomUuid) return randomUuid;
-  return `renderer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return createSecureUuid();
 }

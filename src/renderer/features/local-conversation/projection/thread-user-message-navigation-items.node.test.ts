@@ -91,7 +91,10 @@ function buildWebsiteItem(turnId: string): CodexConversationItem {
   };
 }
 
-function buildMcpAppItem(turnId: string): CodexConversationItem {
+function buildMcpAppItem(
+  turnId: string,
+  mcpAppResourceUri = "nodex://mcp-app/calendar/event",
+): CodexConversationItem {
   return {
     threadId: "thread_1",
     turnId,
@@ -106,7 +109,7 @@ function buildMcpAppItem(turnId: string): CodexConversationItem {
       functionName: "calendar__open",
       pluginId: "calendar",
       readOnlyHint: false,
-      mcpAppResourceUri: "nodex://mcp-app/calendar/event",
+      mcpAppResourceUri,
       source: null,
       invocation: {
         server: "calendar",
@@ -284,5 +287,35 @@ describe("thread user message navigation items", () => {
     const visible = getThreadUserMessageNavigationVisibleOutputs(outputs);
     expect(visible.length).toBe(3);
     expect(visible.map((output) => output.label).join(",")).toBe("calendar,Web,+4");
+  });
+
+  test("classifies Google Drive only from exact domains and their subdomains", () => {
+    const buildOutputs = (resourceUri: string) => {
+      const turnId = "turn_drive_domain";
+      return (
+        buildThreadUserMessageNavigationItems([
+          buildEntry(
+            buildTurn(turnId, [
+              buildUserItem(turnId, 1, "Open output"),
+              buildMcpAppItem(turnId, resourceUri),
+            ]),
+          ),
+        ])[0]?.outputs ?? []
+      );
+    };
+
+    expect(
+      buildOutputs("https://drive.google.com/file/d/1").some(({ type }) => type === "google-drive"),
+    ).toBe(true);
+    expect(
+      buildOutputs("https://lh3.googleusercontent.com/image.png").some(
+        ({ type }) => type === "google-drive",
+      ),
+    ).toBe(true);
+    expect(
+      buildOutputs("https://drive.google.com.attacker.example/file").some(
+        ({ type }) => type === "google-drive",
+      ),
+    ).toBe(false);
   });
 });

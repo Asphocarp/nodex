@@ -2,14 +2,15 @@ import {
   isSupportedComposerImageMetadata,
   normalizeComposerImageFilenameCandidate,
 } from "../../../../../../shared/composer-image-input";
+import { parseFragment, type DefaultTreeAdapterMap } from "parse5";
 
 export {
   COMPOSER_IMAGE_MIME_TYPES,
   isSupportedComposerImageMetadata,
 } from "../../../../../../shared/composer-image-input";
 const MEDIA_ONLY_HTML_LIMIT = 100_000;
-const MEDIA_ELEMENT_SELECTOR = "img,svg,canvas,video";
-const IGNORED_ELEMENT_SELECTOR = [
+const MEDIA_ELEMENT_NAMES = new Set(["img", "svg", "canvas", "video"]);
+const IGNORED_ELEMENT_NAMES = new Set([
   "head",
   "script",
   "style",
@@ -18,7 +19,10 @@ const IGNORED_ELEMENT_SELECTOR = [
   "title",
   "meta",
   "link",
-].join(",");
+]);
+
+type ParsedHtmlNode = DefaultTreeAdapterMap["node"];
+type ParsedHtmlElement = DefaultTreeAdapterMap["element"];
 
 export interface ComposerPastedFiles {
   readonly imageFiles: readonly File[];
@@ -56,55 +60,64 @@ function collectTransferFiles(dataTransfer: DataTransfer): readonly File[] {
   return itemFiles;
 }
 
-function isHiddenElement(element: Element): boolean {
-  if (element.matches(IGNORED_ELEMENT_SELECTOR)) return true;
-  if (element.hasAttribute("hidden")) return true;
-  if (element.getAttribute("aria-hidden")?.toLowerCase() === "true") return true;
-  if (element instanceof HTMLInputElement && element.type === "hidden") return true;
+function isParsedHtmlElement(node: ParsedHtmlNode): node is ParsedHtmlElement {
+  return "tagName" in node;
+}
 
-  const style = element.getAttribute("style")?.toLowerCase() ?? "";
+function readParsedHtmlAttribute(element: ParsedHtmlElement, name: string): string | null {
+  return element.attrs.find((attribute) => attribute.name.toLowerCase() === name)?.value ?? null;
+}
+
+function isHiddenElement(element: ParsedHtmlElement): boolean {
+  if (IGNORED_ELEMENT_NAMES.has(element.tagName)) return true;
+  if (readParsedHtmlAttribute(element, "hidden") !== null) return true;
+  if (readParsedHtmlAttribute(element, "aria-hidden")?.toLowerCase() === "true") return true;
+  if (
+    element.tagName === "input" &&
+    readParsedHtmlAttribute(element, "type")?.toLowerCase() === "hidden"
+  )
+    return true;
+
+  const style = readParsedHtmlAttribute(element, "style")?.toLowerCase() ?? "";
   return (
     /(?:^|;)\s*display\s*:\s*none\b/.test(style) ||
     /(?:^|;)\s*visibility\s*:\s*hidden\b/.test(style)
   );
 }
 
-function hasHiddenAncestor(node: Node): boolean {
-  let parent = node.parentElement;
-  while (parent) {
-    if (isHiddenElement(parent)) return true;
-    parent = parent.parentElement;
-  }
-  return false;
+interface HtmlMediaSummary {
+  hasMeaningfulText: boolean;
+  hasVisibleMedia: boolean;
 }
 
-function hasMediaAncestor(node: Node): boolean {
-  let parent = node.parentElement;
-  while (parent) {
-    if (parent.matches(MEDIA_ELEMENT_SELECTOR)) return true;
-    parent = parent.parentElement;
+function summarizeParsedHtml(
+  node: ParsedHtmlNode,
+  summary: HtmlMediaSummary,
+  hidden = false,
+  insideMedia = false,
+): void {
+  if (node.nodeName === "#text" && "value" in node) {
+    if (!hidden && !insideMedia && node.value.trim().length > 0) summary.hasMeaningfulText = true;
+    return;
   }
-  return false;
+
+  const element = isParsedHtmlElement(node) ? node : null;
+  const nextHidden = hidden || (element !== null && isHiddenElement(element));
+  const isMedia = element !== null && MEDIA_ELEMENT_NAMES.has(element.tagName);
+  if (isMedia && !nextHidden) summary.hasVisibleMedia = true;
+
+  if (!("childNodes" in node)) return;
+  for (const child of node.childNodes) {
+    summarizeParsedHtml(child, summary, nextHidden, insideMedia || isMedia);
+  }
 }
 
 export function isComposerMediaOnlyHtml(html: string): boolean {
   if (!html || html.length > MEDIA_ONLY_HTML_LIMIT) return false;
 
-  const documentNode = new DOMParser().parseFromString(html, "text/html");
-  const visibleMedia = Array.from(documentNode.body.querySelectorAll(MEDIA_ELEMENT_SELECTOR)).some(
-    (element) => !isHiddenElement(element) && !hasHiddenAncestor(element),
-  );
-  if (!visibleMedia) return false;
-
-  const walker = documentNode.createTreeWalker(documentNode.body, NodeFilter.SHOW_TEXT);
-  while (walker.nextNode()) {
-    const node = walker.currentNode;
-    if (!node.textContent?.trim()) continue;
-    if (hasHiddenAncestor(node)) continue;
-    if (hasMediaAncestor(node)) continue;
-    return false;
-  }
-  return true;
+  const summary: HtmlMediaSummary = { hasMeaningfulText: false, hasVisibleMedia: false };
+  summarizeParsedHtml(parseFragment(html), summary);
+  return summary.hasVisibleMedia && !summary.hasMeaningfulText;
 }
 
 function hasMeaningfulClipboardText(plainText: string, files: readonly File[]): boolean {
