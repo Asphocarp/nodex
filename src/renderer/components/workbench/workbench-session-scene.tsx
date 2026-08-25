@@ -124,19 +124,25 @@ export function WorkbenchSessionScene({
     PANEL_NEW_TAB_ACTIONS,
     session.tabs,
     "right",
-    session.projectId,
-    Boolean(session.thread),
-    session.thread?.cwd,
-    projectWorkspaceRootOrNull(project),
+    {
+      kind: "session",
+      projectId: session.projectId,
+      hasAttachedThread: Boolean(session.thread),
+      cwd: session.thread?.cwd,
+      projectWorkspaceRoot: projectWorkspaceRootOrNull(project),
+    },
   );
   const availableBottomPanelActions = filterAvailablePanelActions(
     PANEL_NEW_TAB_ACTIONS,
     session.tabs,
     "bottom",
-    session.projectId,
-    Boolean(session.thread),
-    session.thread?.cwd,
-    projectWorkspaceRootOrNull(project),
+    {
+      kind: "session",
+      projectId: session.projectId,
+      hasAttachedThread: Boolean(session.thread),
+      cwd: session.thread?.cwd,
+      projectWorkspaceRoot: projectWorkspaceRootOrNull(project),
+    },
   );
   const threadScopeDescriptor = resolveProjectSessionThreadScopeDescriptor(
     threadScopeIdentityRegistry,

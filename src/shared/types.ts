@@ -59,7 +59,7 @@ import type {
   ToolRequestUserInputOption as CodexAppServerUserInputOption,
   TurnStatus as CodexAppServerTurnStatus,
 } from "@nodex/codex-app-server-protocol/v2";
-import type { WorkbenchReviewConfig } from "./workbench-review-context";
+import type { WorkbenchReviewConfig } from "./workbench-review";
 import type { WorkbenchImageEditorSurfaceConfig } from "./workbench-image-editor";
 import type {
   BrowserSidebarDeviceToolbarState,

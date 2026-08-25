@@ -11,6 +11,8 @@ export type WorkbenchPanelActionUnavailableReason =
   | "no_thread"
   | "no_cwd"
   | "project_required"
+  | "session_required"
+  | "owner_not_supported"
   | "panel_not_supported"
   | "singleton_exists";
 
@@ -26,20 +28,39 @@ export interface WorkbenchPanelCapabilities {
 
 export interface ResolveWorkbenchPanelCapabilitiesInput {
   panelId: PanelId;
-  hasSession: boolean;
-  projectId: string | null;
-  hasAttachedThread: boolean;
-  cwd: string | null | undefined;
-  projectWorkspaceRoot?: string | null;
+  owner:
+    | {
+        readonly kind: "project";
+        readonly projectId: string;
+        readonly projectWorkspaceRoot?: string | null;
+      }
+    | {
+        readonly kind: "session";
+        readonly projectId: string | null;
+        readonly hasAttachedThread: boolean;
+        readonly cwd: string | null | undefined;
+        readonly projectWorkspaceRoot?: string | null;
+      }
+    | { readonly kind: "pages" }
+    | null;
   existingTabKinds?: readonly WorkbenchTabKind[];
 }
 
-const PROJECT_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
+const PROJECT_SESSION_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
   "review",
   "terminal",
   "browser",
   "files",
   "side_chat",
+  "db_view",
+  "page_stage",
+  "canvas_stage",
+];
+
+const PROJECT_SCENE_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
+  "terminal",
+  "browser",
+  "files",
   "db_view",
   "page_stage",
   "canvas_stage",
@@ -52,7 +73,7 @@ const PROJECTLESS_ACTION_ORDER: readonly WorkbenchPanelActionKind[] = [
   "terminal",
 ];
 
-const ALL_ACTION_KINDS: readonly WorkbenchPanelActionKind[] = [...PROJECT_ACTION_ORDER];
+const ALL_ACTION_KINDS: readonly WorkbenchPanelActionKind[] = [...PROJECT_SESSION_ACTION_ORDER];
 
 const RIGHT_PANEL_ACTIONS = new Set<WorkbenchPanelActionKind>(ALL_ACTION_KINDS);
 const BOTTOM_PANEL_ACTIONS = new Set<WorkbenchPanelActionKind>([
@@ -80,28 +101,30 @@ function resolveActionCapability(
   input: ResolveWorkbenchPanelCapabilitiesInput,
   existingTabKinds: ReadonlySet<WorkbenchTabKind>,
 ): WorkbenchPanelActionCapability {
-  if (!input.hasSession) return unavailable("no_session");
+  const owner = input.owner;
+  if (!owner) return unavailable("no_session");
+  if (owner.kind === "pages") return unavailable("owner_not_supported");
 
   const supportedActions = input.panelId === "right" ? RIGHT_PANEL_ACTIONS : BOTTOM_PANEL_ACTIONS;
   if (!supportedActions.has(kind)) return unavailable("panel_not_supported");
 
-  if (input.projectId === null && PROJECT_REQUIRED_ACTIONS.has(kind)) {
+  const projectId = owner.projectId;
+  if (projectId === null && PROJECT_REQUIRED_ACTIONS.has(kind)) {
     return unavailable("project_required");
   }
 
-  if (kind === "side_chat" && !input.hasAttachedThread) {
-    return unavailable("no_thread");
-  }
-
-  if (kind === "review" && input.projectId === null && !input.hasAttachedThread) {
-    return unavailable("no_thread");
+  if (kind === "side_chat" || kind === "review") {
+    if (owner.kind !== "session") return unavailable("session_required");
+    if (!owner.hasAttachedThread) return unavailable("no_thread");
   }
 
   if (kind === "terminal") {
-    const cwd = input.cwd?.trim();
-    const projectWorkspaceRoot = input.projectWorkspaceRoot?.trim();
+    const cwd = owner.kind === "session" ? owner.cwd?.trim() : null;
+    const projectWorkspaceRoot = owner.projectWorkspaceRoot?.trim();
     if (!cwd && !projectWorkspaceRoot) return unavailable("no_cwd");
-    if (input.projectId === null && !input.hasAttachedThread) return unavailable("no_thread");
+    if (owner.kind === "session" && projectId === null && !owner.hasAttachedThread) {
+      return unavailable("no_thread");
+    }
   }
 
   if (SINGLETON_ACTIONS.has(kind) && existingTabKinds.has(kind as WorkbenchTabKind)) {
@@ -118,7 +141,14 @@ export function resolveWorkbenchPanelCapabilities(
   const actions = Object.fromEntries(
     ALL_ACTION_KINDS.map((kind) => [kind, resolveActionCapability(kind, input, existingTabKinds)]),
   ) as Record<WorkbenchPanelActionKind, WorkbenchPanelActionCapability>;
-  const orderedKinds = input.projectId === null ? PROJECTLESS_ACTION_ORDER : PROJECT_ACTION_ORDER;
+  const orderedKinds =
+    input.owner?.kind === "project"
+      ? PROJECT_SCENE_ACTION_ORDER
+      : input.owner?.kind === "session" && input.owner.projectId === null
+        ? PROJECTLESS_ACTION_ORDER
+        : input.owner?.kind === "session"
+          ? PROJECT_SESSION_ACTION_ORDER
+          : [];
 
   return {
     actions,

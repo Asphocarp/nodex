@@ -615,6 +615,7 @@ export function useWorkbenchSessionCommands({
       targetLeafId?: string,
     ): Promise<boolean> => {
       if (!activeSession) return false;
+      if (kind === "review" && !activeSession.thread) return false;
       const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
       if (kind === "review") {
         const existingReviewTab = activeSession.tabs.find((tab) => tab.kind === "review");

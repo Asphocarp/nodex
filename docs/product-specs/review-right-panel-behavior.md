@@ -1,7 +1,7 @@
 # Review Right Panel Behavior
 
 Status: Active
-Last updated: 2026-07-20
+Last updated: 2026-08-25
 
 ## Purpose
 
@@ -9,7 +9,7 @@ The Review right-panel tab is Nodex's code-review workspace for an attached thre
 
 ## Shell And DOM Contract
 
-Review is a session singleton, but its durable tab id stays separate from the DOM id used by the right-panel shell. Review tab chrome and the active tabpanel expose `data-tab-id="diff"`. The active panel exposes `role="tabpanel"`, `aria-label="Review"`, and `data-app-shell-tab-panel-controller="right"` when mounted in the right panel.
+Review is available only in a Session Scene with an attached Thread. Project Home, the Pages Scene, and threadless draft Sessions do not expose Review and cannot own a Review surface. Review is a Session singleton, but its durable tab id stays separate from the DOM id used by the right-panel shell. Review tab chrome and the active tabpanel expose `data-tab-id="diff"`. The active panel exposes `role="tabpanel"`, `aria-label="Review"`, and `data-app-shell-tab-panel-controller="right"` when mounted in the right panel.
 
 The right panel owns `aside[data-app-shell-focus-area="right-panel"]`, the left resize handle, shadow edge, tab strip, close/plus/expand controls, and overflow containment. The Review body root is `grid h-full min-h-0 w-full grid-rows-[auto_1fr]`.
 
@@ -54,7 +54,7 @@ Selected transcript turns can still open an internal selected-turn diff, but sel
 
 Review treats unified diff text as renderable content only after file safety classification. Binary, oversized, invalid-text, or unsupported file changes remain metadata rows with their original path and action, but they do not feed `@pierre/diffs`, full-file loading, or body text search. These rows render typed placeholders such as `Binary file changed` or `File too large to display`; they still appear in the file tree and can match path search.
 
-Review presentation state follows renderer scope ownership. Diff mode, hide-whitespace, wrap, word-diff, rich-preview, and full-file preferences belong to App scope and survive Review unmounts and task switches. Source identity, commit/base ref, file-tree visibility and width, selected canonical path, filter, and expanded paths belong to the task Route scope and restore when retained routes are revisited. Menu state, DOM rows, retry timers, abort controllers, and focus affordances remain component-local. Raw diffs, file contents, comments, and other conversation authority never enter these atoms.
+Review presentation state follows renderer scope ownership. The containing Session Scene supplies Thread and Route identity; Review config carries only optional Project workspace metadata and never substitutes for those scopes. Diff mode, hide-whitespace, wrap, word-diff, rich-preview, and full-file preferences belong to App scope and survive Review unmounts and task switches. Source identity, commit/base ref, file-tree visibility and width, selected canonical path, filter, and expanded paths belong to the task Route scope and restore when retained routes are revisited. Menu state, DOM rows, retry timers, abort controllers, and focus affordances remain component-local. Raw diffs, file contents, comments, and other conversation authority never enter these atoms.
 
 Diff disclosure uses the same two-level model as Codex: one source-scoped all-expanded default plus sparse per-file overrides. Expand/collapse-all changes that default and clears the overrides; toggling or revealing one file writes only that file's override. Files that arrive later inherit the active default, removed files lose stale overrides, deleted files remain intrinsically collapsed unless individually opened, and changing the Review source resets the global default to expanded. The toolbar icon follows the global default, so a single per-file or deleted-file state does not invert the next bulk action.
 

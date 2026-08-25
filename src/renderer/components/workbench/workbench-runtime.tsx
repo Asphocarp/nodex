@@ -69,7 +69,6 @@ import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import {
   useCodexAppServerControl,
   useCodexAppServerRegistry,
-  ConnectedReviewDiffPanel,
   useConversationSubset,
   useLocalConversationAccount,
   useLocalConversationConnection,
@@ -2115,7 +2114,7 @@ export function WorkbenchRuntime({
   const openProjectSceneManualSurface = useCallback(
     async (
       projectId: string,
-      kind: "browser" | "files" | "review" | "terminal",
+      kind: "browser" | "files" | "terminal",
       options: {
         readonly panelId: PanelId;
         readonly targetLeafId?: string;
@@ -2147,19 +2146,6 @@ export function WorkbenchRuntime({
           {
             kind,
             config: {
-              context: { kind: "project", projectId },
-            },
-          },
-          panelOptions,
-        );
-      }
-      if (kind === "review") {
-        return await presentProjectSceneSurface(
-          projectId,
-          {
-            kind,
-            config: {
-              projectId,
               context: { kind: "project", projectId },
             },
           },
@@ -3506,29 +3492,6 @@ export function WorkbenchRuntime({
         );
       }
 
-      if (surface.kind === "review") {
-        const reviewContext =
-          surface.config.context ??
-          (surface.config.projectId
-            ? { kind: "project" as const, projectId: surface.config.projectId }
-            : null);
-        const reviewSession =
-          reviewContext?.kind === "session"
-            ? (knownSessions.find((session) => session.id === reviewContext.sessionId) ?? null)
-            : null;
-        const reviewProjectId = surface.config.projectId ?? reviewSession?.projectId ?? null;
-        const reviewProject = reviewProjectId
-          ? (projects.find((item) => item.id === reviewProjectId) ?? null)
-          : null;
-        return (
-          <ConnectedReviewDiffPanel
-            threadId={reviewSession?.thread?.threadId ?? null}
-            projectWorkspacePath={projectWorkspaceRootOrNull(reviewProject)}
-            searchOpenTick={0}
-          />
-        );
-      }
-
       return null;
     },
     [
@@ -3558,7 +3521,6 @@ export function WorkbenchRuntime({
       projectSceneOwner,
       projects,
       previewSurfacesByPanel,
-      knownSessions,
       refreshProjectSessions,
       searchByProject,
       sceneNavigator,
@@ -3835,7 +3797,21 @@ export function WorkbenchRuntime({
           previewSurfaceIds: projectScenePresentation.previewSurfaceIds,
           isMac: isMacPlatform,
           commandKeymapState,
-          availableActions: PANEL_NEW_TAB_ACTIONS.filter((action) => action.kind !== "side_chat"),
+          availableActions: filterAvailablePanelActions(
+            PANEL_NEW_TAB_ACTIONS,
+            [
+              ...(projectScenePresentation.scene.primary
+                ? [projectScenePresentation.scene.primary]
+                : []),
+              ...Object.values(projectScenePresentation.scene.panelSurfacesById),
+            ],
+            "right",
+            {
+              kind: "project",
+              projectId: activeProject.id,
+              projectWorkspaceRoot: projectWorkspaceRootOrNull(activeProject),
+            },
+          ),
           currentProjectDbViewExists:
             projectScenePresentation.scene.primary?.kind === "db_view" ||
             Object.values(projectScenePresentation.scene.panelSurfacesById).some(
@@ -3876,12 +3852,7 @@ export function WorkbenchRuntime({
               );
               return;
             }
-            if (
-              action === "browser" ||
-              action === "files" ||
-              action === "review" ||
-              action === "terminal"
-            ) {
+            if (action === "browser" || action === "files" || action === "terminal") {
               void openProjectSceneManualSurface(activeProject.id, action, {
                 panelId,
                 targetLeafId: leafId,
@@ -4333,10 +4304,13 @@ export function WorkbenchRuntime({
             PANEL_NEW_TAB_ACTIONS,
             activeRenderSession.tabs,
             "right",
-            activeRenderSession.projectId,
-            Boolean(activeRenderSession.thread),
-            activeRenderSession.thread?.cwd,
-            projectWorkspaceRootOrNull(activeSessionProject),
+            {
+              kind: "session",
+              projectId: activeRenderSession.projectId,
+              hasAttachedThread: Boolean(activeRenderSession.thread),
+              cwd: activeRenderSession.thread?.cwd,
+              projectWorkspaceRoot: projectWorkspaceRootOrNull(activeSessionProject),
+            },
           ).some((action) => action.kind === "side_chat")
             ? (input) =>
                 openSideChat({

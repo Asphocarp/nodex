@@ -23,7 +23,7 @@ import {
 } from "./workbench-panel-layout";
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import { createSecureRuntimeId } from "./secure-runtime-id";
-import type { WorkbenchReviewConfig } from "./workbench-review-context";
+import type { WorkbenchReviewConfig } from "./workbench-review";
 import type { WorkbenchImageEditorSurfaceConfig } from "./workbench-image-editor";
 
 export const WORKBENCH_SESSION_VIEW_VERSION = 4 as const;

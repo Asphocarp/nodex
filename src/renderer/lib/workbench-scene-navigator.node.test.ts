@@ -195,16 +195,42 @@ describe("WorkbenchSceneNavigator", () => {
     });
   });
 
-  test("rejects Conversation surfaces in a Project Scene", async () => {
+  test("rejects Conversation panel surfaces for every Scene owner", async () => {
     const harness = createHarness();
-    const owner = { kind: "project" as const, projectId: "alpha" };
+    const owners = [
+      { kind: "project" as const, projectId: "alpha" },
+      { kind: "session" as const, sessionId: "session-1" },
+    ];
+
+    for (const owner of owners) {
+      await expect(
+        harness.navigator.presentPanelSurface({
+          owner,
+          request: {
+            kind: "conversation",
+            sessionId: "session-1",
+          },
+          target: { panelId: "right" },
+          mode: "durable",
+          navigation: "background",
+        }),
+      ).resolves.toEqual({
+        status: "unavailable",
+        reason: "Conversation is the Session Scene primary, not a panel surface",
+      });
+    }
+    expect(harness.scenes).toEqual({});
+  });
+
+  test("rejects Review surfaces in a Project Scene", async () => {
+    const harness = createHarness();
 
     await expect(
       harness.navigator.presentPanelSurface({
-        owner,
+        owner: { kind: "project", projectId: "alpha" },
         request: {
-          kind: "conversation",
-          sessionId: "session-1",
+          kind: "review",
+          config: { projectId: "alpha" },
         },
         target: { panelId: "right" },
         mode: "durable",
@@ -212,7 +238,7 @@ describe("WorkbenchSceneNavigator", () => {
       }),
     ).resolves.toEqual({
       status: "unavailable",
-      reason: "Project conversations belong to Agent Dock",
+      reason: "Review requires an attached Session",
     });
     expect(harness.scenes).toEqual({});
   });

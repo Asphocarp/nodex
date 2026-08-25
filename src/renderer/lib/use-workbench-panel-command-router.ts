@@ -423,11 +423,15 @@ export function useWorkbenchPanelCommandRouter({
           : (projects.find((candidate) => candidate.id === activeSession?.projectId) ?? null);
       return resolveWorkbenchPanelCapabilities({
         panelId,
-        hasSession: Boolean(activeSession),
-        projectId: activeSession?.projectId ?? null,
-        hasAttachedThread: Boolean(activeSession?.thread),
-        cwd: activeSession?.thread?.cwd,
-        projectWorkspaceRoot: projectWorkspaceRootOrNull(project),
+        owner: activeSession
+          ? {
+              kind: "session",
+              projectId: activeSession.projectId,
+              hasAttachedThread: Boolean(activeSession.thread),
+              cwd: activeSession.thread?.cwd,
+              projectWorkspaceRoot: projectWorkspaceRootOrNull(project),
+            }
+          : null,
         existingTabKinds: activeSession?.tabs.map((tab) => tab.kind) ?? [],
       });
     },

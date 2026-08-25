@@ -5,10 +5,12 @@ describe("resolveWorkbenchPanelCapabilities", () => {
   it("offers Review first for an attached projectless chat in the right panel", () => {
     const result = resolveWorkbenchPanelCapabilities({
       panelId: "right",
-      hasSession: true,
-      projectId: null,
-      hasAttachedThread: true,
-      cwd: "/workspace",
+      owner: {
+        kind: "session",
+        projectId: null,
+        hasAttachedThread: true,
+        cwd: "/workspace",
+      },
     });
 
     expect(result.availableActionKinds).toEqual(["review", "side_chat", "browser", "terminal"]);
@@ -17,10 +19,12 @@ describe("resolveWorkbenchPanelCapabilities", () => {
   it("offers side chat, browser, then terminal to attached projectless chats in the bottom panel", () => {
     const result = resolveWorkbenchPanelCapabilities({
       panelId: "bottom",
-      hasSession: true,
-      projectId: null,
-      hasAttachedThread: true,
-      cwd: "/workspace",
+      owner: {
+        kind: "session",
+        projectId: null,
+        hasAttachedThread: true,
+        cwd: "/workspace",
+      },
     });
 
     expect(result.availableActionKinds).toEqual(["side_chat", "browser", "terminal"]);
@@ -29,10 +33,12 @@ describe("resolveWorkbenchPanelCapabilities", () => {
   it("keeps Review unavailable without an attached thread", () => {
     const result = resolveWorkbenchPanelCapabilities({
       panelId: "right",
-      hasSession: true,
-      projectId: null,
-      hasAttachedThread: false,
-      cwd: null,
+      owner: {
+        kind: "session",
+        projectId: null,
+        hasAttachedThread: false,
+        cwd: null,
+      },
     });
 
     expect(result.actions.review.reason).toBe("no_thread");
@@ -41,10 +47,12 @@ describe("resolveWorkbenchPanelCapabilities", () => {
   it("offers projectless actions independently of a workspace cwd", () => {
     const result = resolveWorkbenchPanelCapabilities({
       panelId: "right",
-      hasSession: true,
-      projectId: null,
-      hasAttachedThread: true,
-      cwd: null,
+      owner: {
+        kind: "session",
+        projectId: null,
+        hasAttachedThread: true,
+        cwd: null,
+      },
     });
 
     expect(result.availableActionKinds).toEqual(["review", "side_chat", "browser"]);
@@ -53,10 +61,12 @@ describe("resolveWorkbenchPanelCapabilities", () => {
   it("keeps side chat available when a projectless parent needs workspace repair", () => {
     const result = resolveWorkbenchPanelCapabilities({
       panelId: "right",
-      hasSession: true,
-      projectId: null,
-      hasAttachedThread: true,
-      cwd: null,
+      owner: {
+        kind: "session",
+        projectId: null,
+        hasAttachedThread: true,
+        cwd: null,
+      },
     });
 
     expect(result.availableActionKinds).toEqual(["review", "side_chat", "browser"]);
@@ -66,10 +76,12 @@ describe("resolveWorkbenchPanelCapabilities", () => {
   it("only offers browser to a blank projectless session", () => {
     const result = resolveWorkbenchPanelCapabilities({
       panelId: "right",
-      hasSession: true,
-      projectId: null,
-      hasAttachedThread: false,
-      cwd: null,
+      owner: {
+        kind: "session",
+        projectId: null,
+        hasAttachedThread: false,
+        cwd: null,
+      },
     });
 
     expect(result.availableActionKinds).toEqual(["browser"]);
@@ -81,19 +93,23 @@ describe("resolveWorkbenchPanelCapabilities", () => {
   it("keeps the existing project-backed action order and panel eligibility", () => {
     const right = resolveWorkbenchPanelCapabilities({
       panelId: "right",
-      hasSession: true,
-      projectId: "project-1",
-      hasAttachedThread: true,
-      cwd: null,
-      projectWorkspaceRoot: "/project",
+      owner: {
+        kind: "session",
+        projectId: "project-1",
+        hasAttachedThread: true,
+        cwd: null,
+        projectWorkspaceRoot: "/project",
+      },
     });
     const bottom = resolveWorkbenchPanelCapabilities({
       panelId: "bottom",
-      hasSession: true,
-      projectId: "project-1",
-      hasAttachedThread: true,
-      cwd: null,
-      projectWorkspaceRoot: "/project",
+      owner: {
+        kind: "session",
+        projectId: "project-1",
+        hasAttachedThread: true,
+        cwd: null,
+        projectWorkspaceRoot: "/project",
+      },
     });
 
     expect(right.availableActionKinds).toEqual([
@@ -112,14 +128,64 @@ describe("resolveWorkbenchPanelCapabilities", () => {
   it("hides an existing singleton without changing other actions", () => {
     const result = resolveWorkbenchPanelCapabilities({
       panelId: "right",
-      hasSession: true,
-      projectId: "project-1",
-      hasAttachedThread: true,
-      cwd: "/workspace",
+      owner: {
+        kind: "session",
+        projectId: "project-1",
+        hasAttachedThread: true,
+        cwd: "/workspace",
+      },
       existingTabKinds: ["review", "browser"],
     });
 
     expect(result.actions.review.reason).toBe("singleton_exists");
     expect(result.actions.browser.available).toBe(true);
+  });
+
+  it("keeps Session-only actions out of Project Scenes", () => {
+    const result = resolveWorkbenchPanelCapabilities({
+      panelId: "right",
+      owner: {
+        kind: "project",
+        projectId: "project-1",
+        projectWorkspaceRoot: "/project",
+      },
+    });
+
+    expect(result.availableActionKinds).toEqual([
+      "terminal",
+      "browser",
+      "files",
+      "db_view",
+      "page_stage",
+      "canvas_stage",
+    ]);
+    expect(result.actions.review.reason).toBe("session_required");
+    expect(result.actions.side_chat.reason).toBe("session_required");
+  });
+
+  it("requires an attached thread for Review in project-backed Sessions", () => {
+    const result = resolveWorkbenchPanelCapabilities({
+      panelId: "right",
+      owner: {
+        kind: "session",
+        projectId: "project-1",
+        hasAttachedThread: false,
+        cwd: null,
+        projectWorkspaceRoot: "/project",
+      },
+    });
+
+    expect(result.actions.review.reason).toBe("no_thread");
+    expect(result.availableActionKinds).not.toContain("review");
+  });
+
+  it("does not expose generic execution actions in the Pages Scene", () => {
+    const result = resolveWorkbenchPanelCapabilities({
+      panelId: "right",
+      owner: { kind: "pages" },
+    });
+
+    expect(result.availableActionKinds).toEqual([]);
+    expect(result.actions.review.reason).toBe("owner_not_supported");
   });
 });

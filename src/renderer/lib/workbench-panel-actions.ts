@@ -20,7 +20,7 @@ import {
   resolveWorkbenchPanelCapabilities,
   type WorkbenchPanelActionKind,
 } from "@/lib/workbench-panel-capabilities";
-import type { PanelId, WorkbenchTabProjection } from "@/lib/types";
+import type { PanelId, WorkbenchTabKind, WorkbenchTabProjection } from "@/lib/types";
 
 export type PanelNewTabActionKind = WorkbenchPanelActionKind;
 
@@ -144,22 +144,15 @@ export function isWorkbenchTabKind(
 
 export function filterAvailablePanelActions(
   actions: readonly PanelNewTabAction[],
-  tabs: readonly WorkbenchTabProjection[],
+  tabs: readonly { readonly kind: WorkbenchTabKind | "conversation" }[],
   panelId: PanelId,
-  projectId: string | null,
-  hasAttachedThread: boolean,
-  cwd: string | null | undefined,
-  projectWorkspaceRoot?: string | null,
+  owner: Parameters<typeof resolveWorkbenchPanelCapabilities>[0]["owner"],
 ): PanelNewTabAction[] {
   const actionsByKind = new Map(actions.map((action) => [action.kind, action]));
   const capabilities = resolveWorkbenchPanelCapabilities({
     panelId,
-    hasSession: true,
-    projectId,
-    hasAttachedThread,
-    cwd,
-    projectWorkspaceRoot,
-    existingTabKinds: tabs.map((tab) => tab.kind),
+    owner,
+    existingTabKinds: tabs.flatMap((tab) => (tab.kind === "conversation" ? [] : [tab.kind])),
   });
   return capabilities.availableActionKinds.flatMap((kind) => {
     const action = actionsByKind.get(kind);

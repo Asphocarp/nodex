@@ -6,10 +6,7 @@ import { contentAccessContextKey, type ContentAccessContext } from "./content-ac
 import type { DatabaseId } from "./database-identities";
 import type { WorkbenchImageEditorSurfaceConfig } from "./workbench-image-editor";
 import type { LibraryResourceTarget } from "./library-module";
-import {
-  resolveWorkbenchReviewContext,
-  type WorkbenchReviewConfig,
-} from "./workbench-review-context";
+import type { WorkbenchReviewConfig } from "./workbench-review";
 import {
   activateWorkbenchSessionViewTab,
   cloneWorkbenchLayoutForNewWindow as cloneLegacyWorkbenchLayoutForNewWindow,
@@ -385,8 +382,8 @@ function toLegacyPanelView(scene: WorkbenchSceneSnapshot): WorkbenchSessionViewS
 function enforceProjectSceneInvariants(scene: WorkbenchSceneSnapshot): WorkbenchSceneSnapshot {
   if (!scene.primary) return scene;
   const panelSurfacesById = Object.fromEntries(
-    Object.entries(scene.panelSurfacesById).filter(
-      ([, surface]) => surface.kind !== "conversation",
+    Object.entries(scene.panelSurfacesById).filter(([, surface]) =>
+      isProjectScenePanelSurfaceAllowed(surface),
     ),
   );
   const knownIds = new Set([scene.primary.id, ...Object.keys(panelSurfacesById)]);
@@ -454,15 +451,27 @@ function enforceProjectSceneInvariants(scene: WorkbenchSceneSnapshot): Workbench
 
 function enforceSessionSceneInvariants(scene: WorkbenchSceneSnapshot): WorkbenchSceneSnapshot {
   if (!scene.primary) return scene;
+  const panelSurfacesById = Object.fromEntries(
+    Object.entries(scene.panelSurfacesById).filter(
+      ([, surface]) => surface.kind !== "conversation",
+    ),
+  );
+  const knownIds = new Set(Object.keys(panelSurfacesById));
   const panels = { ...scene.panels };
   for (const panelId of PANEL_IDS) {
+    let layout = panels[panelId].layout;
+    for (const surfaceId of flattenWorkbenchPanelTabIds(layout)) {
+      if (knownIds.has(surfaceId)) continue;
+      layout = removeWorkbenchPanelTab(layout, surfaceId);
+    }
     panels[panelId] = {
       ...panels[panelId],
-      layout: removeWorkbenchPanelTab(panels[panelId].layout, scene.primary.id),
+      layout: removeWorkbenchPanelTab(layout, scene.primary.id),
     };
   }
   return {
     ...scene,
+    panelSurfacesById,
     panels,
     agentDock: null,
   };
@@ -477,6 +486,19 @@ export function isPagesSceneSurfaceAllowed(surface: WorkbenchSurfaceDescriptor):
     surface.config.accessContext.kind === "library" &&
     surface.config.target.kind !== "project-default"
   );
+}
+
+export function isProjectScenePanelSurfaceAllowed(surface: WorkbenchSurfaceDescriptor): boolean {
+  return surface.kind !== "conversation" && surface.kind !== "review";
+}
+
+export function isWorkbenchScenePanelSurfaceAllowed(
+  owner: WorkbenchSceneOwner,
+  surface: WorkbenchSurfaceDescriptor,
+): boolean {
+  if (owner.kind === "project") return isProjectScenePanelSurfaceAllowed(surface);
+  if (owner.kind === "pages") return isPagesSceneSurfaceAllowed(surface);
+  return surface.kind !== "conversation";
 }
 
 function enforcePagesSceneInvariants(scene: WorkbenchSceneSnapshot): WorkbenchSceneSnapshot {
@@ -967,6 +989,7 @@ export function createWorkbenchSceneSurface(
   scene: WorkbenchSceneSnapshot,
   input: WorkbenchSceneSurfaceCreateInput,
 ): WorkbenchSceneSnapshot {
+  if (!isWorkbenchScenePanelSurfaceAllowed(scene.owner, input.surface)) return scene;
   if (input.surface.id === scene.primary?.id || scene.panelSurfacesById[input.surface.id]) {
     return scene;
   }
@@ -1262,13 +1285,8 @@ export function getWorkbenchSurfaceReuseKey(surface: WorkbenchSurfaceDescriptor)
       return `page:${contentAccessContextKey(surface.config.accessContext)}:${surface.config.pageId}`;
     case "canvas_stage":
       return `canvas:${contentAccessContextKey(surface.config.accessContext)}:${surface.config.canvasBlockId}`;
-    case "review": {
-      const context = resolveWorkbenchReviewContext(surface.config);
-      if (!context) return null;
-      return context.kind === "project"
-        ? `review:project:${context.projectId}`
-        : `review:session:${context.sessionId}`;
-    }
+    case "review":
+      return "review";
     case "files":
       return `files:${surface.config.projectId ?? "projectless"}:${surface.config.path ?? "root"}`;
     case "image_editor":
