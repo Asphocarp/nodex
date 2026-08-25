@@ -184,7 +184,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.click(screen.getByText("Review"));
+      fireEvent.click(screen.getByText("Browser"));
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -198,6 +198,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
           JSON.stringify(call[3]) === JSON.stringify({ collapsed: false }),
       ),
     ).toBe(true);
+    expect(screen.getByRole("tab", { name: "Browser" })).not.toBeNull();
     expect(screen.queryAllByRole("tablist").length > 0).toBe(true);
   });
 
