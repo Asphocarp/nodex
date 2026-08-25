@@ -17,7 +17,10 @@ import {
   todayAsIsoDate,
 } from "@/lib/data-source-property-date";
 import { cn } from "@/lib/utils";
-import { PropertyEmptyValue } from "./property-empty-value";
+import {
+  DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME,
+  PropertyEmptyValue,
+} from "./property-empty-value";
 import {
   DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME,
   type DatabasePropertyValuePresentation,
@@ -229,7 +232,7 @@ export function DatePropertyEditor({
               "inline-flex min-h-6 min-w-0 items-center gap-1.5 rounded-md px-1 text-left outline-hidden",
               "text-token-text-secondary hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
               presentation === "page"
-                ? "text-sm"
+                ? cn("text-sm", !selected && DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME)
                 : presentation === "list" || presentation === "board"
                   ? DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME
                   : "text-[11px]",

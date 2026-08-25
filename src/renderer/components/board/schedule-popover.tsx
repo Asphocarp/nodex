@@ -9,7 +9,10 @@ import {
 import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
-import { PropertyEmptyValue } from "@/components/database/property-empty-value";
+import {
+  DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME,
+  PropertyEmptyValue,
+} from "@/components/database/property-empty-value";
 import { cn } from "@/lib/utils";
 import type { RecurrenceFrequency } from "@/lib/types";
 import type { PageScheduleSource, ScheduleState } from "@/lib/use-schedule-state";
@@ -56,8 +59,8 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
             <button
               type="button"
               className={cn(
-                "flex flex-wrap items-center gap-1 rounded-sm px-1 py-0.5 transition-colors",
-                "hover:bg-(--background-tertiary)",
+                "flex flex-wrap items-center gap-1",
+                DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME,
               )}
               aria-label={hasSchedule ? "Edit schedule" : "Set schedule"}
             >
