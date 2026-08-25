@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { DictationMicrophoneIcon } from "@/components/shared/icons";
 import type { IpcApi } from "../../../shared/ipc-api";
 import type { GlobalDictationRendererEvent } from "../../../shared/global-dictation";
 import type { DictationSettings, MicrophoneAccessResult } from "../../../shared/dictation";
@@ -131,12 +132,7 @@ export function GlobalDictationBar({
       className="flex h-[68px] w-[704px] items-center gap-4 rounded-[22px] border border-white/12 bg-[#171918]/94 px-5 text-white shadow-[0_16px_48px_rgba(0,0,0,0.42)] backdrop-blur-2xl"
     >
       <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#d7ff64] text-[#141611]">
-        <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M12 15.4a3.4 3.4 0 0 0 3.4-3.4V6.4a3.4 3.4 0 1 0-6.8 0V12a3.4 3.4 0 0 0 3.4 3.4Zm-6-3.8a1 1 0 1 1 2 0 4 4 0 0 0 8 0 1 1 0 1 1 2 0 6 6 0 0 1-5 5.92V20h2a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2h2v-2.48A6 6 0 0 1 6 11.6Z"
-          />
-        </svg>
+        <DictationMicrophoneIcon />
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-medium tracking-[-0.01em]">{stateLabel}</div>
