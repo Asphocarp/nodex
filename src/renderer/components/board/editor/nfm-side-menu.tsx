@@ -26,6 +26,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent as ReactClipboardEvent,
   type ComponentPropsWithoutRef,
   type CSSProperties,
   type KeyboardEvent,
@@ -60,6 +61,7 @@ import { hasTypedOwnerBlock } from "@/lib/typed-owner-blocks";
 import { NFM_TURN_INTO_DEFINITIONS } from "@/lib/nfm-turn-into-targets";
 import type { LibraryStructuralTurnIntoTarget } from "../../../../shared/library-module";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
+import { NfmStructuredClipboardExtension, type NfmClipboardCommand } from "./nfm-editor-extensions";
 import { NfmFloatingPopover, type NfmPopoverReference } from "./nfm-floating-popover";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
 import { NfmTurnIntoBlockIcon, type NfmTurnIntoBlockKey } from "./nfm-turn-into-block-icon";
@@ -157,6 +159,7 @@ interface NfmSideMenuOpenState {
 
 export type NfmSideMenuCloseReason =
   | "action"
+  | "clipboard-command"
   | "escape"
   | "editor-outside-pointer"
   | "outside-pointer";
@@ -242,6 +245,7 @@ interface NfmSideMenuSurfaceProps {
   onSubmenuChange: (submenu: NfmSideMenuSubmenuKey | null) => void;
   onTurnInto: (item: NfmSideMenuTurnIntoItem) => void;
   onColor: (kind: "text" | "background", color: NfmSideMenuColorValue) => void;
+  onClipboardCommand?: (command: NfmClipboardCommand, clipboardEvent: ClipboardEvent) => boolean;
   onMoveBlocksToDestination: (destination: NfmMoveToDestination) => Promise<void> | void;
   renderMoveToMenu?: (props: {
     sourceProjectId: string | null;
@@ -400,7 +404,7 @@ export function resolveNfmSideMenuReturnFocusElement({
   returnFocusElement: HTMLElement | null;
   editorRoot: HTMLElement | null;
 }) {
-  if (reason === "editor-outside-pointer") return editorRoot;
+  if (reason === "clipboard-command" || reason === "editor-outside-pointer") return editorRoot;
   return returnFocusElement;
 }
 
@@ -411,7 +415,7 @@ export function resolveNfmSideMenuFormattingToolbarSuppressionRange({
   reason: NfmSideMenuCloseReason;
   selectionRange: NfmSideMenuSelectionRange | null;
 }) {
-  if (reason === "action") return null;
+  if (reason === "action" || reason === "clipboard-command") return null;
   if (!selectionRange) return null;
   if (selectionRange.from === selectionRange.to) return null;
   return selectionRange;
@@ -1166,6 +1170,7 @@ export function NfmSideMenuSurface({
   onSubmenuChange,
   onTurnInto,
   onColor,
+  onClipboardCommand,
   onMoveBlocksToDestination,
   renderMoveToMenu,
 }: NfmSideMenuSurfaceProps) {
@@ -1192,6 +1197,14 @@ export function NfmSideMenuSurface({
       event.preventDefault();
       onClose();
     }
+  };
+  const handleInputClipboardCommand = (
+    command: NfmClipboardCommand,
+    event: ReactClipboardEvent<HTMLInputElement>,
+  ) => {
+    if (!onClipboardCommand?.(command, event.nativeEvent)) return;
+    event.preventDefault();
+    event.stopPropagation();
   };
   const closeSubmenuAndRestoreFocus = () => {
     onSubmenuChange(null);
@@ -1262,6 +1275,8 @@ export function NfmSideMenuSurface({
             className="h-7 w-full rounded-[7px] bg-token-foreground/5 px-2 text-[14px] text-token-foreground outline-hidden placeholder:text-token-description-foreground focus:bg-token-foreground/10"
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={handleInputKeyDown}
+            onCopy={(event) => handleInputClipboardCommand("copy", event)}
+            onCut={(event) => handleInputClipboardCommand("cut", event)}
           />
         </div>
         <div className="notion-scroller vertical min-h-0 flex-1 overflow-y-auto px-1">
@@ -1326,6 +1341,9 @@ function NfmSideMenuPopup({
 }) {
   const runtime = useNfmSideMenuRuntime();
   const formattingToolbar = useExtension(FormattingToolbarExtension, {
+    editor: editor as never,
+  });
+  const structuredClipboard = useExtension(NfmStructuredClipboardExtension, {
     editor: editor as never,
   });
   const listboxId = useId();
@@ -1822,6 +1840,11 @@ function NfmSideMenuPopup({
             });
           }
           close("action");
+        }}
+        onClipboardCommand={(command, clipboardEvent) => {
+          if (!structuredClipboard.executeClipboardCommand(command, clipboardEvent)) return false;
+          close("clipboard-command");
+          return true;
         }}
         onMoveBlocksToDestination={async (destination) => {
           if (!currentBlockId) {

@@ -157,6 +157,7 @@ function renderSideMenuSurface({
   const calls = {
     rows: [] as string[],
     queries: [] as string[],
+    clipboardCommands: [] as Array<"copy" | "cut">,
     close: 0,
   };
   let query = initialQuery;
@@ -231,6 +232,10 @@ function renderSideMenuSurface({
         }}
         onTurnInto={() => undefined}
         onColor={() => undefined}
+        onClipboardCommand={(command) => {
+          calls.clipboardCommands.push(command);
+          return true;
+        }}
         onMoveBlocksToDestination={() => undefined}
       />
     );
@@ -421,6 +426,12 @@ describe("nfm side menu surface", () => {
     ).toBe(true);
     expect(
       shouldReturnFocusAfterNfmSideMenuClose({
+        reason: "clipboard-command",
+        returnFocusElement,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReturnFocusAfterNfmSideMenuClose({
         reason: "action",
         returnFocusElement,
       }),
@@ -428,6 +439,13 @@ describe("nfm side menu surface", () => {
     expect(
       resolveNfmSideMenuReturnFocusElement({
         reason: "editor-outside-pointer",
+        returnFocusElement,
+        editorRoot,
+      }),
+    ).toBe(editorRoot);
+    expect(
+      resolveNfmSideMenuReturnFocusElement({
+        reason: "clipboard-command",
         returnFocusElement,
         editorRoot,
       }),
@@ -477,6 +495,10 @@ describe("nfm side menu surface", () => {
       reason: "action",
       selectionRange,
     });
+    const clipboardSuppressionRange = resolveNfmSideMenuFormattingToolbarSuppressionRange({
+      reason: "clipboard-command",
+      selectionRange,
+    });
 
     expect(editorOutsideSuppressionRange?.from).toBe(4);
     expect(editorOutsideSuppressionRange?.to).toBe(10);
@@ -485,6 +507,7 @@ describe("nfm side menu surface", () => {
     expect(escapeSuppressionRange?.from).toBe(4);
     expect(escapeSuppressionRange?.to).toBe(10);
     expect(actionSuppressionRange === null).toBe(true);
+    expect(clipboardSuppressionRange === null).toBe(true);
   });
 
   test("keeps dismissed toolbar suppression only while the current selection range matches", () => {
@@ -575,6 +598,20 @@ describe("nfm side menu surface", () => {
 
     expect(view.getAllByRole("option").length).toBe(1);
     expect(view.getByRole("option", { name: /Duplicate/ })).not.toBeNull();
+  });
+
+  test("delegates Copy and Cut from Search actions without claiming Paste", () => {
+    const { calls, view } = renderSideMenuSurface();
+    const searchInput = view.getByRole("combobox");
+    const clipboardData = {
+      getData: vi.fn(() => ""),
+      setData: vi.fn(),
+    };
+
+    expect(fireEvent.copy(searchInput, { clipboardData })).toBe(false);
+    expect(fireEvent.cut(searchInput, { clipboardData })).toBe(false);
+    expect(fireEvent.paste(searchInput, { clipboardData })).toBe(true);
+    expect(calls.clipboardCommands).toEqual(["copy", "cut"]);
   });
 
   test("clicking an enabled row activates it", () => {
