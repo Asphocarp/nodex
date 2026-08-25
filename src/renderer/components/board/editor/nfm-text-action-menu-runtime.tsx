@@ -13,11 +13,11 @@ export interface NfmTextActionMenuRuntimeValue {
   sendToThreadPreferredTarget?: NfmSendToThreadPreferredTarget | null;
   onMoveBlocksToDestination?: (
     destination: NfmMoveToDestination,
-    fallbackBlockId: string,
+    selectedBlockIds: readonly string[],
   ) => Promise<void> | void;
   onSendBlocksToThread?: (
     request: NfmSendToThreadRequest,
-    fallbackBlockId: string,
+    selectedBlockIds: readonly string[],
   ) => Promise<void> | void;
   onSendThreadSection?: (blockId: string, anchor?: HTMLElement) => boolean;
   onConvertDividerToThreadSection?: (blockId: string) => void;

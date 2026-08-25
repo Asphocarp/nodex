@@ -23,7 +23,11 @@ import {
   type SideMenuSelectionBlock,
   type SideMenuSelectionEditor,
 } from "./nfm-side-menu-selection";
-import { selectedBlockDecorationsExtension } from "./selected-block-decorations";
+import {
+  BLOCK_ACTION_SELECTION_PRESENTATION_ATTRIBUTE,
+  SelectedBlockDecorationsExtension,
+  selectedBlockDecorationsExtension,
+} from "./selected-block-decorations";
 import { nfmSchema } from "./nfm-schema";
 
 const testPageBlockConfig = {
@@ -158,6 +162,10 @@ describe("selected Block presentation in Chromium", () => {
       await act(settleEditor);
       expect(view.container.querySelectorAll("[data-show-selection]")).toHaveLength(1);
       expect(view.container.querySelector("[data-show-selection]")?.textContent).toBe("7");
+      expect(
+        getComputedStyle(view.container.querySelector<HTMLElement>("[data-show-selection]")!)
+          .backgroundColor,
+      ).toBe("rgba(35, 131, 226, 0.28)");
       showSelection?.showSelection(false, "inline-selection-test");
       await act(settleEditor);
 
@@ -185,6 +193,121 @@ describe("selected Block presentation in Chromium", () => {
         "rgba(35, 131, 226, 0.14)",
       );
       expect(getComputedStyle(pageContent, "::after").opacity).toBe("1");
+    } finally {
+      view.unmount();
+      editor._tiptapEditor.destroy();
+    }
+  });
+
+  test("presents a retained text-menu command target as Blocks without duplicate text paint", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: testSchema,
+      initialContent: [
+        { id: "first", type: "paragraph", content: "first block" },
+        { id: "second", type: "paragraph", content: "second block" },
+        { id: "outside", type: "paragraph", content: "outside" },
+      ],
+      extensions: [selectedBlockDecorationsExtension()],
+    });
+    const view = render(
+      <BlockNoteView
+        editor={editor}
+        className="nfm-editor"
+        formattingToolbar={false}
+        linkToolbar={false}
+        slashMenu={false}
+        sideMenu={false}
+        tableHandles={false}
+      />,
+    );
+
+    try {
+      await act(settleEditor);
+      const mountedView = requireMountedEditorView(editor);
+      await act(async () => {
+        editor.focus();
+        const doc = editor.prosemirrorState.doc;
+        mountedView.dispatch(
+          editor.prosemirrorState.tr.setSelection(
+            TextSelection.create(
+              doc,
+              inlinePosition(doc, "first", 2),
+              inlinePosition(doc, "second", 2),
+            ),
+          ),
+        );
+        await settleEditor();
+      });
+
+      const firstOuter = view.container.querySelector<HTMLElement>(
+        '.bn-block-outer[data-id="first"]',
+      );
+      const secondOuter = view.container.querySelector<HTMLElement>(
+        '.bn-block-outer[data-id="second"]',
+      );
+      const outsideOuter = view.container.querySelector<HTMLElement>(
+        '.bn-block-outer[data-id="outside"]',
+      );
+      const firstContent = firstOuter?.querySelector<HTMLElement>(".bn-block-content");
+      const secondContent = secondOuter?.querySelector<HTMLElement>(".bn-block-content");
+      const firstInline = firstContent?.querySelector<HTMLElement>(".bn-inline-content");
+      if (
+        !firstOuter ||
+        !secondOuter ||
+        !outsideOuter ||
+        !firstContent ||
+        !secondContent ||
+        !firstInline
+      ) {
+        throw new Error("Expected retained Block command fixture");
+      }
+
+      const showSelection = editor.getExtension(ShowSelectionExtension);
+      const blockPresentation = editor.getExtension(SelectedBlockDecorationsExtension);
+      if (!showSelection || !blockPresentation) {
+        throw new Error("Expected selection presentation extensions");
+      }
+
+      await act(async () => {
+        showSelection.showSelection(true, "competing-inline-owner");
+        blockPresentation.showSelectionAsBlocks(true, "block-action-owner", ["first", "second"]);
+        await settleEditor();
+      });
+
+      const retainedInlineDecoration =
+        view.container.querySelector<HTMLElement>("[data-show-selection]");
+      if (!retainedInlineDecoration) throw new Error("Expected retained inline decoration");
+
+      expect(mountedView.dom.hasAttribute(BLOCK_ACTION_SELECTION_PRESENTATION_ATTRIBUTE)).toBe(
+        true,
+      );
+      expect(firstOuter.dataset.nodexSelectionKind).toBe("block-action");
+      expect(secondOuter.dataset.nodexSelectionKind).toBe("block-action");
+      expect(outsideOuter.classList.contains("nodex-selected-block")).toBe(false);
+      expect(getComputedStyle(firstContent, "::after").opacity).toBe("1");
+      expect(getComputedStyle(secondContent, "::after").opacity).toBe("1");
+      expect(getComputedStyle(firstInline, "::selection").backgroundColor).toBe("rgba(0, 0, 0, 0)");
+      expect(getComputedStyle(retainedInlineDecoration).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+      expect(getComputedStyle(retainedInlineDecoration).paddingTop).toBe("0px");
+
+      await act(async () => {
+        blockPresentation.showSelectionAsBlocks(false, "block-action-owner");
+        await settleEditor();
+      });
+
+      expect(mountedView.dom.hasAttribute(BLOCK_ACTION_SELECTION_PRESENTATION_ATTRIBUTE)).toBe(
+        false,
+      );
+      expect(firstOuter.classList.contains("nodex-selected-block")).toBe(false);
+      expect(secondOuter.classList.contains("nodex-selected-block")).toBe(false);
+      expect(getComputedStyle(retainedInlineDecoration).backgroundColor).toBe(
+        "rgba(35, 131, 226, 0.28)",
+      );
+      expect(getComputedStyle(firstInline, "::selection").backgroundColor).toBe(
+        "rgba(35, 131, 226, 0.28)",
+      );
+
+      showSelection.showSelection(false, "competing-inline-owner");
     } finally {
       view.unmount();
       editor._tiptapEditor.destroy();
@@ -397,6 +520,7 @@ describe("selected Block presentation in Chromium", () => {
             showPreview: true,
           },
         },
+        { id: "inner-text", type: "paragraph", content: "inner text" },
       ],
       extensions: [selectedBlockDecorationsExtension()],
     });
@@ -474,7 +598,10 @@ describe("selected Block presentation in Chromium", () => {
       const secondImageWrapper = view.container.querySelector<HTMLElement>(
         '.bn-block-outer[data-id="image-two"] .bn-file-block-content-wrapper',
       );
-      if (!firstImageWrapper || !firstImage || !secondImageWrapper) {
+      const innerInline = view.container.querySelector<HTMLElement>(
+        '.bn-block-outer[data-id="inner-text"] .bn-inline-content',
+      );
+      if (!firstImageWrapper || !firstImage || !secondImageWrapper || !innerInline) {
         throw new Error("Expected both nested Image Blocks");
       }
 
@@ -497,6 +624,28 @@ describe("selected Block presentation in Chromium", () => {
       expect(getComputedStyle(secondImageWrapper, "::after").content).toBe("none");
       expect(getComputedStyle(pageFrame, "::after").borderColor).toBe("rgb(243, 221, 203)");
       expect(getComputedStyle(pageFrame, "::after").opacity).toBe("1");
+
+      await act(async () => {
+        innerEditor.setTextCursorPosition("inner-text");
+        innerEditor.focus();
+        await settleEditor();
+      });
+      expect(innerView.dom.classList.contains("ProseMirror-hideselection")).toBe(false);
+
+      const outerBlockPresentation = outerEditor.getExtension(SelectedBlockDecorationsExtension);
+      if (!outerBlockPresentation) throw new Error("Expected outer Block presentation extension");
+      await act(async () => {
+        outerBlockPresentation.showSelectionAsBlocks(true, "stale-outer-action", ["page"]);
+        await settleEditor();
+      });
+      expect(outerView.dom.hasAttribute(BLOCK_ACTION_SELECTION_PRESENTATION_ATTRIBUTE)).toBe(true);
+      expect(getComputedStyle(innerInline, "::selection").backgroundColor).toBe(
+        "rgba(35, 131, 226, 0.28)",
+      );
+      await act(async () => {
+        outerBlockPresentation.showSelectionAsBlocks(false, "stale-outer-action");
+        await settleEditor();
+      });
     } finally {
       view.unmount();
       innerEditor._tiptapEditor.destroy();

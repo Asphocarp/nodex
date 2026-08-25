@@ -170,7 +170,7 @@ function renderTextActionMenu(props?: Partial<NfmTextActionMenuSurfaceProps>) {
     nodexRows: [] as string[],
     moveDestinations: [] as NfmMoveToDestination[],
     sendRequests: [] as NfmSendToThreadRequest[],
-    selectionHoldStates: [] as boolean[],
+    selectionPresentations: [] as string[],
   };
 
   const view = render(
@@ -253,8 +253,8 @@ function renderTextActionMenu(props?: Partial<NfmTextActionMenuSurfaceProps>) {
           onSendBlocksToThread={(request) => {
             actions.sendRequests.push(request);
           }}
-          onSelectionHoldChange={(active) => {
-            actions.selectionHoldStates.push(active);
+          onSelectionPresentationChange={(presentation) => {
+            actions.selectionPresentations.push(presentation);
           }}
           {...props}
         />
@@ -886,7 +886,7 @@ describe("nfm text action menu surface", () => {
     expect(document.activeElement === searchInput).toBe(false);
   });
 
-  test("reports selection preservation while an action picker is active", async () => {
+  test("reports Block presentation while a Block action picker is active", async () => {
     const focusProbe = installFocusProbe();
     try {
       const { actions, view } = renderTextActionMenu({
@@ -899,12 +899,24 @@ describe("nfm text action menu surface", () => {
         ),
       });
 
+      const sendToChatRow = view.getByRole("button", { name: "Send to chat" });
       await act(async () => {
-        fireEvent.click(view.getByRole("button", { name: "Send to chat" }));
+        sendToChatRow.focus();
+        fireEvent.focus(sendToChatRow);
+        await settleAsyncRender();
+      });
+      expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+        "inline",
+      );
+
+      await act(async () => {
+        fireEvent.click(sendToChatRow);
         await settleAsyncRender();
       });
 
-      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBe(true);
+      expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+        "blocks",
+      );
 
       const searchInput = view.getByRole("combobox", { name: "Search threads" });
       await act(async () => {
@@ -912,7 +924,9 @@ describe("nfm text action menu surface", () => {
         fireEvent.focus(searchInput);
         await settleAsyncRender();
       });
-      expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBe(true);
+      expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+        "blocks",
+      );
 
       await act(async () => {
         fireEvent.keyDown(searchInput, { key: "Escape" });
@@ -927,7 +941,9 @@ describe("nfm text action menu surface", () => {
       });
 
       await waitFor(() => {
-        expect(actions.selectionHoldStates[actions.selectionHoldStates.length - 1]).toBe(false);
+        expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+          "none",
+        );
       });
     } finally {
       focusProbe.remove();
@@ -968,10 +984,10 @@ describe("nfm text action menu surface", () => {
     expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBe(true);
     expect(Boolean(view.getByRole("dialog", { name: "Move to" }))).toBe(true);
 
-    const firstActiveIndex = actions.selectionHoldStates.indexOf(true);
-    const inactiveAfterFirstActive = actions.selectionHoldStates
+    const firstActiveIndex = actions.selectionPresentations.indexOf("blocks");
+    const inactiveAfterFirstActive = actions.selectionPresentations
       .slice(firstActiveIndex + 1)
-      .some((active) => !active);
+      .some((presentation) => presentation === "none");
     expect(firstActiveIndex >= 0).toBe(true);
     expect(inactiveAfterFirstActive).toBe(false);
   });

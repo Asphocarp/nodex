@@ -1,0 +1,30 @@
+import { ShowSelectionExtension } from "@blocknote/core/extensions";
+import { useExtension } from "@blocknote/react";
+import { useEffectEvent, useLayoutEffect } from "react";
+
+import { SelectedBlockDecorationsExtension } from "./selected-block-decorations";
+
+export type NfmRetainedSelectionPresentation = "none" | "inline" | "blocks";
+
+/** Keeps a menu-owned selection visible through the presentation matching its command scope. */
+export function useNfmRetainedSelectionPresentation(
+  presentation: NfmRetainedSelectionPresentation,
+  owner: string,
+  selectedBlockIds: readonly string[],
+) {
+  const { showSelection } = useExtension(ShowSelectionExtension);
+  const { showSelectionAsBlocks } = useExtension(SelectedBlockDecorationsExtension);
+  const selectedBlockIdsSignature = JSON.stringify(selectedBlockIds);
+  const syncPresentation = useEffectEvent(() => {
+    showSelection(presentation === "inline", owner);
+    showSelectionAsBlocks(presentation === "blocks", owner, selectedBlockIds);
+  });
+
+  useLayoutEffect(() => {
+    syncPresentation();
+    return () => {
+      showSelection(false, owner);
+      showSelectionAsBlocks(false, owner);
+    };
+  }, [owner, presentation, selectedBlockIdsSignature, showSelection, showSelectionAsBlocks]);
+}

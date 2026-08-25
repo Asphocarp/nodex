@@ -1770,14 +1770,19 @@ function NfmEditorInstance({
   );
 
   const resolveSendBlocksSelection = useCallback(
-    (fallbackBlockId: string): SendBlocksSelection | null => {
+    (fallbackBlockId: string, retainedBlockIds?: readonly string[]): SendBlocksSelection | null => {
       if (!sourcePageContext) return null;
 
       const container = containerRef.current;
       if (!container) return null;
 
       const dropEditor = editor as unknown as EditorForExternalBlockDrop;
-      const selection = resolveSendBlockSelection(dropEditor, container, fallbackBlockId);
+      const selection = resolveSendBlockSelection(
+        dropEditor,
+        container,
+        fallbackBlockId,
+        retainedBlockIds,
+      );
       if (selection.blockIds.length === 0) return null;
 
       return {
@@ -1816,8 +1821,12 @@ function NfmEditorInstance({
   );
 
   const moveBlocksToDestination = useCallback(
-    async (destination: NfmMoveToDestination, fallbackBlockId: string) => {
-      const selection = resolveSendBlocksSelection(fallbackBlockId);
+    async (
+      destination: NfmMoveToDestination,
+      fallbackBlockId: string,
+      retainedBlockIds?: readonly string[],
+    ) => {
+      const selection = resolveSendBlocksSelection(fallbackBlockId, retainedBlockIds);
       if (!selection) {
         throw new Error("No blocks selected.");
       }
@@ -1865,7 +1874,11 @@ function NfmEditorInstance({
   );
 
   const sendBlocksToThread = useCallback(
-    async (request: NfmSendToThreadRequest, fallbackBlockId: string) => {
+    async (
+      request: NfmSendToThreadRequest,
+      fallbackBlockId: string,
+      retainedBlockIds?: readonly string[],
+    ) => {
       if (!sourcePageContext) {
         throw new Error("No blocks selected.");
       }
@@ -1873,7 +1886,7 @@ function NfmEditorInstance({
         throw new Error("Sending Blocks to a chat requires a Project.");
       }
 
-      const selection = resolveSendBlocksSelection(fallbackBlockId);
+      const selection = resolveSendBlocksSelection(fallbackBlockId, retainedBlockIds);
       if (!selection) {
         throw new Error("No blocks selected.");
       }
@@ -2196,9 +2209,17 @@ function NfmEditorInstance({
       sendToThreadProjectNameById,
       sendToThreadPreferredTarget: sessionSendToThreadPreferredTarget,
       ...(blockActionCapabilities.canMoveBlocks
-        ? { onMoveBlocksToDestination: moveBlocksToDestination }
+        ? {
+            onMoveBlocksToDestination: (
+              destination: NfmMoveToDestination,
+              selectedBlockIds: readonly string[],
+            ) => moveBlocksToDestination(destination, selectedBlockIds[0] ?? "", selectedBlockIds),
+          }
         : {}),
-      onSendBlocksToThread: sendBlocksToThread,
+      onSendBlocksToThread: (
+        request: NfmSendToThreadRequest,
+        selectedBlockIds: readonly string[],
+      ) => sendBlocksToThread(request, selectedBlockIds[0] ?? "", selectedBlockIds),
       onSendThreadSection: handleSendThreadSectionByBlockId,
       onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
     }),

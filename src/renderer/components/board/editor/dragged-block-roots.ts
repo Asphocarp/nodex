@@ -7,13 +7,13 @@ export interface DraggableEditorBlock {
 }
 
 /** Remove selected descendants so one transfer never duplicates a subtree. */
-export const resolveTopLevelDraggedBlocks = (
+export const resolveTopLevelDraggedBlocks = <Block extends DraggableEditorBlock>(
   editor: {
-    getBlock: (id: string) => DraggableEditorBlock | undefined;
-    getParentBlock: (id: string) => DraggableEditorBlock | undefined;
+    getBlock: (id: string) => Block | undefined;
+    getParentBlock: (id: string) => Block | undefined;
   },
   draggedIds: readonly string[],
-): readonly DraggableEditorBlock[] => {
+): readonly Block[] => {
   const selected = new Set(draggedIds);
   return draggedIds
     .filter((id) => {
@@ -25,5 +25,5 @@ export const resolveTopLevelDraggedBlocks = (
       return true;
     })
     .map((id) => editor.getBlock(id))
-    .filter((block): block is DraggableEditorBlock => block !== undefined);
+    .filter((block): block is Block => block !== undefined);
 };
