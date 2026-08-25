@@ -27,6 +27,7 @@ const OUTPUT_TYPE_PRIORITY: Record<ThreadUserMessageNavigationOutputType, number
   "pull-request": 6,
   review: 7,
 };
+const GOOGLE_DRIVE_DOMAINS = ["drive.google.com", "googleusercontent.com"] as const;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null) return null;
@@ -57,10 +58,23 @@ function basename(path: string): string {
 
 function hostnameFromUrl(value: string): string | null {
   try {
-    return new URL(value).hostname.replace(/^www\./, "");
+    return new URL(value).hostname
+      .toLowerCase()
+      .replace(/\.$/u, "")
+      .replace(/^www\./u, "");
   } catch {
     return null;
   }
+}
+
+function isDomainOrSubdomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+export function isGoogleDriveResourceUrl(value: string): boolean {
+  const hostname = hostnameFromUrl(value);
+  if (!hostname) return false;
+  return GOOGLE_DRIVE_DOMAINS.some((domain) => isDomainOrSubdomain(hostname, domain));
 }
 
 function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
@@ -169,12 +183,10 @@ function addWebOutputs(
   for (const url of urls) {
     const host = hostnameFromUrl(url);
     if (!host) continue;
+    const isGoogleDrive = GOOGLE_DRIVE_DOMAINS.some((domain) => isDomainOrSubdomain(host, domain));
     addOutput(outputs, {
-      type:
-        host.includes("drive.google.com") || host.includes("googleusercontent.com")
-          ? "google-drive"
-          : "website",
-      label: host.includes("drive.google.com") ? "Google Drive" : host,
+      type: isGoogleDrive ? "google-drive" : "website",
+      label: isGoogleDrive ? "Google Drive" : host,
     });
   }
 }
@@ -185,9 +197,10 @@ function addMcpOutputs(
 ) {
   const mcp = entry.mcpToolCall;
   if (mcp?.mcpAppResourceUri) {
+    const isGoogleDrive = isGoogleDriveResourceUrl(mcp.mcpAppResourceUri);
     addOutput(outputs, {
-      type: mcp.mcpAppResourceUri.includes("drive.google.com") ? "google-drive" : "app",
-      label: mcp.mcpAppResourceUri.includes("drive.google.com")
+      type: isGoogleDrive ? "google-drive" : "app",
+      label: isGoogleDrive
         ? "Google Drive"
         : (firstNonEmpty(mcp.invocation.server, mcp.invocation.tool, mcp.pluginId) ?? "App"),
     });

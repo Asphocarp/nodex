@@ -22,6 +22,7 @@ import {
   type WorkbenchPanelSplitSide,
 } from "./workbench-panel-layout";
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
+import { createSecureRuntimeId } from "./secure-runtime-id";
 import type { WorkbenchReviewConfig } from "./workbench-review-context";
 import type { WorkbenchImageEditorSurfaceConfig } from "./workbench-image-editor";
 
@@ -212,10 +213,7 @@ function currentIso(): string {
 function defaultIdentityFactory(): WorkbenchSessionViewIdentityFactory {
   return {
     createId(kind) {
-      const id =
-        globalThis.crypto?.randomUUID?.() ??
-        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-      return `${kind}:${id}`;
+      return createSecureRuntimeId(kind);
     },
   };
 }

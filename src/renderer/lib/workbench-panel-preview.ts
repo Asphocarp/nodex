@@ -1,4 +1,5 @@
 import { requireWorkbenchBrowserTabProjectionId } from "../../shared/browser-sidebar";
+import { createSecureRuntimeId } from "../../shared/secure-runtime-id";
 import type {
   PanelId,
   WorkbenchProjectionTabConfiguration,
@@ -31,9 +32,7 @@ export type ProjectSessionPreviewTab =
 export type WorkbenchTabProjectionDraft = WorkbenchProjectionTabConfiguration & { title: string };
 
 function makeClientWorkbenchTabProjectionId(): string {
-  const randomId = globalThis.crypto?.randomUUID?.();
-  if (randomId) return `tab:${randomId}`;
-  return `tab:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 12)}`;
+  return createSecureRuntimeId("tab");
 }
 
 function makeTerminalSessionId(sessionId: string): string {

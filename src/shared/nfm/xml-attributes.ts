@@ -1,3 +1,5 @@
+import { decodeXmlCharacterReferences } from "../xml-character-references";
+
 export function escapeXmlAttr(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -13,12 +15,7 @@ export function getXmlAttr(attrs: string, name: string): string | undefined {
   const match = attrs.match(pattern);
   if (!match) return undefined;
 
-  return match[1]
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
+  return decodeXmlCharacterReferences(match[1]);
 }
 
 export function parseXmlAttrs(attrs: string): Record<string, string> {
@@ -30,12 +27,7 @@ export function parseXmlAttrs(attrs: string): Record<string, string> {
     const name = match[1];
     const value = match[2];
     if (!name || value === undefined) continue;
-    result[name] = value
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&amp;/g, "&");
+    result[name] = decodeXmlCharacterReferences(value);
   }
 
   return result;

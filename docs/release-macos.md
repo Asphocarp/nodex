@@ -332,12 +332,15 @@ gh workflow run release-rehearsal.yml \
   -f source_sha=<full-main-sha>
 ```
 
-The guard requires that SHA to be reachable from `main` and to have a
-successful protected-main `CI` push run. Both hosted macOS architectures use
-the same source and signing environment. Rehearsal also uses the protected
-Sparkle finalization environment, but it does not receive `contents: write`,
-Homebrew/landing credentials, or a Sentry upload token. It creates no tag,
-Release, tap commit, feed commit, or production telemetry release.
+The secret-free `release-source` environment admits only a protected-branch
+workflow definition. Inside that boundary, the shared provenance guard requires
+the immutable SHA to be reachable from `main` and to have a successful
+protected-main `Main CI` push run before any source checkout or execution. Both
+hosted macOS architectures use the same source and signing environment.
+Rehearsal also uses the protected Sparkle finalization environment, but it does
+not receive `contents: write`, Homebrew/landing credentials, or a Sentry upload
+token. It creates no tag, Release, tap commit, feed commit, or production
+telemetry release.
 
 Download `nodex-release-bundle-<sha>` and inspect `release-bundle.json` and
 `SHA256SUMS`. A rehearsal is required after release workflow, native packaging,
@@ -453,9 +456,9 @@ gh workflow run release-recovery.yml \
   -f version=0.2.1
 ```
 
-Recovery repeats protected-main and CI guards and requires that exact commit to
-be a valid metadata-only transition for the supplied version. Its behavior is
-idempotent:
+Recovery repeats the `release-source` environment and shared protected-main
+provenance guard, then requires that exact commit to be a valid metadata-only
+transition for the supplied version. Its behavior is idempotent:
 
 - absent tag/release: rebuild, verify, tag, publish;
 - matching tag: reuse only when it resolves to the exact source SHA;

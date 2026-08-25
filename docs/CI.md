@@ -20,10 +20,11 @@ tool and is never an automated quality gate.
   benchmarks and explicitly ignored scale contracts. Performance regressions
   are diagnosed below Electron rather than through UI timings.
 - `_certify-release-source.yml` runs the full deterministic source and runtime
-  gates for an exact release SHA without signing secrets. It issues a
-  SHA-and-tree-bound certificate. Stable, nightly, rehearsal, and recovery
-  distributions refuse to build unless that certificate matches the checked
-  out Git tree.
+  gates for an exact release SHA without signing secrets. Its `release-source`
+  environment and shared protected-main guard dominate every reusable consumer
+  before the SHA is checked out or executed. It issues a SHA-and-tree-bound
+  certificate. Stable, nightly, rehearsal, and recovery distributions refuse to
+  build unless that certificate matches the checked out Git tree.
 - `_macos-distribution.yml` owns signing, notarization, packaged CLI/Core
   probes, application startup, architecture bundles, and certificate
   propagation. The packaged startup probe requires a valid Core descriptor;

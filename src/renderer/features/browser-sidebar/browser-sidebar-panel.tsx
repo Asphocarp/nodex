@@ -80,6 +80,7 @@ import type {
   BrowserSiteInfo,
 } from "../../../shared/browser-profile";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../../../shared/browser-url";
+import { createSecureRuntimeId } from "../../../shared/secure-runtime-id";
 import { useTheme } from "@/lib/use-theme";
 import {
   BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX,
@@ -280,10 +281,7 @@ export function BrowserSidebarPanel({
   const [downloadsSnapshot, setDownloadsSnapshot] = useState<BrowserDownloadsSnapshot>({
     downloads: [],
   });
-  const annotationSessionIdRef = useRef(
-    globalThis.crypto?.randomUUID?.() ??
-      `browser-annotation-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  const annotationSessionIdRef = useRef(createSecureRuntimeId("browser-annotation"));
   const [annotationDraft, setAnnotationDraft] = useState(() =>
     createBrowserAnnotationDraftState(snapshot.url),
   );
@@ -1473,8 +1471,7 @@ export function BrowserSidebarPanel({
                       .then((evidence) => {
                         publishBrowserAnnotationAttachment(codexSessionId, {
                           schemaVersion: 1,
-                          id:
-                            globalThis.crypto?.randomUUID?.() ?? `browser-annotation-${Date.now()}`,
+                          id: createSecureRuntimeId("browser-annotation"),
                           browserTabId,
                           createdAt: Date.now(),
                           intent: annotationIntent,

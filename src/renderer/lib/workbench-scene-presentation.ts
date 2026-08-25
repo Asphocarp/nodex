@@ -1,4 +1,5 @@
 import { listWorkbenchPanelLeaves } from "../../shared/workbench-panel-layout";
+import { createSecureRuntimeId } from "../../shared/secure-runtime-id";
 import type {
   PanelId,
   ProjectSession,
@@ -16,7 +17,7 @@ import type { WorkbenchSessionRenderProjection } from "./workbench-session-prese
 export type WorkbenchSurfaceUpdatePatch = WorkbenchTabUpdateInput;
 
 function makeRuntimeId(prefix: string): string {
-  return `${prefix}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
+  return createSecureRuntimeId(prefix);
 }
 
 function resourceProjectId(

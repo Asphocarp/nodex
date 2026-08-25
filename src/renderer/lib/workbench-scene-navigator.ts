@@ -20,6 +20,7 @@ import {
 } from "../../shared/workbench-scene";
 import type { WorkbenchSceneLocation } from "../../shared/workbench-layout";
 import type { WorkbenchPanelId } from "../../shared/workbench-session-view";
+import { createSecureRuntimeId } from "../../shared/secure-runtime-id";
 import { resolveRightNeighborPanelPlacement } from "./workbench-panel-placement";
 
 export type WorkbenchSurfaceOpenRequest =
@@ -204,10 +205,7 @@ export interface WorkbenchSceneNavigator {
 function createDefaultIdentityFactory(): WorkbenchSceneNavigatorIdentityFactory {
   return {
     createId(kind) {
-      const id =
-        globalThis.crypto?.randomUUID?.() ??
-        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-      return `${kind}:${id}`;
+      return createSecureRuntimeId(kind);
     },
   };
 }

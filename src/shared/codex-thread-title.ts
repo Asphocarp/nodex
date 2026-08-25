@@ -1,6 +1,7 @@
 import type { UserInput } from "@nodex/codex-app-server-protocol/v2";
 import { buildCodexSteeringCompareKey } from "./codex-conversation-state/codex-steering-compare";
 import { projectCodexMarkdownToPlainText } from "./codex-markdown-text";
+import { decodeXmlCharacterReferences } from "./xml-character-references";
 
 export { projectCodexMarkdownToPlainText } from "./codex-markdown-text";
 
@@ -61,10 +62,6 @@ function extractCodexXmlElement(value: string, tagName: string): string | null {
   );
 }
 
-function decodeCodexXmlText(value: string): string {
-  return value.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
-}
-
 function stripCodexCommentImageDescriptions(value: string): string {
   return value
     .replace(
@@ -109,10 +106,10 @@ function hasRecognizedCodexAppshot(value: string): boolean {
   const pattern = new RegExp(CODEX_APPSHOT_PATTERN_SOURCE, "g");
   for (const match of value.matchAll(pattern)) {
     const attributes = match[1] ?? match[3] ?? "";
-    const body = decodeCodexXmlText((match[2] ?? "").trim());
+    const body = decodeXmlCharacterReferences((match[2] ?? "").trim());
     const parsedAttributes = new Map<string, string>();
     for (const attribute of attributes.matchAll(/([A-Za-z][A-Za-z0-9-]*)="([^"]*)"/g)) {
-      parsedAttributes.set(attribute[1] ?? "", decodeCodexXmlText(attribute[2] ?? ""));
+      parsedAttributes.set(attribute[1] ?? "", decodeXmlCharacterReferences(attribute[2] ?? ""));
     }
     if (
       (parsedAttributes.get("app")?.trim().length ?? 0) > 0 &&
@@ -148,7 +145,7 @@ function projectCodexForkTitleUserMessage(rawText: string, hasImages: boolean): 
     const sourceThreadId = extractCodexXmlElement(trimmed, "source_thread_id");
     const delegatedInput = extractCodexXmlElement(trimmed, "input");
     if (sourceThreadId !== null && delegatedInput !== null) {
-      message = decodeCodexXmlText(delegatedInput);
+      message = decodeXmlCharacterReferences(delegatedInput);
     }
   }
 

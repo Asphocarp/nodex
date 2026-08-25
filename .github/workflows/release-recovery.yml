@@ -26,36 +26,17 @@ jobs:
   validate:
     name: validate recoverable release
     runs-on: ubuntu-latest
+    environment: release-source
     outputs:
       source_sha: ${{ steps.identity.outputs.source_sha }}
       tag: ${{ steps.identity.outputs.tag }}
       version: ${{ steps.identity.outputs.version }}
     steps:
-      - name: Verify protected main and successful CI
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ ! "${SOURCE_SHA}" =~ ^[a-f0-9]{40}$ ]]; then
-            echo "source_sha must be a full commit SHA." >&2
-            exit 1
-          fi
-          status="$(gh api --method GET \
-            "repos/${GITHUB_REPOSITORY}/compare/${SOURCE_SHA}...main" \
-            --jq .status)"
-          if [[ "${status}" != "ahead" && "${status}" != "identical" ]]; then
-            echo "Release SHA is not reachable from main." >&2
-            exit 1
-          fi
-          successful="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
-            -f head_sha="${SOURCE_SHA}" -f event=push -f status=completed \
-            --jq '[.workflow_runs[] | select(.name == "Main CI" and .head_branch == "main" and .conclusion == "success")] | length')"
-          if [[ "${successful}" == "0" ]]; then
-            echo "Release SHA does not have a successful protected-main CI run." >&2
-            exit 1
-          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false, ref: main }
+      - uses: ./.github/actions/verify-protected-main-source
+        with:
+          source_sha: ${{ inputs.source_sha }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

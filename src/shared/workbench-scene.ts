@@ -1,6 +1,7 @@
 import type { BrowserSidebarDeviceToolbarState } from "./browser-sidebar";
 import type { CodexForkBrowserSidePanelSnapshot } from "./codex-fork-browser-transfer";
 import type { InitialProjectPresentation } from "./initial-project-welcome";
+import { createSecureRuntimeId } from "./secure-runtime-id";
 import { contentAccessContextKey, type ContentAccessContext } from "./content-access-context";
 import type { DatabaseId } from "./database-identities";
 import type { WorkbenchImageEditorSurfaceConfig } from "./workbench-image-editor";
@@ -336,10 +337,7 @@ function currentIso(): string {
 function defaultIdentityFactory(): WorkbenchSceneIdentityFactory {
   return {
     createId(kind) {
-      const id =
-        globalThis.crypto?.randomUUID?.() ??
-        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-      return `${kind}:${id}`;
+      return createSecureRuntimeId(kind);
     },
   };
 }
@@ -1294,9 +1292,7 @@ export function applyForkBrowserTransferToWorkbenchScene(
         titleSnapshot: "Browser",
         config: {
           browserTabId: descriptor.browserTabId,
-          browserStorageId: `browser:${
-            globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
-          }`,
+          browserStorageId: createSecureRuntimeId("browser"),
           ...(descriptor.initialUrl ? { url: descriptor.initialUrl } : {}),
           deviceToolbarVisible: descriptor.deviceToolbarState.toolbarState.isEnabled,
           deviceToolbarState: descriptor.deviceToolbarState,

@@ -1,0 +1,36 @@
+name: Verify protected-main source
+description: Prove that an immutable source SHA is reviewed protected-main code with a green Main CI run.
+inputs:
+  source_sha:
+    description: Exact 40-character protected-main source commit.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Verify immutable protected-main provenance
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SOURCE_SHA: ${{ inputs.source_sha }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ ! "${SOURCE_SHA}" =~ ^[a-f0-9]{40}$ ]]; then
+          echo "source_sha must be a full lowercase commit SHA." >&2
+          exit 1
+        fi
+
+        status="$(gh api --method GET \
+          "repos/${GITHUB_REPOSITORY}/compare/${SOURCE_SHA}...main" \
+          --jq .status)"
+        if [[ "${status}" != "ahead" && "${status}" != "identical" ]]; then
+          echo "Source SHA is not reachable from protected main." >&2
+          exit 1
+        fi
+
+        successful="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+          -f head_sha="${SOURCE_SHA}" -f event=push -f status=completed -F per_page=100 \
+          --jq '[.workflow_runs[] | select(.name == "Main CI" and .head_branch == "main" and .conclusion == "success")] | length')"
+        if [[ "${successful}" == "0" ]]; then
+          echo "Source SHA does not have a successful protected-main Main CI run." >&2
+          exit 1
+        fi
