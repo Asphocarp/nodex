@@ -76,15 +76,6 @@ const automationApplication = (
 ): AutomationApplication["Service"] =>
   AutomationApplication.of({ runs: { get } } as unknown as AutomationApplication["Service"]);
 
-const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void> =>
-  Effect.gen(function* () {
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      if (predicate()) return;
-      yield* Effect.yieldNow;
-    }
-    return yield* Effect.die(new Error(`Retention test did not settle: ${label}`));
-  });
-
 const buildRuntime = (
   options: {
     readonly settings?: () => ManagedWorktreeSettings;
@@ -343,6 +334,8 @@ it.effect("protects worktrees owned by the canonical Automation application", ()
 it.effect("caps deletion at three and lets peer failures settle independently", () =>
   Effect.gen(function* () {
     const gates = yield* Effect.forEach(Array.from({ length: 4 }), () => Deferred.make<void>());
+    const firstBatchStarted = yield* Deferred.make<void>();
+    const secondBatchStarted = yield* Deferred.make<void>();
     const started: number[] = [];
     let active = 0;
     let peak = 0;
@@ -365,6 +358,8 @@ it.effect("caps deletion at three and lets peer failures settle independently", 
           started.push(index);
           active += 1;
           peak = Math.max(peak, active);
+          if (started.length === 3) yield* Deferred.succeed(firstBatchStarted, undefined);
+          if (started.length === 4) yield* Deferred.succeed(secondBatchStarted, undefined);
           yield* Deferred.await(gate).pipe(
             Effect.ensuring(
               Effect.sync(() => {
@@ -397,10 +392,10 @@ it.effect("caps deletion at three and lets peer failures settle independently", 
     });
     yield* TestClock.setTime(Date.parse("2026-08-14T00:00:00.000Z"));
     const sweep = yield* Effect.forkChild(runtime.run, { startImmediately: true });
-    yield* waitUntil("first deletion batch", () => started.length === 3);
+    yield* Deferred.await(firstBatchStarted);
     assert.strictEqual(peak, 3);
     yield* Effect.forEach(gates.slice(0, 3), (gate) => Deferred.succeed(gate, undefined));
-    yield* waitUntil("second deletion batch", () => started.length === 4);
+    yield* Deferred.await(secondBatchStarted);
     yield* Deferred.succeed(gates[3]!, undefined);
     const plan = yield* Fiber.join(sweep);
 
