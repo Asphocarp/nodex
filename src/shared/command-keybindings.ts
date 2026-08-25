@@ -970,10 +970,20 @@ export function matchesKeyboardEventToAccelerator(
   if (!normalized || normalized.includes(" ") || normalized.startsWith("Mouse")) return false;
   const parsed = parseChord(normalized);
   if (!parsed) return false;
+  const runtimeAccelerator = normalizeAccelerator(
+    [
+      ...parsed.modifiers.map((modifier) =>
+        platform !== "macOS" && modifier === "Ctrl" ? "CmdOrCtrl" : modifier,
+      ),
+      parsed.key,
+    ]
+      .filter(isString)
+      .join("+"),
+  );
   const eventAccel = keyboardEventToAccelerator(event, platform, {
     allowsBareModifiers: parsed.key === null,
   });
-  return eventAccel === normalized;
+  return eventAccel === runtimeAccelerator;
 }
 
 export function matchKeyboardShortcutSequence(
