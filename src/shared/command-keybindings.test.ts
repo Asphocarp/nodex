@@ -97,6 +97,28 @@ describe("command keybindings", () => {
     ).toBe(false);
   });
 
+  test("matches physical Control literals on every platform", () => {
+    const controlM = keyboardEvent("m", { ctrlKey: true });
+
+    for (const platform of ["macOS", "windows", "linux"] as const) {
+      expect(
+        matchesKeyboardEventToCommand(
+          controlM,
+          createCommandKeymapState({}, platform),
+          "composerDictationHold",
+        ),
+      ).toBe(true);
+    }
+
+    expect(
+      matchesKeyboardEventToCommand(
+        keyboardEvent("m", { metaKey: true }),
+        createCommandKeymapState({}, "macOS"),
+        "composerDictationHold",
+      ),
+    ).toBe(false);
+  });
+
   test("does not restore fallback labels for explicitly unassigned commands", () => {
     const state = createCommandKeymapState({ toggleBottomPanel: [] }, "macOS");
     const runtimeFallback = resolveRuntimePlatform() === "macOS" ? "⌘J" : "Ctrl+J";
