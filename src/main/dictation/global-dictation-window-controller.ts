@@ -1,10 +1,10 @@
 import { BrowserWindow, screen } from "electron";
-import { join } from "node:path";
 import { APP_RENDERER_URL } from "../../shared/app-renderer-policy";
 import {
   GLOBAL_DICTATION_COMMAND_CHANNEL,
   type GlobalDictationRendererCommand,
 } from "../../shared/global-dictation";
+import { resolveBundledElectronPreload } from "../electron-preload-path";
 
 const WIDTH = 720;
 const HEIGHT = 84;
@@ -52,7 +52,8 @@ export class GlobalDictationWindowController {
   readonly #terminalListeners = new Set<(webContentsId: number) => void>();
 
   constructor(options?: { readonly preloadPath?: string; readonly rendererUrl?: string }) {
-    this.#preloadPath = options?.preloadPath ?? join(__dirname, "../preload/global-dictation.js");
+    this.#preloadPath =
+      options?.preloadPath ?? resolveBundledElectronPreload(__dirname, "global-dictation.js");
     this.#rendererUrl =
       options?.rendererUrl ?? process.env.ELECTRON_RENDERER_URL ?? APP_RENDERER_URL;
   }

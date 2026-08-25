@@ -9,6 +9,7 @@ import { CodexRendererConversationCoordinator } from "../codex-application/Codex
 import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CoreAuthority } from "../core-runtime/CoreAuthority";
+import { resolveBundledElectronPreload } from "../electron-preload-path";
 import {
   ComputerUseSettingsRuntime,
   live as computerUseSettingsRuntimeLive,
@@ -84,7 +85,7 @@ const nodexAgentAuthorization = nodexAgentAuthorizationRuntimeLive.pipe(
 );
 const privacy = electronPrivacyLive;
 const dictation = dictationRuntimeLive({
-  preloadPath: `${__dirname}/../preload/global-dictation.js`,
+  preloadPath: resolveBundledElectronPreload(__dirname, "global-dictation.js"),
 }).pipe(Layer.provideMerge(Layer.mergeAll(privacy, rendererClients)));
 const databaseNotifier = DatabaseNotifierRuntime.live;
 const mcpAppSandbox = Layer.unwrap(
@@ -92,7 +93,7 @@ const mcpAppSandbox = Layer.unwrap(
     const config = yield* MainConfig;
     return mcpAppSandboxRuntimeLive({
       allowLocalDevelopment: !config.isPackaged,
-      guestPreloadPath: `${__dirname}/../preload/mcp-app-sandbox-guest.js`,
+      guestPreloadPath: resolveBundledElectronPreload(__dirname, "mcp-app-sandbox-guest.js"),
       logger: getLogger({ subsystem: "mcp-app-sandbox" }),
       platform: config.platform as NodeJS.Platform,
     });

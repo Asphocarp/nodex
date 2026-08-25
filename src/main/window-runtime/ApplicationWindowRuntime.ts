@@ -22,6 +22,7 @@ import type {
   RendererClientRegistration,
   RendererClientRuntimeService,
 } from "../codex/renderer-client-runtime-contracts";
+import { resolveBundledElectronPreload } from "../electron-preload-path";
 import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import type { DesktopNotificationRuntime } from "../host-runtime/DesktopNotificationRuntime";
 import type { McpAppSandboxRuntime } from "../host-runtime/McpAppSandboxRuntime";
@@ -160,7 +161,7 @@ export const live = (
             nodeIntegration: false,
             nodeIntegrationInSubFrames: false,
             nodeIntegrationInWorker: false,
-            preload: `${__dirname}/../preload/browser-guest.js`,
+            preload: resolveBundledElectronPreload(__dirname, "browser-guest.js"),
             plugins: false,
             partition: BROWSER_SIDEBAR_PARTITION,
             sandbox: true,
