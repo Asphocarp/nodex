@@ -105,7 +105,7 @@ describe("ComposerImageAttachmentThumbnail", () => {
     );
 
     expect(view.getByAltText("User attachment").getAttribute("src")).toBe(
-      "file:///managed/diagram.png",
+      "app://fs/@fs/managed/diagram.png",
     );
   });
 });

@@ -16,6 +16,7 @@ import {
 import { getDynamicToolRegistryEntry } from "../../../projection/tool-metadata/dynamic-tool-call-utils";
 import { resolveNodexDynamicToolCallPresentation } from "../../../projection/tool-metadata/nodex-dynamic-tool-call-presentation";
 import { resolveThreadVisualizationCommandKind } from "../../../projection/agent-activity-v2";
+import { normalizeEnvironmentAwareAppResourceSource } from "../../../../../lib/app-resource-source";
 import { useTheme } from "../../../../../lib/use-theme";
 import { cn } from "../../../../../lib/utils";
 import type { ThreadBlockModel } from "../../../thread-stage-types";
@@ -197,11 +198,14 @@ export function ConnectorLogo({
 }) {
   const { resolved } = useTheme();
   const mergedClassName = cn("rounded-2xs", className);
-  const src = selectConnectorLogoUrl({
-    isDarkTheme: resolved === "dark",
-    logoDarkUrl,
-    logoUrl,
-  });
+  const src = normalizeEnvironmentAwareAppResourceSource(
+    selectConnectorLogoUrl({
+      isDarkTheme: resolved === "dark",
+      logoDarkUrl,
+      logoUrl,
+    }),
+    globalThis.location?.protocol ?? "app:",
+  );
   const fallbackElement = cloneElement(fallback, {
     className: cn(mergedClassName, fallback.props.className),
   });

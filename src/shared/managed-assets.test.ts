@@ -1,34 +1,11 @@
 import { describe, expect, test } from "vite-plus/test";
-import { getAssetSource } from "./assets";
 import {
   MAX_MANAGED_PREVIEW_BYTES,
   MAX_MANAGED_PREVIEW_LINES,
   createManagedTextPreview,
-  getManagedAssetDisplayUrl,
 } from "./managed-assets";
 
 describe("managed assets", () => {
-  test("maps a canonical asset source to the private display scheme", () => {
-    expect(getManagedAssetDisplayUrl(getAssetSource("image.png"))).toBe(
-      "nodex-asset://managed/image.png",
-    );
-  });
-
-  test.each([
-    "https://example.com/image.png",
-    "data:image/png;base64,AA==",
-    "blob:https://example.com/id",
-    "nodex://assets/nested/image.png",
-    "another-scheme://asset",
-  ])("passes through non-managed or invalid sources: %s", (source) => {
-    expect(getManagedAssetDisplayUrl(source)).toBe(source);
-  });
-
-  test("does not reinterpret encoded unsafe asset names", () => {
-    const source = "nodex://assets/image%20one.png";
-    expect(getManagedAssetDisplayUrl(source)).toBe(source);
-  });
-
   test("bounds text previews by line count", () => {
     const value = Array.from(
       { length: MAX_MANAGED_PREVIEW_LINES + 1 },

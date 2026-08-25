@@ -284,13 +284,15 @@ function BlockComponent({
 
       return (
         <figure className={cn("my-3", colorClass)}>
-          <img
-            src={sourceUrl}
-            alt={alt}
-            className="max-w-full rounded-md border border-(--border)"
-            style={widthStyle}
-            loading="lazy"
-          />
+          {sourceUrl ? (
+            <img
+              src={sourceUrl}
+              alt={alt}
+              className="max-w-full rounded-md border border-(--border)"
+              style={widthStyle}
+              loading="lazy"
+            />
+          ) : null}
           {block.caption.length > 0 && (
             <figcaption className="mt-1 text-sm text-(--foreground-secondary)">
               <InlineList items={block.caption} projectWorkspacePath={projectWorkspacePath} />

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDownIcon, CloseIcon } from "@/components/shared/icons";
 import { LoadingResultsShimmer } from "@/components/ui/loading-results-shimmer";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
+import { normalizeEnvironmentAwareAppResourceSource } from "@/lib/app-resource-source";
 import { useCodexMcpApps } from "../../../use-codex-mcp-apps";
 import type {
   CodexCanonicalSetupCodexStepResponse,
@@ -137,7 +138,15 @@ function ComposerKeycap() {
 }
 
 function ContextSourceLogo({ source }: { source: CodexSetupContextSource }) {
-  if (!source.logoUrl && !source.logoUrlDark) {
+  const logoUrl = normalizeEnvironmentAwareAppResourceSource(
+    source.logoUrl,
+    globalThis.location?.protocol ?? "app:",
+  );
+  const logoUrlDark = normalizeEnvironmentAwareAppResourceSource(
+    source.logoUrlDark,
+    globalThis.location?.protocol ?? "app:",
+  );
+  if (!logoUrl && !logoUrlDark) {
     return (
       <span className="flex size-6 items-center justify-center rounded-md bg-token-foreground/10 text-xs font-medium">
         {source.name.slice(0, 1).toUpperCase()}
@@ -147,11 +156,9 @@ function ContextSourceLogo({ source }: { source: CodexSetupContextSource }) {
 
   return (
     <picture>
-      {source.logoUrlDark ? (
-        <source media="(prefers-color-scheme: dark)" srcSet={source.logoUrlDark} />
-      ) : null}
+      {logoUrlDark ? <source media="(prefers-color-scheme: dark)" srcSet={logoUrlDark} /> : null}
       <img
-        src={source.logoUrl ?? source.logoUrlDark ?? undefined}
+        src={logoUrl ?? logoUrlDark ?? undefined}
         alt={source.name}
         className="size-6 rounded-md object-contain"
       />

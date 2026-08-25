@@ -20,6 +20,10 @@ describe("top-level renderer CSP", () => {
     expect(csp).toContain("https://api.statsigcdn.com");
     expect(csp).toContain("https://cloudflare-dns.com");
     expect(csp).toContain("https://prodregistryv2.org");
+    expect(csp).toContain("img-src 'self' app: blob: data: https:");
+    expect(csp).toContain("media-src 'self' app: blob: data:");
+    expect(csp).not.toContain("file:");
+    expect(csp).not.toContain("nodex-asset:");
   });
 
   test("limits development connections to the Vite origin", () => {

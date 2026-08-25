@@ -24,11 +24,15 @@ through the context-isolated preload bridge. The public loopback HTTP API and
 standalone browser renderer transport are removed.
 
 Managed asset identities remain portable `nodex://assets/<file>` references.
-Owned Electron windows map raster images to a read-only `nodex-asset:` protocol
-registered only on the default app session. Asset mutation, byte reads, bounded
-previews, path resolution, and dictation use sender-validated typed IPC.
-Browser-sidebar webviews retain their separate session and receive neither the
-asset protocol handler nor privileged preload capabilities.
+Owned Electron windows resolve those identities to absolute paths through the
+sender-validated preload bridge, then use the same `app://fs` display transport
+as other trusted local image, audio, and video sources. One privileged `app:`
+handler owns both packaged renderer files under `app://-` and local media under
+`app://fs`; an origin gate admits only the app renderer or its exact configured
+HTTP(S) development origin for filesystem requests. Asset mutation, byte reads,
+bounded previews, path resolution, and dictation remain sender-validated typed
+IPC. Browser-sidebar webviews retain their separate session and receive neither
+the filesystem display transport nor privileged preload capabilities.
 
 The private authenticated Core Unix-socket protocol remains unchanged.
 
@@ -39,8 +43,13 @@ The private authenticated Core Unix-socket protocol remains unchanged.
 - Renderer capabilities have one typed adapter and one authorization boundary.
 - The Browser sidebar remains supported, but opening the renderer as a normal
   browser page is not a product mode.
-- Text, HTML, script, SVG, arbitrary paths, directories, and symlinks are never
-  served by the managed-image protocol.
+- Local display URLs are ephemeral renderer values. Durable state continues to
+  store managed locators or source paths rather than `app:` or development
+  `/@fs` URLs.
+- The filesystem display route accepts extension-addressed image, audio, and
+  video MIME families, including SVG, and follows filesystem symlinks. It is an
+  app-renderer transport boundary rather than a managed-asset authorization
+  model.
 - Existing stored asset references require no migration.
 
 This decision supersedes only public loopback/browser-parity statements in ADRs

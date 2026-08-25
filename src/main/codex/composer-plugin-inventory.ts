@@ -3,8 +3,8 @@ import type { PluginInstallParams } from "@nodex/codex-app-server-protocol/v2/Pl
 import type { ConfigBatchWriteParams } from "@nodex/codex-app-server-protocol/v2/ConfigBatchWriteParams";
 import type { CodexComposerPlugin } from "../../shared/types";
 import {
-  loadComposerInventoryIconDataUrl,
-  type ComposerInventoryIconLoader,
+  resolveComposerInventoryIconUrl,
+  type ComposerInventoryIconResolver,
 } from "./composer-inventory-icon";
 
 export const COMPOSER_INSTALL_SUGGESTION_PLUGIN_NAMES = [
@@ -192,7 +192,7 @@ export function resolveComposerPluginActivation(
 export async function hydrateComposerPluginInventoryIcons(
   response: Pick<PluginInstalledResponse, "marketplaces">,
   plugins: readonly CodexComposerPlugin[],
-  loadIcon?: ComposerInventoryIconLoader,
+  resolveIcon: ComposerInventoryIconResolver = resolveComposerInventoryIconUrl,
 ): Promise<CodexComposerPlugin[]> {
   const interfacesById = new Map(
     response.marketplaces.flatMap((marketplace) =>
@@ -206,11 +206,13 @@ export async function hydrateComposerPluginInventoryIcons(
       if (!pluginInterface) return plugin;
       const lightIconPath = pluginInterface.composerIcon ?? pluginInterface.logo;
       const darkIconPath = pluginInterface.logoDark ?? lightIconPath;
-      const localIcon = await loadComposerInventoryIconDataUrl(lightIconPath, loadIcon);
+      const localIcon = lightIconPath ? resolveIcon(lightIconPath) : null;
       const localDarkIcon =
         darkIconPath === lightIconPath
           ? localIcon
-          : await loadComposerInventoryIconDataUrl(darkIconPath, loadIcon);
+          : darkIconPath
+            ? resolveIcon(darkIconPath)
+            : null;
       if (!localIcon && !localDarkIcon) return plugin;
       return {
         ...plugin,

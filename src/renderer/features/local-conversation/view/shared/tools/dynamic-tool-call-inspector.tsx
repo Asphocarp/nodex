@@ -1,6 +1,7 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { CodeBracketsIcon } from "@/components/shared/icons";
 import type { CodexDynamicToolCallView, CodexTranscriptEntry } from "../../../../../lib/types";
+import { normalizeAppMediaResourceSource } from "../../../../../lib/app-resource-source";
 import { cn } from "../../../../../lib/utils";
 import { buildTextPreview, INLINE_TEXT_PREVIEW_MAX_CHARS } from "../../../../../lib/text-preview";
 import type {
@@ -149,24 +150,23 @@ function DynamicToolOutput({
     <div className="flex flex-col gap-1.5">
       {call.contentItems.map((contentItem, index) => {
         if (contentItem.type === "inputImage") {
+          const source = normalizeAppMediaResourceSource(contentItem.imageUrl, "image");
+          if (!source) return null;
           return (
             <img
               key={`${contentItem.type}-${index}`}
               className="max-h-64 w-max max-w-full rounded-lg object-contain"
-              src={contentItem.imageUrl}
+              src={source}
               alt={`${qualifiedName} tool output ${index + 1}`}
             />
           );
         }
 
         if (contentItem.type === "inputAudio") {
+          const source = normalizeAppMediaResourceSource(contentItem.audioUrl, "audio");
+          if (!source) return null;
           return (
-            <audio
-              key={`${contentItem.type}-${index}`}
-              className="w-full"
-              controls
-              src={contentItem.audioUrl}
-            />
+            <audio key={`${contentItem.type}-${index}`} className="w-full" controls src={source} />
           );
         }
 

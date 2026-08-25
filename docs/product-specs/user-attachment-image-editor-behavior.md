@@ -47,7 +47,9 @@ The Canvas and the full-width right-panel Composer share the stable Composer-cha
 
 ## Asset, failure, and accessibility contract
 
-One resolver handles data URLs, managed assets, Codex image pointers, remote/direct URLs, and trusted local paths. Managed sources and durable managed locators must pass the canonical asset parser; a scheme-shaped but malformed URI is never treated as an asset. Local reads are opt-in and local-host-only. Object URLs are revoked. Preview and download sources stay separate.
+One resolver handles data URLs, managed assets, Agent image pointers, remote/direct URLs, and trusted local paths. Managed sources and durable managed locators must pass the canonical asset parser; a scheme-shaped but malformed URI is never treated as an asset. A valid managed locator is resolved through the trusted preload bridge and compiled to the same app-local display URL as an absolute local image. Only successful resolutions are cached for the current renderer window, so an asset that appears later can recover without a restart. Durable state never stores display-only `app:` or development `/@fs` URLs. Local reads are opt-in and local-host-only. Object URLs are revoked. Preview and download sources stay separate.
+
+Packaged and development conversation images use the app-local media transport instead of `file:`. The production renderer policy admits that transport for images and media while continuing to reject direct filesystem URLs. A failed managed-path resolution renders a recoverable unavailable state rather than emitting an invalid image request.
 
 Trusted local images replace the standalone download icon with an `Open` split control. Its primary action opens the image in the operating system's default app; the menu offers `Open in folder` and `Save as…`.
 

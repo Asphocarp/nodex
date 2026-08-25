@@ -153,10 +153,10 @@ CI` push run. The privileged release `workflow_run` additionally validates the
   Agent credentials. Development launches sourced from a real Profile disable
   remote observability by default so snapshot content remains local unless a
   developer explicitly uses another tool to export it.
-- The production app renderer loads only through the privileged read-only
-  `app://-/index.html` origin and receives
-  a response-level CSP, referrer policy, and `nosniff`; development admits only
-  the exact configured Vite origin with the equivalent policy. The top-level
+- The production app renderer loads only through the privileged
+  `app://-/index.html` origin and receives its CSP from the built renderer HTML;
+  development admits only the exact configured Vite origin and receives its CSP
+  from the development server. The top-level
   BrowserWindow is sandboxed with context isolation and no Node integration.
   Its preload has no Node imports, and privileged IPC requires both an owned
   top-level window and the exact app origin.
@@ -296,7 +296,7 @@ CI` push run. The privileged release `workflow_run` additionally validates the
   the verified canonical helper app.
 - Workspace-file IPC is available only to the top-level renderer frame of an owned app window. Directory browsing accepts canonical root-relative coordinates, verifies lexical and resolved-realpath containment, and omits directory symlinks that escape the selected root. Exact-file metadata/text/binary operations intentionally accept an absolute local path without a Project-root grant so user-visible agent outputs and patches remain openable outside the active source; this relies on the trusted-renderer boundary rather than path sandboxing. Bounded raster previews become ephemeral `blob:` URLs and renderer cleanup revokes them. PDF bytes are transferred to the bundled PDF.js worker as a `Uint8Array`; canvas, selectable text, and annotation links are rendered in app-owned DOM without iframe navigation, form rendering, or embedded script execution. PDF external links cross a top-level trusted-renderer IPC that accepts only bounded, credential-free HTTP(S) URLs before Main calls the system browser. Write requests use an expected-modification-time CAS guard and never create missing parent directories implicitly.
 - Renderer file references use a semantic Workbench router: ordinary references enter the validated Files surface, while explicit external/reveal actions use typed IPC. Local references are never opened through renderer-created `file://` windows or a document-wide link capture handler; bounded copy-contents actions still go through the existing `read-file` IPC budget.
-- Managed-asset mutation, byte reads, bounded previews, path resolution, and dictation IPC are likewise available only to the top-level frame of an owned app window and validate payload types and byte budgets again in Main. Persisted `nodex://assets/<safe-name>` identities do not expose filesystem roots. Raster display uses `nodex-asset://managed/<safe-name>` through a handler installed only on `session.defaultSession`; it accepts `GET`/`HEAD`, allowlisted raster extensions, and regular non-symlink files. SVG, text/script content, directories, traversal, and the Browser-sidebar partition are excluded.
+- Managed-asset mutation, byte reads, bounded previews, path resolution, and dictation IPC are likewise available only to the top-level frame of an owned app window and validate payload types and byte budgets again in Main. Persisted `nodex://assets/<safe-name>` identities do not expose filesystem roots. The trusted renderer resolves a managed locator to an absolute path through the synchronous preload capability and uses the shared `app://fs/@fs/...` display transport; successful resolutions are cached only for the renderer window lifetime. The `app://fs/*` request gate admits the `app://-` renderer and the exact configured HTTP(S) development origin, excluding the Browser-sidebar partition. The handler accepts extension-addressed image, audio, and video MIME families, follows filesystem symlinks, and does not grant renderer script code a general file-read IPC capability. Production CSP admits `app:` for image and media elements but does not admit `file:`.
 - Electron bootstrap fixes Rust Core as the only production authority before
   store startup; the retired selector and JavaScript SQLite/Yjs implementation
   are absent. Native launch validates a regular, executable,

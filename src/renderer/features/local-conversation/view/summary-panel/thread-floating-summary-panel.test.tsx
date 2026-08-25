@@ -160,6 +160,8 @@ vi.mock("../../../../lib/api", () => ({
 }));
 
 vi.mock("@/features/user-attachment-image-editor", () => ({
+  resolveImageDisplaySource: (source: string) =>
+    source.startsWith("/") ? `app://fs/@fs${source}` : source,
   ImagePreviewDialog: ({
     open,
     src,
@@ -3167,7 +3169,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       throw new Error("expected generated image preview dialog");
     }
     expect(previewImage.alt).toBe("Generated image 1");
-    expect(previewImage.src).toBe("file:///repo/project/generated-one.png");
+    expect(previewImage.src).toBe("app://fs/@fs/repo/project/generated-one.png");
     expect(invokeCalls.some((call) => call[0] === "shell:open-file-link")).toBe(false);
   });
 

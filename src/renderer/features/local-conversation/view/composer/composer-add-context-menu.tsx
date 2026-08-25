@@ -142,7 +142,7 @@ function normalizeSafeIconUrl(value: string | null): string | null {
   }
   try {
     const url = new URL(normalized);
-    return url.protocol === "https:" ? url.toString() : null;
+    return url.protocol === "https:" || url.protocol === "app:" ? url.toString() : null;
   } catch {
     return null;
   }

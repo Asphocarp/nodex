@@ -359,7 +359,11 @@ export function ReadonlyNfmBlockNotePreview({
     {
       schema: readonlyNfmBlockNotePreviewSchema,
       initialContent: previewDocument.initialContent,
-      resolveFileUrl: async (source) => resolveAssetSourceToDisplayUrl(source),
+      resolveFileUrl: async (source) => {
+        const displayUrl = resolveAssetSourceToDisplayUrl(source);
+        if (!displayUrl) throw new Error("Managed image path is unavailable");
+        return displayUrl;
+      },
       tables: {
         headers: true,
         cellBackgroundColor: true,
