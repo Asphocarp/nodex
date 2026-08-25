@@ -1998,7 +1998,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     ).toBe(true);
   });
 
-  test("empty right panel renders Codex-style new-tab actions", async () => {
+  test("threadless empty right panel omits attached-chat actions", async () => {
     const emptySession = makeSession({
       id: "session:alpha:empty",
       tabs: [],
@@ -2017,10 +2017,10 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(actionGrid !== null).toBe(true);
     if (!(actionGrid instanceof HTMLElement)) throw new Error("Expected right-panel action grid");
     const actionText = textContent(actionGrid);
-    expect(actionText.indexOf("Review") < actionText.indexOf("Terminal")).toBe(true);
+    expect(actionText.includes("Review")).toBe(false);
     expect(actionText.indexOf("Terminal") < actionText.indexOf("Browser")).toBe(true);
     expect(actionText.indexOf("Browser") < actionText.indexOf("Files")).toBe(true);
-    expect(screen.getByRole("button", { name: /Review/ }) !== null).toBe(true);
+    expect(within(actionGrid).queryByRole("button", { name: /Review/ })).toBe(null);
     expect(screen.getByRole("button", { name: /Terminal/ }) !== null).toBe(true);
     expect(screen.getByRole("button", { name: /Browser/ }) !== null).toBe(true);
     expect(screen.getByRole("button", { name: /Files/ }) !== null).toBe(true);
@@ -2029,7 +2029,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(within(actionGrid).getByRole("button", { name: "Page" }) !== null).toBe(true);
     expect(actionText.indexOf("Files") < actionText.indexOf("DB View")).toBe(true);
     expect(actionText.indexOf("DB View") < actionText.indexOf("Page")).toBe(true);
-    expect(textContent(actionGrid).includes("⌃⇧G")).toBe(true);
+    expect(textContent(actionGrid).includes("⌃⇧G")).toBe(false);
     expect(textContent(actionGrid).includes("⌃`")).toBe(true);
     expect(textContent(actionGrid).includes("Ctrl+T")).toBe(true);
     expect(textContent(actionGrid).includes("Ctrl+Shift+E")).toBe(true);
