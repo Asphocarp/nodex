@@ -403,12 +403,13 @@ export function buildChangeClassificationDocument(
   readonly changedPaths: readonly string[];
   readonly plan: CiGatePlan;
 } {
+  const plan = classifyChangedPaths(changedPaths, options);
   return {
-    // Full gates never use an affected-path closure. Keeping a repo-wide list
-    // out of reusable job environments also keeps every subprocess below the
-    // host operating system's ARG_MAX limit.
-    changedPaths: options.full ? [] : changedPaths,
-    plan: classifyChangedPaths(changedPaths, options),
+    // Full Rust gates never use an affected-path closure. Keeping a repo-wide
+    // list out of reusable job environments also keeps every subprocess below
+    // the host operating system's ARG_MAX limit.
+    changedPaths: plan.rustFull ? [] : changedPaths,
+    plan,
   };
 }
 

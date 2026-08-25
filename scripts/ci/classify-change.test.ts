@@ -205,18 +205,19 @@ describe("CI change classification", () => {
     }
   });
 
-  test("does not publish an affected-path closure for explicit full gates", () => {
-    const document = buildChangeClassificationDocument(
-      ["crates/nodex-core/src/lib.rs", "src/renderer/app.tsx"],
-      { full: true },
-    );
-
-    expect(document.changedPaths).toEqual([]);
-    expect(document.plan).toMatchObject({
-      allGates: true,
-      rustFull: true,
-      testMode: "full",
-    });
+  test("does not publish an affected-path closure for full Rust workspace gates", () => {
+    for (const document of [
+      buildChangeClassificationDocument(["crates/nodex-core/src/lib.rs", "src/renderer/app.tsx"], {
+        full: true,
+      }),
+      buildChangeClassificationDocument(["package.json", "pnpm-lock.yaml"]),
+    ]) {
+      expect(document.changedPaths).toEqual([]);
+      expect(document.plan).toMatchObject({
+        rustFull: true,
+        testMode: "full",
+      });
+    }
   });
 
   test("rejects paths that escape the repository", () => {
