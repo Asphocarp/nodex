@@ -78,12 +78,11 @@ Summarize the current implementation and propose the smallest safe refactor.
 
 The section body:
 
-- includes the marker block's direct children first, if any exist
 - starts immediately after the marker block
 - includes all following sibling blocks until the next sibling `threadSection`
 - can live at the document root or inside a parent block's `children`
 - can include nested content under those sibling body blocks
-- can include custom blocks such as `pageRef`, `toggleListInlineView`, images, code blocks, and toggles
+- can include custom blocks such as `pageRef`, images, code blocks, and toggles
 
 The section body does not include:
 
@@ -112,21 +111,6 @@ Resolved sections:
 
 - `Explore` body: `alpha`, `beta`
 - `Implement` body: `gamma`
-
-#### Marker with direct children
-
-```text
-<thread-section />
-  child-1
-  child-2
-lol
-lalala
-```
-
-Resolved section body:
-
-- marker direct children: `child-1`, `child-2`
-- following sibling blocks: `lol`, `lalala`
 
 #### Nested child section inside a parent block
 
@@ -364,7 +348,6 @@ When sending a section, the editor serializes only that section body into the sa
 Serialization rules:
 
 - preserve the existing sibling-block order inside the section
-- include the marker block's direct children before later sibling body blocks
 - preserve nested children under those sibling body blocks
 - strip nested `threadSection` markers and their scoped body blocks from descendant subtrees so parent sends do not duplicate child-section prompts
 - preserve toggle open/closed state through the same DOM-backed toggle-state extraction used by normal description save
@@ -394,30 +377,7 @@ hello
 world
 ```
 
-#### Example 2: Marker direct children are included
-
-Editor content:
-
-```text
-<thread-section thread="019ce177-fb42-7a10-9ecf-06e68c6c449a" />
-  child-1
-  child-2
-lol
-lalala
-```
-
-If the user presses `Cmd/Ctrl+Enter` inside `lol`, the prompt is:
-
-```text
-child-1
-child-2
-lol
-lalala
-```
-
-The marker block itself is excluded, but its direct children are included before the later sibling blocks.
-
-#### Example 3: Nested child section owns only its sibling range
+#### Example 2: Nested child section owns only its sibling range
 
 Editor content:
 

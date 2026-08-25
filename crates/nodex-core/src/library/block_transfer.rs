@@ -3900,7 +3900,7 @@ pub(super) fn stage_prepared_fresh_page_in_library(
            id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
            state_hash, readiness, authority, genesis_source_revision, created_at, updated_at, \
            sync_engine \
-         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', '', 'pending_genesis', \
+         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 3, X'', '', 'pending_genesis', \
            'legacy_shadow', NULL, ?3, ?3, 'yjs')",
         params![document_id, library_id, now],
     )?;
@@ -4042,7 +4042,7 @@ fn stage_page_parent_root(
         "INSERT INTO documents( \
            id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
            state_hash, readiness, authority, genesis_source_revision, created_at, updated_at, sync_engine \
-         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', '', 'pending_genesis', \
+         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 3, X'', '', 'pending_genesis', \
            'legacy_shadow', NULL, ?3, ?3, 'yjs')",
         params![root.document_id, library_id, now],
     )?;
@@ -4081,7 +4081,7 @@ fn stage_page_parent_root(
     let prepared_genesis = prepare_yjs_clone_genesis(
         &root.document_id,
         "page",
-        BlockDocumentSchema::PageV2,
+        BlockDocumentSchema::PageV3,
         Some(&title_delta),
         body_roots,
     )?;

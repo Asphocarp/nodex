@@ -1,0 +1,76 @@
+{
+  "contractVersion": 1,
+  "cases": [
+    {
+      "name": "nested atomic parents preserve preorder",
+      "input": [
+        {
+          "id": "image",
+          "type": "image",
+          "props": {},
+          "children": [
+            {
+              "id": "code",
+              "type": "codeBlock",
+              "props": {},
+              "children": [
+                {
+                  "id": "text",
+                  "type": "paragraph",
+                  "props": {},
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "after",
+          "type": "paragraph",
+          "props": {},
+          "children": []
+        }
+      ],
+      "expected": [
+        { "id": "image", "type": "image", "props": {}, "children": [] },
+        { "id": "code", "type": "codeBlock", "props": {}, "children": [] },
+        { "id": "text", "type": "paragraph", "props": {}, "children": [] },
+        { "id": "after", "type": "paragraph", "props": {}, "children": [] }
+      ],
+      "liftedRoots": 3
+    },
+    {
+      "name": "heading capability follows isToggleable",
+      "input": [
+        {
+          "id": "normal",
+          "type": "heading",
+          "props": { "isToggleable": false },
+          "children": [{ "id": "lifted", "type": "paragraph", "props": {}, "children": [] }]
+        },
+        {
+          "id": "toggle",
+          "type": "heading",
+          "props": { "isToggleable": true },
+          "children": [{ "id": "retained", "type": "paragraph", "props": {}, "children": [] }]
+        }
+      ],
+      "expected": [
+        {
+          "id": "normal",
+          "type": "heading",
+          "props": { "isToggleable": false },
+          "children": []
+        },
+        { "id": "lifted", "type": "paragraph", "props": {}, "children": [] },
+        {
+          "id": "toggle",
+          "type": "heading",
+          "props": { "isToggleable": true },
+          "children": [{ "id": "retained", "type": "paragraph", "props": {}, "children": [] }]
+        }
+      ],
+      "liftedRoots": 1
+    }
+  ]
+}

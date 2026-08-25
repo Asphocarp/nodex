@@ -57,7 +57,7 @@ const memberResult = (): PageDetailResult => ({
     document: {
       readiness: "ready",
       schemaKey: "nodex.page",
-      schemaVersion: 2,
+      schemaVersion: 3,
     },
     intrinsicProperties: [],
     dataSourceContext: {

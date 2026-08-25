@@ -30,7 +30,6 @@ const WRAPPED_TYPES: &[&str] = &[
     "syncedBlockRef",
     "templateRef",
 ];
-const UNSUPPORTED_LEGACY_TYPES: &[&str] = &["cardToggle", "toggleListInlineView"];
 const PRESENTATION_PROPERTIES: &[&str] = &[
     "backgroundColor",
     "textColor",
@@ -73,13 +72,6 @@ pub enum BlockToPageTransformation {
 pub enum BlockToPageError {
     #[error("Block type {0} has no Page transformation capability")]
     UnknownBlockType(String),
-    #[error(
-        "Legacy projection Block {block_id} ({block_type}) must migrate before Page transformation"
-    )]
-    UnsupportedLegacyBlock {
-        block_id: String,
-        block_type: String,
-    },
     #[error("Block primary content is not title-safe")]
     UnsupportedPrimaryContent,
 }
@@ -93,12 +85,6 @@ pub fn plan_block_to_page_transformation(
     if root.block_type == "page" {
         return Ok(BlockToPageTransformation::AlreadyPage {
             page_id: result_root_id.to_owned(),
-        });
-    }
-    if UNSUPPORTED_LEGACY_TYPES.contains(&root.block_type.as_str()) {
-        return Err(BlockToPageError::UnsupportedLegacyBlock {
-            block_id: root.id.clone(),
-            block_type: root.block_type.clone(),
         });
     }
     if WRAPPED_TYPES.contains(&root.block_type.as_str()) {

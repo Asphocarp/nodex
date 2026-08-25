@@ -24,6 +24,8 @@ import {
 import { parseInlineContent } from "../nfm/parser-inline";
 import { serializeInlineContent } from "../nfm/serializer-inline";
 import { MAX_BLOCK_ID_LENGTH } from "./contracts";
+import { normalizeBlockChildrenForest } from "./block-children-policy";
+import { nfmBlockAcceptsChildren } from "../nfm/block-children";
 
 // Portable BlockNote-shaped values keep the codec independent from one schema's
 // generated generic types while retaining strict validation-friendly fields.
@@ -59,7 +61,9 @@ export function nfmToBlockNote(
   blocks: NfmBlock[],
   toggleStates?: Map<string, boolean>,
 ): BNPartialBlock[] {
-  return blocks.map((b) => nfmBlockToBN(b, toggleStates));
+  return normalizeBlockChildrenForest(blocks, nfmBlockAcceptsChildren).blocks.map((block) =>
+    nfmBlockToBN(block, toggleStates),
+  );
 }
 
 export function nfmToBlockNoteWithIds(
@@ -214,22 +218,6 @@ function nfmBlockToBN(block: NfmBlock, toggleStates?: Map<string, boolean>): BNP
         children,
       };
 
-    case "toggleListInlineView":
-      return {
-        type: "toggleListInlineView",
-        props: {
-          sourceProjectId: block.sourceProjectId,
-          rulesV2B64: block.rulesV2B64 ?? "",
-          propertyOrderCsv: (
-            block.propertyOrder ?? ["priority", "estimate", "status", "tags"]
-          ).join(","),
-          hiddenPropertiesCsv: (block.hiddenProperties ?? []).join(","),
-          showEmptyEstimate: block.showEmptyEstimate === true ? "true" : "false",
-          showEmptyPriority: block.showEmptyPriority === true ? "true" : "false",
-        },
-        children: [],
-      };
-
     case "databaseViewRef":
       return {
         type: "databaseViewRef",
@@ -275,7 +263,7 @@ function nfmBlockToBN(block: NfmBlock, toggleStates?: Map<string, boolean>): BNP
 
     case "page":
       return {
-        ...(block.uuid === undefined ? {} : { id: block.uuid }),
+        id: block.uuid,
         type: "page",
         props: {},
         children: [],
@@ -298,30 +286,6 @@ function nfmBlockToBN(block: NfmBlock, toggleStates?: Map<string, boolean>): BNP
           label: block.label ?? "",
           threadId: block.threadId ?? "",
         },
-        children,
-      };
-
-    case "cardRef":
-      return {
-        type: "pageRef",
-        props: {
-          targetBlockId: block.pageId,
-        },
-        children: [],
-      };
-
-    case "cardToggle":
-      return {
-        type: "cardToggle",
-        props: {
-          cardId: block.pageId,
-          meta: block.meta,
-          snapshot: block.snapshot ?? "",
-          sourceProjectId: block.sourceProjectId ?? "",
-          sourceStatus: block.sourceStatus ?? "",
-          sourceStatusName: block.sourceStatusName ?? "",
-        },
-        content: nfmInlineToBN(block.content),
         children,
       };
 
@@ -494,9 +458,10 @@ function colorToProps(color?: NfmColor): Record<string, string> {
 // --- BlockNote → NFM ---
 
 export function blockNoteToNfm(blocks: readonly unknown[]): NfmBlock[] {
-  return blocks
+  const converted = blocks
     .map((block) => bnBlockToNfm(readBlockNoteBlock(block)))
     .filter((block): block is NfmBlock => block !== null);
+  return [...normalizeBlockChildrenForest(converted, nfmBlockAcceptsChildren).blocks];
 }
 
 function readBlockNoteBlock(value: unknown): BNBlock {
@@ -633,30 +598,6 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       };
     }
 
-    case "toggleListInlineView": {
-      const sourceProjectId = normalizeString(block.props?.sourceProjectId) ?? "default";
-      const rulesV2B64 = normalizeString(block.props?.rulesV2B64);
-      const propertyOrder = parseCsvString(block.props?.propertyOrderCsv).filter(
-        isToggleListPropertyKey,
-      );
-      const hiddenProperties = parseCsvString(block.props?.hiddenPropertiesCsv).filter(
-        isToggleListPropertyKey,
-      );
-      const showEmptyEstimate = normalizeBooleanString(block.props?.showEmptyEstimate);
-      const showEmptyPriority = normalizeBooleanString(block.props?.showEmptyPriority);
-
-      return {
-        type: "toggleListInlineView",
-        sourceProjectId,
-        ...(rulesV2B64 && rulesV2B64.length > 0 ? { rulesV2B64 } : {}),
-        ...(propertyOrder.length > 0 ? { propertyOrder } : {}),
-        ...(hiddenProperties.length > 0 ? { hiddenProperties } : {}),
-        ...(showEmptyEstimate !== undefined ? { showEmptyEstimate } : {}),
-        ...(showEmptyPriority !== undefined ? { showEmptyPriority } : {}),
-        children: [],
-      };
-    }
-
     case "databaseViewRef": {
       const databaseViewId = normalizeString(block.props?.databaseViewId) ?? "";
       const displayHint = normalizeString(block.props?.displayHint);
@@ -707,9 +648,12 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       };
 
     case "page":
+      if (!block.id) {
+        throw new TypeError("Canonical Page Block requires an identity");
+      }
       return {
         type: "page",
-        ...(block.id ? { uuid: block.id } : {}),
+        uuid: block.id,
         children: [],
       };
 
@@ -730,27 +674,6 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
         type: "threadSection",
         ...(label !== undefined && label.length > 0 ? { label } : {}),
         ...(threadId !== undefined && threadId.length > 0 ? { threadId } : {}),
-        children,
-      };
-    }
-
-    case "cardToggle": {
-      const pageId = normalizeString(block.props?.cardId) ?? "";
-      const meta = normalizeString(block.props?.meta) ?? "";
-      const snapshot = normalizeString(block.props?.snapshot);
-      const sourceProjectId = normalizeString(block.props?.sourceProjectId);
-      const sourceStatus = normalizeString(block.props?.sourceStatus);
-      const sourceStatusName = normalizeString(block.props?.sourceStatusName);
-
-      return {
-        type: "cardToggle",
-        pageId,
-        meta,
-        ...(snapshot !== undefined ? { snapshot } : {}),
-        ...(sourceProjectId !== undefined ? { sourceProjectId } : {}),
-        ...(sourceStatus !== undefined ? { sourceStatus } : {}),
-        ...(sourceStatusName !== undefined ? { sourceStatusName } : {}),
-        content: bnInlineToNfm(block.content),
         children,
       };
     }
@@ -1087,22 +1010,8 @@ function normalizeImageUrl(value: unknown): string | null {
   return value.trim();
 }
 
-function parseCsvString(value: unknown): string[] {
-  if (typeof value !== "string" || value.trim() === "") return [];
-  return value
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
 function normalizeString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-function normalizeBooleanString(value: unknown): boolean | undefined {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  return undefined;
 }
 
 function normalizeNonNegativeNumber(value: unknown): number | undefined {
@@ -1115,12 +1024,6 @@ function normalizePositiveNumber(value: unknown): number | undefined {
   if (typeof value !== "number") return undefined;
   if (!Number.isFinite(value) || value <= 0) return undefined;
   return Math.floor(value);
-}
-
-function isToggleListPropertyKey(
-  value: string,
-): value is "priority" | "estimate" | "status" | "tags" {
-  return value === "priority" || value === "estimate" || value === "status" || value === "tags";
 }
 
 function normalizeImageCaption(value: unknown): NfmInlineContent[] {

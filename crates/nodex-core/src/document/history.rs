@@ -1206,7 +1206,7 @@ fn validate_identity(value: &str, field: &str) -> Result<(), StoreError> {
     Err(invalid(format!("{field} is invalid")))
 }
 
-fn canonical_json_bytes(value: Value) -> Result<Vec<u8>, StoreError> {
+pub(crate) fn canonical_json_bytes(value: Value) -> Result<Vec<u8>, StoreError> {
     serde_json::to_vec(&canonical_json(value))
         .map_err(|_| internal("Canonical JSON could not be encoded"))
 }

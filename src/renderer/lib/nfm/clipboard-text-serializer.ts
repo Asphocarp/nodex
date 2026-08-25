@@ -1,5 +1,5 @@
 import type { NfmBlock, NfmColor, NfmInlineContent } from "./types";
-import { isChildlessNfmBlockType } from "./childless";
+import { nfmBlockAcceptsChildren } from "../../../shared/nfm/block-children";
 import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
 import { serializeNfmTablePlainText } from "../../../shared/nfm/table";
 import { formatDateMentionPlainText } from "../../../shared/nfm/date-mention";
@@ -142,28 +142,6 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         break;
       }
 
-      case "toggleListInlineView": {
-        const attrs = [`project="${escapeXmlAttr(block.sourceProjectId)}"`];
-        if (block.rulesV2B64 && block.rulesV2B64.length > 0) {
-          attrs.push(`rules-v2="${escapeXmlAttr(block.rulesV2B64)}"`);
-        }
-        if (block.propertyOrder && block.propertyOrder.length > 0) {
-          attrs.push(`property-order="${escapeXmlAttr(block.propertyOrder.join(","))}"`);
-        }
-        if (block.hiddenProperties && block.hiddenProperties.length > 0) {
-          attrs.push(`hidden-properties="${escapeXmlAttr(block.hiddenProperties.join(","))}"`);
-        }
-        if (block.showEmptyEstimate !== undefined) {
-          attrs.push(`show-empty-estimate="${block.showEmptyEstimate ? "true" : "false"}"`);
-        }
-        if (block.showEmptyPriority !== undefined) {
-          attrs.push(`show-empty-priority="${block.showEmptyPriority ? "true" : "false"}"`);
-        }
-
-        lines.push(prefix + `<toggle-list-inline-view ${attrs.join(" ")} />`);
-        break;
-      }
-
       case "threadSection": {
         const attrs: string[] = [];
         if (block.label && block.label.length > 0) {
@@ -177,15 +155,6 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         break;
       }
 
-      case "cardRef": {
-        const attrs = [
-          `project="${escapeXmlAttr(block.sourceProjectId)}"`,
-          `card="${escapeXmlAttr(block.pageId)}"`,
-        ];
-        lines.push(prefix + `<card-ref ${attrs.join(" ")} />`);
-        break;
-      }
-
       case "pageRef": {
         lines.push(prefix + serializeNfm([block]));
         break;
@@ -193,36 +162,6 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
 
       case "page": {
         lines.push(prefix + serializeNfm([block]));
-        break;
-      }
-
-      case "cardToggle": {
-        const attrs = [
-          `card="${escapeXmlAttr(block.pageId)}"`,
-          `meta="${escapeXmlAttr(block.meta)}"`,
-        ];
-        if (block.snapshot) {
-          attrs.push(`snapshot="${escapeXmlAttr(block.snapshot)}"`);
-        }
-        if (block.sourceProjectId) {
-          attrs.push(`project="${escapeXmlAttr(block.sourceProjectId)}"`);
-        }
-        if (block.sourceStatus) {
-          attrs.push(`status="${escapeXmlAttr(block.sourceStatus)}"`);
-        }
-        if (block.sourceStatusName) {
-          attrs.push(`status-name="${escapeXmlAttr(block.sourceStatusName)}"`);
-        }
-
-        lines.push(prefix + `<card-toggle ${attrs.join(" ")}>`);
-        pushPrefixedMultiline(
-          lines,
-          prefix + "\t",
-          serializeInlinePlainText(block.content),
-          prefix + "\t",
-        );
-        lines.push(...serializeBlocks(block.children, indent + 1));
-        lines.push(prefix + "</card-toggle>");
         break;
       }
 
@@ -237,7 +176,7 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
       }
     }
 
-    if (supportsNestedChildren(block) && block.children.length > 0) {
+    if (block.type !== "callout" && supportsNestedChildren(block) && block.children.length > 0) {
       lines.push(...serializeBlocks(block.children, indent + 1));
     }
   }
@@ -375,8 +314,5 @@ function escapeXmlAttr(value: string): string {
 }
 
 function supportsNestedChildren(block: NfmBlock): boolean {
-  if (block.type === "callout") return false;
-  if (block.type === "cardToggle") return false;
-  if (isChildlessNfmBlockType(block.type)) return false;
-  return true;
+  return nfmBlockAcceptsChildren(block);
 }

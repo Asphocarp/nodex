@@ -69,6 +69,9 @@ function sinkItem(
 }
 
 export function nestBlock(editor: BlockNoteEditor<any, any, any>) {
+  if (!canNestBlock(editor)) {
+    return false;
+  }
   return editor.transact((tr) => {
     return sinkItem(
       tr,
@@ -198,8 +201,15 @@ export function unnestBlock(editor: BlockNoteEditor<any, any, any>) {
 export function canNestBlock(editor: BlockNoteEditor<any, any, any>) {
   return editor.transact((tr) => {
     const { bnBlock: blockContainer } = getBlockInfoFromTransaction(tr);
+    const previousBlock = tr.doc.resolve(blockContainer.beforePos).nodeBefore;
+    if (!previousBlock) return false;
+    const content = previousBlock.firstChild;
+    if (!content) return false;
 
-    return tr.doc.resolve(blockContainer.beforePos).nodeBefore !== null;
+    return editor.schema.acceptsBlockChildren({
+      type: content.type.name,
+      props: content.attrs,
+    });
   });
 }
 

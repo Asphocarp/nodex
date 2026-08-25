@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use super::block_children::accepts_block_children;
 use super::block_tree::{
     BLOCK_ID_ATTRIBUTE, BlockNode, BlockTree, MAX_BLOCK_ID_LENGTH, PortableValue, scan_block_tree,
     validate_block_tree,
@@ -18,7 +19,7 @@ pub enum BlockSubtreeErrorCode {
     SourceBlockNotFound,
     OverlappingRoots,
     TargetParentNotFound,
-    TargetParentChildless,
+    TargetParentRejectsChildren,
     AncestorCycle,
     TargetAnchorNotFound,
     TargetAnchorWrongParent,
@@ -382,9 +383,9 @@ fn validate_insertion_target(
             ));
         };
         let block = find_block(&tree.blocks, parent_id).expect("scanned parent must resolve");
-        if is_childless_block(block) {
+        if !accepts_block_children(block) {
             return Err(subtree_error(
-                BlockSubtreeErrorCode::TargetParentChildless,
+                BlockSubtreeErrorCode::TargetParentRejectsChildren,
                 format!("Canonical Block {parent_id} cannot contain child Blocks"),
                 Some(parent_id),
             ));
@@ -639,22 +640,6 @@ fn path_is_descendant(candidate: &[usize], ancestor: &[usize]) -> bool {
     candidate.len() > ancestor.len() && candidate.starts_with(ancestor)
 }
 
-fn is_childless_block(block: &BlockNode) -> bool {
-    match block.content.name.as_str() {
-        "databaseViewRef" | "database" | "page" => true,
-        "syncedBlockRef" | "templateRef" => has_non_empty_string_attr(block, "sourceBlockId"),
-        "pageRef" => has_non_empty_string_attr(block, "targetBlockId"),
-        _ => false,
-    }
-}
-
-fn has_non_empty_string_attr(block: &BlockNode, key: &str) -> bool {
-    matches!(
-        block.content.attributes.get(key),
-        Some(PortableValue::String(value)) if !value.trim().is_empty()
-    )
-}
-
 fn require_exact_id<'a>(
     id: &'a str,
     code: BlockSubtreeErrorCode,
@@ -704,7 +689,7 @@ mod tests {
             .transact_mut()
             .apply_update(Update::decode_v1(&state).expect("matrix update"))
             .expect("matrix state");
-        decode_block_document(&document, BlockDocumentSchema::PageV2)
+        decode_block_document(&document, BlockDocumentSchema::PageV3)
             .expect("matrix document")
             .block_tree
     }

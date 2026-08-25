@@ -15,20 +15,6 @@ import { headlessBlockDocumentSchema } from "./headless-blocknote-schema";
 import { nfmToBlockNote, type BlockNoteBlockValue } from "./nfm-blocknote-adapter";
 import { cloneXmlSubtree } from "./xml-subtree-codec";
 
-export type LegacyNfmShadowDocumentAuthority = "legacy_shadow" | "ydoc_primary";
-
-export type LegacyNfmShadowDocumentReadiness = "pending_genesis" | "ready";
-
-export interface TranslateLegacyNfmIntoPageDocumentInput {
-  /** The ready Page document at the exact durable head being translated. */
-  readonly document: Y.Doc;
-  readonly authority: LegacyNfmShadowDocumentAuthority;
-  readonly readiness: LegacyNfmShadowDocumentReadiness;
-  readonly title: string;
-  readonly nfm: string;
-  readonly allocateBlockId?: () => BlockId;
-}
-
 export interface ReplacePageDocumentBodyFromNfmInput {
   /** A detached current-head Page Document. The input remains read-only. */
   readonly document: Y.Doc;
@@ -36,17 +22,17 @@ export interface ReplacePageDocumentBodyFromNfmInput {
   readonly allocateBlockId?: () => BlockId;
 }
 
-export interface LegacyNfmShadowTranslation {
+export interface NfmDocumentReplacement {
   readonly changed: boolean;
   /** Relative to the input document's state vector. Empty only for a no-op. */
   readonly update: Uint8Array;
   readonly materialization: PageDocumentMaterialization;
 }
 
-export class LegacyNfmShadowTranslationError extends Error {
+export class NfmDocumentReplacementError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = "LegacyNfmShadowTranslationError";
+    this.name = "NfmDocumentReplacementError";
   }
 }
 
@@ -78,8 +64,6 @@ const headlessEditor = BlockNoteEditor.create({
 });
 
 const EMPTY_UPDATE = new Uint8Array();
-const MAX_DYNAMIC_ALIGNMENT_CELLS = 100_000;
-const LARGE_ALIGNMENT_LOOKAHEAD = 8;
 const MAX_IDENTITY_MATCH_TEXT_LENGTH = 512;
 
 const stableSignature = (value: unknown, ancestors = new Set<object>()): string => {
@@ -89,19 +73,19 @@ const stableSignature = (value: unknown, ancestors = new Set<object>()): string 
   if (typeof value === "boolean") return value ? "b:1" : "b:0";
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      throw new LegacyNfmShadowTranslationError(
-        "Legacy NFM candidate contains a non-finite number",
+      throw new NfmDocumentReplacementError(
+        "Nested Markdown candidate contains a non-finite number",
       );
     }
     return `d:${String(value)}`;
   }
   if (typeof value !== "object") {
-    throw new LegacyNfmShadowTranslationError(
-      `Legacy NFM candidate contains unsupported ${typeof value} data`,
+    throw new NfmDocumentReplacementError(
+      `Nested Markdown candidate contains unsupported ${typeof value} data`,
     );
   }
   if (ancestors.has(value)) {
-    throw new LegacyNfmShadowTranslationError("Legacy NFM candidate contains cyclic data");
+    throw new NfmDocumentReplacementError("Nested Markdown candidate contains cyclic data");
   }
 
   const nextAncestors = new Set(ancestors);
@@ -112,8 +96,8 @@ const stableSignature = (value: unknown, ancestors = new Set<object>()): string 
 
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
-    throw new LegacyNfmShadowTranslationError(
-      `Legacy NFM candidate contains unsupported ${value.constructor.name} data`,
+    throw new NfmDocumentReplacementError(
+      `Nested Markdown candidate contains unsupported ${value.constructor.name} data`,
     );
   }
 
@@ -251,245 +235,11 @@ const identityMatchScore = (source: IdentityNode, target: IdentityNode): number 
   return Math.min(score, 100);
 };
 
-const alignWithDynamicProgramming = (
-  source: readonly IdentityNode[],
-  target: readonly IdentityNode[],
-): readonly (readonly [IdentityNode, IdentityNode])[] => {
-  const width = target.length + 1;
-  const directions = new Uint8Array((source.length + 1) * width);
-  let previous = new Float64Array(width);
-
-  for (let sourceIndex = 1; sourceIndex <= source.length; sourceIndex += 1) {
-    const current = new Float64Array(width);
-    for (let targetIndex = 1; targetIndex <= target.length; targetIndex += 1) {
-      const sourceNode = source[sourceIndex - 1];
-      const targetNode = target[targetIndex - 1];
-      if (!sourceNode || !targetNode) continue;
-
-      let best = previous[targetIndex] ?? 0;
-      let direction = 1;
-      const skipTarget = current[targetIndex - 1] ?? 0;
-      if (skipTarget > best) {
-        best = skipTarget;
-        direction = 2;
-      }
-
-      const score = identityMatchScore(sourceNode, targetNode);
-      if (score !== null) {
-        const match = (previous[targetIndex - 1] ?? 0) + score;
-        if (match >= best) {
-          best = match;
-          direction = 3;
-        }
-      }
-      current[targetIndex] = best;
-      directions[sourceIndex * width + targetIndex] = direction;
-    }
-    previous = current;
-  }
-
-  const matches: [IdentityNode, IdentityNode][] = [];
-  let sourceIndex = source.length;
-  let targetIndex = target.length;
-  while (sourceIndex > 0 && targetIndex > 0) {
-    const direction = directions[sourceIndex * width + targetIndex];
-    if (direction === 3) {
-      const sourceNode = source[sourceIndex - 1];
-      const targetNode = target[targetIndex - 1];
-      if (sourceNode && targetNode) matches.push([sourceNode, targetNode]);
-      sourceIndex -= 1;
-      targetIndex -= 1;
-      continue;
-    }
-    if (direction === 2) {
-      targetIndex -= 1;
-      continue;
-    }
-    sourceIndex -= 1;
-  }
-  return matches.reverse();
-};
-
-const alignLargeSequence = (
-  source: readonly IdentityNode[],
-  target: readonly IdentityNode[],
-): readonly (readonly [IdentityNode, IdentityNode])[] => {
-  const matches: [IdentityNode, IdentityNode][] = [];
-  let sourceIndex = 0;
-  let targetIndex = 0;
-
-  while (sourceIndex < source.length && targetIndex < target.length) {
-    const sourceNode = source[sourceIndex];
-    const targetNode = target[targetIndex];
-    if (!sourceNode || !targetNode) break;
-    const currentScore = identityMatchScore(sourceNode, targetNode);
-
-    let nextTargetOffset = 0;
-    let nextTargetScore = currentScore ?? -1;
-    for (
-      let offset = 1;
-      offset <= LARGE_ALIGNMENT_LOOKAHEAD && targetIndex + offset < target.length;
-      offset += 1
-    ) {
-      const candidate = target[targetIndex + offset];
-      if (!candidate) continue;
-      const score = identityMatchScore(sourceNode, candidate);
-      if (score === null || score <= nextTargetScore) continue;
-      nextTargetOffset = offset;
-      nextTargetScore = score;
-    }
-
-    let nextSourceOffset = 0;
-    let nextSourceScore = currentScore ?? -1;
-    for (
-      let offset = 1;
-      offset <= LARGE_ALIGNMENT_LOOKAHEAD && sourceIndex + offset < source.length;
-      offset += 1
-    ) {
-      const candidate = source[sourceIndex + offset];
-      if (!candidate) continue;
-      const score = identityMatchScore(candidate, targetNode);
-      if (score === null || score <= nextSourceScore) continue;
-      nextSourceOffset = offset;
-      nextSourceScore = score;
-    }
-
-    if (nextTargetOffset > 0 && nextTargetScore > nextSourceScore) {
-      targetIndex += nextTargetOffset;
-      continue;
-    }
-    if (nextSourceOffset > 0 && nextSourceScore > nextTargetScore) {
-      sourceIndex += nextSourceOffset;
-      continue;
-    }
-    if (currentScore !== null) {
-      matches.push([sourceNode, targetNode]);
-      sourceIndex += 1;
-      targetIndex += 1;
-      continue;
-    }
-
-    if (source.length - sourceIndex > target.length - targetIndex) {
-      sourceIndex += 1;
-      continue;
-    }
-    targetIndex += 1;
-  }
-
-  return matches;
-};
-
-const alignIdentitySequence = (
-  source: readonly IdentityNode[],
-  target: readonly IdentityNode[],
-): readonly (readonly [IdentityNode, IdentityNode])[] => {
-  if (source.length === 0 || target.length === 0) return [];
-  if (source.length * target.length <= MAX_DYNAMIC_ALIGNMENT_CELLS) {
-    return alignWithDynamicProgramming(source, target);
-  }
-  return alignLargeSequence(source, target);
-};
-
-const inferTargetIdentities = (
-  sourceForest: IdentityForest,
-  targetForest: IdentityForest,
-  pinnedMatches: ReadonlyMap<number, IdentityNode> = new Map(),
-): ReadonlyMap<number, IdentityNode> => {
-  const matches = new Map<number, IdentityNode>(pinnedMatches);
-  const claimedSource = new Set([...pinnedMatches.values()].map((source) => source.key));
-  const pendingPairs: [readonly IdentityNode[], readonly IdentityNode[]][] = [];
-  for (const [targetKey, source] of pinnedMatches) {
-    const target = targetForest.nodes.find((node) => node.key === targetKey);
-    if (target) pendingPairs.push([source.children, target.children]);
-  }
-  const processedParents = new Set<number>();
-  let nextPendingPair = 0;
-
-  const claim = (source: IdentityNode, target: IdentityNode): boolean => {
-    if (claimedSource.has(source.key) || matches.has(target.key)) return false;
-    claimedSource.add(source.key);
-    matches.set(target.key, source);
-    pendingPairs.push([source.children, target.children]);
-    return true;
-  };
-
-  const pairSignatureGroups = (signature: (node: IdentityNode) => string): void => {
-    const sourceGroups = groupBySignature(
-      sourceForest.nodes.filter((node) => !claimedSource.has(node.key)),
-      signature,
-    );
-    const targetGroups = groupBySignature(
-      targetForest.nodes.filter((node) => !matches.has(node.key)),
-      signature,
-    );
-    targetGroups.forEach((targetGroup, key) => {
-      const sourceGroup = sourceGroups.get(key);
-      if (!sourceGroup) return;
-      const pairCount = Math.min(sourceGroup.length, targetGroup.length);
-      for (let index = 0; index < pairCount; index += 1) {
-        const source = sourceGroup[index];
-        const target = targetGroup[index];
-        if (source && target) claim(source, target);
-      }
-    });
-  };
-
-  // Exact local shapes preserve identity across reorder and reparent. The
-  // semantic pass then preserves prop-only edits (including custom Blocks).
-  pairSignatureGroups((node) => node.localSignature);
-  pairSignatureGroups((node) => node.semanticSignature);
-  pendingPairs.push([sourceForest.roots, targetForest.roots]);
-
-  const processPendingPairs = (): void => {
-    while (nextPendingPair < pendingPairs.length) {
-      const pair = pendingPairs[nextPendingPair++];
-      if (!pair) continue;
-      const [sourceChildren, targetChildren] = pair;
-      if (sourceChildren.length === 0 || targetChildren.length === 0) continue;
-      const pairKey = targetChildren[0]?.key;
-      if (pairKey === undefined) continue;
-      if (processedParents.has(pairKey)) continue;
-      processedParents.add(pairKey);
-
-      const source = sourceChildren.filter((node) => !claimedSource.has(node.key));
-      const target = targetChildren.filter((node) => !matches.has(node.key));
-      alignIdentitySequence(source, target).forEach(([sourceNode, targetNode]) => {
-        claim(sourceNode, targetNode);
-      });
-    }
-  };
-
-  processPendingPairs();
-
-  // A modified Block that also moved between parents has no sibling anchor.
-  // Only infer it globally when its remaining type is unambiguous.
-  const remainingSourceByType = groupBySignature(
-    sourceForest.nodes.filter((node) => !claimedSource.has(node.key)),
-    (node) => node.type,
-  );
-  const remainingTargetByType = groupBySignature(
-    targetForest.nodes.filter((node) => !matches.has(node.key)),
-    (node) => node.type,
-  );
-  remainingTargetByType.forEach((targetGroup, type) => {
-    const sourceGroup = remainingSourceByType.get(type);
-    if (sourceGroup?.length !== 1 || targetGroup.length !== 1) return;
-    const source = sourceGroup[0];
-    const target = targetGroup[0];
-    if (source && target) claim(source, target);
-  });
-  processPendingPairs();
-
-  return matches;
-};
-
 /**
- * Explicit NFM replacement is intentionally more conservative than the
- * one-time legacy shadow migration. Ambiguous equal siblings receive fresh
- * identities; parent context or a unique high-confidence match is required to
- * preserve an application ID.
+ * Ambiguous equal siblings receive fresh identities. Parent context or a
+ * unique high-confidence match is required to preserve an application ID.
  */
-const inferConservativeTargetIdentities = (
+const inferTargetIdentities = (
   sourceForest: IdentityForest,
   targetForest: IdentityForest,
   pinnedMatches: ReadonlyMap<number, IdentityNode> = new Map(),
@@ -589,10 +339,10 @@ const inferConservativeTargetIdentities = (
 };
 
 /**
- * An explicit NFM Card UUID may pin only an existing owning Page shell in the
+ * An explicit Nested Markdown Page UUID may pin only an existing owning Page shell in the
  * current Document. It is never a textual create, copy, or cross-parent move.
  */
-const collectExplicitCardIdentityPins = (
+const collectExplicitPageIdentityPins = (
   sourceForest: IdentityForest,
   targetForest: IdentityForest,
 ): ReadonlyMap<number, IdentityNode> => {
@@ -613,23 +363,23 @@ const collectExplicitCardIdentityPins = (
       explicitId.length === 0 ||
       explicitId.length > MAX_BLOCK_ID_LENGTH
     ) {
-      throw new LegacyNfmShadowTranslationError(
-        "Explicit Card uuid must be a non-empty exact current-Document Card identity",
+      throw new NfmDocumentReplacementError(
+        "Explicit Page uuid must be a non-empty exact current-Document Page identity",
       );
     }
     if (seen.has(explicitId)) {
-      throw new LegacyNfmShadowTranslationError(`NFM repeats owning Page uuid ${explicitId}`);
+      throw new NfmDocumentReplacementError(`NFM repeats owning Page uuid ${explicitId}`);
     }
     seen.add(explicitId);
 
     const source = sourceById.get(explicitId);
     if (!source) {
-      throw new LegacyNfmShadowTranslationError(
+      throw new NfmDocumentReplacementError(
         `NFM Page uuid ${explicitId} is not an existing Block in this Document`,
       );
     }
     if (source.type !== "page") {
-      throw new LegacyNfmShadowTranslationError(
+      throw new NfmDocumentReplacementError(
         `NFM Page uuid ${explicitId} identifies ${source.type}, not an owning Page`,
       );
     }
@@ -639,7 +389,7 @@ const collectExplicitCardIdentityPins = (
   return pins;
 };
 
-const expandCardPinsThroughCompatibleParents = (
+const expandPagePinsThroughCompatibleParents = (
   sourceForest: IdentityForest,
   targetForest: IdentityForest,
   pins: ReadonlyMap<number, IdentityNode>,
@@ -672,8 +422,8 @@ const expandCardPinsThroughCompatibleParents = (
         (existingSource && existingSource.key !== sourceParentKey) ||
         (existingTargetKey !== undefined && existingTargetKey !== targetParentKey)
       ) {
-        throw new LegacyNfmShadowTranslationError(
-          "Pinned Card parents do not form a one-to-one identity mapping",
+        throw new NfmDocumentReplacementError(
+          "Pinned Page parents do not form a one-to-one identity mapping",
         );
       }
       anchors.set(targetParentKey, sourceParent);
@@ -686,7 +436,7 @@ const expandCardPinsThroughCompatibleParents = (
   return anchors;
 };
 
-const assertPinnedCardsKeepTheirParent = (
+const assertPinnedPagesKeepTheirParent = (
   sourceForest: IdentityForest,
   targetForest: IdentityForest,
   pins: ReadonlyMap<number, IdentityNode>,
@@ -698,13 +448,13 @@ const assertPinnedCardsKeepTheirParent = (
   for (const [targetKey, source] of pins) {
     const target = targetByKey.get(targetKey);
     if (!target) {
-      throw new LegacyNfmShadowTranslationError("Explicit Card identity pin has no target Block");
+      throw new NfmDocumentReplacementError("Explicit Page identity pin has no target Block");
     }
     if (source.parentKey === undefined && target.parentKey === undefined) {
       continue;
     }
     if (source.parentKey === undefined || target.parentKey === undefined) {
-      throw new LegacyNfmShadowTranslationError(
+      throw new NfmDocumentReplacementError(
         `NFM Page uuid ${source.blockId ?? "unknown"} cannot move across parents`,
       );
     }
@@ -712,7 +462,7 @@ const assertPinnedCardsKeepTheirParent = (
     const sourceParent = sourceByKey.get(source.parentKey);
     const matchedTargetParent = matches.get(target.parentKey);
     if (!sourceParent || matchedTargetParent?.key !== sourceParent.key) {
-      throw new LegacyNfmShadowTranslationError(
+      throw new NfmDocumentReplacementError(
         `NFM Page uuid ${source.blockId ?? "unknown"} cannot move across parents`,
       );
     }
@@ -730,7 +480,7 @@ function assertAllocatedBlockId(
     blockId.length > MAX_BLOCK_ID_LENGTH ||
     unavailableIds.has(blockId)
   ) {
-    throw new LegacyNfmShadowTranslationError(
+    throw new NfmDocumentReplacementError(
       "Block ID allocator returned an invalid, duplicate, or previously used identity",
     );
   }
@@ -763,7 +513,7 @@ const assignTargetIdentities = (
     const target = node.target;
     const id = assignedIds.get(node.key);
     if (!target || !id) {
-      throw new LegacyNfmShadowTranslationError("Legacy NFM identity assignment is incomplete");
+      throw new NfmDocumentReplacementError("Nested Markdown identity assignment is incomplete");
     }
     return {
       ...target,
@@ -783,7 +533,7 @@ const buildValidatedCandidate = (
   readonly materialization: PageDocumentMaterialization;
 } => {
   const envelope = createPageDocument({
-    documentId: `${documentId}:legacy-shadow-candidate`,
+    documentId: `${documentId}:nfm-replacement-candidate`,
     initialTitle: title,
     initializeBody: false,
   });
@@ -802,8 +552,8 @@ const buildValidatedCandidate = (
     };
   } catch (error) {
     envelope.document.destroy();
-    throw new LegacyNfmShadowTranslationError(
-      `Could not build a valid legacy NFM candidate for Document ${documentId}`,
+    throw new NfmDocumentReplacementError(
+      `Could not build a valid Nested Markdown candidate for Document ${documentId}`,
       { cause: error },
     );
   }
@@ -822,19 +572,19 @@ const assertEquivalentMaterialization = (
     !materializationsHaveSameContent(expected, actual) ||
     stableSignature(expected.blockTree) !== stableSignature(actual.blockTree)
   ) {
-    throw new LegacyNfmShadowTranslationError(
-      "Legacy NFM update did not reproduce the validated candidate",
+    throw new NfmDocumentReplacementError(
+      "Nested Markdown update did not reproduce the validated candidate",
     );
   }
 };
 
 /**
- * Converts a legacy whole-Card snapshot into one update on the current Card
- * document. The input Y.Doc is always read-only: candidate construction and
- * mutation happen on disposable documents, so validation failures are pure.
+ * Converts a complete Nested Markdown body into one update on the current
+ * Page document. The input Y.Doc is always read-only: candidate construction
+ * and mutation happen on disposable documents, so validation failures are pure.
  *
  * NFM carries exact IDs only for owning Page shells. Those identities pin
- * existing same-Document Cards; all other Blocks retain deterministic
+ * existing same-Document Pages; all other Blocks retain deterministic
  * semantic inference, including traversal-order resolution for duplicates.
  */
 const translateNfmIntoPageDocument = ({
@@ -842,10 +592,7 @@ const translateNfmIntoPageDocument = ({
   title,
   nfm,
   allocateBlockId = createUuidV7,
-  identityPolicy = "legacy",
-}: Omit<TranslateLegacyNfmIntoPageDocumentInput, "authority" | "readiness"> & {
-  readonly identityPolicy?: "legacy" | "conservative";
-}): LegacyNfmShadowTranslation => {
+}: ReplacePageDocumentBodyFromNfmInput & { readonly title: string }): NfmDocumentReplacement => {
   let currentMaterialization: PageDocumentMaterialization;
   let targetBlocks: readonly BlockNoteBlockValue[];
   try {
@@ -863,25 +610,22 @@ const translateNfmIntoPageDocument = ({
         ? parsedTargetBlocks
         : [{ type: "paragraph", content: [], children: [] }];
   } catch (error) {
-    throw new LegacyNfmShadowTranslationError(
-      `Could not read legacy NFM translation input for Document ${document.guid}`,
+    throw new NfmDocumentReplacementError(
+      `Could not read Nested Markdown translation input for Document ${document.guid}`,
       { cause: error },
     );
   }
 
   const sourceForest = createIdentityForest(currentMaterialization.blockTree, "source");
   const targetForest = createIdentityForest(targetBlocks, "target");
-  const pinnedMatches = collectExplicitCardIdentityPins(sourceForest, targetForest);
-  const identityAnchors = expandCardPinsThroughCompatibleParents(
+  const pinnedMatches = collectExplicitPageIdentityPins(sourceForest, targetForest);
+  const identityAnchors = expandPagePinsThroughCompatibleParents(
     sourceForest,
     targetForest,
     pinnedMatches,
   );
-  const matches =
-    identityPolicy === "conservative"
-      ? inferConservativeTargetIdentities(sourceForest, targetForest, identityAnchors)
-      : inferTargetIdentities(sourceForest, targetForest, identityAnchors);
-  assertPinnedCardsKeepTheirParent(sourceForest, targetForest, pinnedMatches, matches);
+  const matches = inferTargetIdentities(sourceForest, targetForest, identityAnchors);
+  assertPinnedPagesKeepTheirParent(sourceForest, targetForest, pinnedMatches, matches);
   const identifiedTarget = assignTargetIdentities(
     sourceForest,
     targetForest,
@@ -908,8 +652,8 @@ const translateNfmIntoPageDocument = ({
     const candidateEnvelope = assertValidPageDocumentRoots(candidate.document);
     const candidateRoot = candidateEnvelope.body.toArray()[0];
     if (!(candidateRoot instanceof Y.XmlElement)) {
-      throw new LegacyNfmShadowTranslationError(
-        "Validated legacy NFM candidate is missing its body root",
+      throw new NfmDocumentReplacementError(
+        "Validated Nested Markdown candidate is missing its body root",
       );
     }
 
@@ -922,43 +666,27 @@ const translateNfmIntoPageDocument = ({
       }
       workingEnvelope.body.delete(0, workingEnvelope.body.length);
       workingEnvelope.body.insert(0, [cloneXmlSubtree(candidateRoot)]);
-    }, "legacy-nfm-shadow-translation");
+    }, "nfm-document-replacement");
 
     const materialization = materializePageDocument(working);
     assertEquivalentMaterialization(candidate.materialization, materialization);
     const update = Y.encodeStateAsUpdate(working, sourceStateVector);
     if (update.byteLength === 0) {
-      throw new LegacyNfmShadowTranslationError(
-        "Changed legacy NFM translation produced no Yjs update",
+      throw new NfmDocumentReplacementError(
+        "Changed Nested Markdown translation produced no Yjs update",
       );
     }
     return { changed: true, update, materialization };
   } catch (error) {
-    if (error instanceof LegacyNfmShadowTranslationError) throw error;
-    throw new LegacyNfmShadowTranslationError(
-      `Could not translate legacy NFM into Document ${document.guid}`,
+    if (error instanceof NfmDocumentReplacementError) throw error;
+    throw new NfmDocumentReplacementError(
+      `Could not translate Nested Markdown into Document ${document.guid}`,
       { cause: error },
     );
   } finally {
     working.destroy();
     candidate.document.destroy();
   }
-};
-
-export const translateLegacyNfmIntoPageDocument = (
-  input: TranslateLegacyNfmIntoPageDocumentInput,
-): LegacyNfmShadowTranslation => {
-  if (input.authority !== "legacy_shadow") {
-    throw new LegacyNfmShadowTranslationError(
-      "Legacy NFM translation requires legacy_shadow authority",
-    );
-  }
-  if (input.readiness !== "ready") {
-    throw new LegacyNfmShadowTranslationError(
-      "Legacy NFM translation requires a ready Page document",
-    );
-  }
-  return translateNfmIntoPageDocument(input);
 };
 
 /**
@@ -970,11 +698,10 @@ export const replacePageDocumentBodyFromNfm = ({
   document,
   nfm,
   allocateBlockId,
-}: ReplacePageDocumentBodyFromNfmInput): LegacyNfmShadowTranslation =>
+}: ReplacePageDocumentBodyFromNfmInput): NfmDocumentReplacement =>
   translateNfmIntoPageDocument({
     document,
     title: assertValidPageDocumentRoots(document).title.toString(),
     nfm,
-    identityPolicy: "conservative",
     ...(allocateBlockId ? { allocateBlockId } : {}),
   });

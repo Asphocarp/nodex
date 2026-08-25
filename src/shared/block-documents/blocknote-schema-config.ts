@@ -13,24 +13,6 @@ export const calloutBlockConfig = {
   content: "inline",
 } as const satisfies CustomBlockConfig;
 
-export const cardToggleBlockConfig = {
-  type: "cardToggle",
-  propSchema: {
-    ...defaultProps,
-    cardId: { default: "" },
-    meta: { default: "" },
-    snapshot: { default: "" },
-    sourceProjectId: { default: "" },
-    sourceStatus: { default: "" },
-    sourceStatusName: { default: "" },
-    projectionOwnerId: { default: "" },
-    projectionKind: { default: "" },
-    projectionSourceProjectId: { default: "" },
-    projectionCardId: { default: "" },
-  },
-  content: "inline",
-} as const satisfies CustomBlockConfig;
-
 export const pageRefBlockConfig = {
   type: "pageRef",
   propSchema: {
@@ -89,20 +71,6 @@ export const threadSectionBlockConfig = {
     ...defaultProps,
     label: { default: "" },
     threadId: { default: "" },
-  },
-  content: "none",
-} as const satisfies CustomBlockConfig;
-
-export const toggleListInlineViewBlockConfig = {
-  type: "toggleListInlineView",
-  propSchema: {
-    ...defaultProps,
-    sourceProjectId: { default: "default" },
-    rulesV2B64: { default: "" },
-    propertyOrderCsv: { default: "priority,estimate,status" },
-    hiddenPropertiesCsv: { default: "" },
-    showEmptyEstimate: { default: "false" },
-    showEmptyPriority: { default: "false" },
   },
   content: "none",
 } as const satisfies CustomBlockConfig;
@@ -172,16 +140,6 @@ export const blockDocumentCustomBlockConfigs = {
   databaseViewRef: databaseViewRefBlockConfig,
   syncedBlockRef: syncedBlockRefBlockConfig,
   templateRef: reusableTemplateRefBlockConfig,
-} as const;
-
-/**
- * Decode-only Block configs used by the shipped-store import and historical NFM
- * readers. Writable Block Document surfaces intentionally do not register
- * them, so foreign Page bodies cannot re-enter a host Y.Doc.
- */
-export const legacyBlockDocumentCustomBlockConfigs = {
-  cardToggle: cardToggleBlockConfig,
-  toggleListInlineView: toggleListInlineViewBlockConfig,
 } as const;
 
 export const blockDocumentCustomInlineContentConfigs = {

@@ -218,7 +218,7 @@ export function PageStageDevStoryPage({
         'Use <agent-config mode="plan" model="gpt-5.5" reasoning="high" /> for this prompt',
         '<page-ref url="nodex://pages/page-stage-preview" />',
         '<thread-section label="Follow-up investigation" thread="thr_preview" />',
-        '<toggle-list-inline-view project="default" />',
+        '<database-view-ref database-view="page-stage-view" display-hint="Planning" />',
       ].join("\n\n"),
     [displayPage.description],
   );

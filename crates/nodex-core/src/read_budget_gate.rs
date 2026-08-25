@@ -200,7 +200,7 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                         "INSERT INTO documents(\
                            id, library_id, generation, head_seq, schema_key, schema_version, \
                            state_vector, state_hash, readiness, authority, created_at, updated_at\
-                         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 1, X'', '', 'pending_genesis', \
+                         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 3, X'', '', 'pending_genesis', \
                            'legacy_shadow', ?3, ?3)",
                     )?;
                     for index in 0..DATABASE_ROW_COUNT {
@@ -387,7 +387,7 @@ fn seed_database_rows(kernel: &SqliteStoreKernel) {
                            database_values_json, intrinsic_properties_json, \
                            property_revisions_json, projection_version, created_at, updated_at\
                          ) VALUES (?1, ?2, 'active', 'data_source', ?3, NULL, 1, 1, ?4, 1, 0, \
-                           1, 'legacy_shadow', ?5, ?6, ?7, ?8, ?9, ?10, ?11, 10, 1, ?12, '{}', \
+                           3, 'legacy_shadow', ?5, ?6, ?7, ?8, ?9, ?10, ?11, 10, 1, ?12, '{}', \
                            '{\"status\":1,\"task_parent\":1}', 1, ?13, ?13)",
                     )?;
                     for index in 0..DATABASE_ROW_COUNT {

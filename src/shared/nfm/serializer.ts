@@ -1,5 +1,5 @@
 import type { NfmBlock, NfmColor } from "./types";
-import { isChildlessNfmBlockType } from "./childless";
+import { nfmBlockAcceptsChildren } from "./block-children";
 import { resolveOrderedListStarts } from "./ordered-list";
 import { serializeInlineContent } from "./serializer-inline";
 import { serializeNfmTable } from "./table";
@@ -109,26 +109,6 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         );
         break;
       }
-      case "toggleListInlineView": {
-        const attrs = [`project="${escapeXmlAttr(block.sourceProjectId)}"`];
-        if (block.rulesV2B64 && block.rulesV2B64.length > 0) {
-          attrs.push(`rules-v2="${escapeXmlAttr(block.rulesV2B64)}"`);
-        }
-        if (block.propertyOrder && block.propertyOrder.length > 0) {
-          attrs.push(`property-order="${escapeXmlAttr(block.propertyOrder.join(","))}"`);
-        }
-        if (block.hiddenProperties && block.hiddenProperties.length > 0) {
-          attrs.push(`hidden-properties="${escapeXmlAttr(block.hiddenProperties.join(","))}"`);
-        }
-        if (block.showEmptyEstimate !== undefined) {
-          attrs.push(`show-empty-estimate="${block.showEmptyEstimate ? "true" : "false"}"`);
-        }
-        if (block.showEmptyPriority !== undefined) {
-          attrs.push(`show-empty-priority="${block.showEmptyPriority ? "true" : "false"}"`);
-        }
-        lines.push(prefix + `<toggle-list-inline-view ${attrs.join(" ")} />`);
-        break;
-      }
       case "databaseViewRef": {
         const attrs = [`database-view="${escapeXmlAttr(block.databaseViewId)}"`];
         if (block.displayHint !== undefined) {
@@ -193,30 +173,6 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         lines.push(prefix + `<page-ref url="${escapeXmlAttr(url)}" />`);
         break;
       }
-      case "cardRef": {
-        const attrs = [
-          `project="${escapeXmlAttr(block.sourceProjectId)}"`,
-          `card="${escapeXmlAttr(block.pageId)}"`,
-        ];
-        lines.push(prefix + `<card-ref ${attrs.join(" ")} />`);
-        break;
-      }
-      case "cardToggle": {
-        const attrs = [
-          `card="${escapeXmlAttr(block.pageId)}"`,
-          `meta="${escapeXmlAttr(block.meta)}"`,
-        ];
-        if (block.snapshot) attrs.push(`snapshot="${escapeXmlAttr(block.snapshot)}"`);
-        if (block.sourceProjectId) attrs.push(`project="${escapeXmlAttr(block.sourceProjectId)}"`);
-        if (block.sourceStatus) attrs.push(`status="${escapeXmlAttr(block.sourceStatus)}"`);
-        if (block.sourceStatusName)
-          attrs.push(`status-name="${escapeXmlAttr(block.sourceStatusName)}"`);
-        lines.push(prefix + `<card-toggle ${attrs.join(" ")}>`);
-        lines.push(prefix + "\t" + serializeInlineContent(block.content));
-        lines.push(...serializeBlocks(block.children, indent + 1));
-        lines.push(prefix + "</card-toggle>");
-        break;
-      }
       case "divider":
         lines.push(prefix + "---");
         break;
@@ -225,7 +181,7 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         break;
     }
 
-    if (supportsNestedChildren(block) && block.children.length > 0) {
+    if (block.type !== "callout" && supportsNestedChildren(block) && block.children.length > 0) {
       lines.push(...serializeBlocks(block.children, indent + 1));
     }
   }
@@ -259,8 +215,5 @@ function colorSuffix(color?: NfmColor): string {
 }
 
 function supportsNestedChildren(block: NfmBlock): boolean {
-  if (block.type === "callout") return false;
-  if (block.type === "cardToggle") return false;
-  if (isChildlessNfmBlockType(block.type)) return false;
-  return true;
+  return nfmBlockAcceptsChildren(block);
 }

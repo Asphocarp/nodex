@@ -40,8 +40,8 @@ It groups by source Page and source Block, uses bounded keyset pagination, and e
 Reference shells cannot be retargeted in place.
 Removing a shell ends that connection identity; embedding again creates a new shell.
 
-This decision supersedes the parts of ADR 0011 and ADR 0017 that model every Page mention as owning a distinct Block identity.
-It extends ADR 0006 by admitting Page Mention atoms in portable rich titles and preserves ADR 0040's LocalCommit authority for owning structural mutations.
+This decision makes Page Mention atoms valid portable rich-title content while
+preserving ADR 0040's LocalCommit authority for owning structural mutations.
 
 ## Consequences
 

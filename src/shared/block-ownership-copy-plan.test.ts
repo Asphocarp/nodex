@@ -68,7 +68,7 @@ const documents = new Map<string, OwnershipClosureDocument>([
       documentId: "document-template",
       ownerBlockId: "template-source",
       schemaKey: "nodex.reusable-template",
-      schemaVersion: 1,
+      schemaVersion: 2,
     },
   ],
   [

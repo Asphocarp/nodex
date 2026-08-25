@@ -25,10 +25,6 @@ interface BlockWithChildren {
   children: { id: string }[];
 }
 
-interface BlockSchemaEntry {
-  content?: string;
-}
-
 interface TiptapView {
   state: {
     selection: {
@@ -40,7 +36,9 @@ interface TiptapView {
 }
 
 export interface EditorForChildGroupBackspace {
-  schema: { blockSchema: Record<string, BlockSchemaEntry> };
+  schema: {
+    acceptsBlockChildren: (block: { type: string; props?: Record<string, unknown> }) => boolean;
+  };
   getTextCursorPosition: () => { block: BlockCursor };
   getBlock: (id: string) => BlockWithChildren | undefined;
   getParentBlock: (id: string) => BlockWithChildren | undefined;
@@ -58,12 +56,9 @@ export interface EditorForChildGroupBackspace {
   };
 }
 
-function isInlineParentBlock(
-  editor: EditorForChildGroupBackspace,
-  block?: BlockWithChildren,
-): boolean {
+function acceptsChildren(editor: EditorForChildGroupBackspace, block?: BlockWithChildren): boolean {
   if (!block) return false;
-  return editor.schema.blockSchema[block.type]?.content === "inline";
+  return editor.schema.acceptsBlockChildren(block);
 }
 
 function isCursorAtBlockStart(editor: EditorForChildGroupBackspace): boolean {
@@ -91,7 +86,7 @@ export function handleChildGroupBackspace(editor: EditorForChildGroupBackspace):
 
   const parent = editor.getParentBlock(currentBlock.id);
   if (!parent) return false;
-  if (!isInlineParentBlock(editor, parent)) return false;
+  if (!acceptsChildren(editor, parent)) return false;
   if (!isCursorAtBlockStart(editor)) return false;
 
   if (shouldResetToParagraphAtBlockStart(currentBlock.type)) {

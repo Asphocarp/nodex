@@ -132,7 +132,7 @@ const productionMainBundlePromise = build({
 const retiredDocumentAuthorityInputs = [
   "document-operation-engine.ts",
   "block-document-codec.ts",
-  "legacy-nfm-shadow-translator.ts",
+  "nfm-document-replacement.ts",
 ];
 const auditProductionMainBundle = (
   productionMainBundle: Awaited<typeof productionMainBundlePromise>,

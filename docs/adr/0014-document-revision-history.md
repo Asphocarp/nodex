@@ -1,4 +1,4 @@
-# ADR 0014: Card history is backed by semantic Document revisions
+# ADR 0014: Page history is backed by semantic Document revisions
 
 - Status: Accepted
 - Date: 2026-07-16
@@ -7,11 +7,11 @@
 
 ## Context
 
-Nodex already stores immutable `document_versions` and restores them by compiling a new forward mutation. That foundation has the right collaboration semantics, but it is not yet the history users expect from a Card editor.
+Nodex already stores immutable `document_versions` and restores them by compiling a new forward mutation. That foundation has the right collaboration semantics, but it is not yet the history users expect from a Page editor.
 
-Normal human editor updates do not create Document versions. Strict Agent and API mutations create change-ledger evidence but usually do not create a content checkpoint. The Card history projection therefore shows many “edited content” events without the title and body that resulted from the edit, while only separately created checkpoints can be previewed and restored. Operational Yjs updates are also compacted, so they are not a durable substitute for revision history.
+Normal human editor updates do not create Document versions. Strict Agent and API mutations create change-ledger evidence but usually do not create a content checkpoint. The Page history projection therefore shows many “edited content” events without the title and body that resulted from the edit, while only separately created checkpoints can be previewed and restored. Operational Yjs updates are also compacted, so they are not a durable substitute for revision history.
 
-The existing Yjs checkpoint format stores a complete causal state. Its size grows with editing history, even when the effective Card content remains small. NFM is compact and useful for display, but it is a derived projection and cannot become restoration authority without violating the stable Block identity and rich-title contracts.
+The existing Yjs checkpoint format stores a complete causal state. Its size grows with editing history, even when the effective Page content remains small. NFM is compact and useful for display, but it is a derived projection and cannot become restoration authority without violating the stable Block identity and rich-title contracts.
 
 ## Decision
 
@@ -19,9 +19,13 @@ The existing Yjs checkpoint format stores a complete causal state. Its size grow
 
 `document_versions` becomes the immutable Document Revision ledger. A revision records one exact, restorable Document state plus why it was retained. The main-process writer is the only component allowed to append revisions. Renderer code may request a named revision or flush pending edits, but it never takes a post-save snapshot itself.
 
-New BlockNote-backed revisions use `block_tree_snapshot_v2`. The canonical payload is the minimal validated semantic state: schema kind, rich Card title where applicable, and stable-ID BlockTree. Schema key/version remain immutable row metadata. Reading a revision reconstructs a disposable registered Document and derives NFM, plain text, previews, references, and assets through the current schema adapter. Restoration uses only rich title and BlockTree semantic fields and compiles them into forward operations. NFM remains a read-only preview projection and never rebuilds a live Y.Doc.
+New BlockNote-backed revisions use `block_tree_snapshot_v2`. The canonical payload is the minimal validated semantic state: schema kind, rich Page title where applicable, and stable-ID BlockTree. Schema key/version remain immutable row metadata. Reading a revision reconstructs a disposable registered Document and derives NFM, plain text, previews, references, and assets through the current schema adapter. Restoration uses only rich title and BlockTree semantic fields and compiles them into forward operations. NFM remains a read-only preview projection and never rebuilds a live Y.Doc.
 
-Historical `yjs_update_v1` revisions remain readable and restorable through registered historical schema adapters. Canvas continues to use `canvas_scene_json_v1`, because its portable scene is already its semantic checkpoint format. New code does not rewrite old immutable revision evidence merely to change its encoding.
+Retained BlockTree and Yjs revisions use the same current Document schema as
+live authority. A Store schema migration re-encodes retained revisions before
+the current-only restore path opens them. Canvas continues to use
+`canvas_scene_json_v1`, because its portable scene is already its semantic
+checkpoint format.
 
 Every revision carries a `revision_kind`, optional source mutation/change identity, and a pinned bit:
 
@@ -49,11 +53,11 @@ Every successful strict semantic command creates an immediate `operation` revisi
 
 ### History projection and restore
 
-Card history is a projection over Document revisions plus non-content activity. When a revision references a mutation/change row, the projection emits one content-revision entry instead of a duplicate checkpoint row and mutation row. Property, database, lifecycle, and relocation events remain independent activity entries.
+Page history is a projection over Document revisions plus non-content activity. When a revision references a mutation/change row, the projection emits one content-revision entry instead of a duplicate checkpoint row and mutation row. Property, database, lifecycle, and relocation events remain independent activity entries.
 
-The default Card History view is revision-first. It adds a synthetic non-restorable “Current” item, groups revisions by date, and loads the selected revision detail only. BlockNote-backed detail uses the existing read-only NFM editor. An optional activity filter exposes non-content evidence without weakening the revision timeline.
+The default Page History view is revision-first. It adds a synthetic non-restorable “Current” item, groups revisions by date, and loads the selected revision detail only. BlockNote-backed detail uses the existing read-only NFM editor. An optional activity filter exposes non-content evidence without weakening the revision timeline.
 
-Restore always means “apply this revision as a new forward change.” Before applying, Nodex saves the current state. The action restores Card title and body and never rewinds Yjs, deletes later evidence, or changes immutable history.
+Restore always means “apply this revision as a new forward change.” Before applying, Nodex saves the current state. The action restores Page title and body and never rewinds Yjs, deletes later evidence, or changes immutable history.
 
 ### Retention
 
@@ -69,7 +73,7 @@ Pruning deletes only immutable historical revisions. It never changes the curren
 
 ## Consequences
 
-- Card history becomes useful without promoting operational update rows or NFM to authority.
+- Page history becomes useful without promoting operational update rows or NFM to authority.
 - Human edits acquire durable, bounded restore points without creating one full checkpoint per keystroke.
 - Agent/API edit evidence and exact resulting content share one user-facing entry.
 - A crash can delay an idle checkpoint, but cannot lose the edit itself or the durable knowledge that the head still needs finalization.

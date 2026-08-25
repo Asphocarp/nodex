@@ -29,17 +29,6 @@ export type BlockDocumentReference =
       readonly kind: "thread";
       readonly sourceBlockId: BlockId;
       readonly targetThreadId: string;
-    }
-  | {
-      readonly kind: "legacy_card_projection";
-      readonly sourceBlockId: BlockId;
-      readonly targetBlockId: BlockId;
-      readonly projectHint?: string;
-    }
-  | {
-      readonly kind: "legacy_database_query";
-      readonly sourceBlockId: BlockId;
-      readonly projectHint: string;
     };
 
 export interface BlockDocumentAssetReference {
@@ -53,13 +42,6 @@ export interface BlockDocumentDerivedRecords {
   readonly references: readonly BlockDocumentReference[];
   readonly assetRefs: readonly BlockDocumentAssetReference[];
 }
-
-/**
- * BF-04 safety fence. These legacy reference shapes project another Card body
- * into the host editor; canonical reference-only Blocks replace them in BF-05.
- */
-export const isLegacyForeignBodyReference = (reference: BlockDocumentReference): boolean =>
-  reference.kind === "legacy_card_projection" || reference.kind === "legacy_database_query";
 
 export class BlockDocumentDerivedRecordsError extends Error {
   constructor(message: string) {
@@ -229,26 +211,6 @@ const collectDerivedRecords = (
         targetPageId: nfmBlock.targetBlockId,
         presentation: "reference_block",
         occurrenceCount: 1,
-      });
-    } else if (nfmBlock.type === "cardRef") {
-      references.push({
-        kind: "legacy_card_projection",
-        sourceBlockId: block.id,
-        targetBlockId: nfmBlock.pageId,
-        projectHint: nfmBlock.sourceProjectId,
-      });
-    } else if (nfmBlock.type === "cardToggle") {
-      references.push({
-        kind: "legacy_card_projection",
-        sourceBlockId: block.id,
-        targetBlockId: nfmBlock.pageId,
-        ...(nfmBlock.sourceProjectId ? { projectHint: nfmBlock.sourceProjectId } : {}),
-      });
-    } else if (nfmBlock.type === "toggleListInlineView") {
-      references.push({
-        kind: "legacy_database_query",
-        sourceBlockId: block.id,
-        projectHint: nfmBlock.sourceProjectId,
       });
     } else if (nfmBlock.type === "databaseViewRef") {
       assertCanonicalReferenceId(nfmBlock.databaseViewId, "databaseViewId");

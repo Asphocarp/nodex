@@ -3025,6 +3025,138 @@ test.describe("parallel functional Electron smoke", () => {
     }
   });
 
+  test("keeps semantic children enclosed and atomic Blocks leaf-only across restart @block-children-smoke", async () => {
+    test.setTimeout(120_000);
+    const harness = await ElectronScenarioHarness.create({ label: "block-children" });
+    const workspace = harness.profile.initialProjectsDirectory;
+    try {
+      const page = await harness.launch();
+      const project = await createConvergenceProject(page, "Block children", workspace);
+      const fixturePage = await createConvergenceBoardPage(
+        page,
+        project,
+        "Block children contract",
+        "Semantic container and atomic Block fixture",
+      );
+      await seedConvergenceDocument(
+        page,
+        project,
+        fixturePage,
+        [
+          "Callout body",
+          "\tCallout child",
+          "▶ Toggle body",
+          "\tToggle child",
+          "```ts",
+          "const value = 1",
+          "```",
+          "Code sibling",
+          '<image source="data:image/gif;base64,R0lGODlhAQABAAAAACw="></image>',
+          "Image sibling",
+        ].join("\n"),
+      );
+      const openFixture = async (window: Page): Promise<Locator> => {
+        await window.getByRole("button", { name: "Open Block children", exact: true }).click();
+        await window.getByRole("tab", { name: "Project Home" }).waitFor();
+        const board = window.locator('[data-board-column-root][data-board-column-id="triage"]');
+        const card = board.locator(`[data-board-uuid-v7="${fixturePage.pageId}"]`);
+        await expect(card).toBeVisible({ timeout: 15_000 });
+        await card.click();
+        await window.getByRole("tab", { name: "Block children contract" }).waitFor();
+        const editor = window
+          .getByRole("tabpanel", { name: /Block children contract$/ })
+          .locator('.nfm-editor .ProseMirror[contenteditable="true"]');
+        await expect(editor).toBeVisible({ timeout: 15_000 });
+        return editor;
+      };
+
+      const editor = await openFixture(page);
+      await editor.getByText("Callout body", { exact: true }).click();
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+/`);
+      await page.getByRole("dialog", { name: "Block actions" }).waitFor();
+      await page.getByRole("option", { name: /^Turn into/ }).click();
+      const turnIntoMenu = page.getByRole("dialog", { name: "Turn into" });
+      await turnIntoMenu.waitFor();
+      await turnIntoMenu.getByRole("menuitem", { name: "Callout" }).click();
+
+      const callout = editor
+        .locator('.bn-block[data-content-type="callout"]')
+        .filter({ hasText: "Callout body" });
+      const calloutChild = callout
+        .locator(":scope > .bn-block-group > .bn-block-outer > .bn-block[data-id]")
+        .first();
+      const calloutId = requireString(await callout.getAttribute("data-id"), "Callout Block id");
+      const calloutChildId = requireString(
+        await calloutChild.getAttribute("data-id"),
+        "Callout child Block id",
+      );
+      await expect(callout).toHaveAttribute("data-children-layout", "enclosed");
+      await expect(calloutChild).toBeVisible();
+      await expect(callout.locator(`.bn-block[data-id="${calloutChildId}"]`)).toHaveCount(1);
+
+      const toggle = editor.locator('.bn-block[data-content-type="toggleListItem"]');
+      const toggleWrapper = toggle.locator(".bn-toggle-wrapper");
+      const initialDisclosure = await toggleWrapper.getAttribute("data-show-children");
+      if (initialDisclosure === null) throw new Error("Toggle disclosure state is missing");
+      await toggleWrapper.locator(".bn-toggle-button").click();
+      await expect(toggleWrapper).toHaveAttribute(
+        "data-show-children",
+        initialDisclosure === "true" ? "false" : "true",
+      );
+      await toggleWrapper.locator(".bn-toggle-button").click();
+      await expect(toggleWrapper).toHaveAttribute("data-show-children", initialDisclosure);
+
+      const assertTabCannotNest = async (atomic: Locator, sibling: Locator): Promise<void> => {
+        const siblingId = requireString(await sibling.getAttribute("data-id"), "Sibling Block id");
+        await sibling.click();
+        await page.keyboard.press("Home");
+        await page.keyboard.press("Tab");
+        await expect(sibling).toBeVisible();
+        await expect(atomic.locator(`.bn-block[data-id="${siblingId}"]`)).toHaveCount(0);
+      };
+      const code = editor.locator('.bn-block[data-content-type="codeBlock"]');
+      const codeSibling = editor
+        .locator('.bn-block[data-content-type="paragraph"]')
+        .filter({ hasText: "Code sibling" });
+      const image = editor.locator('.bn-block[data-content-type="image"]');
+      const imageSibling = editor
+        .locator('.bn-block[data-content-type="paragraph"]')
+        .filter({ hasText: "Image sibling" });
+      await assertTabCannotNest(code, codeSibling);
+      await assertTabCannotNest(image, imageSibling);
+      const codeId = requireString(await code.getAttribute("data-id"), "Code Block id");
+      const codeSiblingId = requireString(
+        await codeSibling.getAttribute("data-id"),
+        "Code sibling Block id",
+      );
+      const imageId = requireString(await image.getAttribute("data-id"), "Image Block id");
+      const imageSiblingId = requireString(
+        await imageSibling.getAttribute("data-id"),
+        "Image sibling Block id",
+      );
+
+      const restartedPage = await harness.restart();
+      const restartedEditor = await openFixture(restartedPage);
+      const restartedCallout = restartedEditor.locator(`.bn-block[data-id="${calloutId}"]`);
+      await expect(restartedCallout).toHaveAttribute("data-children-layout", "enclosed");
+      await expect(
+        restartedCallout.locator(`.bn-block[data-id="${calloutChildId}"]`),
+      ).toBeVisible();
+      await expect(
+        restartedEditor
+          .locator(`.bn-block[data-id="${codeId}"]`)
+          .locator(`.bn-block[data-id="${codeSiblingId}"]`),
+      ).toHaveCount(0);
+      await expect(
+        restartedEditor
+          .locator(`.bn-block[data-id="${imageId}"]`)
+          .locator(`.bn-block[data-id="${imageSiblingId}"]`),
+      ).toHaveCount(0);
+    } finally {
+      await harness.close();
+    }
+  });
+
   test("moves selected Blocks to a DB status through the picker @move-picker-smoke", async () => {
     test.setTimeout(120_000);
     const harness = await ElectronScenarioHarness.create({ label: "move-picker" });

@@ -142,6 +142,7 @@ interface SideMenuEditorRuntime extends SideMenuSelectionEditor {
   };
   schema: {
     blockSpecs: Record<string, { implementation: { meta?: { fileBlockAccept?: boolean } } }>;
+    acceptsBlockChildren: (block: { type: string; props?: Record<string, unknown> }) => boolean;
   };
 }
 
@@ -518,20 +519,31 @@ function supportsBlockColor(editor: SideMenuEditorRuntime, block: SideMenuBlock)
   return { text, background };
 }
 
-function getTurnIntoItems(editor: SideMenuEditorRuntime): NfmSideMenuTurnIntoItem[] {
+function getTurnIntoItems(
+  editor: SideMenuEditorRuntime,
+  selectedBlocks: readonly SideMenuBlock[],
+): NfmSideMenuTurnIntoItem[] {
   return NFM_TURN_INTO_DEFINITIONS.map((item) => {
     const props = "props" in item.localPatch ? item.localPatch.props : undefined;
+    const acceptsChildren = editor.schema.acceptsBlockChildren({
+      type: item.localPatch.type,
+      ...(props ? { props } : {}),
+    });
+    const wouldOrphanChildren =
+      !acceptsChildren && selectedBlocks.some((block) => (block.children?.length ?? 0) > 0);
     return {
       key: item.key,
       label: item.label,
       type: item.localPatch.type,
       props,
       target: item.target,
-      enabled: editorHasBlockWithType(
-        editor as Parameters<typeof editorHasBlockWithType>[0],
-        item.localPatch.type,
-        propsToSchemaShape(props),
-      ),
+      enabled:
+        !wouldOrphanChildren &&
+        editorHasBlockWithType(
+          editor as Parameters<typeof editorHasBlockWithType>[0],
+          item.localPatch.type,
+          propsToSchemaShape(props),
+        ),
     };
   });
 }
@@ -1416,7 +1428,14 @@ function NfmSideMenuPopup({
     [baseSections, query],
   );
   const flatRows = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
-  const turnIntoItems = useMemo(() => getTurnIntoItems(editor), [editor]);
+  const turnIntoItems = useMemo(
+    () =>
+      getTurnIntoItems(
+        editor,
+        topLevelSelectedBlocks.length > 0 ? topLevelSelectedBlocks : block ? [block] : [],
+      ),
+    [block, editor, topLevelSelectedBlocks],
+  );
   const colorOptions = useMemo(
     () =>
       SIDE_MENU_COLOR_VALUES.map((color) => ({

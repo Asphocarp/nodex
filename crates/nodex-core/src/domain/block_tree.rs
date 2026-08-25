@@ -9,6 +9,8 @@ use yrs::{
     Any, In, Out, ReadTxn, Text, TextRef, TransactionMut, Xml, XmlFragment, XmlFragmentRef, XmlOut,
 };
 
+use super::block_children::accepts_block_children;
+
 pub const BLOCK_GROUP_NODE_NAME: &str = "blockGroup";
 pub const BLOCK_CONTAINER_NODE_NAME: &str = "blockContainer";
 pub const BLOCK_ID_ATTRIBUTE: &str = "id";
@@ -33,8 +35,6 @@ pub const REGISTERED_BLOCK_TYPES: &[&str] = &[
     "page",
     "database",
     "threadSection",
-    "cardToggle",
-    "toggleListInlineView",
     "pageRef",
     "databaseViewRef",
     "syncedBlockRef",
@@ -101,7 +101,7 @@ pub enum BlockTreeIssueCode {
     UnsupportedBlockType,
     TooManyBlocks,
     XmlDepthExceeded,
-    ChildlessBlockHasChildren,
+    BlockChildrenNotAllowed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +166,44 @@ pub fn decode_block_tree<T: ReadTxn>(
         return Err(BlockTreeError::Validation(issues));
     }
     Ok(tree)
+}
+
+/// Exact-baseline Store migrations may read trees that predate the current
+/// parent capability contract. Every other structural invariant stays active;
+/// the tree must be normalized before it can enter a current runtime path.
+pub(crate) fn decode_block_tree_allowing_illegal_children<T: ReadTxn>(
+    body: &XmlFragmentRef,
+    transaction: &T,
+) -> Result<BlockTree, BlockTreeError> {
+    let roots: Vec<_> = body.children(transaction).collect();
+    if roots.len() != 1 {
+        return Err(invalid_xml(
+            vec![],
+            format!(
+                "expected exactly one root blockGroup, found {}",
+                roots.len()
+            ),
+        ));
+    }
+    let root = require_element(roots.into_iter().next().expect("one root"), &[])?;
+    if root.tag().as_ref() != BLOCK_GROUP_NODE_NAME {
+        return Err(invalid_xml(
+            vec![0],
+            format!("expected blockGroup, found {}", root.tag()),
+        ));
+    }
+    let tree = BlockTree {
+        root_attributes: decode_attributes(&root, transaction, &[0])?,
+        blocks: decode_group_children(&root, transaction, &[0])?,
+    };
+    let issues = validate_block_tree(&tree)
+        .into_iter()
+        .filter(|issue| issue.code != BlockTreeIssueCode::BlockChildrenNotAllowed)
+        .collect::<Vec<_>>();
+    if issues.is_empty() {
+        return Ok(tree);
+    }
+    Err(BlockTreeError::Validation(issues))
 }
 
 pub fn decode_text_delta<T: ReadTxn>(
@@ -649,9 +687,12 @@ fn validate_blocks(
                 block,
             ));
         }
-        if is_childless_content(&block.content) && !block.children.is_empty() {
+        if REGISTERED_BLOCK_TYPES.contains(&block.content.name.as_str())
+            && !accepts_block_children(block)
+            && !block.children.is_empty()
+        {
             issues.push(issue(
-                BlockTreeIssueCode::ChildlessBlockHasChildren,
+                BlockTreeIssueCode::BlockChildrenNotAllowed,
                 &path,
                 block,
             ));
@@ -692,22 +733,6 @@ fn element_plain_text(element: &XmlElementNode) -> String {
         }
     }
     text
-}
-
-fn is_childless_content(content: &XmlElementNode) -> bool {
-    match content.name.as_str() {
-        "canvas" | "databaseViewRef" | "database" | "page" => true,
-        "syncedBlockRef" | "templateRef" => non_empty_string_attribute(content, "sourceBlockId"),
-        "pageRef" => non_empty_string_attribute(content, "targetBlockId"),
-        _ => false,
-    }
-}
-
-fn non_empty_string_attribute(content: &XmlElementNode, key: &str) -> bool {
-    matches!(
-        content.attributes.get(key),
-        Some(PortableValue::String(value)) if !value.trim().is_empty()
-    )
 }
 
 fn is_valid_block_id(id: &str) -> bool {
@@ -801,7 +826,7 @@ mod tests {
         let tree = decode_block_tree(&body, &transaction).expect("valid BlockTree");
         let blocks = scan_block_tree(&tree);
 
-        assert_eq!(blocks.len(), 22);
+        assert_eq!(blocks.len(), 20);
         assert_eq!(blocks[0].block_type, "paragraph");
         assert_eq!(blocks[7].parent_block_id.as_deref(), Some("matrix-toggle"));
         assert_eq!(
@@ -898,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn pure_validator_rejects_duplicate_ids_and_childless_children() {
+    fn pure_validator_rejects_duplicate_ids_and_forbidden_children() {
         let content = XmlElementNode {
             name: "pageRef".to_owned(),
             attributes: [(
@@ -936,12 +961,12 @@ mod tests {
         assert!(
             issues
                 .iter()
-                .any(|issue| issue.code == BlockTreeIssueCode::ChildlessBlockHasChildren)
+                .any(|issue| issue.code == BlockTreeIssueCode::BlockChildrenNotAllowed)
         );
     }
 
     #[test]
-    fn pure_validator_treats_canvas_owners_as_childless() {
+    fn pure_validator_rejects_children_on_canvas_owners() {
         let canvas = BlockNode {
             id: "canvas-1".to_owned(),
             container_attributes: [(
@@ -980,7 +1005,7 @@ mod tests {
         assert!(
             issues
                 .iter()
-                .any(|issue| issue.code == BlockTreeIssueCode::ChildlessBlockHasChildren)
+                .any(|issue| issue.code == BlockTreeIssueCode::BlockChildrenNotAllowed)
         );
     }
 

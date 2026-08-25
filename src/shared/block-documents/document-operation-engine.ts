@@ -459,7 +459,7 @@ const mapSubtreeError = (
     case "source_block_not_found":
       return new DocumentOperationEngineError("block_not_found", error.message, options);
     case "target_parent_not_found":
-    case "target_parent_childless":
+    case "target_parent_rejects_children":
     case "target_anchor_not_found":
     case "target_anchor_wrong_parent":
     case "target_anchor_in_moved_subtree":

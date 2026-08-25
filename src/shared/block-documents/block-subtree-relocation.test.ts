@@ -296,12 +296,12 @@ describe("Block subtree relocation", () => {
         '<page-ref url="nodex://pages/target-card" />',
         '<database-view-ref database-view="target-view" />',
       ].join("\n"),
-      ["card-ref", "view-ref"],
+      ["page-ref", "view-ref"],
     );
     const sourceBefore = encodedState(source);
     const targetBefore = encodedState(target);
 
-    for (const parentBlockId of ["card-ref", "view-ref"]) {
+    for (const parentBlockId of ["page-ref", "view-ref"]) {
       expect(
         readOperationErrorCode(() =>
           relocateBlockSubtrees({
@@ -311,7 +311,7 @@ describe("Block subtree relocation", () => {
             target: { parentBlockId },
           }),
         ),
-      ).toBe("target_parent_childless");
+      ).toBe("target_parent_rejects_children");
     }
     expect(encodedState(source)).toBe(sourceBefore);
     expect(encodedState(target)).toBe(targetBefore);

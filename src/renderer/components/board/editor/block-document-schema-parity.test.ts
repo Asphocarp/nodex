@@ -2,7 +2,6 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   blockDocumentCustomBlockConfigs,
   blockDocumentCustomInlineContentConfigs,
-  legacyBlockDocumentCustomBlockConfigs,
 } from "../../../../shared/block-documents/blocknote-schema-config";
 import { headlessBlockDocumentSchema } from "../../../../shared/block-documents/headless-blocknote-schema";
 import { nfmSchema } from "./nfm-schema";
@@ -65,18 +64,6 @@ describe("Block Document schema parity", () => {
       expect(configSignature(nfmSchema.inlineContentSpecs[type].config)).toBe(
         configSignature(config),
       );
-    }
-  });
-
-  test("keeps foreign-body configs decode-only", () => {
-    const writableBlockSchema = nfmSchema.blockSchema as Readonly<Record<string, unknown>>;
-    for (const type of Object.keys(legacyBlockDocumentCustomBlockConfigs) as Array<
-      keyof typeof legacyBlockDocumentCustomBlockConfigs
-    >) {
-      expect(headlessBlockDocumentSchema.blockSchema[type]).toBe(
-        legacyBlockDocumentCustomBlockConfigs[type],
-      );
-      expect(writableBlockSchema[type]).toBe(undefined);
     }
   });
 });

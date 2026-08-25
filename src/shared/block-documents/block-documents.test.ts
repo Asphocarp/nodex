@@ -16,11 +16,9 @@ import {
   encodeXmlSubtree,
   insertPortableXmlSubtree,
   getRegisteredBlockDocumentSchemaAdapter,
-  getHistoricalBlockDocumentSchemaAdapterForSchema,
   getOwnedDocumentSchemaRegistration,
   getYjsDocumentSchemaAdapter,
   inspectRegisteredOwnedBlockDocument,
-  inspectHistoricalOwnedBlockDocument,
   listBlockDocumentSchemaAdapters,
   openPageDocument,
   replaceYTextWithPortableRichText,
@@ -136,7 +134,7 @@ describe("Card block document envelope", () => {
     const inspection = inspectRegisteredOwnedBlockDocument(envelope.document, {
       ownerType: "page",
       schemaKey: "nodex.page",
-      schemaVersion: 2,
+      schemaVersion: 3,
     });
 
     expect(inspection.materialization).toMatchObject({
@@ -204,18 +202,14 @@ describe("registered document-bearing Block envelopes", () => {
         .join(","),
     ).toBe(
       [
-        "page/nodex.page@2:block_tree/yjs",
-        "reusable_template_source/nodex.reusable-template@1:block_tree/yjs",
-        "synced_block_source/nodex.synced-block@1:block_tree/yjs",
+        "page/nodex.page@3:block_tree/yjs",
+        "reusable_template_source/nodex.reusable-template@2:block_tree/yjs",
+        "synced_block_source/nodex.synced-block@2:block_tree/yjs",
       ].join(","),
     );
   });
 
-  test("keeps the retired plain Card schema historical-only", () => {
-    const legacy = createPageDocument({
-      documentId: "document-legacy-page-history",
-      initialTitle: "Legacy plain title",
-    });
+  test("rejects schemas older than the current contract", () => {
     expect(() =>
       getRegisteredBlockDocumentSchemaAdapter({
         ownerType: "page",
@@ -223,24 +217,6 @@ describe("registered document-bearing Block envelopes", () => {
         schemaVersion: 1,
       }),
     ).toThrow("No owned Document Adapter is registered");
-    expect(
-      getHistoricalBlockDocumentSchemaAdapterForSchema({
-        schemaKey: "nodex.page",
-        schemaVersion: 1,
-      }).ownerType,
-    ).toBe("page");
-    expect(
-      inspectHistoricalOwnedBlockDocument(legacy.document, {
-        ownerType: "page",
-        schemaKey: "nodex.page",
-        schemaVersion: 1,
-      }).materialization,
-    ).toMatchObject({
-      kind: "page",
-      schemaVersion: 1,
-      title: "Legacy plain title",
-      richTitle: [{ type: "text", text: "Legacy plain title", styles: {} }],
-    });
   });
 
   test("separates Canvas registration metadata from Yjs inspection", () => {

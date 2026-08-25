@@ -3,56 +3,85 @@ use thiserror::Error;
 use yrs::{Doc, Out, ReadTxn, Transact};
 
 use crate::domain::block_tree::{
-    BlockTree, BlockTreeError, TextDelta, decode_block_tree, decode_text_delta, encode_block_tree,
+    BlockTree, BlockTreeError, TextDelta, decode_block_tree,
+    decode_block_tree_allowing_illegal_children, decode_text_delta, encode_block_tree,
     replace_text_delta,
 };
 
 use super::create_compatible_document;
 
 pub const PAGE_SCHEMA_KEY: &str = "nodex.page";
-pub const PAGE_SCHEMA_VERSION: u32 = 2;
+pub const PAGE_SCHEMA_VERSION: u32 = 3;
 pub const SYNCED_BLOCK_SCHEMA_KEY: &str = "nodex.synced-block";
-pub const SYNCED_BLOCK_SCHEMA_VERSION: u32 = 1;
+pub const SYNCED_BLOCK_SCHEMA_VERSION: u32 = 2;
 pub const REUSABLE_TEMPLATE_SCHEMA_KEY: &str = "nodex.reusable-template";
-pub const REUSABLE_TEMPLATE_SCHEMA_VERSION: u32 = 1;
+pub const REUSABLE_TEMPLATE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockDocumentSchema {
-    PageV1,
-    PageV2,
-    SyncedBlockV1,
-    ReusableTemplateV1,
+    PageV3,
+    SyncedBlockV2,
+    ReusableTemplateV2,
+}
+
+pub(crate) fn decode_block_document_allowing_illegal_children(
+    document: &Doc,
+    schema: BlockDocumentSchema,
+) -> Result<DecodedBlockDocument, BlockDocumentError> {
+    let transaction = document.transact();
+    validate_roots(&transaction, schema)?;
+    let title = if schema.has_title() {
+        Some(
+            transaction
+                .get_text("title")
+                .map(|title| decode_text_delta(&title, &transaction))
+                .transpose()?
+                .unwrap_or_default(),
+        )
+    } else {
+        None
+    };
+    let body = transaction
+        .get_xml_fragment("body")
+        .ok_or(BlockDocumentError::MissingBody)?;
+    let block_tree = decode_block_tree_allowing_illegal_children(&body, &transaction)?;
+    Ok(DecodedBlockDocument {
+        document_id: document.guid().to_string(),
+        schema,
+        title,
+        block_tree,
+    })
 }
 
 impl BlockDocumentSchema {
     pub fn from_identity(schema_key: &str, schema_version: i64) -> Option<Self> {
         match (schema_key, schema_version) {
-            (PAGE_SCHEMA_KEY, 1) => Some(Self::PageV1),
-            (PAGE_SCHEMA_KEY, 2) => Some(Self::PageV2),
-            (SYNCED_BLOCK_SCHEMA_KEY, 1) => Some(Self::SyncedBlockV1),
-            (REUSABLE_TEMPLATE_SCHEMA_KEY, 1) => Some(Self::ReusableTemplateV1),
+            (PAGE_SCHEMA_KEY, 3) => Some(Self::PageV3),
+            (SYNCED_BLOCK_SCHEMA_KEY, 2) => Some(Self::SyncedBlockV2),
+            (REUSABLE_TEMPLATE_SCHEMA_KEY, 2) => Some(Self::ReusableTemplateV2),
             _ => None,
         }
     }
 
     pub fn schema_key(self) -> &'static str {
         match self {
-            Self::PageV1 | Self::PageV2 => PAGE_SCHEMA_KEY,
-            Self::SyncedBlockV1 => SYNCED_BLOCK_SCHEMA_KEY,
-            Self::ReusableTemplateV1 => REUSABLE_TEMPLATE_SCHEMA_KEY,
+            Self::PageV3 => PAGE_SCHEMA_KEY,
+            Self::SyncedBlockV2 => SYNCED_BLOCK_SCHEMA_KEY,
+            Self::ReusableTemplateV2 => REUSABLE_TEMPLATE_SCHEMA_KEY,
         }
     }
 
     pub fn schema_version(self) -> u32 {
         match self {
-            Self::PageV1 | Self::SyncedBlockV1 | Self::ReusableTemplateV1 => 1,
-            Self::PageV2 => PAGE_SCHEMA_VERSION,
+            Self::PageV3 => PAGE_SCHEMA_VERSION,
+            Self::SyncedBlockV2 => SYNCED_BLOCK_SCHEMA_VERSION,
+            Self::ReusableTemplateV2 => REUSABLE_TEMPLATE_SCHEMA_VERSION,
         }
     }
 
     pub fn has_title(self) -> bool {
-        matches!(self, Self::PageV1 | Self::PageV2)
+        matches!(self, Self::PageV3)
     }
 }
 
@@ -73,8 +102,6 @@ pub enum BlockDocumentError {
     IncompatibleRoot { name: String, actual: String },
     #[error("document is missing required body root")]
     MissingBody,
-    #[error("legacy Page title contains formatted or embedded content")]
-    InvalidLegacyTitle,
     #[error(transparent)]
     BlockTree(#[from] BlockTreeError),
 }
@@ -90,11 +117,6 @@ pub fn decode_block_document(
         match transaction.get_text("title") {
             Some(title) => {
                 let delta = decode_text_delta(&title, &transaction)?;
-                if schema == BlockDocumentSchema::PageV1
-                    && delta.iter().any(|chunk| !chunk.attributes.is_empty())
-                {
-                    return Err(BlockDocumentError::InvalidLegacyTitle);
-                }
                 Some(delta)
             }
             None => Some(Vec::new()),
@@ -124,11 +146,6 @@ pub fn encode_block_document(
     let document = create_compatible_document(document_id);
     if schema.has_title() {
         let title_delta = title.unwrap_or_default();
-        if schema == BlockDocumentSchema::PageV1
-            && title_delta.iter().any(|chunk| !chunk.attributes.is_empty())
-        {
-            return Err(BlockDocumentError::InvalidLegacyTitle);
-        }
         let title_root = document.get_or_insert_text("title");
         replace_text_delta(&title_root, &mut document.transact_mut(), title_delta);
     } else if title.is_some() {
@@ -202,11 +219,11 @@ mod tests {
             .apply_update(Update::decode_v1(&bytes).expect("valid fixture"))
             .expect("fixture applies");
 
-        let decoded = decode_block_document(&document, BlockDocumentSchema::PageV2)
+        let decoded = decode_block_document(&document, BlockDocumentSchema::PageV3)
             .expect("valid Page document");
         assert_eq!(decoded.schema.schema_key(), PAGE_SCHEMA_KEY);
         assert_eq!(decoded.schema.schema_version(), PAGE_SCHEMA_VERSION);
-        assert_eq!(decoded.block_tree.blocks.len(), 21);
+        assert_eq!(decoded.block_tree.blocks.len(), 19);
         assert!(decoded.title.is_some());
     }
 
@@ -215,7 +232,7 @@ mod tests {
         let document = create_compatible_document("body-only");
         document.get_or_insert_text("title");
         document.get_or_insert_xml_fragment("body");
-        let error = decode_block_document(&document, BlockDocumentSchema::SyncedBlockV1)
+        let error = decode_block_document(&document, BlockDocumentSchema::SyncedBlockV2)
             .expect_err("title is not valid for a body-only document");
         assert_eq!(
             error,
@@ -231,7 +248,7 @@ mod tests {
             "value",
             "not text",
         );
-        let error = decode_block_document(&document, BlockDocumentSchema::PageV2)
+        let error = decode_block_document(&document, BlockDocumentSchema::PageV3)
             .expect_err("wrong root type");
         assert_eq!(
             error,
@@ -255,7 +272,7 @@ mod tests {
             .apply_update(Update::decode_v1(&bytes).expect("valid fixture"))
             .expect("fixture applies");
         let decoded =
-            decode_block_document(&source, BlockDocumentSchema::PageV2).expect("decode source");
+            decode_block_document(&source, BlockDocumentSchema::PageV3).expect("decode source");
 
         let target = encode_block_document(
             "page-roundtrip-target",
@@ -265,7 +282,7 @@ mod tests {
         )
         .expect("encode target");
         let roundtrip =
-            decode_block_document(&target, BlockDocumentSchema::PageV2).expect("decode target");
+            decode_block_document(&target, BlockDocumentSchema::PageV3).expect("decode target");
         assert_eq!(roundtrip.title, decoded.title);
         assert_eq!(roundtrip.block_tree, decoded.block_tree);
     }

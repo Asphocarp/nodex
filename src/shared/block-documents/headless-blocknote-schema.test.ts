@@ -77,38 +77,9 @@ describe("headless Block Document schema", () => {
         ],
       },
       {
-        id: "card-toggle-block",
-        type: "cardToggle",
-        props: {
-          cardId: "card-1",
-          meta: "In progress",
-          snapshot: "",
-          sourceProjectId: "project-1",
-          sourceStatus: "build",
-          sourceStatusName: "In progress",
-          projectionOwnerId: "",
-          projectionKind: "",
-          projectionSourceProjectId: "",
-          projectionCardId: "",
-        },
-        content: "Card title",
-      },
-      {
         id: "thread-section-block",
         type: "threadSection",
         props: { label: "Implementation", threadId: "thread-1" },
-      },
-      {
-        id: "inline-view-block",
-        type: "toggleListInlineView",
-        props: {
-          sourceProjectId: "project-1",
-          rulesV2B64: "",
-          propertyOrderCsv: "priority,estimate,status",
-          hiddenPropertiesCsv: "",
-          showEmptyEstimate: "false",
-          showEmptyPriority: "true",
-        },
       },
       {
         id: "page-block",
@@ -158,7 +129,7 @@ describe("headless Block Document schema", () => {
 
     expect(JSON.stringify(decoded)).toBe(JSON.stringify(editor.document));
     expect(decoded.map((block) => block.id).join(",")).toBe(
-      "callout-block,card-toggle-block,thread-section-block,inline-view-block,page-block,database-block,canonical-page-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block",
+      "callout-block,thread-section-block,page-block,database-block,canonical-page-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block",
     );
   });
 });

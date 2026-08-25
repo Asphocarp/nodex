@@ -281,7 +281,7 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
     onDragStartPage,
     onDragEndPage,
   } = props;
-  const { setElementRef: cardRef, previewPortal } = useDatabaseViewPageDragSource(
+  const { setElementRef: cardElementRef, previewPortal } = useDatabaseViewPageDragSource(
     draggable ? pragmaticDragData : null,
     { nativePreview: "portal" },
   );
@@ -354,7 +354,7 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
   };
   const renderCard = (previewRect: DOMRect | null) => (
     <article
-      ref={previewRect ? undefined : cardRef}
+      ref={previewRect ? undefined : cardElementRef}
       data-database-view-page-id={row.pageId}
       data-database-view-page-menu-target={previewRect ? undefined : row.pageId}
       data-database-board-card="true"

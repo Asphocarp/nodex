@@ -84,19 +84,7 @@ function makeEditor(
 
   const editor: EditorForChildGroupBackspace = {
     schema: {
-      blockSchema: {
-        paragraph: { content: "inline" },
-        toggleListItem: { content: "inline" },
-        cardToggle: { content: "inline" },
-        image: { content: "none" },
-        quote: { content: "inline" },
-        bulletListItem: { content: "inline" },
-        numberedListItem: { content: "inline" },
-        checkListItem: { content: "inline" },
-        heading: { content: "inline" },
-        [currentType]: { content: "inline" },
-        [parentType]: { content: parentInline ? "inline" : "none" },
-      },
+      acceptsBlockChildren: (block) => block.type === parentType && parentInline,
     },
     getTextCursorPosition: () => ({
       block: { id: blockId, type: currentType },

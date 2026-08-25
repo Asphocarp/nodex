@@ -82,10 +82,7 @@ describe("typed owner transaction guard in Chromium", () => {
         await settleEditor();
       });
       expect(local.getParentBlock("text")).toBeUndefined();
-      expect(blocked.at(-1)).toEqual({
-        kind: "forbidden",
-        reason: "generic_typed_owner_mutation",
-      });
+      expect(blocked).toHaveLength(0);
 
       await act(async () => {
         local.setTextCursorPosition("text", "start");

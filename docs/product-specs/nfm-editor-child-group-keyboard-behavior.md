@@ -35,7 +35,7 @@ The editor installs 2 custom keyboard extensions for nested child-group editing:
 - `child-group-enter`
 - `child-group-backspace`
 
-Their purpose is to preserve predictable parent/child editing semantics for inline-content parent blocks with children, instead of falling back to BlockNote's default nested-block unindent/lift behavior.
+Their purpose is to preserve predictable parent/child editing semantics for parent blocks that accept children, instead of falling back to BlockNote's default nested-block unindent/lift behavior.
 
 At a high level:
 
@@ -52,27 +52,28 @@ The generic child-group handlers are schema-gated.
 A parent is eligible for the generic child-group rules only when:
 
 - the child has a parent block
-- the parent block's schema entry reports `content === "inline"`
+- the shared children capability accepts the parent type and properties
 
-That means these handlers are intentionally broader than toggle-only logic. Any inline parent with child blocks can participate.
+That means these handlers are intentionally broader than toggle-only logic. Any current parent that accepts child blocks can participate.
 
 Examples covered by the current code and tests:
 
 - `paragraph`
 - `heading`
 - `toggleListItem`
-- `cardToggle`
+- toggleable `heading`
+- `callout`
 - `quote`
 - `bulletListItem`
 - `numberedListItem`
 - `checkListItem`
 
-Non-inline parents are excluded.
+Leaf parents are excluded.
 
 Examples:
 
 - `image`
-- any other block whose schema content is not `inline`
+- any other block whose children capability is `never`
 
 For both `Enter` and `Backspace`, the generic child-group logic only handles leaf child blocks:
 
@@ -198,7 +199,6 @@ This is a toggle-specific fallback. It runs only when all of the following are t
 Recognized toggle blocks are:
 
 - `toggleListItem`
-- `cardToggle`
 - `heading` with `props.isToggleable === true`
 
 Open-state detection is DOM-based:

@@ -10,7 +10,7 @@ import {
 import type { DatabasePage } from "@/lib/types";
 import { projectPageDetailToStageModel, type PageStagePageModel } from "@/lib/page-stage-page";
 import { readPageStageSemanticProperties } from "@/lib/page-stage-properties";
-import type { PageStageProps } from "./page-stage/types";
+import type { PageStageDocumentAuthority, PageStageProps } from "./page-stage/types";
 import { renderWithMaitai as render, settleAsyncRender } from "@/test/dom";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
@@ -135,7 +135,7 @@ function toStageModel(page: DatabasePage): PageStagePageModel {
   };
 }
 
-function documentAuthority() {
+function documentAuthority(): PageStageDocumentAuthority {
   return {
     kind: "yjs" as const,
     descriptor: {
@@ -150,7 +150,7 @@ function documentAuthority() {
       generation: 1,
       headSeq: 1,
       schemaKey: "nodex.page" as const,
-      schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION as 2,
+      schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
       readiness: "ready" as const,
       sync: { kind: "yjs" as const, stateVector: new Uint8Array() },
     },

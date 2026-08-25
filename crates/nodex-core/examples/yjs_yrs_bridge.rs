@@ -234,7 +234,7 @@ fn roundtrip_matrix_block_tree(
     output_update: &Path,
 ) -> Result<DocumentSummary, Box<dyn std::error::Error>> {
     let source = load_matrix_fixture(fixture_root)?;
-    let decoded = decode_block_document(&source, BlockDocumentSchema::PageV2)?;
+    let decoded = decode_block_document(&source, BlockDocumentSchema::PageV3)?;
     let target = encode_block_document(
         "nodex-yjs-yrs-matrix-block-tree-roundtrip",
         decoded.schema,
@@ -396,7 +396,7 @@ fn apply_randomized_edit<T: Text>(
 fn randomized_product_summary(
     document: &yrs::Doc,
 ) -> Result<RandomizedProductSummary, Box<dyn std::error::Error>> {
-    let decoded = decode_block_document(document, BlockDocumentSchema::PageV2)?;
+    let decoded = decode_block_document(document, BlockDocumentSchema::PageV3)?;
     let materialization = serde_json::to_value(materialize_decoded_document(&decoded)?)?;
     let materialization = project_materialization(&materialization);
     let body = document.get_or_insert_xml_fragment("body");
@@ -472,7 +472,7 @@ fn run_semantic_operations(
     let corpus: SemanticOperationCorpus = serde_json::from_slice(&fs::read(corpus_path)?)?;
     let prepared = prepare_document_operation_update(
         "nodex-yjs-yrs-schema-matrix",
-        BlockDocumentSchema::PageV2,
+        BlockDocumentSchema::PageV3,
         &full_state,
         &state_vector,
         &corpus.operations,
@@ -510,7 +510,7 @@ fn run_nfm_patch(
     let mut next_id = 0usize;
     let prepared = prepare_exact_nfm_patch_update(
         "nodex-yjs-yrs-schema-matrix",
-        BlockDocumentSchema::PageV2,
+        BlockDocumentSchema::PageV3,
         &full_state,
         &state_vector,
         &corpus.patches,
@@ -541,7 +541,7 @@ fn run_subtree_copy(
     drop(transaction);
     let head = PortableSubtreeDocumentHead {
         document_id: "nodex-yjs-yrs-schema-matrix".to_owned(),
-        schema: BlockDocumentSchema::PageV2,
+        schema: BlockDocumentSchema::PageV3,
         full_state_v1: full_state,
         expected_state_vector_v1: state_vector,
     };

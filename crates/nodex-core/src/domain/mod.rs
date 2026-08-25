@@ -1,3 +1,4 @@
+pub mod block_children;
 pub mod block_materialization;
 pub mod block_to_page;
 pub mod block_tree;

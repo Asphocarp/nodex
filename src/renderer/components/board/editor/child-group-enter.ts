@@ -22,10 +22,6 @@ interface BlockWithChildren {
   children: { id: string }[];
 }
 
-interface BlockSchemaEntry {
-  content?: string;
-}
-
 interface TiptapView {
   state: {
     selection: {
@@ -37,7 +33,9 @@ interface TiptapView {
 }
 
 export interface EditorForChildGroupEnter {
-  schema: { blockSchema: Record<string, BlockSchemaEntry> };
+  schema: {
+    acceptsBlockChildren: (block: { type: string; props?: Record<string, unknown> }) => boolean;
+  };
   domElement?: ParentNode;
   getTextCursorPosition: () => { block: BlockCursor };
   getBlock: (id: string) => BlockWithChildren | undefined;
@@ -71,8 +69,8 @@ export function isToggleOpenInDom(dom: ParentNode | undefined, blockId: string):
   return wrapper?.getAttribute("data-show-children") === "true";
 }
 
-function isInlineParentBlock(editor: EditorForChildGroupEnter, block: BlockWithChildren): boolean {
-  return editor.schema.blockSchema[block.type]?.content === "inline";
+function acceptsChildren(editor: EditorForChildGroupEnter, block: BlockWithChildren): boolean {
+  return editor.schema.acceptsBlockChildren(block);
 }
 
 function isToggleBlock(type: string, block?: BlockWithChildren): boolean {
@@ -85,7 +83,7 @@ export function handleParentEnterSplitToFirstChild(editor: EditorForChildGroupEn
   const cursor = editor.getTextCursorPosition();
   const parent = editor.getBlock(cursor.block.id);
   if (!parent) return false;
-  if (!isInlineParentBlock(editor, parent)) return false;
+  if (!acceptsChildren(editor, parent)) return false;
   if (parent.children.length === 0) return false;
 
   const splitEligible = editor.transact((tr) => {
@@ -147,7 +145,7 @@ export function handleChildGroupEmptyEnter(editor: EditorForChildGroupEnter): bo
   // Parent must support inline content (generic child-group parent).
   const parent = editor.getParentBlock(currentBlock.id);
   if (!parent) return false;
-  if (!isInlineParentBlock(editor, parent)) return false;
+  if (!acceptsChildren(editor, parent)) return false;
 
   // Cursor at position 0, empty block, selection empty
   const atStartOfEmpty = editor.transact((tr) => {

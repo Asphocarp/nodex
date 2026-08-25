@@ -65,9 +65,15 @@ typed structural transaction for the complete forest. Canvas and Database do
 not have a lossless ordinary representation and therefore reject the complete
 action.
 
+An ordinary Block with children cannot be turned into a leaf target such as a
+normal Heading or Code. The menu disables that target instead of dropping or
+hiding its subtree.
+
 A turned Subpage keeps its Block ID. Its rich Page title becomes the ordinary
-Block's inline content, and its Page body roots become direct children without
-changing their IDs, types, hierarchy, or deeper owner identities. Nested Pages
+Block's inline content. A container target receives the Page body roots as
+direct children. A leaf target keeps those roots as immediately following
+siblings. Both forms preserve IDs, order, hierarchy below each root, and deeper
+owner identities. Nested Pages
 that moved with that body inherit the enclosing host Page as their owning Page
 parent. The original Page Document becomes dormant and inaccessible while the
 ordinary Block is active; structural history retains that Document until the

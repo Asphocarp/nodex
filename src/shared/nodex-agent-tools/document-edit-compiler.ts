@@ -9,7 +9,7 @@ import {
 } from "../block-documents/block-document-codec";
 import { prepareDocumentOperationUpdate } from "../block-documents/document-operation-engine";
 import type { DocumentBlockOperation } from "../block-documents/document-operations";
-import { replacePageDocumentBodyFromNfm } from "../block-documents/legacy-nfm-shadow-translator";
+import { replacePageDocumentBodyFromNfm } from "../block-documents/nfm-document-replacement";
 import { nfmToBlockNoteWithIds } from "../block-documents/nfm-blocknote-adapter";
 import {
   plainTextToPortableRichText,

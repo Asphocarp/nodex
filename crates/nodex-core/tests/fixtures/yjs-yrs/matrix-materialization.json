@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "title": "Schema matrix 😀\n@thread:thread-title-matrix at @date:2026-07-18",
   "blockTree": [
     {
@@ -342,33 +342,6 @@
       "children": []
     },
     {
-      "id": "matrix-card-toggle",
-      "type": "cardToggle",
-      "props": {
-        "backgroundColor": "default",
-        "textColor": "default",
-        "textAlignment": "left",
-        "cardId": "card-1",
-        "meta": "In progress",
-        "snapshot": "",
-        "sourceProjectId": "project-1",
-        "sourceStatus": "build",
-        "sourceStatusName": "In progress",
-        "projectionOwnerId": "",
-        "projectionKind": "",
-        "projectionSourceProjectId": "",
-        "projectionCardId": ""
-      },
-      "content": [
-        {
-          "type": "text",
-          "text": "Card title",
-          "styles": {}
-        }
-      ],
-      "children": []
-    },
-    {
       "id": "matrix-thread-section",
       "type": "threadSection",
       "props": {
@@ -377,22 +350,6 @@
         "textAlignment": "left",
         "label": "Implementation",
         "threadId": "thread-1"
-      },
-      "children": []
-    },
-    {
-      "id": "matrix-inline-view",
-      "type": "toggleListInlineView",
-      "props": {
-        "backgroundColor": "default",
-        "textColor": "default",
-        "textAlignment": "left",
-        "sourceProjectId": "project-1",
-        "rulesV2B64": "",
-        "propertyOrderCsv": "priority,estimate,status",
-        "hiddenPropertiesCsv": "",
-        "showEmptyEstimate": "false",
-        "showEmptyPriority": "true"
       },
       "children": []
     },
@@ -443,25 +400,14 @@
       "children": []
     }
   ],
-  "nfm": "**bold*** italic*~~ strike~~<span underline=\"true\"> underline</span>` code`[** link**](https://nodex.local/matrix)\n<callout icon=\"📌\">\n\t**Before **<attachment kind=\"file\" mode=\"materialized\" source=\"nodex://assets/example.txt\" name=\"example.txt\" mime=\"text/plain\" bytes=\"12\" origin=\"paste\" /><agent-config mode=\"agent\" model=\"gpt-5\" reasoning=\"high\" /><mention-date start=\"2026-07-18T09:00:00+08:00\" end=\"2026-07-18T10:00:00+08:00\" tz=\"Asia/Shanghai\" time-format=\"24h\" reminder=\"PT15M\" /><mention-thread uuid=\"thread-matrix\" />* after 😀 中文 é*\n</callout>\n## Heading\n- Bullet\n1. Numbered\n- [x] Checked\n▶ Toggle\n\tNested\n```typescript\nconst core = 'rust';\n```\n> Quote\n---\n<image source=\"nodex://assets/matrix.png\">Matrix</image>\n<table header-row=\"false\" header-column=\"false\" fit-page-width=\"false\">\n\t<colgroup>\n\t\t<col width=\"160\" />\n\t\t<col />\n\t</colgroup>\n\t<tr>\n\t\t<td>**Key**</td>\n\t\t<td>Value</td>\n\t</tr>\n</table>\n<card-toggle card=\"card-1\" meta=\"In progress\" project=\"project-1\" status=\"build\" status-name=\"In progress\">\n\tCard title\n</card-toggle>\n<thread-section label=\"Implementation\" thread=\"thread-1\" />\n<toggle-list-inline-view project=\"project-1\" property-order=\"priority,estimate,status\" show-empty-estimate=\"false\" show-empty-priority=\"true\" />\n<page uuid=\"matrix-page\" />\n<database uuid=\"matrix-database\" />\n<page-ref url=\"nodex://pages/page-target\" />\n<database-view-ref database-view=\"view-1\" display-hint=\"Planning\" />\n<synced-block-ref source-block=\"synced-source-1\" />\n<template-ref source-block=\"template-source-1\" display-hint=\"Review\" />",
-  "plainText": "bold italic strike underline code link Before example.txt agent gpt-5 high @Jul 18, 2026 09:00 → Jul 18, 2026 10:00 thread-matrix after 😀 中文 é Heading Bullet Numbered Checked Toggle Nested const core = 'rust'; Quote Matrix Key Value Card title card-1 In progress Implementation thread-1 nodex://pages/page-target Planning synced-source-1 template-source-1",
-  "preview": "bold italic strike underline code link Before example.txt agent gpt-5 high @Jul 18, 2026 09:00 → Jul 18, 2026 10:00 thread-matrix after 😀 中文 é Heading Bullet Numbered Checked Toggle Nested const core = 'rust'; Quote Matrix Key Value Card...",
+  "nfm": "**bold*** italic*~~ strike~~<span underline=\"true\"> underline</span>` code`[** link**](https://nodex.local/matrix)\n<callout icon=\"📌\">\n\t**Before **<attachment kind=\"file\" mode=\"materialized\" source=\"nodex://assets/example.txt\" name=\"example.txt\" mime=\"text/plain\" bytes=\"12\" origin=\"paste\" /><agent-config mode=\"agent\" model=\"gpt-5\" reasoning=\"high\" /><mention-date start=\"2026-07-18T09:00:00+08:00\" end=\"2026-07-18T10:00:00+08:00\" tz=\"Asia/Shanghai\" time-format=\"24h\" reminder=\"PT15M\" /><mention-thread uuid=\"thread-matrix\" />* after 😀 中文 é*\n</callout>\n## Heading\n- Bullet\n1. Numbered\n- [x] Checked\n▶ Toggle\n\tNested\n```typescript\nconst core = 'rust';\n```\n> Quote\n---\n<image source=\"nodex://assets/matrix.png\">Matrix</image>\n<table header-row=\"false\" header-column=\"false\" fit-page-width=\"false\">\n\t<colgroup>\n\t\t<col width=\"160\" />\n\t\t<col />\n\t</colgroup>\n\t<tr>\n\t\t<td>**Key**</td>\n\t\t<td>Value</td>\n\t</tr>\n</table>\n<thread-section label=\"Implementation\" thread=\"thread-1\" />\n<page uuid=\"matrix-page\" />\n<database uuid=\"matrix-database\" />\n<page-ref url=\"nodex://pages/page-target\" />\n<database-view-ref database-view=\"view-1\" display-hint=\"Planning\" />\n<synced-block-ref source-block=\"synced-source-1\" />\n<template-ref source-block=\"template-source-1\" display-hint=\"Review\" />",
+  "plainText": "bold italic strike underline code link Before example.txt agent gpt-5 high @Jul 18, 2026 09:00 → Jul 18, 2026 10:00 thread-matrix after 😀 中文 é Heading Bullet Numbered Checked Toggle Nested const core = 'rust'; Quote Matrix Key Value Implementation thread-1 nodex://pages/page-target Planning synced-source-1 template-source-1",
+  "preview": "bold italic strike underline code link Before example.txt agent gpt-5 high @Jul 18, 2026 09:00 → Jul 18, 2026 10:00 thread-matrix after 😀 中文 é Heading Bullet Numbered Checked Toggle Nested const core = 'rust'; Quote Matrix Key Value Imple...",
   "references": [
     {
       "kind": "thread",
       "sourceBlockId": "matrix-callout",
       "targetThreadId": "thread-matrix"
-    },
-    {
-      "kind": "legacy_card_projection",
-      "sourceBlockId": "matrix-card-toggle",
-      "targetBlockId": "card-1",
-      "projectHint": "project-1"
-    },
-    {
-      "kind": "legacy_database_query",
-      "sourceBlockId": "matrix-inline-view",
-      "projectHint": "project-1"
     },
     {
       "kind": "page",
@@ -630,65 +576,51 @@
       "text": "KeyValue"
     },
     {
-      "blockId": "matrix-card-toggle",
-      "parentBlockId": null,
-      "ordinal": 13,
-      "blockType": "cardToggle",
-      "text": "Card title"
-    },
-    {
       "blockId": "matrix-thread-section",
       "parentBlockId": null,
-      "ordinal": 14,
+      "ordinal": 13,
       "blockType": "threadSection",
-      "text": ""
-    },
-    {
-      "blockId": "matrix-inline-view",
-      "parentBlockId": null,
-      "ordinal": 15,
-      "blockType": "toggleListInlineView",
       "text": ""
     },
     {
       "blockId": "matrix-page",
       "parentBlockId": null,
-      "ordinal": 16,
+      "ordinal": 14,
       "blockType": "page",
       "text": ""
     },
     {
       "blockId": "matrix-database",
       "parentBlockId": null,
-      "ordinal": 17,
+      "ordinal": 15,
       "blockType": "database",
       "text": ""
     },
     {
       "blockId": "matrix-page-ref",
       "parentBlockId": null,
-      "ordinal": 18,
+      "ordinal": 16,
       "blockType": "pageRef",
       "text": ""
     },
     {
       "blockId": "matrix-database-view-ref",
       "parentBlockId": null,
-      "ordinal": 19,
+      "ordinal": 17,
       "blockType": "databaseViewRef",
       "text": ""
     },
     {
       "blockId": "matrix-synced-ref",
       "parentBlockId": null,
-      "ordinal": 20,
+      "ordinal": 18,
       "blockType": "syncedBlockRef",
       "text": ""
     },
     {
       "blockId": "matrix-template-ref",
       "parentBlockId": null,
-      "ordinal": 21,
+      "ordinal": 19,
       "blockType": "templateRef",
       "text": ""
     }

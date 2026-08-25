@@ -8,7 +8,7 @@ import { serializeNfm } from "../nfm/serializer";
 import {
   assertValidBlockDocument,
   BLOCK_GROUP_NODE_NAME,
-  collectChildlessBlockViolations,
+  collectBlockChildrenViolations,
   type ScannedDocumentBlock,
 } from "./block-structure";
 import {
@@ -116,7 +116,7 @@ export class BlockDocumentCodecError extends Error {
 /**
  * Canonicalize imported NFM to the durable semantics representable by a
  * BlockNote-backed Document. Disclosure state is intentionally omitted: an
- * expanded toggle is window-local UI state, not collaborative Card content.
+ * expanded toggle is window-local UI state, not collaborative Page content.
  */
 export const createBlockDocumentNfmContentParitySignature = (nfm: string): string => {
   let nextBlockId = 0;
@@ -322,11 +322,11 @@ const assertMaterializationMatchesScan = (
   });
 };
 
-const assertCanonicalChildlessBlocks = (body: Y.XmlFragment): void => {
-  const violation = collectChildlessBlockViolations(body)[0];
+const assertCanonicalBlockChildren = (body: Y.XmlFragment): void => {
+  const violation = collectBlockChildrenViolations(body)[0];
   if (!violation) return;
   throw new BlockDocumentCodecError(
-    `Childless ${violation.blockType} Block ${violation.blockId ?? "unknown"} must not contain child Blocks`,
+    `${violation.blockType} Block ${violation.blockId ?? "unknown"} must not contain generic child Blocks`,
   );
 };
 
@@ -361,7 +361,7 @@ export const materializeBlockDocumentBody = ({
   schemaLabel,
 }: MaterializeBlockDocumentBodyInput): BlockDocumentMaterialization => {
   const scannedBlocks = assertValidBlockDocument(body);
-  assertCanonicalChildlessBlocks(body);
+  assertCanonicalBlockChildren(body);
   let blockNoteBlocks: readonly BlockNoteBlockValue[] = [];
   if (scannedBlocks.length > 0) {
     try {

@@ -1484,7 +1484,7 @@ mod tests {
                         "INSERT INTO documents( \
                            id, library_id, generation, head_seq, schema_key, schema_version, \
                            state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine \
-                         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', ?3, 'ready', \
+                         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 3, X'', ?3, 'ready', \
                            'ydoc_primary', ?4, ?4, 'yjs')",
                         params![DOCUMENT, LIBRARY, "", LATEST],
                     )?;
@@ -1511,7 +1511,7 @@ mod tests {
                            schema_key, schema_version, cause, label, actor_json, revision_kind, \
                            pinned, checkpoint_format, full_update_blob, state_vector, \
                            checkpoint_hash, byte_length, created_at \
-                         ) VALUES ('version:latest', ?1, ?2, 1, 0, 'nodex.page', 2, 'manual', \
+                         ) VALUES ('version:latest', ?1, ?2, 1, 0, 'nodex.page', 3, 'manual', \
                            'Milestone', '{\"displayName\":\"Checkpoint editor\"}', 'manual', 1, \
                            'block_tree_snapshot_v2', X'7B7D', X'', ?3, 2, ?4)",
                         params![DOCUMENT, PROJECT, HASH, LATEST],

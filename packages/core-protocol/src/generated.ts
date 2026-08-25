@@ -3592,17 +3592,6 @@ export interface components {
             readonly kind: "thread";
             readonly sourceBlockId: string;
             readonly targetThreadId: string;
-        } | {
-            /** @enum {string} */
-            readonly kind: "legacy_card_projection";
-            readonly projectHint?: string | null;
-            readonly sourceBlockId: string;
-            readonly targetBlockId: string;
-        } | {
-            /** @enum {string} */
-            readonly kind: "legacy_database_query";
-            readonly projectHint: string;
-            readonly sourceBlockId: string;
         };
         /** @enum {string} */
         readonly LibraryDocumentRevisionKind: "automatic" | "manual" | "operation" | "restore" | "safety";

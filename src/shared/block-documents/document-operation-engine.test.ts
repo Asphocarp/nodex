@@ -10,9 +10,9 @@ import {
   prepareDocumentOperationUpdate,
 } from "./document-operation-engine";
 import {
-  LegacyNfmShadowTranslationError,
+  NfmDocumentReplacementError,
   replacePageDocumentBodyFromNfm,
-} from "./legacy-nfm-shadow-translator";
+} from "./nfm-document-replacement";
 
 const createGenesis = (documentId: string, title: string, nfm: string, ids: readonly string[]) => {
   let index = 0;
@@ -348,6 +348,30 @@ describe("Document operation engine", () => {
     source.document.destroy();
   });
 
+  test("NFM replacement preserves semantic container children", () => {
+    const source = createGenesis("operation-nfm-container", "Container", "Seed", ["seed"]);
+    const nfm = ['<callout icon="💡">', "\tCallout body", "\tCallout child", "</callout>"].join(
+      "\n",
+    );
+    const replacement = replacePageDocumentBodyFromNfm({
+      document: source.document,
+      nfm,
+      allocateBlockId: (() => {
+        let nextId = 0;
+        return () => `container-${++nextId}`;
+      })(),
+    });
+
+    expect(replacement.materialization.nfm).toBe(nfm);
+    expect(replacement.materialization.blockTree).toMatchObject([
+      {
+        type: "callout",
+        children: [{ type: "paragraph", children: [] }],
+      },
+    ]);
+    source.document.destroy();
+  });
+
   test("NFM identity matching uses parent context and never zips ambiguous global duplicates", () => {
     const source = createGenesis(
       "operation-nfm-parent-context",
@@ -371,33 +395,35 @@ describe("Document operation engine", () => {
     source.document.destroy();
   });
 
-  test("NFM Card UUIDs exactly preserve and reorder existing owning shells", () => {
-    const source = createGenesis("operation-nfm-card-pins", "Cards", "<page />\n<page />", [
-      "card-a",
-      "card-b",
-    ]);
+  test("NFM Page UUIDs exactly preserve and reorder existing owning shells", () => {
+    const source = createGenesis(
+      "operation-nfm-page-pins",
+      "Pages",
+      '<page uuid="source-a" />\n<page uuid="source-b" />',
+      ["page-a", "page-b"],
+    );
     let allocationCount = 0;
     const replacement = replacePageDocumentBodyFromNfm({
       document: source.document,
-      nfm: '<page uuid="card-b" />\n<page uuid="card-a" />',
+      nfm: '<page uuid="page-b" />\n<page uuid="page-a" />',
       allocateBlockId: () => `unexpected-${++allocationCount}`,
     });
 
     expect(replacement.materialization.blockTree.map((block) => block.id)).toEqual([
-      "card-b",
-      "card-a",
+      "page-b",
+      "page-a",
     ]);
-    expect(replacement.materialization.nfm).toBe('<page uuid="card-b" />\n<page uuid="card-a" />');
+    expect(replacement.materialization.nfm).toBe('<page uuid="page-b" />\n<page uuid="page-a" />');
     expect(allocationCount).toBe(0);
     source.document.destroy();
   });
 
-  test("an exact canonical NFM round trip is a no-op with duplicate Card parents", () => {
+  test("an exact canonical NFM round trip is a no-op with duplicate Page parents", () => {
     const source = createGenesis(
-      "operation-nfm-card-pin-duplicate-parents",
-      "Cards",
-      "Parent\n\t<page />\nParent\n\t<page />",
-      ["parent-a", "card-a", "parent-b", "card-b"],
+      "operation-nfm-page-pin-duplicate-parents",
+      "Pages",
+      'Parent\n\t<page uuid="source-a" />\nParent\n\t<page uuid="source-b" />',
+      ["parent-a", "page-a", "parent-b", "page-b"],
     );
     const canonicalNfm = source.materialization.nfm;
     const replacement = replacePageDocumentBodyFromNfm({
@@ -411,17 +437,17 @@ describe("Document operation engine", () => {
     source.document.destroy();
   });
 
-  test("Card pins disambiguate and reorder otherwise identical parent subtrees", () => {
+  test("Page pins disambiguate and reorder otherwise identical parent subtrees", () => {
     const source = createGenesis(
-      "operation-nfm-card-pin-parent-reorder",
-      "Cards",
-      "Parent\n\t<page />\nParent\n\t<page />",
-      ["parent-a", "card-a", "parent-b", "card-b"],
+      "operation-nfm-page-pin-parent-reorder",
+      "Pages",
+      'Parent\n\t<page uuid="source-a" />\nParent\n\t<page uuid="source-b" />',
+      ["parent-a", "page-a", "parent-b", "page-b"],
     );
     let allocationCount = 0;
     const replacement = replacePageDocumentBodyFromNfm({
       document: source.document,
-      nfm: ["Parent", '\t<page uuid="card-b" />', "Parent", '\t<page uuid="card-a" />'].join("\n"),
+      nfm: ["Parent", '\t<page uuid="page-b" />', "Parent", '\t<page uuid="page-a" />'].join("\n"),
       allocateBlockId: () => `unexpected-${++allocationCount}`,
     });
 
@@ -430,24 +456,24 @@ describe("Document operation engine", () => {
       "parent-a",
     ]);
     expect(replacement.materialization.blockTree.map((block) => block.children[0]?.id)).toEqual([
-      "card-b",
-      "card-a",
+      "page-b",
+      "page-a",
     ]);
     expect(allocationCount).toBe(0);
     source.document.destroy();
   });
 
-  test("NFM Card UUID pins reject duplicate, unknown, and wrong-type identities", () => {
+  test("NFM Page UUID pins reject duplicate, unknown, and wrong-type identities", () => {
     const source = createGenesis(
-      "operation-nfm-invalid-card-pins",
-      "Cards",
-      "<page />\nParagraph",
-      ["card-a", "paragraph-a"],
+      "operation-nfm-invalid-page-pins",
+      "Pages",
+      '<page uuid="source-a" />\nParagraph',
+      ["page-a", "paragraph-a"],
     );
     const before = encodedState(source.document);
     const invalidInputs = [
-      '<page uuid="card-a" />\n<page uuid="card-a" />',
-      '<page uuid="unknown-card" />',
+      '<page uuid="page-a" />\n<page uuid="page-a" />',
+      '<page uuid="unknown-page" />',
       '<page uuid="paragraph-a" />',
     ];
 
@@ -457,43 +483,46 @@ describe("Document operation engine", () => {
           document: source.document,
           nfm,
         }),
-      ).toThrow(LegacyNfmShadowTranslationError);
+      ).toThrow(NfmDocumentReplacementError);
       expect(encodedState(source.document)).toBe(before);
     }
     source.document.destroy();
   });
 
-  test("NFM Card UUID pins reject cross-parent movement", () => {
+  test("NFM Page UUID pins reject cross-parent movement", () => {
     const source = createGenesis(
-      "operation-nfm-card-pin-parent",
-      "Cards",
-      "Parent A\n\t<page />\nParent B",
-      ["parent-a", "card-a", "parent-b"],
+      "operation-nfm-page-pin-parent",
+      "Pages",
+      'Parent A\n\t<page uuid="source-a" />\nParent B',
+      ["parent-a", "page-a", "parent-b"],
     );
     const before = encodedState(source.document);
     expect(() =>
       replacePageDocumentBodyFromNfm({
         document: source.document,
-        nfm: 'Parent A\nParent B\n\t<page uuid="card-a" />',
+        nfm: 'Parent A\nParent B\n\t<page uuid="page-a" />',
       }),
-    ).toThrow(LegacyNfmShadowTranslationError);
+    ).toThrow(NfmDocumentReplacementError);
     expect(encodedState(source.document)).toBe(before);
     source.document.destroy();
   });
 
-  test("NFM Card UUID pins reject malformed explicit identities", () => {
-    const source = createGenesis("operation-nfm-malformed-card-pin", "Cards", "<page />", [
-      "card-a",
-    ]);
+  test("NFM Page UUID pins reject malformed explicit identities", () => {
+    const source = createGenesis(
+      "operation-nfm-malformed-page-pin",
+      "Pages",
+      '<page uuid="source-a" />',
+      ["page-a"],
+    );
     const before = encodedState(source.document);
 
-    for (const nfm of ['<page uuid=" card-a" />', '<page uuid="" />']) {
+    for (const nfm of ['<page uuid=" page-a" />', '<page uuid="" />']) {
       expect(() =>
         replacePageDocumentBodyFromNfm({
           document: source.document,
           nfm,
         }),
-      ).toThrow(LegacyNfmShadowTranslationError);
+      ).toThrow(NfmDocumentReplacementError);
       expect(encodedState(source.document)).toBe(before);
     }
     source.document.destroy();
@@ -501,14 +530,14 @@ describe("Document operation engine", () => {
 
   test("genesis import allocates a fresh owning Page identity", () => {
     const genesis = createPageDocumentGenesis({
-      documentId: "operation-nfm-card-import",
+      documentId: "operation-nfm-page-import",
       title: "Import",
-      nfm: '<page uuid="exported-card" />',
-      allocateBlockId: () => "fresh-card",
+      nfm: '<page uuid="exported-page" />',
+      allocateBlockId: () => "fresh-page",
     });
 
-    expect(genesis.materialization.blockTree[0]?.id).toBe("fresh-card");
-    expect(genesis.materialization.nfm).toBe('<page uuid="fresh-card" />');
+    expect(genesis.materialization.blockTree[0]?.id).toBe("fresh-page");
+    expect(genesis.materialization.nfm).toBe('<page uuid="fresh-page" />');
     genesis.document.destroy();
   });
 

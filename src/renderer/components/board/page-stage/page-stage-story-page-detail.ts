@@ -175,7 +175,7 @@ export const buildPageDetailStoryResult = (
       document: {
         readiness: "ready",
         schemaKey: "nodex.page",
-        schemaVersion: 2,
+        schemaVersion: 3,
       },
       intrinsicProperties: [
         intrinsic("schedule.isAllDay", Boolean(page.isAllDay)),

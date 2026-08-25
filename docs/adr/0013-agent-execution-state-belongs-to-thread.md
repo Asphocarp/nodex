@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-15
 - Owners: Nodex maintainers
-- Supersedes: Agent-state portions of ADR 0003 and ADR 0010
+- Supersedes: Agent-state portions of ADR 0003
 
 ## Context
 

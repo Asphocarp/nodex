@@ -61,7 +61,7 @@ fn registered_schema_matrix_survives_checkpoint_and_history_reconstruction() {
     let expected_title = title.get_string(&before);
     let checkpoint = before.encode_state_as_update_v1(&StateVector::default());
     drop(before);
-    let expected_block_tree = decode_block_document(&document, BlockDocumentSchema::PageV2)
+    let expected_block_tree = decode_block_document(&document, BlockDocumentSchema::PageV3)
         .expect("matrix checkpoint decodes")
         .block_tree;
 
@@ -86,7 +86,7 @@ fn registered_schema_matrix_survives_checkpoint_and_history_reconstruction() {
     );
     drop(restored_transaction);
     assert_eq!(
-        decode_block_document(&restored, BlockDocumentSchema::PageV2)
+        decode_block_document(&restored, BlockDocumentSchema::PageV3)
             .expect("restored checkpoint decodes")
             .block_tree,
         expected_block_tree
@@ -143,15 +143,15 @@ fn materializes_page_and_body_only_schema_roots_without_hidden_state() {
     )
     .expect("valid root oracle");
     for (fixture_name, schema, oracle_key) in [
-        ("empty-page.bin", BlockDocumentSchema::PageV2, "emptyPage"),
+        ("empty-page.bin", BlockDocumentSchema::PageV3, "emptyPage"),
         (
             "empty-synced-block.bin",
-            BlockDocumentSchema::SyncedBlockV1,
+            BlockDocumentSchema::SyncedBlockV2,
             "emptySyncedBlock",
         ),
         (
             "reusable-template.bin",
-            BlockDocumentSchema::ReusableTemplateV1,
+            BlockDocumentSchema::ReusableTemplateV2,
             "reusableTemplate",
         ),
     ] {
@@ -195,7 +195,7 @@ fn portable_json_undefined_and_binary_attributes_survive_a_rust_round_trip() {
         .transact_mut()
         .apply_update(Update::decode_v1(&bytes).expect("valid matrix update"))
         .expect("matrix fixture applies");
-    let decoded = decode_block_document(&document, BlockDocumentSchema::PageV2)
+    let decoded = decode_block_document(&document, BlockDocumentSchema::PageV3)
         .expect("matrix document decodes");
     let Some(PortableValue::Object(probe)) =
         decoded.block_tree.root_attributes.get("portableProbe")
@@ -220,7 +220,7 @@ fn portable_json_undefined_and_binary_attributes_survive_a_rust_round_trip() {
         &decoded.block_tree,
     )
     .expect("portable document encodes");
-    let roundtrip = decode_block_document(&roundtrip, BlockDocumentSchema::PageV2)
+    let roundtrip = decode_block_document(&roundtrip, BlockDocumentSchema::PageV3)
         .expect("portable roundtrip decodes");
     assert_eq!(roundtrip.block_tree, decoded.block_tree);
 }

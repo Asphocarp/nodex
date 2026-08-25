@@ -172,38 +172,9 @@ const schemaMatrixContent = [
     },
   },
   {
-    id: "matrix-card-toggle",
-    type: "cardToggle",
-    props: {
-      cardId: "card-1",
-      meta: "In progress",
-      snapshot: "",
-      sourceProjectId: "project-1",
-      sourceStatus: "build",
-      sourceStatusName: "In progress",
-      projectionOwnerId: "",
-      projectionKind: "",
-      projectionSourceProjectId: "",
-      projectionCardId: "",
-    },
-    content: "Card title",
-  },
-  {
     id: "matrix-thread-section",
     type: "threadSection",
     props: { label: "Implementation", threadId: "thread-1" },
-  },
-  {
-    id: "matrix-inline-view",
-    type: "toggleListInlineView",
-    props: {
-      sourceProjectId: "project-1",
-      rulesV2B64: "",
-      propertyOrderCsv: "priority,estimate,status",
-      hiddenPropertiesCsv: "",
-      showEmptyEstimate: "false",
-      showEmptyPriority: "true",
-    },
   },
   { id: "matrix-page", type: "page" },
   { id: "matrix-database", type: "database" },
@@ -384,7 +355,7 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     inspectRegisteredOwnedBlockDocument(syncedBlock.document, {
       ownerType: "synced_block_source",
       schemaKey: "nodex.synced-block",
-      schemaVersion: 1,
+      schemaVersion: 2,
     }).materialization,
   );
 
@@ -404,7 +375,7 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     inspectRegisteredOwnedBlockDocument(reusableTemplate.document, {
       ownerType: "reusable_template_source",
       schemaKey: "nodex.reusable-template",
-      schemaVersion: 1,
+      schemaVersion: 2,
     }).materialization,
   );
 

@@ -20,8 +20,10 @@ import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
 import { createPageMentionInlineContentSpec } from "./page-mention-inline-content";
 import { createSyncedBlockRefBlockSpec } from "./synced-block-ref-block";
 import { createReusableTemplateRefBlockSpec } from "./document-bearing-shell-block";
+import { BLOCK_CHILDREN_RULES } from "../../../../shared/block-documents/block-children-policy";
 
 export const nfmSchema = BlockNoteSchema.create({
+  blockChildrenRules: BLOCK_CHILDREN_RULES,
   blockSpecs: {
     paragraph: defaultBlockSpecs.paragraph,
     heading: defaultBlockSpecs.heading,

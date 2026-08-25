@@ -40,10 +40,6 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
       }
     }
 
-    if (block.type === "cardRef") {
-      parts.push(block.pageId);
-    }
-
     if (block.type === "pageRef") {
       parts.push(buildPageDeepLink({ pageId: block.targetBlockId }));
     }
@@ -58,10 +54,6 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
 
     if (block.type === "templateRef") {
       parts.push(block.sourceBlockId);
-    }
-
-    if (block.type === "cardToggle") {
-      parts.push(block.pageId, block.meta);
     }
 
     if (block.type === "threadSection") {

@@ -3,8 +3,8 @@ import {
   assertValidBlockDocument,
   BLOCK_CONTAINER_NODE_NAME,
   BLOCK_GROUP_NODE_NAME,
-  collectChildlessBlockViolations,
-  isChildlessBlockContainer,
+  blockContainerAcceptsChildren,
+  collectBlockChildrenViolations,
   type ScannedDocumentBlock,
 } from "./block-structure";
 import { assertValidPageDocumentRoots } from "./page-document";
@@ -19,7 +19,7 @@ export type BlockSubtreeOperationErrorCode =
   | "source_block_not_found"
   | "overlapping_roots"
   | "target_parent_not_found"
-  | "target_parent_childless"
+  | "target_parent_rejects_children"
   | "ancestor_cycle"
   | "target_anchor_not_found"
   | "target_anchor_wrong_parent"
@@ -155,11 +155,11 @@ const resolveElementAtPath = (body: Y.XmlFragment, path: readonly number[]): Y.X
 const validateDocumentBody = (body: Y.XmlFragment): readonly ScannedDocumentBlock[] => {
   try {
     const blocks = assertValidBlockDocument(body);
-    const violation = collectChildlessBlockViolations(body)[0];
+    const violation = collectBlockChildrenViolations(body)[0];
     if (!violation) return blocks;
     throw new BlockSubtreeOperationError(
       "invalid_document",
-      `Canonical reference Block ${violation.blockId ?? "unknown"} must not contain child Blocks`,
+      `${violation.blockType} Block ${violation.blockId ?? "unknown"} must not contain generic child Blocks`,
       violation.blockId ? { blockId: violation.blockId } : undefined,
     );
   } catch (error) {
@@ -379,10 +379,10 @@ const resolveInsertionTarget = (
       { blockId: parentBlockId },
     );
   }
-  if (parent && isChildlessBlockContainer(parent.container)) {
+  if (parent && !blockContainerAcceptsChildren(parent.container)) {
     throw new BlockSubtreeOperationError(
-      "target_parent_childless",
-      `Canonical reference Block ${parentBlockId} cannot contain child Blocks`,
+      "target_parent_rejects_children",
+      `${parent.blockType} Block ${parentBlockId} cannot contain generic child Blocks`,
       { blockId: parentBlockId ?? undefined },
     );
   }

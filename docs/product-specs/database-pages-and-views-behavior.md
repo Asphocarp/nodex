@@ -508,11 +508,12 @@ Ordinary Blocks use Document edits within one Document and Block Transfer across
 Documents. When a selection contains an owner, Core commits the complete mixed
 root forest, ownership closure, and inverse recipe as one structural mutation.
 Every document-bearing owner shell is childless. Indenting, inserting, or moving
-an ordinary Block beneath one is rejected; moving or deleting a legacy illegal
-child out of a shell remains allowed as a repair.
+an ordinary Block beneath one is rejected.
 This invariant is enforced on the actual local Block transaction before it
 enters the collaborative Y.Doc, not only on keyboard or side-menu commands.
 Remote Core delivery is admitted so authorized structural commits converge.
+The complete parent capability and presentation contract is defined in
+[NFM Editor Block Children Behavior](nfm-editor-block-children-behavior.md).
 
 Large or native clipboard input uses explicit bounded flows. Saved assets use
 managed asset identity; external links remain links. Exact attachment, copy,

@@ -74,12 +74,12 @@ pub(crate) fn prepare_page_yjs_genesis(
     });
     let document = encode_block_document(
         document_id,
-        BlockDocumentSchema::PageV2,
+        BlockDocumentSchema::PageV3,
         title.as_deref(),
         &tree,
     )
     .map_err(|error| invalid(format!("Page genesis is invalid: {error}")))?;
-    prepare_encoded_genesis(document_id, "page", BlockDocumentSchema::PageV2, document)
+    prepare_encoded_genesis(document_id, "page", BlockDocumentSchema::PageV3, document)
 }
 
 pub(crate) fn prepare_page_yjs_genesis_with_content(
@@ -102,12 +102,12 @@ pub(crate) fn prepare_page_yjs_genesis_with_content(
     };
     let document = encode_block_document(
         document_id,
-        BlockDocumentSchema::PageV2,
+        BlockDocumentSchema::PageV3,
         title.as_deref(),
         &tree,
     )
     .map_err(|error| invalid(format!("Page genesis is invalid: {error}")))?;
-    prepare_encoded_genesis(document_id, "page", BlockDocumentSchema::PageV2, document)
+    prepare_encoded_genesis(document_id, "page", BlockDocumentSchema::PageV3, document)
 }
 
 pub(crate) fn prepare_yjs_genesis_with_blocks(

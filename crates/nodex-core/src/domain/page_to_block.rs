@@ -2,6 +2,7 @@ use nodex_core_contracts::library::LibraryStructuralTurnIntoTarget;
 use serde_json::Value;
 use thiserror::Error;
 
+use super::block_children::accepts_block_children;
 use super::block_materialization::{MaterializedBlockNode, dematerialize_block_tree};
 use super::materialized_inline::{MaterializedInlineError, materialized_inline_from_rich_text};
 use super::ordinary_block::{canonical_ordinary_block_shape, default_props};
@@ -10,6 +11,7 @@ use super::rich_text::RichTextItem;
 #[derive(Clone, Debug, PartialEq)]
 pub struct PageToBlockTransformation {
     pub block: MaterializedBlockNode,
+    pub trailing_siblings: Vec<MaterializedBlockNode>,
     pub retained_empty_placeholder_id: Option<String>,
 }
 
@@ -32,23 +34,34 @@ pub fn plan_page_to_block_transformation(
     dematerialize_block_tree(body_roots)
         .map_err(|error| PageToBlockError::InvalidBody(error.to_string()))?;
     let retained_empty_placeholder_id = semantic_empty_body_id(body_roots).map(str::to_owned);
-    let children = if retained_empty_placeholder_id.is_none() {
-        body_roots.to_vec()
-    } else {
-        Vec::new()
-    };
     let (block_type, props) = canonical_ordinary_block_shape(target);
-    let block = MaterializedBlockNode {
+    let mut block = MaterializedBlockNode {
         id: page_id.to_owned(),
         block_type: block_type.to_owned(),
         props,
         content: Some(materialized_inline_from_rich_text(rich_title)?),
-        children,
+        children: Vec::new(),
     };
-    dematerialize_block_tree(std::slice::from_ref(&block))
+    let target_tree = dematerialize_block_tree(std::slice::from_ref(&block))
+        .map_err(|error| PageToBlockError::InvalidResult(error.to_string()))?;
+    let body = if retained_empty_placeholder_id.is_none() {
+        body_roots.to_vec()
+    } else {
+        Vec::new()
+    };
+    let trailing_siblings = if accepts_block_children(&target_tree.blocks[0]) {
+        block.children = body;
+        Vec::new()
+    } else {
+        body
+    };
+    let mut result = vec![block.clone()];
+    result.extend(trailing_siblings.clone());
+    dematerialize_block_tree(&result)
         .map_err(|error| PageToBlockError::InvalidResult(error.to_string()))?;
     Ok(PageToBlockTransformation {
         block,
+        trailing_siblings,
         retained_empty_placeholder_id,
     })
 }
@@ -126,7 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn every_target_keeps_identity_title_and_body_hierarchy() {
+    fn every_target_keeps_identity_title_and_body_reading_order() {
         let body = vec![MaterializedBlockNode {
             children: vec![paragraph("grandchild", "nested")],
             ..paragraph("child", "body")
@@ -150,7 +163,21 @@ mod tests {
                 .expect("valid transformation");
             assert_eq!(plan.block.id, "page-a");
             assert_eq!(plan.block.block_type, expected_type);
-            assert_eq!(plan.block.children, body);
+            let accepts_children = !matches!(
+                target,
+                LibraryStructuralTurnIntoTarget::Code
+                    | LibraryStructuralTurnIntoTarget::Heading {
+                        toggleable: false,
+                        ..
+                    }
+            );
+            if accepts_children {
+                assert_eq!(plan.block.children, body);
+                assert!(plan.trailing_siblings.is_empty());
+            } else {
+                assert!(plan.block.children.is_empty());
+                assert_eq!(plan.trailing_siblings, body);
+            }
             assert_eq!(plan.retained_empty_placeholder_id, None);
             assert_eq!(
                 crate::domain::materialized_inline::rich_text_from_materialized_inline(
@@ -180,6 +207,7 @@ mod tests {
         )
         .expect("valid transformation");
         assert!(plan.block.children.is_empty());
+        assert!(plan.trailing_siblings.is_empty());
         assert_eq!(plan.retained_empty_placeholder_id.as_deref(), Some("empty"));
 
         let noncanonical = MaterializedBlockNode {
@@ -194,6 +222,7 @@ mod tests {
         )
         .expect("valid transformation");
         assert_eq!(plan.block.children, vec![noncanonical]);
+        assert!(plan.trailing_siblings.is_empty());
         assert_eq!(plan.retained_empty_placeholder_id, None);
     }
 }

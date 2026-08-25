@@ -60,13 +60,7 @@ function makeParentEditor(
 
   const editor: EditorForChildGroupEnter = {
     schema: {
-      blockSchema: {
-        paragraph: { content: "inline" },
-        heading: { content: "inline" },
-        toggleListItem: { content: "inline" },
-        image: { content: "none" },
-        [blockType]: { content: blockInline ? "inline" : "none" },
-      },
+      acceptsBlockChildren: (block) => block.type === blockType && blockInline,
     },
     domElement: makeDom(blockId, "true"),
     getTextCursorPosition: () => ({
@@ -153,13 +147,7 @@ function makeChildEditor(
 
   const editor: EditorForChildGroupEnter = {
     schema: {
-      blockSchema: {
-        paragraph: { content: "inline" },
-        heading: { content: "inline" },
-        toggleListItem: { content: "inline" },
-        image: { content: "none" },
-        [parentType]: { content: parentInline ? "inline" : "none" },
-      },
+      acceptsBlockChildren: (block) => block.type === parentType && parentInline,
     },
     domElement: undefined,
     getTextCursorPosition: () => ({
@@ -237,11 +225,7 @@ function makeToggleFallbackEditor(
 
   const editor: EditorForChildGroupEnter = {
     schema: {
-      blockSchema: {
-        paragraph: { content: "inline" },
-        toggleListItem: { content: "inline" },
-        heading: { content: "inline" },
-      },
+      acceptsBlockChildren: () => true,
     },
     domElement: makeDom(blockId, showChildren),
     getTextCursorPosition: () => ({
