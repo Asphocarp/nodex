@@ -449,6 +449,7 @@ describe("ThreadComposer dictation", () => {
 
     await act(async () => {
       fireEvent.keyDown(document, { key: "m", ctrlKey: true });
+      await Promise.resolve();
     });
     await waitFor(() => {
       expect(Boolean(document.querySelector('[aria-label="Stop dictation"]'))).toBe(true);
@@ -477,6 +478,7 @@ describe("ThreadComposer dictation", () => {
 
     await act(async () => {
       fireEvent.keyDown(document, { key: "m", ctrlKey: true });
+      await Promise.resolve();
     });
     await waitFor(() => {
       expect(Boolean(document.querySelector('[aria-label="Stop dictation"]'))).toBe(true);
