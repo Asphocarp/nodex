@@ -27,9 +27,10 @@ runs:
           exit 1
         fi
 
-        successful="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+        successful="$(gh api --method GET \
+          "repos/${GITHUB_REPOSITORY}/actions/workflows/ci-main.yml/runs" \
           -f head_sha="${SOURCE_SHA}" -f event=push -f status=completed -F per_page=100 \
-          --jq '[.workflow_runs[] | select(.name == "Main CI" and .head_branch == "main" and .conclusion == "success")] | length')"
+          --jq '[.workflow_runs[] | select(.head_branch == "main" and .conclusion == "success")] | length')"
         if [[ "${successful}" == "0" ]]; then
           echo "Source SHA does not have a successful protected-main Main CI run." >&2
           exit 1
