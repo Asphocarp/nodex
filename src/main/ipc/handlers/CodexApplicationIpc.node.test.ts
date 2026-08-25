@@ -115,6 +115,7 @@ it.effect("registers application channels directly against their owning modules"
         },
       }),
       transcribe: () => Effect.succeed("hello"),
+      cleanupTranscript: (input) => Effect.succeed(input.transcript),
       prepareStreamingConnectInfo: Effect.die("unused"),
       resolveImage: () => Effect.succeed({ ok: false, message: "not available", status: null }),
     });

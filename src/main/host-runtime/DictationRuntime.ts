@@ -59,7 +59,7 @@ export class DictationRuntime extends Context.Service<
     readonly syncCommandKeymap: (
       state: CommandKeymapState,
     ) => Effect.Effect<void, DictationRuntimeError>;
-    readonly captureHotkey: Effect.Effect<string | null, DictationRuntimeError>;
+    readonly captureFnHotkey: Effect.Effect<"Fn" | null, DictationRuntimeError>;
     readonly handleRendererEvent: (
       webContentsId: number,
       event: GlobalDictationRendererEvent,
@@ -245,8 +245,10 @@ export const live = (options: {
                 globalManager!.syncCommandKeymap(state),
               )
             : Effect.void,
-        captureHotkey: globalManager
-          ? attemptPromise("capture-global-dictation-hotkey", () => globalManager!.captureHotkey())
+        captureFnHotkey: globalManager
+          ? attemptPromise("capture-global-dictation-fn-hotkey", () =>
+              globalManager!.captureFnHotkey(),
+            )
           : Effect.succeed(null),
         handleRendererEvent: (webContentsId, event) =>
           Effect.sync(() => globalManager?.handleRendererEvent(webContentsId, event) ?? false),

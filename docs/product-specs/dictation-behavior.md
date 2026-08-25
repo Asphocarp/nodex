@@ -16,7 +16,8 @@ Dictation turns a bounded microphone recording into text. It is available in the
 ## Composer behavior
 
 - The active Thread Composer shows a `Dictate` button when capture is supported. Clicking begins recording. Holding the configured Composer shortcut begins on keydown and stops on keyup.
-- Recording shows elapsed time and a live waveform. The active footer offers `Stop dictation`, which transcribes and inserts, and `Transcribe and send`, which inserts through the ordinary Composer path and submits through the ordinary submit policy.
+- Recording replaces the ordinary Composer footer with a stable `cancel | waveform | stop | send` row. The scrolling waveform advances at a fixed 30 px/s. `Stop dictation` transcribes and inserts; `Transcribe and send` inserts through the ordinary Composer path and submits through the ordinary submit policy.
+- After either stop action, the same footer remains mounted and shows centered `Transcribing`; the selected stop/send action shows progress and both completion actions are disabled until transcription settles. It never flashes back to the ordinary Composer footer between capture and transcript delivery.
 - A stop action may upgrade from insert to send while finalization is in progress, but text is applied exactly once. Cancel during recording or transcription applies no text.
 - Dictation text is trimmed before insertion. The editor owns cursor/selection placement; dictation does not create a separate transcript row or bypass ordinary prompt submission.
 - The visible transcript behavior after insertion or send remains governed by [Codex Thread Transcript Behavior](codex-thread-transcript-behavior.md).
@@ -39,6 +40,8 @@ The controller has explicit idle, permission/acquisition, recording, stopping, t
 - Any retryable streaming failure automatically transcribes the same complete recording through the buffered endpoint. Abort never falls back.
 - An explicitly unsupported streaming endpoint is cached for the current authority/process and later sessions go directly to buffered transcription. Account authority or app-server connection replacement resets that cache.
 - A retryable buffered failure preserves the same recording and offers `Retry`; retry does not ask the user to speak again.
+- Global dictation and recording recovery run a best-effort semantic cleanup pass using surrounding text and the Voice dictionary. Cleanup fixes likely recognition mistakes while preserving intent and fails open to the original transcript. The current Composer path intentionally preserves the raw transcription result.
+- Composer start and transcription failures use the app-owned top notification surface. A retained-audio transcription failure offers `View recording`, `Retry`, and close; it does not render a Composer-local toast.
 
 ## Recording history and Voice settings
 
@@ -46,17 +49,22 @@ Settings → Voice owns:
 
 - microphone permission and input-device selection, including `System default` and an explicit unavailable selection;
 - separate macOS Input Monitoring and Accessibility status/actions;
-- links to configure Composer hold, global hold, and global toggle shortcuts;
-- `Keep global bar visible`, start-sound, and stop-sound preferences;
+- inline global hold and global toggle shortcut recorders that share the same chord capture component as Settings → Keyboard shortcuts;
+- `Keep dictation bar visible` and `Play dictation sounds` preferences;
+- a persistent Dictation dictionary of up to 100 canonical names, phrases, file paths, and code symbols;
 - the twenty most recent recoverable recordings.
 
-Each session creates a Profile-scoped history entry and appends ordered chunks while recording. Completed entries retain duration, surface, audio MIME type, status, and an optional transcript. A process interruption changes an unfinished `recording` entry to `interrupted` on the next scan. Users can copy an available transcript, retry transcription from retained audio, download reconstructed audio through a native Save dialog, or delete a non-active entry. Retention never deletes an active recording.
+Shortcut capture waits for a non-modifier key before committing a chord, so pressing Control and then Y records `Ctrl+Y`, not `Ctrl`. Modifier-only global bindings commit only after the same physical modifier is released and preserve supported left/right identities. Fn capture uses a Fn-only native bridge because it may not produce a DOM keyboard event; values other than `Fn` from that boundary are ignored.
+
+An ordinary global shortcut must contain exactly one non-modifier key and at least one of Cmd/Ctrl or Alt. Shift does not qualify by itself. Invalid unmodified chords such as `Y` and `Shift+Y` leave the previous setting unchanged and show `Shortcut must include Cmd/Ctrl or Alt.` Supported macOS bare bindings are Fn, left Control, left/right Option, left/right Command, and their supported double-modifier forms; right Control and a single left/right Shift are rejected. The same validation runs before persistence in Main even when a renderer bypasses the visible settings control.
+
+Each session creates a Profile-scoped history entry and appends ordered chunks while recording. Completed entries retain duration, surface, audio MIME type, status, and an optional transcript. A process interruption changes an unfinished `recording` entry to `interrupted` on the next scan. Recent rows show transcript-or-status plus timestamp, with an inline copy or retry action and an overflow menu for download/delete. Users can retry transcription from retained audio, download reconstructed audio through a native Save dialog, or delete a non-active entry. Retention never deletes an active recording.
 
 History is a recovery feature, not a second conversation transcript. Deleting a recording does not remove text already inserted or sent. Dictation settings are Main-owned and shared by every window.
 
 ## macOS global dictation
 
-- Global hold and toggle are macOS-only configurable shortcuts and may use bare modifier or Fn chords. Hold starts on press and stops on release. Toggle starts on the first non-repeat press and stops on the next.
+- Global hold and toggle are macOS-only configurable shortcuts and may use supported bare modifiers, including Fn. Hold starts on press and stops on release. Toggle starts on the first non-repeat press and stops on the next.
 - Input Monitoring is required to observe global key transitions. Accessibility is independently required only for cross-application paste; denying it does not disable Composer dictation.
 - Main captures the foreground process and bundle identity at shortcut activation. If a focused Nodex Composer accepts the session within 150 ms, it records and inserts in-app without opening a second recorder. Otherwise Main shows the compact global bar and routes the shared controller there.
 - The global bar is a 720 × 84 frameless, transparent, non-activating macOS window positioned bottom-center on the active display. It stays available across Spaces and fullscreen apps without changing Nodex's foreground application identity, Dock presence, or application menu. It does not take keyboard focus. Its content is pointer-through except while the pointer is over the bar.

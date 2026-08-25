@@ -104,6 +104,13 @@ const RecordingFinalize = z
 const RecordingTranscript = z
   .object({ id: DictationRecordingIdSchema, transcript: z.string().nullable() })
   .strict();
+const TranscriptCleanup = z
+  .object({
+    requestId: SessionId,
+    transcript: z.string().max(1_000_000),
+    surroundingText: z.string().max(100_000).nullable(),
+  })
+  .strict();
 
 const validate = <A>(operation: string, parse: () => A): Effect.Effect<A, DictationIpcError> =>
   Effect.try({
@@ -158,6 +165,36 @@ export const live = (
         capability: string,
         effect: Effect.Effect<A, E>,
       ) => trusted(event, capability).pipe(Effect.andThen(effect));
+      const runOwnedTranscriptTask = Effect.fn("DictationIpc.runOwnedTranscriptTask")(function* <E>(
+        event: IpcMainInvokeEvent,
+        requestId: string,
+        task: Effect.Effect<string, E>,
+      ) {
+        const reserved = yield* Effect.sync(() => {
+          if (transcriptionOwners.has(requestId)) return false;
+          transcriptionOwners.set(requestId, event.sender.id);
+          return true;
+        });
+        if (!reserved) {
+          return yield* new DictationIpcError({
+            operation: "reserve-transcription",
+            cause: new Error("Dictation transcript request already exists"),
+          });
+        }
+        const fiber = yield* FiberMap.run(transcriptionFibers, requestId, task, {
+          onlyIfMissing: true,
+          startImmediately: true,
+        });
+        return yield* Fiber.join(fiber).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (transcriptionOwners.get(requestId) === event.sender.id) {
+                transcriptionOwners.delete(requestId);
+              }
+            }),
+          ),
+        );
+      });
 
       yield* Effect.acquireRelease(
         Effect.sync(() =>
@@ -363,7 +400,7 @@ export const live = (
         ),
       );
       yield* ipc.handle("global-dictation-capture-fn-hotkey", (event) =>
-        authorized(event, "Global dictation shortcut", dictation.captureHotkey),
+        authorized(event, "Global dictation shortcut", dictation.captureFnHotkey),
       );
       yield* ipc.handle("global-dictation:event", (event, input: unknown) =>
         trusted(event, "Global dictation").pipe(
@@ -383,36 +420,29 @@ export const live = (
             ),
           ),
           Effect.flatMap((request) =>
-            Effect.gen(function* () {
-              const reserved = yield* Effect.sync(() => {
-                if (transcriptionOwners.has(request.requestId)) return false;
-                transcriptionOwners.set(request.requestId, event.sender.id);
-                return true;
-              });
-              if (!reserved) {
-                return yield* new DictationIpcError({
-                  operation: "reserve-transcription",
-                  cause: new Error("Dictation transcription request already exists"),
-                });
-              }
-              const task = media.transcribe({
+            runOwnedTranscriptTask(
+              event,
+              request.requestId,
+              media.transcribe({
                 contentType: request.contentType,
                 base64Payload: request.base64Payload,
-              });
-              const fiber = yield* FiberMap.run(transcriptionFibers, request.requestId, task, {
-                onlyIfMissing: true,
-                startImmediately: true,
-              });
-              return yield* Fiber.join(fiber).pipe(
-                Effect.ensuring(
-                  Effect.sync(() => {
-                    if (transcriptionOwners.get(request.requestId) === event.sender.id) {
-                      transcriptionOwners.delete(request.requestId);
-                    }
-                  }),
-                ),
-              );
-            }),
+              }),
+            ),
+          ),
+        ),
+      );
+      yield* ipc.handle("codex:dictation:cleanup", (event, input: unknown) =>
+        trusted(event, "Dictation transcript cleanup").pipe(
+          Effect.andThen(validate("parse-dictation-cleanup", () => TranscriptCleanup.parse(input))),
+          Effect.flatMap((request) =>
+            runOwnedTranscriptTask(
+              event,
+              request.requestId,
+              media.cleanupTranscript({
+                transcript: request.transcript,
+                surroundingText: request.surroundingText,
+              }),
+            ),
           ),
         ),
       );

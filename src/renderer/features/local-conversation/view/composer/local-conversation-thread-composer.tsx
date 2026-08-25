@@ -80,7 +80,6 @@ import {
   ComposerPlanModeCloseIcon,
   ComposerPlanModeIcon,
   MicIcon,
-  PlusIcon,
   FileIcon,
   ActivitySpinnerIcon,
   StopIcon,
@@ -104,7 +103,6 @@ import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-t
 import { ComposerActionTooltipContent } from "./composer-submit-tooltip";
 import { QueuedFollowUpSendDialog } from "./queued-follow-up-send-dialog";
 import {
-  formatComposerDictationDuration,
   isComposerDictationShortcut,
   isComposerDictationShortcutTargetBlocked,
   useComposerDictation,
@@ -2229,10 +2227,6 @@ function HydratedThreadComposer({
   const canStartNewThread = canStartNewThreadTarget(model);
   const [busyAction, setBusyAction] = useState<StageThreadsBusyAction>(null);
   const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
-  const [dictationToast, setDictationToast] = useState<{
-    readonly message: string;
-    readonly action?: { readonly label: string; readonly run: () => void };
-  } | null>(null);
   const [fileAttachments, setFileAttachments] = useScopedAtom(composerFileAttachmentsAtom);
   const [addedFiles, setAddedFiles] = useScopedAtom(composerAddedFilesAtom);
   const [imageAttachments, setImageAttachments] = useScopedAtom(composerImageAttachmentsAtom);
@@ -3379,13 +3373,6 @@ function HydratedThreadComposer({
     [addOrdinaryComposerFiles, browserImageDrag, handleBrowserImageDrop, imageAttachmentController],
   );
 
-  const showDictationToast = useCallback(
-    (message: string, action?: { readonly label: string; readonly run: () => void }) => {
-      setDictationToast({ message, action });
-    },
-    [],
-  );
-
   useEffect(() => {
     if (!model.dictation.capabilities.global || !commandKeymapQuery.data) return;
     const hasGlobalShortcut = commandKeymapQuery.data.entries.some(
@@ -3400,20 +3387,20 @@ function HydratedThreadComposer({
       .then((claimed) => {
         if (!claimed) return;
         if (disposed) return;
-        showDictationToast(
-          "Global dictation is ready. Add a hold or toggle shortcut in Voice settings.",
-        );
+        toast.info("Global dictation is ready. Add a hold or toggle shortcut in Voice settings.", {
+          id: "global-dictation-shortcut-nudge",
+        });
       })
       .catch(() => undefined);
     return () => {
       disposed = true;
     };
-  }, [commandKeymapQuery.data, model.dictation.capabilities.global, showDictationToast]);
+  }, [commandKeymapQuery.data, model.dictation.capabilities.global]);
 
   const {
     isDictating,
     isTranscribing,
-    recordingDurationMs,
+    transcriptionAction,
     waveformCanvasRef,
     startDictation,
     stopDictation,
@@ -3451,15 +3438,18 @@ function HydratedThreadComposer({
         status: error.status,
         nativeName: error.nativeName,
       });
-      showDictationToast(
-        dictationErrorMessage(error),
-        error.kind === "microphone-permission-denied" || error.kind === "microphone-restricted"
-          ? {
-              label: "Open microphone settings",
-              run: () => void openMicrophoneSettings(),
-            }
-          : undefined,
-      );
+      toast.danger("Unable to start dictation", {
+        id: "composer-dictation-start-error",
+        description: dictationErrorMessage(error),
+        duration: 0,
+        action:
+          error.kind === "microphone-permission-denied" || error.kind === "microphone-restricted"
+            ? {
+                label: "Open microphone settings",
+                onClick: () => void openMicrophoneSettings(),
+              }
+            : undefined,
+      });
     },
     onTranscribeError: (error) => {
       console.error("[composer-dictation:transcribe]", {
@@ -3468,32 +3458,34 @@ function HydratedThreadComposer({
         status: error.status,
         nativeName: error.nativeName,
       });
-      showDictationToast(dictationErrorMessage(error), {
-        label: "Retry",
-        run: () => void retryDictation(),
+      toast.danger("Unable to transcribe audio", {
+        id: "composer-dictation-transcription-error",
+        description: dictationErrorMessage(error),
+        duration: 0,
+        secondaryAction: actions.onOpenVoiceSettings
+          ? {
+              label: "View recording",
+              onClick: actions.onOpenVoiceSettings,
+            }
+          : undefined,
+        action: {
+          label: "Retry",
+          variant: "primary",
+          onClick: () => void retryDictation(),
+        },
       });
     },
     onUnsupported: () => {
-      showDictationToast("Dictation is not available on this device");
+      toast.danger("Dictation is not available on this device", {
+        id: "composer-dictation-unavailable",
+      });
     },
   });
+  const isComposerDictationActive = isDictating || isTranscribing;
   const canResumeInterruptedTurn =
     hasResumeInterruptedTurnCapability && !isDictating && !isTranscribing;
   const startDictationRef = useRef(startDictation);
   const stopDictationRef = useRef(stopDictation);
-
-  useEffect(() => {
-    if (!dictationToast || dictationToast.action) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setDictationToast(null);
-    }, 4000);
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [dictationToast]);
 
   useEffect(() => {
     startDictationRef.current = startDictation;
@@ -4141,7 +4133,7 @@ function HydratedThreadComposer({
     promptIntrinsicWidthPx,
     compactInputWidthPx,
     hasError: Boolean(errorMessage),
-    isDictating,
+    isDictating: isComposerDictationActive,
   });
   const floatingComposerSingleLine = composerLayout === "single-line";
   const isMacPlatform =
@@ -4506,28 +4498,33 @@ function HydratedThreadComposer({
   const dictationRowContent = (
     <>
       <NodexTooltip
-        tooltipContent={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
+        tooltipContent={isTranscribing ? "Cancel transcription" : "Cancel dictation"}
+        side="top"
+        sideOffset={4}
       >
-        <span className="inline-flex">
-          <button
-            type="button"
-            className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) opacity-50"
-            aria-label={model.isCloudNewThreadTarget ? "Add photos and more" : "Add files and more"}
-            disabled
-          >
-            <PlusIcon className="size-4" />
-          </button>
-        </span>
+        <button
+          type="button"
+          className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-secondary) hover:bg-(--background-tertiary) hover:text-(--foreground)"
+          aria-label={isTranscribing ? "Cancel transcription" : "Cancel dictation"}
+          onClick={cancelDictation}
+        >
+          <CloseIcon className="size-4" />
+        </button>
       </NodexTooltip>
-      <div className="flex h-token-button-composer min-w-0 flex-1 items-center">
-        <canvas
-          ref={waveformCanvasRef}
-          className="h-token-button-composer w-full text-token-foreground"
-        />
+      <div
+        className="flex h-token-button-composer min-w-0 flex-1 items-center justify-center text-base text-token-text-tertiary select-none"
+        role={isTranscribing ? "status" : undefined}
+      >
+        {isTranscribing ? (
+          "Transcribing"
+        ) : (
+          <canvas
+            ref={waveformCanvasRef}
+            className="h-token-button-composer w-full text-token-foreground"
+            aria-hidden="true"
+          />
+        )}
       </div>
-      <span className="text-sm text-token-foreground/70 tabular-nums">
-        {formatComposerDictationDuration(recordingDurationMs)}
-      </span>
       <NodexTooltip
         tooltipContent={<span className="text-token-foreground">Stop dictation</span>}
         side="top"
@@ -4539,8 +4536,13 @@ function HydratedThreadComposer({
           aria-label="Stop dictation"
           onClick={() => stopDictation("insert")}
           disabled={isTranscribing}
+          aria-busy={transcriptionAction === "insert"}
         >
-          <StopIcon className="size-4" />
+          {transcriptionAction === "insert" ? (
+            <ActivitySpinnerIcon className="size-4" />
+          ) : (
+            <StopIcon className="size-4" />
+          )}
         </button>
       </NodexTooltip>
       <NodexTooltip
@@ -4557,8 +4559,13 @@ function HydratedThreadComposer({
           aria-label="Transcribe and send"
           onClick={() => stopDictation("send")}
           disabled={isTranscribing}
+          aria-busy={transcriptionAction === "send"}
         >
-          <UpArrowIcon className="size-5" />
+          {transcriptionAction === "send" ? (
+            <ActivitySpinnerIcon className="size-4 text-(--background)" />
+          ) : (
+            <UpArrowIcon className="size-5" />
+          )}
         </button>
       </NodexTooltip>
     </>
@@ -4649,31 +4656,6 @@ function HydratedThreadComposer({
           onClose={closeSlashMenu}
           onBack={backFromNestedSlashMenu}
         />
-        {dictationToast ? (
-          <div className="absolute inset-x-0 -top-10 z-20 mx-auto flex w-fit max-w-[min(32rem,100%)] items-center gap-2 rounded-full border border-(--destructive)/30 bg-(--destructive)/10 px-3 py-1 text-xs font-medium text-(--destructive)">
-            <span>{dictationToast.message}</span>
-            {dictationToast.action ? (
-              <button
-                type="button"
-                className="cursor-interaction shrink-0 underline underline-offset-2"
-                onClick={() => {
-                  dictationToast.action?.run();
-                  setDictationToast(null);
-                }}
-              >
-                {dictationToast.action.label}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              aria-label="Dismiss dictation error"
-              className="cursor-interaction shrink-0 text-(--foreground-tertiary)"
-              onClick={() => setDictationToast(null)}
-            >
-              ×
-            </button>
-          </div>
-        ) : null}
         {showPlanKeywordSuggestion ? (
           <PlanKeywordSuggestion
             onUsePlanMode={() => {
@@ -4896,9 +4878,9 @@ function HydratedThreadComposer({
               </div>
             ) : null}
 
-            {isDictating ? (
+            {isComposerDictationActive ? (
               isFloatingComposer ? (
-                <div className="grid min-h-11 grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-2 px-2 py-1">
+                <div className="grid min-h-11 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 px-2 py-1">
                   {dictationRowContent}
                 </div>
               ) : (

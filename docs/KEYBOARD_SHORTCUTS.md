@@ -130,12 +130,12 @@ unless a separately listed app command owns an accelerator.
 
 ### macOS Global Dictation
 
-| Shortcut                   | Action                      | Notes                                                                                                                                                                                                                |
-| -------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Configurable global hold   | Hold to dictate in any app  | macOS only. Press begins and release stops. Bare modifiers and Fn chords are supported after Input Monitoring access. A focused Nodex Composer accepts the session in-app; otherwise the compact global bar appears. |
-| Configurable global toggle | Toggle dictation in any app | macOS only. First press begins and the next press stops; key auto-repeat never starts another session. Accessibility is required only to paste outside Nodex.                                                        |
+| Shortcut                   | Action                      | Notes                                                                                                                                                                                                                  |
+| -------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Configurable global hold   | Hold to dictate in any app  | macOS only. Press begins and release stops. Supported bare modifiers, including Fn, work after Input Monitoring access. A focused Nodex Composer accepts the session in-app; otherwise the compact global bar appears. |
+| Configurable global toggle | Toggle dictation in any app | macOS only. First press begins and the next press stops; key auto-repeat never starts another session. Accessibility is required only to paste outside Nodex.                                                          |
 
-Configure Composer hold, global hold, and global toggle independently in Settings → Keyboard shortcuts. Voice settings shows the separate microphone, Input Monitoring, and Accessibility controls.
+Configure global hold and global toggle directly in Settings → Voice; the full Settings → Keyboard shortcuts page edits the same bindings and also owns the Composer hold shortcut. Both surfaces use one chord recorder: modifier keydown remains pending for combinations such as `Ctrl+Y`, while supported modifier-only global bindings commit on matching keyup. Ordinary global chords must include Cmd/Ctrl or Alt plus exactly one non-modifier key; Shift alone does not satisfy that requirement. Fn is observed through a dedicated Fn-only native capture path and cannot cause Control or another modifier to commit early. Voice also owns microphone, Input Monitoring, and Accessibility controls.
 
 ### Request Input Cards
 

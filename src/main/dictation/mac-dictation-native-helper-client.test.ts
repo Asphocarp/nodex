@@ -32,7 +32,11 @@ describe("MacDictationNativeHelperClient", () => {
         const request = JSON.parse(line);
         const value = request.type === "capabilities"
           ? { inputMonitoring: true, accessibility: false }
-          : request.type === "queryBuiltInMic" ? "MacBook Pro Microphone" : { registered: true };
+          : request.type === "queryBuiltInMic"
+            ? "MacBook Pro Microphone"
+            : request.type === "captureFn"
+              ? { accelerator: "Fn" }
+              : { registered: true };
         process.stdout.write(JSON.stringify({ type: "response", id: request.id, ok: true, value }) + "\\n");
       });
     `);
@@ -46,6 +50,7 @@ describe("MacDictationNativeHelperClient", () => {
     await expect(
       client.register({ bindingId: "hold", mode: "hold", accelerator: "Fn" }),
     ).resolves.toBeUndefined();
+    await expect(client.captureFn()).resolves.toBe("Fn");
     client.dispose();
   });
 

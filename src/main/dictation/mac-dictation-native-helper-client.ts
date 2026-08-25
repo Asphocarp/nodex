@@ -97,9 +97,9 @@ export class MacDictationNativeHelperClient {
     await this.#request("unregister", { bindingId });
   }
 
-  async capture(): Promise<string> {
-    const value = (await this.#request("capture", {})) as { readonly accelerator?: unknown };
-    if (typeof value.accelerator !== "string") throw new Error("Invalid captured hotkey");
+  async captureFn(): Promise<"Fn"> {
+    const value = (await this.#request("captureFn", {})) as { readonly accelerator?: unknown };
+    if (value.accelerator !== "Fn") throw new Error("Invalid captured Fn hotkey");
     return value.accelerator;
   }
 

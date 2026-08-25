@@ -28,12 +28,17 @@ import {
 import { browserDictationWaveformPort } from "@/features/dictation/dictation-waveform";
 import { useDictationSession } from "@/features/dictation/use-dictation-session";
 import { transcribeDictationBlob } from "@/features/dictation/dictation-buffered-client";
+import {
+  COMPOSER_DICTATION_WAVEFORM_ADVANCE_INTERVAL_MS,
+  drawComposerDictationWaveform,
+} from "./composer-dictation-waveform";
 
 type DictationStopMode = Extract<DictationStopAction, "insert" | "send">;
 
 export interface ComposerDictationController {
   readonly isDictating: boolean;
   readonly isTranscribing: boolean;
+  readonly transcriptionAction: DictationStopMode | null;
   readonly recordingDurationMs: number;
   readonly waveformCanvasRef: RefObject<HTMLCanvasElement | null>;
   readonly startDictation: () => Promise<void>;
@@ -81,34 +86,14 @@ const defaultClock: DictationControllerPorts["clock"] = {
 const invokeGlobalDictationEvent = async (event: GlobalDictationRendererEvent): Promise<boolean> =>
   await invoke("global-dictation:event", event);
 
-const drawWaveform = (canvas: HTMLCanvasElement, waveform: readonly number[]): void => {
-  const context = canvas.getContext("2d");
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  if (!context || width <= 0 || height <= 0) return;
-  const pixelRatio = window.devicePixelRatio || 1;
-  canvas.width = width * pixelRatio;
-  canvas.height = height * pixelRatio;
-  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-  context.clearRect(0, 0, width, height);
-  if (waveform.length === 0) return;
-  const barStep = width / waveform.length;
-  const barWidth = Math.max(1, barStep * 0.45);
-  context.fillStyle = getComputedStyle(canvas).color || "currentColor";
-  for (let index = 0; index < waveform.length; index += 1) {
-    const level = Math.max(0.04, Math.min(1, waveform[index] ?? 0.04));
-    const barHeight = Math.max(2, level * height);
-    context.globalAlpha = 0.45 + level * 0.55;
-    context.fillRect(index * barStep, (height - barHeight) / 2, barWidth, barHeight);
-  }
-};
-
 export function useComposerDictation(
   input: UseComposerDictationInput,
 ): ComposerDictationController {
   const callbacksRef = useRef(input);
   callbacksRef.current = input;
   const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const waveformLevelsRef = useRef<readonly number[]>([]);
+  const waveformAdvancedAtRef = useRef(0);
   const reportedErrorRef = useRef<string | null>(null);
   const globalSessionIdRef = useRef<string | null>(null);
   const globalCompletionReportedRef = useRef(false);
@@ -131,6 +116,7 @@ export function useComposerDictation(
                 playStartSound: true,
                 playStopSound: true,
                 globalShortcutNudgeDismissed: false,
+                dictionary: [],
               })),
               readBuiltInMicrophoneRouteHint().catch(() => null),
             ]);
@@ -152,6 +138,9 @@ export function useComposerDictation(
             return result;
           },
         },
+        // Current Codex Composer intentionally bypasses semantic cleanup; the shared
+        // controller keeps the seam so global dictation and recording recovery can use it.
+        cleanup: { transcript: async (transcript) => transcript },
         history: mainDictationHistoryPort,
         completion: {
           apply: async ({ sessionId, action, transcript }) => {
@@ -217,9 +206,32 @@ export function useComposerDictation(
 
   useEffect(() => {
     if (snapshot.kind !== "recording") return;
-    const canvas = waveformCanvasRef.current;
-    if (canvas) drawWaveform(canvas, snapshot.waveform);
+    if (waveformLevelsRef.current === snapshot.waveform) return;
+    waveformLevelsRef.current = snapshot.waveform;
+    waveformAdvancedAtRef.current = performance.now();
   }, [snapshot]);
+
+  useEffect(() => {
+    if (snapshot.kind !== "recording") return;
+    let animationFrame: number | null = null;
+    const draw = (): void => {
+      const canvas = waveformCanvasRef.current;
+      if (canvas) {
+        const elapsedMs = Math.max(0, performance.now() - waveformAdvancedAtRef.current);
+        drawComposerDictationWaveform(
+          canvas,
+          waveformLevelsRef.current,
+          elapsedMs / COMPOSER_DICTATION_WAVEFORM_ADVANCE_INTERVAL_MS,
+        );
+      }
+      animationFrame = requestAnimationFrame(draw);
+    };
+    waveformAdvancedAtRef.current = performance.now();
+    animationFrame = requestAnimationFrame(draw);
+    return () => {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+    };
+  }, [snapshot.kind]);
 
   useEffect(() => {
     if (snapshot.kind !== "retryable-error") {
@@ -276,12 +288,9 @@ export function useComposerDictation(
     await controller.start({ surface: "composer", gesture: "click" });
   };
 
-  const isDictating = [
-    "requesting-permission",
-    "acquiring-stream",
-    "recording",
-    "stopping",
-  ].includes(snapshot.kind);
+  const isDictating = ["requesting-permission", "acquiring-stream", "recording"].includes(
+    snapshot.kind,
+  );
   const recordingDurationMs =
     snapshot.kind === "recording" ||
     snapshot.kind === "stopping" ||
@@ -291,7 +300,9 @@ export function useComposerDictation(
 
   return {
     isDictating,
-    isTranscribing: snapshot.kind === "transcribing",
+    isTranscribing: snapshot.kind === "stopping" || snapshot.kind === "transcribing",
+    transcriptionAction:
+      snapshot.kind === "stopping" || snapshot.kind === "transcribing" ? snapshot.action : null,
     recordingDurationMs,
     waveformCanvasRef,
     startDictation,

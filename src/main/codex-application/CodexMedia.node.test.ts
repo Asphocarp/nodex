@@ -7,6 +7,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { assert, it } from "@effect/vitest";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
+import { DEFAULT_DICTATION_SETTINGS } from "../../shared/dictation";
 import { ElectronNet } from "../platform/electron/ElectronNet";
 import { DictationRuntime } from "../host-runtime/DictationRuntime";
 import { ChatGptDesktop } from "./ChatGptDesktop";
@@ -75,6 +76,10 @@ const build = Effect.fn("CodexMediaTest.build")(function* (
               globalAvailable: () => true,
               microphoneOwner: () => "none",
               setEnabled: () => Effect.void,
+              readSettings: Effect.succeed({
+                ...DEFAULT_DICTATION_SETTINGS,
+                dictionary: ["Nodex", "useCartState"],
+              }),
             } as unknown as DictationRuntime["Service"]),
           ),
           Layer.succeed(
@@ -104,6 +109,7 @@ const build = Effect.fn("CodexMediaTest.build")(function* (
 it.effect("owns dictation projection and transcription", () =>
   Effect.gen(function* () {
     const requests: string[] = [];
+    const requestBodies: string[] = [];
     const scope = yield* Scope.make();
     const context = yield* build(
       ChatGptDesktop.of({
@@ -111,7 +117,15 @@ it.effect("owns dictation projection and transcription", () =>
         authMethod: Effect.succeed("chatgptAuthTokens"),
         request: (input) => {
           requests.push(input.path);
-          return Effect.succeed(new Response(JSON.stringify({ text: "hello" }), { status: 200 }));
+          if (typeof input.body === "string") requestBodies.push(input.body);
+          return Effect.succeed(
+            input.path === "/codex/responses"
+              ? new Response(
+                  'data: {"type":"response.output_text.delta","delta":"Nodex works"}\n\ndata: {"type":"response.output_text.done","text":"Nodex works"}\n\ndata: [DONE]\n\n',
+                  { status: 200 },
+                )
+              : new Response(JSON.stringify({ text: "hello" }), { status: 200 }),
+          );
         },
       }),
       scope,
@@ -126,7 +140,7 @@ it.effect("owns dictation projection and transcription", () =>
         global: true,
         history: true,
         streaming: "unknown",
-        semanticCleanup: false,
+        semanticCleanup: true,
         microphoneOwner: "none",
         auth: "chatgpt",
       },
@@ -135,7 +149,22 @@ it.effect("owns dictation projection and transcription", () =>
       yield* media.transcribe({ contentType: "audio/webm", base64Payload: "AQID" }),
       "hello",
     );
-    assert.deepEqual(requests, ["/transcribe"]);
+    assert.strictEqual(
+      yield* media.cleanupTranscript({
+        transcript: "node x works",
+        surroundingText: "The project is open.",
+      }),
+      "Nodex works",
+    );
+    assert.deepEqual(requests, ["/transcribe", "/codex/responses"]);
+    const cleanupRequest = JSON.parse(requestBodies.at(-1) ?? "") as {
+      model: string;
+      stream: boolean;
+      input: Array<{ content: Array<{ text: string }> }>;
+    };
+    assert.strictEqual(cleanupRequest.model, "gpt-5.6-luna");
+    assert.isTrue(cleanupRequest.stream);
+    assert.match(cleanupRequest.input[0]?.content[0]?.text ?? "", /Nodex\nuseCartState/u);
     yield* Scope.close(scope, Exit.void);
   }),
 );

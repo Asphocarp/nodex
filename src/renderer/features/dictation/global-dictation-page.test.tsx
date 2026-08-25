@@ -71,6 +71,7 @@ describe("GlobalDictationRoot", () => {
                 playStartSound: true,
                 playStopSound: true,
                 globalShortcutNudgeDismissed: false,
+                dictionary: [],
               }
             : null,
         onCommand: () => () => undefined,

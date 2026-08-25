@@ -66,6 +66,7 @@ function ConnectedSessionThread({
   onRequestProjectPickerOpen,
   onOpenLocalEnvironmentsSettings,
   onOpenHooksSettings,
+  onOpenVoiceSettings,
   threadQueueFollowUpsEnabled,
   composerEnterBehavior,
   onQueueingEnabledChange,
@@ -137,6 +138,7 @@ function ConnectedSessionThread({
     configPath?: string | null;
   }) => void;
   onOpenHooksSettings: NonNullable<ThreadStageActions["onOpenHooksSettings"]>;
+  onOpenVoiceSettings?: ThreadStageActions["onOpenVoiceSettings"];
   threadQueueFollowUpsEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
   onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
@@ -503,6 +505,7 @@ function ConnectedSessionThread({
             configPath: configPath ?? null,
           }),
         onOpenHooksSettings,
+        onOpenVoiceSettings,
         ...(onOpenSideChat
           ? {
               onOpenSideChat: async (input: ThreadOpenSideChatInput = {}) => {
@@ -551,6 +554,7 @@ function ConnectedSessionThread({
       onRequestProjectPickerOpen,
       onOpenLocalEnvironmentsSettings,
       onOpenHooksSettings,
+      onOpenVoiceSettings,
       onOpenSideChat,
       onOpenMcpAppSidePanel,
       onOpenPlanInSidePanel,
@@ -710,6 +714,7 @@ export function ProjectSessionThreadComposerDock({
   onOpenPendingWorktree,
   onOpenLocalEnvironmentsSettings,
   onOpenHooksSettings,
+  onOpenVoiceSettings,
   threadQueueFollowUpsEnabled,
   composerEnterBehavior,
   onQueueingEnabledChange,
@@ -735,6 +740,7 @@ export function ProjectSessionThreadComposerDock({
   readonly onOpenPendingWorktree: ConnectedSessionThreadProps["onOpenPendingWorktree"];
   readonly onOpenLocalEnvironmentsSettings: ConnectedSessionThreadProps["onOpenLocalEnvironmentsSettings"];
   readonly onOpenHooksSettings: ConnectedSessionThreadProps["onOpenHooksSettings"];
+  readonly onOpenVoiceSettings?: ConnectedSessionThreadProps["onOpenVoiceSettings"];
   readonly threadQueueFollowUpsEnabled: boolean;
   readonly composerEnterBehavior: ComposerEnterBehavior;
   readonly onQueueingEnabledChange: ConnectedSessionThreadProps["onQueueingEnabledChange"];
@@ -761,6 +767,7 @@ export function ProjectSessionThreadComposerDock({
       onRequestProjectPickerOpen={noOp}
       onOpenLocalEnvironmentsSettings={onOpenLocalEnvironmentsSettings}
       onOpenHooksSettings={onOpenHooksSettings}
+      onOpenVoiceSettings={onOpenVoiceSettings}
       threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
       composerEnterBehavior={composerEnterBehavior}
       onQueueingEnabledChange={onQueueingEnabledChange}

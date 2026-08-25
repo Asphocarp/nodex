@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NodexButton } from "@/components/ui/button";
+import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
+import { HotkeySettingControl } from "@/components/ui/hotkey-setting-control";
 import {
   NodexSettingsPageSurface,
   NodexSettingsRow,
@@ -9,6 +11,10 @@ import {
 import { ConfigValueDropdown } from "@/components/workbench/config-value-dropdown";
 import { TogglePill } from "@/components/workbench/workbench-settings-route-shell";
 import { toast } from "@/components/ui/toast";
+import { LinkToolbarCopyIcon, PlusIcon, ShortcutTrashIcon } from "@/components/shared/icons";
+import { DownloadIcon, Ellipsis } from "@/components/shared/icons/generic-icons";
+import { queryKeys } from "@/lib/query-keys";
+import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import {
   deleteDictationRecording,
   downloadDictationRecording,
@@ -26,18 +32,47 @@ import {
   requestGlobalDictationInputMonitoring,
   setDictationRecordingTranscript,
   updateDictationSettings,
+  invoke,
 } from "@/lib/api";
 import type { DictationSettings, MicrophoneAccessStatus } from "../../../shared/dictation";
+import {
+  findCommandKeybindingConflict,
+  formatAcceleratorLabel,
+  validateGlobalDictationShortcut,
+  type CommandKeybindingUpdate,
+  type CommandKeymapEntry,
+} from "../../../shared/command-keybindings";
 import { transcribeDictationBlob } from "./dictation-buffered-client";
+import { cleanupDictationTranscript } from "./dictation-cleanup-client";
 
 const SETTINGS_QUERY_KEY = ["settings", "dictation"] as const;
 const HISTORY_QUERY_KEY = ["dictation", "history"] as const;
 const GLOBAL_PERMISSIONS_QUERY_KEY = ["dictation", "global-permissions"] as const;
 const CAPABILITY_QUERY_KEY = ["dictation", "capabilities"] as const;
+const EMPTY_DICTIONARY_ENTRY = "";
+const DICTIONARY_PLACEHOLDERS = [
+  "Jane Doe",
+  "Acme Widget",
+  "checkout-form.tsx",
+  "useCartState",
+] as const;
+const MAX_DICTIONARY_ENTRIES = 100;
 
-const formatDuration = (durationMs: number): string => {
-  const seconds = Math.max(0, Math.floor(durationMs / 1_000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+const formatRecordingTimestamp = (createdAtMs: number): string =>
+  new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(createdAtMs));
+
+const recordingFallbackLabel = (
+  status: "recording" | "completed" | "cancelled" | "interrupted",
+): string => {
+  if (status === "recording") return "Recording…";
+  if (status === "cancelled") return "Recording cancelled";
+  if (status === "interrupted") return "Recording interrupted";
+  return "Recording saved";
 };
 
 const deviceOptions = (
@@ -60,12 +95,9 @@ const deviceOptions = (
   return options;
 };
 
-export function VoiceSettingsPage({
-  onPathChange,
-}: {
-  readonly onPathChange: (path: string) => void;
-}) {
+export function VoiceSettingsPage(_props: { readonly onPathChange: (path: string) => void }) {
   const queryClient = useQueryClient();
+  const commandKeymapQuery = useCommandKeymapState();
   const settingsQuery = useQuery({
     queryKey: SETTINGS_QUERY_KEY,
     queryFn: readDictationSettings,
@@ -84,6 +116,14 @@ export function VoiceSettingsPage({
   });
   const [permissionStatus, setPermissionStatus] = useState<MicrophoneAccessStatus>("unknown");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [shortcutCapture, setShortcutCapture] = useState<{
+    readonly commandId: string;
+    readonly conflict: string | null;
+  } | null>(null);
+  const [shortcutErrors, setShortcutErrors] = useState<Record<string, string>>({});
+  const [dictionaryDraft, setDictionaryDraft] = useState<readonly string[] | null>(null);
+  const [historyAction, setHistoryAction] = useState<string | null>(null);
+  const suppressNextDictionaryBlurRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,7 +159,74 @@ export function VoiceSettingsPage({
     onSuccess: (settings) => queryClient.setQueryData(SETTINGS_QUERY_KEY, settings),
     onError: () => toast.danger("Could not save Voice settings"),
   });
+  const updateShortcut = useMutation({
+    mutationFn: (input: { readonly commandId: string; readonly update: CommandKeybindingUpdate }) =>
+      invoke("set-codex-command-keybinding", input.commandId, input.update),
+    onSuccess: (state) => {
+      queryClient.setQueryData(queryKeys.settings.commandKeymap(), state);
+    },
+  });
   const settings: DictationSettings | undefined = settingsQuery.data;
+  const commandPlatform = commandKeymapQuery.data?.platform ?? "macOS";
+  const dictionaryEntries = (() => {
+    const entries = dictionaryDraft ?? settings?.dictionary ?? [];
+    return entries.length > 0 ? entries : [EMPTY_DICTIONARY_ENTRY];
+  })();
+
+  const commitDictionary = async (entries: readonly string[]): Promise<void> => {
+    const dictionary = entries
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+    await updateSettings.mutateAsync({ dictionary });
+    setDictionaryDraft(null);
+  };
+
+  const commitShortcut = async (
+    entry: CommandKeymapEntry,
+    accelerator: string | null,
+  ): Promise<void> => {
+    setShortcutErrors((current) => ({ ...current, [entry.id]: "" }));
+    const existing = entry.keybindings[0]?.key ?? null;
+    if (accelerator) {
+      const validationError = validateGlobalDictationShortcut(accelerator, commandPlatform);
+      if (validationError) {
+        setShortcutCapture(null);
+        setShortcutErrors((current) => ({ ...current, [entry.id]: validationError }));
+        return;
+      }
+      const conflict = commandKeymapQuery.data
+        ? findCommandKeybindingConflict(commandKeymapQuery.data, entry.id, accelerator)
+        : null;
+      if (conflict) {
+        setShortcutCapture({ commandId: entry.id, conflict: conflict.commandTitle });
+        return;
+      }
+    }
+
+    setShortcutCapture(null);
+    const update: CommandKeybindingUpdate = accelerator
+      ? existing
+        ? {
+            type: "replace",
+            oldKeybinding: { key: existing },
+            newKeybinding: { key: accelerator },
+          }
+        : { type: "set", keybinding: { key: accelerator } }
+      : existing
+        ? { type: "remove", keybinding: { key: existing } }
+        : { type: "set", keybinding: { key: null } };
+    if (!accelerator && !existing) return;
+
+    try {
+      await updateShortcut.mutateAsync({ commandId: entry.id, update });
+    } catch (error) {
+      setShortcutErrors((current) => ({
+        ...current,
+        [entry.id]: error instanceof Error ? error.message : "Could not update shortcut",
+      }));
+    }
+  };
 
   const requestPermission = async (): Promise<void> => {
     const result = await requestMicrophoneAccess();
@@ -168,40 +275,57 @@ export function VoiceSettingsPage({
   };
 
   const retryRecording = async (id: string): Promise<void> => {
+    setHistoryAction(`retry:${id}`);
     try {
       const audio = await readDictationRecordingAudio(id);
-      const transcript = (
+      const rawTranscript = (
         await transcribeDictationBlob(
           new Blob([Uint8Array.from(audio.bytes).buffer], { type: audio.recording.mimeType }),
         )
       ).trim();
+      const transcript = await cleanupDictationTranscript(rawTranscript);
       await setDictationRecordingTranscript({ id, transcript });
       await queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
       toast.success("Recording transcribed");
     } catch {
       toast.danger("Could not transcribe this recording");
+    } finally {
+      setHistoryAction(null);
+    }
+  };
+
+  const downloadRecording = async (id: string): Promise<void> => {
+    setHistoryAction(`download:${id}`);
+    try {
+      await downloadDictationRecording(id);
+    } catch {
+      toast.danger("Could not download this recording");
+    } finally {
+      setHistoryAction(null);
+    }
+  };
+
+  const removeRecording = async (id: string): Promise<void> => {
+    setHistoryAction(`delete:${id}`);
+    try {
+      await deleteDictationRecording(id);
+      await queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
+    } catch {
+      toast.danger("Could not delete this recording");
+    } finally {
+      setHistoryAction(null);
     }
   };
 
   return (
-    <NodexSettingsPageSurface
-      title="Voice"
-      subtitle="Microphone, dictation behavior, and recoverable recordings."
-    >
+    <NodexSettingsPageSurface title="Voice">
       {capabilityQuery.data && capabilityQuery.data.capabilities.auth !== "chatgpt" ? (
         <div className="mx-4 rounded-xl border border-token-border bg-token-list-hover-background px-4 py-3 text-sm text-token-text-secondary">
           Dictation requires a ChatGPT login. API-key sessions cannot use Voice transcription.
         </div>
       ) : null}
-      <NodexSettingsSection title="Microphone">
-        <NodexSettingsRow
-          label="Input device"
-          description={
-            permissionStatus === "granted"
-              ? "Choose a microphone, or follow the current system default."
-              : "Microphone names become available after you grant access."
-          }
-        >
+      <NodexSettingsSection title="General">
+        <NodexSettingsRow label="Microphone" description="Used for voice chat and dictation">
           {permissionStatus === "granted" && settings ? (
             <ConfigValueDropdown
               value={settings.microphoneInputDeviceId ?? ""}
@@ -228,69 +352,59 @@ export function VoiceSettingsPage({
       </NodexSettingsSection>
 
       <NodexSettingsSection title="Dictation">
-        <NodexSettingsRow
-          label="Composer shortcut"
-          description="Hold the configured app shortcut to record, then release to insert."
-        >
-          <NodexButton
-            size="xs"
-            variant="secondary"
-            onClick={() => onPathChange("/settings/keyboard-shortcuts#composerDictationHold")}
-          >
-            Configure
-          </NodexButton>
-        </NodexSettingsRow>
-        {globalPermissionsQuery.data?.available ? (
-          <>
+        {(["globalDictationHold", "globalDictationToggle"] as const).map((commandId) => {
+          const entry = commandKeymapQuery.data?.entries.find(
+            (candidate) => candidate.id === commandId,
+          );
+          if (!entry) return null;
+          const isToggle = commandId === "globalDictationToggle";
+          const description = isToggle
+            ? "Press once anywhere on desktop to dictate, then press again to stop"
+            : "Hold anywhere on desktop to dictate where your cursor is";
+          const error = shortcutErrors[commandId];
+          const accelerator = entry.keybindings[0]?.key ?? null;
+          return (
             <NodexSettingsRow
-              label="Input Monitoring"
-              description="Lets the macOS helper hear global hold and toggle shortcuts."
+              key={commandId}
+              label={isToggle ? "Toggle dictation hotkey" : "Hold-to-dictate hotkey"}
+              description={
+                <div className="flex flex-col gap-1">
+                  <span>{description}</span>
+                  {error ? <span className="text-token-error-foreground">{error}</span> : null}
+                </div>
+              }
             >
-              {globalPermissionsQuery.data.inputMonitoring ? (
-                <span className="text-xs text-token-text-secondary">Allowed</span>
-              ) : (
-                <NodexButton
-                  size="xs"
-                  variant="secondary"
-                  onClick={() => void requestGlobalPermission("input-monitoring")}
-                >
-                  Allow
-                </NodexButton>
-              )}
+              <HotkeySettingControl
+                accelerator={accelerator}
+                acceleratorLabel={
+                  accelerator ? formatAcceleratorLabel(accelerator, commandPlatform) : null
+                }
+                allowsBareModifiers
+                captureAriaLabel={
+                  isToggle ? "Toggle dictation hotkey capture" : "Hold-to-dictate hotkey capture"
+                }
+                conflict={
+                  shortcutCapture?.commandId === commandId ? shortcutCapture.conflict : null
+                }
+                disabled={updateShortcut.isPending}
+                emptyLabel="Off"
+                hotkeyName={isToggle ? "Toggle dictation hotkey" : "Hold-to-dictate hotkey"}
+                isCapturing={shortcutCapture?.commandId === commandId}
+                onCancelCapture={() => setShortcutCapture(null)}
+                onCapture={(nextAccelerator) => void commitShortcut(entry, nextAccelerator)}
+                onClear={() => void commitShortcut(entry, null)}
+                onStartCapture={() => {
+                  setShortcutErrors((current) => ({ ...current, [entry.id]: "" }));
+                  setShortcutCapture({ commandId: entry.id, conflict: null });
+                }}
+                platform={commandPlatform}
+              />
             </NodexSettingsRow>
-            <NodexSettingsRow
-              label="Accessibility"
-              description="Lets Nodex paste completed global dictation into the original app."
-            >
-              {globalPermissionsQuery.data.accessibility ? (
-                <span className="text-xs text-token-text-secondary">Allowed</span>
-              ) : (
-                <NodexButton
-                  size="xs"
-                  variant="secondary"
-                  onClick={() => void requestGlobalPermission("accessibility")}
-                >
-                  Allow
-                </NodexButton>
-              )}
-            </NodexSettingsRow>
-          </>
-        ) : null}
+          );
+        })}
         <NodexSettingsRow
-          label="Global shortcuts"
-          description="Global hold and toggle are available when Input Monitoring is allowed on macOS."
-        >
-          <NodexButton
-            size="xs"
-            variant="secondary"
-            onClick={() => onPathChange("/settings/keyboard-shortcuts#globalDictationHold")}
-          >
-            Configure
-          </NodexButton>
-        </NodexSettingsRow>
-        <NodexSettingsRow
-          label="Keep global bar visible"
-          description="Leave the compact dictation bar visible between global sessions."
+          label="Keep dictation bar visible"
+          description="Show a small shortcut reminder when dictation isn't recording"
         >
           <TogglePill
             ariaLabel="Keep global dictation bar visible"
@@ -300,74 +414,206 @@ export function VoiceSettingsPage({
           />
         </NodexSettingsRow>
         <NodexSettingsRow
-          label="Start sound"
-          description="Play a short confirmation after recording begins."
+          label="Play dictation sounds"
+          description="Play tones when dictation starts and stops"
         >
           <TogglePill
-            ariaLabel="Play dictation start sound"
-            value={settings?.playStartSound ?? true}
+            ariaLabel="Play dictation sounds"
+            value={(settings?.playStartSound ?? true) && (settings?.playStopSound ?? true)}
             disabled={!settings || updateSettings.isPending}
-            onChange={(value) => updateSettings.mutate({ playStartSound: value })}
-          />
-        </NodexSettingsRow>
-        <NodexSettingsRow
-          label="Stop sound"
-          description="Play a short confirmation after recording stops."
-        >
-          <TogglePill
-            ariaLabel="Play dictation stop sound"
-            value={settings?.playStopSound ?? true}
-            disabled={!settings || updateSettings.isPending}
-            onChange={(value) => updateSettings.mutate({ playStopSound: value })}
+            onChange={(value) =>
+              updateSettings.mutate({ playStartSound: value, playStopSound: value })
+            }
           />
         </NodexSettingsRow>
       </NodexSettingsSection>
 
-      <NodexSettingsSection title="Recent recordings">
+      <NodexSettingsSection>
+        <NodexSettingsRow
+          label="Dictation dictionary"
+          description="Words or phrases dictation should recognize"
+        >
+          <NodexButton
+            size="sm"
+            variant="secondary"
+            disabled={
+              updateSettings.isPending || dictionaryEntries.length >= MAX_DICTIONARY_ENTRIES
+            }
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              const nextIndex = dictionaryEntries.length;
+              setDictionaryDraft([...dictionaryEntries, EMPTY_DICTIONARY_ENTRY]);
+              requestAnimationFrame(() => {
+                document
+                  .querySelector<HTMLInputElement>(
+                    `[data-dictation-dictionary-entry-index="${nextIndex}"]`,
+                  )
+                  ?.focus();
+              });
+            }}
+          >
+            <PlusIcon className="icon-2xs" />
+            Add entry
+          </NodexButton>
+        </NodexSettingsRow>
+        {dictionaryEntries.map((entry, index) => (
+          <div key={index} className="flex w-full items-center gap-2 px-4 py-2">
+            <input
+              data-dictation-dictionary-entry-index={index}
+              aria-label={`Dictionary entry ${index + 1}`}
+              placeholder={DICTIONARY_PLACEHOLDERS[index] ?? DICTIONARY_PLACEHOLDERS[0] ?? ""}
+              value={entry}
+              disabled={updateSettings.isPending}
+              onChange={(event) => {
+                const next = [...dictionaryEntries];
+                next[index] = event.currentTarget.value;
+                setDictionaryDraft(next);
+              }}
+              onBlur={() => {
+                if (suppressNextDictionaryBlurRef.current) {
+                  suppressNextDictionaryBlurRef.current = false;
+                  return;
+                }
+                void commitDictionary(dictionaryEntries);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || dictionaryEntries.length >= MAX_DICTIONARY_ENTRIES) {
+                  return;
+                }
+                event.preventDefault();
+                const next = [
+                  ...dictionaryEntries.slice(0, index + 1),
+                  EMPTY_DICTIONARY_ENTRY,
+                  ...dictionaryEntries.slice(index + 1),
+                ];
+                suppressNextDictionaryBlurRef.current = true;
+                setDictionaryDraft(next);
+                requestAnimationFrame(() => {
+                  document
+                    .querySelector<HTMLInputElement>(
+                      `[data-dictation-dictionary-entry-index="${index + 1}"]`,
+                    )
+                    ?.focus();
+                });
+              }}
+              className="h-9 min-w-0 flex-1 rounded-lg border border-token-border bg-token-input-background px-3 text-sm text-token-text-primary outline-none placeholder:text-token-text-tertiary focus:border-token-focus-border disabled:opacity-50"
+            />
+            <button
+              type="button"
+              aria-label={`Remove dictionary entry ${index + 1}`}
+              disabled={
+                updateSettings.isPending || (dictionaryEntries.length === 1 && entry.length === 0)
+              }
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary disabled:opacity-40"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                void commitDictionary(
+                  dictionaryEntries.filter((_, entryIndex) => entryIndex !== index),
+                );
+              }}
+            >
+              <ShortcutTrashIcon className="icon-2xs" />
+            </button>
+          </div>
+        ))}
+      </NodexSettingsSection>
+
+      {globalPermissionsQuery.data?.available &&
+      (!globalPermissionsQuery.data.inputMonitoring ||
+        !globalPermissionsQuery.data.accessibility) ? (
+        <NodexSettingsSection title="Permissions">
+          {!globalPermissionsQuery.data.inputMonitoring ? (
+            <NodexSettingsRow
+              label="Input Monitoring"
+              description="Allow global hold and toggle shortcuts outside Nodex."
+            >
+              <NodexButton
+                size="xs"
+                variant="secondary"
+                onClick={() => void requestGlobalPermission("input-monitoring")}
+              >
+                Allow
+              </NodexButton>
+            </NodexSettingsRow>
+          ) : null}
+          {!globalPermissionsQuery.data.accessibility ? (
+            <NodexSettingsRow
+              label="Accessibility"
+              description="Allow completed dictation to be pasted into the original app."
+            >
+              <NodexButton
+                size="xs"
+                variant="secondary"
+                onClick={() => void requestGlobalPermission("accessibility")}
+              >
+                Allow
+              </NodexButton>
+            </NodexSettingsRow>
+          ) : null}
+        </NodexSettingsSection>
+      ) : null}
+
+      <NodexSettingsSection>
+        <NodexSettingsRow
+          label="Recent recordings"
+          description="Your last 20 recordings are saved on this device"
+        >
+          {null}
+        </NodexSettingsRow>
         {historyQuery.isLoading ? (
           <div className="px-4 py-3 text-sm text-token-text-secondary">Loading recordings…</div>
         ) : historyQuery.data?.length ? (
           historyQuery.data.map((recording) => (
             <NodexSettingsRow
               key={recording.id}
-              label={new Date(recording.createdAtMs).toLocaleString()}
-              description={`${recording.status} · ${formatDuration(recording.durationMs)} · ${recording.surface}`}
+              label={recording.transcript?.trim() || recordingFallbackLabel(recording.status)}
+              description={formatRecordingTimestamp(recording.createdAtMs)}
             >
               {recording.transcript ? (
                 <NodexButton
-                  size="xs"
+                  aria-label="Copy transcript"
+                  size="icon-xs"
                   variant="ghost"
                   onClick={() => void navigator.clipboard.writeText(recording.transcript ?? "")}
                 >
-                  Copy
+                  <LinkToolbarCopyIcon className="icon-2xs" />
                 </NodexButton>
-              ) : (
+              ) : recording.status !== "recording" && recording.sizeBytes > 0 ? (
                 <NodexButton
                   size="xs"
-                  variant="ghost"
+                  variant="secondary"
+                  disabled={historyAction !== null}
                   onClick={() => void retryRecording(recording.id)}
                 >
                   Retry
                 </NodexButton>
-              )}
-              <NodexButton
-                size="xs"
-                variant="ghost"
-                onClick={() => void downloadDictationRecording(recording.id)}
+              ) : null}
+              <NodexDropdownMenu
+                align="end"
+                disabled={historyAction !== null}
+                triggerButton={
+                  <NodexButton aria-label="Recording actions" size="icon-xs" variant="ghost">
+                    <Ellipsis className="icon-2xs" />
+                  </NodexButton>
+                }
               >
-                Download
-              </NodexButton>
-              <NodexButton
-                size="xs"
-                variant="ghost"
-                disabled={recording.status === "recording"}
-                onClick={async () => {
-                  await deleteDictationRecording(recording.id);
-                  await queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY });
-                }}
-              >
-                Delete
-              </NodexButton>
+                {recording.sizeBytes > 0 ? (
+                  <NodexDropdownItem
+                    leftSlot={<DownloadIcon className="icon-xs" />}
+                    onSelect={() => void downloadRecording(recording.id)}
+                  >
+                    Download recording
+                  </NodexDropdownItem>
+                ) : null}
+                <NodexDropdownItem
+                  className="text-token-error-foreground"
+                  disabled={recording.status === "recording"}
+                  leftSlot={<ShortcutTrashIcon className="icon-xs" />}
+                  onSelect={() => void removeRecording(recording.id)}
+                >
+                  Delete recording
+                </NodexDropdownItem>
+              </NodexDropdownMenu>
             </NodexSettingsRow>
           ))
         ) : (

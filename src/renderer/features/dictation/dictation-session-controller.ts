@@ -33,6 +33,7 @@ export type DictationSessionSnapshot =
       readonly kind: "stopping" | "transcribing";
       readonly sessionId: string;
       readonly durationMs: number;
+      readonly action: Exclude<DictationStopAction, "abort">;
     }
   | {
       readonly kind: "retryable-error";
@@ -93,6 +94,9 @@ export interface DictationControllerPorts {
   };
   readonly buffered: {
     transcribe(blob: Blob, signal: AbortSignal, sessionId: string): Promise<string>;
+  };
+  readonly cleanup: {
+    transcript(transcript: string, signal: AbortSignal, sessionId: string): Promise<string>;
   };
   readonly history: {
     create(input: {
@@ -364,7 +368,12 @@ export class DictationSessionController {
     if (this.#snapshot.kind === "stopping" || this.#snapshot.kind === "transcribing") return;
     if (this.#snapshot.kind !== "recording") return;
     const durationMs = this.#duration(session);
-    this.#publish({ kind: "stopping", sessionId: session.id, durationMs });
+    this.#publish({
+      kind: "stopping",
+      sessionId: session.id,
+      durationMs,
+      action: session.stopAction,
+    });
     this.#clearCaptureTimers(session);
     if (!session.recorder || session.recorder.state === "inactive") {
       void this.#onRecorderStopped(session);
@@ -475,7 +484,12 @@ export class DictationSessionController {
   async #transcribe(session: ActiveSession, audio: Blob): Promise<void> {
     if (!this.#isCurrent(session)) return;
     const durationMs = this.#duration(session);
-    this.#publish({ kind: "transcribing", sessionId: session.id, durationMs });
+    this.#publish({
+      kind: "transcribing",
+      sessionId: session.id,
+      durationMs,
+      action: session.stopAction,
+    });
     session.transcriptAbort?.abort();
     const abortController = new AbortController();
     session.transcriptAbort = abortController;
@@ -485,6 +499,13 @@ export class DictationSessionController {
       if (!transcript) {
         transcript = (
           await this.#ports.buffered.transcribe(audio, abortController.signal, session.id)
+        ).trim();
+      }
+      if (transcript) {
+        transcript = (
+          await this.#ports.cleanup
+            .transcript(transcript, abortController.signal, session.id)
+            .catch(() => transcript)
         ).trim();
       }
       if (

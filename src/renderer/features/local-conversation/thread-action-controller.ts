@@ -68,6 +68,7 @@ export interface ThreadActionControllerInput {
     ThreadStageActions["onOpenNewThreadLocalEnvironmentsSettings"]
   >;
   onOpenHooksSettings?: ThreadStageActions["onOpenHooksSettings"];
+  onOpenVoiceSettings?: ThreadStageActions["onOpenVoiceSettings"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onOpenPlanInSidePanel?: ThreadStageActions["onOpenPlanInSidePanel"];
@@ -543,6 +544,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     },
     ...(input.onOpenTurnDiffReview ? { onOpenTurnDiffReview: input.onOpenTurnDiffReview } : {}),
     ...(input.onOpenHooksSettings ? { onOpenHooksSettings: input.onOpenHooksSettings } : {}),
+    ...(input.onOpenVoiceSettings ? { onOpenVoiceSettings: input.onOpenVoiceSettings } : {}),
     ...(input.onOpenTurnDiffFileInSidePanel
       ? { onOpenTurnDiffFileInSidePanel: input.onOpenTurnDiffFileInSidePanel }
       : {}),

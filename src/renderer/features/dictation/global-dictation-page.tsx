@@ -9,6 +9,7 @@ import { browserDictationRecorderFactory } from "./dictation-recorder";
 import { createDictationHistoryPort } from "./dictation-history-client";
 import { mainDictationStreamingPort } from "./dictation-streaming-client";
 import { transcribeDictationBlob } from "./dictation-buffered-client";
+import { cleanupDictationTranscript } from "./dictation-cleanup-client";
 import {
   DictationSessionController,
   type DictationControllerPorts,
@@ -222,6 +223,15 @@ export function GlobalDictationRoot() {
         waveform: browserDictationWaveformPort,
         streaming: mainDictationStreamingPort,
         buffered: { transcribe },
+        cleanup: {
+          transcript: async (transcript, signal) =>
+            await cleanupDictationTranscript(transcript, {
+              signal,
+              cleanup: async (input) => await invoke("codex:dictation:cleanup", input),
+              cancel: async (requestId) =>
+                await invoke("codex:dictation:transcribe:cancel", requestId),
+            }),
+        },
         history: createGlobalHistoryPort(),
         completion: {
           apply: async ({ sessionId: recordingSessionId, transcript }) => {

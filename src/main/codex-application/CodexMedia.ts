@@ -23,6 +23,34 @@ import { ChatGptDesktop } from "./ChatGptDesktop";
 
 const CODEX_DICTATION_SHORTCUT_LABEL = "Ctrl+M";
 const CODEX_DICTATION_BASE64_HEADER = "X-Codex-Base64";
+const CODEX_DICTATION_CLEANUP_MODEL = "gpt-5.6-luna";
+const CODEX_DICTATION_CLEANUP_TRANSCRIPT_LIMIT = 4_000;
+const CODEX_DICTATION_CLEANUP_CONTEXT_LIMIT = 2_000;
+const CODEX_DICTATION_CLEANUP_INSTRUCTIONS =
+  "Clean up dictation transcripts. Fix likely speech recognition mistakes, punctuation, capitalization, and formatting. Remove filler words and disfluencies when they do not add meaning. When the user clearly self-corrects or backtracks, keep the corrected intent. Use surrounding text only as context. Dictionary entries are canonical spellings, names, file paths, and code symbols; when the transcript likely refers to one, copy the dictionary entry exactly, including casing and punctuation. Preserve the user's meaning, wording, and flow unless a small cleanup makes the transcript more coherent. Do not answer the user or add new content. Return only the cleaned transcript.";
+
+const DictationCleanupContent = Schema.Struct({
+  text: Schema.optionalKey(Schema.String),
+});
+const DictationCleanupResponse = Schema.Struct({
+  output: Schema.Array(
+    Schema.Struct({
+      content: Schema.optionalKey(Schema.Array(DictationCleanupContent)),
+    }),
+  ),
+});
+const DictationCleanupStreamEvent = Schema.Struct({
+  type: Schema.optionalKey(Schema.String),
+  delta: Schema.optionalKey(Schema.String),
+  text: Schema.optionalKey(Schema.String),
+  response: Schema.optionalKey(DictationCleanupResponse),
+  error: Schema.optionalKey(
+    Schema.Union([Schema.String, Schema.Struct({ message: Schema.optionalKey(Schema.String) })]),
+  ),
+});
+const decodeDictationCleanupStreamEvent = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(DictationCleanupStreamEvent),
+);
 
 export class CodexMediaError extends Schema.TaggedError<CodexMediaError>()("CodexMediaError", {
   operation: Schema.String,
@@ -39,6 +67,10 @@ export class CodexMedia extends Context.Service<
       readonly contentType: string;
       readonly base64Payload: string;
     }) => Effect.Effect<string, CodexMediaError>;
+    readonly cleanupTranscript: (input: {
+      readonly transcript: string;
+      readonly surroundingText: string | null;
+    }) => Effect.Effect<string>;
     readonly prepareStreamingConnectInfo: Effect.Effect<
       DictationStreamingConnectInfo,
       CodexMediaError
@@ -76,6 +108,64 @@ const responseText = (response: Response): Effect.Effect<string, CodexMediaError
         cause,
       }),
   });
+
+const cleanupResponseText = (response: typeof DictationCleanupResponse.Type): string | null => {
+  const text = response.output
+    .flatMap((output) => output.content ?? [])
+    .flatMap((content) => (content.text === undefined ? [] : [content.text]))
+    .join("")
+    .trim();
+  return text || null;
+};
+
+const parseCleanupStreamResponse = Effect.fn("CodexMedia.parseCleanupStreamResponse")(function* (
+  body: string,
+) {
+  const deltas: string[] = [];
+  let completedText: string | null = null;
+  for (const line of body.split(/\r?\n/u)) {
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice("data:".length).trim();
+    if (!payload || payload === "[DONE]") continue;
+    const event = yield* decodeDictationCleanupStreamEvent(payload).pipe(
+      Effect.mapError(
+        (cause) =>
+          new CodexMediaError({
+            operation: "cleanup-response-decode",
+            message: "Invalid dictation cleanup response",
+            cause,
+          }),
+      ),
+    );
+    const errorMessage =
+      typeof event.error === "string" ? event.error : (event.error?.message ?? null);
+    if (errorMessage) {
+      return yield* new CodexMediaError({
+        operation: "cleanup-response",
+        message: errorMessage,
+      });
+    }
+    if (event.delta) deltas.push(event.delta);
+    if (event.type === "response.output_text.done" && event.text) {
+      completedText = event.text;
+    }
+    if (event.response) completedText = cleanupResponseText(event.response);
+  }
+  return completedText?.trim() || deltas.join("").trim() || null;
+});
+
+const buildCleanupInput = (input: {
+  readonly transcript: string;
+  readonly surroundingText: string | null;
+  readonly dictionary: readonly string[];
+}): string => {
+  const surroundingText = input.surroundingText
+    ?.trim()
+    .slice(0, CODEX_DICTATION_CLEANUP_CONTEXT_LIMIT);
+  const context = surroundingText ? `Surrounding text:\n${surroundingText}\n\n` : "";
+  const dictionary = input.dictionary.length > 0 ? input.dictionary.join("\n") : "(none)";
+  return `${context}Dictionary (canonical entries; use exact spelling, casing, and punctuation when they match):\n${dictionary}\n\nTranscript:\n${input.transcript.slice(0, CODEX_DICTATION_CLEANUP_TRANSCRIPT_LIMIT)}`;
+};
 
 const areDictationStatesEqual = (
   left: CodexDictationStateSnapshot,
@@ -201,6 +291,67 @@ export const live: Layer.Layer<
         }).pipe(Effect.orElseSucceed(() => body.trim()));
       });
 
+    const requestCleanupTranscript = Effect.fn("CodexMedia.requestCleanupTranscript")(function* (
+      input: Parameters<CodexMedia["Service"]["cleanupTranscript"]>[0],
+    ) {
+      const original = input.transcript.trim();
+      if (!original) return "";
+      const settings = yield* dictation.readSettings;
+      const baseUrl = yield* readBaseUrl;
+      const response = yield* chatgpt.request({
+        action: "clean up a dictation transcript",
+        baseUrl,
+        path: "/codex/responses",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: CODEX_DICTATION_CLEANUP_MODEL,
+          instructions: CODEX_DICTATION_CLEANUP_INSTRUCTIONS,
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text: buildCleanupInput({
+                    transcript: original,
+                    surroundingText: input.surroundingText,
+                    dictionary: settings.dictionary
+                      .map((entry) => entry.trim())
+                      .filter(Boolean)
+                      .slice(0, 100),
+                  }),
+                },
+              ],
+            },
+          ],
+          tools: [],
+          tool_choice: "none",
+          parallel_tool_calls: false,
+          reasoning: { effort: "low" },
+          store: false,
+          stream: true,
+          include: [],
+        }),
+        refreshOn401: true,
+        missingAuthErrorMessage: "ChatGPT authentication is required for dictation.",
+      });
+      if (!response.ok) {
+        return yield* new CodexMediaError({
+          operation: "cleanup-response",
+          message: "Unable to clean up dictation transcript",
+          status: response.status,
+        });
+      }
+      const cleaned = yield* parseCleanupStreamResponse(yield* responseText(response));
+      return cleaned ?? original;
+    });
+    const cleanupTranscript: CodexMedia["Service"]["cleanupTranscript"] = (input) =>
+      requestCleanupTranscript(input).pipe(
+        Effect.catch(() => Effect.succeed(input.transcript.trim())),
+      );
+
     const makeDictationState = Effect.fn("CodexMedia.makeDictationState")(function* (
       method: CodexDictationStateSnapshot["authMethod"],
     ) {
@@ -215,7 +366,7 @@ export const live: Layer.Layer<
           global: enabled && dictation.globalAvailable(),
           history: true,
           streaming: enabled ? streaming : "unavailable",
-          semanticCleanup: false,
+          semanticCleanup: enabled,
           microphoneOwner: dictation.microphoneOwner(),
           auth: enabled ? "chatgpt" : "unsupported",
         },
@@ -439,6 +590,7 @@ export const live: Layer.Layer<
     return CodexMedia.of({
       dictationState: SubscriptionRef.get(dictationState),
       transcribe,
+      cleanupTranscript,
       prepareStreamingConnectInfo,
       resolveImage,
     });

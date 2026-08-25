@@ -249,22 +249,30 @@ const SETTINGS_SEARCH_PANELS = {
     subtitle: "Microphone, dictation behavior, and recoverable recordings.",
     groups: [
       {
-        title: "Microphone",
-        messages: ["Input device", "System default", "Allow access", "Open settings"],
+        title: "General",
+        messages: [
+          "Microphone",
+          "Used for voice chat and dictation",
+          "System default",
+          "Allow access",
+          "Open settings",
+        ],
       },
       {
         title: "Dictation",
         messages: [
-          "Composer shortcut",
-          "Global shortcuts",
+          "Hold-to-dictate hotkey",
+          "Toggle dictation hotkey",
           "Keep global bar visible",
-          "Start sound",
-          "Stop sound",
+          "Play dictation sounds",
+          "Dictation dictionary",
+          "Words or phrases dictation should recognize",
+          "Add entry",
         ],
       },
       {
         title: "Recent recordings",
-        messages: ["Copy", "Retry", "Download", "Delete"],
+        messages: ["Copy transcript", "Retry", "Download recording", "Delete recording"],
       },
     ],
   },

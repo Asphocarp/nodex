@@ -25,6 +25,7 @@ import {
   type CommandKeybindingOverrides,
   type CommandKeybindingUpdate,
 } from "../../../shared/command-keybindings";
+import { DEFAULT_DICTATION_SETTINGS } from "../../../shared/dictation";
 
 const PROJECTS: Project[] = [
   {
@@ -206,6 +207,10 @@ function ensureStorybookElectronBridge({
     commitInstructions: "Keep commits focused and use imperative subjects.",
     pullRequestInstructions: "Summarize validation and link the relevant issue.",
   };
+  let dictationSettings = {
+    ...DEFAULT_DICTATION_SETTINGS,
+    dictionary: ["Nodex", "BlockNote", "useComposerDictation"],
+  };
 
   window.api = {
     invoke: async (channel: string, ...args: unknown[]) => {
@@ -243,6 +248,46 @@ function ensureStorybookElectronBridge({
           return createCommandKeymapState(commandKeybindingOverrides);
         case "global-dictation-capture-fn-hotkey":
           return null;
+        case "codex:dictation:state:read":
+          return {
+            isEnabled: true,
+            authMethod: "chatgpt",
+            shortcutLabel: "Fn",
+            capabilities: {
+              composer: true,
+              global: true,
+              history: true,
+              streaming: "available",
+              semanticCleanup: true,
+              microphoneOwner: "none",
+              auth: "chatgpt",
+            },
+          };
+        case "codex:dictation:microphone-access:read":
+          return "granted";
+        case "codex:dictation:settings:read":
+          return dictationSettings;
+        case "codex:dictation:settings:update":
+          dictationSettings = { ...dictationSettings, ...(args[0] as object) };
+          return dictationSettings;
+        case "codex:dictation:global-permissions:read":
+          return { available: true, inputMonitoring: true, accessibility: true };
+        case "codex:dictation:history:list":
+          return [
+            {
+              schemaVersion: 1,
+              id: "storybook-dictation-1",
+              createdAtMs: Date.parse("2026-08-25T08:15:00.000Z"),
+              updatedAtMs: Date.parse("2026-08-25T08:15:08.000Z"),
+              durationMs: 8_000,
+              mimeType: "audio/webm;codecs=opus",
+              sizeBytes: 48_000,
+              chunkCount: 2,
+              status: "completed",
+              surface: "composer",
+              transcript: "Add the dictation follow-up to my task list.",
+            },
+          ];
         case "codex:permission:state:get":
         case "codex:permission:mode:set":
         case "codex:permission:config-value:set":
@@ -734,6 +779,10 @@ export const LocalEnvironments: Story = {
 
 export const KeyboardShortcuts: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("keyboard-shortcuts")} />,
+};
+
+export const Voice: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("voice")} />,
 };
 
 export const KeyboardShortcutsCustomState: Story = {

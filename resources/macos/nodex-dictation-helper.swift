@@ -16,7 +16,19 @@ private struct Hotkey {
     let accelerator: String
     let modifiers: CGEventFlags
     let keyCode: CGKeyCode?
+    let bareModifierKeyCodes: Set<CGKeyCode>?
     var pressed: Bool
+}
+
+private struct ParsedAccelerator {
+    let modifiers: CGEventFlags
+    let keyCode: CGKeyCode?
+    let bareModifierKeyCodes: Set<CGKeyCode>?
+}
+
+private struct BareModifierSpec {
+    let modifiers: CGEventFlags
+    let keyCodes: Set<CGKeyCode>
 }
 
 private final class HelperState {
@@ -102,7 +114,10 @@ private func handle(_ request: [String: Any]) {
             return
         }
         if HelperState.shared.hotkeys.values.contains(where: {
-            $0.id != bindingId && $0.modifiers == parsed.modifiers && $0.keyCode == parsed.keyCode
+            $0.id != bindingId
+                && $0.modifiers == parsed.modifiers
+                && $0.keyCode == parsed.keyCode
+                && $0.bareModifierKeyCodes == parsed.bareModifierKeyCodes
         }) {
             emitError(id: id, code: "hotkey-conflict")
             return
@@ -117,6 +132,7 @@ private func handle(_ request: [String: Any]) {
             accelerator: accelerator,
             modifiers: parsed.modifiers,
             keyCode: parsed.keyCode,
+            bareModifierKeyCodes: parsed.bareModifierKeyCodes,
             pressed: false
         )
         emitResponse(id: id, value: ["registered": true])
@@ -130,17 +146,22 @@ private func handle(_ request: [String: Any]) {
             uninstallEventTap()
         }
         emitResponse(id: id, value: ["registered": false])
-    case "capture":
-        guard HelperState.shared.captureRequestId == nil, installEventTapIfNeeded() else {
+    case "captureFn":
+        guard installEventTapIfNeeded() else {
             emitError(id: id, code: "input-monitoring-denied")
             return
+        }
+        if let previousId = HelperState.shared.captureRequestId {
+            emitError(id: previousId, code: "capture-replaced")
         }
         HelperState.shared.captureRequestId = id
         HelperState.shared.captureTimer?.invalidate()
         HelperState.shared.captureTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { _ in
             guard HelperState.shared.captureRequestId == id else { return }
             HelperState.shared.captureRequestId = nil
+            HelperState.shared.captureTimer = nil
             emitError(id: id, code: "capture-timeout")
+            if HelperState.shared.hotkeys.isEmpty { uninstallEventTap() }
         }
     case "safePaste":
         guard let target = request["target"] as? [String: Any],
@@ -388,30 +409,43 @@ private func handleKeyboardEvent(type: CGEventType, event: CGEvent) {
     let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
 
     if let captureId = HelperState.shared.captureRequestId,
-       type == .keyDown || type == .flagsChanged {
-        if type == .keyDown && keyCode == 53 {
-            HelperState.shared.captureRequestId = nil
-            HelperState.shared.captureTimer?.invalidate()
-            emitError(id: captureId, code: "capture-cancelled")
-            return
-        }
-        if let accelerator = canonicalAccelerator(flags: flags, keyCode: type == .keyDown ? keyCode : nil) {
-            HelperState.shared.captureRequestId = nil
-            HelperState.shared.captureTimer?.invalidate()
-            emitResponse(id: captureId, value: ["accelerator": accelerator])
-            return
-        }
+       type == .flagsChanged,
+       keyCode == 63,
+       flags.contains(.maskSecondaryFn) {
+        HelperState.shared.captureRequestId = nil
+        HelperState.shared.captureTimer?.invalidate()
+        HelperState.shared.captureTimer = nil
+        emitResponse(id: captureId, value: ["accelerator": "Fn"])
+        if HelperState.shared.hotkeys.isEmpty { uninstallEventTap() }
+        return
     }
 
     for (id, var hotkey) in HelperState.shared.hotkeys {
+        if let bareModifierKeyCodes = hotkey.bareModifierKeyCodes {
+            guard type == .flagsChanged, bareModifierKeyCodes.contains(keyCode) else { continue }
+            let allKeysDown = bareModifierKeyCodes.count == 1
+                ? flags.contains(hotkey.modifiers)
+                : bareModifierKeyCodes.allSatisfy {
+                    CGEventSource.keyState(.combinedSessionState, key: $0)
+                }
+            let isPressed = allKeysDown
+            let isReleased = hotkey.pressed && !allKeysDown
+            if isPressed && !hotkey.pressed {
+                hotkey.pressed = true
+                HelperState.shared.hotkeys[id] = hotkey
+                emitHotkeyEvent(hotkey: hotkey, type: "pressed")
+            } else if isReleased {
+                hotkey.pressed = false
+                HelperState.shared.hotkeys[id] = hotkey
+                emitHotkeyEvent(hotkey: hotkey, type: "released")
+            }
+            continue
+        }
+
         let modifiersMatch = flags == hotkey.modifiers
-        let keyMatches = hotkey.keyCode == nil || hotkey.keyCode == keyCode
-        let isPressed = hotkey.keyCode == nil
-            ? modifiersMatch
-            : modifiersMatch && keyMatches && type == .keyDown
-        let isReleased = hotkey.pressed && (
-            hotkey.keyCode == nil ? !modifiersMatch : keyMatches && type == .keyUp
-        )
+        let keyMatches = hotkey.keyCode == keyCode
+        let isPressed = modifiersMatch && keyMatches && type == .keyDown
+        let isReleased = hotkey.pressed && keyMatches && type == .keyUp
         if isPressed && !hotkey.pressed {
             hotkey.pressed = true
             HelperState.shared.hotkeys[id] = hotkey
@@ -441,7 +475,15 @@ private func emitHotkeyEvent(hotkey: Hotkey, type: String) {
     emit(event)
 }
 
-private func parseAccelerator(_ value: String) -> (modifiers: CGEventFlags, keyCode: CGKeyCode?)? {
+private func parseAccelerator(_ value: String) -> ParsedAccelerator? {
+    if let bareModifier = bareModifierSpec(value) {
+        return ParsedAccelerator(
+            modifiers: bareModifier.modifiers,
+            keyCode: nil,
+            bareModifierKeyCodes: bareModifier.keyCodes
+        )
+    }
+
     let parts = value.split(separator: "+").map(String.init)
     guard !parts.isEmpty else { return nil }
     var modifiers: CGEventFlags = []
@@ -452,13 +494,47 @@ private func parseAccelerator(_ value: String) -> (modifiers: CGEventFlags, keyC
         case "ctrl", "control": modifiers.insert(.maskControl)
         case "alt", "option": modifiers.insert(.maskAlternate)
         case "shift": modifiers.insert(.maskShift)
-        case "fn": modifiers.insert(.maskSecondaryFn)
         default:
             guard keyCode == nil, let resolved = keyCodeForName(part) else { return nil }
             keyCode = resolved
         }
     }
-    return modifiers.isEmpty && keyCode == nil ? nil : (modifiers, keyCode)
+    guard keyCode != nil else { return nil }
+    return ParsedAccelerator(
+        modifiers: modifiers,
+        keyCode: keyCode,
+        bareModifierKeyCodes: nil
+    )
+}
+
+private func bareModifierSpec(_ value: String) -> BareModifierSpec? {
+    let normalized = value
+        .replacingOccurrences(of: " ", with: "")
+        .replacingOccurrences(of: "_", with: "")
+        .replacingOccurrences(of: "-", with: "")
+        .lowercased()
+    switch normalized {
+    case "fn":
+        return BareModifierSpec(modifiers: .maskSecondaryFn, keyCodes: [63])
+    case "leftoption", "leftalt":
+        return BareModifierSpec(modifiers: .maskAlternate, keyCodes: [58])
+    case "rightoption", "rightalt":
+        return BareModifierSpec(modifiers: .maskAlternate, keyCodes: [61])
+    case "doubleoption", "doublealt", "leftoption+rightoption", "leftalt+rightalt":
+        return BareModifierSpec(modifiers: .maskAlternate, keyCodes: [58, 61])
+    case "leftcommand", "leftcmd", "leftmeta":
+        return BareModifierSpec(modifiers: .maskCommand, keyCodes: [55])
+    case "rightcommand", "rightcmd", "rightmeta":
+        return BareModifierSpec(modifiers: .maskCommand, keyCodes: [54])
+    case "doublecommand", "leftcommand+rightcommand", "leftcmd+rightcmd", "leftmeta+rightmeta":
+        return BareModifierSpec(modifiers: .maskCommand, keyCodes: [54, 55])
+    case "leftcontrol", "leftctrl":
+        return BareModifierSpec(modifiers: .maskControl, keyCodes: [59])
+    case "doubleshift", "leftshift+rightshift":
+        return BareModifierSpec(modifiers: .maskShift, keyCodes: [56, 60])
+    default:
+        return nil
+    }
 }
 
 private func keyCodeForName(_ name: String) -> CGKeyCode? {
@@ -473,24 +549,6 @@ private func keyCodeForName(_ name: String) -> CGKeyCode? {
         "`": 50, "backspace": 51, "escape": 53,
     ]
     return keys[name.lowercased()]
-}
-
-private func canonicalAccelerator(flags: CGEventFlags, keyCode: CGKeyCode?) -> String? {
-    var parts: [String] = []
-    if flags.contains(.maskCommand) { parts.append("Command") }
-    if flags.contains(.maskControl) { parts.append("Ctrl") }
-    if flags.contains(.maskAlternate) { parts.append("Alt") }
-    if flags.contains(.maskShift) { parts.append("Shift") }
-    if flags.contains(.maskSecondaryFn) { parts.append("Fn") }
-    if let keyCode, let name = keyNameForCode(keyCode) { parts.append(name.uppercased()) }
-    return parts.isEmpty ? nil : parts.joined(separator: "+")
-}
-
-private func keyNameForCode(_ code: CGKeyCode) -> String? {
-    for candidate in "abcdefghijklmnopqrstuvwxyz0123456789" {
-        if keyCodeForName(String(candidate)) == code { return String(candidate) }
-    }
-    return nil
 }
 
 private func foregroundMatches(pid: pid_t, bundleIdentifier: String) -> Bool {
