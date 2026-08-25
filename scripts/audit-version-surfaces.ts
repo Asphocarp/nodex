@@ -129,10 +129,22 @@ const VERSION_SURFACES: readonly Surface[] = [
     "decode or replace diagnostic summaries",
   ],
   [
+    "crates/nodex-core/src/administration/backup.rs:BACKUP_INTEGRITY_EVIDENCE_VERSION",
+    "durableFormat",
+    "backup integrity evidence",
+    "validate captured evidence before backup reuse",
+  ],
+  [
     "crates/nodex-core/src/administration/backup.rs:BACKUP_MANIFEST_VERSION",
     "durableFormat",
     "Store backup manifest",
     "validate before restore",
+  ],
+  [
+    "crates/nodex-core/src/administration/profile_clone.rs:PROFILE_SNAPSHOT_VERSION",
+    "durableFormat",
+    "development Profile snapshot",
+    "validate snapshot evidence before cloning",
   ],
   [
     "crates/nodex-core/src/database/view_contract.rs:VIEW_SCHEMA_VERSION",
@@ -237,6 +249,12 @@ const VERSION_SURFACES: readonly Surface[] = [
     "resume or reject journal state",
   ],
   [
+    "crates/nodex-core/src/infrastructure/store_validation_receipt.rs:RECEIPT_VERSION",
+    "durableFormat",
+    "Store validation receipt",
+    "validate receipt evidence before reuse",
+  ],
+  [
     "crates/nodex-core/src/library/block_transfer.rs:BLOCK_TRANSFER_UNDO_RECIPE_VERSION",
     "durableFormat",
     "Block transfer Undo recipe",
@@ -265,6 +283,18 @@ const VERSION_SURFACES: readonly Surface[] = [
     "durableFormat",
     "Library search snapshot",
     "decode or reject snapshot manifests",
+  ],
+  [
+    "crates/nodex-core/src/library/structural_edit.rs:RECIPE_VERSION",
+    "durableFormat",
+    "structural edit Undo recipe",
+    "decode exact recipe versions",
+  ],
+  [
+    "crates/nodex-core/src/library/structural_edit.rs:SNAPSHOT_VERSION",
+    "durableFormat",
+    "structural clipboard snapshot",
+    "reject unsupported clipboard snapshots",
   ],
   [
     "crates/nodex-core/src/workspace/queued_follow_up.rs:MANIFEST_SCHEMA_VERSION",
@@ -487,6 +517,12 @@ const VERSION_SURFACES: readonly Surface[] = [
     "runtimeCompatibility",
     "Database event stream",
     "reject unsupported frames",
+  ],
+  [
+    "src/shared/dictation-history.ts:DICTATION_RECORDING_SCHEMA_VERSION",
+    "durableFormat",
+    "dictation recording history",
+    "decode or reject recording metadata",
   ],
   [
     "src/shared/git-worker-protocol.ts:GIT_WORKER_PROTOCOL_VERSION",
