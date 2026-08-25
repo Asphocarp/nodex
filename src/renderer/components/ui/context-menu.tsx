@@ -9,7 +9,7 @@ import {
   useState,
   type ComponentPropsWithoutRef,
   type CSSProperties,
-  type PointerEvent,
+  type PointerEventHandler,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -40,6 +40,7 @@ interface ContextMenuSubmenuRegistration {
 interface ContextMenuSubmenuCoordinator {
   activate(registration: ContextMenuSubmenuRegistration): void;
   deactivate(id: symbol): void;
+  dismissActive(): void;
 }
 
 const createContextMenuSubmenuCoordinator = (): ContextMenuSubmenuCoordinator => {
@@ -54,6 +55,11 @@ const createContextMenuSubmenuCoordinator = (): ContextMenuSubmenuCoordinator =>
     deactivate(id) {
       if (active?.id === id) active = null;
     },
+    dismissActive() {
+      const previous = active;
+      active = null;
+      previous?.close();
+    },
   };
 };
 
@@ -63,9 +69,7 @@ const ContextMenuSubmenuCoordinatorContext = createContext<ContextMenuSubmenuCoo
 
 function ContextMenuSubmenuCoordinatorProvider({ children }: { readonly children: ReactNode }) {
   const coordinatorRef = useRef<ContextMenuSubmenuCoordinator>(null);
-  if (!coordinatorRef.current) {
-    coordinatorRef.current = createContextMenuSubmenuCoordinator();
-  }
+  if (!coordinatorRef.current) coordinatorRef.current = createContextMenuSubmenuCoordinator();
   return (
     <ContextMenuSubmenuCoordinatorContext.Provider value={coordinatorRef.current}>
       {children}
@@ -124,9 +128,30 @@ export interface NodexContextMenuItemProps extends ComponentPropsWithoutRef<
 
 export const NodexContextMenuItem = forwardRef<HTMLDivElement, NodexContextMenuItemProps>(
   function NodexContextMenuItem(
-    { children, className, leftSlot, rightSlot, tone = "default", ...props },
+    {
+      children,
+      className,
+      leftSlot,
+      rightSlot,
+      tone = "default",
+      onPointerEnter,
+      onPointerMove,
+      ...props
+    },
     ref,
   ) {
+    const coordinator = useContext(ContextMenuSubmenuCoordinatorContext);
+    const handlePointerEnter: PointerEventHandler<HTMLDivElement> = (event) => {
+      onPointerEnter?.(event);
+      if (event.defaultPrevented || event.pointerType === "touch" || !coordinator) return;
+      coordinator.dismissActive();
+    };
+    const handlePointerMove: PointerEventHandler<HTMLDivElement> = (event) => {
+      onPointerMove?.(event);
+      if (event.defaultPrevented || event.pointerType === "touch" || !coordinator) return;
+      coordinator.dismissActive();
+    };
+
     return (
       <ContextMenuPrimitive.Item
         ref={ref}
@@ -135,6 +160,8 @@ export const NodexContextMenuItem = forwardRef<HTMLDivElement, NodexContextMenuI
           tone === "danger" && "text-token-error-foreground",
           className,
         )}
+        onPointerEnter={handlePointerEnter}
+        onPointerMove={handlePointerMove}
         {...props}
       >
         <NodexContextMenuRowContent leftSlot={leftSlot} rightSlot={rightSlot} tone={tone}>
@@ -195,6 +222,7 @@ export function NodexContextMenuSubmenu({
 }: NodexContextMenuSubmenuProps) {
   const coordinator = useContext(ContextMenuSubmenuCoordinatorContext);
   const [open, setOpen] = useState(false);
+  const openRef = useRef(false);
   const idRef = useRef(Symbol("nodex-context-submenu"));
   const onOpenChangeRef = useRef(onOpenChange);
   useLayoutEffect(() => {
@@ -205,6 +233,7 @@ export function NodexContextMenuSubmenu({
     registrationRef.current = {
       id: idRef.current,
       close: () => {
+        openRef.current = false;
         setOpen(false);
         onOpenChangeRef.current?.(false);
       },
@@ -214,6 +243,8 @@ export function NodexContextMenuSubmenu({
   useEffect(() => () => coordinator?.deactivate(idRef.current), [coordinator]);
 
   const commitOpen = (nextOpen: boolean): void => {
+    if (openRef.current === nextOpen) return;
+    openRef.current = nextOpen;
     if (nextOpen) {
       coordinator?.activate(registrationRef.current!);
     } else {
@@ -223,15 +254,9 @@ export function NodexContextMenuSubmenu({
     onOpenChangeRef.current?.(nextOpen);
   };
 
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>): void => {
-    if (event.pointerType === "touch" || disabled || open) return;
-    const verticalSweep = Math.abs(event.movementX) <= 1 && Math.abs(event.movementY) > 1;
-    // Radix decides whether this point lies inside its submenu grace polygon
-    // later in the same event. Wait for that decision while keeping an
-    // unambiguous vertical sweep between sibling triggers immediate.
-    queueMicrotask(() => {
-      if (!event.defaultPrevented || verticalSweep) commitOpen(true);
-    });
+  const handlePointerActivation: PointerEventHandler<HTMLDivElement> = (event) => {
+    if (event.defaultPrevented || event.pointerType === "touch" || disabled) return;
+    commitOpen(true);
   };
 
   return (
@@ -240,7 +265,8 @@ export function NodexContextMenuSubmenu({
         asChild
         disabled={disabled}
         data-nodex-context-menu-subtrigger="true"
-        onPointerMove={handlePointerMove}
+        onPointerEnter={handlePointerActivation}
+        onPointerMove={handlePointerActivation}
       >
         {trigger}
       </ContextMenuPrimitive.SubTrigger>
