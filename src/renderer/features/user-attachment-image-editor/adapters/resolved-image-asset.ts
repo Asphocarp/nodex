@@ -1,4 +1,5 @@
-import { buildFileUrl, parseLocalFileLinkHref } from "../../../../shared/file-link-openers";
+import { buildAppFilesystemUrl } from "../../../../shared/app-protocol";
+import { parseLocalFileLinkHref } from "../../../../shared/file-link-openers";
 import { parseAssetSource } from "../../../../shared/assets";
 import { resolveAssetSourceToDisplayUrl } from "../../../lib/assets";
 import {
@@ -60,7 +61,7 @@ export function classifyImageAssetSource(rawSource: string): ClassifiedImageAsse
   const localPath = parseLocalImagePath(source);
   if (localPath) return { kind: "local", localPath, source };
   if (/^https?:\/\//iu.test(source)) return { kind: "remote", localPath: null, source };
-  if (/^(?:app:|blob:|nodex-asset:|nodex-display:|vscode-remote:)/iu.test(source)) {
+  if (/^(?:app:|blob:|nodex-display:|vscode-remote:)/iu.test(source)) {
     return { kind: "direct", localPath: null, source };
   }
   if (/^[a-z][a-z0-9+.-]*:/iu.test(source)) {
@@ -71,7 +72,10 @@ export function classifyImageAssetSource(rawSource: string): ClassifiedImageAsse
 
 export function resolveImageDisplaySource(
   rawSource: string,
-  options: { allowLocalPath: boolean },
+  options: {
+    allowLocalPath: boolean;
+    resolveManagedAssetPath?: (source: string) => string | null;
+  },
 ): string | null {
   const classified = classifyImageAssetSource(rawSource);
   switch (classified.kind) {
@@ -80,10 +84,10 @@ export function resolveImageDisplaySource(
     case "direct":
       return classified.source;
     case "managed":
-      return resolveAssetSourceToDisplayUrl(classified.source);
+      return resolveAssetSourceToDisplayUrl(classified.source, options.resolveManagedAssetPath);
     case "local":
       return options.allowLocalPath && classified.localPath
-        ? buildFileUrl({ path: classified.localPath })
+        ? buildAppFilesystemUrl(classified.localPath)
         : null;
     case "pointer":
     case "invalid":

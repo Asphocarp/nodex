@@ -157,25 +157,21 @@ describe("composer plugin inventory", () => {
         ]),
       ],
     };
-    const loadedPaths: string[] = [];
+    const resolvedPaths: string[] = [];
 
     const inventory = await hydrateComposerPluginInventoryIcons(
       response,
       buildComposerPluginInventory(response),
-      async (filePath) => {
-        loadedPaths.push(filePath);
-        return new TextEncoder().encode(filePath);
+      (filePath) => {
+        resolvedPaths.push(filePath);
+        return `app://fs/@fs${filePath}`;
       },
     );
 
-    expect(loadedPaths).toEqual(["/plugins/browser/icon.svg", "/plugins/browser/icon-dark.png"]);
+    expect(resolvedPaths).toEqual(["/plugins/browser/icon.svg", "/plugins/browser/icon-dark.png"]);
     expect(inventory[0]).toMatchObject({
-      iconUrl: `data:image/svg+xml;base64,${Buffer.from("/plugins/browser/icon.svg").toString(
-        "base64",
-      )}`,
-      iconUrlDark: `data:image/png;base64,${Buffer.from("/plugins/browser/icon-dark.png").toString(
-        "base64",
-      )}`,
+      iconUrl: "app://fs/@fs/plugins/browser/icon.svg",
+      iconUrlDark: "app://fs/@fs/plugins/browser/icon-dark.png",
     });
   });
 

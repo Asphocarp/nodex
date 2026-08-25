@@ -83,7 +83,7 @@ describe("buildComposerSkillInventory", () => {
     ]);
   });
 
-  test("hydrates local skill icons without exposing filesystem paths", async () => {
+  test("hydrates local skill icons through app://fs", async () => {
     const response: SkillsListResponse = {
       data: [
         {
@@ -111,7 +111,7 @@ describe("buildComposerSkillInventory", () => {
     const inventory = await hydrateComposerSkillInventoryIcons(
       response,
       buildComposerSkillInventory(response),
-      async (filePath) => new TextEncoder().encode(filePath),
+      (filePath) => `app://fs/@fs${filePath}`,
     );
 
     expect(inventory).toEqual([
@@ -119,9 +119,7 @@ describe("buildComposerSkillInventory", () => {
         name: "Browser",
         displayName: "Browser",
         description: "Control a browser",
-        iconUrl: `data:image/svg+xml;base64,${Buffer.from("/skills/browser/icon.svg").toString(
-          "base64",
-        )}`,
+        iconUrl: "app://fs/@fs/skills/browser/icon.svg",
         brandColor: "#4b8df8",
         path: "/skills/browser/SKILL.md",
         scope: "system",

@@ -1,8 +1,3 @@
-import { parseAssetSource } from "./assets";
-
-export const MANAGED_ASSET_PROTOCOL_SCHEME = "nodex-asset";
-export const MANAGED_ASSET_DISPLAY_SCHEME = `${MANAGED_ASSET_PROTOCOL_SCHEME}:`;
-export const MANAGED_ASSET_DISPLAY_HOST = "managed";
 export const MAX_MANAGED_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_MANAGED_RESOURCE_BYTES = 64 * 1024 * 1024;
 export const MAX_MANAGED_PREVIEW_BYTES = 64 * 1024;
@@ -69,12 +64,6 @@ export type ManagedAssetPreview =
 export interface ManagedAssetPreviewInput {
   readonly source: string;
   readonly kind: ManagedAssetPreview["kind"];
-}
-
-export function getManagedAssetDisplayUrl(source: string): string {
-  const parsed = parseAssetSource(source);
-  if (!parsed) return source;
-  return `${MANAGED_ASSET_DISPLAY_SCHEME}//${MANAGED_ASSET_DISPLAY_HOST}/${encodeURIComponent(parsed.fileName)}`;
 }
 
 function truncateToUtf8Bytes(value: string, maxBytes: number): string {

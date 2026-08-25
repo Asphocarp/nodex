@@ -1,12 +1,13 @@
 import {
   MAX_MANAGED_IMAGE_BYTES,
   MAX_MANAGED_RESOURCE_BYTES,
-  getManagedAssetDisplayUrl,
   type ManagedCanvasImageMaterializationResult,
   type ManagedAssetPreview,
   type ManagedAssetPreviewInput,
   type ManagedResourceSaveResult,
 } from "../../shared/managed-assets";
+import { parseAssetSource } from "../../shared/assets";
+import { buildAppFilesystemUrl, isAbsoluteAppFilesystemPath } from "../../shared/app-protocol";
 import { invoke } from "./api";
 
 export interface UploadedResourceAssetResponse {
@@ -16,8 +17,34 @@ export interface UploadedResourceAssetResponse {
   bytes: number;
 }
 
-export function resolveAssetSourceToDisplayUrl(source: string): string {
-  return getManagedAssetDisplayUrl(source);
+export type ManagedAssetPathResolver = (source: string) => string | null;
+
+const managedAssetDisplayUrlCache = new Map<string, string>();
+
+function resolveManagedAssetPathFromPreload(source: string): string | null {
+  if (typeof window === "undefined") return null;
+  return window.api?.resolveManagedAssetPath?.(source) ?? null;
+}
+
+export function clearManagedAssetDisplayUrlCache(): void {
+  managedAssetDisplayUrlCache.clear();
+}
+
+export function resolveAssetSourceToDisplayUrl(
+  source: string,
+  resolveManagedAssetPath: ManagedAssetPathResolver = resolveManagedAssetPathFromPreload,
+): string | null {
+  if (!parseAssetSource(source)) return source;
+
+  const cached = managedAssetDisplayUrlCache.get(source);
+  if (cached) return cached;
+
+  const localPath = resolveManagedAssetPath(source)?.trim() ?? "";
+  if (!localPath || !isAbsoluteAppFilesystemPath(localPath)) return null;
+
+  const displayUrl = buildAppFilesystemUrl(localPath);
+  managedAssetDisplayUrlCache.set(source, displayUrl);
+  return displayUrl;
 }
 
 function fileToUploadInput(file: File, bytes: Uint8Array) {

@@ -1,7 +1,9 @@
-export const APP_RENDERER_PROTOCOL_SCHEME = "app";
-export const APP_RENDERER_HOST = "-";
-export const APP_RENDERER_ORIGIN = `${APP_RENDERER_PROTOCOL_SCHEME}://${APP_RENDERER_HOST}`;
-export const APP_RENDERER_URL = `${APP_RENDERER_ORIGIN}/index.html`;
+export {
+  APP_PROTOCOL_SCHEME as APP_RENDERER_PROTOCOL_SCHEME,
+  APP_RENDERER_HOST,
+  APP_RENDERER_ORIGIN,
+  APP_RENDERER_URL,
+} from "./app-protocol";
 export const VITE_REACT_REFRESH_PREAMBLE_SHA256 =
   "'sha256-Z2/iFzh9VMlVkEOar1f/oSHWwQk3ve1qk/C2WdsC4Xk='";
 
@@ -67,8 +69,8 @@ export function buildTopLevelRendererCsp(input: {
     `script-src 'self' 'wasm-unsafe-eval' ${developmentScriptSources.join(" ")}`.trim(),
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
-    "img-src 'self' nodex-asset: data: blob: https:",
-    "media-src 'self' nodex-asset: data: blob:",
+    "img-src 'self' app: blob: data: https:",
+    "media-src 'self' app: blob: data:",
     "worker-src 'self' blob:",
     `connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io ${STATSIG_CONNECT_ORIGINS.join(" ")} ${developmentConnections.join(" ")}`.trim(),
     "frame-src 'self' blob: nodex-mcp-sandbox: https: http:",

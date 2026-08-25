@@ -380,6 +380,14 @@ function buildThreadSectionThreadMap(
   }, {});
 }
 
+function resolveImagePreview(input: { readonly source: string; readonly alt: string }): {
+  readonly source: string;
+  readonly alt: string;
+} | null {
+  const source = resolveAssetSourceToDisplayUrl(input.source);
+  return source ? { source, alt: input.alt } : null;
+}
+
 export function NfmEditor(props: NfmEditorProps) {
   const source = props.source;
   const editorInstanceKey = getNfmEditorInstanceKey({
@@ -523,10 +531,11 @@ function NfmEditorInstance({
 
   const uploadFile = useCallback(async (file: File) => uploadImageAsset(file), []);
 
-  const resolveFileUrl = useCallback(
-    async (source: string) => resolveAssetSourceToDisplayUrl(source),
-    [],
-  );
+  const resolveFileUrl = useCallback(async (source: string) => {
+    const displayUrl = resolveAssetSourceToDisplayUrl(source);
+    if (!displayUrl) throw new Error("Managed image path is unavailable");
+    return displayUrl;
+  }, []);
 
   const canvasCommandHandlersRef = useRef({
     duplicate: async (canvasBlockId: string) => {
@@ -1585,10 +1594,7 @@ function NfmEditorInstance({
             event.preventDefault();
             event.stopPropagation();
             if (!event.repeat) {
-              setImagePreview({
-                source: resolveAssetSourceToDisplayUrl(focusedImage.source),
-                alt: focusedImage.alt,
-              });
+              setImagePreview(resolveImagePreview(focusedImage));
             }
             return;
           }
@@ -1648,10 +1654,7 @@ function NfmEditorInstance({
           !event.shiftKey &&
           handleNfmEditorModEnterShortcut(editor as unknown as ModifyShortcutEditor, {
             openImagePreview: (preview) => {
-              setImagePreview({
-                source: resolveAssetSourceToDisplayUrl(preview.source),
-                alt: preview.alt,
-              });
+              setImagePreview(resolveImagePreview(preview));
             },
             openThread: onOpenCodexThread ? handleOpenThreadSectionThread : undefined,
             sendThreadSectionByBlockId: handleSendThreadSectionByBlockId,
@@ -1746,10 +1749,7 @@ function NfmEditorInstance({
 
       event.preventDefault();
       event.stopPropagation();
-      setImagePreview({
-        source: resolveAssetSourceToDisplayUrl(preview.source),
-        alt: preview.alt,
-      });
+      setImagePreview(resolveImagePreview(preview));
     };
 
     el.addEventListener("dblclick", handleDoubleClick, true);

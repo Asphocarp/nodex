@@ -47,7 +47,10 @@ import {
   CODEX_SUMMARY_PANEL_TRANSITION,
   CODEX_SUMMARY_PANEL_WIDTH,
 } from "../../../../lib/codex-panel-motion";
-import { buildFileUrl } from "../../../../../shared/file-link-openers";
+import {
+  ImagePreviewDialog,
+  resolveImageDisplaySource,
+} from "@/features/user-attachment-image-editor";
 import { useMcpResource, useMcpServerStatuses } from "../../../../lib/use-mcp-queries";
 import { useCodexMcpApps } from "../../use-codex-mcp-apps";
 import { useGitBranchState } from "../../../../lib/use-git-branch-state";
@@ -111,7 +114,6 @@ import { ThreadSummaryBranchSetupDialog } from "./thread-summary-branch-setup-di
 import { ThreadSummaryPanelToggleButton } from "./thread-summary-panel-toggle";
 import { SubagentAvatar } from "../shared/subagent-avatar";
 import { CodexShimmerText } from "../shared/codex-shimmer-text";
-import { ImagePreviewDialog } from "@/features/user-attachment-image-editor";
 import {
   buildMcpAppSidePanelInput,
   resolveMcpAppResourceUri,
@@ -191,12 +193,7 @@ function resolveSummaryOutputImagePreviewSrc(row: ThreadSummaryPanelOutputRow): 
   if (!("path" in row)) return null;
   const source = row.path.trim();
   if (!source) return null;
-  if (/^(?:data:image\/|https?:\/\/|file:\/\/)/iu.test(source)) return source;
-  if (source.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(source)) {
-    return buildFileUrl({ path: source });
-  }
-
-  return null;
+  return resolveImageDisplaySource(source, { allowLocalPath: true });
 }
 
 type SummaryCommitOrPushMode = "commit" | "push";

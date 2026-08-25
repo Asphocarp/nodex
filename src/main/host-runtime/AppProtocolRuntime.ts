@@ -2,10 +2,8 @@ import { join } from "node:path";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { registerAppRendererProtocol } from "../app-renderer-protocol";
+import { registerAppProtocol } from "../app-protocol";
 import { MainConfig } from "../app/MainConfig";
-import { registerManagedAssetProtocol } from "../managed-asset-protocol";
-import { getLogger } from "../logging/logger";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 
 export class AppProtocolRuntime extends Context.Service<
@@ -21,23 +19,14 @@ export const live: Layer.Layer<AppProtocolRuntime, never, ElectronSessionHost | 
       const config = yield* MainConfig;
       const sessions = yield* ElectronSessionHost;
       const defaultSession = yield* sessions.defaultSession;
-      const logger = getLogger({ component: "app-protocol-runtime" });
       yield* Effect.acquireRelease(
         Effect.sync(() => {
-          const releaseManagedAssets = registerManagedAssetProtocol(defaultSession, {
-            logError: (message, error) => logger.warn(message, { error }),
+          const release = registerAppProtocol(defaultSession, {
+            rendererRoot: join(__dirname, "../renderer"),
+            getDevelopmentRendererUrl: () => (config.isPackaged ? null : config.rendererUrl),
+            protocol: sessions.protocol,
           });
-          const releaseRenderer = config.rendererUrl
-            ? null
-            : registerAppRendererProtocol(
-                defaultSession,
-                join(__dirname, "../renderer"),
-                (message, error) => logger.warn(message, { error }),
-              );
-          return () => {
-            releaseRenderer?.();
-            releaseManagedAssets();
-          };
+          return release;
         }),
         (release) => Effect.sync(release),
       ).pipe(Effect.asVoid);

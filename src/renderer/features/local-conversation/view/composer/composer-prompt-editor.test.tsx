@@ -396,12 +396,15 @@ describe("ComposerPromptEditor", () => {
         name: "Browser",
         displayName: "Browser",
         path: "plugin://browser@openai-bundled",
-        iconUrl: "data:image/png;base64,aW1hZ2U=",
+        iconUrl: "app://fs/@fs/plugins/browser/icon.png",
         brandColor: "#013B7B",
       });
     });
 
     const mention = editor.querySelector("[plugin-mention-path='plugin://browser@openai-bundled']");
+    expect(mention?.getAttribute("plugin-mention-icon")).toBe(
+      "app://fs/@fs/plugins/browser/icon.png",
+    );
     expect(mention?.getAttribute("contenteditable")).toBe("false");
     expect(mention?.getAttribute("data-prompt-link-label")).toBe("@Browser");
     expect(mention?.textContent).toBe("Browser");

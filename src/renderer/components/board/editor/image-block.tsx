@@ -12,7 +12,7 @@ import { FileImage } from "@/components/shared/icons/generic-icons";
 import { readManagedImageByteLength } from "@/lib/assets";
 import { parseAssetSource } from "../../../../shared/assets";
 
-import { resolveAssetSourceToDisplayUrl } from "../../../lib/assets";
+import { resolveAssetSourceToDisplayUrl, type ManagedAssetPathResolver } from "../../../lib/assets";
 
 type ImageBlockRenderProps = ReactCustomBlockRenderProps<typeof createImageBlockConfig>;
 
@@ -103,10 +103,18 @@ function useImageFileSize(source: string): number | null {
 function ImagePreview({ block }: Omit<ImageBlockRenderProps, "contentRef">) {
   const resolved = useResolveUrl(block.props.url);
 
+  if (resolved.loadingState !== "loaded") {
+    return (
+      <div className="bn-file-loading-preview">
+        {resolved.loadingState === "error" ? "Image unavailable" : "Loading..."}
+      </div>
+    );
+  }
+
   return (
     <img
       className="bn-visual-media"
-      src={resolved.loadingState === "loading" ? block.props.url : resolved.downloadUrl}
+      src={resolved.downloadUrl}
       alt={block.props.name || ""}
       width={block.props.previewWidth}
       contentEditable={false}
@@ -227,8 +235,11 @@ function NfmImageExternalHTML({
   );
 }
 
-export function resolveExternalImageSource(source: string): string {
-  return resolveAssetSourceToDisplayUrl(source);
+export function resolveExternalImageSource(
+  source: string,
+  resolveManagedAssetPath?: ManagedAssetPathResolver,
+): string | null {
+  return resolveAssetSourceToDisplayUrl(source, resolveManagedAssetPath);
 }
 
 export const imageBlockSpec = createReactBlockSpec(createImageBlockConfig, {

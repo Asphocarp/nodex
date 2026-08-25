@@ -2,9 +2,12 @@ import { describe, expect, test } from "vite-plus/test";
 import { formatImageFileSize, resolveExternalImageSource } from "./image-block";
 
 describe("image block external source resolution", () => {
-  test("rewrites canonical nodex asset URI to the private display protocol", () => {
-    const resolved = resolveExternalImageSource("nodex://assets/plan.png");
-    expect(resolved).toBe("nodex-asset://managed/plan.png");
+  test("resolves a canonical managed locator to app://fs", () => {
+    const resolved = resolveExternalImageSource(
+      "nodex://assets/plan.png",
+      () => "/profile/assets/plan.png",
+    );
+    expect(resolved).toBe("app://fs/@fs/profile/assets/plan.png");
   });
 
   test("keeps standard URLs unchanged", () => {

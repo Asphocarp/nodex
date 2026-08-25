@@ -109,7 +109,7 @@ function normalizeMentionIconUrl(value: unknown): string {
   }
   try {
     const url = new URL(normalized);
-    return url.protocol === "https:" ? url.toString() : "";
+    return url.protocol === "https:" || url.protocol === "app:" ? url.toString() : "";
   } catch {
     return "";
   }

@@ -1,8 +1,8 @@
 import type { SkillsListResponse } from "@nodex/codex-app-server-protocol/v2/SkillsListResponse";
 import type { CodexComposerSkill } from "../../shared/types";
 import {
-  loadComposerInventoryIconDataUrl,
-  type ComposerInventoryIconLoader,
+  resolveComposerInventoryIconUrl,
+  type ComposerInventoryIconResolver,
 } from "./composer-inventory-icon";
 
 function normalizeOptionalText(value: string | null | undefined): string | null {
@@ -38,7 +38,7 @@ export function buildComposerSkillInventory(response: SkillsListResponse): Codex
 export async function hydrateComposerSkillInventoryIcons(
   response: SkillsListResponse,
   skills: readonly CodexComposerSkill[],
-  loadIcon?: ComposerInventoryIconLoader,
+  resolveIcon: ComposerInventoryIconResolver = resolveComposerInventoryIconUrl,
 ): Promise<CodexComposerSkill[]> {
   const iconPathsBySkillPath = new Map(
     response.data.flatMap((entry) =>
@@ -49,10 +49,8 @@ export async function hydrateComposerSkillInventoryIcons(
   );
   return Promise.all(
     skills.map(async (skill) => {
-      const iconUrl = await loadComposerInventoryIconDataUrl(
-        iconPathsBySkillPath.get(skill.path),
-        loadIcon,
-      );
+      const iconPath = iconPathsBySkillPath.get(skill.path);
+      const iconUrl = iconPath ? resolveIcon(iconPath) : null;
       return iconUrl ? { ...skill, iconUrl } : skill;
     }),
   );

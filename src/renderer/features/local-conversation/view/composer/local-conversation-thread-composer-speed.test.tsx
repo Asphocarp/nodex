@@ -1335,7 +1335,7 @@ describe("ThreadComposer speed menu", () => {
 
     const thumbnail = await view.findByRole("button", { name: "local-only.png" });
     expect(thumbnail.querySelector("img")?.getAttribute("src")).toBe(
-      "file:///managed/local-only.png",
+      "app://fs/@fs/managed/local-only.png",
     );
     await submitCurrentComposerDraft(view);
 

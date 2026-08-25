@@ -8,6 +8,7 @@ import {
   getImageEditComposerDraftSnapshot,
   replaceImageEditComposerDraft,
 } from "@/lib/image-edit-composer-channel";
+import { clearManagedAssetDisplayUrlCache } from "@/lib/assets";
 import type { NormalizedUserAttachmentImageEditorOptions } from "../model/types";
 import {
   beginOptimisticGeneratedImageEdit,
@@ -161,6 +162,7 @@ afterEach(async () => {
   });
   clearImageEditComposerDraft(THREAD_ID);
   clearImageEditComposerDraft(GENERATED_THREAD_ID);
+  clearManagedAssetDisplayUrlCache();
   submissionState.notifyImageInputUnsupported.mockClear();
   submissionState.submit.mockClear();
   submissionState.supportsImageInputs = true;
@@ -264,46 +266,56 @@ describe("UserAttachmentImageEditorSurface", () => {
 
   test("publishes an uploaded attachment's host identity without relabeling its display source", async () => {
     const managedSource = "nodex://assets/uploaded-image.png";
-    const view = renderWithMaitai(
-      <TestQueryProvider>
-        <div className="h-[700px] w-[700px]">
-          <UserAttachmentImageEditorSurface
-            options={{
-              ...OPTIONS,
-              images: [
-                {
-                  ...OPTIONS.images[0]!,
-                  attachmentId: "composer-uploaded-image",
-                  attachmentSrc: managedSource,
-                  dataUrl: managedSource,
-                  hostId: "default",
-                  managedSource,
-                  src: managedSource,
-                },
-              ],
-            }}
-          />
-        </div>
-      </TestQueryProvider>,
-    );
+    const originalApi = window.api;
+    window.api = {
+      ...originalApi,
+      resolveManagedAssetPath: (source) =>
+        source === managedSource ? "/profile/assets/uploaded-image.png" : null,
+    } as typeof window.api;
+    try {
+      const view = renderWithMaitai(
+        <TestQueryProvider>
+          <div className="h-[700px] w-[700px]">
+            <UserAttachmentImageEditorSurface
+              options={{
+                ...OPTIONS,
+                images: [
+                  {
+                    ...OPTIONS.images[0]!,
+                    attachmentId: "composer-uploaded-image",
+                    attachmentSrc: managedSource,
+                    dataUrl: managedSource,
+                    hostId: "default",
+                    managedSource,
+                    src: managedSource,
+                  },
+                ],
+              }}
+            />
+          </div>
+        </TestQueryProvider>,
+      );
 
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Comment" }));
-    });
+      await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: "Comment" }));
+      });
 
-    await waitFor(() =>
-      expect(getImageEditComposerDraftSnapshot(THREAD_ID).attachments).toEqual([
-        expect.objectContaining({
-          id: "composer-uploaded-image",
-          asset: {
-            hostId: "default",
-            localPath: null,
-            managedSource,
-            src: managedSource,
-          },
-        }),
-      ]),
-    );
+      await waitFor(() =>
+        expect(getImageEditComposerDraftSnapshot(THREAD_ID).attachments).toEqual([
+          expect.objectContaining({
+            id: "composer-uploaded-image",
+            asset: {
+              hostId: "default",
+              localPath: null,
+              managedSource,
+              src: managedSource,
+            },
+          }),
+        ]),
+      );
+    } finally {
+      window.api = originalApi;
+    }
   });
 
   test("Cancel discards saved positional comments from the composer draft", async () => {

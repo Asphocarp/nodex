@@ -89,6 +89,26 @@ function createRendererDevelopmentCspPlugin(): Plugin {
   };
 }
 
+function createRendererProductionCspPlugin(): Plugin {
+  return {
+    name: "nodex:renderer-production-csp",
+    apply: "build",
+    transformIndexHtml: {
+      order: "post",
+      handler: () => [
+        {
+          tag: "meta",
+          attrs: {
+            "http-equiv": "Content-Security-Policy",
+            content: buildTopLevelRendererCsp({ mode: "production" }),
+          },
+          injectTo: "head",
+        },
+      ],
+    },
+  };
+}
+
 function isKnownYProsemirrorAwarenessTypeImportWarning(warning: Rollup.RollupLog): boolean {
   const importer = warning.ids?.[0]?.replaceAll("\\", "/");
 
@@ -145,6 +165,8 @@ export default defineConfig({
     server: {
       port: 51284,
       strictPort: false,
+      // Generic app/icon surfaces intentionally use Vite's /@fs route in development.
+      fs: { strict: false },
       headers: {
         "Content-Security-Policy": buildTopLevelRendererCsp({
           mode: "development",
@@ -169,6 +191,7 @@ export default defineConfig({
     plugins: [
       createStartupShellHtmlPlugin(),
       createRendererDevelopmentCspPlugin(),
+      createRendererProductionCspPlugin(),
       ...createExcalidrawFontAssetPlugins(),
       ...createRendererVitePlugins(),
       ...createSentryPlugins(),

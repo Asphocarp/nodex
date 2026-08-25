@@ -5,7 +5,7 @@ import {
   protocol,
   session,
 } from "electron";
-import { registerAppRendererProtocol } from "../../../src/main/app-renderer-protocol";
+import { registerAppProtocol } from "../../../src/main/app-protocol";
 import { registerNodexPrivilegedSchemes } from "../../../src/main/privileged-schemes";
 import { APP_RENDERER_URL } from "../../../src/shared/app-renderer-policy";
 
@@ -27,10 +27,12 @@ registerNodexPrivilegedSchemes((schemes) => {
 });
 
 void app.whenReady().then(async () => {
-  const disposeProtocol = registerAppRendererProtocol(
-    session.defaultSession,
-    path.join(__dirname, "renderer"),
-  );
+  const developmentRendererUrl = process.env.NODEX_TEST_RENDERER_URL?.trim() || null;
+  const disposeProtocol = registerAppProtocol(session.defaultSession, {
+    rendererRoot: path.join(__dirname, "renderer"),
+    getDevelopmentRendererUrl: () => developmentRendererUrl,
+    protocol,
+  });
   app.once("before-quit", disposeProtocol);
   const window = new BrowserWindow({
     show: true,
@@ -40,5 +42,5 @@ void app.whenReady().then(async () => {
       sandbox: true,
     },
   });
-  await window.loadURL(APP_RENDERER_URL);
+  await window.loadURL(developmentRendererUrl ?? APP_RENDERER_URL);
 });

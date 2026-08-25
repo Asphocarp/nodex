@@ -69,7 +69,7 @@ describe("useResolvedImageAsset", () => {
       </TestQueryProvider>,
     );
 
-    expect(view.getByTestId("preview").textContent).toBe("file:///tmp/hero.png");
+    expect(view.getByTestId("preview").textContent).toBe("app://fs/@fs/tmp/hero.png");
     expect(invokeCalls).toEqual([]);
 
     await act(async () => {

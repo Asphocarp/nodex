@@ -59,7 +59,7 @@ describe("browser image attachments", () => {
       publishBrowserImageAttachment(conversationId, {
         id: "image-1",
         filename: "preview.png",
-        source: "nodex-asset://managed/image-1.png",
+        source: "app://fs/@fs/profile/assets/image-1.png",
       }),
     ).toThrow("Browser image attachment is incomplete");
   });
