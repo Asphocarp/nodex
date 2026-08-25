@@ -27,6 +27,46 @@ import { inspectScenario, materializeScenario } from "../seed/scenario-seed";
 
 const repositoryRoot = process.cwd();
 const DEFAULT_RUNTIME_LOG_CHARS = 32_768;
+const APPLICATION_WINDOW_DISCOVERY_TIMEOUT_MS = 60_000;
+
+const delay = async (durationMs: number): Promise<void> =>
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, durationMs));
+
+/** Resolves the canonical Nodex renderer once its final preload is available. */
+export async function waitForNodexApplicationWindow(
+  application: ElectronApplication,
+): Promise<Page> {
+  const deadline = Date.now() + APPLICATION_WINDOW_DISCOVERY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    for (const page of application.windows()) {
+      const hasApplicationApi = await page
+        .evaluate(() =>
+          Boolean(
+            (
+              window as unknown as {
+                api?: unknown;
+              }
+            ).api,
+          ),
+        )
+        .catch(() => false);
+      if (hasApplicationApi) return page;
+    }
+    await delay(25);
+  }
+  throw new Error("Nodex did not create a full application window before the startup deadline");
+}
+
+/** Resolves the first physical application window without waiting for Main initialization. */
+export async function waitForNodexFirstWindow(application: ElectronApplication): Promise<Page> {
+  const deadline = Date.now() + APPLICATION_WINDOW_DISCOVERY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const page = application.windows()[0];
+    if (page) return page;
+    await delay(25);
+  }
+  throw new Error("Nodex did not create its canonical window before the startup deadline");
+}
 
 export const readBoundedElectronRuntimeLogs = async (
   profile: IsolatedProfile,
@@ -57,6 +97,7 @@ export interface NodexElectronLaunchInput {
   readonly codexHome?: string;
   readonly cwd?: string;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly executablePath?: string;
   readonly initialProjectsDirectory: string;
   readonly nodexHome: string;
   readonly runId?: string;
@@ -66,7 +107,9 @@ export async function launchNodexElectronApplication(
   input: NodexElectronLaunchInput,
 ): Promise<ElectronApplication> {
   return await electron.launch({
-    args: [repositoryRoot],
+    ...(input.executablePath
+      ? { executablePath: input.executablePath }
+      : { args: [repositoryRoot] }),
     cwd: input.cwd ?? repositoryRoot,
     env: {
       ...process.env,
@@ -162,6 +205,7 @@ export interface ElectronHarnessInput {
   readonly sourceCodexHome?: string;
   readonly cwd?: string;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly executablePath?: string;
   readonly enabledFeatures?: readonly string[];
   readonly prepareAgentRuntime?: boolean;
 }
@@ -170,6 +214,7 @@ export class ElectronScenarioHarness {
   readonly profile: IsolatedProfile;
   readonly #cwd: string;
   readonly #environment: NodeJS.ProcessEnv;
+  readonly #executablePath: string | undefined;
   readonly #lease: IsolatedRunLease;
   #application: ElectronApplication | null = null;
   #page: Page | null = null;
@@ -180,10 +225,12 @@ export class ElectronScenarioHarness {
     cwd: string,
     environment: NodeJS.ProcessEnv,
     lease: IsolatedRunLease,
+    executablePath?: string,
   ) {
     this.profile = profile;
     this.#cwd = cwd;
     this.#environment = environment;
+    this.#executablePath = executablePath;
     this.#lease = lease;
   }
 
@@ -214,6 +261,7 @@ export class ElectronScenarioHarness {
           ),
         },
         lease,
+        input.executablePath,
       );
     } catch (error) {
       const cleanup = await cleanupIsolatedProfile({
@@ -242,7 +290,7 @@ export class ElectronScenarioHarness {
     return this.#page;
   }
 
-  async launch(): Promise<Page> {
+  async launch(options?: { readonly phase?: "application-ready" | "first-window" }): Promise<Page> {
     if (this.#application) throw new Error("Electron scenario is already running");
     const application = await launchNodexElectronApplication({
       cwd: this.#cwd,
@@ -251,9 +299,22 @@ export class ElectronScenarioHarness {
       initialProjectsDirectory: this.profile.initialProjectsDirectory,
       runId: this.profile.runId,
       environment: this.#environment,
+      executablePath: this.#executablePath,
     });
     this.#application = application;
-    const page = await application.firstWindow();
+    const page =
+      options?.phase === "first-window"
+        ? await waitForNodexFirstWindow(application)
+        : await waitForNodexApplicationWindow(application);
+    this.#page = page;
+    if (options?.phase === "first-window") return page;
+    await this.waitForApplicationReady();
+    return page;
+  }
+
+  async waitForApplicationReady(): Promise<Page> {
+    const page = this.#page;
+    if (!page) throw new Error("Electron scenario renderer is not running");
     await page.evaluate(async () => {
       const api = (
         window as unknown as {
@@ -263,7 +324,6 @@ export class ElectronScenarioHarness {
       if (!api) throw new Error("Nodex preload API is unavailable");
       await api.awaitInitialization();
     });
-    this.#page = page;
     return page;
   }
 

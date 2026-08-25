@@ -133,6 +133,40 @@ it.effect("rolls back an acquired runtime and publishes the startup failure exit
   }),
 );
 
+it.effect("keeps a startup-failure presentation active without publishing readiness", () =>
+  Effect.gen(function* () {
+    const events: string[] = [];
+    const foundation = Layer.mergeAll(
+      shutdownLayer,
+      cleanupLayer,
+      fakeElectronLayer(events),
+      configLayer(),
+    );
+    const foundationScope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(foundation, foundationScope);
+    const shutdown = Context.get(context, MainShutdown);
+    const applicationLayer = mainApplicationTestLayer({
+      acquire: Effect.sync(() => events.push("failure-presented")).pipe(
+        Effect.andThen(shutdown.request({ _tag: "UserQuit" })),
+        Effect.asVoid,
+      ),
+      handleBootstrapEvent: () => Effect.sync(() => events.push("bootstrap-event")),
+      readiness: "startup-failed",
+    });
+
+    const result = yield* program({
+      initialEvents: [{ type: "open-url", url: "nodex://pages/one" }],
+      applicationLayer,
+      onApplicationReady: () => Effect.sync(() => events.push("ready")),
+      runStartupGate: Effect.succeed("continue" as const),
+    }).pipe(Effect.provide(context));
+
+    assert.strictEqual(result._tag, "Shutdown");
+    assert.deepEqual(events, ["ready", "failure-presented", "quit"]);
+    yield* Scope.close(foundationScope, Exit.void);
+  }),
+);
+
 it.effect("relaunches only after an authority-drift shutdown has released the runtime", () =>
   Effect.gen(function* () {
     const events: string[] = [];

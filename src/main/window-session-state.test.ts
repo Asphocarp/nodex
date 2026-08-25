@@ -151,6 +151,25 @@ describe("WindowSessionState", () => {
     });
   });
 
+  test("restores the last-active open session first", () => {
+    withTempUserData((userDataPath) => {
+      const clock = createClock();
+      const state = new WindowSessionState(userDataPath, { now: clock.now });
+      const first = state.createFreshSession();
+      const second = state.createFreshSession();
+      state.attachWindow(1, first.id);
+      state.attachWindow(2, second.id);
+      clock.advance();
+      state.markFocused(1);
+
+      const restored = new WindowSessionState(userDataPath, {
+        now: clock.now,
+      }).selectStartupSessions("all");
+
+      expect(restored.map((session) => session.id)).toEqual([first.id, second.id]);
+    });
+  });
+
   test("last-window demotes other open sessions into recoverable history", () => {
     withTempUserData((userDataPath) => {
       const clock = createClock();

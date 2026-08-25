@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed macOS launches appearing blank or unresponsive while a Profile opens or upgrades; the restored Nodex window now shows its branded, native-material startup state immediately and remains the same window through Workbench readiness or recoverable failure.
 - Fixed queued follow-ups disappearing or running after interruption: queues now survive restarts, pause atomically when a turn is stopped, preserve in-flight and failed rows for retry, resume in strict order, and keep fresh steers independent from the existing queue.
 - Fixed chats and Side chats sometimes remaining on a loading screen after restoration completed or failed; renderer attachment now updates atomically, failures are explicit and retryable, and cached transcript content remains visible during recovery.
 - Fixed packaged macOS dictation failing before capture by aligning signed microphone capability, awaited TCC permission, and trusted audio-only Electron Session access.

@@ -46,6 +46,7 @@ declare global {
       onCoreAuthorityStatus?: (callback: (status: CoreAuthorityStatus) => void) => () => void;
       retryCoreAuthority?: () => Promise<void>;
       relaunchForCoreAuthority?: () => Promise<void>;
+      restartApplication?: () => Promise<void>;
       onInitializationStep?: (callback: (step: AppInitializationStep) => void) => () => void;
       reportInitializationReady?: (input: {
         durationMs: number;

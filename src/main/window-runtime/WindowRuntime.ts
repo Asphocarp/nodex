@@ -19,10 +19,7 @@ import {
 } from "../window-session-state";
 import { safeSendToWindow } from "../ipc-safe-send";
 import { getLogger } from "../logging/logger";
-import {
-  resolveElectronWindowBackdrop,
-  shouldUseOpaqueElectronWindowSurface,
-} from "../electron-window-backdrop";
+import { resolveElectronWindowBackdrop } from "../electron-window-backdrop";
 
 const WINDOW_CLOSE_FLUSH_TIMEOUT = "1500 millis";
 const logger = getLogger({ component: "window-runtime" });
@@ -63,18 +60,18 @@ function applyElectronWindowBackdrop(
   if (platform !== "darwin" && platform !== "win32") return;
   if (window.isDestroyed()) return;
   const bounds = window.getBounds();
-  const opaqueWindowSurfaceEnabled = shouldUseOpaqueElectronWindowSurface({
-    bounds,
-    isFocused: window.isFocused(),
-    platform,
-    scaleFactor: screen.getDisplayMatching(bounds).scaleFactor,
-  });
-  if (!force && opaqueSurfaceModes.get(window.id) === opaqueWindowSurfaceEnabled) return;
   const backdrop = resolveElectronWindowBackdrop({
-    opaqueWindowSurfaceEnabled,
+    bounds,
+    // A hidden canonical shell has not had a chance to focus yet; preserving
+    // native material avoids an opaque first paint followed by a focus flash.
+    isFocused: !window.isVisible() || window.isFocused(),
     platform,
     prefersDarkColors: nativeTheme.shouldUseDarkColors,
+    prefersReducedTransparency: nativeTheme.prefersReducedTransparency,
+    scaleFactor: screen.getDisplayMatching(bounds).scaleFactor,
   });
+  const { opaqueWindowSurfaceEnabled } = backdrop;
+  if (!force && opaqueSurfaceModes.get(window.id) === opaqueWindowSurfaceEnabled) return;
   try {
     window.setBackgroundColor(backdrop.backgroundColor);
     if (platform === "darwin") {

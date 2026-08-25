@@ -4,7 +4,6 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
-import { ApplicationInitializationRuntime } from "../../host-runtime/ApplicationInitializationRuntime";
 import { ApplicationHostRuntime } from "../../host-runtime/ApplicationHostRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
@@ -29,18 +28,12 @@ it.effect("owns all application lifecycle handlers with the Main Scope", () =>
       has: () => true,
     } as unknown as WindowRuntime["Service"];
     const host = ApplicationHostRuntime.of({ requestMicrophonePermission: Effect.void });
-    const initialization = ApplicationInitializationRuntime.of({
-      awaitDone: Effect.void,
-      current: Effect.succeed({ phase: "done" }),
-      reportRenderer: () => Effect.void,
-    } as unknown as ApplicationInitializationRuntime["Service"]);
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live.pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ApplicationHostRuntime, host),
-            Layer.succeed(ApplicationInitializationRuntime, initialization),
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
             Layer.succeed(WindowRuntime, windows),
@@ -49,7 +42,7 @@ it.effect("owns all application lifecycle handlers with the Main Scope", () =>
       ),
       scope,
     );
-    assert.strictEqual(channels.size, 3);
+    assert.strictEqual(channels.size, 1);
 
     yield* Scope.close(scope, Exit.void);
     assert.strictEqual(channels.size, 0);

@@ -2,6 +2,7 @@
 
 | Spec                                         | Status | Last Updated | Summary                                                                                                                                                                   |
 | -------------------------------------------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| desktop-startup-behavior.md                  | Active | 2026-08-25   | Canonical first window, parser-time brand frame, native material, progress, ordered multi-window activation, and same-window failure recovery                             |
 | dictation-behavior.md                        | Active | 2026-08-23   | Composer and macOS global dictation, stream-first recovery, Voice settings, recording history, permissions, and privacy                                                   |
 | task-shorthand-page-promotion-behavior.md    | Active | 2026-08-21   | Block → Page task shorthand grammar, Core authority, fallback, authoring preview, modifiers, typed evidence, and safe Undo                                                |
 | new-chat-home-behavior.md                    | Active | 2026-08-15   | New Chat hero composition, Project selector, lazy glyph performance, directional 3D mark, reduced motion, and renderer handoff                                            |

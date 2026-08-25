@@ -2,7 +2,6 @@ import type { BrowserWindow } from "electron";
 import { Effect } from "effect";
 import type { InitialProjectPresentation } from "../../shared/initial-project-welcome";
 import type {
-  WindowRestorePolicy,
   WindowSessionBounds,
   WindowSessionNewWindowRequest,
   WindowSessionRecord,
@@ -35,7 +34,6 @@ export interface ApplicationWindowCoordinator {
     sourceWebContentsId: number,
     request: WindowSessionNewWindowRequest,
   ) => void;
-  readonly openStartup: (policy: WindowRestorePolicy) => void;
   readonly prepareQuit: Effect.Effect<WindowCleanupReport>;
   readonly requestNew: () => void;
   readonly resolveSessionId: (webContentsId: number) => string | null;
@@ -152,12 +150,6 @@ export const createApplicationWindowCoordinator = (
         return;
       }
       show(options.create(options.windows.cloneSessionForWindow(sourceWebContentsId, request)));
-    },
-    openStartup: (policy) => {
-      if (!accepting) return;
-      for (const session of options.windows.selectStartupSessions(policy)) {
-        options.create(session);
-      }
     },
     prepareQuit: Effect.suspend(() => {
       accepting = false;

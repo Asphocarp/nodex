@@ -70,6 +70,10 @@ const isDictationStreamingPortHandshake = (
 // the guest preload's sandbox contract bundle.
 const MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL: McpAppSandboxHostMessageChannel =
   "nodex:mcp-app-sandbox-host-message";
+const APP_INITIALIZATION_STEP_CHANNEL: typeof import("../shared/app-startup").APP_INITIALIZATION_STEP_CHANNEL =
+  "app:init-step";
+const APP_RESTART_CHANNEL: typeof import("../shared/app-startup").APP_RESTART_CHANNEL =
+  "app:restart";
 
 ipcRenderer.on(MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL, (event, message) => {
   const targetOrigin = window.location.origin;
@@ -104,6 +108,7 @@ contextBridge.exposeInMainWorld("api", {
     };
   },
   awaitInitialization: () => ipcRenderer.invoke("app:await-initialization"),
+  restartApplication: () => ipcRenderer.invoke(APP_RESTART_CHANNEL),
   getCoreAuthorityStatus: () =>
     ipcRenderer.invoke(GET_CORE_AUTHORITY_STATUS_CHANNEL) as Promise<CoreAuthorityStatus>,
   onCoreAuthorityStatus: (callback: (status: CoreAuthorityStatus) => void) => {
@@ -119,9 +124,9 @@ contextBridge.exposeInMainWorld("api", {
   onInitializationStep: (callback: (step: AppInitializationStep) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, step: AppInitializationStep) =>
       callback(step);
-    ipcRenderer.on("app:init-step", listener);
+    ipcRenderer.on(APP_INITIALIZATION_STEP_CHANNEL, listener);
     return () => {
-      ipcRenderer.removeListener("app:init-step", listener);
+      ipcRenderer.removeListener(APP_INITIALIZATION_STEP_CHANNEL, listener);
     };
   },
   reportInitializationReady: (input: { durationMs: number; outcome: "failed" | "ready" }) => {
