@@ -1,73 +1,55 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DefaultReactSuggestionItem, SuggestionMenuProps } from "@blocknote/react";
-import {
-  Ellipsis,
-  Heading1,
-  Link2,
-  SendHorizontal,
-  Settings2,
-} from "@/components/shared/icons/generic-icons";
+import { Ellipsis, Settings2 } from "@/components/shared/icons/generic-icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { ThreadIcon, BellIcon, CalendarIcon, ClockIcon, PageIcon } from "@/components/shared/icons";
-import { NfmSuggestionMenuSurface, type NfmSuggestionItem } from "./nfm-slash-menu";
+import {
+  buildNfmSlashMenuItems,
+  getNfmSlashMenuCustomItems,
+  NfmSuggestionMenuSurface,
+  type NfmSuggestionItem,
+} from "./nfm-slash-menu";
 import { StatusIcon } from "@/lib/status-presentation";
 
-const SLASH_ITEMS: NfmSuggestionItem[] = [
-  {
-    title: "Paragraph",
-    subtext: "Plain text block",
-    aliases: [],
-    group: "Basic blocks",
-    badge: "text",
-    icon: <PageIcon />,
-    onItemClick: () => undefined,
-  },
-  {
-    title: "Heading 1",
-    subtext: "Large section heading",
-    aliases: [],
-    group: "Basic blocks",
-    badge: "#",
-    icon: <Heading1 size={16} />,
-    onItemClick: () => undefined,
-  },
-  {
-    title: "Embed page",
-    subtext: "Show a live reference to another Page",
-    aliases: ["embed", "page reference"],
-    group: "Others",
-    hint: null,
-    icon: <Link2 size={16} />,
-    onItemClick: () => undefined,
-  },
-  {
-    title: "Mention a page",
-    subtext: "Start the normal @ mention flow",
-    aliases: ["mention", "@"],
-    group: "Others",
-    hint: null,
-    icon: <PageIcon />,
-    onItemClick: () => undefined,
-  },
-  {
-    title: "Thread Section",
-    subtext: "Insert a runnable notebook-style prompt boundary",
-    aliases: ["thread"],
-    group: "Others",
-    hint: null,
-    icon: <SendHorizontal size={16} />,
-    onItemClick: () => undefined,
-  },
-  {
-    title: "Agent Config",
-    subtext: "Insert a one-send plan-mode config chip",
-    aliases: ["agent-config"],
-    group: "Others",
-    hint: null,
-    icon: <Settings2 size={16} />,
-    onItemClick: () => undefined,
-  },
-];
+const STORY_DEFAULT_SLASH_KEYS = [
+  "paragraph",
+  "heading",
+  "heading_2",
+  "heading_3",
+  "toggle_heading",
+  "toggle_heading_2",
+  "toggle_heading_3",
+  "emoji",
+  "bullet_list",
+  "numbered_list",
+  "check_list",
+  "toggle_list",
+  "quote",
+  "code_block",
+  "divider",
+  "image",
+] as const;
+
+const SLASH_ITEMS = buildNfmSlashMenuItems(
+  STORY_DEFAULT_SLASH_KEYS.map(
+    (key) =>
+      ({
+        key,
+        title: key,
+        aliases: [],
+        onItemClick: () => undefined,
+      }) satisfies NfmSuggestionItem,
+  ),
+  getNfmSlashMenuCustomItems(
+    {},
+    {
+      createCanvasAtEmptyParagraph: async () => ({ canvasBlockId: "storybook-canvas" }),
+      startMentionFlow: () => undefined,
+      openEmbedPagePicker: () => undefined,
+      openSubpageCreator: () => undefined,
+    },
+  ),
+);
 
 const MENTION_ITEMS: NfmSuggestionItem[] = [
   {
@@ -254,16 +236,25 @@ export const DefaultMixedSlashMenu: Story = {
   args: {
     items: SLASH_ITEMS,
     loadingState: "loaded",
-    selectedIndex: 2,
+    selectedIndex: 0,
+    onItemClick: () => undefined,
+  },
+};
+
+export const CalloutCommand: Story = {
+  args: {
+    items: SLASH_ITEMS,
+    loadingState: "loaded",
+    selectedIndex: 13,
     onItemClick: () => undefined,
   },
 };
 
 export const FilteredCustomCommands: Story = {
   args: {
-    items: SLASH_ITEMS.slice(2),
+    items: SLASH_ITEMS.filter((item) => item.group === "Pages" || item.group === "Agent"),
     loadingState: "loaded",
-    selectedIndex: 3,
+    selectedIndex: 2,
     onItemClick: () => undefined,
   },
 };

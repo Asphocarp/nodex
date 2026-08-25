@@ -4588,6 +4588,67 @@ export function NfmSideMenuCodeBlockIcon({ className }: IconProps) {
   );
 }
 
+export function NfmTableBlockIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      className={cn("size-5 shrink-0", className)}
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M4.25 3.25h11.5c.828 0 1.5.672 1.5 1.5v10.5c0 .828-.672 1.5-1.5 1.5H4.25a1.5 1.5 0 0 1-1.5-1.5V4.75c0-.828.672-1.5 1.5-1.5M4 4.75c0-.138.112-.25.25-.25h5.125v2.75H4zm6.625-.25h5.125c.138 0 .25.112.25.25v2.5h-5.375zM4 8.5h5.375v2.75H4zm6.625 0H16v2.75h-5.375zM4 12.5h5.375v3H4.25a.25.25 0 0 1-.25-.25zm6.625 0H16v2.75a.25.25 0 0 1-.25.25h-5.125z"
+      />
+    </svg>
+  );
+}
+
+export function NfmImageBlockIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      className={cn("size-5 shrink-0", className)}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3.25" y="3.5" width="13.5" height="13" rx="1.75" />
+      <circle cx="7.25" cy="7.25" r="1.15" fill="currentColor" stroke="none" />
+      <path d="m4.5 14.25 3.55-3.55a.75.75 0 0 1 1.06 0l1.7 1.7 1.45-1.45a.75.75 0 0 1 1.06 0l2.18 2.18" />
+    </svg>
+  );
+}
+
+export function NfmCalloutBlockIcon({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      className={cn("size-5 shrink-0", className)}
+      fill="none"
+      aria-hidden="true"
+    >
+      <rect
+        x="3.25"
+        y="3.25"
+        width="13.5"
+        height="13.5"
+        rx="1.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        fill="currentColor"
+        d="M5.625 5.5h8.75c.345 0 .625.28.625.625v1.5a.625.625 0 1 1-1.25 0V6.75h-3.125v6.5h.75a.625.625 0 1 1 0 1.25h-2.75a.625.625 0 1 1 0-1.25h.75v-6.5H6.25v.875a.625.625 0 1 1-1.25 0v-1.5c0-.345.28-.625.625-.625"
+      />
+    </svg>
+  );
+}
+
 export function NfmSideMenuPageInIcon({ className }: IconProps) {
   return (
     <svg
@@ -4636,7 +4697,6 @@ export function NfmSideMenuTableHeaderIcon({ className }: IconProps) {
       <rect x="3.5" y="4.25" width="13" height="11.5" rx="1.25" />
       <path d="M3.5 8h13" />
       <path d="M8 4.25v11.5" />
-      <path d="M3.5 8h13" strokeWidth="2" />
     </svg>
   );
 }

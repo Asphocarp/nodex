@@ -8,6 +8,7 @@ import {
   buildPageSearchUnavailableSuggestionItem,
   buildNfmDateMentionInlineContent,
   buildNfmDateMentionSuggestionItems,
+  buildNfmSlashMenuItems,
   buildNfmThreadMentionInlineContent,
   buildNfmThreadMentionSuggestionItems,
   getNfmSlashMenuCustomItems,
@@ -182,6 +183,101 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
 }
 
 describe("NfmSlashMenu", () => {
+  test("owns the complete slash catalog vocabulary, grouping, order, and icons", () => {
+    const defaultKeys = [
+      "image",
+      "heading_6",
+      "quote",
+      "paragraph",
+      "heading",
+      "heading_2",
+      "heading_3",
+      "heading_4",
+      "heading_5",
+      "toggle_heading",
+      "toggle_heading_2",
+      "toggle_heading_3",
+      "toggle_list",
+      "numbered_list",
+      "bullet_list",
+      "check_list",
+      "code_block",
+      "divider",
+      "table",
+      "emoji",
+      "unknown_upstream_item",
+    ];
+    const defaults = defaultKeys.map(
+      (key) =>
+        ({
+          key,
+          title: `Legacy ${key}`,
+          aliases: [],
+          group: "Legacy",
+          icon: <span data-legacy-slash-icon="true" />,
+          onItemClick: () => undefined,
+        }) satisfies NfmSuggestionItem,
+    );
+    const customItems = getNfmSlashMenuCustomItems(
+      {},
+      {
+        createCanvasAtEmptyParagraph: async () => ({ canvasBlockId: "canvas-1" }),
+        startMentionFlow: () => undefined,
+        openEmbedPagePicker: () => undefined,
+        openSubpageCreator: () => undefined,
+      },
+    );
+
+    const items = buildNfmSlashMenuItems(defaults, customItems);
+
+    expect(items.map(({ title }) => title)).toEqual([
+      "Text",
+      "Heading 1",
+      "Heading 2",
+      "Heading 3",
+      "Toggle heading 1",
+      "Toggle heading 2",
+      "Toggle heading 3",
+      "Emoji",
+      "Bulleted list",
+      "Numbered list",
+      "To-do list",
+      "Toggle list",
+      "Quote",
+      "Callout",
+      "Code",
+      "Divider",
+      "Table",
+      "Image",
+      "Subpage",
+      "Mention a page",
+      "Embed page",
+      "Canvas",
+      "Thread Section",
+      "Agent Config",
+    ]);
+    expect(
+      items
+        .filter((item, index) => index === 0 || item.group !== items[index - 1]?.group)
+        .map(({ group }) => group),
+    ).toEqual(["Text", "Lists", "Blocks", "Pages", "Agent"]);
+    expect(items.some(({ key }) => key === "heading_4" || key === "heading_5")).toBe(false);
+    expect(items.some(({ key }) => key === "heading_6" || key === "unknown_upstream_item")).toBe(
+      false,
+    );
+
+    const view = renderSuggestionMenu({
+      items,
+      loadingState: "loaded",
+      selectedIndex: 0,
+      onItemClick: () => undefined,
+    });
+    expect(view.container.querySelector("[data-legacy-slash-icon]")).toBeNull();
+    expect(view.getAllByRole("option").every((row) => row.querySelector("svg") !== null)).toBe(
+      true,
+    );
+  });
+
   test("turns the slash command into the normal visible @ mention flow", () => {
     const openSuggestionMenu = vi.fn();
 
@@ -254,6 +350,7 @@ describe("NfmSlashMenu", () => {
       },
     ) as NfmSuggestionItem[];
     const actionKeys = [
+      "callout",
       "table",
       "canvas",
       "mention_page",
@@ -269,6 +366,32 @@ describe("NfmSlashMenu", () => {
       expect(item.aliases ?? []).not.toHaveLength(0);
       expect(resolveNfmSuggestionHint(item)).toBe(null);
     }
+  });
+
+  test("inserts Callout through the same slash replacement boundary as other blocks", () => {
+    let currentBlock = { id: "block-1", type: "paragraph", content: [] as unknown[] };
+    const updateBlock = vi.fn((block: typeof currentBlock, patch: { type: string }) => {
+      currentBlock = { ...block, ...patch };
+      return currentBlock;
+    });
+    const editor = {
+      getTextCursorPosition: () => ({ block: currentBlock }),
+      updateBlock,
+      setTextCursorPosition: vi.fn(),
+      schema: {
+        blockSchema: {
+          paragraph: { content: "inline" },
+          callout: { content: "inline" },
+        },
+      },
+    };
+    const calloutItem = getNfmSlashMenuCustomItems(editor).find((item) => item.key === "callout");
+
+    expect(calloutItem).toMatchObject({ title: "Callout", group: "Blocks" });
+    calloutItem?.onItemClick();
+
+    expect(updateBlock).toHaveBeenCalledTimes(1);
+    expect(updateBlock.mock.calls[0]?.[1]).toEqual({ type: "callout" });
   });
 
   test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {

@@ -37,25 +37,17 @@ import {
   CodeBracketsIcon,
   DragHandleDotsIcon,
   NfmSideMenuAiFaceIcon,
-  NfmSideMenuBulletedListBlockIcon,
   NfmSideMenuChevronRightIcon,
-  NfmSideMenuCheckListBlockIcon,
-  NfmSideMenuCodeBlockIcon,
   NfmSideMenuColorIcon,
   NfmSideMenuCommentIcon,
   NfmSideMenuCopyLinkIcon,
   NfmSideMenuDeleteIcon,
   NfmSideMenuDuplicateIcon,
-  NfmSideMenuHeadingBlockIcon,
   NfmSideMenuMoveToIcon,
-  NfmSideMenuNumberedListBlockIcon,
   NfmSideMenuPageInIcon,
   NfmSideMenuPlayIcon,
-  NfmSideMenuQuoteBlockIcon,
   NfmSideMenuSuggestEditsIcon,
   NfmSideMenuTableHeaderIcon,
-  NfmSideMenuTextBlockIcon,
-  NfmSideMenuToggleListBlockIcon,
   NfmSideMenuTurnIntoIcon,
   PlusIcon,
 } from "@/components/shared/icons";
@@ -70,6 +62,7 @@ import type { LibraryStructuralTurnIntoTarget } from "../../../../shared/library
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 import { NfmFloatingPopover, type NfmPopoverReference } from "./nfm-floating-popover";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
+import { NfmTurnIntoBlockIcon, type NfmTurnIntoBlockKey } from "./nfm-turn-into-block-icon";
 import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
 import {
   buildNfmSideMenuSections,
@@ -201,7 +194,7 @@ interface NfmSideMenuColorOption {
 }
 
 interface NfmSideMenuTurnIntoItem {
-  key: string;
+  key: NfmTurnIntoBlockKey;
   label: string;
   type: string;
   props?: Record<string, boolean | number | string>;
@@ -549,22 +542,7 @@ function getTurnIntoItems(
 }
 
 function getBlockTypeIcon(item: NfmSideMenuTurnIntoItem) {
-  if (item.key === "heading-1" || item.key === "toggle-heading-1") {
-    return <NfmSideMenuHeadingBlockIcon level={1} />;
-  }
-  if (item.key === "heading-2" || item.key === "toggle-heading-2") {
-    return <NfmSideMenuHeadingBlockIcon level={2} />;
-  }
-  if (item.key === "heading-3" || item.key === "toggle-heading-3") {
-    return <NfmSideMenuHeadingBlockIcon level={3} />;
-  }
-  if (item.key === "bullet-list") return <NfmSideMenuBulletedListBlockIcon />;
-  if (item.key === "numbered-list") return <NfmSideMenuNumberedListBlockIcon />;
-  if (item.key === "todo-list") return <NfmSideMenuCheckListBlockIcon />;
-  if (item.key === "toggle-list") return <NfmSideMenuToggleListBlockIcon />;
-  if (item.key === "quote") return <NfmSideMenuQuoteBlockIcon />;
-  if (item.key === "code") return <NfmSideMenuCodeBlockIcon />;
-  return <NfmSideMenuTextBlockIcon />;
+  return <NfmTurnIntoBlockIcon targetKey={item.key} />;
 }
 
 function getActionIcon(key: NfmSideMenuActionKey) {
