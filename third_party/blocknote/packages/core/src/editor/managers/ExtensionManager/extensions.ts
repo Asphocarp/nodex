@@ -5,7 +5,7 @@ import {
   Extension as TiptapExtension,
 } from "@tiptap/core";
 import { Gapcursor } from "@tiptap/extensions/gap-cursor";
-import type { Transaction } from "prosemirror-state";
+import { Plugin, type Transaction } from "prosemirror-state";
 import { ySyncPluginKey } from "y-prosemirror";
 import { LinkExtension } from "../../../extensions/tiptap-extensions/Link/link.js";
 import { Text } from "@tiptap/extension-text";
@@ -53,6 +53,60 @@ const isCollaborationChangeOrigin = (transaction: Transaction): boolean => {
   return "isChangeOrigin" in metadata && metadata.isChangeOrigin === true;
 };
 
+const blockContainerAcceptsChildren = (
+  node: import("prosemirror-model").Node,
+  editor: BlockNoteEditor<any, any, any>,
+): boolean => {
+  if (node.type.name !== "blockContainer" || node.childCount < 2) return true;
+  const content = node.firstChild;
+  if (!content) return false;
+  return editor.schema.acceptsBlockChildren({
+    type: content.type.name,
+    props: content.attrs,
+  });
+};
+
+/** Validates only changed ranges and their ancestor Block containers. */
+const transactionPreservesBlockChildrenContract = (
+  transaction: Transaction,
+  editor: BlockNoteEditor<any, any, any>,
+): boolean => {
+  if (!transaction.docChanged || isCollaborationChangeOrigin(transaction)) return true;
+
+  let valid = true;
+  const validatePosition = (position: number) => {
+    const resolved = transaction.doc.resolve(
+      Math.max(0, Math.min(position, transaction.doc.content.size)),
+    );
+    for (let depth = resolved.depth; depth > 0; depth -= 1) {
+      if (!blockContainerAcceptsChildren(resolved.node(depth), editor)) {
+        valid = false;
+        return;
+      }
+    }
+  };
+
+  for (const [stepIndex, step] of transaction.steps.entries()) {
+    step.getMap().forEach((_oldStart, _oldEnd, newStart, newEnd) => {
+      if (!valid) return;
+      const remainingMapping = transaction.mapping.slice(stepIndex + 1);
+      const finalStart = remainingMapping.map(newStart, -1);
+      const finalEnd = remainingMapping.map(newEnd, 1);
+      validatePosition(finalStart);
+      validatePosition(finalEnd);
+      transaction.doc.nodesBetween(finalStart, finalEnd, (node) => {
+        if (!blockContainerAcceptsChildren(node, editor)) {
+          valid = false;
+          return false;
+        }
+        return valid;
+      });
+    });
+    if (!valid) return false;
+  }
+  return valid;
+};
+
 /**
  * Get all the Tiptap extensions BlockNote is configured with by default
  */
@@ -83,6 +137,17 @@ export function getDefaultTiptapExtensions(
       // and receive fresh IDs before collaboration persists them.
       filterTransaction: (transaction) =>
         !isCollaborationChangeOrigin(transaction),
+    }),
+    TiptapExtension.create({
+      name: "BlockChildrenContract",
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            filterTransaction: (transaction) =>
+              transactionPreservesBlockChildrenContract(transaction, editor),
+          }),
+        ];
+      },
     }),
     HardBreak,
     Text,

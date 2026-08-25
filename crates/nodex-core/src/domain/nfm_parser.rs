@@ -11,8 +11,6 @@ use super::nfm::{
 };
 use super::ordinary_block::{default_props, quote_props};
 
-const TOGGLE_LIST_PROPERTIES: &[&str] = &["priority", "estimate", "status", "tags"];
-
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum NfmParseError {
     #[error("invalid NFM at line {line}: {message}")]
@@ -117,9 +115,6 @@ fn parse_block(
     }
     if trimmed.starts_with("<table") {
         return parse_xml_table(lines, index, indent);
-    }
-    if trimmed.starts_with("<card-toggle") {
-        return parse_card_toggle(lines, index, indent);
     }
     if let Some(block) = parse_image(trimmed) {
         return Ok((block, index + 1));
@@ -286,55 +281,6 @@ fn parse_callout(
     ))
 }
 
-fn parse_card_toggle(
-    lines: &[&str],
-    index: usize,
-    indent: usize,
-) -> Result<(NfmBlock, usize), NfmParseError> {
-    let opening = lines[index][indent..].trim();
-    let attrs = opening
-        .strip_prefix("<card-toggle")
-        .and_then(|value| value.strip_suffix('>'))
-        .ok_or_else(|| syntax(index, "invalid card-toggle opening tag"))?;
-    let attrs = parse_xml_attrs(attrs);
-    let mut cursor = index + 1;
-    let mut title = None;
-    let mut child_lines = Vec::new();
-    let mut closed = false;
-    while cursor < lines.len() {
-        let line = strip_minimum_indent(lines[cursor], indent)
-            .ok_or_else(|| syntax(cursor, "card-toggle indentation is invalid"))?;
-        if line.trim_end() == "</card-toggle>" {
-            cursor += 1;
-            closed = true;
-            break;
-        }
-        let inner = line.strip_prefix('\t').unwrap_or(line);
-        if title.is_none() {
-            title = Some(inner.to_owned());
-        } else {
-            child_lines.push(inner);
-        }
-        cursor += 1;
-    }
-    if !closed {
-        return Err(syntax(index, "card-toggle is missing its closing tag"));
-    }
-    Ok((
-        NfmBlock::CardToggle {
-            page_id: attrs.get("card").cloned().unwrap_or_default(),
-            meta: attrs.get("meta").cloned().unwrap_or_default(),
-            snapshot: non_empty_attr(&attrs, "snapshot"),
-            source_project_id: non_empty_attr(&attrs, "project"),
-            source_status: non_empty_attr(&attrs, "status"),
-            source_status_name: non_empty_attr(&attrs, "status-name"),
-            content: parse_inline_content(title.as_deref().unwrap_or("")),
-            children: parse_nfm(&child_lines.join("\n"))?,
-        },
-        cursor,
-    ))
-}
-
 fn parse_image(line: &str) -> Option<NfmBlock> {
     let opening_end = line.find('>')?;
     let closing = line.strip_suffix("</image>")?;
@@ -370,23 +316,6 @@ fn parse_self_closing_block(
     let name = &inner[..name_end];
     let attrs = parse_xml_attrs(&inner[name_end..]);
     let block = match name {
-        "toggle-list-inline-view" => NfmBlock::ToggleListInlineView {
-            source_project_id: attrs
-                .get("project")
-                .cloned()
-                .unwrap_or_else(|| "default".to_owned()),
-            rules_v2_b64: non_empty_attr(&attrs, "rules-v2"),
-            property_order: csv_attr(&attrs, "property-order")
-                .into_iter()
-                .filter(|value| TOGGLE_LIST_PROPERTIES.contains(&value.as_str()))
-                .collect(),
-            hidden_properties: csv_attr(&attrs, "hidden-properties")
-                .into_iter()
-                .filter(|value| TOGGLE_LIST_PROPERTIES.contains(&value.as_str()))
-                .collect(),
-            show_empty_estimate: bool_attr(&attrs, "show-empty-estimate"),
-            show_empty_priority: bool_attr(&attrs, "show-empty-priority"),
-        },
         "database-view-ref" => NfmBlock::DatabaseViewRef {
             database_view_id: attrs.get("database-view").cloned().unwrap_or_default(),
             display_hint: non_empty_attr(&attrs, "display-hint"),
@@ -413,29 +342,16 @@ fn parse_self_closing_block(
             thread_id: non_empty_attr(&attrs, "thread"),
             children: Vec::new(),
         },
-        "page" | "card" => NfmBlock::Page {
-            uuid: attrs.get("uuid").cloned().unwrap_or_default(),
-        },
+        "page" => {
+            let uuid = exact_non_empty_attr(&attrs, "uuid")
+                .ok_or_else(|| syntax(line_index, "page requires an exact uuid"))?;
+            NfmBlock::Page { uuid }
+        }
         "page-ref" => {
             let url = attrs.get("url").cloned().unwrap_or_default();
             let target_block_id = parse_page_deep_link(&url)
                 .ok_or_else(|| syntax(line_index, "Page reference URL is invalid"))?;
             NfmBlock::PageRef { target_block_id }
-        }
-        "card-ref" => {
-            if let Some(target_block_id) = attrs.get("target-block") {
-                NfmBlock::PageRef {
-                    target_block_id: target_block_id.clone(),
-                }
-            } else {
-                NfmBlock::CardRef {
-                    source_project_id: attrs
-                        .get("project")
-                        .cloned()
-                        .unwrap_or_else(|| "default".to_owned()),
-                    page_id: attrs.get("card").cloned().unwrap_or_default(),
-                }
-            }
         }
         _ => return Ok(None),
     };
@@ -652,21 +568,20 @@ fn set_children(block: &mut NfmBlock, children: Vec<NfmBlock>) -> bool {
     let target = match block {
         NfmBlock::Paragraph { children, .. }
         | NfmBlock::EmptyBlock { children }
-        | NfmBlock::Heading { children, .. }
         | NfmBlock::BulletListItem { children, .. }
         | NfmBlock::NumberedListItem { children, .. }
         | NfmBlock::CheckListItem { children, .. }
         | NfmBlock::Toggle { children, .. }
         | NfmBlock::Blockquote { children, .. }
-        | NfmBlock::CodeBlock { children, .. }
-        | NfmBlock::Callout { children, .. }
-        | NfmBlock::Image { children, .. }
-        | NfmBlock::ThreadSection { children, .. }
-        | NfmBlock::CardToggle { children, .. }
-        | NfmBlock::Divider { children } => children,
+        | NfmBlock::Callout { children, .. } => children,
+        NfmBlock::Heading {
+            is_toggleable: true,
+            children,
+            ..
+        } => children,
         _ => return false,
     };
-    *target = children;
+    target.extend(children);
     true
 }
 
@@ -876,47 +791,6 @@ fn materialize_parsed_block(
             }
             ("image", props, None, children.as_slice()).with_color(color)
         }
-        NfmBlock::ToggleListInlineView {
-            source_project_id,
-            rules_v2_b64,
-            property_order,
-            hidden_properties,
-            show_empty_estimate,
-            show_empty_priority,
-        } => {
-            let mut props = default_props();
-            props.extend([
-                (
-                    "sourceProjectId".to_owned(),
-                    Value::String(source_project_id.clone()),
-                ),
-                (
-                    "rulesV2B64".to_owned(),
-                    Value::String(rules_v2_b64.clone().unwrap_or_default()),
-                ),
-                (
-                    "propertyOrderCsv".to_owned(),
-                    Value::String(if property_order.is_empty() {
-                        "priority,estimate,status".to_owned()
-                    } else {
-                        property_order.join(",")
-                    }),
-                ),
-                (
-                    "hiddenPropertiesCsv".to_owned(),
-                    Value::String(hidden_properties.join(",")),
-                ),
-                (
-                    "showEmptyEstimate".to_owned(),
-                    Value::String(show_empty_estimate.unwrap_or(false).to_string()),
-                ),
-                (
-                    "showEmptyPriority".to_owned(),
-                    Value::String(show_empty_priority.unwrap_or(false).to_string()),
-                ),
-            ]);
-            ("toggleListInlineView", props, None, &[])
-        }
         NfmBlock::DatabaseViewRef {
             database_view_id,
             display_hint,
@@ -976,12 +850,6 @@ fn materialize_parsed_block(
             None,
             &[],
         ),
-        NfmBlock::CardRef { page_id, .. } => (
-            "pageRef",
-            BTreeMap::from([("targetBlockId".to_owned(), Value::String(page_id.clone()))]),
-            None,
-            &[],
-        ),
         NfmBlock::ThreadSection {
             label,
             thread_id,
@@ -997,46 +865,6 @@ fn materialize_parsed_block(
                 Value::String(thread_id.clone().unwrap_or_default()),
             );
             ("threadSection", props, None, children)
-        }
-        NfmBlock::CardToggle {
-            page_id,
-            meta,
-            snapshot,
-            source_project_id,
-            source_status,
-            source_status_name,
-            content,
-            children,
-        } => {
-            let mut props = default_props();
-            props.extend([
-                ("cardId".to_owned(), Value::String(page_id.clone())),
-                ("meta".to_owned(), Value::String(meta.clone())),
-                (
-                    "snapshot".to_owned(),
-                    Value::String(snapshot.clone().unwrap_or_default()),
-                ),
-                (
-                    "sourceProjectId".to_owned(),
-                    Value::String(source_project_id.clone().unwrap_or_default()),
-                ),
-                (
-                    "sourceStatus".to_owned(),
-                    Value::String(source_status.clone().unwrap_or_default()),
-                ),
-                (
-                    "sourceStatusName".to_owned(),
-                    Value::String(source_status_name.clone().unwrap_or_default()),
-                ),
-                ("projectionOwnerId".to_owned(), Value::String(String::new())),
-                ("projectionKind".to_owned(), Value::String(String::new())),
-                (
-                    "projectionSourceProjectId".to_owned(),
-                    Value::String(String::new()),
-                ),
-                ("projectionCardId".to_owned(), Value::String(String::new())),
-            ]);
-            ("cardToggle", props, Some(inline_json(content)), children)
         }
         NfmBlock::Divider { children } => ("divider", BTreeMap::new(), None, children),
     };
@@ -1419,20 +1247,6 @@ fn exact_non_empty_attr(attrs: &BTreeMap<String, String>, key: &str) -> Option<S
         .cloned()
 }
 
-fn csv_attr(attrs: &BTreeMap<String, String>, key: &str) -> Vec<String> {
-    attrs
-        .get(key)
-        .map(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn bool_attr(attrs: &BTreeMap<String, String>, key: &str) -> Option<bool> {
     match attrs.get(key).map(String::as_str) {
         Some("true") => Some(true),
@@ -1487,8 +1301,8 @@ mod tests {
         })
         .expect("materialized parsed NFM");
         let replaced = materialize_nfm(&materialized).expect("NFM").nfm;
-        assert!(replaced.contains("<page uuid=\"parsed-17\" />"));
-        assert!(replaced.contains("<database uuid=\"parsed-18\" />"));
+        assert!(replaced.contains("<page uuid=\"parsed-15\" />"));
+        assert!(replaced.contains("<database uuid=\"parsed-16\" />"));
     }
 
     #[test]
@@ -1533,6 +1347,28 @@ mod tests {
         let error = materialize_nfm_blocks_with_ids(&parsed, &mut || "duplicate".to_owned())
             .expect_err("duplicate IDs");
         assert_eq!(error, NfmBlockMaterializationError::InvalidBlockId);
+    }
+
+    #[test]
+    fn callout_body_and_children_keep_distinct_structural_roles() {
+        let inner = parse_nfm("Callout body\nCallout child").expect("Callout inner NFM");
+        assert_eq!(inner.len(), 2, "{inner:#?}");
+        let parsed =
+            parse_nfm("<callout icon=\"💡\">\n\tCallout body\n\tCallout child\n</callout>")
+                .expect("nested Callout NFM");
+
+        assert!(
+            matches!(
+                parsed.as_slice(),
+                [NfmBlock::Callout {
+                    content,
+                    children,
+                    ..
+                }] if !content.is_empty()
+                    && matches!(children.as_slice(), [NfmBlock::Paragraph { children, .. }] if children.is_empty())
+            ),
+            "{parsed:#?}",
+        );
     }
 
     #[test]

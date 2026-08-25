@@ -1043,7 +1043,7 @@ fn build_dormant_document_closure(
         return Ok(None);
     };
     if schema_key != "nodex.page"
-        || schema_version != 2
+        || schema_version != 3
         || readiness != "ready"
         || authority != "ydoc_primary"
         || sync_engine != "yjs"
@@ -1855,7 +1855,7 @@ mod tests {
                         "INSERT INTO documents( \
                            id, library_id, schema_key, schema_version, created_at, updated_at \
                          ) VALUES ( \
-                           'document:owned-page', ?1, 'nodex.page', 2, ?2, ?2 \
+                           'document:owned-page', ?1, 'nodex.page', 3, ?2, ?2 \
                          )",
                         params![LIBRARY_ID, "2026-01-01T00:00:00.000Z"],
                     )?;
@@ -1930,7 +1930,7 @@ mod tests {
                             connection.execute(
                                 "INSERT INTO documents( \
                                id, library_id, schema_key, schema_version, created_at, updated_at \
-                             ) VALUES (?1, ?2, 'nodex.page', 2, ?3, ?3)",
+                             ) VALUES (?1, ?2, 'nodex.page', 3, ?3, ?3)",
                                 params![document_id, LIBRARY_ID, now],
                             )?;
                             connection.execute(
@@ -2527,7 +2527,7 @@ mod tests {
                     "INSERT INTO documents( \
                        id, library_id, schema_key, schema_version, created_at, updated_at \
                      ) VALUES ('document:key-retention-successor', 'library:block-retention', \
-                       'nodex.page', 2, ?1, ?1)",
+                       'nodex.page', 3, ?1, ?1)",
                     [old],
                 )?;
                 connection.execute(
@@ -2675,7 +2675,7 @@ mod tests {
                     connection.execute(
                         "INSERT INTO documents(\
                            id, library_id, schema_key, schema_version, created_at, updated_at\
-                         ) VALUES (?1, ?2, 'nodex.page', 2, ?3, ?3)",
+                         ) VALUES (?1, ?2, 'nodex.page', 3, ?3, ?3)",
                         params![document_id, LIBRARY_ID, old],
                     )?;
                     connection.execute(

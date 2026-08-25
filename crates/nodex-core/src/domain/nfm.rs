@@ -25,8 +25,6 @@ pub(crate) const NFM_COLORS: &[&str] = &[
     "pink_bg",
     "red_bg",
 ];
-const TOGGLE_LIST_PROPERTIES: &[&str] = &["priority", "estimate", "status", "tags"];
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NfmStyleSet {
     pub bold: bool,
@@ -176,14 +174,6 @@ pub enum NfmBlock {
         color: Option<String>,
         children: Vec<NfmBlock>,
     },
-    ToggleListInlineView {
-        source_project_id: String,
-        rules_v2_b64: Option<String>,
-        property_order: Vec<String>,
-        hidden_properties: Vec<String>,
-        show_empty_estimate: Option<bool>,
-        show_empty_priority: Option<bool>,
-    },
     DatabaseViewRef {
         database_view_id: String,
         display_hint: Option<String>,
@@ -207,23 +197,9 @@ pub enum NfmBlock {
     PageRef {
         target_block_id: String,
     },
-    CardRef {
-        source_project_id: String,
-        page_id: String,
-    },
     ThreadSection {
         label: Option<String>,
         thread_id: Option<String>,
-        children: Vec<NfmBlock>,
-    },
-    CardToggle {
-        page_id: String,
-        meta: String,
-        snapshot: Option<String>,
-        source_project_id: Option<String>,
-        source_status: Option<String>,
-        source_status_name: Option<String>,
-        content: Vec<NfmInlineContent>,
         children: Vec<NfmBlock>,
     },
     Divider {
@@ -407,15 +383,6 @@ fn materialize_block(block: &MaterializedBlockNode) -> Result<NfmBlock, NfmMater
                 children,
             }
         }
-        "toggleListInlineView" => NfmBlock::ToggleListInlineView {
-            source_project_id: non_empty_string_prop(&block.props, "sourceProjectId")
-                .unwrap_or_else(|| "default".to_owned()),
-            rules_v2_b64: non_empty_string_prop(&block.props, "rulesV2B64"),
-            property_order: csv_prop(&block.props, "propertyOrderCsv"),
-            hidden_properties: csv_prop(&block.props, "hiddenPropertiesCsv"),
-            show_empty_estimate: boolean_string_prop(&block.props, "showEmptyEstimate"),
-            show_empty_priority: boolean_string_prop(&block.props, "showEmptyPriority"),
-        },
         "databaseViewRef" => NfmBlock::DatabaseViewRef {
             database_view_id: non_empty_string_prop(&block.props, "databaseViewId")
                 .unwrap_or_default(),
@@ -446,16 +413,6 @@ fn materialize_block(block: &MaterializedBlockNode) -> Result<NfmBlock, NfmMater
         "threadSection" => NfmBlock::ThreadSection {
             label: non_empty_string_prop(&block.props, "label"),
             thread_id: non_empty_string_prop(&block.props, "threadId"),
-            children,
-        },
-        "cardToggle" => NfmBlock::CardToggle {
-            page_id: non_empty_string_prop(&block.props, "cardId").unwrap_or_default(),
-            meta: non_empty_string_prop(&block.props, "meta").unwrap_or_default(),
-            snapshot: non_empty_string_prop(&block.props, "snapshot"),
-            source_project_id: non_empty_string_prop(&block.props, "sourceProjectId"),
-            source_status: non_empty_string_prop(&block.props, "sourceStatus"),
-            source_status_name: non_empty_string_prop(&block.props, "sourceStatusName"),
-            content: inline(),
             children,
         },
         "divider" => NfmBlock::Divider { children },
@@ -986,44 +943,6 @@ fn serialize_blocks(blocks: &[NfmBlock], indent: usize) -> Vec<String> {
                 ));
                 lines.extend(serialize_blocks(children, indent + 1));
             }
-            NfmBlock::ToggleListInlineView {
-                source_project_id,
-                rules_v2_b64,
-                property_order,
-                hidden_properties,
-                show_empty_estimate,
-                show_empty_priority,
-            } => {
-                let mut attrs = vec![format!(
-                    "project=\"{}\"",
-                    escape_xml_attr(source_project_id)
-                )];
-                if let Some(rules) = rules_v2_b64.as_ref().filter(|value| !value.is_empty()) {
-                    attrs.push(format!("rules-v2=\"{}\"", escape_xml_attr(rules)));
-                }
-                if !property_order.is_empty() {
-                    attrs.push(format!(
-                        "property-order=\"{}\"",
-                        escape_xml_attr(&property_order.join(","))
-                    ));
-                }
-                if !hidden_properties.is_empty() {
-                    attrs.push(format!(
-                        "hidden-properties=\"{}\"",
-                        escape_xml_attr(&hidden_properties.join(","))
-                    ));
-                }
-                if let Some(value) = show_empty_estimate {
-                    attrs.push(format!("show-empty-estimate=\"{value}\""));
-                }
-                if let Some(value) = show_empty_priority {
-                    attrs.push(format!("show-empty-priority=\"{value}\""));
-                }
-                lines.push(format!(
-                    "{prefix}<toggle-list-inline-view {} />",
-                    attrs.join(" ")
-                ));
-            }
             NfmBlock::DatabaseViewRef {
                 database_view_id,
                 display_hint,
@@ -1070,14 +989,6 @@ fn serialize_blocks(blocks: &[NfmBlock], indent: usize) -> Vec<String> {
                 "{prefix}<page-ref url=\"{}\" />",
                 escape_xml_attr(&build_page_deep_link(target_block_id))
             )),
-            NfmBlock::CardRef {
-                source_project_id,
-                page_id,
-            } => lines.push(format!(
-                "{prefix}<card-ref project=\"{}\" card=\"{}\" />",
-                escape_xml_attr(source_project_id),
-                escape_xml_attr(page_id)
-            )),
             NfmBlock::ThreadSection {
                 label,
                 thread_id,
@@ -1097,35 +1008,6 @@ fn serialize_blocks(blocks: &[NfmBlock], indent: usize) -> Vec<String> {
                 };
                 lines.push(format!("{prefix}<thread-section{suffix} />"));
                 lines.extend(serialize_blocks(children, indent + 1));
-            }
-            NfmBlock::CardToggle {
-                page_id,
-                meta,
-                snapshot,
-                source_project_id,
-                source_status,
-                source_status_name,
-                content,
-                children,
-            } => {
-                let mut attrs = vec![
-                    format!("card=\"{}\"", escape_xml_attr(page_id)),
-                    format!("meta=\"{}\"", escape_xml_attr(meta)),
-                ];
-                for (name, value) in [
-                    ("snapshot", snapshot),
-                    ("project", source_project_id),
-                    ("status", source_status),
-                    ("status-name", source_status_name),
-                ] {
-                    if let Some(value) = value.as_ref().filter(|value| !value.is_empty()) {
-                        attrs.push(format!("{name}=\"{}\"", escape_xml_attr(value)));
-                    }
-                }
-                lines.push(format!("{prefix}<card-toggle {}>", attrs.join(" ")));
-                lines.push(format!("{prefix}\t{}", serialize_inline_content(content)));
-                lines.extend(serialize_blocks(children, indent + 1));
-                lines.push(format!("{prefix}</card-toggle>"));
             }
             NfmBlock::Divider { children } => {
                 lines.push(format!("{prefix}---"));
@@ -1472,18 +1354,6 @@ fn collect_block_text(blocks: &[NfmBlock], parts: &mut Vec<String>) {
                 collect_inline_text(content, parts);
                 collect_block_text(children, parts);
             }
-            NfmBlock::CardToggle {
-                content,
-                children,
-                page_id,
-                meta,
-                ..
-            } => {
-                collect_inline_text(content, parts);
-                parts.push(page_id.clone());
-                parts.push(meta.clone());
-                collect_block_text(children, parts);
-            }
             NfmBlock::Image {
                 caption, children, ..
             } => {
@@ -1501,7 +1371,6 @@ fn collect_block_text(blocks: &[NfmBlock], parts: &mut Vec<String>) {
                     }
                 }
             }
-            NfmBlock::CardRef { page_id, .. } => parts.push(page_id.clone()),
             NfmBlock::PageRef { target_block_id } => {
                 parts.push(build_page_deep_link(target_block_id))
             }
@@ -1531,10 +1400,7 @@ fn collect_block_text(blocks: &[NfmBlock], parts: &mut Vec<String>) {
             NfmBlock::EmptyBlock { children } | NfmBlock::Divider { children } => {
                 collect_block_text(children, parts);
             }
-            NfmBlock::ToggleListInlineView { .. }
-            | NfmBlock::Canvas { .. }
-            | NfmBlock::Database { .. }
-            | NfmBlock::Page { .. } => {}
+            NfmBlock::Canvas { .. } | NfmBlock::Database { .. } | NfmBlock::Page { .. } => {}
         }
     }
 }
@@ -2252,29 +2118,6 @@ fn positive_integer_prop(
     number_prop(props, key)
         .filter(|value| value.is_finite() && *value > 0.0 && value.fract() == 0.0)
         .map(|value| value as u64)
-}
-fn csv_prop(props: &std::collections::BTreeMap<String, Value>, key: &str) -> Vec<String> {
-    string_prop(props, key)
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|value| TOGGLE_LIST_PROPERTIES.contains(value))
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-fn boolean_string_prop(
-    props: &std::collections::BTreeMap<String, Value>,
-    key: &str,
-) -> Option<bool> {
-    match string_prop(props, key) {
-        Some("true") => Some(true),
-        Some("false") => Some(false),
-        _ => None,
-    }
 }
 fn normalize_code_language(value: Option<&str>) -> String {
     let value = value.unwrap_or_default().trim();

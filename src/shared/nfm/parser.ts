@@ -1,7 +1,5 @@
 import type {
   NfmBlock,
-  NfmCardToggle,
-  NfmCardRef,
   NfmPageRef,
   NfmPage,
   NfmDatabase,
@@ -14,10 +12,9 @@ import type {
   NfmThreadSection,
   NfmSyncedBlockRef,
   NfmReusableTemplateRef,
-  NfmToggleListInlineView,
 } from "./types";
 import { NFM_COLORS } from "./types";
-import { isChildlessNfmBlockType } from "./childless";
+import { nfmBlockAcceptsChildren } from "./block-children";
 import { normalizeOrderedListStart } from "./ordered-list";
 import { parseInlineContent } from "./parser-inline";
 import { tryParseGfmTable, tryParseNfmTableXml } from "./table";
@@ -142,15 +139,6 @@ export function parseNfm(input: string): NfmBlock[] {
       }
     }
 
-    if (content.trimStart().startsWith("<toggle-list-inline-view")) {
-      const inlineView = parseToggleListInlineView(content.trim());
-      if (inlineView) {
-        addBlock(inlineView, indent);
-        i++;
-        continue;
-      }
-    }
-
     if (content.trimStart().startsWith("<database-view-ref")) {
       const databaseViewRef = parseDatabaseViewRef(content.trim());
       if (databaseViewRef) {
@@ -214,41 +202,11 @@ export function parseNfm(input: string): NfmBlock[] {
       }
     }
 
-    // Decode-only historical Card reference.
-    if (content.trimStart().startsWith("<card-ref")) {
-      const historicalCardRef = parseCardRef(content.trim());
-      if (historicalCardRef) {
-        addBlock(historicalCardRef, indent);
-        i++;
-        continue;
-      }
-    }
-
     if (content.trimStart().startsWith("<page")) {
       const page = parsePage(content.trim());
       if (page) {
         addBlock(page, indent);
         i++;
-        continue;
-      }
-    }
-
-    // Decode-only historical owning Page spelling.
-    if (content.trimStart().startsWith("<card")) {
-      const page = parseLegacyCard(content.trim());
-      if (page) {
-        addBlock(page, indent);
-        i++;
-        continue;
-      }
-    }
-
-    // Card toggle: <card-toggle ...> ... </card-toggle>
-    if (content.trimStart().startsWith("<card-toggle")) {
-      const cardToggle = parseCardToggle(lines, i, indent);
-      if (cardToggle) {
-        addBlock(cardToggle.block, indent);
-        i = cardToggle.nextLine;
         continue;
       }
     }
@@ -551,38 +509,6 @@ function parseImage(line: string): NfmImage | null {
   };
 }
 
-function parseToggleListInlineView(line: string): NfmToggleListInlineView | null {
-  const match = line.match(/^<toggle-list-inline-view(?:\s+([^>]*))?\s*\/>$/);
-  if (!match) return null;
-
-  const attrString = match[1] ?? "";
-  const sourceProjectId = getXmlAttr(attrString, "project") ?? "default";
-  const rulesV2B64 = getXmlAttr(attrString, "rules-v2");
-  const propertyOrder = parseCsvAttr(getXmlAttr(attrString, "property-order")).filter(
-    isToggleListPropertyKey,
-  );
-  const hiddenProperties = parseCsvAttr(getXmlAttr(attrString, "hidden-properties")).filter(
-    isToggleListPropertyKey,
-  );
-  const showEmptyEstimate = getXmlAttr(attrString, "show-empty-estimate");
-  const showEmptyPriority = getXmlAttr(attrString, "show-empty-priority");
-
-  return {
-    type: "toggleListInlineView",
-    sourceProjectId,
-    ...(typeof rulesV2B64 === "string" && rulesV2B64.length > 0 ? { rulesV2B64 } : {}),
-    ...(propertyOrder.length > 0 ? { propertyOrder } : {}),
-    ...(hiddenProperties.length > 0 ? { hiddenProperties } : {}),
-    ...(showEmptyEstimate === "true" || showEmptyEstimate === "false"
-      ? { showEmptyEstimate: showEmptyEstimate === "true" }
-      : {}),
-    ...(showEmptyPriority === "true" || showEmptyPriority === "false"
-      ? { showEmptyPriority: showEmptyPriority === "true" }
-      : {}),
-    children: [],
-  };
-}
-
 function parseDatabaseViewRef(line: string): NfmDatabaseViewRef | null {
   const match = line.match(/^<database-view-ref(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
@@ -626,11 +552,10 @@ function parsePage(line: string): NfmPage | null {
   const match = line.match(/^<page(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
   const uuid = getXmlAttr(match[1] ?? "", "uuid");
-  return {
-    type: "page",
-    ...(uuid === undefined ? {} : { uuid }),
-    children: [],
-  };
+  if (!uuid || uuid !== uuid.trim()) {
+    throw new TypeError("Canonical Page NFM requires an exact non-empty uuid");
+  }
+  return { type: "page", uuid, children: [] };
 }
 
 function parseDatabase(line: string): NfmDatabase | null {
@@ -668,59 +593,6 @@ function parsePageRef(line: string): NfmPageRef | null {
   };
 }
 
-function parseLegacyCard(line: string): NfmPage | null {
-  const match = line.match(/^<card(?:\s+([^>]*))?\s*\/>$/);
-  if (!match) return null;
-  const uuid = getXmlAttr(match[1] ?? "", "uuid");
-  return {
-    type: "page",
-    ...(uuid === undefined ? {} : { uuid }),
-    children: [],
-  };
-}
-
-function parseCsvAttr(value: string | undefined): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function isToggleListPropertyKey(
-  value: string,
-): value is NonNullable<NfmToggleListInlineView["propertyOrder"]>[number] {
-  return value === "priority" || value === "estimate" || value === "status" || value === "tags";
-}
-
-function parseCardRef(line: string): NfmPageRef | NfmCardRef | null {
-  const match = line.match(/^<card-ref(?:\s+([^>]*))?\s*\/>$/);
-  if (!match) return null;
-
-  const attrString = match[1] ?? "";
-  const targetBlockId = getXmlAttr(attrString, "target-block");
-  const sourceProjectId = getXmlAttr(attrString, "project") ?? "default";
-  const pageId = getXmlAttr(attrString, "card") ?? "";
-
-  if (targetBlockId !== undefined) {
-    if (targetBlockId.length === 0 || targetBlockId !== targetBlockId.trim()) {
-      throw new TypeError("Historical Card reference has an invalid target-block");
-    }
-    return {
-      type: "pageRef",
-      targetBlockId,
-      children: [],
-    };
-  }
-
-  return {
-    type: "cardRef",
-    sourceProjectId,
-    pageId,
-    children: [],
-  };
-}
-
 function parseThreadSection(line: string): NfmThreadSection | null {
   const match = line.match(/^<thread-section(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
@@ -734,72 +606,6 @@ function parseThreadSection(line: string): NfmThreadSection | null {
     ...(label.length > 0 ? { label } : {}),
     ...(threadId.length > 0 ? { threadId } : {}),
     children: [],
-  };
-}
-
-function parseCardToggle(
-  lines: string[],
-  startLine: number,
-  baseIndent: number,
-): { block: NfmCardToggle; nextLine: number } | null {
-  const openLine = lines[startLine].slice(baseIndent);
-  const openMatch = openLine.match(/^<card-toggle(?:\s+([^>]*))?\s*>$/);
-  if (!openMatch) return null;
-
-  const attrString = openMatch[1] ?? "";
-  const pageId = getXmlAttr(attrString, "card") ?? "";
-  const meta = getXmlAttr(attrString, "meta") ?? "";
-  const snapshot = getXmlAttr(attrString, "snapshot");
-  const sourceProjectId = getXmlAttr(attrString, "project");
-  const sourceStatus = getXmlAttr(attrString, "status");
-  const sourceStatusName = getXmlAttr(attrString, "status-name");
-
-  const titleLines: string[] = [];
-  const childrenLines: string[] = [];
-  let foundTitle = false;
-  let i = startLine + 1;
-  while (i < lines.length) {
-    const currentLine = lines[i];
-    const currentContent = currentLine.slice(baseIndent);
-    if (currentContent.trimEnd() === "</card-toggle>") {
-      i++;
-      break;
-    }
-
-    if (!foundTitle) {
-      titleLines.push(currentContent.startsWith("\t") ? currentContent.slice(1) : currentContent);
-      foundTitle = true;
-    } else {
-      childrenLines.push(
-        currentContent.startsWith("\t") ? currentContent.slice(1) : currentContent,
-      );
-    }
-    i++;
-  }
-
-  const titleSource = titleLines.join("\n");
-  const parsedTitleBlocks = parseNfm(titleSource);
-  const firstTitleBlock = parsedTitleBlocks[0];
-  const hasInlineParagraphTitle =
-    parsedTitleBlocks.length === 1 && firstTitleBlock?.type === "paragraph";
-  const titleContent = hasInlineParagraphTitle ? firstTitleBlock.content : [];
-  const childSource = hasInlineParagraphTitle
-    ? childrenLines.join("\n")
-    : [titleSource, ...childrenLines].join("\n");
-
-  return {
-    block: {
-      type: "cardToggle",
-      pageId,
-      meta,
-      ...(snapshot ? { snapshot } : {}),
-      ...(sourceProjectId ? { sourceProjectId } : {}),
-      ...(sourceStatus ? { sourceStatus } : {}),
-      ...(sourceStatusName ? { sourceStatusName } : {}),
-      content: titleContent,
-      children: parseNfm(childSource),
-    },
-    nextLine: i,
   };
 }
 
@@ -818,6 +624,5 @@ function normalizeChildlessChildren(blocks: NfmBlock[]): void {
 }
 
 function supportsNestedChildren(block: NfmBlock): boolean {
-  if (isChildlessNfmBlockType(block.type)) return false;
-  return true;
+  return nfmBlockAcceptsChildren(block);
 }

@@ -1,6 +1,6 @@
 {
   "emptyPage": {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "title": "",
     "blockTree": [
       {
@@ -23,7 +23,7 @@
     "richTitle": []
   },
   "emptySyncedBlock": {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "title": "",
     "richTitle": [],
     "blockTree": [],
@@ -34,7 +34,7 @@
     "assetRefs": []
   },
   "reusableTemplate": {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "title": "",
     "richTitle": [],
     "blockTree": [

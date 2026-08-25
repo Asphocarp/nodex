@@ -5,13 +5,10 @@ export const createCalloutBlock = createReactBlockSpec(calloutBlockConfig, {
   render: (props) => {
     return (
       <div
-        className="nfm-callout"
+        className="nfm-callout-content"
         style={{
           display: "flex",
           gap: "8px",
-          padding: "16px",
-          borderRadius: "4px",
-          backgroundColor: "var(--background-tertiary, rgba(0,0,0,0.03))",
         }}
       >
         <span

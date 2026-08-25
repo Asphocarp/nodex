@@ -14569,56 +14569,6 @@
                 "type": "string"
               }
             }
-          },
-          {
-            "type": "object",
-            "required": [
-              "sourceBlockId",
-              "targetBlockId",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "legacy_card_projection"
-                ]
-              },
-              "projectHint": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "sourceBlockId": {
-                "type": "string"
-              },
-              "targetBlockId": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "sourceBlockId",
-              "projectHint",
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "legacy_database_query"
-                ]
-              },
-              "projectHint": {
-                "type": "string"
-              },
-              "sourceBlockId": {
-                "type": "string"
-              }
-            }
           }
         ]
       },

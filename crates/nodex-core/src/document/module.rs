@@ -6073,7 +6073,7 @@ mod tests {
             YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
         let state_vector = engine.state_vector_v1();
         let materialization =
-            materialize_engine(&engine, BlockDocumentSchema::PageV2).expect("Page materialization");
+            materialize_engine(&engine, BlockDocumentSchema::PageV3).expect("Page materialization");
         let snapshot_hash = sha256(&full_state);
         kernel
             .writer()
@@ -6112,7 +6112,7 @@ mod tests {
                             "INSERT INTO documents(\
                                id, library_id, generation, head_seq, schema_key, schema_version, \
                                state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
-                             ) VALUES (?1, ?2, 1, 1, 'nodex.page', 2, ?3, ?4, \
+                             ) VALUES (?1, ?2, 1, 1, 'nodex.page', 3, ?3, ?4, \
                                'ready', 'ydoc_primary', ?5, ?5, 'yjs')",
                             params![DOCUMENT_ID, LIBRARY_ID, state_vector, "", NOW],
                         )?;
@@ -6183,7 +6183,7 @@ mod tests {
                             "INSERT INTO document_snapshots(\
                                document_id, generation, snapshot_seq, state_vector, snapshot_update, \
                                snapshot_hash, schema_version, created_at\
-                             ) VALUES (?1, 1, 1, ?2, ?3, ?4, 2, ?5)",
+                             ) VALUES (?1, 1, 1, ?2, ?3, ?4, 3, ?5)",
                             params![DOCUMENT_ID, state_vector, full_state, snapshot_hash, NOW],
                         )?;
                         let rich_title = serde_json::to_string(&materialization.rich_title)
@@ -6193,7 +6193,7 @@ mod tests {
                                document_id, generation, projected_seq, schema_version, title, title_rich_json, \
                                title_rich_hash, nfm, plain_text, preview, block_tree_json, references_json, \
                                asset_refs_json, updated_at\
-                             ) VALUES (?1, 1, 1, 2, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                             ) VALUES (?1, 1, 1, 3, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                             params![
                                 DOCUMENT_ID,
                                 materialization.title,
@@ -6222,7 +6222,7 @@ mod tests {
                                database_values_json, intrinsic_properties_json, property_revisions_json, \
                                projection_version, created_at, updated_at\
                              ) VALUES (?1, ?2, 'active', 'library', ?2, \
-                               '7fffffffffffffffffffffffffffffff', 1, 1, ?3, 1, 1, 2, \
+                               '7fffffffffffffffffffffffffffffff', 1, 1, ?3, 1, 1, 3, \
                                'ydoc_primary', NULL, NULL, NULL, NULL, NULL, ?4, ?5, ?6, ?7, '{}', '{}', \
                                '{}', 1, ?8, ?8)",
                             params![
@@ -6254,7 +6254,7 @@ mod tests {
     fn title_update(full_state: &[u8], state_vector: &[u8], title: &str) -> Vec<u8> {
         prepare_document_operation_update(
             DOCUMENT_ID,
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
             full_state,
             state_vector,
             &[DocumentBlockOperation::SetTitle {
@@ -6294,7 +6294,7 @@ mod tests {
     ) -> Vec<u8> {
         prepare_document_operation_update(
             DOCUMENT_ID,
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
             &engine.full_state_v1(),
             &engine.state_vector_v1(),
             operations,
@@ -7638,7 +7638,7 @@ mod tests {
                         "INSERT INTO documents(\
                            id, library_id, generation, head_seq, schema_key, schema_version, \
                            state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
-                         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', ?3, \
+                         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 3, X'', ?3, \
                            'ready', 'ydoc_primary', ?4, ?4, 'yjs')",
                         params![HOST_DOCUMENT_ID, LIBRARY_ID, "", NOW],
                     )?;
@@ -8559,9 +8559,9 @@ mod tests {
     #[test]
     fn prepare_owner_commits_registered_genesis_once() {
         for (owner_type, schema_key, schema_version) in [
-            ("page", "nodex.page", 2),
-            ("synced_block_source", "nodex.synced-block", 1),
-            ("reusable_template_source", "nodex.reusable-template", 1),
+            ("page", "nodex.page", 3),
+            ("synced_block_source", "nodex.synced-block", 2),
+            ("reusable_template_source", "nodex.reusable-template", 2),
         ] {
             let seeded = pending_module(owner_type, schema_key, schema_version);
             let request = ModuleApplyRequest {
@@ -10590,7 +10590,7 @@ mod tests {
         };
         let engine = YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &update).unwrap();
         assert_eq!(
-            materialize_engine(&engine, BlockDocumentSchema::PageV2)
+            materialize_engine(&engine, BlockDocumentSchema::PageV3)
                 .unwrap()
                 .title,
             "Compacted authority"
@@ -10898,7 +10898,7 @@ mod tests {
         let seeded = seeded_module();
         let materialization = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let title_etag = seeded
@@ -10997,7 +10997,7 @@ mod tests {
         let hidden_block_id = "019bf52d-6870-7000-8000-000000000124";
         let initial = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let visible_block_id = initial.block_tree[0].id.clone();
@@ -11261,7 +11261,7 @@ mod tests {
         let provenance = seed_agent_turn(&seeded, connection_id);
         let materialization = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let title_etag = seeded
@@ -11449,7 +11449,7 @@ mod tests {
         let seeded = seeded_module();
         let initial = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let seed_id = initial.block_tree[0].id.clone();
@@ -11560,7 +11560,7 @@ mod tests {
         let seeded = seeded_module();
         let initial = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let seed_id = initial.block_tree[0].id.clone();
@@ -11747,7 +11747,7 @@ mod tests {
         let seeded = seeded_module();
         let initial = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let seed_id = initial.block_tree[0].id.clone();
@@ -11809,7 +11809,7 @@ mod tests {
         let explicit = seeded_module();
         let initial = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &explicit.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let explicit_seed_id = initial.block_tree[0].id.clone();
@@ -11885,7 +11885,7 @@ mod tests {
         let engine =
             YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
         for owner_type in TYPED_CREATION_BLOCK_TYPES {
-            let mut materialization = materialize_engine(&engine, BlockDocumentSchema::PageV2)
+            let mut materialization = materialize_engine(&engine, BlockDocumentSchema::PageV3)
                 .expect("Page materialization");
             let owner_block = materialization
                 .search_units
@@ -11916,7 +11916,7 @@ mod tests {
         let engine =
             YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
         for owner_type in TYPED_CREATION_BLOCK_TYPES {
-            let mut materialization = materialize_engine(&engine, BlockDocumentSchema::PageV2)
+            let mut materialization = materialize_engine(&engine, BlockDocumentSchema::PageV3)
                 .expect("Page materialization");
             let owner_block = materialization
                 .search_units
@@ -11994,7 +11994,7 @@ mod tests {
         let engine =
             YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
         for owner_type in TYPED_CREATION_BLOCK_TYPES {
-            let mut materialization = materialize_engine(&engine, BlockDocumentSchema::PageV2)
+            let mut materialization = materialize_engine(&engine, BlockDocumentSchema::PageV3)
                 .expect("Page materialization");
             let owner_block = materialization
                 .search_units
@@ -12084,7 +12084,7 @@ mod tests {
             YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
 
         for owner_type in TYPED_CREATION_BLOCK_TYPES {
-            let mut before = materialize_engine(&engine, BlockDocumentSchema::PageV2)
+            let mut before = materialize_engine(&engine, BlockDocumentSchema::PageV3)
                 .expect("Page materialization");
             let mut owner = before.block_tree[0].clone();
             owner.block_type = (*owner_type).to_owned();
@@ -12543,7 +12543,7 @@ mod tests {
         let provenance = seed_agent_turn_for_project(&seeded, connection_id, ACTOR_PROJECT_ID);
         let materialization = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let title_etag = seeded
@@ -12674,7 +12674,7 @@ mod tests {
         let seeded = seeded_module();
         let materialization = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let (title_etag, body_etag) = seeded
@@ -12853,7 +12853,7 @@ mod tests {
         let seeded = seeded_module();
         let materialization = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let title_etag = seeded
@@ -12943,7 +12943,7 @@ mod tests {
             .unwrap();
         let materialization = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let title_etag = seeded
@@ -13011,7 +13011,7 @@ mod tests {
         let seeded = seeded_module();
         let materialization = materialize_engine(
             &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
-            BlockDocumentSchema::PageV2,
+            BlockDocumentSchema::PageV3,
         )
         .unwrap();
         let body_etag = seeded

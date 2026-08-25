@@ -36,8 +36,6 @@ Single-block labels:
 | `callout`                           | `Callout`              |
 | `table`                             | `Table`                |
 | `pageRef`                           | `Page reference`       |
-| `cardToggle`                        | `Card`                 |
-| `toggleListInlineView`              | `Toggle list view`     |
 | `threadSection`                     | `Thread section`       |
 | unknown or unsupported              | `Block`                |
 

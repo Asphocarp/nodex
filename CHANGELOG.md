@@ -13,10 +13,11 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Nodex now requires Profiles to be at the v130 Store baseline: v130 upgrades automatically to v131 with a verified backup, while earlier Stores and the former `kanban.db` import path are no longer supported.
+- Nodex now upgrades supported Profiles through Store v135 with a verified backup and current-only Block Document schemas.
 
 ### Fixed
 
+- Fixed special Blocks displaying or retaining children inconsistently: callouts and quotes now enclose their complete subtree, leaf/resource Blocks reject nesting at every write boundary, and existing invalid parent edges are migrated without losing IDs or reading order.
 - Fixed macOS launches appearing blank or unresponsive while a Profile opens or upgrades; the restored Nodex window now shows its branded, native-material startup state immediately and remains the same window through Workbench readiness or recoverable failure.
 - Fixed queued follow-ups disappearing or running after interruption: queues now survive restarts, pause atomically when a turn is stopped, preserve in-flight and failed rows for retry, resume in strict order, and keep fresh steers independent from the existing queue.
 - Fixed chats and Side chats sometimes remaining on a loading screen after restoration completed or failed; renderer attachment now updates atomically, failures are explicit and retryable, and cached transcript content remains visible during recovery.
@@ -417,7 +418,6 @@ All notable changes to this project will be documented in this file.
 - Fixed Thread-stage transcript message actions so user bubbles keep their copy/edit controls, while assistant copy now waits for the round to settle and only attaches to the round's final assistant message instead of appearing on streaming output.
 - Fixed Thread-stage streaming transcript text so empty assistant/plan/thinking item shells no longer flash internal fallback labels like `Agent Message` before real content arrives.
 - Fixed the Cards sidebar `Recents` section so clicking a recent card now keeps the newly opened card active instead of briefly reselecting the card you just left, and the active highlight now follows the actual open card even while the history overlay is shown.
-- Fixed Card Stage `Cmd+Enter` toggle behavior so `cardToggle` rows now expand/collapse like other toggle headers instead of being intercepted by thread-section send.
 
 ## [0.1.6] - 2026-03-18
 
@@ -436,7 +436,6 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Fixed Kanban drag performance and interaction stability on dense boards by replacing the old sortable runtime with Atlassian Pragmatic Drag and Drop while preserving multi-card moves and gap insertion.
-- Fixed NFM editor `cardToggle` rows so property chips now stay inline with the toggle title text and wrapped titles use the full row width, matching kanban card properties.
 - Fixed the NFM editor side menu so the add-block `+` now uses the same icon color as the drag handle.
 - Fixed sorted Kanban cross-column drag feedback so the destination column now shows a clear in-column target state instead of only subtle outer edge lines.
 - Fixed sorted Kanban drag-and-drop so non-default sorts still allow cross-column card moves; only same-column manual ranking stays disabled.

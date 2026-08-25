@@ -988,7 +988,7 @@ mod tests {
                 "INSERT INTO documents(\
                    id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
                    state_hash, readiness, authority, created_at, updated_at, sync_engine\
-                 ) VALUES ('document:1', 'library:1', 1, 1, 'nodex.page', 2, X'00', '', \
+                 ) VALUES ('document:1', 'library:1', 1, 1, 'nodex.page', 3, X'00', '', \
                    'ready', 'ydoc_primary', ?1, ?1, 'yjs')",
                 [NOW],
             )

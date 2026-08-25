@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-16
 - Owners: Nodex maintainers
-- Supersedes in part: ADR 0001, ADR 0003, ADR 0005, and ADR 0010
+- Supersedes in part: ADR 0001 and ADR 0003
 - Superseded in part by: ADR 0020 (independent root allocation and compact
   Source-scoped schema identity)
 

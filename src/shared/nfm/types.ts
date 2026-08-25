@@ -139,17 +139,14 @@ export type NfmBlockType =
   | "table"
   | "callout"
   | "image"
-  | "toggleListInlineView"
   | "canvas"
   | "database"
   | "databaseViewRef"
   | "syncedBlockRef"
   | "templateRef"
   | "threadSection"
-  | "cardToggle"
   | "page"
   | "pageRef"
-  | "cardRef"
   | "divider"
   | "emptyBlock";
 
@@ -249,16 +246,6 @@ export interface NfmImage extends NfmBlockBase {
   previewWidth?: number;
 }
 
-export interface NfmToggleListInlineView extends NfmBlockBase {
-  type: "toggleListInlineView";
-  sourceProjectId: string;
-  rulesV2B64?: string;
-  propertyOrder?: Array<"priority" | "estimate" | "status" | "tags">;
-  hiddenProperties?: Array<"priority" | "estimate" | "status" | "tags">;
-  showEmptyEstimate?: boolean;
-  showEmptyPriority?: boolean;
-}
-
 export interface NfmDatabaseViewRef extends NfmBlockBase {
   type: "databaseViewRef";
   databaseViewId: string;
@@ -294,33 +281,15 @@ export interface NfmThreadSection extends NfmBlockBase {
   threadId?: string;
 }
 
-/** Decode-only legacy Card projection used by the foreign-reference migration. */
-export interface NfmCardRef extends NfmBlockBase {
-  type: "cardRef";
-  sourceProjectId: string;
-  pageId: string;
-}
-
 export interface NfmPage extends NfmBlockBase {
   type: "page";
-  /** Owning Page shell identity. Missing only for decode-only historical input. */
-  uuid?: string;
+  /** Owning Page shell identity. */
+  uuid: string;
 }
 
 export interface NfmPageRef extends NfmBlockBase {
   type: "pageRef";
   targetBlockId: string;
-}
-
-export interface NfmCardToggle extends NfmBlockBase {
-  type: "cardToggle";
-  pageId: string;
-  meta: string;
-  snapshot?: string;
-  sourceProjectId?: string;
-  sourceStatus?: string;
-  sourceStatusName?: string;
-  content: NfmInlineContent[];
 }
 
 export interface NfmDivider extends NfmBlockBase {
@@ -343,17 +312,14 @@ export type NfmBlock =
   | NfmTable
   | NfmCallout
   | NfmImage
-  | NfmToggleListInlineView
   | NfmCanvas
   | NfmDatabase
   | NfmDatabaseViewRef
   | NfmSyncedBlockRef
   | NfmReusableTemplateRef
   | NfmThreadSection
-  | NfmCardToggle
   | NfmPage
   | NfmPageRef
-  | NfmCardRef
   | NfmDivider
   | NfmEmptyBlock;
 

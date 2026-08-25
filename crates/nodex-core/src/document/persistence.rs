@@ -1499,7 +1499,7 @@ fn persist_materialization_row(
     Ok(())
 }
 
-fn persist_materialization(
+pub(crate) fn persist_materialization(
     connection: &Connection,
     document_id: &str,
     generation: i64,
@@ -1516,6 +1516,79 @@ fn persist_materialization(
         now,
     )?;
     replace_page_reference_projection(connection, document_id, &materialization.references, now)
+}
+
+pub(crate) fn replace_document_block_index_for_schema_migration(
+    connection: &Connection,
+    document_id: &str,
+    projected_seq: i64,
+    materialization: &DocumentMaterialization,
+) -> Result<(), StoreError> {
+    let materialized_ids = materialization
+        .search_units
+        .iter()
+        .map(|unit| unit.block_id.as_str())
+        .collect::<HashSet<_>>();
+    if materialized_ids.len() != materialization.search_units.len() {
+        return Err(corrupt(
+            "Migrated Document index contains duplicate Block IDs",
+        ));
+    }
+    let indexed_ids = connection
+        .prepare(
+            "SELECT block_id FROM document_block_index \
+             WHERE document_id = ?1 ORDER BY block_id",
+        )?
+        .query_map([document_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|_| corrupt("Migrated Document index has invalid Block identities"))?;
+    for block_id in indexed_ids {
+        if materialized_ids.contains(block_id.as_str()) {
+            continue;
+        }
+        connection.execute(
+            "DELETE FROM document_block_index WHERE document_id = ?1 AND block_id = ?2",
+            params![document_id, block_id],
+        )?;
+    }
+
+    // Deleted Pages retain their Document index for exact restore. Those Blocks
+    // cannot be reinserted while deleted, so preserve identities and update the
+    // schema-derived projection in place; active missing rows still use inserts.
+    for unit in &materialization.search_units {
+        let changed = connection.execute(
+            "UPDATE document_block_index SET \
+               parent_block_id = ?1, ordinal = ?2, block_type = ?3, text = ?4, projected_seq = ?5 \
+             WHERE document_id = ?6 AND block_id = ?7",
+            params![
+                unit.parent_block_id,
+                i64::try_from(unit.ordinal).map_err(|_| internal("Block ordinal overflow"))?,
+                unit.block_type,
+                unit.text,
+                projected_seq,
+                document_id,
+                unit.block_id,
+            ],
+        )?;
+        if changed == 1 {
+            continue;
+        }
+        connection.execute(
+            "INSERT INTO document_block_index (\
+               document_id, block_id, parent_block_id, ordinal, block_type, text, projected_seq\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                document_id,
+                unit.block_id,
+                unit.parent_block_id,
+                i64::try_from(unit.ordinal).map_err(|_| internal("Block ordinal overflow"))?,
+                unit.block_type,
+                unit.text,
+                projected_seq,
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 pub(crate) fn replace_page_reference_projection(
@@ -1830,8 +1903,6 @@ fn validate_document_references(
                 )
                 .optional()?
                 .is_some(),
-            BlockDocumentReference::LegacyCardProjection { .. }
-            | BlockDocumentReference::LegacyDatabaseQuery { .. } => false,
         };
         if valid {
             continue;
@@ -1872,19 +1943,6 @@ fn reference_description(reference: &BlockDocumentReference) -> String {
         } => {
             format!("unreadable Thread reference from `{source_block_id}` to `{target_thread_id}`")
         }
-        BlockDocumentReference::LegacyCardProjection {
-            source_block_id,
-            target_block_id,
-            ..
-        } => format!(
-            "legacy Card projection reference from `{source_block_id}` to `{target_block_id}`"
-        ),
-        BlockDocumentReference::LegacyDatabaseQuery {
-            source_block_id,
-            project_hint,
-        } => format!(
-            "legacy Database query reference from `{source_block_id}` for Project `{project_hint}`"
-        ),
     }
 }
 

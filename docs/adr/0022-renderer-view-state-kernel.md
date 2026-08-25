@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-19
 - Owners: Nodex maintainers
-- Extends: ADR 0008, ADR 0009, and ADR 0013
+- Extends: ADR 0013
 
 ## Context
 
@@ -143,14 +143,14 @@ AbortController, mutable editor objects, webview elements, webContents handles,
 xterm instances, PTYs, Yjs runtime objects, or authority snapshots that create a
 second writable owner.
 
-ADR 0008 remains intact: a remounted editor surface receives fresh surface-local
+The surface-session invariant remains intact: a remounted editor surface receives fresh surface-local
 view identity, while editor and collaboration lifecycle remains with its owning
 Module. Maitai retained scopes never retain an editor instance, DOM, Y.Doc,
 UndoManager, provider, or relocation participant. A durable PageTab may instead
 own those non-DOM model objects through its dedicated deep runtime registry;
 Maitai and React carry only its stable identity and short-lived view lease.
 
-ADR 0009 remains intact: Block disclosure keeps stable occurrence identity,
+Block disclosure keeps stable occurrence identity,
 restart persistence, same-renderer duplicate synchronization, and no live
 application of another window's changes. Sharing a persistence transport does
 not imply `cross-window` policy.

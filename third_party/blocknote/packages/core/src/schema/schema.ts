@@ -17,6 +17,26 @@ import {
   getStyleSchemaFromSpecs,
 } from "./index.js";
 
+export type BlockChildrenLayout =
+  | "indented"
+  | "disclosure"
+  | "enclosed"
+  | "atomic"
+  | "marker"
+  | "resource";
+
+export type BlockChildrenAcceptance =
+  | { readonly kind: "always" }
+  | { readonly kind: "never" }
+  | { readonly kind: "booleanProp"; readonly prop: string };
+
+export interface BlockChildrenRule {
+  readonly acceptance: BlockChildrenAcceptance;
+  readonly layout: BlockChildrenLayout;
+}
+
+export type BlockChildrenRules = Readonly<Record<string, BlockChildrenRule>>;
+
 function removeUndefined<T extends Record<string, any> | undefined>(obj: T): T {
   if (!obj) {
     return obj;
@@ -61,6 +81,7 @@ export class CustomBlockNoteSchema<
       blockSpecs: BlockSpecs;
       inlineContentSpecs: InlineContentSpecs;
       styleSpecs: StyleSpecs;
+      blockChildrenRules?: BlockChildrenRules;
     },
   ) {
     const {
@@ -77,6 +98,23 @@ export class CustomBlockNoteSchema<
     this.inlineContentSpecs = inlineContentSpecs;
     this.blockSchema = blockSchema;
     this.inlineContentSchema = inlineContentSchema;
+  }
+
+  /** Returns whether a Block may own generic nested Blocks. */
+  public acceptsBlockChildren(block: {
+    readonly type: string;
+    readonly props?: Readonly<Record<string, unknown>>;
+  }): boolean {
+    const rule = this.opts.blockChildrenRules?.[block.type];
+    if (!rule) return true;
+    if (rule.acceptance.kind === "always") return true;
+    if (rule.acceptance.kind === "never") return false;
+    return block.props?.[rule.acceptance.prop] === true;
+  }
+
+  /** Returns the stable semantic layout used by the outer Block container. */
+  public getBlockChildrenLayout(blockType: string): BlockChildrenLayout {
+    return this.opts.blockChildrenRules?.[blockType]?.layout ?? "indented";
   }
 
   private init() {

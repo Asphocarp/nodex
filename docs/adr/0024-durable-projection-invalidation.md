@@ -3,7 +3,7 @@
 - Status: Superseded by ADR 0040
 - Date: 2026-07-22
 - Owners: Nodex maintainers
-- Supersedes: the target-freshness event and renderer-hub portions of ADR 0011
+- Scope: durable projection invalidation and renderer delivery
 
 ## Context
 

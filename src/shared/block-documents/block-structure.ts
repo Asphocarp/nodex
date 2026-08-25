@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import { MAX_BLOCK_ID_LENGTH, MAX_PAGE_DOCUMENT_XML_PATH_DEPTH, type BlockId } from "./contracts";
+import { acceptsBlockChildren } from "./block-children-policy";
 import { assertPortableXmlAttributes } from "./xml-subtree-codec";
 
 export const BLOCK_CONTAINER_NODE_NAME = "blockContainer";
@@ -53,16 +54,9 @@ export interface BlockStructureScan {
   readonly issues: readonly BlockStructureIssue[];
 }
 
-export interface ChildlessBlockViolation {
+export interface BlockChildrenViolation {
   readonly blockId: BlockId | null;
-  readonly blockType:
-    | "pageRef"
-    | "page"
-    | "canvas"
-    | "database"
-    | "databaseViewRef"
-    | "syncedBlockRef"
-    | "templateRef";
+  readonly blockType: string;
 }
 
 export class BlockDocumentValidationError extends Error {
@@ -103,43 +97,19 @@ const readContentElement = (container: Y.XmlElement): Y.XmlElement | undefined =
         child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
     );
 
-const isCanonicalChildlessBlockContent = (
-  content: Y.XmlElement | undefined,
-): content is Y.XmlElement & {
-  readonly nodeName:
-    | "pageRef"
-    | "page"
-    | "canvas"
-    | "database"
-    | "databaseViewRef"
-    | "syncedBlockRef"
-    | "templateRef";
-} => {
+export const blockContainerAcceptsChildren = (container: Y.XmlElement): boolean => {
+  const content = readContentElement(container);
   if (!content) return false;
-  if (
-    content.nodeName === "canvas" ||
-    content.nodeName === "databaseViewRef" ||
-    content.nodeName === "database" ||
-    content.nodeName === "page"
-  ) {
-    return true;
-  }
-  if (content.nodeName === "syncedBlockRef" || content.nodeName === "templateRef") {
-    const sourceBlockId = content.getAttribute("sourceBlockId");
-    return typeof sourceBlockId === "string" && sourceBlockId.trim().length > 0;
-  }
-  if (content.nodeName !== "pageRef") return false;
-  const targetBlockId = content.getAttribute("targetBlockId");
-  return typeof targetBlockId === "string" && targetBlockId.trim().length > 0;
+  return acceptsBlockChildren({
+    type: content.nodeName,
+    props: content.getAttributes(),
+  });
 };
 
-export const isChildlessBlockContainer = (container: Y.XmlElement): boolean =>
-  isCanonicalChildlessBlockContent(readContentElement(container));
-
-export const collectChildlessBlockViolations = (
+export const collectBlockChildrenViolations = (
   body: Y.XmlFragment,
-): readonly ChildlessBlockViolation[] => {
-  const violations: ChildlessBlockViolation[] = [];
+): readonly BlockChildrenViolation[] => {
+  const violations: BlockChildrenViolation[] = [];
   const visit = (parent: Y.XmlFragment | Y.XmlElement): void => {
     for (const child of parent.toArray()) {
       if (!(child instanceof Y.XmlElement)) continue;
@@ -155,7 +125,7 @@ export const collectChildlessBlockViolations = (
           (candidate): candidate is Y.XmlElement =>
             candidate instanceof Y.XmlElement && candidate.nodeName === BLOCK_GROUP_NODE_NAME,
         );
-      if (isCanonicalChildlessBlockContent(content) && (childGroup?.length ?? 0) > 0) {
+      if (content && !blockContainerAcceptsChildren(child) && (childGroup?.length ?? 0) > 0) {
         const blockId = child.getAttribute(BLOCK_ID_ATTRIBUTE);
         violations.push({
           blockId: typeof blockId === "string" ? blockId : null,
@@ -169,11 +139,6 @@ export const collectChildlessBlockViolations = (
   visit(body);
   return violations;
 };
-
-/** Compatibility aliases while callers migrate to the generic shell term. */
-export type ChildlessReferenceBlockViolation = ChildlessBlockViolation;
-export const isChildlessReferenceBlockContainer = isChildlessBlockContainer;
-export const collectChildlessReferenceBlockViolations = collectChildlessBlockViolations;
 
 const readPlainText = (container: Y.XmlElement): string => {
   const content = container

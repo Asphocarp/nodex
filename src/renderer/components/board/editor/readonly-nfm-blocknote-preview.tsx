@@ -25,7 +25,6 @@ import {
   Bot,
   BoxSelect,
   Link2,
-  ListTree,
   Paperclip,
   RefreshCw,
   Rows3,
@@ -42,7 +41,6 @@ import { createReadonlyDateMentionInlineContentSpec } from "./date-mention-inlin
 import { createReadonlyPageMentionInlineContentSpec } from "./page-mention-inline-content";
 import { resolveThreadMentionDisplay } from "@/lib/nfm/thread-mention-display";
 import { createCalloutBlock } from "./callout-block";
-import { createPageToggleBlockSpec } from "./card-toggle-block";
 import { editorCodeBlockOptions } from "./code-block-options";
 import { imageBlockSpec } from "./image-block";
 import { openNfmResolvedLinkAction, resolveNfmLinkAction } from "@/lib/nfm-link-actions";
@@ -64,8 +62,8 @@ import {
   reusableTemplateRefBlockConfig,
   threadMentionInlineContentConfig,
   threadSectionBlockConfig,
-  toggleListInlineViewBlockConfig,
 } from "../../../../shared/block-documents/blocknote-schema-config";
+import { BLOCK_CHILDREN_RULES } from "../../../../shared/block-documents/block-children-policy";
 
 interface ReadonlyNfmBlockNotePreviewProps {
   content: string;
@@ -186,19 +184,6 @@ const createReadonlyThreadSectionBlockSpec = createReactBlockSpec(threadSectionB
   },
 });
 
-const createReadonlyToggleListInlineViewBlockSpec = createReactBlockSpec(
-  toggleListInlineViewBlockConfig,
-  {
-    render: ({ block }) => (
-      <InertEmbedPlaceholder
-        icon={ListTree}
-        label="Toggle list view"
-        detail={String(block.props.sourceProjectId || "default")}
-      />
-    ),
-  },
-);
-
 function formatPreviewAttachmentLabel(props: PreviewAttachmentProps): string {
   const name = props.name.trim() || (props.kind === "text" ? "Pasted text" : "Attachment");
   const size =
@@ -272,6 +257,7 @@ const createReadonlyThreadMentionInlineContentSpec = () =>
   });
 
 export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
+  blockChildrenRules: BLOCK_CHILDREN_RULES,
   blockSpecs: {
     paragraph: defaultBlockSpecs.paragraph,
     heading: defaultBlockSpecs.heading,
@@ -285,7 +271,6 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     divider: defaultBlockSpecs.divider,
     image: imageBlockSpec(),
     callout: createCalloutBlock(),
-    cardToggle: createPageToggleBlockSpec(),
     page: createReadonlyPageBlockSpec(),
     database: createReadonlyDatabaseBlockSpec(),
     canvas: createReadonlyCanvasBlockSpec(),
@@ -294,7 +279,6 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     syncedBlockRef: createReadonlySyncedBlockRefBlockSpec(),
     templateRef: createReadonlyTemplateRefBlockSpec(),
     threadSection: createReadonlyThreadSectionBlockSpec(),
-    toggleListInlineView: createReadonlyToggleListInlineViewBlockSpec(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

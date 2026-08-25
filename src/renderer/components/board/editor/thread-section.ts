@@ -24,7 +24,6 @@ export interface ResolvedThreadSection {
   markerIndex: number;
   label: string;
   threadId: string;
-  markerChildren: ThreadSectionBlockLike[];
   bodyBlocks: ThreadSectionBlockLike[];
   bodyBlockIds: string[];
   fallbackTitle: string;
@@ -103,7 +102,6 @@ export function resolveThreadSections(
       .filter((candidate) => candidate.length > 0);
     const label = normalizeString(block.props?.label).trim();
     const threadId = normalizeString(block.props?.threadId).trim();
-    const markerChildren = Array.isArray(block.children) ? block.children : [];
     const fallbackTitle = label.length > 0 ? label : deriveThreadSectionFallbackTitle(bodyBlocks);
 
     sections.push({
@@ -111,7 +109,6 @@ export function resolveThreadSections(
       markerIndex: index,
       label,
       threadId,
-      markerChildren,
       bodyBlocks,
       bodyBlockIds,
       fallbackTitle,
@@ -218,7 +215,6 @@ export function resolveThreadSectionSendPlan(
       markerIndex,
       label: "",
       threadId: "",
-      markerChildren: [],
       bodyBlocks,
       bodyBlockIds,
       fallbackTitle: deriveThreadSectionFallbackTitle(bodyBlocks),
@@ -266,10 +262,7 @@ function stripNestedThreadSectionsFromSiblingBlocks(
 export function deriveThreadSectionPromptBlocks(
   section: ResolvedThreadSection,
 ): ThreadSectionBlockLike[] {
-  return [
-    ...stripNestedThreadSectionsFromSiblingBlocks(section.markerChildren),
-    ...stripNestedThreadSectionsFromSiblingBlocks(section.bodyBlocks),
-  ];
+  return stripNestedThreadSectionsFromSiblingBlocks(section.bodyBlocks);
 }
 
 export function serializeThreadSectionPrompt(

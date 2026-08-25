@@ -6,11 +6,7 @@ import {
   type PortableRichText,
 } from "./portable-rich-text";
 
-export type BlockToPageTypeCapability =
-  | "promote_primary"
-  | "wrap_subtree"
-  | "already_page"
-  | "unsupported_legacy";
+export type BlockToPageTypeCapability = "promote_primary" | "wrap_subtree" | "already_page";
 
 export const BLOCK_TO_PAGE_TYPE_CAPABILITIES = {
   paragraph: "promote_primary",
@@ -33,8 +29,6 @@ export const BLOCK_TO_PAGE_TYPE_CAPABILITIES = {
   databaseViewRef: "wrap_subtree",
   syncedBlockRef: "wrap_subtree",
   templateRef: "wrap_subtree",
-  cardToggle: "unsupported_legacy",
-  toggleListInlineView: "unsupported_legacy",
 } as const satisfies Readonly<Record<string, BlockToPageTypeCapability>>;
 
 export type BlockToPageRegisteredType = keyof typeof BLOCK_TO_PAGE_TYPE_CAPABILITIES;
@@ -61,7 +55,7 @@ export type BlockSemanticContentAssessment =
 
 export class BlockSemanticContentError extends TypeError {
   constructor(
-    readonly code: "unknown_block_type" | "unsupported_legacy_block",
+    readonly code: "unknown_block_type",
     message: string,
   ) {
     super(message);
@@ -102,12 +96,6 @@ export const assessBlockSemanticContentForPage = (
   root: BlockTreeNode,
 ): BlockSemanticContentAssessment => {
   const capability = typeCapability(root.type);
-  if (capability === "unsupported_legacy") {
-    throw new BlockSemanticContentError(
-      "unsupported_legacy_block",
-      `Legacy projection Block ${root.id} (${root.type}) must migrate before Page transformation`,
-    );
-  }
   if (capability === "already_page") return { kind: "already_page" };
   if (capability === "wrap_subtree") {
     return {

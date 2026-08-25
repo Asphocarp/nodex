@@ -1,11 +1,10 @@
 import * as Y from "yjs";
-import { MAX_PAGE_TITLE_LENGTH } from "../page-limits";
 import { BLOCK_GROUP_NODE_NAME } from "./block-structure";
 import type { DocumentId } from "./contracts";
 import { PortableRichTextError, readPortableRichTextFromYText } from "./portable-rich-text";
 
 export const PAGE_DOCUMENT_SCHEMA_KEY = "nodex.page";
-export const PAGE_DOCUMENT_SCHEMA_VERSION = 2;
+export const PAGE_DOCUMENT_SCHEMA_VERSION = 3;
 export const PAGE_DOCUMENT_TITLE_KEY = "title";
 export const PAGE_DOCUMENT_BODY_KEY = "body";
 
@@ -82,38 +81,6 @@ export const assertValidPageDocumentRoots = (document: Y.Doc): PageDocumentEnvel
   }
   if (Object.keys(envelope.title.getAttributes()).length > 0) {
     throw new PageDocumentRootValidationError("Page document title contains hidden map attributes");
-  }
-  return envelope;
-};
-
-/** Migration/history reader for the former plain-title schema only. */
-export const assertValidLegacyPageDocumentRoots = (document: Y.Doc): PageDocumentEnvelope => {
-  const envelope = openPageDocument(document);
-  const unexpectedRoots = [...document.share.keys()].filter(
-    (key) => key !== PAGE_DOCUMENT_TITLE_KEY && key !== PAGE_DOCUMENT_BODY_KEY,
-  );
-  if (unexpectedRoots.length > 0) {
-    throw new PageDocumentRootValidationError(
-      `Legacy Page document contains unsupported named roots: ${unexpectedRoots.join(", ")}`,
-    );
-  }
-  for (const operation of envelope.title.toDelta()) {
-    if (
-      typeof operation.insert !== "string" ||
-      (operation.attributes && Object.keys(operation.attributes).length > 0)
-    ) {
-      throw new PageDocumentRootValidationError(
-        "Legacy Page document title must contain unformatted text only",
-      );
-    }
-  }
-  if (
-    Object.keys(envelope.title.getAttributes()).length > 0 ||
-    envelope.title.length > MAX_PAGE_TITLE_LENGTH
-  ) {
-    throw new PageDocumentRootValidationError(
-      "Legacy Page document title contains unsupported attributes or length",
-    );
   }
   return envelope;
 };

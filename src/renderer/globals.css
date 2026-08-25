@@ -405,12 +405,32 @@
   color: var(--foreground);
 }
 
-/* Dark mode callout: translucent surface matching Notion's --c-graBacSec */
-.dark .nfm-callout {
-  background: var(--background-tertiary) !important;
-  border-radius: 10px !important;
-  border: 1px solid transparent;
+/* Enclosed Blocks own one semantic surface around content and direct children. */
+.nfm-editor .bn-block[data-content-type="callout"] {
+  margin-block: 4px;
   padding: 12px 20px 12px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--background-tertiary);
+}
+
+.nfm-editor .bn-block[data-content-type="callout"] .bn-block-content[data-content-type="callout"] {
+  padding: 0;
+}
+
+.nfm-editor .bn-block[data-content-type="callout"] > .bn-block-group {
+  margin-left: 28px;
+}
+
+.nfm-editor .bn-block[data-content-type="quote"] {
+  border-left: 2px solid rgb(125, 121, 122);
+  padding-left: 1em;
+  color: rgb(125, 121, 122);
+}
+
+.nfm-editor .bn-block[data-content-type="quote"] blockquote {
+  border-left: 0;
+  padding-left: 0;
 }
 /* ===== NFM Toggle Styling ===== */
 

@@ -1698,20 +1698,6 @@ pub enum LibraryContentReference {
         #[serde(rename = "targetThreadId")]
         target_thread_id: String,
     },
-    LegacyCardProjection {
-        #[serde(rename = "sourceBlockId")]
-        source_block_id: String,
-        #[serde(rename = "targetBlockId")]
-        target_block_id: String,
-        #[serde(rename = "projectHint", skip_serializing_if = "Option::is_none")]
-        project_hint: Option<String>,
-    },
-    LegacyDatabaseQuery {
-        #[serde(rename = "sourceBlockId")]
-        source_block_id: String,
-        #[serde(rename = "projectHint")]
-        project_hint: String,
-    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

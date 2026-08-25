@@ -21,14 +21,9 @@ const FULL_NFM_FIXTURE = [
   '<callout icon="💡">Callout</callout>',
   '<image source="nodex://assets/image.png">Image caption</image>',
   '<thread-section label="Investigate" thread="thread-2" />',
-  '<card-ref project="project-a" card="card-target" />',
+  '<page-ref url="nodex://pages/card-target" />',
   '<page-ref url="nodex://pages/card-canonical" />',
-  '<toggle-list-inline-view project="project-a" rules-v2="eyJtb2RlIjoiYWxsIn0" />',
   '<database-view-ref database-view="view-canonical" display-hint="Planning" />',
-  '<card-toggle card="legacy-card" meta="[P1]" project="project-a">',
-  "\tLegacy title",
-  "\tLegacy child",
-  "</card-toggle>",
   "```ts",
   "const value = 1;",
   "```",
@@ -73,9 +68,9 @@ describe("PageDocumentCodec", () => {
     expect(genesis.materialization.nfm).toBe(createBlockDocumentNfmContentParitySignature(nfm));
   });
 
-  test("normalizes owning Page identities only for legacy content parity", () => {
-    expect(createBlockDocumentNfmContentParitySignature("<page />")).toBe(
-      '<page uuid="nfm-parity-1" />',
+  test("requires current Page identities while keeping parity allocation deterministic", () => {
+    expect(() => createBlockDocumentNfmContentParitySignature("<page />")).toThrow(
+      "Canonical Page NFM requires an exact non-empty uuid",
     );
     expect(createBlockDocumentNfmContentParitySignature('<page uuid="exported-card" />')).toBe(
       '<page uuid="nfm-parity-1" />',
@@ -103,9 +98,9 @@ describe("PageDocumentCodec", () => {
     expect(replay.materialization.nfm).toBe(genesis.materialization.nfm);
     expect(flattenIds(genesis.materialization.blockTree).length).toBe(nextId);
     expect(new Set(flattenIds(genesis.materialization.blockTree)).size).toBe(nextId);
-    expect(genesis.materialization.references.length).toBe(6);
+    expect(genesis.materialization.references.length).toBe(4);
     expect(genesis.materialization.references.map((reference) => reference.kind).join(",")).toBe(
-      "thread,page,page,legacy_database_query,database_view,legacy_card_projection",
+      "thread,page,page,database_view",
     );
     expect(genesis.materialization.assetRefs.length).toBe(2);
     expect(genesis.materialization.assetRefs[0]?.managedFileName).toBe("demo.txt");

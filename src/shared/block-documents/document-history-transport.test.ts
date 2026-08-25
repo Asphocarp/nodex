@@ -149,7 +149,7 @@ describe("Document history transport contracts", () => {
         generation: 1,
         baseHeadSeq: 0,
         schemaKey: "nodex.page",
-        schemaVersion: 2,
+        schemaVersion: 3,
         cause: "manual",
         label: null,
         actor: {},

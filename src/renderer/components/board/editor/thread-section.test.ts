@@ -121,7 +121,7 @@ describe("thread-section helpers", () => {
     expect(section?.label).toBe("Nested");
   });
 
-  test("includes marker direct children before following sibling blocks in the prompt", () => {
+  test("uses only the marker's following sibling range for the prompt", () => {
     const blocks = [
       createBlock({
         id: "section-1",
@@ -139,7 +139,7 @@ describe("thread-section helpers", () => {
     const promptBlocks = section ? deriveThreadSectionPromptBlocks(section) : [];
 
     expect(JSON.stringify(promptBlocks.map((block) => block.id))).toBe(
-      JSON.stringify(["child-1", "child-2", "lol", "lalala"]),
+      JSON.stringify(["lol", "lalala"]),
     );
   });
 

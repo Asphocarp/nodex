@@ -769,117 +769,6 @@ describe("blocknote adapter", () => {
     expect(image.caption[0].text).toBe("my caption");
   });
 
-  test("serialize and parse toggle-list inline view round-trip", () => {
-    const nfm =
-      '<toggle-list-inline-view project="default" statuses="plan" priorities="p1-high,p2-medium" tags="frontend,ui" tag-mode="all" rank-primary="priority" rank-primary-direction="desc" rank-secondary="created" rank-secondary-direction="asc" property-order="status,priority,estimate,tags" hidden-properties="estimate,tags" include-host-card="true" show-empty-estimate="true" />';
-    const blocks = parseNfm(nfm);
-    const serialized = serializeNfm(blocks);
-    expect(serialized).toBe(
-      '<toggle-list-inline-view project="default" property-order="status,priority,estimate,tags" hidden-properties="estimate,tags" show-empty-estimate="true" />',
-    );
-  });
-
-  test("toggle-list inline view NFM → BN ignores legacy filter and rank props", () => {
-    const blocks = parseNfm(
-      '<toggle-list-inline-view project="default" statuses="5-ready,6-in-progress" priorities="p0-critical" tags="frontend,ui" tag-mode="none" rank-primary="status" rank-primary-direction="asc" rank-secondary="title" rank-secondary-direction="desc" property-order="priority,status,estimate,tags" hidden-properties="estimate,tags" include-host-card="true" show-empty-estimate="true" />',
-    );
-    const bnBlocks = nfmToBlockNote(blocks);
-
-    expect(bnBlocks.length).toBe(1);
-    expect(bnBlocks[0].type).toBe("toggleListInlineView");
-    expect(bnBlocks[0].props.sourceProjectId).toBe("default");
-    expect(bnBlocks[0].props.rulesV2B64).toBe("");
-    expect(bnBlocks[0].props.propertyOrderCsv).toBe("priority,status,estimate,tags");
-    expect(bnBlocks[0].props.hiddenPropertiesCsv).toBe("estimate,tags");
-    expect(bnBlocks[0].props.showEmptyEstimate).toBe("true");
-  });
-
-  test("toggle-list inline view BN → NFM drops legacy inline props", () => {
-    const blocks = blockNoteToNfm(
-      asDoc([
-        {
-          type: "toggleListInlineView",
-          props: {
-            sourceProjectId: "default",
-            statusesCsv: "5-ready,6-in-progress",
-            prioritiesCsv: "p0-critical,p1-high",
-            tagsCsv: "frontend,ui",
-            tagMode: "all",
-            rankPrimary: "status",
-            rankPrimaryDirection: "asc",
-            rankSecondary: "created",
-            rankSecondaryDirection: "desc",
-            propertyOrderCsv: "priority,status,estimate,tags",
-            hiddenPropertiesCsv: "estimate,tags",
-            includeHostCard: "true",
-            showEmptyEstimate: "true",
-          },
-          content: undefined,
-          children: [],
-        },
-      ]),
-    );
-
-    expect(blocks.length).toBe(1);
-    expect(blocks[0].type).toBe("toggleListInlineView");
-    if (blocks[0].type !== "toggleListInlineView") return;
-    expect(blocks[0].sourceProjectId).toBe("default");
-    expect(blocks[0].rulesV2B64).toBe(undefined);
-    expect(JSON.stringify(blocks[0].propertyOrder)).toBe(
-      JSON.stringify(["priority", "status", "estimate", "tags"]),
-    );
-    expect(JSON.stringify(blocks[0].hiddenProperties)).toBe(JSON.stringify(["estimate", "tags"]));
-    expect(blocks[0].showEmptyEstimate).toBe(true);
-  });
-
-  test("toggle-list inline view legacy rules-panel attr is not re-serialized", () => {
-    const serialized = serializeNfm(
-      parseNfm('<toggle-list-inline-view project="default" rules-panel-expanded="false" />'),
-    );
-
-    expect(serialized).toBe('<toggle-list-inline-view project="default" />');
-  });
-
-  test("toggle-list inline view preserves rules-v2 attribute", () => {
-    const nfm =
-      '<toggle-list-inline-view project="default" rules-v2="eyJtb2RlIjoiYWR2YW5jZWQifQ" />';
-    const blocks = parseNfm(nfm);
-    const serialized = serializeNfm(blocks);
-    const bnBlocks = nfmToBlockNote(blocks);
-
-    expect(serialized).toBe(nfm);
-    expect(bnBlocks[0]?.props.rulesV2B64).toBe("eyJtb2RlIjoiYWR2YW5jZWQifQ");
-  });
-
-  test("toggle-list inline view BN -> NFM serializes rules-v2 attribute", () => {
-    const blocks = blockNoteToNfm(
-      asDoc([
-        {
-          type: "toggleListInlineView",
-          props: {
-            sourceProjectId: "default",
-            rulesV2B64: "eyJ0ZXN0Ijp0cnVlfQ",
-            statusesCsv: "",
-            prioritiesCsv: "",
-            includeHostCard: "false",
-            rankPrimary: "board-order",
-            rankPrimaryDirection: "asc",
-            rankSecondary: "created",
-            rankSecondaryDirection: "desc",
-            propertyOrderCsv: "priority,estimate,status,tags",
-            hiddenPropertiesCsv: "",
-            showEmptyEstimate: "false",
-          },
-          content: undefined,
-          children: [],
-        },
-      ]),
-    );
-
-    const serialized = serializeNfm(blocks);
-    expect(serialized.includes('rules-v2="eyJ0ZXN0Ijp0cnVlfQ"')).toBe(true);
-  });
-
   test("unresolved image placeholder round-trips while upload is pending", () => {
     const blocks = blockNoteToNfm(
       asDoc([
@@ -982,22 +871,6 @@ describe("blocknote adapter", () => {
     expect(bnBlocks[0].id).toBe(undefined);
   });
 
-  test("serialize and parse card-ref round-trip", () => {
-    const nfm = '<card-ref project="my-project" card="abc1234" />';
-    const blocks = parseNfm(nfm);
-    const serialized = serializeNfm(blocks);
-    expect(serialized).toBe(nfm);
-  });
-
-  test("card-ref NFM → BN retires live legacy props", () => {
-    const blocks = parseNfm('<card-ref project="my-project" card="abc1234" />');
-    const bnBlocks = nfmToBlockNote(blocks);
-
-    expect(bnBlocks.length).toBe(1);
-    expect(bnBlocks[0].type).toBe("pageRef");
-    expect(bnBlocks[0].props.targetBlockId).toBe("abc1234");
-  });
-
   test("page-ref BN → NFM emits only the canonical Page target", () => {
     const blocks = blockNoteToNfm(
       asDoc([
@@ -1036,14 +909,6 @@ describe("blocknote adapter", () => {
     expect(blocks[0].type).toBe("pageRef");
     if (blocks[0].type !== "pageRef") return;
     expect(blocks[0].targetBlockId).toBe("");
-  });
-
-  test("card-ref with missing card attribute parses with empty pageId", () => {
-    const blocks = parseNfm('<card-ref project="my-project" />');
-    expect(blocks.length).toBe(1);
-    expect(blocks[0].type).toBe("cardRef");
-    if (blocks[0].type !== "cardRef") return;
-    expect(blocks[0].pageId).toBe("");
   });
 
   test("serialize and parse thread-section round-trip", () => {
@@ -1085,18 +950,18 @@ describe("blocknote adapter", () => {
     expect(blocks[0].threadId).toBe("thr_123");
   });
 
-  test("thread-section NFM → BN preserves nested children", () => {
+  test("thread-section NFM → BN hoists nested children", () => {
     const blocks = parseNfm(`<thread-section label="Investigate parser" thread="thr_123" />
 \tChild note`);
     const bnBlocks = nfmToBlockNote(blocks);
 
-    expect(bnBlocks.length).toBe(1);
+    expect(bnBlocks.length).toBe(2);
     expect(bnBlocks[0].type).toBe("threadSection");
-    expect(bnBlocks[0].children.length).toBe(1);
-    expect(extractText(bnBlocks[0].children[0]?.content)).toBe("Child note");
+    expect(bnBlocks[0].children.length).toBe(0);
+    expect(extractText(bnBlocks[1]?.content)).toBe("Child note");
   });
 
-  test("thread-section BN → NFM preserves nested children", () => {
+  test("thread-section BN → NFM hoists nested children", () => {
     const blocks = blockNoteToNfm(
       asDoc([
         {
@@ -1118,185 +983,13 @@ describe("blocknote adapter", () => {
       ]),
     );
 
-    expect(blocks.length).toBe(1);
+    expect(blocks.length).toBe(2);
     expect(blocks[0].type).toBe("threadSection");
     if (blocks[0].type !== "threadSection") return;
-    expect(blocks[0].children.length).toBe(1);
-    expect(serializeNfm(blocks)).toBe(
-      `<thread-section label="Investigate parser" thread="thr_123" />\n\tChild note`,
-    );
-  });
-
-  test("childless blocks are normalized by hoisting nested children", () => {
-    const blocks = parseNfm(`<toggle-list-inline-view project="default" />
-\tNested paragraph
-<card-ref project="default" card="abc" />
-\tNested card child`);
-
-    expect(blocks.length).toBe(4);
-    expect(blocks[0]?.type).toBe("toggleListInlineView");
-    expect(blocks[1]?.type).toBe("paragraph");
-    expect(blocks[2]?.type).toBe("cardRef");
-    expect(blocks[3]?.type).toBe("paragraph");
-    if (blocks[0]?.type === "toggleListInlineView") {
-      expect(blocks[0].children.length).toBe(0);
-    }
-    if (blocks[2]?.type === "cardRef") {
-      expect(blocks[2].children.length).toBe(0);
-    }
-  });
-
-  test("childless block serialization drops nested children", () => {
-    const blocks = blockNoteToNfm(
-      asDoc([
-        {
-          type: "toggleListInlineView",
-          props: {
-            sourceProjectId: "default",
-            statusesCsv: "",
-            prioritiesCsv: "",
-            includeHostCard: "false",
-            rankPrimary: "board-order",
-            rankPrimaryDirection: "asc",
-            rankSecondary: "created",
-            rankSecondaryDirection: "desc",
-            propertyOrderCsv: "priority,estimate,status,tags",
-            hiddenPropertiesCsv: "",
-            showEmptyEstimate: "false",
-          },
-          children: [
-            {
-              type: "paragraph",
-              props: {},
-              content: [{ type: "text", text: "Should not persist", styles: {} }],
-              children: [],
-            },
-          ],
-        },
-      ]),
-    );
-
-    expect(blocks.length).toBe(1);
-    expect(blocks[0]?.type).toBe("toggleListInlineView");
-    if (blocks[0]?.type !== "toggleListInlineView") return;
     expect(blocks[0].children.length).toBe(0);
-    expect(serializeNfm(blocks).includes("Should not persist")).toBe(false);
-  });
-
-  test("serialize and parse card-toggle round-trip", () => {
-    const nfm = `<card-toggle card=\"abc123\" meta=\"[P1] [Build]\" snapshot=\"c25hcHNob3Q=\" project=\"default\" status=\"build\" status-name=\"Build\">
-\tDropped card
-\tChild details
-</card-toggle>`;
-    const blocks = parseNfm(nfm);
-    const serialized = serializeNfm(blocks);
-    expect(serialized).toBe(nfm);
-  });
-
-  test("card-toggle NFM → BN maps props and children", () => {
-    const blocks =
-      parseNfm(`<card-toggle card=\"abc123\" meta=\"[P1]\" snapshot=\"c25hcA==\" project=\"default\" status=\"build\" status-name=\"Build\">
-\tDropped card
-\tChild details
-</card-toggle>`);
-    const bnBlocks = nfmToBlockNote(blocks);
-
-    expect(bnBlocks.length).toBe(1);
-    expect(bnBlocks[0].type).toBe("cardToggle");
-    expect(bnBlocks[0].props.cardId).toBe("abc123");
-    expect(bnBlocks[0].props.meta).toBe("[P1]");
-    expect(bnBlocks[0].props.snapshot).toBe("c25hcA==");
-    expect(bnBlocks[0].props.sourceProjectId).toBe("default");
-    expect(bnBlocks[0].props.sourceStatus).toBe("build");
-    expect(bnBlocks[0].props.sourceStatusName).toBe("Build");
-    expect(extractText(bnBlocks[0].content)).toBe("Dropped card");
-    expect(bnBlocks[0].children.length).toBe(1);
-  });
-
-  test("card-toggle BN → NFM maps props and children", () => {
-    const blocks = blockNoteToNfm(
-      asDoc([
-        {
-          type: "cardToggle",
-          props: {
-            cardId: "abc123",
-            meta: "[P1]",
-            snapshot: "c25hcA==",
-            sourceProjectId: "default",
-            sourceStatus: "build",
-            sourceStatusName: "Build",
-          },
-          content: [{ type: "text", text: "Dropped card", styles: {} }],
-          children: [
-            {
-              type: "paragraph",
-              props: {},
-              content: [{ type: "text", text: "Child details", styles: {} }],
-              children: [],
-            },
-          ],
-        },
-      ]),
+    expect(serializeNfm(blocks)).toBe(
+      `<thread-section label="Investigate parser" thread="thr_123" />\nChild note`,
     );
-
-    expect(blocks.length).toBe(1);
-    expect(blocks[0].type).toBe("cardToggle");
-    if (blocks[0].type !== "cardToggle") return;
-    expect(blocks[0].pageId).toBe("abc123");
-    expect(blocks[0].meta).toBe("[P1]");
-    expect(blocks[0].snapshot).toBe("c25hcA==");
-    expect(blocks[0].sourceProjectId).toBe("default");
-    expect(blocks[0].sourceStatus).toBe("build");
-    expect(blocks[0].sourceStatusName).toBe("Build");
-    expect(blocks[0].children.length).toBe(1);
-  });
-
-  test("card-toggle with empty title preserves children across serialize+parse", () => {
-    const blocks = blockNoteToNfm(
-      asDoc([
-        {
-          type: "cardToggle",
-          props: {
-            cardId: "abc123",
-            meta: "[P1]",
-          },
-          content: [],
-          children: [
-            {
-              type: "paragraph",
-              props: {},
-              content: [{ type: "text", text: "Child details", styles: {} }],
-              children: [],
-            },
-          ],
-        },
-      ]),
-    );
-
-    const serialized = serializeNfm(blocks);
-    const parsed = parseNfm(serialized);
-
-    expect(serialized.includes('<card-toggle card="abc123" meta="[P1]">')).toBe(true);
-    expect(serialized.includes("\n\t\n\tChild details\n")).toBe(true);
-    expect(parsed.length).toBe(1);
-    expect(parsed[0].type).toBe("cardToggle");
-    if (parsed[0].type !== "cardToggle") return;
-    expect(parsed[0].content.length).toBe(0);
-    expect(parsed[0].children.length).toBe(1);
-    expect(parsed[0].children[0]?.type).toBe("paragraph");
-  });
-
-  test("card-toggle parser treats omitted title as children for block-like first line", () => {
-    const parsed = parseNfm(`<card-toggle card=\"abc123\" meta=\"[P1]\">
-\t- first child
-</card-toggle>`);
-
-    expect(parsed.length).toBe(1);
-    expect(parsed[0].type).toBe("cardToggle");
-    if (parsed[0].type !== "cardToggle") return;
-    expect(parsed[0].content.length).toBe(0);
-    expect(parsed[0].children.length).toBe(1);
-    expect(parsed[0].children[0]?.type).toBe("bulletListItem");
   });
 
   test("inline hard line breaks still round-trip", () => {

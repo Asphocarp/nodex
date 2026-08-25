@@ -133,21 +133,21 @@ Clients never construct durable fence proof themselves. A stale/offline update o
 
 ## Reference-Only Surfaces
 
-Card and Database View references are childless Blocks. A collapsed row renders only a summary. Expanding a visible Card reference mounts the target Card's own `BlockDocumentSurface`; the target body never becomes children of the host Y.Doc.
+Page and Database View references do not accept generic child Blocks. A collapsed row renders only a summary. Expanding a visible Page reference mounts the target Page's own `BlockDocumentSurface`; the target body never becomes children of the host Y.Doc.
 
 Nested surfaces are lazy and bounded by a renderer activation budget. Expansion, visibility, selection, and presence are window-local. An ancestry guard prevents direct or indirect recursive expansion.
 
 ## Invariants
 
-- Card title/body authority is the owned Y.Doc, not `Card` props, NFM, Board state, or a renderer draft.
+- Page title/body authority is the owned Y.Doc, not shell props, Nested Markdown, a derived View, or a renderer draft.
 - An ordinary editor transaction must not serialize or submit the whole body.
 - Every writable mount owns a distinct Yjs client/session identity.
 - A durable ACK is emitted only after the SQLite transaction commits.
 - Remote updates do not echo and do not enter local undo.
-- Card/Board read-model updates never call `replaceBlocks` on an existing surface.
-- There is no whole-Card title/body conflict overwrite path.
+- Page/View read-model updates never call `replaceBlocks` on an existing surface.
+- There is no whole-Page title/body conflict overwrite path.
 - NFM replacement is explicit, exact-head gated, and produces a forward update.
-- Block/Card writes go through Rust Core's serialized writer; main-process handlers never open SQLite or run Card transactions.
+- Block/Page writes go through Rust Core's serialized writer; main-process handlers never open SQLite or run Page transactions.
 - Board caches remain summary-only and full bodies load only through explicit scoped reads or mounted Documents.
 - Reference surfaces never store a foreign body in their host Document.
 - Retained inactive tabs clear Awareness and do not own active shell refs.

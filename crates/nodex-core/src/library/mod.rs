@@ -2437,7 +2437,7 @@ mod tests {
                             "INSERT INTO documents( \
                                id, library_id, generation, head_seq, schema_key, schema_version, \
                                state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine \
-                             ) VALUES (?1, 'library-1', 1, 0, 'nodex.page', 2, X'', '', \
+                             ) VALUES (?1, 'library-1', 1, 0, 'nodex.page', 3, X'', '', \
                                'pending_genesis', 'legacy_shadow', ?2, ?2, 'yjs')",
                             params![document_id, NOW],
                         )?;
@@ -2519,7 +2519,7 @@ mod tests {
                            database_values_json, intrinsic_properties_json, property_revisions_json, \
                            projection_version, created_at, updated_at \
                          ) VALUES (?1, 'library-1', 'active', 'library', 'library-1', 'a', 1, 1, \
-                           ?2, 1, 0, 2, 'legacy_shadow', NULL, NULL, NULL, NULL, NULL, '', '', 0, 0, \
+                           ?2, 1, 0, 3, 'legacy_shadow', NULL, NULL, NULL, NULL, NULL, '', '', 0, 0, \
                            '{}', '{}', '{}', 1, ?3, ?3)",
                         params![ROOT_PAGE, ROOT_DOCUMENT, NOW],
                     )?;
@@ -2534,7 +2534,7 @@ mod tests {
                            database_values_json, intrinsic_properties_json, property_revisions_json, \
                            projection_version, created_at, updated_at \
                          ) VALUES (?1, 'library-1', 'active', 'data_source', ?2, NULL, 1, 1, \
-                           ?3, 1, 0, 2, 'legacy_shadow', 'membership:row', ?4, NULL, NULL, NULL, '', '', 0, 0, \
+                           ?3, 1, 0, 3, 'legacy_shadow', 'membership:row', ?4, NULL, NULL, NULL, '', '', 0, 0, \
                            '{\"status\":\"triage\",\"task_parent\":null}', '{}', \
                            '{\"database\":{\"status\":1,\"task_parent\":1},\"intrinsic\":{}}', 1, ?5, ?5)",
                         params![ROW_PAGE, SOURCE, ROW_DOCUMENT, DATABASE, NOW],

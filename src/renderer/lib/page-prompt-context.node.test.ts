@@ -17,7 +17,7 @@ const descriptor = (): OwnedDocumentDescriptor => ({
   generation: 1,
   headSeq: 1,
   schemaKey: "nodex.page",
-  schemaVersion: 2,
+  schemaVersion: 3,
   readiness: "ready",
   sync: { kind: "yjs", stateVector: new Uint8Array() },
 });

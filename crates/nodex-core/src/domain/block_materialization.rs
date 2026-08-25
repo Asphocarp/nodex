@@ -19,13 +19,11 @@ const INLINE_BLOCK_TYPES: &[&str] = &[
     "codeBlock",
     "quote",
     "callout",
-    "cardToggle",
 ];
 const NONE_BLOCK_TYPES: &[&str] = &[
     "divider",
     "image",
     "threadSection",
-    "toggleListInlineView",
     "page",
     "database",
     "canvas",
@@ -88,6 +86,19 @@ pub fn materialize_block_tree(
 pub fn dematerialize_block_tree(
     blocks: &[MaterializedBlockNode],
 ) -> Result<BlockTree, BlockMaterializationError> {
+    dematerialize_block_tree_with_policy(blocks, true)
+}
+
+pub(crate) fn dematerialize_block_tree_allowing_illegal_children(
+    blocks: &[MaterializedBlockNode],
+) -> Result<BlockTree, BlockMaterializationError> {
+    dematerialize_block_tree_with_policy(blocks, false)
+}
+
+fn dematerialize_block_tree_with_policy(
+    blocks: &[MaterializedBlockNode],
+    enforce_children_policy: bool,
+) -> Result<BlockTree, BlockMaterializationError> {
     let tree = BlockTree {
         root_attributes: BTreeMap::new(),
         blocks: blocks
@@ -95,7 +106,14 @@ pub fn dematerialize_block_tree(
             .map(dematerialize_block)
             .collect::<Result<_, _>>()?,
     };
-    let issues = validate_block_tree(&tree);
+    let issues = validate_block_tree(&tree)
+        .into_iter()
+        .filter(|issue| {
+            enforce_children_policy
+                || issue.code
+                    != crate::domain::block_tree::BlockTreeIssueCode::BlockChildrenNotAllowed
+        })
+        .collect::<Vec<_>>();
     if issues.is_empty() {
         return Ok(tree);
     }

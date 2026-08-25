@@ -349,7 +349,7 @@ pub fn materialize_decoded_document(
 
 pub fn schema_metadata(schema: BlockDocumentSchema) -> BlockDocumentSchemaMetadata {
     match schema {
-        BlockDocumentSchema::PageV1 | BlockDocumentSchema::PageV2 => BlockDocumentSchemaMetadata {
+        BlockDocumentSchema::PageV3 => BlockDocumentSchemaMetadata {
             kind: BlockDocumentKind::Page,
             owner_type: PAGE_OWNER_TYPE.to_owned(),
             schema_key: PAGE_SCHEMA_KEY.to_owned(),
@@ -358,7 +358,7 @@ pub fn schema_metadata(schema: BlockDocumentSchema) -> BlockDocumentSchemaMetada
             nfm_genesis: true,
             nfm_replace: true,
         },
-        BlockDocumentSchema::SyncedBlockV1 => BlockDocumentSchemaMetadata {
+        BlockDocumentSchema::SyncedBlockV2 => BlockDocumentSchemaMetadata {
             kind: BlockDocumentKind::SyncedBlock,
             owner_type: SYNCED_BLOCK_OWNER_TYPE.to_owned(),
             schema_key: SYNCED_BLOCK_SCHEMA_KEY.to_owned(),
@@ -367,7 +367,7 @@ pub fn schema_metadata(schema: BlockDocumentSchema) -> BlockDocumentSchemaMetada
             nfm_genesis: true,
             nfm_replace: false,
         },
-        BlockDocumentSchema::ReusableTemplateV1 => BlockDocumentSchemaMetadata {
+        BlockDocumentSchema::ReusableTemplateV2 => BlockDocumentSchemaMetadata {
             kind: BlockDocumentKind::ReusableTemplate,
             owner_type: REUSABLE_TEMPLATE_OWNER_TYPE.to_owned(),
             schema_key: REUSABLE_TEMPLATE_SCHEMA_KEY.to_owned(),
@@ -382,7 +382,7 @@ pub fn schema_metadata(schema: BlockDocumentSchema) -> BlockDocumentSchemaMetada
 fn validate_schema_specific_body(
     document: &DecodedBlockDocument,
 ) -> Result<(), DocumentMaterializationError> {
-    if document.schema != BlockDocumentSchema::ReusableTemplateV1 {
+    if document.schema != BlockDocumentSchema::ReusableTemplateV2 {
         return Ok(());
     }
     let block = scan_block_tree(&document.block_tree)
@@ -422,7 +422,7 @@ mod tests {
             .transact_mut()
             .apply_update(Update::decode_v1(&update).expect("valid fixture"))
             .expect("fixture applies");
-        let decoded = decode_block_document(&document, BlockDocumentSchema::PageV2)
+        let decoded = decode_block_document(&document, BlockDocumentSchema::PageV3)
             .expect("decoded Page document");
         let actual = materialize_decoded_document(&decoded).expect("materialization");
         let expected = serde_json::from_slice(
@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn body_only_metadata_has_no_invented_title_capability() {
-        let metadata = schema_metadata(BlockDocumentSchema::SyncedBlockV1);
+        let metadata = schema_metadata(BlockDocumentSchema::SyncedBlockV2);
 
         assert_eq!(metadata.kind, BlockDocumentKind::SyncedBlock);
         assert!(!metadata.title);

@@ -22,7 +22,7 @@ use crate::document::{
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::identity::stable_uuid_v7;
 use crate::domain::ordinary_block::canonical_ordinary_block_shape;
-use crate::domain::page_to_block::plan_page_to_block_transformation;
+use crate::domain::page_to_block::{PageToBlockTransformation, plan_page_to_block_transformation};
 use crate::domain::rich_text::RichTextItem;
 use crate::infrastructure::durable_mutation::{self, OperationIdentity};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
@@ -1763,6 +1763,63 @@ fn validate_turn_selection(
     Ok(())
 }
 
+fn append_turn_into_operations(
+    blocks: &[MaterializedBlockNode],
+    parent_block_id: Option<&str>,
+    page_plans: &BTreeMap<String, PageToBlockTransformation>,
+    target_type: &str,
+    target_props: &BTreeMap<String, serde_json::Value>,
+    operations: &mut Vec<DocumentBlockOperation>,
+) {
+    for (index, block) in blocks.iter().enumerate() {
+        if let Some(plan) = page_plans.get(&block.id) {
+            operations.push(DocumentBlockOperation::UpdateBlock {
+                block_id: block.id.clone(),
+                patch: DocumentBlockUpdatePatch {
+                    block_type: Some(plan.block.block_type.clone()),
+                    props: Some(plan.block.props.clone()),
+                    content: plan.block.content.clone(),
+                    unset_content: plan.block.content.is_none(),
+                },
+            });
+            for child in &plan.block.children {
+                operations.push(DocumentBlockOperation::InsertBlock {
+                    block: child.clone(),
+                    parent_block_id: Some(block.id.clone()),
+                    before_block_id: None,
+                });
+            }
+            let next_sibling_id = blocks.get(index + 1).map(|sibling| sibling.id.clone());
+            for sibling in &plan.trailing_siblings {
+                operations.push(DocumentBlockOperation::InsertBlock {
+                    block: sibling.clone(),
+                    parent_block_id: parent_block_id.map(str::to_owned),
+                    before_block_id: next_sibling_id.clone(),
+                });
+            }
+            continue;
+        }
+
+        operations.push(DocumentBlockOperation::UpdateBlock {
+            block_id: block.id.clone(),
+            patch: DocumentBlockUpdatePatch {
+                block_type: Some(target_type.to_owned()),
+                props: Some(target_props.clone()),
+                content: None,
+                unset_content: false,
+            },
+        });
+        append_turn_into_operations(
+            &block.children,
+            Some(&block.id),
+            page_plans,
+            target_type,
+            target_props,
+            operations,
+        );
+    }
+}
+
 fn turn_active_selection(
     write: StructuralWriteContext<'_>,
     original: OwnershipClosureSnapshot,
@@ -1911,36 +1968,14 @@ fn turn_active_selection(
     )?;
 
     let mut host_operations = Vec::new();
-    for block in flatten_blocks(&original.roots) {
-        if let Some(plan) = page_plans.get(&block.id) {
-            host_operations.push(DocumentBlockOperation::UpdateBlock {
-                block_id: block.id.clone(),
-                patch: DocumentBlockUpdatePatch {
-                    block_type: Some(plan.block.block_type.clone()),
-                    props: Some(plan.block.props.clone()),
-                    content: plan.block.content.clone(),
-                    unset_content: plan.block.content.is_none(),
-                },
-            });
-            for child in &plan.block.children {
-                host_operations.push(DocumentBlockOperation::InsertBlock {
-                    block: child.clone(),
-                    parent_block_id: Some(block.id.clone()),
-                    before_block_id: None,
-                });
-            }
-            continue;
-        }
-        host_operations.push(DocumentBlockOperation::UpdateBlock {
-            block_id: block.id.clone(),
-            patch: DocumentBlockUpdatePatch {
-                block_type: Some(target_type.to_owned()),
-                props: Some(target_props.clone()),
-                content: None,
-                unset_content: false,
-            },
-        });
-    }
+    append_turn_into_operations(
+        &original.roots,
+        None,
+        &page_plans,
+        target_type,
+        &target_props,
+        &mut host_operations,
+    );
     let host_commit = persist_parent_operations_detailed_with_local_commit(
         connection,
         ParentDocumentWriteContext {

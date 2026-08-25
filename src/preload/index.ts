@@ -93,7 +93,7 @@ function resolveManagedAssetPath(source: string): string | null {
   return ipcRenderer.sendSync(MANAGED_ASSET_RESOLVE_PATH_SYNC_CHANNEL, source) as string | null;
 }
 
-// Multiple editor blocks (toggle-list-inline-view, pageRef) each subscribe to
+// Multiple editor resource Blocks may each subscribe to
 // board-changed via useBoard, easily exceeding the default limit of 10.
 ipcRenderer.setMaxListeners(50);
 

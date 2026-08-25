@@ -1,0 +1,29 @@
+{
+  "contractVersion": 1,
+  "current": {
+    "paragraph": { "acceptance": "always", "layout": "indented" },
+    "heading": {
+      "acceptance": "booleanProp",
+      "prop": "isToggleable",
+      "layout": "disclosure"
+    },
+    "bulletListItem": { "acceptance": "always", "layout": "indented" },
+    "numberedListItem": { "acceptance": "always", "layout": "indented" },
+    "checkListItem": { "acceptance": "always", "layout": "indented" },
+    "toggleListItem": { "acceptance": "always", "layout": "disclosure" },
+    "codeBlock": { "acceptance": "never", "layout": "atomic" },
+    "table": { "acceptance": "never", "layout": "atomic" },
+    "quote": { "acceptance": "always", "layout": "enclosed" },
+    "divider": { "acceptance": "never", "layout": "atomic" },
+    "image": { "acceptance": "never", "layout": "atomic" },
+    "callout": { "acceptance": "always", "layout": "enclosed" },
+    "threadSection": { "acceptance": "never", "layout": "marker" },
+    "page": { "acceptance": "never", "layout": "resource" },
+    "database": { "acceptance": "never", "layout": "resource" },
+    "canvas": { "acceptance": "never", "layout": "resource" },
+    "databaseViewRef": { "acceptance": "never", "layout": "resource" },
+    "pageRef": { "acceptance": "never", "layout": "resource" },
+    "syncedBlockRef": { "acceptance": "never", "layout": "resource" },
+    "templateRef": { "acceptance": "never", "layout": "resource" }
+  }
+}

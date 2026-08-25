@@ -634,6 +634,8 @@ CREATE TABLE core_store_migration_history (
       AND instr(backup_name, '\') = 0
     ),
   completed_at_unix_ms INTEGER NOT NULL CHECK (completed_at_unix_ms >= 0),
+  evidence_json TEXT NOT NULL DEFAULT '{}'
+    CHECK (json_valid(evidence_json) AND json_type(evidence_json) = 'object'),
   PRIMARY KEY (source_revision, target_revision)
 ) WITHOUT ROWID, STRICT;
 CREATE TABLE document_structural_barriers (
@@ -4140,4 +4142,4 @@ CREATE TABLE codex_queued_follow_up_manifest_gc (
   last_attempt_at TEXT CHECK (last_attempt_at IS NULL OR length(last_attempt_at) > 0),
   last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 4096)
 ) WITHOUT ROWID, STRICT;
-PRAGMA user_version = 134;
+PRAGMA user_version = 135;

@@ -17,7 +17,6 @@ import {
   canvasBlockConfig,
   pageBlockConfig,
   pageRefBlockConfig,
-  cardToggleBlockConfig,
   databaseBlockConfig,
   databaseViewRefBlockConfig,
   dateMentionInlineContentConfig,
@@ -26,8 +25,8 @@ import {
   threadSectionBlockConfig,
   syncedBlockRefBlockConfig,
   reusableTemplateRefBlockConfig,
-  toggleListInlineViewBlockConfig,
 } from "./blocknote-schema-config";
+import { BLOCK_CHILDREN_RULES } from "./block-children-policy";
 
 const failHeadlessRender = (): never => {
   throw new Error("The headless Block Document schema does not render DOM content");
@@ -71,8 +70,6 @@ const headlessBlockDocumentBlockSpecs = {
   database: createHeadlessBlockSpec(databaseBlockConfig),
   canvas: createHeadlessBlockSpec(canvasBlockConfig),
   threadSection: createHeadlessBlockSpec(threadSectionBlockConfig),
-  cardToggle: createHeadlessBlockSpec(cardToggleBlockConfig),
-  toggleListInlineView: createHeadlessBlockSpec(toggleListInlineViewBlockConfig),
   pageRef: createHeadlessBlockSpec(pageRefBlockConfig),
   databaseViewRef: createHeadlessBlockSpec(databaseViewRefBlockConfig),
   syncedBlockRef: createHeadlessBlockSpec(syncedBlockRefBlockConfig),
@@ -84,6 +81,7 @@ export const HEADLESS_BLOCK_DOCUMENT_BLOCK_TYPES = Object.freeze(
 );
 
 export const headlessBlockDocumentSchema = BlockNoteSchema.create({
+  blockChildrenRules: BLOCK_CHILDREN_RULES,
   blockSpecs: headlessBlockDocumentBlockSpecs,
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

@@ -18,6 +18,7 @@ mod realtime;
 mod recovery;
 mod retention;
 mod runtime;
+mod schema_migration;
 mod semantic;
 mod yrs_engine;
 
@@ -52,7 +53,6 @@ pub use operations::{
     PreparedDocumentOperationUpdate, PreparedPortableSubtreeTransfer, apply_exact_nfm_patches,
     prepare_document_operation_update, prepare_exact_nfm_patch_update,
     prepare_nfm_replacement_update, prepare_portable_subtree_transfer_updates,
-    prepare_reference_hint_finalization_update,
 };
 pub use realtime::{
     AwarenessPublication, DocumentRealtimeEvent, DocumentSubscriptionAck,
@@ -92,6 +92,9 @@ pub(crate) use primary_canvas::{
     primary_canvas_block_id, primary_canvas_document_id,
 };
 pub(crate) use runtime::reconstruct_yjs_engine;
+pub(crate) use schema_migration::{
+    migrate_block_children_contract, validate_block_children_migration_source,
+};
 pub(crate) use semantic::{
     mint_document_projection_etags, mint_document_semantic_etags, mint_etag,
     parse_inline_markdown_title,

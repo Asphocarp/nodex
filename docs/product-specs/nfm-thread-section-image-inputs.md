@@ -91,7 +91,6 @@ This behavior applies only to NFM image blocks included in a resolved thread-sec
 
 The prompt body can include:
 
-- direct children of the `threadSection` marker
 - following sibling blocks until the next sibling `threadSection`
 - nested image blocks inside those included body blocks
 

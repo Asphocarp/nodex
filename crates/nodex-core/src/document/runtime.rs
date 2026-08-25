@@ -510,7 +510,7 @@ mod tests {
             generation: 1,
             head_seq: 1,
             schema_key: "nodex.page".to_owned(),
-            schema_version: 2,
+            schema_version: 3,
             state_vector: engine.state_vector_v1(),
             state_hash: sha256(&full_state),
             readiness: DocumentReadiness::Ready,

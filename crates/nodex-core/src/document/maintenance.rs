@@ -316,7 +316,7 @@ mod tests {
                     "INSERT INTO documents( \
                        id, library_id, schema_key, schema_version, created_at, updated_at \
                      ) VALUES ('document:revision-maintenance', \
-                       'library:revision-maintenance', 'nodex.page', 2, ?1, ?1)",
+                       'library:revision-maintenance', 'nodex.page', 3, ?1, ?1)",
                     ["2026-07-19T00:00:00.000Z"],
                 )?;
                 connection.execute(

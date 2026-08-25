@@ -75,7 +75,7 @@ mounted title/body editor. A Card's owned Document identity also does not choose
 its sync engine; the registered schema and engine do.
 
 See [Architecture](ARCHITECTURE.md), [Reliability](RELIABILITY.md), and
-[Card Detail](adr/0010-card-detail-and-database-capability.md).
+[Database Pages and Views](product-specs/database-pages-and-views-behavior.md).
 
 ### 3. Streaming is an ordered transaction, not a set of callbacks
 
@@ -150,7 +150,7 @@ destroy nested participants. A provider that accepted a flush/freeze lease may
 need to finish headlessly after visual teardown. Hidden retained surfaces must
 not remain candidates for global pointer arbitration or own a terminal runtime.
 
-See [surface-local editor interactions](adr/0008-surface-local-editor-interactions.md)
+See [renderer view-state ownership](product-specs/renderer-view-state-ownership.md)
 and [Frontend](FRONTEND.md).
 
 ### 8. Keep high-frequency work out of broad owners
@@ -181,7 +181,7 @@ window-local coordinator carries disposable gesture state; and one idempotent
 with sortable live reflow.
 
 See [Board drag and drop](product-specs/board-drag-and-drop-behavior.md) and
-[ADR 0008](adr/0008-surface-local-editor-interactions.md).
+[renderer view-state ownership](product-specs/renderer-view-state-ownership.md).
 
 ### 10. Collaborative durability requires exact retry seams
 

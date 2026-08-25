@@ -46,22 +46,6 @@ pub enum BlockDocumentReference {
         #[serde(rename = "targetThreadId")]
         target_thread_id: String,
     },
-    #[serde(rename = "legacy_card_projection")]
-    LegacyCardProjection {
-        #[serde(rename = "sourceBlockId")]
-        source_block_id: String,
-        #[serde(rename = "targetBlockId")]
-        target_block_id: String,
-        #[serde(rename = "projectHint", skip_serializing_if = "Option::is_none")]
-        project_hint: Option<String>,
-    },
-    #[serde(rename = "legacy_database_query")]
-    LegacyDatabaseQuery {
-        #[serde(rename = "sourceBlockId")]
-        source_block_id: String,
-        #[serde(rename = "projectHint")]
-        project_hint: String,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,13 +62,8 @@ impl BlockDocumentReference {
             Self::Page { target_page_id, .. } => Some(target_page_id),
             Self::Block {
                 target_block_id, ..
-            }
-            | Self::LegacyCardProjection {
-                target_block_id, ..
             } => Some(target_block_id),
-            Self::DatabaseView { .. } | Self::Thread { .. } | Self::LegacyDatabaseQuery { .. } => {
-                None
-            }
+            Self::DatabaseView { .. } | Self::Thread { .. } => None,
         }
     }
 
@@ -93,11 +72,7 @@ impl BlockDocumentReference {
             Self::DatabaseView {
                 database_view_id, ..
             } => Some(database_view_id),
-            Self::Page { .. }
-            | Self::Block { .. }
-            | Self::Thread { .. }
-            | Self::LegacyCardProjection { .. }
-            | Self::LegacyDatabaseQuery { .. } => None,
+            Self::Page { .. } | Self::Block { .. } | Self::Thread { .. } => None,
         }
     }
 }
@@ -211,35 +186,6 @@ fn collect_records(
                     PageReferencePresentation::ReferenceBlock,
                 );
             }
-            NfmBlock::CardRef {
-                source_project_id,
-                page_id,
-            } => records
-                .references
-                .push(BlockDocumentReference::LegacyCardProjection {
-                    source_block_id: block.id.clone(),
-                    target_block_id: page_id.clone(),
-                    project_hint: Some(source_project_id.clone()),
-                }),
-            NfmBlock::CardToggle {
-                page_id,
-                source_project_id,
-                ..
-            } => records
-                .references
-                .push(BlockDocumentReference::LegacyCardProjection {
-                    source_block_id: block.id.clone(),
-                    target_block_id: page_id.clone(),
-                    project_hint: source_project_id.clone(),
-                }),
-            NfmBlock::ToggleListInlineView {
-                source_project_id, ..
-            } => records
-                .references
-                .push(BlockDocumentReference::LegacyDatabaseQuery {
-                    source_block_id: block.id.clone(),
-                    project_hint: source_project_id.clone(),
-                }),
             NfmBlock::DatabaseViewRef {
                 database_view_id,
                 display_hint,
@@ -289,8 +235,7 @@ fn nfm_content(block: &NfmBlock) -> Option<&[NfmInlineContent]> {
         | NfmBlock::CheckListItem { content, .. }
         | NfmBlock::Toggle { content, .. }
         | NfmBlock::Blockquote { content, .. }
-        | NfmBlock::Callout { content, .. }
-        | NfmBlock::CardToggle { content, .. } => Some(content),
+        | NfmBlock::Callout { content, .. } => Some(content),
         _ => None,
     }
 }
@@ -309,7 +254,6 @@ fn nfm_children(block: &NfmBlock) -> &[NfmBlock] {
         | NfmBlock::Callout { children, .. }
         | NfmBlock::Image { children, .. }
         | NfmBlock::ThreadSection { children, .. }
-        | NfmBlock::CardToggle { children, .. }
         | NfmBlock::Divider { children } => children,
         _ => &[],
     }

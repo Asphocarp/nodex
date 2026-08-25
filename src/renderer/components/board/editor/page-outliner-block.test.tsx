@@ -33,7 +33,7 @@ const targetModel = vi.hoisted(() => ({
   document: {
     readiness: "ready" as const,
     schemaKey: "nodex.page",
-    schemaVersion: 2,
+    schemaVersion: 3,
   },
 }));
 

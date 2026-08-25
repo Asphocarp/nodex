@@ -68,9 +68,9 @@ describe("readonly NFM BlockNote preview", () => {
     const view = render(
       <ReadonlyNfmBlockNotePreview
         content={[
-          '<card-ref project="alpha" card="card-1" />',
+          '<page-ref url="nodex://pages/card-1" />',
           '<thread-section label="Investigate" thread="thr_123" />',
-          '<toggle-list-inline-view project="alpha" />',
+          '<database-view-ref database-view="view-1" display-hint="Planning" />',
         ].join("\n\n")}
         projectId="alpha"
         pageId="card-1"
@@ -86,7 +86,7 @@ describe("readonly NFM BlockNote preview", () => {
 
     const body = textContent(view.container);
     expect(body.includes("Thread section")).toBe(true);
-    expect(body.includes("Toggle list view")).toBe(true);
+    expect(body.includes("Database view")).toBe(true);
     expect(body.includes("Search Pages")).toBe(false);
     expect(body.includes("Rules")).toBe(false);
   });

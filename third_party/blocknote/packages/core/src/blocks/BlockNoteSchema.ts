@@ -9,6 +9,7 @@ import {
   StyleSchema,
   StyleSchemaFromSpecs,
   StyleSpecs,
+  BlockChildrenRules,
 } from "../schema/index.js";
 import {
   defaultBlockSpecs,
@@ -38,6 +39,8 @@ export class BlockNoteSchema<
      * A list of custom Styles that should be available in the editor.
      */
     styleSpecs?: SSpecs;
+    /** Generic nested-Block capability and outer layout for each block type. */
+    blockChildrenRules?: BlockChildrenRules;
   }): BlockNoteSchema<
     BSpecs extends undefined
       ? BlockSchemaFromSpecs<typeof defaultBlockSpecs>
@@ -54,6 +57,7 @@ export class BlockNoteSchema<
       inlineContentSpecs:
         options?.inlineContentSpecs ?? defaultInlineContentSpecs,
       styleSpecs: options?.styleSpecs ?? defaultStyleSpecs,
+      blockChildrenRules: options?.blockChildrenRules,
     });
   }
 }

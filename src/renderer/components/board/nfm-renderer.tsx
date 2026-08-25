@@ -121,10 +121,12 @@ function BlockComponent({
   switch (block.type) {
     case "paragraph":
       return (
-        <p className={cn("my-1 leading-relaxed", colorClass)}>
-          <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+        <div className={cn("my-1 leading-relaxed", colorClass)}>
+          <p>
+            <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+          </p>
           <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
-        </p>
+        </div>
       );
 
     case "heading": {
@@ -163,7 +165,6 @@ function BlockComponent({
       return (
         <Tag className={cn(sizes[block.level], colorClass, INLINE_MARKDOWN_HEADING_CLASS_NAME)}>
           <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
-          <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
         </Tag>
       );
     }
@@ -180,33 +181,35 @@ function BlockComponent({
 
     case "checkListItem":
       return (
-        <div className={cn("my-0.5 flex items-start gap-2", colorClass)}>
-          <span
-            aria-checked={block.checked}
-            role="checkbox"
-            className={cn(
-              "mt-0.75 inline-block h-4 w-4 min-w-4 shrink-0 rounded-sm border-[calc(var(--spacing)*0.375)]",
-              block.checked
-                ? "border-(--accent-blue) bg-(--accent-blue)"
-                : "border-(--foreground-tertiary) bg-transparent",
-            )}
-            style={block.checked ? { position: "relative" } : undefined}
-          >
-            {block.checked && (
-              <svg viewBox="0 0 14 14" fill="none" className="h-full w-full text-white">
-                <path
-                  d="M3 7.5L5.5 10L11 4"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            )}
-          </span>
-          <span className={block.checked ? "line-through opacity-60" : ""}>
-            <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
-          </span>
+        <div className={cn("my-0.5", colorClass)}>
+          <div className="flex items-start gap-2">
+            <span
+              aria-checked={block.checked}
+              role="checkbox"
+              className={cn(
+                "mt-0.75 inline-block h-4 w-4 min-w-4 shrink-0 rounded-sm border-[calc(var(--spacing)*0.375)]",
+                block.checked
+                  ? "border-(--accent-blue) bg-(--accent-blue)"
+                  : "border-(--foreground-tertiary) bg-transparent",
+              )}
+              style={block.checked ? { position: "relative" } : undefined}
+            >
+              {block.checked && (
+                <svg viewBox="0 0 14 14" fill="none" className="h-full w-full text-white">
+                  <path
+                    d="M3 7.5L5.5 10L11 4"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
+            </span>
+            <span className={block.checked ? "line-through opacity-60" : ""}>
+              <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+            </span>
+          </div>
           <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
         </div>
       );
@@ -293,36 +296,9 @@ function BlockComponent({
               <InlineList items={block.caption} projectWorkspacePath={projectWorkspacePath} />
             </figcaption>
           )}
-          <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
         </figure>
       );
     }
-
-    case "toggleListInlineView":
-      return (
-        <NodexTooltip tooltipContent={`Inline toggle-list view (${block.sourceProjectId})`}>
-          <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
-            <span aria-hidden="true">∞</span>
-            <span className="whitespace-nowrap">
-              Toggle List Inline View · {block.sourceProjectId}
-            </span>
-          </div>
-        </NodexTooltip>
-      );
-
-    case "cardRef":
-      return (
-        <NodexTooltip
-          tooltipContent={`Legacy Page projection (${block.sourceProjectId}/${block.pageId})`}
-        >
-          <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
-            <span aria-hidden="true">↗</span>
-            <span className="whitespace-nowrap">
-              Legacy Page Projection · {block.sourceProjectId}/{block.pageId || "unlinked"}
-            </span>
-          </div>
-        </NodexTooltip>
-      );
 
     case "pageRef": {
       const mentionUrl = buildPageDeepLink({
@@ -342,28 +318,33 @@ function BlockComponent({
       return (
         <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
           <span aria-hidden="true">▣</span>
-          <span className="whitespace-nowrap">Page · {block.uuid || "Unidentified"}</span>
+          <span className="whitespace-nowrap">Page · {block.uuid}</span>
         </div>
       );
 
-    case "cardToggle":
+    case "database":
+      return <ResourceBlock label="Database" detail={block.uuid} />;
+
+    case "canvas":
+      return <ResourceBlock label="Canvas" detail={block.uuid} />;
+
+    case "databaseViewRef":
       return (
-        <details className="nfm-toggle my-1" open>
-          <summary className="nfm-toggle-summary">
-            <ToggleCaretIcon hasChildren={block.children.length > 0} />
-            <span className="min-w-0">
-              {block.meta && (
-                <span className="mr-2 text-(--foreground-secondary)">{block.meta}</span>
-              )}
-              <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
-            </span>
-          </summary>
-          {block.children.length > 0 && (
-            <div className="mt-1 pl-4">
-              <BlockList blocks={block.children} projectWorkspacePath={projectWorkspacePath} />
-            </div>
-          )}
-        </details>
+        <ResourceBlock label="Database view" detail={block.displayHint || block.databaseViewId} />
+      );
+
+    case "syncedBlockRef":
+      return <ResourceBlock label="Synced block" detail={block.sourceBlockId} />;
+
+    case "templateRef":
+      return <ResourceBlock label="Template" detail={block.displayHint || block.sourceBlockId} />;
+
+    case "threadSection":
+      return (
+        <div className="mt-5 mb-1 flex items-center gap-2 text-xs font-medium tracking-wide text-(--foreground-tertiary)">
+          <span aria-hidden="true">◆</span>
+          <span>{block.label || block.threadId || "Thread section"}</span>
+        </div>
       );
 
     case "divider":
@@ -372,6 +353,17 @@ function BlockComponent({
     case "emptyBlock":
       return <div className="h-[1em]" />;
   }
+}
+
+function ResourceBlock({ label, detail }: { label: string; detail: string }) {
+  return (
+    <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
+      <span aria-hidden="true">▣</span>
+      <span className="whitespace-nowrap">
+        {label} · {detail}
+      </span>
+    </div>
+  );
 }
 
 function NumberedListItemContent({
