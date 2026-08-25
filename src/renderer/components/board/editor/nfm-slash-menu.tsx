@@ -20,7 +20,7 @@ import {
   type DefaultReactSuggestionItem,
   type SuggestionMenuProps,
 } from "@blocknote/react";
-import { Ellipsis, SendHorizontal, Settings2 } from "@/components/shared/icons/generic-icons";
+import { Ellipsis, Minus, Settings2 } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownActionRow,
   NodexDropdownMessage,
@@ -49,12 +49,15 @@ import { createEmptyThreadSectionBlock } from "./thread-section";
 import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
 import {
   ThreadIcon,
-  NfmSideMenuTableHeaderIcon,
   BellIcon,
   CalendarIcon,
   ClockIcon,
   CanvasIcon,
+  NfmImageBlockIcon,
+  NfmSideMenuPageInIcon,
+  NfmTableBlockIcon,
   PageIcon,
+  TextActionReactionIcon,
 } from "@/components/shared/icons";
 import { buildDateMentionQueryMatches, type DateMentionQueryMatch } from "@/lib/nfm/date-mention";
 import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
@@ -85,6 +88,8 @@ import {
 import { StatusIcon } from "@/lib/status-presentation";
 import { WORKFLOW_STATUS_LABELS } from "../../../../shared/workflow-status";
 import { contentAccessContextKey } from "../../../../shared/content-access-context";
+import { NFM_TURN_INTO_DEFINITIONS } from "@/lib/nfm-turn-into-targets";
+import { NfmTurnIntoBlockIcon, type NfmTurnIntoBlockKey } from "./nfm-turn-into-block-icon";
 
 interface NfmSlashMenuProps {
   executionProjectId: string | null;
@@ -119,13 +124,10 @@ const SUGGESTION_SYNTAX_HINT_BY_KEY: Record<string, string> = {
   heading: "#",
   heading_2: "##",
   heading_3: "###",
-  heading_4: "####",
-  heading_5: "#####",
-  heading_6: "######",
   toggle_heading: "> #",
   toggle_heading_2: "> ##",
   toggle_heading_3: "> ###",
-  quote: ">",
+  quote: "|",
   toggle_list: ">",
   numbered_list: "1.",
   bullet_list: "-",
@@ -134,11 +136,111 @@ const SUGGESTION_SYNTAX_HINT_BY_KEY: Record<string, string> = {
   divider: "---",
   table: "table",
   image: "image",
-  video: "video",
-  audio: "audio",
-  file: "file",
   emoji: ":",
 };
+
+interface NfmSlashMenuItemPresentation {
+  readonly key: string;
+  readonly group: "Text" | "Lists" | "Blocks" | "Pages" | "Agent";
+  readonly label?: string;
+  readonly turnIntoKey?: NfmTurnIntoBlockKey;
+}
+
+const NFM_SLASH_MENU_ITEM_PRESENTATIONS = [
+  { key: "paragraph", group: "Text", turnIntoKey: "paragraph" },
+  { key: "heading", group: "Text", turnIntoKey: "heading-1" },
+  { key: "heading_2", group: "Text", turnIntoKey: "heading-2" },
+  { key: "heading_3", group: "Text", turnIntoKey: "heading-3" },
+  { key: "toggle_heading", group: "Text", turnIntoKey: "toggle-heading-1" },
+  { key: "toggle_heading_2", group: "Text", turnIntoKey: "toggle-heading-2" },
+  { key: "toggle_heading_3", group: "Text", turnIntoKey: "toggle-heading-3" },
+  { key: "emoji", group: "Text", label: "Emoji" },
+  { key: "bullet_list", group: "Lists", turnIntoKey: "bullet-list" },
+  { key: "numbered_list", group: "Lists", turnIntoKey: "numbered-list" },
+  { key: "check_list", group: "Lists", turnIntoKey: "todo-list" },
+  { key: "toggle_list", group: "Lists", turnIntoKey: "toggle-list" },
+  { key: "quote", group: "Blocks", turnIntoKey: "quote" },
+  { key: "callout", group: "Blocks", turnIntoKey: "callout" },
+  { key: "code_block", group: "Blocks", turnIntoKey: "code" },
+  { key: "divider", group: "Blocks", label: "Divider" },
+  { key: "table", group: "Blocks", label: "Table" },
+  { key: "image", group: "Blocks", label: "Image" },
+  { key: "subpage", group: "Pages", label: "Subpage" },
+  { key: "mention_page", group: "Pages", label: "Mention a page" },
+  { key: "embed_page", group: "Pages", label: "Embed page" },
+  { key: "canvas", group: "Pages", label: "Canvas" },
+  { key: "thread_section", group: "Agent", label: "Thread Section" },
+  { key: "agent_config", group: "Agent", label: "Agent Config" },
+] as const satisfies readonly NfmSlashMenuItemPresentation[];
+
+type NfmSlashMenuItemKey = (typeof NFM_SLASH_MENU_ITEM_PRESENTATIONS)[number]["key"];
+
+const NFM_SLASH_MENU_ITEM_PRESENTATION_BY_KEY = new Map<string, NfmSlashMenuItemPresentation>(
+  NFM_SLASH_MENU_ITEM_PRESENTATIONS.map((presentation) => [presentation.key, presentation]),
+);
+
+const NFM_TURN_INTO_DEFINITION_BY_KEY = new Map(
+  NFM_TURN_INTO_DEFINITIONS.map((definition) => [definition.key, definition] as const),
+);
+
+function getNfmSlashMenuItemIcon(key: NfmSlashMenuItemKey, turnIntoKey?: NfmTurnIntoBlockKey) {
+  if (turnIntoKey) return <NfmTurnIntoBlockIcon targetKey={turnIntoKey} />;
+  if (key === "emoji") return <TextActionReactionIcon />;
+  if (key === "divider") return <Minus className="size-5" />;
+  if (key === "table") return <NfmTableBlockIcon />;
+  if (key === "image") return <NfmImageBlockIcon />;
+  if (key === "canvas") return <CanvasIcon className="size-5" />;
+  if (key === "embed_page") return <NfmSideMenuPageInIcon />;
+  if (key === "subpage" || key === "mention_page") return <PageIcon className="size-5" />;
+  if (key === "thread_section") return <ThreadIcon className="size-5" />;
+  return <Settings2 className="size-5" />;
+}
+
+function presentNfmSlashMenuItem(item: NfmSuggestionItem): NfmSuggestionItem | null {
+  const key = item.key;
+  if (!key) return null;
+
+  const presentation = NFM_SLASH_MENU_ITEM_PRESENTATION_BY_KEY.get(key);
+  if (!presentation) return null;
+
+  const turnIntoDefinition = presentation.turnIntoKey
+    ? NFM_TURN_INTO_DEFINITION_BY_KEY.get(presentation.turnIntoKey)
+    : undefined;
+
+  return {
+    ...item,
+    key,
+    title: turnIntoDefinition?.label ?? presentation.label ?? item.title,
+    group: presentation.group,
+    icon: getNfmSlashMenuItemIcon(key as NfmSlashMenuItemKey, presentation.turnIntoKey),
+  };
+}
+
+/** Builds the complete Nodex-owned slash catalog in one deterministic pass. */
+export function buildNfmSlashMenuItems(
+  defaultItems: readonly DefaultReactSuggestionItem[],
+  customItems: readonly NfmSuggestionItem[],
+): NfmSuggestionItem[] {
+  const itemByKey = new Map<string, NfmSuggestionItem>();
+
+  for (const defaultItem of defaultItems) {
+    const keyedItem = defaultItem as NfmSuggestionItem;
+    if (keyedItem.key === "table") continue;
+
+    const presentedItem = presentNfmSlashMenuItem(keyedItem);
+    if (presentedItem?.key) itemByKey.set(presentedItem.key, presentedItem);
+  }
+
+  for (const customItem of customItems) {
+    const presentedItem = presentNfmSlashMenuItem(customItem);
+    if (presentedItem?.key) itemByKey.set(presentedItem.key, presentedItem);
+  }
+
+  return NFM_SLASH_MENU_ITEM_PRESENTATIONS.flatMap(({ key }) => {
+    const item = itemByKey.get(key);
+    return item ? [item] : [];
+  });
+}
 
 export const NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS = {
   portalElement: NFM_SUGGESTION_MENU_PORTAL_ELEMENT,
@@ -503,41 +605,46 @@ export function getNfmSlashMenuCustomItems(
     openEmbedPagePicker,
     openSubpageCreator,
   }: NfmSlashMenuCustomItemActions = {},
-): DefaultReactSuggestionItem[] {
+): NfmSuggestionItem[] {
+  const calloutItem = {
+    key: "callout",
+    title: "Callout",
+    subtext: "Highlight important information",
+    aliases: ["callout", "aside", "notice"],
+    hint: null,
+    onItemClick: () => {
+      insertBlock(editor, { type: "callout" });
+    },
+  } satisfies NfmSuggestionItem;
+
   const tableItem = {
     key: "table",
     title: "Table",
     subtext: "Insert a simple editable table",
     aliases: ["table", "grid"],
-    group: "Basic blocks",
     hint: null,
-    icon: <NfmSideMenuTableHeaderIcon className="size-4" />,
     onItemClick: () => {
       insertBlock(editor, createDefaultNfmTableBlock());
     },
-  };
+  } satisfies NfmSuggestionItem;
 
   const threadSectionItem = {
     key: "thread_section",
     title: "Thread Section",
     subtext: "Insert a runnable notebook-style prompt boundary",
     aliases: ["thread", "section", "prompt section", "cell"],
-    group: "Others",
     hint: null,
-    icon: <SendHorizontal size={16} />,
     onItemClick: () => {
       insertBlock(editor, createEmptyThreadSectionBlock() as unknown as Record<string, unknown>);
     },
-  };
+  } satisfies NfmSuggestionItem;
 
   const agentConfigItem = {
     key: "agent_config",
     title: "Agent Config",
     subtext: "Insert a one-send plan-mode config chip",
     aliases: ["agent-config", "agent config", "plan", "plan mode", "mode", "model", "reasoning"],
-    group: "Others",
     hint: null,
-    icon: <Settings2 size={16} />,
     onItemClick: () => {
       insertInlineContent(editor, [
         {
@@ -553,7 +660,7 @@ export function getNfmSlashMenuCustomItems(
         " ",
       ]);
     },
-  };
+  } satisfies NfmSuggestionItem;
 
   const canvasItem = createCanvasAtEmptyParagraph
     ? {
@@ -561,9 +668,7 @@ export function getNfmSlashMenuCustomItems(
         title: "Canvas",
         subtext: "Create an independent Canvas in this Page",
         aliases: ["canvas", "whiteboard", "drawing"],
-        group: "Basic blocks",
         hint: null,
-        icon: <CanvasIcon className="icon-xs" />,
         onItemClick: () => {
           void (async () => {
             let blockId: string | null = null;
@@ -596,9 +701,7 @@ export function getNfmSlashMenuCustomItems(
         title: "Embed page",
         subtext: "Show a live reference to another Page",
         aliases: ["embed", "page", "reference", "page reference"],
-        group: "Basic blocks",
         hint: null,
-        icon: <PageIcon className="size-4" aria-hidden="true" />,
         onItemClick: openEmbedPagePicker,
       }
     : null;
@@ -609,9 +712,7 @@ export function getNfmSlashMenuCustomItems(
         title: "Mention a page",
         subtext: "Mention another Page inline",
         aliases: ["mention", "mention page", "page mention", "page", "@"],
-        group: "Basic blocks",
         hint: null,
-        icon: <PageIcon className="size-4" aria-hidden="true" />,
         onItemClick: startMentionFlow,
       }
     : null;
@@ -622,14 +723,13 @@ export function getNfmSlashMenuCustomItems(
         title: "Subpage",
         subtext: "Create a Page owned by this Page",
         aliases: ["subpage", "child page", "nested page"],
-        group: "Basic blocks",
         hint: null,
-        icon: <PageIcon className="size-4" aria-hidden="true" />,
         onItemClick: openSubpageCreator,
       }
     : null;
 
-  return [
+  const items = [
+    calloutItem,
     tableItem,
     ...(canvasItem ? [canvasItem] : []),
     ...(mentionPageItem ? [mentionPageItem] : []),
@@ -638,6 +738,11 @@ export function getNfmSlashMenuCustomItems(
     threadSectionItem,
     agentConfigItem,
   ];
+
+  return items.flatMap((item) => {
+    const presentedItem = presentNfmSlashMenuItem(item);
+    return presentedItem ? [presentedItem] : [];
+  });
 }
 
 export function NfmSlashMenu({
@@ -669,14 +774,10 @@ export function NfmSlashMenu({
 
   const getItems = useMemo(
     () => async (query: string) => {
-      const defaults = getDefaultReactSlashMenuItems(editor).filter((item) => {
-        const key = (item as NfmSuggestionItem).key;
-        return key !== "table" && item.title.toLocaleLowerCase() !== "table";
-      });
       return filterSuggestionItems(
-        [
-          ...defaults,
-          ...getNfmSlashMenuCustomItems(editor, {
+        buildNfmSlashMenuItems(
+          getDefaultReactSlashMenuItems(editor),
+          getNfmSlashMenuCustomItems(editor, {
             createCanvasAtEmptyParagraph: hostRuntime?.createCanvasAtEmptyParagraph,
             startMentionFlow: allowPageReferences ? startMentionFlow : undefined,
             openEmbedPagePicker: allowPageReferences ? openEmbedPagePicker : undefined,
@@ -684,7 +785,7 @@ export function NfmSlashMenu({
               ? openSubpageCreator
               : undefined,
           }),
-        ],
+        ),
         query,
       );
     },
