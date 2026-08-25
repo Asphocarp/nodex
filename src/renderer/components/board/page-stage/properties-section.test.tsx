@@ -72,7 +72,7 @@ describe("PageStagePropertiesSection", () => {
     expect(view.queryByText("Properties")).toBeNull();
   });
 
-  test("uses the empty value lane to add a related Chat without execution controls", async () => {
+  test("uses the shared Empty value to add a related Chat without execution controls", async () => {
     const onCreateRelatedChat = vi.fn(async () => undefined);
     const view = render(
       <PageStagePropertiesSection
@@ -92,7 +92,7 @@ describe("PageStagePropertiesSection", () => {
 
     expect(view.getByText("Properties")).toBeTruthy();
     expect(view.getByText("Linked chats")).toBeTruthy();
-    expect(view.getByRole("button", { name: "Add chat" }).textContent).toBe("Add chat…");
+    expect(view.getByRole("button", { name: "Add chat" }).textContent).toBe("Empty");
     expect(view.queryByText("Local project")).toBeNull();
     expect(view.queryByText("Project cwd")).toBeNull();
 

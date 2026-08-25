@@ -5,6 +5,10 @@ import { NodexDropdown } from "@/components/ui/dropdown";
 import { toast } from "@/components/ui/toast";
 import { SchedulePopover } from "@/components/board/schedule-popover";
 import { dataSourcePropertyIcon } from "@/components/database/data-source-property-presentation";
+import {
+  DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME,
+  PropertyEmptyValue,
+} from "@/components/database/property-empty-value";
 import { DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME } from "@/components/database/property-value-chip";
 import {
   ActivitySpinnerIcon,
@@ -56,9 +60,12 @@ function RelatedChatAddControl({
       type="button"
       aria-label="Add chat"
       disabled={saving}
-      className="flex h-7 min-w-0 items-center rounded-sm px-1.5 text-sm text-(--foreground-tertiary) hover:bg-(--background-tertiary) hover:text-(--foreground-secondary) focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-token-focus disabled:opacity-40"
+      className={cn(
+        "flex min-h-6 min-w-0 items-center text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-token-focus disabled:opacity-40",
+        DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME,
+      )}
     >
-      <span className="truncate">Add chat…</span>
+      <PropertyEmptyValue className="truncate" />
     </button>
   ) : (
     <button
@@ -167,6 +174,7 @@ function RelatedChatsPropertyRow({ controller }: PageStagePropertiesSectionProps
     handleRemoveRelatedChat,
   } = controller;
   const empty = relatedChats.length === 0;
+  const showEmptyControl = empty && !relatedChatsLoading;
 
   return (
     <div className="grid min-h-7.5 grid-cols-[10rem_minmax(0,1fr)] items-start">
@@ -179,7 +187,7 @@ function RelatedChatsPropertyRow({ controller }: PageStagePropertiesSectionProps
         </span>
       </div>
 
-      <div className="min-w-0 px-2">
+      <div className={cn("min-w-0 px-2", showEmptyControl && !relatedChatsError && "self-center")}>
         {relatedChatsError ? (
           <div className="flex min-h-7 items-center gap-2 text-xs text-(--red-text)">
             <span className="min-w-0 flex-1 truncate">{relatedChatsError}</span>
@@ -266,9 +274,7 @@ function RelatedChatsPropertyRow({ controller }: PageStagePropertiesSectionProps
             <RelatedChatAddControl controller={controller} empty={false} />
           </div>
         ) : null}
-        {empty && !relatedChatsLoading ? (
-          <RelatedChatAddControl controller={controller} empty={true} />
-        ) : null}
+        {showEmptyControl ? <RelatedChatAddControl controller={controller} empty={true} /> : null}
       </div>
     </div>
   );

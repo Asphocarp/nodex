@@ -10,7 +10,10 @@ import {
 } from "@/lib/data-source-relation-value";
 import { foldDataSourceRelationSearchText } from "@/lib/data-source-relation-runtime";
 import { cn } from "@/lib/utils";
-import { PropertyEmptyValue } from "./property-empty-value";
+import {
+  DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME,
+  PropertyEmptyValue,
+} from "./property-empty-value";
 import {
   DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
   DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME,
@@ -425,7 +428,12 @@ export function RelationPropertyEditor({
               "inline-flex min-h-6 min-w-0 max-w-full flex-wrap items-center gap-1 rounded-md text-left outline-hidden",
               "hover:bg-token-foreground/5 focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-50",
               presentation === "page"
-                ? "text-sm"
+                ? cn(
+                    "text-sm",
+                    preview.totalCount === 0 &&
+                      !invalidPreview &&
+                      DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME,
+                  )
                 : presentation === "list" || presentation === "board"
                   ? DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME
                   : "px-1 text-[11px]",
