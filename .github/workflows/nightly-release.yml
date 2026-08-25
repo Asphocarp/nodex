@@ -162,6 +162,9 @@ jobs:
   assemble:
     if: needs.resolve.outputs.should_release == 'true'
     needs: [resolve, distribution, finalize-sparkle]
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/_assemble-release.yml
     with:
       retention_days: 14

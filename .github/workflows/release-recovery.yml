@@ -270,6 +270,7 @@ jobs:
       && needs.finalize-sparkle.result == 'success'
     needs: [validate, certification, restore-bundle, distribution, finalize-sparkle]
     permissions:
+      actions: read
       contents: read
     uses: ./.github/workflows/_assemble-release.yml
     with:

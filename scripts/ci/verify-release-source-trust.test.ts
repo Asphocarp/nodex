@@ -47,6 +47,29 @@ describe("release source workflow trust", () => {
     ).toThrow("consumes source_sha without the release-source guard");
   });
 
+  test("does not treat an unrelated environment job as a protected source guard", () => {
+    expect(() =>
+      verifyReleaseSourceWorkflow("release.yml", {
+        jobs: {
+          guard: guardJob,
+          approval: {
+            environment: "release-source",
+            steps: [{ run: "echo approved" }],
+          },
+          consume: {
+            needs: "approval",
+            steps: [
+              {
+                uses: "actions/checkout@pinned",
+                with: { ref: "${{ inputs.source_sha }}" },
+              },
+            ],
+          },
+        },
+      }),
+    ).toThrow("consumes source_sha without the release-source guard");
+  });
+
   test("rejects provenance validation after an untrusted checkout", () => {
     expect(() =>
       verifyReleaseSourceWorkflow("release.yml", {

@@ -123,6 +123,7 @@ jobs:
     name: assemble rehearsed Release Bundle
     needs: [validate, distribution, finalize-sparkle]
     permissions:
+      actions: read
       contents: read
     uses: ./.github/workflows/_assemble-release.yml
     with:

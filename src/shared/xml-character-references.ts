@@ -1,5 +1,4 @@
-const XML_CHARACTER_REFERENCE_PATTERN =
-  /&(?:(amp|lt|gt|quot|apos)|#([0-9]{1,7})|#x([0-9A-Fa-f]{1,6}));/gu;
+const XML_CHARACTER_REFERENCE_PATTERN = /&(?:(amp|lt|gt|quot|apos)|#([0-9]+)|#x([0-9A-Fa-f]+));/gu;
 
 const XML_NAMED_CHARACTERS: Readonly<Record<string, string>> = {
   amp: "&",
@@ -20,6 +19,13 @@ function isXmlCodePoint(value: number): boolean {
   );
 }
 
+function parseNumericCharacterReference(digits: string, radix: 10 | 16): number | null {
+  const significantDigits = digits.replace(/^0+/u, "") || "0";
+  const maximumDigits = radix === 10 ? 7 : 6;
+  if (significantDigits.length > maximumDigits) return null;
+  return Number.parseInt(significantDigits, radix);
+}
+
 /** Decodes one XML entity layer without reinterpreting references produced by that layer. */
 export function decodeXmlCharacterReferences(value: string): string {
   return value.replace(
@@ -32,8 +38,10 @@ export function decodeXmlCharacterReferences(value: string): string {
     ) => {
       if (named) return XML_NAMED_CHARACTERS[named] ?? reference;
 
-      const codePoint = Number.parseInt(decimal ?? hex ?? "", decimal ? 10 : 16);
-      if (!isXmlCodePoint(codePoint)) return reference;
+      const codePoint = decimal
+        ? parseNumericCharacterReference(decimal, 10)
+        : parseNumericCharacterReference(hex ?? "", 16);
+      if (codePoint === null || !isXmlCodePoint(codePoint)) return reference;
       return String.fromCodePoint(codePoint);
     },
   );

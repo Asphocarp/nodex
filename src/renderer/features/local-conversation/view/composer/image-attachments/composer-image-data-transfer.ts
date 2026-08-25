@@ -90,33 +90,46 @@ interface HtmlMediaSummary {
   hasVisibleMedia: boolean;
 }
 
-function summarizeParsedHtml(
-  node: ParsedHtmlNode,
-  summary: HtmlMediaSummary,
-  hidden = false,
-  insideMedia = false,
-): void {
-  if (node.nodeName === "#text" && "value" in node) {
-    if (!hidden && !insideMedia && node.value.trim().length > 0) summary.hasMeaningfulText = true;
-    return;
+interface HtmlTraversalEntry {
+  readonly node: ParsedHtmlNode;
+  readonly hidden: boolean;
+  readonly insideMedia: boolean;
+}
+
+function summarizeParsedHtml(root: ParsedHtmlNode): HtmlMediaSummary {
+  const summary: HtmlMediaSummary = { hasMeaningfulText: false, hasVisibleMedia: false };
+  const pending: HtmlTraversalEntry[] = [{ node: root, hidden: false, insideMedia: false }];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) break;
+
+    const { node, hidden, insideMedia } = current;
+    if (node.nodeName === "#text" && "value" in node) {
+      if (!hidden && !insideMedia && node.value.trim().length > 0) summary.hasMeaningfulText = true;
+      continue;
+    }
+
+    const element = isParsedHtmlElement(node) ? node : null;
+    const nextHidden = hidden || (element !== null && isHiddenElement(element));
+    const isMedia = element !== null && MEDIA_ELEMENT_NAMES.has(element.tagName);
+    if (isMedia && !nextHidden) summary.hasVisibleMedia = true;
+
+    if (!("childNodes" in node)) continue;
+    for (let index = node.childNodes.length - 1; index >= 0; index -= 1) {
+      const child = node.childNodes[index];
+      if (!child) continue;
+      pending.push({ node: child, hidden: nextHidden, insideMedia: insideMedia || isMedia });
+    }
   }
 
-  const element = isParsedHtmlElement(node) ? node : null;
-  const nextHidden = hidden || (element !== null && isHiddenElement(element));
-  const isMedia = element !== null && MEDIA_ELEMENT_NAMES.has(element.tagName);
-  if (isMedia && !nextHidden) summary.hasVisibleMedia = true;
-
-  if (!("childNodes" in node)) return;
-  for (const child of node.childNodes) {
-    summarizeParsedHtml(child, summary, nextHidden, insideMedia || isMedia);
-  }
+  return summary;
 }
 
 export function isComposerMediaOnlyHtml(html: string): boolean {
   if (!html || html.length > MEDIA_ONLY_HTML_LIMIT) return false;
 
-  const summary: HtmlMediaSummary = { hasMeaningfulText: false, hasVisibleMedia: false };
-  summarizeParsedHtml(parseFragment(html), summary);
+  const summary = summarizeParsedHtml(parseFragment(html));
   return summary.hasVisibleMedia && !summary.hasMeaningfulText;
 }
 

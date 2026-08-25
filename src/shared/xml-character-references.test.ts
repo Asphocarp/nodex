@@ -16,4 +16,11 @@ describe("XML character references", () => {
       "&#0; &#xD800; &#x110000; &unknown;",
     );
   });
+
+  test("ignores leading zeroes when validating numeric reference bounds", () => {
+    expect(decodeXmlCharacterReferences("&#00000000065; &#x00000000041;")).toBe("A A");
+    expect(decodeXmlCharacterReferences("&#0000000012345678; &#x00000001100000;")).toBe(
+      "&#0000000012345678; &#x00000001100000;",
+    );
+  });
 });

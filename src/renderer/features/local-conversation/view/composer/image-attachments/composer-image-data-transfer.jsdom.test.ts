@@ -136,6 +136,14 @@ describe("composer image DataTransfer classification", () => {
     );
   });
 
+  test("classifies deeply nested clipboard markup without recursive traversal", () => {
+    const depth = 9_000;
+    const html = `${"<div>".repeat(depth)}<img src="x">${"</div>".repeat(depth)}`;
+
+    expect(html.length).toBeLessThan(100_000);
+    expect(isComposerMediaOnlyHtml(html)).toBe(true);
+  });
+
   test("consumes ordinary files even when clipboard text is meaningful", () => {
     const documentFile = new File(["content"], "notes.md", { type: "text/markdown" });
     expect(
