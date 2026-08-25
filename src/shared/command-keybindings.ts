@@ -109,6 +109,39 @@ const MODIFIER_ALIASES = new Map<string, string>([
 
 const MODIFIER_ORDER = ["CmdOrCtrl", "Command", "Ctrl", "Alt", "Shift"];
 const MODIFIER_SET = new Set(MODIFIER_ORDER);
+const GLOBAL_PRIMARY_MODIFIER_SET = new Set(["CmdOrCtrl", "Command", "Ctrl", "Alt"]);
+
+const MAC_BARE_MODIFIER_ALIASES = new Map<string, string>([
+  ["fn", "Fn"],
+  ["leftoption", "LeftOption"],
+  ["leftalt", "LeftOption"],
+  ["rightoption", "RightOption"],
+  ["rightalt", "RightOption"],
+  ["doubleoption", "DoubleOption"],
+  ["doublealt", "DoubleOption"],
+  ["leftoption+rightoption", "DoubleOption"],
+  ["leftalt+rightalt", "DoubleOption"],
+  ["leftcommand", "LeftCommand"],
+  ["leftcmd", "LeftCommand"],
+  ["leftmeta", "LeftCommand"],
+  ["rightcommand", "RightCommand"],
+  ["rightcmd", "RightCommand"],
+  ["rightmeta", "RightCommand"],
+  ["doublecommand", "DoubleCommand"],
+  ["leftcommand+rightcommand", "DoubleCommand"],
+  ["leftcmd+rightcmd", "DoubleCommand"],
+  ["leftmeta+rightmeta", "DoubleCommand"],
+  ["leftcontrol", "LeftControl"],
+  ["leftctrl", "LeftControl"],
+  ["doubleshift", "DoubleShift"],
+  ["leftshift+rightshift", "DoubleShift"],
+]);
+const UNSUPPORTED_MAC_BARE_MODIFIERS = new Set([
+  "rightcontrol",
+  "rightctrl",
+  "leftshift",
+  "rightshift",
+]);
 
 const KEY_ALIASES = new Map<string, string>([
   ["esc", "Escape"],
@@ -143,7 +176,8 @@ const KEY_ALIASES = new Map<string, string>([
   ["bracketright", "]"],
   ["minus", "-"],
   ["equal", "="],
-  ["plus", "+"],
+  ["plus", "Plus"],
+  ["+", "Plus"],
   ["mouseback", "MouseBack"],
   ["mouseforward", "MouseForward"],
 ]);
@@ -750,6 +784,10 @@ export function validateCommandKeybindings(
   const seen = new Set<string>();
 
   normalizedKeys.forEach((key) => {
+    if (entry.shortcutScope === "os-global") {
+      const validationError = validateGlobalDictationShortcut(key, platform);
+      if (validationError) throw new Error(validationError);
+    }
     if (!isValidAccelerator(key, { allowsBareModifiers: entry.allowsBareModifiers === true })) {
       throw new Error(`Invalid keyboard shortcut: ${key}`);
     }
@@ -770,6 +808,40 @@ export function validateCommandKeybindings(
       throw new Error(`Keyboard shortcut already used by ${conflict.commandTitle}`);
     }
   });
+}
+
+/** Mirrors the native global-dictation admission rules used by the desktop host. */
+export function validateGlobalDictationShortcut(
+  accelerator: string,
+  platform: RuntimePlatform = resolveRuntimePlatform(),
+): string | null {
+  if (platform === "macOS" && normalizeMacBareModifier(accelerator)) return null;
+
+  const parts = accelerator
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.some(isKnownMacBareModifierPart)) {
+    if (parts.length > 1) return "Use Ctrl, Alt, or Command when combining with another key.";
+    return platform === "macOS"
+      ? "This shortcut key is not supported."
+      : "Choose a shortcut with Ctrl or Alt plus another key.";
+  }
+  if (parts.length === 0) return "Shortcut cannot be empty.";
+
+  let hasPrimaryModifier = false;
+  let nonModifierKey: string | null = null;
+  for (const part of parts) {
+    const modifier = MODIFIER_ALIASES.get(part.toLowerCase());
+    if (modifier) {
+      if (GLOBAL_PRIMARY_MODIFIER_SET.has(modifier)) hasPrimaryModifier = true;
+      continue;
+    }
+    if (nonModifierKey !== null) return "Shortcut must include exactly one non-modifier key.";
+    nonModifierKey = part;
+  }
+  if (nonModifierKey === null) return "Shortcut must include a non-modifier key.";
+  return hasPrimaryModifier ? null : "Shortcut must include Cmd/Ctrl or Alt.";
 }
 
 export function findCommandKeybindingConflict(
@@ -1126,12 +1198,15 @@ function requiredKey(binding: CommandKeybindingRecord): string {
 }
 
 function normalizeChord(chord: string): string {
+  const bareModifier = normalizeMacBareModifier(chord);
+  if (bareModifier) return bareModifier;
+
   const parts = chord
     .split("+")
     .map((part) => part.trim())
     .filter(Boolean);
   const modifiers: string[] = [];
-  let key: string | null = null;
+  const keys: string[] = [];
 
   parts.forEach((part) => {
     const modifier = MODIFIER_ALIASES.get(part.toLowerCase());
@@ -1139,11 +1214,11 @@ function normalizeChord(chord: string): string {
       modifiers.push(modifier);
       return;
     }
-    key = normalizeKeyName(part);
+    keys.push(normalizeKeyName(part));
   });
 
   const sortedModifiers = sortModifiers(Array.from(new Set(modifiers)));
-  return [...sortedModifiers, key].filter(isString).join("+");
+  return [...sortedModifiers, ...keys].join("+");
 }
 
 function parseChord(chord: string): ParsedChord | null {
@@ -1151,8 +1226,23 @@ function parseChord(chord: string): ParsedChord | null {
   if (!normalized) return null;
   const parts = normalized.split("+");
   const modifiers = parts.filter((part) => MODIFIER_SET.has(part));
-  const key = parts.find((part) => !MODIFIER_SET.has(part)) ?? null;
+  const keys = parts.filter((part) => !MODIFIER_SET.has(part));
+  if (keys.length > 1) return null;
+  const key = keys[0] ?? null;
   return { modifiers, key };
+}
+
+function normalizedBareModifierLookupKey(value: string): string {
+  return value.replace(/[\s_-]/g, "").toLowerCase();
+}
+
+function normalizeMacBareModifier(value: string): string | null {
+  return MAC_BARE_MODIFIER_ALIASES.get(normalizedBareModifierLookupKey(value)) ?? null;
+}
+
+function isKnownMacBareModifierPart(value: string): boolean {
+  const lookupKey = normalizedBareModifierLookupKey(value);
+  return MAC_BARE_MODIFIER_ALIASES.has(lookupKey) || UNSUPPORTED_MAC_BARE_MODIFIERS.has(lookupKey);
 }
 
 function normalizeKeyName(rawKey: string): string {
@@ -1200,7 +1290,7 @@ function formatChordLabel(chord: string, platform: RuntimePlatform): string {
     return "?";
   }
 
-  const keyLabel = parsed.key ? formatKeyLabel(parsed.key) : "";
+  const keyLabel = parsed.key ? formatKeyLabel(parsed.key, platform) : "";
   if (platform === "macOS") {
     return `${parsed.modifiers.map(formatMacModifierLabel).join("")}${keyLabel}`;
   }
@@ -1224,7 +1314,22 @@ function formatNonMacModifierLabel(modifier: string): string {
   return modifier;
 }
 
-function formatKeyLabel(key: string): string {
+function formatKeyLabel(key: string, platform: RuntimePlatform): string {
+  const macOS = platform === "macOS";
+  if (key === "Enter") return "⏎";
+  if (key === "Escape") return "Esc";
+  if (key === "LeftOption") return macOS ? "Left ⌥" : "Left Option";
+  if (key === "RightOption") return macOS ? "Right ⌥" : "Right Option";
+  if (key === "DoubleOption") return macOS ? "⌥ + ⌥" : "Double Option";
+  if (key === "LeftCommand") return macOS ? "Left ⌘" : "Left Command";
+  if (key === "RightCommand") return macOS ? "Right ⌘" : "Right Command";
+  if (key === "DoubleCommand") return macOS ? "⌘ + ⌘" : "Double Command";
+  if (key === "LeftControl") return macOS ? "Left ⌃" : "Left Control";
+  if (key === "RightControl") return macOS ? "Right ⌃" : "Right Control";
+  if (key === "LeftShift") return macOS ? "Left ⇧" : "Left Shift";
+  if (key === "RightShift") return macOS ? "Right ⇧" : "Right Shift";
+  if (key === "DoubleShift") return macOS ? "⇧ + ⇧" : "Double Shift";
+  if (key === "Plus" && macOS) return "+";
   if (key === "MouseBack") return "Mouse Back";
   if (key === "MouseForward") return "Mouse Forward";
   if (key === "Space") return "Space";

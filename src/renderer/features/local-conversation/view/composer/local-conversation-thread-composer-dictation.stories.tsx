@@ -93,6 +93,7 @@ class StoryScriptProcessor {
 
 class StoryAudioContext {
   public sampleRate = COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
+  private analyserCursor = 0;
 
   createMediaStreamSource() {
     return {
@@ -103,6 +104,22 @@ class StoryAudioContext {
 
   createScriptProcessor() {
     return new StoryScriptProcessor();
+  }
+
+  createAnalyser() {
+    return {
+      fftSize: 256,
+      frequencyBinCount: 128,
+      getFloatTimeDomainData: (values: Float32Array) => {
+        const envelope = 0.035 + (Math.sin(this.analyserCursor / 60) + 1) * 0.025;
+        for (let index = 0; index < values.length; index += 1) {
+          values[index] = Math.sin((this.analyserCursor + index) * 0.18) * envelope;
+        }
+        this.analyserCursor += values.length;
+      },
+      getByteTimeDomainData: (values: Uint8Array) => values.fill(128),
+      disconnect: () => {},
+    };
   }
 
   close(): Promise<void> {

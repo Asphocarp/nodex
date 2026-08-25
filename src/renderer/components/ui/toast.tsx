@@ -6,7 +6,7 @@ import {
   Info,
   X,
 } from "@/components/shared/icons/generic-icons";
-import { NodexButton } from "@/components/ui/button";
+import { NodexButton, type NodexButtonProps } from "@/components/ui/button";
 import { motion } from "motion/react";
 import { APP_SHELL_TOAST_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
@@ -20,12 +20,16 @@ export interface ToastHandle {
   close: () => void;
 }
 
+export interface ToastAction {
+  label: ReactNode;
+  onClick: () => boolean | void;
+  variant?: NodexButtonProps["variant"];
+}
+
 export interface ToastOptions {
   description?: ReactNode;
-  action?: {
-    label: ReactNode;
-    onClick: () => boolean | void;
-  };
+  action?: ToastAction;
+  secondaryAction?: ToastAction;
   duration?: number;
   id?: string;
   hasCloseButton?: boolean;
@@ -55,6 +59,7 @@ export interface ToastPlainRecord extends ToastBaseRecord {
   title: ReactNode;
   description?: ReactNode;
   action?: ToastOptions["action"];
+  secondaryAction?: ToastOptions["secondaryAction"];
 }
 
 export interface ToastCustomRecord extends ToastBaseRecord {
@@ -215,6 +220,7 @@ class NodexToastStore {
       title,
       description: options?.description,
       action: options?.action,
+      secondaryAction: options?.secondaryAction,
     };
     return this.insertRecord(record, options?.onRemove);
   }
@@ -356,10 +362,23 @@ function NodexToastPlainSurface({
           </div>
         ) : null}
       </div>
+      {record.secondaryAction ? (
+        <NodexButton
+          type="button"
+          variant={record.secondaryAction.variant ?? "secondary"}
+          size="xs"
+          onClick={() => {
+            const shouldClose = record.secondaryAction?.onClick();
+            if (shouldClose !== false) onClose();
+          }}
+        >
+          {record.secondaryAction.label}
+        </NodexButton>
+      ) : null}
       {record.action ? (
         <NodexButton
           type="button"
-          variant="secondary"
+          variant={record.action.variant ?? "secondary"}
           size="xs"
           onClick={() => {
             const shouldClose = record.action?.onClick();

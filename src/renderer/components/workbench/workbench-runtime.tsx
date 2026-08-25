@@ -1649,6 +1649,15 @@ export function WorkbenchRuntime({
     setSettingsPath(buildSettingsPath("keyboard-shortcuts"));
   }, [closePendingWorktreeRoute, setAutomationsPath, setSettingsPath]);
 
+  const openVoiceSettings = useCallback(() => {
+    closePendingWorktreeRoute();
+    setAutomationsPath(null);
+    setReopenStableWorktreeAfterSettingsId(null);
+    setReopenPendingWorktreeAfterSettingsClientThreadId(null);
+    setLocalEnvironmentSettingsInitial(null);
+    setSettingsPath(buildSettingsPath("voice"));
+  }, [closePendingWorktreeRoute, setAutomationsPath, setSettingsPath]);
+
   const openKeyboardShortcutHelp = useCallback(() => {
     setCommandPaletteOpen(false);
     setKeyboardShortcutHelpOpen(true);
@@ -4130,6 +4139,7 @@ export function WorkbenchRuntime({
             }}
             onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
             onOpenHooksSettings={openHooksSettings}
+            onOpenVoiceSettings={openVoiceSettings}
             threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
             composerEnterBehavior={composerEnterBehavior}
             onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
@@ -4284,6 +4294,7 @@ export function WorkbenchRuntime({
           onRequestProjectPickerOpen,
           onOpenLocalEnvironmentsSettings: openLocalEnvironmentsSettings,
           onOpenHooksSettings: openHooksSettings,
+          onOpenVoiceSettings: openVoiceSettings,
           threadQueueFollowUpsEnabled,
           composerEnterBehavior,
           onQueueingEnabledChange: handleThreadQueueFollowUpsEnabledChange,

@@ -26,6 +26,7 @@ describe("DictationSettingsStore", () => {
     expect(await store.read()).toMatchObject({
       microphoneInputDeviceId: null,
       globalShortcutNudgeDismissed: false,
+      dictionary: [],
     });
 
     await expect(store.update({ microphoneInputDeviceId: "mic-1" })).resolves.toMatchObject({
@@ -33,6 +34,32 @@ describe("DictationSettingsStore", () => {
     });
     expect(() => store.update({ unknown: true })).toThrow("Unknown dictation setting");
     expect((await store.read()).microphoneInputDeviceId).toBe("mic-1");
+  });
+
+  test("persists a bounded dictation dictionary and migrates older settings to an empty list", async () => {
+    const { directory, store } = await createStore();
+    await expect(
+      store.update({ dictionary: ["  Nodex  ", "useCartState"] }),
+    ).resolves.toMatchObject({
+      dictionary: ["  Nodex  ", "useCartState"],
+    });
+    expect(() => store.update({ dictionary: Array.from({ length: 101 }, () => "entry") })).toThrow(
+      "dictionary",
+    );
+
+    await writeFile(
+      join(directory, "dictation-settings.json"),
+      JSON.stringify({
+        microphoneInputDeviceId: null,
+        keepGlobalBarVisible: false,
+        playStartSound: true,
+        playStopSound: true,
+        globalShortcutNudgeDismissed: false,
+      }),
+      { mode: 0o600 },
+    );
+
+    expect((await store.read()).dictionary).toEqual([]);
   });
 
   test("lets exactly one concurrent renderer claim the global shortcut nudge", async () => {

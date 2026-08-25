@@ -91,7 +91,7 @@ export function NodexCheckbox({
 
 export interface NodexSettingsRowProps {
   label: string;
-  description?: string;
+  description?: ReactNode;
   className?: string;
   children: ReactNode;
 }

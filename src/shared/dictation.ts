@@ -85,6 +85,7 @@ export interface DictationSettings {
   readonly playStartSound: boolean;
   readonly playStopSound: boolean;
   readonly globalShortcutNudgeDismissed: boolean;
+  readonly dictionary: readonly string[];
 }
 
 export type DictationSettingsPatch = Partial<DictationSettings>;
@@ -95,4 +96,5 @@ export const DEFAULT_DICTATION_SETTINGS: DictationSettings = {
   playStartSound: true,
   playStopSound: true,
   globalShortcutNudgeDismissed: false,
+  dictionary: [],
 };

@@ -12,6 +12,10 @@ import { RendererStateProvider } from "@/app-providers";
 import { TestComposerScopePath } from "@/test/maitai-scope-harness";
 import { TestQueryProvider } from "@/test/query";
 import { createCommandKeymapState } from "../../../../../shared/command-keybindings";
+import {
+  __getNodexToastSnapshotForTests,
+  __resetNodexToastStoreForTests,
+} from "@/components/ui/toast";
 
 class MockMediaRecorder {
   public mimeType = "audio/webm";
@@ -257,12 +261,17 @@ describe("ThreadComposer dictation", () => {
   const nativeAudioContext = globalThis.AudioContext;
   let transcribeCallCount = 0;
   let transcribeResult = "";
+  let transcribePromise: Promise<string> | null = null;
+  let transcribeFailure: Error | null = null;
   let dictationNow = 0;
 
   beforeEach(() => {
     transcribeCallCount = 0;
     transcribeResult = "";
+    transcribePromise = null;
+    transcribeFailure = null;
     dictationNow = 1_000;
+    __resetNodexToastStoreForTests();
     vi.spyOn(performance, "now").mockImplementation(() => dictationNow);
     installAsyncRequestAnimationFrame();
     document.documentElement.dataset.codexWindowType = "electron";
@@ -280,12 +289,14 @@ describe("ThreadComposer dictation", () => {
             playStartSound: true,
             playStopSound: true,
             globalShortcutNudgeDismissed: false,
+            dictionary: [],
           };
         }
         if (channel === "codex-command-keymap-state") return createCommandKeymapState();
         if (channel === "codex:dictation:transcribe") {
           transcribeCallCount += 1;
-          return transcribeResult;
+          if (transcribeFailure) throw transcribeFailure;
+          return transcribePromise ?? transcribeResult;
         }
         return null;
       },
@@ -320,6 +331,7 @@ describe("ThreadComposer dictation", () => {
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    __resetNodexToastStoreForTests();
     Object.defineProperty(globalThis, "MediaRecorder", {
       configurable: true,
       writable: true,
@@ -401,6 +413,87 @@ describe("ThreadComposer dictation", () => {
       const editor = container.querySelector<HTMLElement>("[data-codex-composer='true']");
       expect(editor?.textContent ?? "").toBe("transcribed text");
     });
+  });
+
+  test("keeps the dictation controls stable while transcription is pending", async () => {
+    let resolveTranscription: ((transcript: string) => void) | null = null;
+    transcribePromise = new Promise<string>((resolve) => {
+      resolveTranscription = resolve;
+    });
+
+    const { container, getByLabelText, getByRole } = await renderThreadComposer();
+
+    await act(async () => {
+      fireEvent.click(getByLabelText("Dictate"));
+    });
+    await waitFor(() => {
+      expect(Boolean(document.querySelector('[aria-label="Stop dictation"]'))).toBe(true);
+    });
+
+    await act(async () => {
+      dictationNow += 260;
+      fireEvent.click(getByLabelText("Stop dictation"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(getByRole("status").textContent).toBe("Transcribing");
+    });
+    expect((getByLabelText("Cancel transcription") as HTMLButtonElement).disabled).toBe(false);
+    expect((getByLabelText("Stop dictation") as HTMLButtonElement).disabled).toBe(true);
+    expect((getByLabelText("Transcribe and send") as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      resolveTranscription?.("transcribed later");
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      const editor = container.querySelector<HTMLElement>("[data-codex-composer='true']");
+      expect(editor?.textContent ?? "").toBe("transcribed later");
+    });
+  });
+
+  test("reports transcription failures through the app toast system", async () => {
+    transcribeFailure = new Error("transcription failed");
+    const openVoiceSettings = vi.fn();
+    const { getByLabelText } = await renderThreadComposer({
+      actions: { onOpenVoiceSettings: openVoiceSettings },
+    });
+
+    await act(async () => {
+      fireEvent.click(getByLabelText("Dictate"));
+    });
+    await waitFor(() => {
+      expect(Boolean(document.querySelector('[aria-label="Stop dictation"]'))).toBe(true);
+    });
+
+    await act(async () => {
+      dictationNow += 260;
+      fireEvent.click(getByLabelText("Stop dictation"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(
+        __getNodexToastSnapshotForTests().some(
+          (record) =>
+            record.kind === "plain" &&
+            record.level === "danger" &&
+            record.title === "Unable to transcribe audio" &&
+            record.secondaryAction?.label === "View recording" &&
+            record.action?.label === "Retry",
+        ),
+      ).toBe(true);
+    });
+
+    const toastRecord = __getNodexToastSnapshotForTests().find(
+      (record) => record.kind === "plain" && record.title === "Unable to transcribe audio",
+    );
+    if (!toastRecord || toastRecord.kind !== "plain") {
+      throw new Error("Expected transcription recovery toast");
+    }
+    toastRecord.secondaryAction?.onClick();
+    expect(openVoiceSettings).toHaveBeenCalledOnce();
   });
 
   test("stops a microphone stream that resolves after the composer unmounts", async () => {

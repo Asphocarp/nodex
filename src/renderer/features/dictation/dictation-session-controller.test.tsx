@@ -17,6 +17,7 @@ const createFixture = (
     readonly requestPermission?: DictationControllerPorts["permissions"]["request"];
     readonly prepareStreaming?: DictationControllerPorts["streaming"]["prepare"];
     readonly transcribe?: DictationControllerPorts["buffered"]["transcribe"];
+    readonly cleanup?: DictationControllerPorts["cleanup"]["transcript"];
   } = {},
 ) => {
   let now = 0;
@@ -54,6 +55,9 @@ const createFixture = (
   const buffered = {
     transcribe: vi.fn(options.transcribe ?? (async () => "hello world")),
   };
+  const cleanup = {
+    transcript: vi.fn(options.cleanup ?? (async (transcript: string) => transcript)),
+  };
   const acquire = vi.fn(options.acquire ?? (async () => stream));
   const lease = {
     acquire: vi.fn(async () => true),
@@ -76,6 +80,7 @@ const createFixture = (
       prepare: options.prepareStreaming ?? (async () => streamingAttempt),
     },
     buffered,
+    cleanup,
     history,
     completion,
     clock: {
@@ -95,6 +100,7 @@ const createFixture = (
   return {
     acquire,
     buffered,
+    cleanup,
     completion,
     controller,
     history,
@@ -184,6 +190,35 @@ describe("DictationSessionController", () => {
       expect.objectContaining({ transcript: "recovered" }),
     );
     expect(fixture.controller.getSnapshot().kind).toBe("idle");
+  });
+
+  it("applies semantic cleanup after either transport and fails open on cleanup errors", async () => {
+    const cleaned = createFixture({ cleanup: async () => "Nodex" });
+    await cleaned.controller.start({ surface: "composer", gesture: "click" });
+    cleaned.setNow(300);
+    cleaned.controller.stop("insert");
+    await vi.waitFor(() => expect(cleaned.controller.getSnapshot().kind).toBe("idle"));
+    expect(cleaned.cleanup.transcript).toHaveBeenCalledWith(
+      "hello world",
+      expect.any(AbortSignal),
+      "session-1",
+    );
+    expect(cleaned.completion.apply).toHaveBeenCalledWith(
+      expect.objectContaining({ transcript: "Nodex" }),
+    );
+
+    const failOpen = createFixture({
+      cleanup: async () => {
+        throw new Error("cleanup unavailable");
+      },
+    });
+    await failOpen.controller.start({ surface: "composer", gesture: "click" });
+    failOpen.setNow(300);
+    failOpen.controller.stop("insert");
+    await vi.waitFor(() => expect(failOpen.controller.getSnapshot().kind).toBe("idle"));
+    expect(failOpen.completion.apply).toHaveBeenCalledWith(
+      expect.objectContaining({ transcript: "hello world" }),
+    );
   });
 
   it("discards 249ms locally but transcribes the 250ms boundary", async () => {

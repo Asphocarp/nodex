@@ -40,7 +40,7 @@ interface ActiveGlobalSession {
 
 type GlobalDictationHelperPort = Pick<
   MacDictationNativeHelperClient,
-  | "capture"
+  | "captureFn"
   | "dispose"
   | "queryBuiltInMicrophoneName"
   | "capabilities"
@@ -164,10 +164,10 @@ export class GlobalDictationManager {
     }
   }
 
-  captureHotkey(): Promise<string> {
+  captureFnHotkey(): Promise<"Fn"> {
     if (this.#platform !== "darwin")
       return Promise.reject(new Error("Global dictation is macOS-only"));
-    return this.#helper.capture();
+    return this.#helper.captureFn();
   }
 
   queryBuiltInMicrophoneName(): Promise<string | null> {

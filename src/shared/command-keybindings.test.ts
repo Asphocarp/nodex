@@ -42,6 +42,9 @@ describe("command keybindings", () => {
     expect(formatAcceleratorLabel("CmdOrCtrl+Alt+R", "windows")).toBe("Ctrl+Alt+R");
     expect(formatAcceleratorAriaKeyShortcut("CmdOrCtrl+Alt+R", "macOS")).toBe("Meta+Alt+R");
     expect(formatAcceleratorAriaKeyShortcut("Ctrl+Shift+M", "macOS")).toBe("Control+Shift+M");
+    expect(formatAcceleratorLabel("LeftControl", "macOS")).toBe("Left ⌃");
+    expect(formatAcceleratorLabel("DoubleOption", "macOS")).toBe("⌥ + ⌥");
+    expect(formatAcceleratorLabel("RightCommand", "windows")).toBe("Right Command");
   });
 
   test("projects command shortcuts for visible and assistive labels", () => {
@@ -163,6 +166,10 @@ describe("command keybindings", () => {
     expect(
       keyboardEventToAccelerator(keyboardEvent("A", { metaKey: true, shiftKey: true }), "macOS"),
     ).toBe("CmdOrCtrl+Shift+A");
+    expect(keyboardEventToAccelerator(keyboardEvent("+", { shiftKey: true }), "macOS")).toBe(
+      "Shift+Plus",
+    );
+    expect(formatAcceleratorLabel("Shift+Plus", "macOS")).toBe("⇧+");
 
     const state = createCommandKeymapState({}, "macOS");
     expect(matchesMouseEventToCommand({ button: 3 }, state, "navigateBack")).toBe(true);
@@ -238,6 +245,43 @@ describe("command keybindings", () => {
       threw = true;
     }
     expect(threw).toBe(true);
+  });
+
+  test("requires Cmd/Ctrl or Alt for ordinary global dictation shortcuts", () => {
+    const setGlobalHold = (key: string) =>
+      applyCommandKeybindingUpdate(
+        {},
+        "globalDictationHold",
+        { type: "set", keybinding: { key } },
+        "macOS",
+      );
+
+    expect(() => setGlobalHold("Y")).toThrow("Shortcut must include Cmd/Ctrl or Alt.");
+    expect(() => setGlobalHold("Shift+Y")).toThrow("Shortcut must include Cmd/Ctrl or Alt.");
+    expect(() => setGlobalHold("Ctrl")).toThrow("Shortcut must include a non-modifier key.");
+    expect(() => setGlobalHold("Ctrl+Y+Z")).toThrow(
+      "Shortcut must include exactly one non-modifier key.",
+    );
+    expect(setGlobalHold("Ctrl+Y").globalDictationHold).toEqual(["Ctrl+Y"]);
+    expect(setGlobalHold("Alt+Y").globalDictationHold).toEqual(["Alt+Y"]);
+  });
+
+  test("accepts only supported macOS bare global modifiers", () => {
+    const setGlobalHold = (key: string) =>
+      applyCommandKeybindingUpdate(
+        {},
+        "globalDictationHold",
+        { type: "set", keybinding: { key } },
+        "macOS",
+      );
+
+    expect(setGlobalHold("Fn").globalDictationHold).toEqual(["Fn"]);
+    expect(setGlobalHold("LeftControl").globalDictationHold).toEqual(["LeftControl"]);
+    expect(setGlobalHold("RightOption").globalDictationHold).toEqual(["RightOption"]);
+    expect(setGlobalHold("LeftAlt").globalDictationHold).toEqual(["LeftOption"]);
+    expect(setGlobalHold("LeftOption+RightOption").globalDictationHold).toEqual(["DoubleOption"]);
+    expect(() => setGlobalHold("RightControl")).toThrow("This shortcut key is not supported.");
+    expect(() => setGlobalHold("LeftShift")).toThrow("This shortcut key is not supported.");
   });
 
   test("uses current command palette labels and hides unavailable shell commands", () => {

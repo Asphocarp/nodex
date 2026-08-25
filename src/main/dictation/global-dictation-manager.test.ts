@@ -23,7 +23,7 @@ const createFixture = (focusedWindow: BrowserWindow | null = null) => {
     }),
     register: vi.fn(async () => undefined),
     unregister: vi.fn(async () => undefined),
-    capture: vi.fn(async () => "Fn"),
+    captureFn: vi.fn(async () => "Fn" as const),
     queryBuiltInMicrophoneName: vi.fn(async () => null),
     capabilities: vi.fn(async () => ({ inputMonitoring: true, accessibility: true })),
     requestInputMonitoring: vi.fn(async () => true),
@@ -57,6 +57,7 @@ const createFixture = (focusedWindow: BrowserWindow | null = null) => {
     playStartSound: true,
     playStopSound: true,
     globalShortcutNudgeDismissed: false,
+    dictionary: [],
   }));
   const manager = new GlobalDictationManager({
     helper,

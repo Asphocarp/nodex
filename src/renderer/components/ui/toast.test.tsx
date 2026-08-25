@@ -202,6 +202,39 @@ describe("Nodex toast system", () => {
     });
   });
 
+  test("renders secondary and primary recovery actions in the shared toast shell", async () => {
+    const view = render(<ToastHarness />);
+    const calls: string[] = [];
+
+    await act(async () => {
+      toast.danger("Unable to transcribe audio", {
+        duration: 0,
+        secondaryAction: {
+          label: "View recording",
+          onClick: () => {
+            calls.push("view");
+            return false;
+          },
+        },
+        action: {
+          label: "Retry",
+          variant: "primary",
+          onClick: () => {
+            calls.push("retry");
+          },
+        },
+      });
+      await settleAsyncRender();
+    });
+
+    fireEvent.click(view.getByRole("button", { name: "View recording" }));
+    expect(calls).toEqual(["view"]);
+    expect(view.getByRole("alert")).toBeTruthy();
+
+    fireEvent.click(view.getByRole("button", { name: "Retry" }));
+    expect(calls).toEqual(["view", "retry"]);
+  });
+
   test("lets a recoverable action keep its toast open when recovery is unavailable", async () => {
     const view = render(<ToastHarness />);
 

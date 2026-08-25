@@ -1085,7 +1085,7 @@ export interface IpcApi {
     result: CommandKeymapState;
   };
   "reset-codex-command-keybindings": { args: []; result: CommandKeymapState };
-  "global-dictation-capture-fn-hotkey": { args: []; result: string | null };
+  "global-dictation-capture-fn-hotkey": { args: []; result: "Fn" | null };
   "global-dictation:event": { args: [event: GlobalDictationRendererEvent]; result: boolean };
   "app:update:status": { args: []; result: AppUpdateStatus };
   "app:update:check": { args: []; result: AppUpdateStatus };
@@ -1554,6 +1554,16 @@ export interface IpcApi {
   };
   "codex:dictation:transcribe": {
     args: [input: { contentType: string; base64Payload: string; requestId: string }];
+    result: string;
+  };
+  "codex:dictation:cleanup": {
+    args: [
+      input: {
+        transcript: string;
+        surroundingText: string | null;
+        requestId: string;
+      },
+    ];
     result: string;
   };
   "codex:dictation:transcribe:cancel": {

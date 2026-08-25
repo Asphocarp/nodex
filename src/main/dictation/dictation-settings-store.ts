@@ -9,13 +9,29 @@ import { isMissingPathError, writeDurableJson } from "../durable-json-file";
 
 const SETTINGS_FILE_NAME = "dictation-settings.json";
 const MAX_SETTINGS_BYTES = 64 * 1024;
+export const MAX_DICTATION_DICTIONARY_ENTRIES = 100;
+export const MAX_DICTATION_DICTIONARY_ENTRY_LENGTH = 512;
 const PATCH_KEYS = new Set<keyof DictationSettings>([
   "microphoneInputDeviceId",
   "keepGlobalBarVisible",
   "playStartSound",
   "playStopSound",
   "globalShortcutNudgeDismissed",
+  "dictionary",
 ]);
+
+const parseDictionary = (value: unknown): readonly string[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > MAX_DICTATION_DICTIONARY_ENTRIES) {
+    throw new Error("Dictation dictionary is invalid");
+  }
+  return value.map((entry) => {
+    if (typeof entry !== "string" || entry.length > MAX_DICTATION_DICTIONARY_ENTRY_LENGTH) {
+      throw new Error("Dictation dictionary entry is invalid");
+    }
+    return entry;
+  });
+};
 
 const parseSettings = (value: unknown): DictationSettings => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -27,6 +43,7 @@ const parseSettings = (value: unknown): DictationSettings => {
   const playStartSound = input.playStartSound;
   const playStopSound = input.playStopSound;
   const globalShortcutNudgeDismissed = input.globalShortcutNudgeDismissed ?? false;
+  const dictionary = parseDictionary(input.dictionary);
   if (microphoneInputDeviceId !== null && typeof microphoneInputDeviceId !== "string") {
     throw new Error("Dictation microphone selection is invalid");
   }
@@ -44,6 +61,7 @@ const parseSettings = (value: unknown): DictationSettings => {
     playStartSound,
     playStopSound,
     globalShortcutNudgeDismissed,
+    dictionary,
   };
 };
 
@@ -74,6 +92,7 @@ export const parseDictationSettingsPatch = (value: unknown): DictationSettingsPa
       throw new Error(`Dictation setting ${key} must be a boolean`);
     }
   }
+  if ("dictionary" in input) parseDictionary(input.dictionary);
   return input as DictationSettingsPatch;
 };
 

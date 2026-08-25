@@ -1,16 +1,11 @@
-import {
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-} from "react";
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import { cn } from "@/lib/utils";
 import { NodexButton } from "../ui/button";
-import { ShortcutKeycapSequence } from "../ui/shortcut-keycaps";
+import { HotkeySettingControl, type HotkeyCaptureMode } from "../ui/hotkey-setting-control";
 import {
   NodexDialog,
   NodexDialogAction,
@@ -23,30 +18,23 @@ import {
   NodexDialogTitle,
 } from "../ui/dialog";
 import { NodexSettingsPageSurface as SettingsPageSurface } from "../ui/settings";
-import {
-  KeystrokeSearchIcon,
-  ShortcutPencilIcon,
-  ShortcutResetIcon,
-  ShortcutTrashIcon,
-} from "../shared/icons";
+import { KeystrokeSearchIcon } from "../shared/icons";
 import {
   findCommandKeybindingConflict,
   formatAcceleratorLabel,
   keyboardEventToAccelerator,
   normalizeAccelerator,
+  validateGlobalDictationShortcut,
   type CommandKeybindingRecord,
   type CommandKeybindingUpdate,
   type CommandKeymapEntry,
   type CommandKeymapState,
 } from "../../../shared/command-keybindings";
 
-type CaptureMode = "set" | "replace" | "append";
-
 interface CaptureState {
   commandId: string;
-  mode: CaptureMode;
+  mode: HotkeyCaptureMode;
   oldKey: string | null;
-  display: string;
   conflict: string | null;
 }
 
@@ -171,51 +159,32 @@ export function KeyboardShortcutsSettingsPage() {
   const beginCapture = (
     entry: CommandKeymapEntry,
     binding: CommandKeybindingRecord | null,
-    event: ReactMouseEvent<HTMLButtonElement>,
+    mode: HotkeyCaptureMode,
   ) => {
-    const mode: CaptureMode = binding?.key
-      ? event.shiftKey && entry.allowsMultiple
-        ? "append"
-        : "replace"
-      : "set";
     setCapture({
       commandId: entry.id,
       mode,
       oldKey: binding?.key ?? null,
-      display: "Press shortcut",
       conflict: null,
     });
     setRowErrors((current) => ({ ...current, [entry.id]: "" }));
   };
 
-  const handleCaptureKeyDown = async (
-    entry: CommandKeymapEntry,
-    event: ReactKeyboardEvent<HTMLInputElement>,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (event.key === "Escape") {
-      setCapture(null);
-      return;
-    }
-
+  const handleCapture = async (entry: CommandKeymapEntry, accelerator: string) => {
     if (!state || !capture || capture.commandId !== entry.id) return;
-    const accelerator = keyboardEventToAccelerator(event.nativeEvent, state.platform, {
-      allowsBareModifiers: entry.allowsBareModifiers === true,
-    });
-    if (!accelerator) {
-      setCapture({ ...capture, display: "Press shortcut", conflict: null });
-      return;
+    if (entry.shortcutScope === "os-global") {
+      const validationError = validateGlobalDictationShortcut(accelerator, state.platform);
+      if (validationError) {
+        setCapture(null);
+        setRowErrors((current) => ({ ...current, [entry.id]: validationError }));
+        return;
+      }
     }
-
-    const label = formatAcceleratorLabel(accelerator, state.platform);
     const conflict = findCommandKeybindingConflict(state, entry.id, accelerator);
     if (conflict) {
       setCapture({
         ...capture,
-        display: label,
-        conflict: `Used by ${conflict.commandTitle}`,
+        conflict: conflict.commandTitle,
       });
       return;
     }
@@ -231,7 +200,6 @@ export function KeyboardShortcutsSettingsPage() {
               newKeybinding: keybinding,
             }
           : { type: "set", keybinding };
-    setCapture({ ...capture, display: label, conflict: null });
     await commitUpdate(entry.id, update);
   };
 
@@ -336,8 +304,9 @@ export function KeyboardShortcutsSettingsPage() {
                   }
                   rowError={row.isFirst ? rowErrors[row.entry.id] : ""}
                   pending={updateMutation.isPending}
+                  onCancelCapture={() => setCapture(null)}
                   onBeginCapture={beginCapture}
-                  onCaptureKeyDown={handleCaptureKeyDown}
+                  onCapture={handleCapture}
                   onRemove={(entry, binding) =>
                     void commitUpdate(entry.id, { type: "remove", keybinding: binding })
                   }
@@ -396,8 +365,9 @@ function ShortcutTableRow({
   capture,
   rowError,
   pending,
+  onCancelCapture,
   onBeginCapture,
-  onCaptureKeyDown,
+  onCapture,
   onRemove,
   onReset,
 }: {
@@ -406,24 +376,18 @@ function ShortcutTableRow({
   capture: CaptureState | null;
   rowError: string | undefined;
   pending: boolean;
+  onCancelCapture: () => void;
   onBeginCapture: (
     entry: CommandKeymapEntry,
     binding: CommandKeybindingRecord | null,
-    event: ReactMouseEvent<HTMLButtonElement>,
+    mode: HotkeyCaptureMode,
   ) => void;
-  onCaptureKeyDown: (
-    entry: CommandKeymapEntry,
-    event: ReactKeyboardEvent<HTMLInputElement>,
-  ) => void;
+  onCapture: (entry: CommandKeymapEntry, accelerator: string) => void;
   onRemove: (entry: CommandKeymapEntry, binding: CommandKeybindingRecord) => void;
   onReset: (entry: CommandKeymapEntry) => void;
 }) {
   const { entry, binding, isFirst, rowCount } = row;
   const label = binding?.key && state ? formatAcceleratorLabel(binding.key, state.platform) : "";
-  const chordLabels =
-    binding?.key && state
-      ? binding.key.split(/\s+/).map((chord) => formatAcceleratorLabel(chord, state.platform))
-      : [];
   const keybindingPadding =
     isFirst && rowCount > 1
       ? "px-4 pt-2 pb-0.5"
@@ -446,82 +410,27 @@ function ShortcutTableRow({
           ) : null}
         </td>
       ) : null}
-      <td className={keybindingPadding}>
-        <div className="flex items-center gap-1">
-          {capture ? (
-            <div className="flex flex-col gap-1">
-              <input
-                autoFocus
-                data-codex-shortcut-capture
-                readOnly
-                value={capture.display}
-                onKeyDown={(event) => void onCaptureKeyDown(entry, event)}
-                className="h-token-button-composer w-36 rounded-lg border border-token-border bg-token-input-background px-3 py-0 text-sm text-token-text-primary shadow-sm outline-none"
-              />
-              {capture.conflict ? (
-                <span className="text-xs text-token-editor-warning-foreground">
-                  {capture.conflict}
-                </span>
-              ) : null}
-            </div>
-          ) : binding?.key ? (
-            <span className="flex min-h-8 items-center gap-1 text-token-text-secondary">
-              <ShortcutKeycapSequence
-                chords={chordLabels.length > 0 ? chordLabels : [label]}
-                density="settings"
-                tone="current"
-              />
-            </span>
-          ) : (
-            <span className="flex min-h-8 items-center gap-1 text-token-text-secondary">
-              Unassigned
-            </span>
-          )}
-          <span data-state="closed" className="contents">
-            <button
-              type="button"
-              className={cn(
-                ROW_ICON_BUTTON_CLASSNAME,
-                "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 disabled:!opacity-0 group-focus-within:disabled:!opacity-40 group-hover:disabled:!opacity-40",
-              )}
-              aria-label={`${binding?.key ? "Change" : "Set"} shortcut for ${entry.title}`}
-              disabled={pending}
-              onClick={(event) => onBeginCapture(entry, binding, event)}
-            >
-              <ShortcutPencilIcon />
-            </button>
-          </span>
-        </div>
-      </td>
-      <td className={keybindingPadding}>
-        <div className="flex items-center justify-end gap-1">
-          {binding?.key ? (
-            <span data-state="closed" className="contents">
-              <button
-                type="button"
-                className={cn(ROW_ICON_BUTTON_CLASSNAME, "disabled:!opacity-100")}
-                aria-label={`Clear shortcut for ${entry.title}`}
-                disabled={pending}
-                onClick={() => onRemove(entry, binding)}
-              >
-                <ShortcutTrashIcon />
-              </button>
-            </span>
-          ) : null}
-          {entry.isCustom && isFirst ? (
-            <span data-state="closed" className="contents">
-              <button
-                type="button"
-                className={cn(ROW_ICON_BUTTON_CLASSNAME, "disabled:!opacity-100")}
-                aria-label={`Reset shortcut for ${entry.title}`}
-                disabled={pending}
-                onClick={() => onReset(entry)}
-              >
-                <ShortcutResetIcon />
-              </button>
-            </span>
-          ) : null}
-        </div>
+      <td className={keybindingPadding} colSpan={2}>
+        <HotkeySettingControl
+          accelerator={binding?.key ?? null}
+          acceleratorLabel={label || null}
+          allowsBareModifiers={entry.allowsBareModifiers}
+          allowsSequences={entry.allowsSequences}
+          canAppend={entry.allowsMultiple}
+          captureAriaLabel={`${entry.title} hotkey capture`}
+          conflict={capture?.conflict}
+          disabled={pending}
+          hotkeyName={entry.title}
+          isCapturing={capture !== null}
+          onCancelCapture={onCancelCapture}
+          onCapture={(accelerator) => void onCapture(entry, accelerator)}
+          onClear={() => {
+            if (binding) onRemove(entry, binding);
+          }}
+          onReset={entry.isCustom && isFirst ? () => onReset(entry) : undefined}
+          onStartCapture={(mode) => onBeginCapture(entry, binding, mode)}
+          platform={state?.platform ?? "macOS"}
+        />
       </td>
     </tr>
   );

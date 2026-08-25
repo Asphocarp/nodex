@@ -40,6 +40,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
   "codex:dictation:history:finalize",
   "codex:dictation:history:set-transcript",
   "codex:dictation:transcribe",
+  "codex:dictation:cleanup",
   "codex:dictation:transcribe:cancel",
   "codex:dictation:global-permissions:open-accessibility-settings",
 ]);

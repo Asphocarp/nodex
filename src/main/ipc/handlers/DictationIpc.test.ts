@@ -36,6 +36,7 @@ it.effect("cancels only the owning renderer's active transcription fiber", () =>
       dictationState: Effect.die("unused"),
       transcribe: () =>
         Effect.never.pipe(Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined))),
+      cleanupTranscript: ({ transcript }) => Effect.succeed(`cleaned:${transcript}`),
       prepareStreamingConnectInfo: Effect.die("unused"),
       resolveImage: () => Effect.die("unused"),
     });
@@ -99,6 +100,15 @@ it.effect("cancels only the owning renderer's active transcription fiber", () =>
     assert.isTrue(Exit.isFailure(yield* Fiber.await(requestFiber)));
     assert.isFalse(
       (yield* handlers.get("codex:dictation:transcribe:cancel")!(owner, requestId)) as boolean,
+    );
+
+    assert.strictEqual(
+      yield* handlers.get("codex:dictation:cleanup")!(owner, {
+        transcript: "hello nodex",
+        surroundingText: null,
+        requestId: "6d23f70b-f145-4ca0-943b-0042ea9fe091",
+      }),
+      "cleaned:hello nodex",
     );
 
     yield* Scope.close(scope, Exit.void);

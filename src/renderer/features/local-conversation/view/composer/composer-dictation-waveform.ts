@@ -1,95 +1,121 @@
-export const COMPOSER_DICTATION_WAVEFORM_BUFFER_DURATION_SECONDS = 10;
+import {
+  DICTATION_SCROLL_WAVEFORM_ADVANCE_INTERVAL_MS,
+  DICTATION_SCROLL_WAVEFORM_FULL_SCALE_RMS,
+  DICTATION_SCROLL_WAVEFORM_NOISE_GATE,
+  DICTATION_SCROLL_WAVEFORM_RESPONSE_EXPONENT,
+  DICTATION_SCROLL_WAVEFORM_SAMPLE_FLOOR,
+  normalizeDictationScrollWaveformRms,
+} from "@/features/dictation/dictation-waveform";
+
 export const COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ = 48_000;
-export const COMPOSER_DICTATION_WAVEFORM_BAR_PITCH_PX = 4;
-export const COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR = 0.0025;
+export const COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR = DICTATION_SCROLL_WAVEFORM_SAMPLE_FLOOR;
+export const COMPOSER_DICTATION_WAVEFORM_NOISE_GATE = DICTATION_SCROLL_WAVEFORM_NOISE_GATE;
+export const COMPOSER_DICTATION_WAVEFORM_FULL_SCALE_RMS = DICTATION_SCROLL_WAVEFORM_FULL_SCALE_RMS;
+export const COMPOSER_DICTATION_WAVEFORM_RESPONSE_EXPONENT =
+  DICTATION_SCROLL_WAVEFORM_RESPONSE_EXPONENT;
+export const COMPOSER_DICTATION_WAVEFORM_BAR_WIDTH_PX = 3;
+export const COMPOSER_DICTATION_WAVEFORM_BAR_PITCH_PX = 6;
+export const COMPOSER_DICTATION_WAVEFORM_ADVANCE_INTERVAL_MS =
+  DICTATION_SCROLL_WAVEFORM_ADVANCE_INTERVAL_MS;
 
 export interface ComposerDictationWaveformGeometry {
-  bucketCount: number;
-  bucketSize: number;
-}
-
-export interface ConsumeComposerDictationWaveformSamplesInput {
-  bucketSize: number;
-  levels: number[];
-  maxLevelCount: number;
-  pendingSamples: Float32Array;
-  samples: Float32Array;
-}
-
-export interface ConsumeComposerDictationWaveformSamplesResult {
-  appendedLevelCount: number;
-  pendingSamples: Float32Array;
+  readonly barCount: number;
+  readonly barPitchPx: number;
+  readonly barWidthPx: number;
+  readonly historyDurationMs: number;
+  readonly scrollSpeedPxPerSecond: number;
 }
 
 export function resolveComposerDictationWaveformGeometry(
   clientWidth: number,
-  sampleRateHz = COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ,
 ): ComposerDictationWaveformGeometry {
-  const effectiveSampleRateHz =
-    Number.isFinite(sampleRateHz) && sampleRateHz > 0
-      ? sampleRateHz
-      : COMPOSER_DICTATION_WAVEFORM_SAMPLE_RATE_HZ;
-  const bucketCount = Math.max(
+  const barCount = Math.max(
     1,
-    Math.floor(clientWidth / COMPOSER_DICTATION_WAVEFORM_BAR_PITCH_PX),
+    Math.floor(Math.max(0, clientWidth) / COMPOSER_DICTATION_WAVEFORM_BAR_PITCH_PX) + 1,
   );
-  const bucketSize = Math.max(
-    1,
-    Math.floor(
-      (effectiveSampleRateHz * COMPOSER_DICTATION_WAVEFORM_BUFFER_DURATION_SECONDS) / bucketCount,
-    ),
-  );
-
-  return { bucketCount, bucketSize };
-}
-
-export function normalizeComposerDictationWaveformSamples(samples: Float32Array): void {
-  for (let index = 0; index < samples.length; index += 1) {
-    const amplitude = Math.abs(samples[index] ?? 0);
-    samples[index] =
-      amplitude < COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR
-        ? COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR
-        : amplitude;
-  }
-}
-
-export function consumeComposerDictationWaveformSamples({
-  bucketSize,
-  levels,
-  maxLevelCount,
-  pendingSamples,
-  samples,
-}: ConsumeComposerDictationWaveformSamplesInput): ConsumeComposerDictationWaveformSamplesResult {
-  const combinedSamples = new Float32Array(pendingSamples.length + samples.length);
-  combinedSamples.set(pendingSamples, 0);
-  combinedSamples.set(samples, pendingSamples.length);
-
-  if (maxLevelCount <= 0 || bucketSize <= 0) {
-    return {
-      appendedLevelCount: 0,
-      pendingSamples: combinedSamples,
-    };
-  }
-
-  let appendedLevelCount = 0;
-  let offset = 0;
-  while (offset + bucketSize <= combinedSamples.length) {
-    const end = offset + bucketSize;
-    let total = 0;
-    for (let sampleIndex = offset; sampleIndex < end; sampleIndex += 1) {
-      total += combinedSamples[sampleIndex] ?? 0;
-    }
-
-    levels.push(total / bucketSize);
-    if (levels.length > maxLevelCount) {
-      levels.shift();
-    }
-    appendedLevelCount += 1;
-    offset = end;
-  }
-
   return {
-    appendedLevelCount,
-    pendingSamples: combinedSamples.slice(offset),
+    barCount,
+    barPitchPx: COMPOSER_DICTATION_WAVEFORM_BAR_PITCH_PX,
+    barWidthPx: COMPOSER_DICTATION_WAVEFORM_BAR_WIDTH_PX,
+    historyDurationMs: barCount * COMPOSER_DICTATION_WAVEFORM_ADVANCE_INTERVAL_MS,
+    scrollSpeedPxPerSecond:
+      (COMPOSER_DICTATION_WAVEFORM_BAR_PITCH_PX * 1_000) /
+      COMPOSER_DICTATION_WAVEFORM_ADVANCE_INTERVAL_MS,
   };
+}
+
+/** Maps microphone RMS onto the response curve used by the composer waveform. */
+export function normalizeComposerDictationRms(rms: number): number {
+  return normalizeDictationScrollWaveformRms(rms);
+}
+
+export function appendComposerDictationWaveformLevel(
+  levels: number[],
+  rms: number,
+  maxLevelCount: number,
+): void {
+  if (maxLevelCount <= 0) return;
+  levels.push(normalizeComposerDictationRms(rms));
+  if (levels.length > maxLevelCount) levels.splice(0, levels.length - maxLevelCount);
+}
+
+/** Draws the reference scrolling history, including its fixed 200ms fractional advance. */
+export function drawComposerDictationWaveform(
+  canvas: HTMLCanvasElement,
+  sourceLevels: readonly number[],
+  intervalProgress: number,
+): void {
+  const context = canvas.getContext("2d");
+  const { clientHeight, clientWidth } = canvas;
+  if (!context || clientWidth <= 0 || clientHeight <= 0) return;
+
+  const pixelRatio = window.devicePixelRatio || 1;
+  const width = Math.floor(clientWidth * pixelRatio);
+  const height = Math.floor(clientHeight * pixelRatio);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  const { barCount } = resolveComposerDictationWaveformGeometry(clientWidth);
+  const visibleLevels = sourceLevels.slice(-barCount);
+  const levels = [
+    ...Array.from(
+      { length: Math.max(0, barCount - visibleLevels.length) },
+      () => COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR,
+    ),
+    ...visibleLevels,
+  ];
+  const barWidth = COMPOSER_DICTATION_WAVEFORM_BAR_WIDTH_PX * pixelRatio;
+  const barPitch = COMPOSER_DICTATION_WAVEFORM_BAR_PITCH_PX * pixelRatio;
+  const progress = Math.min(1, Math.max(0, intervalProgress));
+  const offsetX = -barPitch * progress;
+
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, width, height);
+  context.save();
+  context.translate(0, height / 2);
+  context.fillStyle = getComputedStyle(canvas).color || "#000";
+
+  levels.forEach((level, index) => {
+    const normalizedLevel = Math.min(1, Math.max(0, level));
+    const barHeight = Math.max(barWidth, (height - barWidth) * normalizedLevel);
+    const x = width - (levels.length - index - 1) * barPitch + offsetX;
+    context.globalAlpha = normalizedLevel <= COMPOSER_DICTATION_WAVEFORM_SAMPLE_FLOOR ? 0.2 : 0.5;
+    context.beginPath();
+    context.roundRect(x, -barHeight / 2, barWidth, barHeight, barWidth / 2);
+    context.fill();
+  });
+
+  const fade = context.createLinearGradient(0, 0, width, 0);
+  const edge = Math.min(0.5, barPitch / width);
+  fade.addColorStop(0, "rgb(0 0 0 / 0)");
+  fade.addColorStop(edge, "rgb(0 0 0 / 1)");
+  fade.addColorStop(1 - edge, "rgb(0 0 0 / 1)");
+  fade.addColorStop(1, "rgb(0 0 0 / 0)");
+  context.globalAlpha = 1;
+  context.globalCompositeOperation = "destination-in";
+  context.fillStyle = fade;
+  context.fillRect(0, -height / 2, width, height);
+  context.restore();
 }
