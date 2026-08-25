@@ -1259,6 +1259,8 @@ interface WorkbenchTabProjectionCreateBase {
   panelId: PanelId;
   presentation?: "activate" | "background";
   targetLeafId?: string;
+  targetIndex?: number;
+  openerTabId?: string;
   clientTabId?: string;
   title: string;
 }

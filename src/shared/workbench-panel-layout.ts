@@ -678,19 +678,42 @@ export function reorderWorkbenchPanelLeafTabs(
   );
 }
 
+/** Selects the tab that occupies the closed tab's slot, falling back to its left neighbor. */
+export function resolveWorkbenchPanelTabAfterClose(
+  tabIds: readonly string[],
+  closingTabId: string,
+): string | null {
+  const closingIndex = tabIds.indexOf(closingTabId);
+  if (closingIndex < 0) return null;
+  return tabIds[closingIndex + 1] ?? tabIds[closingIndex - 1] ?? null;
+}
+
 export function removeWorkbenchPanelTab(
   layout: WorkbenchPanelLayout,
   tabId: string,
   options: RemovePanelTabOptions = {},
 ): WorkbenchPanelLayoutV2 {
   const allTabIds = flattenWorkbenchPanelTabIds(layout).filter((candidate) => candidate !== tabId);
-  const normalized = normalizeWorkbenchPanelLayout(layout, allTabIds, options);
+  const sourceLeaf = findWorkbenchPanelLeafForTab(layout, tabId);
+  const indexReplacement =
+    sourceLeaf?.activeTabId === tabId
+      ? resolveWorkbenchPanelTabAfterClose(sourceLeaf.tabIds, tabId)
+      : null;
+  const resolvedOptions =
+    sourceLeaf?.activeTabId === tabId && options.preferredActiveTabId == null
+      ? {
+          ...options,
+          preferredActiveLeafId: options.preferredActiveLeafId ?? sourceLeaf.id,
+          preferredActiveTabId: indexReplacement,
+        }
+      : options;
+  const normalized = normalizeWorkbenchPanelLayout(layout, allTabIds, resolvedOptions);
   const root = mapNode(normalized.root, (node) => {
     if (node.type !== "leaf") return node;
     const tabIds = node.tabIds.filter((candidate) => candidate !== tabId);
     return makeLeaf(node.id, tabIds, node.activeTabId, node.mruTabIds);
   });
-  return normalizeWorkbenchPanelLayout({ ...normalized, root }, allTabIds, options);
+  return normalizeWorkbenchPanelLayout({ ...normalized, root }, allTabIds, resolvedOptions);
 }
 
 function removeLeafFromNode(

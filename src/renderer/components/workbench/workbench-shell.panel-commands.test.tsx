@@ -1447,7 +1447,7 @@ describe("workbench session shell / panel-commands", () => {
     });
   });
 
-  test("direct panel tab close routes focus to the same-leaf most recently active tab", async () => {
+  test("direct panel tab close routes focus to the same-leaf right neighbor", async () => {
     const firstTab = makeSessionTab({
       id: "session:alpha:database-view:first-direct",
       sessionId: "session:alpha:database-view",
@@ -1504,15 +1504,131 @@ describe("workbench session shell / panel-commands", () => {
     }
     expect(deleteInput.tabId).toBe(secondTab.id);
     expect(deleteInput.preferredActiveLeafId).toBe("main");
-    expect(deleteInput.preferredActiveTabId).toBe(firstTab.id);
+    expect(deleteInput.preferredActiveTabId).toBe(thirdTab.id);
     await waitFor(() => {
-      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe(
+      expect(getPanelTabById(screen.container, thirdTab.id).getAttribute("aria-selected")).toBe(
         "true",
       );
     });
   });
 
-  test("middle-click panel tab close uses same-leaf MRU routing", async () => {
+  test("closing a Browser child tab returns to its opener before the physical neighbor", async () => {
+    const openerTab = makeSessionTab({
+      id: "session:alpha:database-view:browser-opener",
+      sessionId: "session:alpha:database-view",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser opener",
+      order: 0,
+      config: { projectId: "alpha" },
+    });
+    const unrelatedTab = makeSessionTab({
+      id: "session:alpha:database-view:unrelated-review",
+      sessionId: "session:alpha:database-view",
+      projectId: "alpha",
+      kind: "review",
+      title: "Unrelated review",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [openerTab, unrelatedTab],
+      rightLayout: makePanelLayout([openerTab.id, unrelatedTab.id], openerTab.id),
+    });
+    const screen = renderWorkbench({ sessionsByProject: { alpha: [session] } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    fireEvent.contextMenu(getPanelTabChromeById(screen.container, openerTab.id));
+    await settleAsyncRender();
+    setInvokeCalls([]);
+    fireEvent.click(within(screen.getByRole("menu")).getByText("New tab to the right"));
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const createCall = invokeCalls.find((call) => call[0] === "window-session-view:tab-create");
+    const createdTabId = (createCall?.[1] as { clientTabId?: string } | undefined)?.clientTabId;
+    if (!createdTabId) throw new Error("Expected a created Browser child tab");
+    expect(getPanelTabById(screen.container, createdTabId).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+
+    setInvokeCalls([]);
+    const closeButton = getPanelTabChromeById(screen.container, createdTabId).querySelector(
+      '[data-app-shell-tab-close-button="true"]',
+    );
+    if (!closeButton) throw new Error("Expected Browser child close button");
+    fireEvent.click(closeButton);
+    await settleAsyncRender();
+
+    const deleteInput = getWorkbenchTabDeleteInputs()[0];
+    if (typeof deleteInput === "string" || !deleteInput) {
+      throw new Error("Expected structured tab delete input");
+    }
+    expect(deleteInput.preferredActiveTabId).toBe(openerTab.id);
+    expect(getPanelTabById(screen.container, openerTab.id).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+  });
+
+  test("leaving a Browser opener tree restores physical close selection", async () => {
+    const openerTab = makeSessionTab({
+      id: "session:alpha:database-view:browser-tree-root",
+      sessionId: "session:alpha:database-view",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser tree root",
+      order: 0,
+      config: { projectId: "alpha" },
+    });
+    const unrelatedTab = makeSessionTab({
+      id: "session:alpha:database-view:tree-exit",
+      sessionId: "session:alpha:database-view",
+      projectId: "alpha",
+      kind: "review",
+      title: "Tree exit",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [openerTab, unrelatedTab],
+      rightLayout: makePanelLayout([openerTab.id, unrelatedTab.id], openerTab.id),
+    });
+    const screen = renderWorkbench({ sessionsByProject: { alpha: [session] } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    fireEvent.contextMenu(getPanelTabChromeById(screen.container, openerTab.id));
+    await settleAsyncRender();
+    setInvokeCalls([]);
+    fireEvent.click(within(screen.getByRole("menu")).getByText("New tab to the right"));
+    await settleAsyncRender();
+    await settleAsyncRender();
+    const createCall = invokeCalls.find((call) => call[0] === "window-session-view:tab-create");
+    const createdTabId = (createCall?.[1] as { clientTabId?: string } | undefined)?.clientTabId;
+    if (!createdTabId) throw new Error("Expected a created Browser child tab");
+
+    fireEvent.mouseDown(getPanelTabById(screen.container, unrelatedTab.id), { button: 0 });
+    await settleAsyncRender();
+    fireEvent.mouseDown(getPanelTabById(screen.container, createdTabId), { button: 0 });
+    await settleAsyncRender();
+
+    setInvokeCalls([]);
+    const closeButton = getPanelTabChromeById(screen.container, createdTabId).querySelector(
+      '[data-app-shell-tab-close-button="true"]',
+    );
+    if (!closeButton) throw new Error("Expected Browser child close button");
+    fireEvent.click(closeButton);
+    await settleAsyncRender();
+
+    const deleteInput = getWorkbenchTabDeleteInputs()[0];
+    if (typeof deleteInput === "string" || !deleteInput) {
+      throw new Error("Expected structured tab delete input");
+    }
+    expect(deleteInput.preferredActiveTabId).toBe(unrelatedTab.id);
+  });
+
+  test("middle-click panel tab close uses same-leaf physical routing", async () => {
     const firstTab = makeSessionTab({
       id: "session:alpha:database-view:first-middle",
       sessionId: "session:alpha:database-view",
@@ -1569,9 +1685,9 @@ describe("workbench session shell / panel-commands", () => {
     }
     expect(deleteInput.tabId).toBe(secondTab.id);
     expect(deleteInput.preferredActiveLeafId).toBe("main");
-    expect(deleteInput.preferredActiveTabId).toBe(firstTab.id);
+    expect(deleteInput.preferredActiveTabId).toBe(thirdTab.id);
     await waitFor(() => {
-      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe(
+      expect(getPanelTabById(screen.container, thirdTab.id).getAttribute("aria-selected")).toBe(
         "true",
       );
     });

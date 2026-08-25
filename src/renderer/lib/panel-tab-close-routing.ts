@@ -1,3 +1,9 @@
+import { resolveWorkbenchPanelTabAfterClose } from "../../shared/workbench-panel-layout";
+import {
+  resolveWorkbenchPanelTabOpenerCloseReplacement,
+  type WorkbenchPanelTabOpenerState,
+} from "./workbench-panel-tab-opener-state";
+
 export interface PanelTabCloseRoutingTab {
   id: string;
   disabled?: boolean;
@@ -8,40 +14,16 @@ export interface PanelTabCloseRoutingInput {
   tabs: readonly PanelTabCloseRoutingTab[];
   activeTabId: string | null;
   closingTabId: string;
-  mruTabIds?: readonly string[];
+  openerState?: WorkbenchPanelTabOpenerState;
 }
 
 function isSelectableCloseReplacement(tab: PanelTabCloseRoutingTab): boolean {
   return tab.disabled !== true && tab.isLabel !== true;
 }
 
-function resolveAdjacentCloseReplacement(
-  tabs: readonly PanelTabCloseRoutingTab[],
-  closingIndex: number,
-  closingTabId: string,
-): string | null {
-  for (let index = Math.max(0, closingIndex + 1); index < tabs.length; index += 1) {
-    const tab = tabs[index];
-    if (!tab || tab.id === closingTabId || !isSelectableCloseReplacement(tab)) continue;
-    return tab.id;
-  }
-
-  const leftStartIndex = closingIndex === -1 ? tabs.length - 1 : closingIndex - 1;
-  for (let index = leftStartIndex; index >= 0; index -= 1) {
-    const tab = tabs[index];
-    if (!tab || tab.id === closingTabId || !isSelectableCloseReplacement(tab)) continue;
-    return tab.id;
-  }
-
-  return null;
-}
-
 export function resolvePanelTabCloseReplacement(input: PanelTabCloseRoutingInput): string | null {
-  const candidates = new Set(
-    input.tabs
-      .filter((tab) => tab.id !== input.closingTabId && isSelectableCloseReplacement(tab))
-      .map((tab) => tab.id),
-  );
+  const selectableTabIds = input.tabs.filter(isSelectableCloseReplacement).map((tab) => tab.id);
+  const candidates = new Set(selectableTabIds.filter((tabId) => tabId !== input.closingTabId));
   if (candidates.size === 0) return null;
 
   if (
@@ -52,13 +34,16 @@ export function resolvePanelTabCloseReplacement(input: PanelTabCloseRoutingInput
     return input.activeTabId;
   }
 
-  for (const tabId of input.mruTabIds ?? []) {
-    if (tabId === input.closingTabId) continue;
-    if (candidates.has(tabId)) return tabId;
-  }
+  const openerReplacement = input.openerState
+    ? resolveWorkbenchPanelTabOpenerCloseReplacement(
+        input.openerState,
+        selectableTabIds,
+        input.closingTabId,
+      )
+    : null;
+  if (openerReplacement && candidates.has(openerReplacement)) return openerReplacement;
 
-  const closingIndex = input.tabs.findIndex((tab) => tab.id === input.closingTabId);
-  const adjacent = resolveAdjacentCloseReplacement(input.tabs, closingIndex, input.closingTabId);
+  const adjacent = resolveWorkbenchPanelTabAfterClose(selectableTabIds, input.closingTabId);
   if (adjacent) return adjacent;
 
   return [...candidates][0] ?? null;

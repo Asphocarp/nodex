@@ -144,6 +144,7 @@ export interface WorkbenchSessionViewTabCreateInput {
   panelId: WorkbenchPanelId;
   presentation?: WorkbenchSurfacePresentation;
   targetLeafId?: string;
+  targetIndex?: number;
   tab: WorkbenchSessionViewTab;
 }
 
@@ -437,10 +438,12 @@ export function createWorkbenchSessionViewTab(
       ? insertWorkbenchPanelTabInBackground(panel.layout, {
           tabId: input.tab.id,
           targetLeafId: input.targetLeafId,
+          targetIndex: input.targetIndex,
         })
       : moveWorkbenchPanelTab(panel.layout, {
           tabId: input.tab.id,
           targetLeafId: input.targetLeafId,
+          targetIndex: input.targetIndex,
         });
   return normalizeWorkbenchSessionView(
     touch({

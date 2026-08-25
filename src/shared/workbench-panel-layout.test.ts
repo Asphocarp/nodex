@@ -17,6 +17,7 @@ import {
   normalizeWorkbenchPanelLayout,
   pruneEmptyWorkbenchPanelLeaves,
   removeWorkbenchPanelTab,
+  resolveWorkbenchPanelTabAfterClose,
   reorderWorkbenchPanelLeafTabs,
   setWorkbenchPanelBranchRatio,
   setWorkbenchPanelMaximizedLeaf,
@@ -478,6 +479,21 @@ describe("project session panel layout", () => {
     const activeLeaf = getWorkbenchPanelActiveLeaf(removed);
     expect(activeLeaf.activeTabId).toBe("three");
     expect(activeLeaf.mruTabIds[0]).toBe("three");
+  });
+
+  test("selects the physical right neighbor after active removal, then the left edge fallback", () => {
+    const middleRemoved = removeWorkbenchPanelTab(
+      makeWorkbenchPanelLayout(["one", "two", "three"], "two"),
+      "two",
+    );
+    const lastRemoved = removeWorkbenchPanelTab(
+      makeWorkbenchPanelLayout(["one", "two", "three"], "three"),
+      "three",
+    );
+
+    expect(getWorkbenchPanelActiveLeaf(middleRemoved).activeTabId).toBe("three");
+    expect(getWorkbenchPanelActiveLeaf(lastRemoved).activeTabId).toBe("two");
+    expect(resolveWorkbenchPanelTabAfterClose(["one", "two", "three"], "missing")).toBeNull();
   });
 
   test("falls back when the preferred active tab is invalid after removal", () => {
