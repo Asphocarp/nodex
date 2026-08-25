@@ -503,10 +503,16 @@ function presentPreviewSurface(
 function validateSceneSurfaceRequest(
   input: PresentWorkbenchPanelSurfaceInput,
 ): PresentWorkbenchPanelSurfaceResult | null {
-  if (input.owner.kind === "project" && input.request.kind === "conversation") {
+  if (input.request.kind === "conversation") {
     return {
       status: "unavailable",
-      reason: "Project conversations belong to Agent Dock",
+      reason: "Conversation is the Session Scene primary, not a panel surface",
+    };
+  }
+  if (input.owner.kind === "project" && input.request.kind === "review") {
+    return {
+      status: "unavailable",
+      reason: "Review requires an attached Session",
     };
   }
   if (input.owner.kind !== "pages") return null;

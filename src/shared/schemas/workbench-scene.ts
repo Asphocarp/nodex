@@ -2,11 +2,13 @@ import { z } from "zod";
 import {
   findWorkbenchPanelLeafForTab,
   flattenWorkbenchPanelTabIds,
+  removeWorkbenchPanelTab,
 } from "../workbench-panel-layout";
 import {
   WORKBENCH_SCENE_MAX_PANEL_SURFACES,
   WORKBENCH_SCENE_VERSION,
   isPagesSceneSurfaceAllowed,
+  isProjectScenePanelSurfaceAllowed,
   makeWorkbenchSceneKey,
   migrateWorkbenchSceneV1ToV4,
   migrateWorkbenchSceneV2ToV4,
@@ -652,16 +654,91 @@ function stripDatabaseLayoutsFromScene(value: unknown): unknown {
   };
 }
 
+function isRawScenePanelSurfaceAllowed(ownerKind: unknown, surface: unknown): boolean {
+  if (!surface || typeof surface !== "object" || Array.isArray(surface)) return true;
+  const record = surface as Record<string, unknown>;
+  if (ownerKind === "project") return record.kind !== "conversation" && record.kind !== "review";
+  if (ownerKind === "session") return record.kind !== "conversation";
+  if (ownerKind !== "pages") return true;
+
+  const config = record.config;
+  if (!config || typeof config !== "object" || Array.isArray(config)) return false;
+  const configRecord = config as Record<string, unknown>;
+  const accessContext = configRecord.accessContext;
+  if (!accessContext || typeof accessContext !== "object" || Array.isArray(accessContext)) {
+    return false;
+  }
+  if ((accessContext as Record<string, unknown>).kind !== "library") return false;
+  if (record.kind === "page_stage" || record.kind === "canvas_stage") return true;
+  if (record.kind !== "db_view") return false;
+  const target = configRecord.target;
+  return (
+    !!target &&
+    typeof target === "object" &&
+    !Array.isArray(target) &&
+    (target as Record<string, unknown>).kind !== "project-default"
+  );
+}
+
+/**
+ * Remove panel surfaces that cannot be owned by their persisted Scene without
+ * discarding the rest of a valid layout. This also repairs Project Review
+ * surfaces authored before Review ownership was constrained to Sessions.
+ */
+function stripOwnerInvalidPanelSurfacesFromScene(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const scene = value as Record<string, unknown>;
+  const owner = scene.owner;
+  if (!owner || typeof owner !== "object" || Array.isArray(owner)) return value;
+  const ownerKind = (owner as Record<string, unknown>).kind;
+
+  const surfaces = scene.panelSurfacesById;
+  if (!surfaces || typeof surfaces !== "object" || Array.isArray(surfaces)) return value;
+  const removedSurfaceIds = Object.entries(surfaces).flatMap(([surfaceId, surface]) => {
+    return isRawScenePanelSurfaceAllowed(ownerKind, surface) ? [] : [surfaceId];
+  });
+  if (removedSurfaceIds.length === 0) return value;
+  const removedSurfaceIdSet = new Set(removedSurfaceIds);
+
+  const panels = scene.panels;
+  if (!panels || typeof panels !== "object" || Array.isArray(panels)) return value;
+  const panelRecord = panels as Record<string, unknown>;
+  const stripPanel = (panel: unknown): unknown => {
+    const parsed = WorkbenchPanelStateSchema.safeParse(panel);
+    if (!parsed.success) return panel;
+    const layout = removedSurfaceIds.reduce(
+      (current, surfaceId) => removeWorkbenchPanelTab(current, surfaceId),
+      parsed.data.layout,
+    );
+    return { ...parsed.data, layout };
+  };
+
+  return {
+    ...scene,
+    panelSurfacesById: Object.fromEntries(
+      Object.entries(surfaces).filter(([surfaceId]) => !removedSurfaceIdSet.has(surfaceId)),
+    ),
+    panels: {
+      ...panelRecord,
+      right: stripPanel(panelRecord.right),
+      bottom: stripPanel(panelRecord.bottom),
+    },
+  };
+}
+
 function migrateWorkbenchSceneSnapshot(value: unknown): unknown {
   const record =
     value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  if (record?.version === WORKBENCH_SCENE_VERSION) {
+    return stripOwnerInvalidPanelSurfacesFromScene(stripDatabaseLayoutsFromScene(value));
+  }
   if (record?.version === 5 || record?.version === 6) {
-    return {
+    return stripOwnerInvalidPanelSurfacesFromScene({
       ...(stripDatabaseLayoutsFromScene(value) as Record<string, unknown>),
       version: WORKBENCH_SCENE_VERSION,
-    };
+    });
   }
   const v4Candidate = record?.version === 4 ? stripDatabaseLayoutsFromScene(value) : value;
   const previousCurrent = WorkbenchSceneSnapshotV4InputSchema.safeParse(v4Candidate);
@@ -804,11 +881,11 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
             message: "Project right surface stack must remain open and full width",
           });
         }
-        if (entries.some(([, surface]) => surface.kind === "conversation")) {
+        if (entries.some(([, surface]) => !isProjectScenePanelSurfaceAllowed(surface))) {
           context.addIssue({
             code: "custom",
             path: ["panelSurfacesById"],
-            message: "Project conversations belong to Agent Dock, not panel surfaces",
+            message: "Project Scene contains a Session-only panel surface",
           });
         }
       } else if (scene.owner.kind === "pages") {
@@ -863,6 +940,13 @@ export const WorkbenchSceneSnapshotSchema = z.preprocess(
             code: "custom",
             path: ["primary", "id"],
             message: "Session primary remains in the main plane",
+          });
+        }
+        if (entries.some(([, surface]) => surface.kind === "conversation")) {
+          context.addIssue({
+            code: "custom",
+            path: ["panelSurfacesById"],
+            message: "Session Scene contains a duplicate Conversation panel surface",
           });
         }
       }

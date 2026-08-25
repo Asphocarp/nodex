@@ -46,13 +46,7 @@ describe("workbench panel preview", () => {
       kind: "browser",
     });
     expect(makeWorkbenchTabProjectionDraft(projectless, "files")).toBeNull();
-    expect(makeWorkbenchTabProjectionDraft(projectless, "review")).toMatchObject({
-      kind: "review",
-      config: {
-        projectId: null,
-        context: { kind: "session", sessionId: "session-1" },
-      },
-    });
+    expect(makeWorkbenchTabProjectionDraft(projectless, "review")).toBeNull();
     expect(makeWorkbenchTabProjectionDraft(projectless, "terminal")).toBeNull();
 
     const attached = makeTestWorkbenchSession({
@@ -64,6 +58,10 @@ describe("workbench panel preview", () => {
       config: {
         terminalSessionId: expect.stringContaining("session:session-1:terminal:"),
       },
+    });
+    expect(makeWorkbenchTabProjectionDraft(attached, "review")).toMatchObject({
+      kind: "review",
+      config: { projectId: null },
     });
   });
 

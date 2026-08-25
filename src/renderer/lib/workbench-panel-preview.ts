@@ -86,18 +86,11 @@ export function makeWorkbenchTabProjectionDraft(
   }
 
   if (kind === "review") {
+    if (!session.thread) return null;
     return {
       kind,
       title: "Review",
-      config: projectId
-        ? {
-            projectId,
-            context: { kind: "project", projectId },
-          }
-        : {
-            projectId: null,
-            context: { kind: "session", sessionId: session.id },
-          },
+      config: { projectId },
     };
   }
 

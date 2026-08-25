@@ -121,7 +121,7 @@ describe("project session Files config", () => {
 });
 
 describe("project session Review config", () => {
-  test("persists a projectless Review with explicit session ownership", () => {
+  test("keeps only optional Project workspace metadata", () => {
     expect(
       parseWorkbenchProjectionTabConfig("review", {
         projectId: null,
@@ -129,25 +129,34 @@ describe("project session Review config", () => {
       }),
     ).toEqual({
       projectId: null,
-      context: { kind: "session", sessionId: "session-1" },
     });
   });
 
-  test("normalizes legacy project-only Review config at the boundary", () => {
+  test("normalizes legacy Project-owned Review config to workspace metadata", () => {
     expect(
       parseWorkbenchProjectionTabConfig("review", {
         projectId: "alpha",
+        context: { kind: "project", projectId: "alpha" },
       }),
     ).toEqual({
       projectId: "alpha",
-      context: { kind: "project", projectId: "alpha" },
     });
   });
 
-  test("rejects a projectless Review without a session owner", () => {
+  test("rejects Review config without explicit Project metadata", () => {
     expect(() =>
       parseWorkbenchProjectionTabConfig("review", {
-        projectId: null,
+        context: { kind: "session", sessionId: "session-1" },
+      }),
+    ).toThrow();
+  });
+
+  test("does not let legacy Review migration erase unknown fields", () => {
+    expect(() =>
+      parseWorkbenchProjectionTabConfig("review", {
+        projectId: "alpha",
+        context: { kind: "project", projectId: "alpha" },
+        unexpected: true,
       }),
     ).toThrow();
   });

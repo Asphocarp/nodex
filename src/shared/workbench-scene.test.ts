@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vite-plus/test";
 import { WorkbenchSceneSnapshotSchema } from "./schemas/workbench-scene";
-import { flattenWorkbenchPanelTabIds, getWorkbenchPanelActiveLeaf } from "./workbench-panel-layout";
+import {
+  flattenWorkbenchPanelTabIds,
+  getWorkbenchPanelActiveLeaf,
+  moveWorkbenchPanelTab,
+} from "./workbench-panel-layout";
 import {
   WORKBENCH_SCENE_MAX_PANEL_SURFACES,
   activateWorkbenchSceneSurface,
@@ -723,7 +727,7 @@ describe("WorkbenchScene", () => {
     expect(WorkbenchSceneSnapshotSchema.parse(clone)).toEqual(clone);
   });
 
-  test("persists explicit Project runtime contexts without a host Session", () => {
+  test("keeps Project runtime surfaces but refuses Session-only Review", () => {
     const withTerminal = createWorkbenchSceneSurface(projectScene(), {
       panelId: "bottom",
       surface: {
@@ -744,22 +748,56 @@ describe("WorkbenchScene", () => {
         id: "review-surface",
         kind: "review",
         titleSnapshot: "Review",
-        config: {
-          projectId: "project-1",
-          context: { kind: "project", projectId: "project-1" },
-        },
+        config: { projectId: "project-1" },
         stateKey: 0,
         state: null,
       },
     });
 
-    expect(WorkbenchSceneSnapshotSchema.parse(withReview)).toEqual(withReview);
+    expect(withReview).toBe(withTerminal);
+    expect(WorkbenchSceneSnapshotSchema.parse(withReview)).toEqual(withTerminal);
     expect(withReview.panelSurfacesById["terminal-surface"]?.config).toMatchObject({
       context: { kind: "project", projectId: "project-1" },
     });
-    expect(withReview.panelSurfacesById["review-surface"]?.config).toMatchObject({
-      context: { kind: "project", projectId: "project-1" },
-    });
+    expect(withReview.panelSurfacesById["review-surface"]).toBeUndefined();
+  });
+
+  test("drops legacy Project Review surfaces while preserving the rest of the Scene", () => {
+    const scene = projectScene();
+    const reviewId = "legacy-project-review";
+    const invalidPersistedScene = {
+      ...scene,
+      panelSurfacesById: {
+        ...scene.panelSurfacesById,
+        [reviewId]: {
+          id: reviewId,
+          kind: "review" as const,
+          titleSnapshot: "Review",
+          config: {
+            projectId: "project-1",
+            context: { kind: "project" as const, projectId: "project-1" },
+          },
+          stateKey: 0,
+          state: null,
+        },
+      },
+      panels: {
+        ...scene.panels,
+        right: {
+          ...scene.panels.right,
+          layout: moveWorkbenchPanelTab(scene.panels.right.layout, {
+            tabId: reviewId,
+            targetLeafId: scene.panels.right.layout.activeLeafId,
+          }),
+        },
+      },
+    };
+
+    const recovered = WorkbenchSceneSnapshotSchema.parse(invalidPersistedScene);
+
+    expect(recovered.panelSurfacesById[reviewId]).toBeUndefined();
+    expect(flattenWorkbenchPanelTabIds(recovered.panels.right.layout)).not.toContain(reviewId);
+    expect(recovered.primary).toEqual(scene.primary);
   });
 
   test("derives stable semantic reuse keys only for singleton resources", () => {
@@ -790,43 +828,24 @@ describe("WorkbenchScene", () => {
     ).toBe("page:library:page-1");
     expect(
       getWorkbenchSurfaceReuseKey({
-        id: "review-project",
-        kind: "review",
-        titleSnapshot: "Review",
-        config: {
-          projectId: "project-1",
-          context: { kind: "project", projectId: "project-1" },
-        },
-        stateKey: 0,
-        state: null,
-      }),
-    ).toBe("review:project:project-1");
-    expect(
-      getWorkbenchSurfaceReuseKey({
         id: "review-session",
         kind: "review",
         titleSnapshot: "Review",
-        config: {
-          projectId: "project-1",
-          context: { kind: "session", sessionId: "session-1" },
-        },
+        config: { projectId: "project-1" },
         stateKey: 0,
         state: null,
       }),
-    ).toBe("review:session:session-1");
+    ).toBe("review");
     expect(
       getWorkbenchSurfaceReuseKey({
         id: "review-projectless-session",
         kind: "review",
         titleSnapshot: "Review",
-        config: {
-          projectId: null,
-          context: { kind: "session", sessionId: "session-projectless" },
-        },
+        config: { projectId: null },
         stateKey: 0,
         state: null,
       }),
-    ).toBe("review:session:session-projectless");
+    ).toBe("review");
     expect(getWorkbenchSurfaceReuseKey(browserSurface())).toBeNull();
   });
 });

@@ -1,55 +1,29 @@
 import { z } from "zod";
-import type { WorkbenchReviewConfig } from "../workbench-review-context";
+import type { WorkbenchReviewConfig } from "../workbench-review";
 
 const idSchema = z.string().min(1).max(512);
-
-export const WorkbenchReviewContextSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("project"),
-      projectId: idSchema,
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("session"),
-      sessionId: idSchema,
-    })
-    .strict(),
+const LegacyWorkbenchReviewContextSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("project"), projectId: idSchema }).strict(),
+  z.object({ kind: z.literal("session"), sessionId: idSchema }).strict(),
 ]);
 
 function migrateWorkbenchReviewConfig(value: unknown): unknown {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
   const candidate = value as Record<string, unknown>;
-  if (candidate.context !== undefined) return value;
-  if (typeof candidate.projectId !== "string" || candidate.projectId.trim().length === 0) {
-    return value;
-  }
-  return {
-    ...candidate,
-    context: { kind: "project", projectId: candidate.projectId },
-  };
+  if (candidate.context === undefined) return value;
+  if (Object.keys(candidate).some((key) => key !== "projectId" && key !== "context")) return value;
+  if (!LegacyWorkbenchReviewContextSchema.safeParse(candidate.context).success) return value;
+  if (candidate.projectId === null) return { projectId: null };
+  if (typeof candidate.projectId !== "string") return value;
+  const projectId = candidate.projectId.trim();
+  return projectId ? { projectId } : value;
 }
 
 export const WorkbenchReviewConfigSchema = z.preprocess(
   migrateWorkbenchReviewConfig,
-  z.union([
-    z
-      .object({
-        projectId: idSchema,
-        context: WorkbenchReviewContextSchema.optional(),
-      })
-      .strict(),
-    z
-      .object({
-        projectId: z.null(),
-        context: z
-          .object({
-            kind: z.literal("session"),
-            sessionId: idSchema,
-          })
-          .strict(),
-      })
-      .strict(),
-  ]),
+  z
+    .object({
+      projectId: idSchema.nullable(),
+    })
+    .strict(),
 ) satisfies z.ZodType<WorkbenchReviewConfig>;

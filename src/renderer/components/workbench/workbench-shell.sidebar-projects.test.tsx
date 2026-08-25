@@ -252,6 +252,15 @@ describe("workbench session shell / sidebar-projects", () => {
       screen.container.querySelector('[data-app-action-sidebar-thread-title="Database View"]'),
     ).toBe(null);
 
+    const panelMenu = await openPanelMenu(screen, "Open side panel tab");
+    expect(within(panelMenu).queryByText("Review")).toBeNull();
+    expect(within(panelMenu).queryByText("Side chat")).toBeNull();
+    expect(within(panelMenu).getByText("Browser")).not.toBeNull();
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+      await Promise.resolve();
+    });
+
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Canvas" }));
       await Promise.resolve();
