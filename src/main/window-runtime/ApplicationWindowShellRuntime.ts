@@ -15,6 +15,7 @@ import { performance } from "node:perf_hooks";
 import { APP_RENDERER_URL } from "../../shared/app-renderer-policy";
 import type { WindowRestorePolicy, WindowSessionRecord } from "../../shared/window-session";
 import { MainConfig } from "../app/MainConfig";
+import { resolveBundledElectronPreload } from "../electron-preload-path";
 import { resolveElectronWindowBackdrop } from "../electron-window-backdrop";
 import type { ElectronWindowBackdrop } from "../electron-window-backdrop";
 import { AppProtocolRuntime } from "../host-runtime/AppProtocolRuntime";
@@ -468,7 +469,7 @@ export const configuredLive: Layer.Layer<
         ? `${config.resourcesPath}/icon.png`
         : `${config.projectRootPath}/resources/icon.png`,
       platform: config.platform as NodeJS.Platform,
-      preloadPath: `${__dirname}/../preload/index.js`,
+      preloadPath: resolveBundledElectronPreload(__dirname, "index.js"),
       rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,
       windows,
     });
