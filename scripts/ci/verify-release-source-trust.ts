@@ -55,38 +55,49 @@ function consumesSourceSha(job: UnknownRecord): boolean {
   return jobSteps(job).some(isSourceCheckout);
 }
 
+function isProtectedSourceGuardStep(step: UnknownRecord): boolean {
+  return (
+    step.uses === RELEASE_SOURCE_GUARD_ACTION &&
+    isRecord(step.with) &&
+    containsSourceSha(step.with.source_sha)
+  );
+}
+
 function hasProtectedSourcePrerequisite(
   jobName: string,
   jobs: Readonly<Record<string, unknown>>,
+  protectedSourceGuardJobs: ReadonlySet<string>,
   visited = new Set<string>(),
 ): boolean {
   if (visited.has(jobName)) return false;
   visited.add(jobName);
 
   const job = requireRecord(jobs[jobName], `${jobName} job`);
-  if (environmentName(job) === RELEASE_SOURCE_ENVIRONMENT) return true;
+  if (protectedSourceGuardJobs.has(jobName)) return true;
   return neededJobNames(job).some((needed) =>
-    hasProtectedSourcePrerequisite(needed, jobs, new Set(visited)),
+    hasProtectedSourcePrerequisite(needed, jobs, protectedSourceGuardJobs, new Set(visited)),
   );
 }
 
 export function verifyReleaseSourceWorkflow(label: string, workflow: UnknownRecord): void {
   const jobs = requireRecord(workflow.jobs, `${label}.jobs`);
-  const guardedJobs = Object.entries(jobs).filter(([, rawJob]) => {
-    const job = requireRecord(rawJob, `${label} job`);
-    return (
-      environmentName(job) === RELEASE_SOURCE_ENVIRONMENT &&
-      jobSteps(job).some((step) => step.uses === RELEASE_SOURCE_GUARD_ACTION)
-    );
-  });
-  if (guardedJobs.length === 0) {
+  const protectedSourceGuardJobs = new Set(
+    Object.entries(jobs).flatMap(([jobName, rawJob]) => {
+      const job = requireRecord(rawJob, `${label} job`);
+      const isProtectedSourceGuard =
+        environmentName(job) === RELEASE_SOURCE_ENVIRONMENT &&
+        jobSteps(job).some(isProtectedSourceGuardStep);
+      return isProtectedSourceGuard ? [jobName] : [];
+    }),
+  );
+  if (protectedSourceGuardJobs.size === 0) {
     throw new Error(`${label} has no ${RELEASE_SOURCE_ENVIRONMENT} protected source guard`);
   }
 
   for (const [jobName, rawJob] of Object.entries(jobs)) {
     const job = requireRecord(rawJob, `${label}:${jobName} job`);
     const steps = jobSteps(job);
-    const guardIndex = steps.findIndex((step) => step.uses === RELEASE_SOURCE_GUARD_ACTION);
+    const guardIndex = steps.findIndex(isProtectedSourceGuardStep);
     const sourceCheckoutIndex = steps.findIndex(isSourceCheckout);
     if (guardIndex >= 0 && sourceCheckoutIndex >= 0 && guardIndex > sourceCheckoutIndex) {
       throw new Error(
@@ -94,7 +105,7 @@ export function verifyReleaseSourceWorkflow(label: string, workflow: UnknownReco
       );
     }
     if (!consumesSourceSha(job)) continue;
-    if (hasProtectedSourcePrerequisite(jobName, jobs)) continue;
+    if (hasProtectedSourcePrerequisite(jobName, jobs, protectedSourceGuardJobs)) continue;
     throw new Error(
       `${label}:${jobName} consumes source_sha without the ${RELEASE_SOURCE_ENVIRONMENT} guard`,
     );

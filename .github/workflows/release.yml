@@ -176,6 +176,7 @@ jobs:
     if: needs.detect.outputs.should_release == 'true'
     needs: [detect, distribution, finalize-sparkle]
     permissions:
+      actions: read
       contents: read
     uses: ./.github/workflows/_assemble-release.yml
     with:
