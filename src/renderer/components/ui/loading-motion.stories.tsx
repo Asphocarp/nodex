@@ -4,7 +4,6 @@ import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { PageStageContentSkeleton } from "@/components/board/page-stage/content-skeleton";
 import { GeneratedImageGallery } from "@/features/local-conversation/view/shared/generated-image-gallery";
 import { CodexShimmerText } from "@/features/local-conversation/view/shared/codex-shimmer-text";
-import { AppStartupScreen } from "@/components/app-startup-screen";
 import { LoadingPlaceholder } from "./loading-placeholder";
 import { LoadingResultsShimmer } from "./loading-results-shimmer";
 import { NodexLogoShimmer } from "./nodex-logo-shimmer";
@@ -56,10 +55,6 @@ export const PageStageLoading: Story = {
       <PageStageContentSkeleton titleSnapshot="Loading-motion parity" />
     </div>
   ),
-};
-
-export const StartupStuckLoader: Story = {
-  render: () => <AppStartupScreen step={{ phase: "opening_workspace" }} />,
 };
 
 export const GeneratedImagePendingCarousel: Story = {

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { AppStartupScreen } from "@/components/app-startup-screen";
 import { CoreAuthorityStatusNotice } from "@/components/core-authority-status";
 import { NodexToastProvider } from "@/components/ui/toast";
 import { WorkbenchShell } from "@/components/workbench/workbench-shell";
@@ -10,90 +9,24 @@ import { DesktopNotificationPermissionBootstrap } from "@/features/local-convers
 import { LocalConversationViewStateCleanupController } from "@/features/local-conversation/view/local-conversation-view-state-cleanup-controller";
 import { NodexModalHost } from "@/lib/modal-registry";
 import type { WindowSessionBootstrap } from "@/lib/types";
-import { bootstrapWindowSession } from "@/lib/window-sessions";
-import type { AppInitializationStep } from "../shared/app-startup";
 import type { CoreAuthorityStatus } from "../shared/core-authority-status";
 import { useAppUpdateStatus } from "./app-providers";
 import { invoke } from "./lib/api";
 
-const rendererBootstrapStartedAt = performance.now();
-
-interface BootstrapState {
-  readonly failed: boolean;
-  readonly ready: boolean;
-  readonly windowSession: WindowSessionBootstrap | null;
-  readonly step: AppInitializationStep;
-}
-
-const INITIAL_BOOTSTRAP_STATE: BootstrapState = {
-  failed: false,
-  ready: false,
-  windowSession: null,
-  step: { phase: "opening" },
-};
-
 const READY_CORE_AUTHORITY_STATUS = { kind: "ready" } as const;
 const CORE_RECOVERY_NOTICE_DELAY_MS = 1_500;
 
-export default function App() {
+export interface AppProps {
+  readonly windowSessionBootstrap: WindowSessionBootstrap;
+}
+
+export default function App({ windowSessionBootstrap }: AppProps) {
   const appUpdateStatus = useAppUpdateStatus();
   const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
-  const [bootstrapState, setBootstrapState] = useState<BootstrapState>(INITIAL_BOOTSTRAP_STATE);
   const [coreAuthorityStatus, setCoreAuthorityStatus] = useState<CoreAuthorityStatus>(
     READY_CORE_AUTHORITY_STATUS,
   );
   const [showRecoveringCoreAuthority, setShowRecoveringCoreAuthority] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const unsubscribers: Array<() => void> = [];
-
-    if (window.api?.onInitializationStep) {
-      unsubscribers.push(
-        window.api.onInitializationStep((step) => {
-          if (cancelled) return;
-          setBootstrapState((current) => ({ ...current, step }));
-        }),
-      );
-    }
-    const loadBootstrap = () => bootstrapWindowSession();
-    const bootstrapPromise = window.api?.awaitInitialization
-      ? window.api.awaitInitialization().then(loadBootstrap)
-      : loadBootstrap();
-
-    void bootstrapPromise
-      .then((windowSession) => {
-        if (cancelled) return;
-        window.api?.reportInitializationReady?.({
-          durationMs: performance.now() - rendererBootstrapStartedAt,
-          outcome: "ready",
-        });
-        setBootstrapState({
-          failed: false,
-          ready: true,
-          windowSession,
-          step: { phase: "done" },
-        });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        window.api?.reportInitializationReady?.({
-          durationMs: performance.now() - rendererBootstrapStartedAt,
-          outcome: "failed",
-        });
-        setBootstrapState({
-          failed: true,
-          ready: false,
-          windowSession: null,
-          step: { phase: "failed" },
-        });
-      });
-
-    return () => {
-      cancelled = true;
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
-    };
-  }, []);
 
   useEffect(() => {
     if (coreAuthorityStatus.kind !== "recovering") {
@@ -139,29 +72,13 @@ export default function App() {
     void window.api?.relaunchForCoreAuthority?.().catch(() => undefined);
   };
 
-  if (!bootstrapState.ready || bootstrapState.failed) {
-    return (
-      <NodexToastProvider>
-        <AppStartupScreen step={bootstrapState.step} />
-      </NodexToastProvider>
-    );
-  }
-
-  if (!bootstrapState.windowSession) {
-    return (
-      <NodexToastProvider>
-        <AppStartupScreen step={{ phase: "failed" }} />
-      </NodexToastProvider>
-    );
-  }
-
   return (
     <NodexToastProvider>
       <LocalConversationProvider>
         <DesktopNotificationPermissionBootstrap />
         <LocalConversationViewStateCleanupController />
         <HeartbeatAutomationController />
-        <WorkbenchShell windowSessionBootstrap={bootstrapState.windowSession} />
+        <WorkbenchShell windowSessionBootstrap={windowSessionBootstrap} />
         <CoreAuthorityStatusNotice
           status={
             coreAuthorityStatus.kind === "recovering" && !showRecoveringCoreAuthority

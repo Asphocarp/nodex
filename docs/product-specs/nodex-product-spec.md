@@ -71,7 +71,8 @@ Read [Product Foundations](product-foundations.md) for onboarding, Projects,
 Library navigation, grants, and lifecycle. Read
 [Workbench Shell](workbench-shell.md) for Scenes, sidebar, panels, tabs,
 previews, Browser/Files/Terminal placement, navigation history, and multi-window
-presentation.
+presentation. Read [Desktop Startup Behavior](desktop-startup-behavior.md) for
+the canonical first-window, progress, native-material, and failure-recovery contract.
 
 ### Pages, Databases, and Views
 

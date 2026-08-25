@@ -9,6 +9,7 @@ export interface MainApplicationTestHooks {
   readonly handleBootstrapEvent: (
     event: BootstrapRuntimeEvent,
   ) => Effect.Effect<void, MainApplicationError>;
+  readonly readiness?: MainApplication["Service"]["readiness"];
   readonly release?: Effect.Effect<void>;
 }
 
@@ -23,6 +24,7 @@ export const mainApplicationTestLayer = (
       return MainApplication.of({
         activate: hooks.activate ?? Effect.void,
         handleBootstrapEvent: hooks.handleBootstrapEvent,
+        readiness: hooks.readiness ?? "ready",
       });
     }),
   );

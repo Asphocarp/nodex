@@ -35,6 +35,11 @@ const rendererChunkRules = [
 export function resolveRendererManualChunk(id: string): string | undefined {
   const normalizedId = id.replaceAll("\\", "/");
 
+  // Vite injects this helper into every chunk that owns a dynamic import.
+  // Pinning it prevents large feature manual chunks from absorbing the helper
+  // and becoming an eager dependency of the lightweight renderer entry.
+  if (normalizedId === "\0vite/preload-helper.js") return "renderer-bootstrap-runtime";
+
   for (const rule of rendererChunkRules) {
     if (rule.packageFragments.some((fragment) => normalizedId.includes(fragment))) {
       return rule.chunkName;

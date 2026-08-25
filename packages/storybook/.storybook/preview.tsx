@@ -1,6 +1,7 @@
 import { useEffect, type CSSProperties } from "react";
 import type { Decorator, Preview } from "@storybook/react-vite";
-import { AppProviders, initializeRendererDocument } from "../../../src/renderer/app-providers";
+import { AppProviders } from "../../../src/renderer/app-providers";
+import { initializeRendererDocument } from "../../../src/renderer/bootstrap/renderer-document";
 import {
   getDevStoryFontSizeCssVariables,
   readDevStoryCodeFontSize,

@@ -174,6 +174,13 @@ early-event buffer. It does not acquire an application service. After readiness,
 Profile-scoped Main resource graph and builds the Core, Codex, Window, IPC, Browser, Terminal,
 worker, scheduler, updater, and notification Layers inside it. A required acquisition failure
 returns its Cause and rolls back every resource already acquired by that same Scope.
+The graph acquires canonical Window Session shells before Core opens the Store. Each shell is the
+final BrowserWindow and WebContents with restored bounds, native material, final preload, and an
+inline parser-time brand frame. Before authority acquisition, only bootstrap IPC exists and the
+framework-free renderer waits without importing the Workbench. Post-Core activation attaches full
+capabilities to the same WebContents and opens one renderer gate at a time, primary first. A shell
+that encounters Core or renderer startup failure stays visible in its branded failure state and can
+restart the app; only a renderer document that cannot load at all falls back to native error UI.
 Layer acquisition itself is the application readiness boundary: the acquired `MainApplication`
 contains only operations that are valid after startup, with no separate `start` method or
 partially initialized controller that can escape the Scope.

@@ -5,7 +5,10 @@ export function getStartupStatus(step: AppInitializationStep): string {
     if (step.completed === undefined || step.total === undefined) {
       return "Updating local data…";
     }
-    const percentage = Math.floor((step.completed / step.total) * 100);
+    if (step.total <= 0) return "Updating local data…";
+    const percentage = Math.floor(
+      (Math.min(Math.max(step.completed, 0), step.total) / step.total) * 100,
+    );
     return `Updating local data… ${percentage}%`;
   }
   if (step.phase === "opening_workspace") return "Opening workspace…";

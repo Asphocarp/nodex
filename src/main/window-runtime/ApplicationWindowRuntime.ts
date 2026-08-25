@@ -1,15 +1,14 @@
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
-import { BrowserWindow, nativeImage, nativeTheme, screen, shell } from "electron";
-import { performance } from "node:perf_hooks";
-import type { AppUpdateStatus } from "../../shared/types";
+import { BrowserWindow, shell } from "electron";
 import { BROWSER_SIDEBAR_PARTITION } from "../../shared/browser-sidebar";
 import { isAllowedBrowserExternalUrl } from "../../shared/browser-url";
+import type { AppUpdateStatus } from "../../shared/types";
 import type { WindowSessionRecord } from "../../shared/window-session";
+import { MainCleanup } from "../app/MainCleanup";
+import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import type { BrowserGuestHost } from "../browser-application/BrowserApplication";
 import type { BrowserAuthorizedAttachment } from "../browser/browser-runtime-registry";
 import {
@@ -23,20 +22,14 @@ import type {
   RendererClientRegistration,
   RendererClientRuntimeService,
 } from "../codex/renderer-client-runtime-contracts";
-import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
-import { MainCleanup } from "../app/MainCleanup";
-import { ElectronIpc } from "../platform/electron/ElectronIpc";
-import { requireTrustedAppRendererSender } from "../platform/electron/TrustedRendererSender";
 import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import type { DesktopNotificationRuntime } from "../host-runtime/DesktopNotificationRuntime";
 import type { McpAppSandboxRuntime } from "../host-runtime/McpAppSandboxRuntime";
+import { safeSendToWindow } from "../ipc-safe-send";
 import { getLogger } from "../logging/logger";
 import { captureMainException, captureMainMessage } from "../observability/sentry-main";
-import { resolveCodexTitleBarOptions } from "../window-navigation-chrome";
-import { isWindowSessionBoundsVisible } from "../window-session-state";
+import type { ApplicationWindowShellRuntimeService } from "./ApplicationWindowShellRuntime";
 import type { WindowRuntimeService } from "./WindowRuntime";
-import { safeSendToWindow } from "../ipc-safe-send";
-import { MAIN_OBSERVATION_EVENT_CAPACITY } from "../runtime-limits";
 import { WindowShutdown } from "./WindowShutdown";
 import {
   createApplicationWindowCoordinator,
@@ -50,12 +43,11 @@ export interface ApplicationWindowRuntimeOptions {
   readonly browser: BrowserGuestHost;
   readonly rendererConversations: CodexRendererConversationCoordinator["Service"];
   readonly desktopNotifications: DesktopNotificationRuntime["Service"];
-  readonly iconPath: string;
   readonly mcpAppSandbox: McpAppSandboxRuntime["Service"];
   readonly platform: NodeJS.Platform;
-  readonly preloadPath: string;
   readonly rendererClients: RendererClientRuntimeService;
-  readonly rendererUrl: string;
+  readonly rendererLoaded: Stream.Stream<number>;
+  readonly shell: ApplicationWindowShellRuntimeService;
   readonly windows: WindowRuntimeService;
 }
 
@@ -68,21 +60,18 @@ export class ApplicationWindowRuntime extends Context.Service<
   }
 >()("nodex/main/window-runtime/ApplicationWindowRuntime") {}
 
-class WindowCloseHandshakeError extends Data.TaggedError("WindowCloseHandshakeError")<{
-  readonly cause: unknown;
-}> {}
-
 const syncMacWindowTitle = (platform: NodeJS.Platform, window: BrowserWindow): void => {
   if (platform !== "darwin" || window.isDestroyed()) return;
   window.setTitle("Nodex");
 };
 
+/** Installs post-Core feature authorities onto pre-existing canonical windows. */
 export const live = (
   options: ApplicationWindowRuntimeOptions,
 ): Layer.Layer<
   ApplicationWindowRuntime,
   never,
-  ComposerAppshotRuntime | ElectronIpc | MainCleanup | ScopedCallbackRuntime | WindowShutdown
+  ComposerAppshotRuntime | MainCleanup | ScopedCallbackRuntime | WindowShutdown
 > =>
   Layer.effect(
     ApplicationWindowRuntime,
@@ -90,69 +79,17 @@ export const live = (
       const appshots = yield* ComposerAppshotRuntime;
       const callbacks = yield* ScopedCallbackRuntime;
       const cleanup = yield* MainCleanup;
-      const ipc = yield* ElectronIpc;
       const windowShutdown = yield* WindowShutdown;
-      const rendererLoaded = yield* PubSub.sliding<number>(MAIN_OBSERVATION_EVENT_CAPACITY);
-      yield* Effect.addFinalizer(() => PubSub.shutdown(rendererLoaded));
       const logger = getLogger({ component: "application-window-runtime" });
-      const icon = nativeImage.createFromPath(options.iconPath);
 
-      // This acknowledgement belongs to the Window resource, not the broad IPC cluster. Register
-      // it before the Window finalizer so it remains live while graceful close flushes renderers.
-      yield* ipc.handle("app:flush-before-close:done", (event, claimedWebContentsId: unknown) =>
-        Effect.try({
-          try: () => {
-            requireTrustedAppRendererSender(event, "Window close flush", options.rendererUrl);
-            if (!options.windows.has(event.sender.id)) {
-              throw new Error("Window close flush requires an active Nodex window");
-            }
-            if (claimedWebContentsId !== event.sender.id) {
-              throw new Error("Window close flush sender does not own the claimed window");
-            }
-            options.windows.acknowledgeClose(event.sender.id);
-          },
-          catch: (cause) => new WindowCloseHandshakeError({ cause }),
-        }),
-      );
+      const activate = (window: BrowserWindow, session: WindowSessionRecord): void => {
+        if (window.isDestroyed()) throw new Error("Cannot activate a destroyed application window");
 
-      const create = (session: WindowSessionRecord): BrowserWindow => {
-        const windowCreatedAt = performance.now();
-        const savedBounds = isWindowSessionBoundsVisible(session.bounds, screen.getAllDisplays())
-          ? session.bounds
-          : undefined;
-        const titleBarOptions = resolveCodexTitleBarOptions({
-          platform: options.platform,
-          windowZoom: 1,
-          isDark: nativeTheme.shouldUseDarkColors,
-        });
-        const window = new BrowserWindow({
-          x: savedBounds?.x,
-          y: savedBounds?.y,
-          width: savedBounds?.width ?? 1_400,
-          height: savedBounds?.height ?? 900,
-          minWidth: 800,
-          minHeight: 600,
-          ...(options.platform === "darwin" ? { title: "Nodex" } : { icon }),
-          ...titleBarOptions,
-          ...(options.platform === "darwin"
-            ? {
-                vibrancy: "menu" as const,
-                visualEffectState: "followWindow" as const,
-                backgroundColor: "#00000000",
-              }
-            : {}),
-          webPreferences: {
-            preload: options.preloadPath,
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-            webviewTag: true,
-            backgroundThrottling: false,
-          },
-        });
         appshots.observeWindow(window);
+        const webContentsId = window.webContents.id;
         const mcpAppSandboxHost = options.mcpAppSandbox.createHost(window.webContents);
         const pendingBrowserAttachments = new Map<number, BrowserAuthorizedAttachment>();
+
         window.webContents.setWindowOpenHandler(({ url }) => {
           if (isAllowedBrowserExternalUrl(url)) void shell.openExternal(url);
           return { action: "deny" };
@@ -172,7 +109,7 @@ export const live = (
           if (instanceId === null || pendingBrowserAttachments.has(instanceId)) {
             logger.warn("Rejected Browser webview attachment", {
               reason: instanceId === null ? "invalid-instance-id" : "duplicate-instance-id",
-              webContentsId: window.webContents.id,
+              webContentsId,
             });
             event.preventDefault();
             return;
@@ -195,7 +132,7 @@ export const live = (
               browserConversationId: decision.route?.browserConversationId,
               browserViewScopeId: decision.route?.browserViewScopeId,
               browserTabId: decision.route?.browserTabId,
-              webContentsId: window.webContents.id,
+              webContentsId,
             });
             event.preventDefault();
             return;
@@ -212,7 +149,7 @@ export const live = (
               browserConversationId: decision.authorization.browserConversationId,
               browserViewScopeId: decision.authorization.browserViewScopeId,
               browserTabId: decision.authorization.browserTabId,
-              webContentsId: window.webContents.id,
+              webContentsId,
             });
             event.preventDefault();
             return;
@@ -245,14 +182,14 @@ export const live = (
           if (!pending) {
             logger.warn("Rejected unmatched Browser webview attachment", {
               guestWebContentsId: guest.id,
-              ownerWebContentsId: window.webContents.id,
+              ownerWebContentsId: webContentsId,
             });
             guest.close();
             return;
           }
           const ownership = options.browser.consumeAuthorizedAttachment(
             pending.attachToken,
-            window.webContents.id,
+            webContentsId,
             guest.id,
           );
           if (!ownership) {
@@ -261,13 +198,13 @@ export const live = (
               browserViewScopeId: pending.browserViewScopeId,
               browserTabId: pending.browserTabId,
               guestWebContentsId: guest.id,
-              ownerWebContentsId: window.webContents.id,
+              ownerWebContentsId: webContentsId,
             });
             guest.close();
             return;
           }
           options.browser.registerOwnership(
-            window.webContents.id,
+            webContentsId,
             guest.id,
             ownership,
             ownership.browserStorageId,
@@ -275,7 +212,6 @@ export const live = (
           options.browser.prepareHistoryRestore(ownership, guest.id);
         });
 
-        const webContentsId = window.webContents.id;
         let rendererRegistration: RendererClientRegistration | null =
           options.rendererClients.register(window.webContents);
         callbacks.fork(
@@ -285,9 +221,6 @@ export const live = (
           ),
         );
         syncMacWindowTitle(options.platform, window);
-        if (savedBounds?.mode === "maximized") window.maximize();
-        else if (savedBounds?.mode === "fullscreen") window.setFullScreen(true);
-
         window.on("focus", () =>
           callbacks.fork(
             options.rendererConversations.setClientForegrounded(
@@ -304,22 +237,6 @@ export const live = (
             ),
           ),
         );
-        window.webContents.on("did-finish-load", () => {
-          logger.info("Renderer document finished loading", {
-            durationMs: Math.round(performance.now() - windowCreatedAt),
-            webContentsId,
-          });
-          syncMacWindowTitle(options.platform, window);
-          callbacks.fork(
-            options.appUpdates.currentStatus.pipe(
-              Effect.tap((status) =>
-                Effect.sync(() => safeSendToWindow(window, "app:update-status", [status])),
-              ),
-              Effect.andThen(PubSub.publish(rendererLoaded, webContentsId)),
-              Effect.asVoid,
-            ),
-          );
-        });
         window.webContents.on("render-process-gone", (_event, details) => {
           logger.error("Renderer process gone", {
             webContentsId,
@@ -343,20 +260,41 @@ export const live = (
           if (rendererRegistration) callbacks.fork(rendererRegistration.release);
           rendererRegistration = null;
         });
-        try {
-          options.windows.attach(window, session.id);
-        } catch (error) {
-          window.destroy();
-          throw error;
-        }
-        void window.loadURL(options.rendererUrl).catch((error: unknown) => {
-          logger.error("Could not load the application renderer", {
-            error,
-            rendererUrl: options.rendererUrl,
-          });
-        });
-        return window;
+        callbacks.fork(
+          options.appUpdates.currentStatus.pipe(
+            Effect.tap((status) =>
+              Effect.sync(() => safeSendToWindow(window, "app:update-status", [status])),
+            ),
+            Effect.asVoid,
+          ),
+        );
       };
+
+      const create = (session: WindowSessionRecord): BrowserWindow => {
+        const window = options.shell.create(session, "foreground");
+        try {
+          activate(window, session);
+          options.shell.completeActivation(window.webContents.id);
+          return window;
+        } catch (cause) {
+          options.shell.failActivation(window.webContents.id, cause);
+          if (!window.isDestroyed()) window.destroy();
+          throw cause;
+        }
+      };
+
+      const activateClaimedWindows = (): void => {
+        for (const lease of options.shell.claimPendingActivation()) {
+          try {
+            activate(lease.window, lease.session);
+            options.shell.completeActivation(lease.window.webContents.id);
+          } catch (cause) {
+            options.shell.failActivation(lease.window.webContents.id, cause);
+            throw cause;
+          }
+        }
+      };
+      activateClaimedWindows();
 
       const coordinator = createApplicationWindowCoordinator({
         closeAll: windowShutdown.closeAll,
@@ -411,7 +349,7 @@ export const live = (
       return ApplicationWindowRuntime.of({
         ...coordinator,
         create,
-        rendererLoaded: Stream.fromPubSub(rendererLoaded),
+        rendererLoaded: options.rendererLoaded,
         syncTitle: (window) => syncMacWindowTitle(options.platform, window),
       });
     }),

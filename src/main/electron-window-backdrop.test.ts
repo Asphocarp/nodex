@@ -14,6 +14,7 @@ describe("electron window backdrop", () => {
         bounds: { width: 1474, height: 1078 },
         isFocused: true,
         platform: "darwin",
+        prefersReducedTransparency: false,
         scaleFactor: 2,
       }),
     ).toBe(false);
@@ -25,6 +26,7 @@ describe("electron window backdrop", () => {
         bounds: { width: 1920, height: 1080 },
         isFocused: true,
         platform: "darwin",
+        prefersReducedTransparency: false,
         scaleFactor: 2,
       }),
     ).toBe(true);
@@ -36,6 +38,7 @@ describe("electron window backdrop", () => {
         bounds: { width: 1200, height: 800 },
         isFocused: false,
         platform: "darwin",
+        prefersReducedTransparency: false,
         scaleFactor: 2,
       }),
     ).toBe(true);
@@ -44,6 +47,7 @@ describe("electron window backdrop", () => {
         bounds: { width: 1200, height: 800 },
         isFocused: false,
         platform: "win32",
+        prefersReducedTransparency: false,
         scaleFactor: 1,
       }),
     ).toBe(true);
@@ -55,6 +59,7 @@ describe("electron window backdrop", () => {
         bounds: { width: 1200, height: 800 },
         isFocused: true,
         platform: "win32",
+        prefersReducedTransparency: false,
         scaleFactor: 1,
       }),
     ).toBe(false);
@@ -62,37 +67,66 @@ describe("electron window backdrop", () => {
 
   test("resolves transparent and opaque native backdrop settings", () => {
     const transparentMac = resolveElectronWindowBackdrop({
-      opaqueWindowSurfaceEnabled: false,
+      bounds: { width: 1200, height: 800 },
+      isFocused: true,
       platform: "darwin",
       prefersDarkColors: false,
+      prefersReducedTransparency: false,
+      scaleFactor: 2,
     });
     expect(transparentMac.backgroundColor).toBe(CODEX_ELECTRON_TRANSPARENT_BACKGROUND_COLOR);
     expect(transparentMac.backgroundMaterial).toBe(null);
     expect(transparentMac.vibrancy).toBe("menu");
 
     const transparentWindows = resolveElectronWindowBackdrop({
-      opaqueWindowSurfaceEnabled: false,
+      bounds: { width: 1200, height: 800 },
+      isFocused: true,
       platform: "win32",
       prefersDarkColors: false,
+      prefersReducedTransparency: false,
+      scaleFactor: 1,
     });
     expect(transparentWindows.backgroundColor).toBe(CODEX_ELECTRON_TRANSPARENT_BACKGROUND_COLOR);
     expect(transparentWindows.backgroundMaterial).toBe("mica");
     expect(transparentWindows.vibrancy).toBe(null);
 
     const opaqueLight = resolveElectronWindowBackdrop({
-      opaqueWindowSurfaceEnabled: true,
+      bounds: { width: 1200, height: 800 },
+      forceOpaque: true,
+      isFocused: true,
       platform: "darwin",
       prefersDarkColors: false,
+      prefersReducedTransparency: false,
+      scaleFactor: 2,
     });
     expect(opaqueLight.backgroundColor).toBe(CODEX_ELECTRON_OPAQUE_LIGHT_BACKGROUND_COLOR);
     expect(opaqueLight.vibrancy).toBe(null);
 
     const opaqueDark = resolveElectronWindowBackdrop({
-      opaqueWindowSurfaceEnabled: true,
+      bounds: { width: 1200, height: 800 },
+      forceOpaque: true,
+      isFocused: true,
       platform: "darwin",
       prefersDarkColors: true,
+      prefersReducedTransparency: false,
+      scaleFactor: 2,
     });
     expect(opaqueDark.backgroundColor).toBe(CODEX_ELECTRON_OPAQUE_DARK_BACKGROUND_COLOR);
     expect(opaqueDark.vibrancy).toBe(null);
+  });
+
+  test("honors macOS Reduce transparency", () => {
+    const backdrop = resolveElectronWindowBackdrop({
+      bounds: { width: 1200, height: 800 },
+      isFocused: true,
+      platform: "darwin",
+      prefersDarkColors: false,
+      prefersReducedTransparency: true,
+      scaleFactor: 2,
+    });
+
+    expect(backdrop.opaqueWindowSurfaceEnabled).toBe(true);
+    expect(backdrop.backgroundColor).toBe(CODEX_ELECTRON_OPAQUE_LIGHT_BACKGROUND_COLOR);
+    expect(backdrop.vibrancy).toBe(null);
   });
 });

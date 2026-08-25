@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { registerAppRendererProtocol } from "../app-renderer-protocol";
@@ -7,8 +8,15 @@ import { registerManagedAssetProtocol } from "../managed-asset-protocol";
 import { getLogger } from "../logging/logger";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 
-export const live: Layer.Layer<never, never, ElectronSessionHost | MainConfig> =
-  Layer.effectDiscard(
+export class AppProtocolRuntime extends Context.Service<
+  AppProtocolRuntime,
+  { readonly installed: true }
+>()("nodex/main/host-runtime/AppProtocolRuntime") {}
+
+/** Installs Profile-local protocols before the first renderer is created. */
+export const live: Layer.Layer<AppProtocolRuntime, never, ElectronSessionHost | MainConfig> =
+  Layer.effect(
+    AppProtocolRuntime,
     Effect.gen(function* () {
       const config = yield* MainConfig;
       const sessions = yield* ElectronSessionHost;
@@ -33,5 +41,6 @@ export const live: Layer.Layer<never, never, ElectronSessionHost | MainConfig> =
         }),
         (release) => Effect.sync(release),
       ).pipe(Effect.asVoid);
+      return AppProtocolRuntime.of({ installed: true });
     }),
   );

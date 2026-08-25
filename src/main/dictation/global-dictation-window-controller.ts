@@ -28,6 +28,21 @@ export const resolveGlobalDictationBounds = (workArea: {
   height: HEIGHT,
 });
 
+type GlobalDictationNativeWindow = Pick<
+  BrowserWindow,
+  "setAlwaysOnTop" | "setIgnoreMouseEvents" | "setVisibleOnAllWorkspaces"
+>;
+
+/** Configures the overlay without converting the foreground app into a Dock-less UI element. */
+export function configureGlobalDictationNativeWindow(window: GlobalDictationNativeWindow): void {
+  window.setAlwaysOnTop(true, "floating");
+  window.setVisibleOnAllWorkspaces(true, {
+    skipTransformProcessType: true,
+    visibleOnFullScreen: true,
+  });
+  window.setIgnoreMouseEvents(true, { forward: true });
+}
+
 /** Owns the auxiliary window without registering it as a restorable WindowSession. */
 export class GlobalDictationWindowController {
   readonly #preloadPath: string;
@@ -71,9 +86,7 @@ export class GlobalDictationWindowController {
         backgroundThrottling: false,
       },
     });
-    window.setAlwaysOnTop(true, "floating");
-    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    window.setIgnoreMouseEvents(true, { forward: true });
+    configureGlobalDictationNativeWindow(window);
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     const generation = ++this.#generation;
     const webContentsId = window.webContents.id;

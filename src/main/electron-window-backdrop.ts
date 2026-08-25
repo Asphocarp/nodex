@@ -14,18 +14,18 @@ export interface ShouldUseOpaqueElectronWindowSurfaceInput {
   forceOpaque?: boolean;
   isFocused: boolean;
   platform: NodeJS.Platform;
+  prefersReducedTransparency: boolean;
   scaleFactor: number;
 }
 
-export interface ResolveElectronWindowBackdropInput {
-  opaqueWindowSurfaceEnabled: boolean;
-  platform: NodeJS.Platform;
+export interface ResolveElectronWindowBackdropInput extends ShouldUseOpaqueElectronWindowSurfaceInput {
   prefersDarkColors: boolean;
 }
 
 export interface ElectronWindowBackdrop {
   backgroundColor: string;
   backgroundMaterial: "mica" | "none" | null;
+  opaqueWindowSurfaceEnabled: boolean;
   vibrancy: "menu" | null;
 }
 
@@ -38,6 +38,7 @@ export function shouldUseOpaqueElectronWindowSurface(
 ): boolean {
   if (!supportsOpaqueSurface(input.platform)) return false;
   if (input.forceOpaque === true) return true;
+  if (input.platform === "darwin" && input.prefersReducedTransparency) return true;
   if (!input.isFocused) return true;
   if (input.platform !== "darwin") return false;
 
@@ -55,12 +56,14 @@ export function shouldUseOpaqueElectronWindowSurface(
 export function resolveElectronWindowBackdrop(
   input: ResolveElectronWindowBackdropInput,
 ): ElectronWindowBackdrop {
-  if (input.opaqueWindowSurfaceEnabled) {
+  const opaqueWindowSurfaceEnabled = shouldUseOpaqueElectronWindowSurface(input);
+  if (opaqueWindowSurfaceEnabled) {
     return {
       backgroundColor: input.prefersDarkColors
         ? CODEX_ELECTRON_OPAQUE_DARK_BACKGROUND_COLOR
         : CODEX_ELECTRON_OPAQUE_LIGHT_BACKGROUND_COLOR,
       backgroundMaterial: input.platform === "win32" ? "none" : null,
+      opaqueWindowSurfaceEnabled,
       vibrancy: null,
     };
   }
@@ -69,6 +72,7 @@ export function resolveElectronWindowBackdrop(
     return {
       backgroundColor: CODEX_ELECTRON_TRANSPARENT_BACKGROUND_COLOR,
       backgroundMaterial: "mica",
+      opaqueWindowSurfaceEnabled,
       vibrancy: null,
     };
   }
@@ -76,6 +80,7 @@ export function resolveElectronWindowBackdrop(
   return {
     backgroundColor: CODEX_ELECTRON_TRANSPARENT_BACKGROUND_COLOR,
     backgroundMaterial: null,
+    opaqueWindowSurfaceEnabled,
     vibrancy: input.platform === "darwin" ? "menu" : null,
   };
 }

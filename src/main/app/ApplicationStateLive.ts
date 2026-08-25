@@ -4,7 +4,19 @@ import {
   ApplicationInitializationRuntime,
   live as applicationInitializationRuntimeLive,
 } from "../host-runtime/ApplicationInitializationRuntime";
+import * as AppProtocolRuntime from "../host-runtime/AppProtocolRuntime";
+import {
+  ApplicationBootstrapIpc,
+  live as applicationBootstrapIpcLive,
+} from "../ipc/handlers/ApplicationBootstrapIpc";
+import { getWindowRestoreSettings } from "../local-store/config";
 import { ElectronApp } from "../platform/electron/ElectronApp";
+import { ElectronIpc } from "../platform/electron/ElectronIpc";
+import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
+import {
+  ApplicationWindowShellRuntime,
+  configuredLive as applicationWindowShellRuntimeLive,
+} from "../window-runtime/ApplicationWindowShellRuntime";
 import { WindowRuntime, live as windowRuntimeLive } from "../window-runtime/WindowRuntime";
 import { MainConfig } from "./MainConfig";
 
@@ -24,9 +36,33 @@ const initialization = Layer.unwrap(
   }),
 ).pipe(Layer.provideMerge(windowRuntime));
 
-/** Pre-ready application state needed before Core, Codex, host and physical Window acquisition. */
+const shell = applicationWindowShellRuntimeLive.pipe(
+  Layer.provideMerge(Layer.merge(windowRuntime, AppProtocolRuntime.live)),
+);
+
+const bootstrapIpc = applicationBootstrapIpcLive.pipe(
+  Layer.provideMerge(Layer.merge(initialization, shell)),
+);
+
+// Handler registration precedes renderer load, so the first preload invoke can
+// never race a not-yet-installed bootstrap authority.
+const started = Layer.effect(
+  ApplicationWindowShellRuntime,
+  Effect.gen(function* () {
+    yield* ApplicationBootstrapIpc;
+    const applicationShell = yield* ApplicationWindowShellRuntime;
+    applicationShell.openInitial(getWindowRestoreSettings().policy);
+    return applicationShell;
+  }),
+).pipe(Layer.provideMerge(bootstrapIpc));
+
+/** Pre-Core state and startup presentation acquired before Store migration can block readiness. */
 export const live: Layer.Layer<
-  WindowRuntime | ApplicationInitializationRuntime,
+  | WindowRuntime
+  | ApplicationInitializationRuntime
+  | ApplicationBootstrapIpc
+  | ApplicationWindowShellRuntime
+  | AppProtocolRuntime.AppProtocolRuntime,
   never,
-  ElectronApp | MainConfig
-> = initialization;
+  ElectronApp | ElectronIpc | ElectronSessionHost | MainConfig
+> = started;

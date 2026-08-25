@@ -1,6 +1,5 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { APP_RENDERER_URL } from "../../shared/app-renderer-policy";
 import { BrowserApplication } from "../browser-application/BrowserApplication";
 import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
 import { CodexAccount } from "../codex-application/CodexAccount";
@@ -68,6 +67,8 @@ import {
   ApplicationWindowRuntime,
   live as applicationWindowRuntimeLive,
 } from "../window-runtime/ApplicationWindowRuntime";
+import { ApplicationWindowShellRuntime } from "../window-runtime/ApplicationWindowShellRuntime";
+import { ApplicationInitializationRuntime } from "../host-runtime/ApplicationInitializationRuntime";
 import * as WindowSessionCatalog from "../window-runtime/WindowSessionCatalog";
 import { WindowRuntime } from "../window-runtime/WindowRuntime";
 import { live as windowShutdownLive, WindowShutdown } from "../window-runtime/WindowShutdown";
@@ -120,25 +121,24 @@ const applicationWindows = Layer.unwrap(
   Effect.gen(function* () {
     const appUpdates = yield* AppUpdateRuntime;
     const browser = yield* BrowserApplication;
+    const initialization = yield* ApplicationInitializationRuntime;
     const rendererConversations = yield* CodexRendererConversationCoordinator;
     const desktopNotifications = yield* DesktopNotificationRuntime;
     const config = yield* MainConfig;
     const mcpAppSandbox = yield* McpAppSandboxRuntime;
     const rendererClients = yield* RendererClientRuntime;
+    const shell = yield* ApplicationWindowShellRuntime;
     const windows = yield* WindowRuntime;
     return applicationWindowRuntimeLive({
       appUpdates,
       browser: browser.guest,
       rendererConversations,
       desktopNotifications,
-      iconPath: config.isPackaged
-        ? `${config.resourcesPath}/icon.png`
-        : `${config.projectRootPath}/resources/icon.png`,
       mcpAppSandbox,
       platform: config.platform as NodeJS.Platform,
-      preloadPath: `${__dirname}/../preload/index.js`,
       rendererClients,
-      rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,
+      rendererLoaded: initialization.rendererLoaded,
+      shell,
       windows,
     });
   }),
@@ -213,6 +213,8 @@ export const live: Layer.Layer<
   | WindowSessionCatalog.WindowSessionCatalog
   | WindowShutdown,
   ApplicationHostRuntimeError,
+  | ApplicationInitializationRuntime
+  | ApplicationWindowShellRuntime
   | BrowserApplication
   | ChatGptDesktop
   | CodexAccount

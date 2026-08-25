@@ -35,8 +35,8 @@ import { ScheduledAutomationRuntime } from "../host-runtime/ScheduledAutomationR
 import { StoreAdministrationSchedulerRuntime } from "../host-runtime/StoreAdministrationSchedulerRuntime";
 import { DeepLinkRuntime } from "../host-runtime/DeepLinkRuntime";
 import { ApplicationInitializationRuntime } from "../host-runtime/ApplicationInitializationRuntime";
+import * as AppProtocolRuntime from "../host-runtime/AppProtocolRuntime";
 import { InitialProjectBootstrapRuntime } from "../initial-project/InitialProjectBootstrapRuntime";
-import { getWindowRestoreSettings } from "../local-store/config";
 import { requestsExplicitNewWindow } from "../main-runtime-startup-events";
 import { getLogger } from "../logging/logger";
 import { ElectronApp } from "../platform/electron/ElectronApp";
@@ -52,6 +52,8 @@ import { MainConfig } from "./MainConfig";
 import { MainShutdown } from "./MainShutdown";
 import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
 import { ApplicationWindowRuntime } from "../window-runtime/ApplicationWindowRuntime";
+import { ApplicationWindowShellRuntime } from "../window-runtime/ApplicationWindowShellRuntime";
+import { WindowRuntime } from "../window-runtime/WindowRuntime";
 import * as CodexApplicationLive from "./CodexApplicationLive";
 import * as ConversationApplicationLive from "./ConversationApplicationLive";
 import * as CoreApplicationLive from "./CoreApplicationLive";
@@ -76,13 +78,7 @@ const applicationGraph = RendererIngressLive.live.pipe(
               Layer.provideMerge(
                 HostApplicationLive.live.pipe(
                   Layer.provideMerge(
-                    CodexApplicationLive.live.pipe(
-                      Layer.provideMerge(
-                        CoreApplicationLive.live.pipe(
-                          Layer.provideMerge(ApplicationStateLive.live),
-                        ),
-                      ),
-                    ),
+                    CodexApplicationLive.live.pipe(Layer.provideMerge(CoreApplicationLive.live)),
                   ),
                 ),
               ),
@@ -117,6 +113,10 @@ export const live: Layer.Layer<
   | MainShutdown
   | ScopedCallbackRuntime
   | TerminalSessions
+  | ApplicationInitializationRuntime
+  | ApplicationWindowShellRuntime
+  | AppProtocolRuntime.AppProtocolRuntime
+  | WindowRuntime
 > = Layer.effect(
   MainApplication,
   Effect.gen(function* () {
@@ -177,7 +177,6 @@ export const live: Layer.Layer<
           Effect.asVoid,
         );
         yield* deepLinks.extractFromArgv(config.argv);
-        applicationWindows.openStartup(getWindowRestoreSettings().policy);
         yield* threadHandoffRuntime.recover().pipe(
           Effect.catch((cause) =>
             Effect.sync(() => applicationLogger.error("Task handoff recovery failed", { cause })),
@@ -299,6 +298,7 @@ export const live: Layer.Layer<
               Effect.asVoid,
             );
           },
+          readiness: "ready",
         });
         yield* Scope.addFinalizer(
           runtimeScope,
@@ -317,4 +317,68 @@ export const live: Layer.Layer<
   }),
 ).pipe(Layer.provide(applicationGraph));
 
-export const productionLive = live.pipe(Layer.provideMerge(TerminalRuntimeLive.live));
+const startupFailureLive = (
+  error:
+    | ApplicationHostRuntimeError
+    | BrowserApplicationError
+    | BrowserProfileRuntimeError
+    | BrowserUseRuntimeError
+    | CoreRuntimeError
+    | ExecutionHostRuntimeError
+    | MainApplicationError,
+): Layer.Layer<
+  MainApplication,
+  never,
+  | ApplicationInitializationRuntime
+  | ApplicationWindowShellRuntime
+  | MainShutdown
+  | ScopedCallbackRuntime
+  | WindowRuntime
+> =>
+  Layer.effect(
+    MainApplication,
+    Effect.gen(function* () {
+      const callbacks = yield* ScopedCallbackRuntime;
+      const initialization = yield* ApplicationInitializationRuntime;
+      const shell = yield* ApplicationWindowShellRuntime;
+      const shutdown = yield* MainShutdown;
+      const windows = yield* WindowRuntime;
+
+      applicationLogger.error("Desktop app startup failed; preserving the canonical window", {
+        error,
+      });
+      yield* initialization.markFailed;
+      shell.failAll(error);
+
+      for (const window of windows.all()) {
+        const onClosed = (): void => {
+          if (windows.count() > 0) return;
+          callbacks.fork(shutdown.request({ _tag: "UserQuit" }).pipe(Effect.asVoid));
+        };
+        window.once("closed", onClosed);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            window.removeListener("closed", onClosed);
+          }),
+        );
+      }
+
+      return MainApplication.of({
+        activate: Effect.sync(() => {
+          const window = windows.getLastFocused();
+          if (!window || window.isDestroyed()) return;
+          window.show();
+          window.focus();
+        }),
+        handleBootstrapEvent: () => Effect.void,
+        readiness: "startup-failed",
+      });
+    }),
+  );
+
+/** Keeps the pre-Core shell Scope alive while the full authority graph acquires. */
+export const productionLive = live.pipe(
+  Layer.catch(startupFailureLive),
+  Layer.provideMerge(ApplicationStateLive.live),
+  Layer.provideMerge(TerminalRuntimeLive.live),
+);

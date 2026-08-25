@@ -301,7 +301,19 @@ export class WindowSessionState {
     if (openSessions.length === 0) {
       return this.reopenClosedOrCreateFresh(catalog);
     }
-    if (policy === "all") return openSessions;
+    if (policy === "all") {
+      const primaryIndex = openSessions.findIndex(
+        (session) => session.id === catalog.lastActiveSessionId,
+      );
+      if (primaryIndex <= 0) return openSessions;
+      const primary = openSessions[primaryIndex];
+      if (!primary) return openSessions;
+      return [
+        primary,
+        ...openSessions.slice(0, primaryIndex),
+        ...openSessions.slice(primaryIndex + 1),
+      ];
+    }
 
     const selected =
       openSessions.find((session) => session.id === catalog.lastActiveSessionId) ??

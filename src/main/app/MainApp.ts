@@ -37,8 +37,10 @@ const runApplication = <R, E>(
             onAcquired(null);
           }),
         );
-        for (const event of options.initialEvents) yield* application.handleBootstrapEvent(event);
-        if (options.onApplicationReady) yield* options.onApplicationReady(application);
+        if (application.readiness === "ready") {
+          for (const event of options.initialEvents) yield* application.handleBootstrapEvent(event);
+          if (options.onApplicationReady) yield* options.onApplicationReady(application);
+        }
         return yield* shutdown.awaitRequest;
       }).pipe(
         // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the application acquisition boundary inside the process Scope.

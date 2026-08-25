@@ -161,6 +161,12 @@ CI` push run. The privileged release `workflow_run` additionally validates the
   Its preload has no Node imports, and privileged IPC requires both an owned
   top-level window and the exact app origin.
 - Electron preload bridge limits renderer access to a typed API surface.
+- The canonical application BrowserWindow uses its final sandboxed preload from first paint, but
+  preload presence does not confer authority. Before Core acquisition, Main registers only
+  initialization wait/replay, renderer-ready reporting, close-flush acknowledgement, and restart;
+  every handler requires the trusted top-level app origin and an attached Window Session. Popup
+  creation is denied, navigation is restricted to the configured renderer origin, and webview
+  attachment is denied until post-Core activation installs the full guest authorization boundary.
 - MCP App HTML never executes in the app renderer and is never injected through
   `srcDoc`. The trusted renderer deterministically derives the stable source and
   non-persistent partition from the fixed app/server scope, installs the port
