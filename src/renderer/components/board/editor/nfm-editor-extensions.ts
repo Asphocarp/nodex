@@ -201,11 +201,15 @@ function writeStructuralSelectionClaimToClipboard(
 }
 
 function hasTypedOwnerClipboardSelection(view: EditorView, editor: BlockNoteEditor): boolean {
-  const blockSelection = getNfmBlockSelectionIds(view.state.selection)
+  const blockSelectionIds = getNfmBlockSelectionIds(view.state.selection);
+  if (blockSelectionIds.length === 0) {
+    return hasTypedOwnerBlock(editor.getSelection()?.blocks ?? []);
+  }
+
+  const blockSelection = blockSelectionIds
     .map((blockId) => editor.getBlock(blockId))
     .filter((block) => block !== undefined);
-  const publicSelection = editor.getSelection()?.blocks ?? [];
-  return hasTypedOwnerBlock(blockSelection.length ? blockSelection : publicSelection);
+  return blockSelection.length !== blockSelectionIds.length || hasTypedOwnerBlock(blockSelection);
 }
 
 function blockUnavailableTypedOwnerClipboard(
@@ -216,90 +220,89 @@ function blockUnavailableTypedOwnerClipboard(
   onUnavailable?.();
 }
 
-const structuredPlainTextCopyExt = createExtension(
-  ({ editor, options }: ExtensionOptions<NfmEditorExtensionOptions>) => ({
-    key: "structured-plain-text-copy",
-    runsBefore: ["copyToClipboard"],
-    prosemirrorPlugins: [
-      new Plugin({
-        props: {
-          handleDOMEvents: {
-            copy(view, event) {
-              const clipboardEvent = event as ClipboardEvent;
-              const hasTypedOwnerSelection = hasTypedOwnerClipboardSelection(view, editor);
-              const payload = createStructuredSelectionClipboardPayload(view, editor);
-              if (!payload) {
-                if (!hasTypedOwnerSelection) return false;
-                blockUnavailableTypedOwnerClipboard(
-                  clipboardEvent,
-                  options.onTypedBlocksUnavailable,
-                );
-                return true;
-              }
-              const writeClaim = options.onCopyTypedBlocks?.(editor, {
-                html: payload.externalHTML,
-                text: payload.structuredText,
-              });
-              if (writeClaim) {
-                writeStructuralSelectionClaimToClipboard(clipboardEvent, payload, writeClaim);
-                return true;
-              }
-              if (
-                hasTypedOwnerSelection ||
-                hasUntrustedTypedOwnerHtml(payload.clipboardHTML) ||
-                hasUntrustedTypedOwnerHtml(payload.externalHTML)
-              ) {
-                blockUnavailableTypedOwnerClipboard(
-                  clipboardEvent,
-                  options.onTypedBlocksUnavailable,
-                );
-                return true;
-              }
-              return writeStructuredSelectionToClipboard(clipboardEvent, payload);
-            },
-            cut(view, event) {
-              const clipboardEvent = event as ClipboardEvent;
-              const hasTypedOwnerSelection = hasTypedOwnerClipboardSelection(view, editor);
-              const payload = createStructuredSelectionClipboardPayload(view, editor);
-              if (!payload) {
-                if (!hasTypedOwnerSelection) return false;
-                blockUnavailableTypedOwnerClipboard(
-                  clipboardEvent,
-                  options.onTypedBlocksUnavailable,
-                );
-                return true;
-              }
-              const writeClaim = options.onCutTypedBlocks?.(editor, {
-                html: payload.externalHTML,
-                text: payload.structuredText,
-              });
-              if (writeClaim) {
-                writeStructuralSelectionClaimToClipboard(clipboardEvent, payload, writeClaim);
-                return true;
-              }
-              if (
-                hasTypedOwnerSelection ||
-                hasUntrustedTypedOwnerHtml(payload.clipboardHTML) ||
-                hasUntrustedTypedOwnerHtml(payload.externalHTML)
-              ) {
-                blockUnavailableTypedOwnerClipboard(
-                  clipboardEvent,
-                  options.onTypedBlocksUnavailable,
-                );
-                return true;
-              }
-              if (!writeStructuredSelectionToClipboard(clipboardEvent, payload)) return false;
+export type NfmClipboardCommand = "copy" | "cut";
 
-              if (view.editable) {
-                view.dispatch(view.state.tr.deleteSelection());
-              }
-              return true;
+function handleNfmClipboardCommand(
+  command: NfmClipboardCommand,
+  view: EditorView,
+  editor: BlockNoteEditor,
+  options: NfmEditorExtensionOptions,
+  clipboardEvent: ClipboardEvent,
+): boolean {
+  const hasTypedOwnerSelection = hasTypedOwnerClipboardSelection(view, editor);
+  const payload = createStructuredSelectionClipboardPayload(view, editor);
+  if (!payload) {
+    if (!hasTypedOwnerSelection) return false;
+    blockUnavailableTypedOwnerClipboard(clipboardEvent, options.onTypedBlocksUnavailable);
+    return true;
+  }
+
+  const writeClaim =
+    command === "copy"
+      ? options.onCopyTypedBlocks?.(editor, {
+          html: payload.externalHTML,
+          text: payload.structuredText,
+        })
+      : options.onCutTypedBlocks?.(editor, {
+          html: payload.externalHTML,
+          text: payload.structuredText,
+        });
+  if (writeClaim) {
+    writeStructuralSelectionClaimToClipboard(clipboardEvent, payload, writeClaim);
+    return true;
+  }
+
+  if (
+    hasTypedOwnerSelection ||
+    hasUntrustedTypedOwnerHtml(payload.clipboardHTML) ||
+    hasUntrustedTypedOwnerHtml(payload.externalHTML)
+  ) {
+    blockUnavailableTypedOwnerClipboard(clipboardEvent, options.onTypedBlocksUnavailable);
+    return true;
+  }
+  if (!writeStructuredSelectionToClipboard(clipboardEvent, payload)) return false;
+
+  if (command === "cut" && view.editable) {
+    view.dispatch(view.state.tr.deleteSelection());
+  }
+  return true;
+}
+
+export const NfmStructuredClipboardExtension = createExtension(
+  ({ editor, options }: ExtensionOptions<NfmEditorExtensionOptions | undefined>) => {
+    const clipboardOptions = options ?? {};
+    const execute = (
+      command: NfmClipboardCommand,
+      clipboardEvent: ClipboardEvent,
+      view = editor.prosemirrorView,
+    ): boolean => {
+      if (!view) return false;
+      return handleNfmClipboardCommand(command, view, editor, clipboardOptions, clipboardEvent);
+    };
+
+    return {
+      key: "nfm-structured-clipboard",
+      runsBefore: ["copyToClipboard"],
+      prosemirrorPlugins: [
+        new Plugin({
+          props: {
+            handleDOMEvents: {
+              copy(view, event) {
+                return execute("copy", event as ClipboardEvent, view);
+              },
+              cut(view, event) {
+                return execute("cut", event as ClipboardEvent, view);
+              },
             },
           },
-        },
-      }),
-    ],
-  }),
+        }),
+      ],
+      /** Runs the editor-owned clipboard command while a contextual surface owns DOM focus. */
+      executeClipboardCommand(command: NfmClipboardCommand, clipboardEvent: ClipboardEvent) {
+        return execute(command, clipboardEvent);
+      },
+    } as const;
+  },
 );
 
 /**
@@ -472,7 +475,7 @@ export function createNfmEditorExtensions(options: NfmEditorExtensionOptions = {
     nfmSearchExtension(),
     canvasCreatePendingExtension(),
     nfmTaskShorthandPreviewExtension(),
-    structuredPlainTextCopyExt(options),
+    NfmStructuredClipboardExtension(options),
     headingToggleAware,
     toggleInputRule,
     quoteInputRule,

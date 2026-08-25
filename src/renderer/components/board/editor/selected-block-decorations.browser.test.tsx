@@ -10,7 +10,7 @@ import { ShowSelectionExtension } from "@blocknote/core/extensions";
 import type { Node } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -23,6 +23,8 @@ import {
   type SideMenuSelectionBlock,
   type SideMenuSelectionEditor,
 } from "./nfm-side-menu-selection";
+import { NfmStructuredClipboardExtension } from "./nfm-editor-extensions";
+import { NfmSideMenuOpenProvider, useNfmSideMenuOpenController } from "./nfm-side-menu";
 import {
   BLOCK_ACTION_SELECTION_PRESENTATION_ATTRIBUTE,
   SelectedBlockDecorationsExtension,
@@ -59,6 +61,20 @@ const requireMountedEditorView = (editor: {
   if (!view) throw new Error("Expected a mounted editor view");
   return view;
 };
+
+function PointerSideMenuOpenHarness() {
+  const sideMenu = useNfmSideMenuOpenController();
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        sideMenu.openForCurrentSelection({ returnFocusElement: event.currentTarget });
+      }}
+    >
+      Open pointer Block actions
+    </button>
+  );
+}
 
 function inlinePosition(doc: Node, blockId: string, offset: number) {
   let position: number | undefined;
@@ -490,6 +506,132 @@ describe("selected Block presentation in Chromium", () => {
       expect(getComputedStyle(childInlineContent, "::selection").backgroundColor).toBe(
         "rgba(0, 0, 0, 0)",
       );
+    } finally {
+      view.unmount();
+      editor._tiptapEditor.destroy();
+    }
+  });
+
+  test("copies and cuts the side-menu Block selection while Search actions owns focus", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: testSchema,
+      initialContent: [
+        {
+          id: "parent",
+          type: "paragraph",
+          content: "parent block",
+          children: [{ id: "child", type: "paragraph", content: "child block" }],
+        },
+        { id: "outside", type: "paragraph", content: "outside block" },
+      ],
+      extensions: [NfmStructuredClipboardExtension(), selectedBlockDecorationsExtension()],
+    });
+    const view = render(
+      <BlockNoteView
+        editor={editor}
+        className="nfm-editor"
+        formattingToolbar={false}
+        linkToolbar={false}
+        slashMenu={false}
+        sideMenu={false}
+        tableHandles={false}
+      >
+        <NfmSideMenuOpenProvider>
+          <PointerSideMenuOpenHarness />
+        </NfmSideMenuOpenProvider>
+      </BlockNoteView>,
+    );
+
+    try {
+      await act(settleEditor);
+      await act(async () => {
+        editor.setTextCursorPosition("parent");
+        editor.focus();
+        await settleEditor();
+      });
+
+      const menuTrigger = view.getByRole("button", { name: "Open pointer Block actions" });
+      await act(async () => {
+        fireEvent.click(menuTrigger);
+        await settleEditor();
+      });
+      const firstMenu = await view.findByRole("dialog", { name: "Block actions" });
+      await waitFor(() =>
+        expect(document.activeElement?.getAttribute("placeholder")).toBe("Search actions…"),
+      );
+      const searchInput = document.activeElement;
+      if (!(searchInput instanceof HTMLInputElement)) {
+        throw new Error("Expected Search actions to own focus");
+      }
+      expect(editor.prosemirrorState.selection.empty).toBe(false);
+
+      const copiedData = new DataTransfer();
+      const copyEvent = new ClipboardEvent("copy", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: copiedData,
+      });
+      let copyDispatched = true;
+      await act(async () => {
+        copyDispatched = searchInput.dispatchEvent(copyEvent);
+        await Promise.resolve();
+      });
+      expect(copyDispatched).toBe(false);
+
+      expect(copiedData.getData("text/plain")).toContain("parent block");
+      expect(copiedData.getData("text/plain")).toContain("child block");
+      expect(copiedData.getData("text/plain")).not.toContain("outside block");
+      await waitFor(() => expect(firstMenu.isConnected).toBe(false));
+      await waitFor(() => expect(requireMountedEditorView(editor).hasFocus()).toBe(true));
+
+      await act(async () => {
+        await userEvent.keyboard("x");
+        await settleEditor();
+      });
+      expect(editor.prosemirrorState.doc.textContent).toContain("x");
+      expect(editor.prosemirrorState.doc.textContent).not.toContain("parent block");
+      expect(editor.prosemirrorState.doc.textContent).not.toContain("child block");
+
+      await act(async () => {
+        const mountedView = requireMountedEditorView(editor);
+        const doc = editor.prosemirrorState.doc;
+        mountedView.dispatch(
+          editor.prosemirrorState.tr.setSelection(
+            TextSelection.create(doc, inlinePosition(doc, "outside", 0)),
+          ),
+        );
+        editor.focus();
+        await settleEditor();
+      });
+      await act(async () => {
+        fireEvent.click(menuTrigger);
+        await settleEditor();
+      });
+      const secondMenu = await view.findByRole("dialog", { name: "Block actions" });
+      await waitFor(() =>
+        expect(document.activeElement?.getAttribute("placeholder")).toBe("Search actions…"),
+      );
+      const secondSearchInput = document.activeElement;
+      if (!(secondSearchInput instanceof HTMLInputElement)) {
+        throw new Error("Expected Search actions to regain focus");
+      }
+
+      const cutData = new DataTransfer();
+      const cutEvent = new ClipboardEvent("cut", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: cutData,
+      });
+      let cutDispatched = true;
+      await act(async () => {
+        cutDispatched = secondSearchInput.dispatchEvent(cutEvent);
+        await Promise.resolve();
+      });
+      expect(cutDispatched).toBe(false);
+
+      expect(cutData.getData("text/plain")).toContain("outside block");
+      await waitFor(() => expect(secondMenu.isConnected).toBe(false));
+      await waitFor(() => expect(requireMountedEditorView(editor).hasFocus()).toBe(true));
     } finally {
       view.unmount();
       editor._tiptapEditor.destroy();
