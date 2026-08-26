@@ -188,6 +188,13 @@ Configure global hold and global toggle directly in Settings → Voice; the full
 | `Shift+Tab` | Move to the previous table cell                        |
 | `Enter`     | Move to the cell below when editing table cell content |
 
+### Code Blocks
+
+| Shortcut    | Action                                                                                 |
+| ----------- | -------------------------------------------------------------------------------------- |
+| `Tab`       | Insert one literal tab at the start of every selected line                             |
+| `Shift+Tab` | Remove one leading tab, two spaces, or one space from every selected line when present |
+
 ### Navigation
 
 | Shortcut  | Action                                              | Scope                                                                                                                                                                                                                         |

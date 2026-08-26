@@ -1,12 +1,14 @@
 # NFM Editor Page Connection Behavior
 
 Status: Active
-Last updated: 2026-08-23
+Last updated: 2026-08-26
 
 ## Purpose
 
 This document is the user-visible source of truth for connecting one Page to another in the NFM editor.
 It distinguishes presentation from ownership and gives each intent one predictable entry point.
+Typed `@` boundaries and the shared suggestion-session lifecycle are owned by
+[NFM Editor Suggestion Menu Behavior](nfm-editor-suggestion-menu-behavior.md).
 
 ## Four Page occurrences
 

@@ -13,7 +13,15 @@ const testFiles = selectTieredTestFiles({
     "src/renderer/**/*.node.test.{ts,tsx}",
     "src/renderer/**/*.integration.ts",
   ],
-  defaultInclude: ["src/renderer/**/*.test.tsx", "src/renderer/**/*.jsdom.test.ts"],
+  defaultInclude: [
+    "src/renderer/**/*.test.tsx",
+    "src/renderer/**/*.jsdom.test.ts",
+    "third_party/blocknote/packages/core/src/blocks/Code/block.test.ts",
+    "third_party/blocknote/packages/core/src/blocks/Code/indentation.test.ts",
+    "third_party/blocknote/packages/core/src/extensions/SuggestionMenu/SuggestionMenu.test.ts",
+    "third_party/blocknote/packages/react/src/components/SuggestionMenu/SuggestionMenuFreshness.test.tsx",
+    "third_party/blocknote/packages/react/src/components/SuggestionMenu/hooks/useCloseSuggestionMenuNoItems.test.tsx",
+  ],
   stressInclude: ["src/renderer/**/*.stress.test.{ts,tsx}"],
 });
 

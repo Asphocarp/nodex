@@ -1,8 +1,53 @@
 import type { HighlighterGeneric } from "@shikijs/types";
+import { DOMParser } from "@tiptap/pm/model";
+import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import { createExtension } from "../../editor/BlockNoteExtension.js";
 import { createBlockConfig, createBlockSpec } from "../../schema/index.js";
+import { resolveCodeIndentationTransform } from "./indentation.js";
 import { lazyShikiPlugin } from "./shiki.js";
-import { DOMParser } from "@tiptap/pm/model";
+
+function applyCodeBlockLineIndentation(
+  transaction: Transaction,
+  direction: "indent" | "outdent",
+): boolean {
+  const { $anchor, $head } = transaction.selection;
+  if (!$anchor.sameParent($head) || !$anchor.parent.type.spec.code) return false;
+
+  const parentStart = $anchor.start();
+  const transform = resolveCodeIndentationTransform({
+    text: $anchor.parent.textBetween(
+      0,
+      $anchor.parent.content.size,
+      undefined,
+      "\ufffc",
+    ),
+    selection: {
+      anchor: transaction.selection.anchor - parentStart,
+      head: transaction.selection.head - parentStart,
+    },
+    direction,
+  });
+
+  for (const edit of transform.edits.toReversed()) {
+    if (edit.insert) {
+      transaction.insertText(edit.insert, parentStart + edit.from, parentStart + edit.to);
+    } else {
+      transaction.delete(parentStart + edit.from, parentStart + edit.to);
+    }
+  }
+  if (transform.edits.length === 0) return true;
+
+  transaction
+    .setSelection(
+      TextSelection.create(
+        transaction.doc,
+        parentStart + transform.selection.anchor,
+        parentStart + transform.selection.head,
+      ),
+    )
+    .scrollIntoView();
+  return true;
+}
 
 export type CodeBlockOptions = {
   /**
@@ -203,16 +248,12 @@ export const createCodeBlockSpec = createBlockSpec(
               return false;
             }
 
-            return editor.transact((tr) => {
-              const { block } = editor.getTextCursorPosition();
-              if (block.type === "codeBlock") {
-                // TODO should probably only tab when at a line start or already tabbed in
-                tr.insertText("  ");
-                return true;
-              }
+            return editor.transact((tr) => applyCodeBlockLineIndentation(tr, "indent"));
+          },
+          "Shift-Tab": ({ editor }) => {
+            if (options.indentLineWithTab === false) return false;
 
-              return false;
-            });
+            return editor.transact((tr) => applyCodeBlockLineIndentation(tr, "outdent"));
           },
           Enter: ({ editor }) => {
             return editor.transact((tr) => {

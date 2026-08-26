@@ -2,10 +2,11 @@ import { BlockSchema, InlineContentSchema, StyleSchema } from "@blocknote/core";
 import {
   SuggestionMenu as SuggestionMenuExtension,
   SuggestionMenuOptions,
+  type SuggestionMenuCloseReason,
   filterSuggestionItems,
 } from "@blocknote/core/extensions";
 import { autoPlacement, offset, shift, size } from "@floating-ui/react";
-import { FC, useEffect, useMemo } from "react";
+import { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { useBlockNoteEditor } from "../../hooks/useBlockNoteEditor.js";
 import { useEditorDOMElement } from "../../hooks/useEditorDomElement.js";
@@ -46,6 +47,8 @@ export function SuggestionMenuController<
      * query is recoverable by continuing to type or pressing Backspace.
      */
     autoCloseWhenNoItems?: boolean;
+    /** Closes a live session when its query reaches an invalid terminal shape. */
+    shouldCloseOnQuery?: (query: string) => boolean;
     /** Keeps utility rows such as incremental disclosure actions open. */
     shouldCloseOnItemClick?: (item: ItemType<GetItemsType>) => boolean;
     floatingUIOptions?: FloatingUIOptions;
@@ -110,10 +113,21 @@ export function SuggestionMenuController<
   }, [editor, getItems])!;
 
   const suggestionMenu = useExtension(SuggestionMenuExtension);
+  const shouldOpenRef = useRef(shouldOpen);
+  useLayoutEffect(() => {
+    shouldOpenRef.current = shouldOpen;
+  }, [shouldOpen]);
+  const shouldOpenLatest = useCallback<NonNullable<SuggestionMenuOptions["shouldOpen"]>>(
+    (transaction) => shouldOpenRef.current?.(transaction) ?? true,
+    [],
+  );
 
   useEffect(() => {
-    suggestionMenu.addSuggestionMenu({ triggerCharacter, shouldOpen });
-  }, [suggestionMenu, triggerCharacter, shouldOpen]);
+    return suggestionMenu.addSuggestionMenu({
+      triggerCharacter,
+      shouldOpen: shouldOpenLatest,
+    });
+  }, [suggestionMenu, triggerCharacter, shouldOpenLatest]);
 
   const state = useExtensionState(SuggestionMenuExtension);
   const reference = useExtensionState(SuggestionMenuExtension, {
@@ -134,9 +148,11 @@ export function SuggestionMenuController<
       ...props.floatingUIOptions,
       useFloatingOptions: {
         open: state?.show && state?.triggerCharacter === triggerCharacter,
-        onOpenChange: (open) => {
+        onOpenChange: (open, _event, reason) => {
           if (!open) {
-            suggestionMenu.closeMenu();
+            const closeReason: SuggestionMenuCloseReason =
+              reason === "escape-key" ? "escape" : "outside";
+            suggestionMenu.closeMenu(closeReason);
           }
         },
         placement: "bottom-start",
@@ -161,6 +177,10 @@ export function SuggestionMenuController<
       focusManagerProps: {
         disabled: true,
         ...props.floatingUIOptions?.focusManagerProps,
+      },
+      useDismissProps: {
+        ...props.floatingUIOptions?.useDismissProps,
+        escapeKey: false,
       },
       elementProps: {
         // Prevents editor blurring when clicking the scroll bar.
@@ -210,6 +230,8 @@ export function SuggestionMenuController<
           onItemClick={onItemClickOrDefault}
           shouldCloseOnItemClick={shouldCloseOnItemClick}
           autoCloseWhenNoItems={autoCloseWhenNoItems}
+          shouldCloseOnQuery={props.shouldCloseOnQuery}
+          isComposing={state.isComposing}
         />
       )}
     </GenericPopover>

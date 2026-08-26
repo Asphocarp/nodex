@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { TextSelection } from "prosemirror-state";
 
 import { BlockNoteEditor } from "../../editor/BlockNoteEditor.js";
 import { SuggestionMenu } from "./SuggestionMenu.js";
@@ -25,7 +26,8 @@ function findSuggestionPlugin(editor: BlockNoteEditor) {
 
 function getSuggestionPluginState(editor: BlockNoteEditor) {
   const plugin = findSuggestionPlugin(editor);
-  return plugin.getState(editor._tiptapEditor.state);
+  const state = plugin.getState(editor._tiptapEditor.state);
+  return state?.status === "active" ? state : undefined;
 }
 
 /**
@@ -187,5 +189,251 @@ describe("SuggestionMenu", () => {
     expect(pluginState.triggerCharacter).toBe("@");
 
     editor._tiptapEditor.destroy();
+  });
+
+  it("keeps the active typed session when another trigger is typed into its query", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "/" });
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "@" });
+
+    expect(simulateTextInput(editor, "/")).toBe(true);
+    expect(getSuggestionPluginState(editor)?.triggerCharacter).toBe("/");
+
+    expect(simulateTextInput(editor, "@")).toBe(false);
+    expect(getSuggestionPluginState(editor)?.triggerCharacter).toBe("/");
+
+    editor._tiptapEditor.destroy();
+  });
+
+  it("closes an active session when the caret enters a code block", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "/" });
+    editor.replaceBlocks(editor.document, [
+      { id: "paragraph-0", type: "paragraph", content: "" },
+      { id: "code-0", type: "codeBlock", content: "const value = 1" },
+    ]);
+    editor.setTextCursorPosition("paragraph-0", "start");
+    expect(simulateTextInput(editor, "/")).toBe(true);
+
+    editor.setTextCursorPosition("code-0", "end");
+
+    expect(getSuggestionPluginState(editor)).toBeUndefined();
+    expect(suggestionMenu.getLastCloseReason()).toBe("code-block");
+    editor._tiptapEditor.destroy();
+  });
+
+  it("uses identity-safe registration cleanup", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    const disposeOld = suggestionMenu.addSuggestionMenu({
+      triggerCharacter: "/",
+      shouldOpen: () => false,
+    });
+    const disposeCurrent = suggestionMenu.addSuggestionMenu({
+      triggerCharacter: "/",
+      shouldOpen: () => true,
+    });
+
+    disposeOld();
+    expect(simulateTextInput(editor, "/")).toBe(true);
+
+    disposeCurrent();
+    editor._tiptapEditor.destroy();
+  });
+
+  it("closes the active session when its controller unregisters", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    const dispose = suggestionMenu.addSuggestionMenu({ triggerCharacter: "/" });
+    expect(simulateTextInput(editor, "/")).toBe(true);
+
+    dispose();
+
+    expect(getSuggestionPluginState(editor)).toBeUndefined();
+    expect(suggestionMenu.getLastCloseReason()).toBe("controller-unmounted");
+    editor._tiptapEditor.destroy();
+  });
+
+  it("inserts a programmatic trigger and its required separator atomically", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "@" });
+    editor.replaceBlocks(editor.document, [
+      { id: "paragraph-0", type: "paragraph", content: "abc" },
+    ]);
+    editor.setTextCursorPosition("paragraph-0", "end");
+
+    suggestionMenu.openSuggestionMenu("@", {
+      deleteTriggerCharacter: true,
+      ensureLeadingSpace: true,
+    });
+
+    expect(editor._tiptapEditor.state.doc.textContent).toBe("abc @");
+    expect(getSuggestionPluginState(editor)?.triggerCharacter).toBe("@");
+    editor._tiptapEditor.destroy();
+  });
+
+  it("does not open a programmatic suggestion session inside code", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "@" });
+    editor.replaceBlocks(editor.document, [
+      { id: "code-0", type: "codeBlock", content: "abc" },
+    ]);
+    editor.setTextCursorPosition("code-0", "end");
+
+    suggestionMenu.openSuggestionMenu("@", { deleteTriggerCharacter: true });
+
+    expect(editor._tiptapEditor.state.doc.textContent).toBe("abc");
+    expect(getSuggestionPluginState(editor)).toBeUndefined();
+    editor._tiptapEditor.destroy();
+  });
+
+  it("closes when the selection expands", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "/" });
+    expect(simulateTextInput(editor, "/")).toBe(true);
+
+    editor.transact((transaction) => {
+      const { from } = transaction.selection;
+      transaction.setSelection(TextSelection.create(transaction.doc, from - 1, from));
+    });
+
+    expect(getSuggestionPluginState(editor)).toBeUndefined();
+    editor._tiptapEditor.destroy();
+  });
+
+  it("closes when the caret moves to another text block", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "/" });
+    editor.replaceBlocks(editor.document, [
+      { id: "paragraph-0", type: "paragraph", content: "" },
+      { id: "paragraph-1", type: "paragraph", content: "next" },
+    ]);
+    editor.setTextCursorPosition("paragraph-0", "start");
+    expect(simulateTextInput(editor, "/")).toBe(true);
+
+    editor.setTextCursorPosition("paragraph-1", "start");
+
+    expect(getSuggestionPluginState(editor)).toBeUndefined();
+    editor._tiptapEditor.destroy();
+  });
+
+  it("recognizes a multi-character trigger from the preceding characters", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "[[" });
+    editor.replaceBlocks(editor.document, [
+      { id: "paragraph-0", type: "paragraph", content: "[" },
+    ]);
+    editor.setTextCursorPosition("paragraph-0", "end");
+
+    expect(simulateTextInput(editor, "[")).toBe(true);
+    expect(getSuggestionPluginState(editor)?.triggerCharacter).toBe("[[");
+    editor._tiptapEditor.destroy();
+  });
+
+  it("projects IME composition as part of the active runtime session", () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const editor = BlockNoteEditor.create();
+    editor.mount(host);
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "/" });
+
+    try {
+      expect(simulateTextInput(editor, "/")).toBe(true);
+      expect(suggestionMenu.getMenuState()?.isComposing).toBe(false);
+
+      editor.prosemirrorView.dom.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      expect(suggestionMenu.getMenuState()?.isComposing).toBe(true);
+
+      editor.prosemirrorView.dom.dispatchEvent(
+        new CompositionEvent("compositionend", { bubbles: true }),
+      );
+      expect(suggestionMenu.getMenuState()?.isComposing).toBe(true);
+      vi.runAllTimers();
+      expect(suggestionMenu.getMenuState()?.isComposing).toBe(false);
+    } finally {
+      editor._tiptapEditor.destroy();
+      host.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps IME composition local to the editor that owns the event", () => {
+    const firstHost = document.createElement("div");
+    const secondHost = document.createElement("div");
+    document.body.append(firstHost, secondHost);
+    const firstEditor = BlockNoteEditor.create();
+    const secondEditor = BlockNoteEditor.create();
+    firstEditor.mount(firstHost);
+    secondEditor.mount(secondHost);
+    const firstMenu = firstEditor.getExtension(SuggestionMenu)!;
+    firstMenu.addSuggestionMenu({ triggerCharacter: "/" });
+
+    try {
+      expect(simulateTextInput(firstEditor, "/")).toBe(true);
+      secondEditor.prosemirrorView.dom.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+
+      expect(firstMenu.getMenuState()?.isComposing).toBe(false);
+    } finally {
+      firstEditor._tiptapEditor.destroy();
+      secondEditor._tiptapEditor.destroy();
+      firstHost.remove();
+      secondHost.remove();
+    }
+  });
+
+  it("closes idempotently and preserves the first committed close reason", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    const dispose = suggestionMenu.addSuggestionMenu({ triggerCharacter: "/" });
+    expect(simulateTextInput(editor, "/")).toBe(true);
+    const transactionListener = vi.fn();
+    editor._tiptapEditor.on("transaction", transactionListener);
+
+    suggestionMenu.closeMenu("escape");
+    suggestionMenu.closeMenu("outside");
+    dispose();
+
+    expect(transactionListener).toHaveBeenCalledTimes(1);
+    expect(suggestionMenu.getLastCloseReason()).toBe("escape");
+    expect(getSuggestionPluginState(editor)).toBeUndefined();
+    editor._tiptapEditor.destroy();
+  });
+
+  it("lets Escape close a session even when no React popup is rendered", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const editor = BlockNoteEditor.create();
+    editor.mount(host);
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "/" });
+
+    try {
+      expect(simulateTextInput(editor, "/")).toBe(true);
+      expect(suggestionMenu.shown()).toBe(true);
+
+      const event = new KeyboardEvent("keydown", { key: "Escape" });
+      const handled = editor.prosemirrorView.someProp("handleKeyDown", (handler) =>
+        handler(editor.prosemirrorView, event),
+      );
+
+      expect(handled).toBe(true);
+      expect(getSuggestionPluginState(editor)).toBeUndefined();
+    } finally {
+      editor._tiptapEditor.destroy();
+      host.remove();
+    }
   });
 });

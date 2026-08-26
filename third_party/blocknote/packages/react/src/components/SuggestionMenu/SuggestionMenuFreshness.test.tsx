@@ -26,10 +26,13 @@ function createDeferred<T>(): Deferred<T> {
 function createFakeEditor(domElement = document.createElement("div")): BlockNoteEditor {
   const editor = {
     domElement,
+    prosemirrorView: { dom: domElement },
     _tiptapEditor: {
       on: () => undefined,
       off: () => undefined,
     },
+    onMount: () => () => undefined,
+    onUnmount: () => () => undefined,
     getExtension: () => undefined,
   };
 

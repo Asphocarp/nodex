@@ -1,4 +1,5 @@
 import { BlockSchema, InlineContentSchema, StyleSchema } from "@blocknote/core";
+import type { SuggestionMenuCloseReason } from "@blocknote/core/extensions";
 import { FC, useCallback, useEffect } from "react";
 
 import { useBlockNoteContext } from "../../../editor/BlockNoteContext.js";
@@ -12,12 +13,13 @@ import { GridSuggestionMenuProps } from "./types.js";
 export function GridSuggestionMenuWrapper<Item>(props: {
   triggerCharacter: string;
   query: string;
-  closeMenu: () => void;
+  closeMenu: (reason?: SuggestionMenuCloseReason) => void;
   clearQuery: () => void;
   getItems: (query: string) => Promise<Item[]>;
   columns: number;
   onItemClick?: (item: Item) => void;
   gridSuggestionMenuComponent: FC<GridSuggestionMenuProps<Item>>;
+  isComposing?: boolean;
 }) {
   const ctx = useBlockNoteContext();
   const setContentEditableProps = ctx!.setContentEditableProps!;
@@ -36,6 +38,7 @@ export function GridSuggestionMenuWrapper<Item>(props: {
     closeMenu,
     onItemClick,
     columns,
+    isComposing,
   } = props;
 
   const { items, usedQuery, loadingState } = useLoadSuggestionMenuItems(
@@ -53,14 +56,23 @@ export function GridSuggestionMenuWrapper<Item>(props: {
         return;
       }
 
-      closeMenu();
+      closeMenu("accepted");
       clearQuery();
       onItemClick?.(item);
     },
     [onItemClick, closeMenu, clearQuery, itemsFresh],
   );
 
-  useCloseSuggestionMenuNoItems(items, usedQuery, closeMenu, 3, itemsFresh);
+  useCloseSuggestionMenuNoItems(
+    items,
+    usedQuery,
+    closeMenu,
+    3,
+    itemsFresh,
+    true,
+    true,
+    isComposing,
+  );
 
   const { selectedIndex } = useGridSuggestionMenuKeyboardNavigation(
     editor,
