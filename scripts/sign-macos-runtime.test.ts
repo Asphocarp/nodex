@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vite-plus/test";
+
+import { BROWSER_RUNTIME_SCHEMA_VERSION } from "../src/shared/browser-runtime-metadata";
 import {
   applyMacCodeObjectEntitlementPolicy,
   applyMacSigningMode,
@@ -249,7 +251,7 @@ describe("refreshSignedAgentRuntimeMetadata", () => {
 });
 
 describe("refreshSignedBrowserRuntimeManifest", () => {
-  test("reseals signed Browser executables without requiring a proprietary fixture", () => {
+  test("reseals the current Browser runtime manifest schema", () => {
     const appPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-browser-signing-"));
     temporaryRoots.push(appPath);
     const browserRoot = path.join(appPath, "Contents", "Resources", "browser-runtime");
@@ -263,7 +265,7 @@ describe("refreshSignedBrowserRuntimeManifest", () => {
     fs.writeFileSync(
       manifestPath,
       JSON.stringify({
-        schemaVersion: 4,
+        schemaVersion: BROWSER_RUNTIME_SCHEMA_VERSION,
         artifacts: [
           {
             architecture: "arm64",
