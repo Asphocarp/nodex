@@ -12,12 +12,12 @@ Typed `@` boundaries and the shared suggestion-session lifecycle are owned by
 
 ## Four Page occurrences
 
-| Occurrence           | Editor entry                              | Stored identity                                         | Owns or moves target |
-| -------------------- | ----------------------------------------- | ------------------------------------------------------- | -------------------- |
-| Page Mention         | type `@`, or choose `/Mention a page`     | inline `pageMention.targetPageId`                       | No                   |
-| Page Reference Block | `/Embed page…` and choose a Page          | `pageRef.targetBlockId` plus the shell Block ID         | No                   |
-| Page Link            | create a link or paste over selected text | ordinary link with `nodex://pages/<page-id>`            | No                   |
-| Owning Page Shell    | `/Subpage…` or typed Move to              | Core-created `page` shell whose Block ID is the Page ID | Yes                  |
+| Occurrence           | Editor entry                                        | Stored identity                                         | Owns or moves target |
+| -------------------- | --------------------------------------------------- | ------------------------------------------------------- | -------------------- |
+| Page Mention         | type `@`, `+`, or `[[`; or choose `/Mention a page` | inline `pageMention.targetPageId`                       | No                   |
+| Page Reference Block | `/Embed page…` and choose a Page                    | `pageRef.targetBlockId` plus the shell Block ID         | No                   |
+| Page Link            | create a link or paste over selected text           | ordinary link with `nodex://pages/<page-id>`            | No                   |
+| Owning Page Shell    | `/Subpage…` or typed Move to                        | Core-created `page` shell whose Block ID is the Page ID | Yes                  |
 
 The first three never change parentage, Database membership, grants, or copy closure.
 
@@ -45,7 +45,12 @@ Mention serialization never injects the target body into search, title, clipboar
 Choosing `/Mention a page` replaces the slash command with a visible `@`, leaves the caret after it, and enters the normal `@` suggestion flow so the user can continue typing a query.
 It does not select a Page immediately or introduce a separate picker or occurrence type.
 
-The `@` menu presents three semantic sections: `Mention a page`, `Mention a chat`, and `Date`; reminders belong to `Date`.
+The `@` menu presents three semantic result sections—`Mention a page`,
+`Mention a chat`, and `Date`—followed by Page-creation actions; reminders
+belong to `Date`. `+` is Page-only and places Page-creation actions before Page
+results once the query is non-empty. `[[` is Page-only and places Page results
+before Page-creation actions. All three entry points use the same authorized
+Page candidate source and produce the same persisted Page Mention occurrence.
 When a query has no matches, the menu remains open with `No matching mentions` so the user can continue typing or Backspace into a useful query; it closes only through the normal explicit dismissal, selection, focus, caret, or Block lifecycle.
 An empty query orders them as Date, Page, then Chat so Today and Now advertise the temporal affordance.
 For a non-empty query, sections follow the relevance of their strongest result; explicit date intent therefore leads, followed by exact title, Page key, title prefix, broader title, and content matches, with active-project context used only as a tie-break boost.
@@ -53,6 +58,21 @@ Each section has an independent visible budget so one abundant provider cannot c
 When a fetched section has more candidates, `N more results` is a real peer option in that section: pointer click or keyboard selection expands all currently fetched remainder without closing the mention menu or changing the query.
 Its label uses secondary emphasis at rest and returns to primary emphasis on hover, focus, or keyboard selection so it reads as a utility action rather than another result.
 The expanded section replaces the utility row with its remaining candidates; other sections keep their independent bounds.
+
+Page-creation actions use the current query as the new Page title. `New
+sub-page` creates an owning child of the Page whose editor contains the
+session. `New page in…` lets the user choose another authorized destination
+Page without abandoning the query. In both cases, one Core-owned mutation
+creates the Page and its independent Document, inserts its owning Page shell at
+the chosen destination, and replaces the original trigger/query with a Page
+Mention in the source text. Deleting that mention later never deletes or moves
+the created Page.
+
+Creation is atomic across ownership and inline content. A stale Document head,
+permission failure, invalid destination, or any other rejected command leaves
+the literal trigger/query available for correction and creates no Page or
+owning shell. One Undo removes both the created Page and its inserted mention;
+one Redo restores both with the same identities.
 
 Rows are title-only by default.
 A second line appears only when it explains a content match, disambiguates duplicate titles, reports an unavailable embed, or shows a Page key that the user explicitly queried.

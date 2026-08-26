@@ -8,6 +8,7 @@ import {
   buildPageSearchUnavailableSuggestionItem,
   buildNfmDateMentionInlineContent,
   buildNfmDateMentionSuggestionItems,
+  buildNfmPageMentionCreateSuggestionItems,
   buildNfmSlashMenuItems,
   buildNfmThreadMentionInlineContent,
   buildNfmThreadMentionSuggestionItems,
@@ -20,6 +21,7 @@ import {
   type NfmSuggestionItem,
   resolveThreadMentionSubtext,
   resolveNfmSuggestionHint,
+  resolveNfmPageMentionCompletion,
   selectNfmMentionSuggestionItems,
   scrollElementIntoContainerView,
   shouldCloseNfmSlashQuery,
@@ -88,7 +90,7 @@ describe("NFM suggestion transaction adapter", () => {
 
   test("treats an inline atom before the caret as a non-boundary", () => {
     const shouldOpen = createNfmTypedSuggestionShouldOpen({
-      kind: "mention",
+      kind: "page-mention",
       trigger: "@",
       locale: "en-US",
     });
@@ -114,7 +116,7 @@ describe("NFM suggestion transaction adapter", () => {
     expect(shouldCloseNfmSlashQuery("query  ")).toBe(true);
   });
 
-  test("wires locale aliases, mentions, and emoji through one typed-controller contract", () => {
+  test("wires locale aliases, Page mention entries, and emoji through one typed-controller contract", () => {
     const controllers = createNfmTypedSuggestionControllerConfig("ja-JP");
 
     expect(controllers.slash.map(({ triggerCharacter }) => triggerCharacter)).toEqual([
@@ -122,8 +124,24 @@ describe("NFM suggestion transaction adapter", () => {
       "／",
       "；",
     ]);
-    expect(controllers.mention.triggerCharacter).toBe("@");
-    expect(controllers.mention.autoCloseWhenNoItems).toBe(false);
+    expect(controllers.slash.map(({ temporaryInput }) => temporaryInput)).toEqual([
+      { enabled: true, emptyCompletion: "Type to search" },
+      { enabled: true, emptyCompletion: "Type to search" },
+      { enabled: true, emptyCompletion: "Type to search" },
+    ]);
+    expect(controllers.pageMention.map(({ triggerCharacter }) => triggerCharacter)).toEqual([
+      "@",
+      "+",
+      "[[",
+    ]);
+    expect(controllers.pageMention.map(({ profile }) => profile.entry)).toEqual([
+      "broad",
+      "create_first",
+      "wiki_link",
+    ]);
+    expect(controllers.pageMention.every(({ autoCloseWhenNoItems }) => !autoCloseWhenNoItems)).toBe(
+      true,
+    );
     expect(controllers.emoji).toMatchObject({
       triggerCharacter: ":",
       columns: 10,
@@ -131,6 +149,79 @@ describe("NFM suggestion transaction adapter", () => {
     });
     expect(controllers.emoji.shouldOpen(transactionWithPrefix("abc") as never)).toBe(false);
     expect(controllers.emoji.shouldOpen(transactionWithPrefix("abc ") as never)).toBe(true);
+    const readOnlyControllers = createNfmTypedSuggestionControllerConfig("en-US", {
+      canCreatePageMention: false,
+    });
+    expect(
+      readOnlyControllers.pageMention
+        .find(({ triggerCharacter }) => triggerCharacter === "+")
+        ?.shouldOpen(transactionWithPrefix("") as never),
+    ).toBe(false);
+    expect(
+      readOnlyControllers.pageMention
+        .find(({ triggerCharacter }) => triggerCharacter === "[[")
+        ?.shouldOpen(transactionWithPrefix("abc") as never),
+    ).toBe(true);
+  });
+});
+
+describe("Page mention creation actions", () => {
+  test("builds semantic current-Page and destination actions from one normalized title", () => {
+    const createCurrent = vi.fn();
+    const chooseDestination = vi.fn();
+    const items = buildNfmPageMentionCreateSuggestionItems({
+      query: "  Plan  ",
+      canCreate: true,
+      onCreateInCurrentPage: createCurrent,
+      onChooseDestination: chooseDestination,
+    });
+
+    expect(items).toMatchObject([
+      {
+        key: "create-page-mention-current",
+        title: "New “Plan” sub-page",
+        mentionCreate: { kind: "current_page" },
+      },
+      {
+        key: "create-page-mention-destination",
+        title: "New “Plan” page in…",
+        mentionCreate: { kind: "choose_destination" },
+      },
+    ]);
+    items[0]!.onItemClick();
+    items[1]!.onItemClick();
+    expect(createCurrent).toHaveBeenCalledOnce();
+    expect(chooseDestination).toHaveBeenCalledOnce();
+    expect(
+      buildNfmPageMentionCreateSuggestionItems({
+        query: "",
+        canCreate: true,
+        onCreateInCurrentPage: createCurrent,
+        onChooseDestination: chooseDestination,
+      }),
+    ).toMatchObject([{ title: "Add new sub-page" }, { title: "Add new page in…" }]);
+    expect(
+      buildNfmPageMentionCreateSuggestionItems({
+        query: "",
+        canCreate: false,
+        onCreateInCurrentPage: createCurrent,
+        onChooseDestination: chooseDestination,
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("NFM Page mention completion", () => {
+  test("shows only the untyped suffix of a prefix-matching row", () => {
+    const item = {
+      title: "Roadmap",
+      onItemClick: () => undefined,
+    } satisfies NfmSuggestionItem;
+
+    expect(resolveNfmPageMentionCompletion(item, "road")).toBe("map");
+    expect(resolveNfmPageMentionCompletion(item, "map")).toBeNull();
+    expect(resolveNfmPageMentionCompletion(item, "Roadmap")).toBeNull();
+    expect(resolveNfmPageMentionCompletion(item, "")).toBeNull();
   });
 });
 

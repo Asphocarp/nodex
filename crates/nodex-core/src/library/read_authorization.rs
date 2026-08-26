@@ -52,6 +52,9 @@ fn read_subject(
         | LibraryRead::PageDraftProjection { page_id } => Some(ResourceKey::Page {
             page_id: page_id.clone(),
         }),
+        LibraryRead::PageMentionDestination { page_id } => Some(ResourceKey::Page {
+            page_id: page_id.clone(),
+        }),
         LibraryRead::PageTarget { page_id }
         | LibraryRead::PageOwnershipPath { page_id }
         | LibraryRead::PageLocation { page_id } => existing_page_subject(value, page_id),

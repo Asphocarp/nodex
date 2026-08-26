@@ -11,7 +11,7 @@ import {
 
 export type NfmMoveToDestination = NfmBlockMoveDestination;
 
-export type NfmMoveToResultScope = "all" | "db-only";
+export type NfmMoveToResultScope = "all" | "db-only" | "page-only";
 
 export interface NfmMoveToDbRow {
   kind: "db";
@@ -167,7 +167,7 @@ export function buildNfmMoveToSections({
   const dbRows: NfmMoveToRow[] = [];
   const pageRows: NfmMoveToRow[] = [];
 
-  for (const project of projects) {
+  for (const project of resultScope === "page-only" ? [] : projects) {
     const projectMatchesQuery = resolvedSearchResult?.matchedProjectIds.has(project.id) ?? false;
     const matchedColumnIds = resolvedSearchResult?.matchedColumnIdsByProjectId.get(project.id);
     const visibleColumnRows: NfmMoveToDbColumnRow[] = [];
@@ -205,7 +205,7 @@ export function buildNfmMoveToSections({
   const defaultPageBoard = defaultPageProjectId
     ? pageBoardMap.get(defaultPageProjectId)
     : undefined;
-  if (resultScope === "all" && !normalizedQuery && defaultPageProject && defaultPageBoard) {
+  if (resultScope !== "db-only" && !normalizedQuery && defaultPageProject && defaultPageBoard) {
     for (const column of defaultPageBoard.columns) {
       for (const page of column.cards) {
         if (defaultPageProject.id === sourceProjectId && page.id === sourcePageId) continue;
@@ -231,7 +231,7 @@ export function buildNfmMoveToSections({
     }
   }
 
-  if (resultScope === "all" && normalizedQuery && resolvedSearchResult) {
+  if (resultScope !== "db-only" && normalizedQuery && resolvedSearchResult) {
     pageRows.push(
       ...resolvedSearchResult.pageHits.slice(0, pageLimit).map(createPageRowFromSearchHit),
     );
@@ -240,7 +240,10 @@ export function buildNfmMoveToSections({
   const dbSection = { key: "db", label: "DB", rows: dbRows } satisfies NfmMoveToSection;
   if (resultScope === "db-only") return [dbSection];
 
-  return [dbSection, { key: "page", label: "Page", rows: pageRows }];
+  const pageSection = { key: "page", label: "Page", rows: pageRows } satisfies NfmMoveToSection;
+  if (resultScope === "page-only") return [pageSection];
+
+  return [dbSection, pageSection];
 }
 
 export function flattenNfmMoveToRows(sections: readonly NfmMoveToSection[]): NfmMoveToRow[] {

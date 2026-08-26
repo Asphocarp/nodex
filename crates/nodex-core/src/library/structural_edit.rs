@@ -276,6 +276,14 @@ struct BackwardMergeState {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum StructuralRecipeAction {
+    WithInlineContent {
+        action: Box<StructuralRecipeAction>,
+        host_page_id: String,
+        host_document_id: String,
+        block_id: String,
+        expected_content: serde_json::Value,
+        replacement_content: serde_json::Value,
+    },
     RestoreDeleted {
         snapshot: OwnershipClosureSnapshot,
         target: StructuralLocation,
@@ -404,10 +412,11 @@ fn normalize_stored_location(
     Ok(())
 }
 
-fn normalize_stored_recipe(
-    mut recipe: StructuralHistoryRecipe,
-) -> Result<StructuralHistoryRecipe, StoreError> {
-    match &mut recipe.action {
+fn normalize_stored_recipe_action(action: &mut StructuralRecipeAction) -> Result<(), StoreError> {
+    match action {
+        StructuralRecipeAction::WithInlineContent { action, .. } => {
+            normalize_stored_recipe_action(action.as_mut())?;
+        }
         StructuralRecipeAction::RestoreDeleted {
             snapshot, target, ..
         } => {
@@ -462,6 +471,13 @@ fn normalize_stored_recipe(
             state.snapshot = normalize_stored_snapshot(state.snapshot.clone())?.0;
         }
     }
+    Ok(())
+}
+
+fn normalize_stored_recipe(
+    mut recipe: StructuralHistoryRecipe,
+) -> Result<StructuralHistoryRecipe, StoreError> {
+    normalize_stored_recipe_action(&mut recipe.action)?;
     Ok(recipe)
 }
 
@@ -3054,6 +3070,75 @@ fn apply_recipe_action(
         commit,
     };
     match action {
+        StructuralRecipeAction::WithInlineContent {
+            action,
+            host_page_id,
+            host_document_id,
+            block_id,
+            expected_content,
+            replacement_content,
+        } => {
+            let mut applied = apply_recipe_action(
+                connection,
+                context,
+                operation_id,
+                store_epoch,
+                commit,
+                *action,
+            )?;
+            let parent = load_parent_document(connection, &host_document_id)?;
+            authorize_parent_write(connection, context, &parent)?;
+            if parent.authority.owner_block_id != host_page_id {
+                return Err(conflict("Inline history host Page changed"));
+            }
+            let block = super::mutation::find_materialized_block(
+                &parent.base_materialization.block_tree,
+                &block_id,
+            )
+            .ok_or_else(|| conflict("Inline history host Block is unavailable"))?;
+            if block.content.as_ref() != Some(&expected_content) {
+                return Err(conflict("Inline content changed before history replay"));
+            }
+            let content_commit = persist_parent_operations_detailed_with_local_commit(
+                connection,
+                ParentDocumentWriteContext {
+                    actor_project_id: bound_project_id(context)?,
+                    store_epoch,
+                    operation_id,
+                    commit,
+                },
+                "structural-inline-content",
+                &parent,
+                &[DocumentBlockOperation::UpdateBlock {
+                    block_id: block_id.clone(),
+                    patch: DocumentBlockUpdatePatch {
+                        block_type: None,
+                        props: None,
+                        content: Some(replacement_content.clone()),
+                        unset_content: false,
+                    },
+                }],
+                ParentDocumentPlacement::Derived {
+                    attachment_advances: &[],
+                },
+            )?;
+            applied.document_commits.push(content_commit);
+            applied.resume = Some(LibraryEditorResumeTarget {
+                block_id: block_id.clone(),
+                edge: LibraryEditorResumeEdge::End,
+                fallback_before_block_id: None,
+                fallback_after_block_id: None,
+            });
+            applied.inverse = StructuralRecipeAction::WithInlineContent {
+                action: Box::new(applied.inverse),
+                host_page_id,
+                host_document_id,
+                block_id,
+                expected_content: replacement_content,
+                replacement_content: expected_content,
+            };
+            Ok(applied)
+        }
         StructuralRecipeAction::RestoreDeleted {
             snapshot,
             target,
@@ -4225,6 +4310,144 @@ fn history_token(
         },
         recipe_json,
     ))
+}
+
+pub(super) struct PreparedPageMentionHistory {
+    snapshot: OwnershipClosureSnapshot,
+    result: LibraryStructuralEditResult,
+    history: LibraryStructuralHistoryToken,
+    recipe_json: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn prepare_page_mention_history(
+    connection: &Connection,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    destination_page_id: &str,
+    destination_document_id: &str,
+    created_page_id: &str,
+    host_page_id: &str,
+    host_document_id: &str,
+    host_block_id: &str,
+    expected_content: serde_json::Value,
+    replacement_content: serde_json::Value,
+    document_commits: Vec<LibraryBlockTransferDocumentCommit>,
+) -> Result<PreparedPageMentionHistory, StoreError> {
+    let parent = load_parent_document(connection, destination_document_id)?;
+    if parent.authority.owner_block_id != destination_page_id {
+        return Err(conflict("Page mention destination changed during creation"));
+    }
+    let selection = LibraryStructuralSelection {
+        source_document_id: destination_document_id.to_owned(),
+        root_block_ids: vec![created_page_id.to_owned()],
+        source_head: nodex_core_contracts::library::LibraryDocumentHead {
+            document_id: destination_document_id.to_owned(),
+            generation: parent.authority.head.generation,
+            head_seq: parent.authority.head.head_seq,
+        },
+    };
+    let snapshot = capture_snapshot(connection, library_id, &parent, &selection)?;
+    let delete_action = StructuralRecipeAction::DeleteActive {
+        snapshot: snapshot.clone(),
+        source: snapshot.source.clone(),
+        direction: LibraryStructuralDeleteDirection::Backward,
+    };
+    let inverse_recipe = StructuralHistoryRecipe {
+        version: RECIPE_VERSION,
+        action: StructuralRecipeAction::WithInlineContent {
+            action: Box::new(delete_action),
+            host_page_id: host_page_id.to_owned(),
+            host_document_id: host_document_id.to_owned(),
+            block_id: host_block_id.to_owned(),
+            expected_content: replacement_content,
+            replacement_content: expected_content,
+        },
+    };
+    let (history, recipe_json) = history_token(operation_id, store_epoch, &inverse_recipe)?;
+    let result = structural_result(
+        "create_page_mention",
+        Vec::new(),
+        vec![created_page_id.to_owned()],
+        BTreeMap::new(),
+        BTreeMap::new(),
+        &[&snapshot],
+        document_commits,
+        None,
+        Some(history.clone()),
+        Vec::new(),
+        Some(LibraryEditorResumeTarget {
+            block_id: host_block_id.to_owned(),
+            edge: LibraryEditorResumeEdge::End,
+            fallback_before_block_id: None,
+            fallback_after_block_id: None,
+        }),
+    );
+    Ok(PreparedPageMentionHistory {
+        snapshot,
+        result,
+        history,
+        recipe_json,
+    })
+}
+
+pub(super) fn page_mention_history_result(
+    prepared: &PreparedPageMentionHistory,
+) -> &LibraryStructuralEditResult {
+    &prepared.result
+}
+
+pub(super) fn page_mention_history_effects(
+    prepared: &PreparedPageMentionHistory,
+    project_id: &str,
+    now: &str,
+) -> MutationEffects {
+    structural_effects(
+        project_id,
+        "create_page_mention",
+        &[&prepared.snapshot],
+        &prepared.result,
+        now,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn persist_page_mention_history(
+    connection: &Connection,
+    prepared: &PreparedPageMentionHistory,
+    operation_id: &str,
+    library_id: &str,
+    project_id: &str,
+    store_epoch: &str,
+    request_hash: &str,
+    request: &serde_json::Value,
+    event_sequence: i64,
+    now: &str,
+) -> Result<(), StoreError> {
+    persist_structural_mutation_ledger(
+        connection,
+        operation_id,
+        project_id,
+        store_epoch,
+        request_hash,
+        request,
+        &prepared.result,
+        &[&prepared.snapshot],
+        event_sequence,
+        now,
+    )?;
+    insert_history_recipe(
+        connection,
+        operation_id,
+        library_id,
+        project_id,
+        store_epoch,
+        &prepared.history.recipe_hash,
+        &prepared.recipe_json,
+        &[&prepared.snapshot],
+        now,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7121,6 +7344,64 @@ mod tests {
             ["nested-code", "nested-lifted"]
         );
         assert_eq!(original.roots[0].children[0].id, "lifted");
+
+        let expected_content = serde_json::json!([{
+            "type": "text",
+            "text": "Page mention",
+            "styles": {},
+        }]);
+        let replacement_content = serde_json::json!([{
+            "type": "link",
+            "href": "nodex://page/page:created",
+            "content": [{ "type": "text", "text": "Page mention", "styles": {} }],
+        }]);
+        let recipe = normalize_stored_recipe(StructuralHistoryRecipe {
+            version: RECIPE_VERSION,
+            action: StructuralRecipeAction::WithInlineContent {
+                action: Box::new(StructuralRecipeAction::DeleteActive {
+                    snapshot: original.clone(),
+                    source: original.source.clone(),
+                    direction: LibraryStructuralDeleteDirection::Backward,
+                }),
+                host_page_id: "page:host".to_owned(),
+                host_document_id: "document:host".to_owned(),
+                block_id: "block:host".to_owned(),
+                expected_content: expected_content.clone(),
+                replacement_content: replacement_content.clone(),
+            },
+        })
+        .expect("normalize wrapped structural history coordinates");
+        let StructuralRecipeAction::WithInlineContent {
+            action,
+            host_page_id,
+            host_document_id,
+            block_id,
+            expected_content: normalized_expected_content,
+            replacement_content: normalized_replacement_content,
+        } = recipe.action
+        else {
+            panic!("recipe wrapper must remain stable");
+        };
+        assert_eq!(host_page_id, "page:host");
+        assert_eq!(host_document_id, "document:host");
+        assert_eq!(block_id, "block:host");
+        assert_eq!(normalized_expected_content, expected_content);
+        assert_eq!(normalized_replacement_content, replacement_content);
+        let StructuralRecipeAction::DeleteActive {
+            snapshot, source, ..
+        } = *action
+        else {
+            panic!("wrapped action kind must remain stable");
+        };
+        assert_eq!(root_ids(&snapshot.roots), ["code", "lifted"]);
+        assert_eq!(
+            source
+                .placements
+                .iter()
+                .map(|placement| placement.block_id.as_str())
+                .collect::<Vec<_>>(),
+            ["code", "lifted"]
+        );
     }
 
     #[test]

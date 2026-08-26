@@ -1053,29 +1053,38 @@ fn read_candidate_roots(
 /// an intentionally unowned Page Document. Once no active retention authority
 /// names that Document, maintenance may collect its sole placeholder without
 /// touching the still-active ordinary Block that inherited the Page identity.
+/// Structural recipe actions are compositional, so discovery follows wrapper
+/// actions instead of assuming the Page transition is the recipe root.
 fn read_dormant_document_candidates(
     connection: &Connection,
     candidate_count: i64,
 ) -> Result<Vec<BlockRetentionCandidate>, StoreError> {
     connection
         .prepare(
-            "SELECT DISTINCT recipe.library_id, \
+            "WITH RECURSIVE recipe_actions(library_id, action_json) AS ( \
+               SELECT library_id, json_extract(recipe_json, '$.action') \
+               FROM structural_history_recipes WHERE state <> 'available' \
+               UNION ALL \
+               SELECT action.library_id, json_extract(action.action_json, '$.action') \
+               FROM recipe_actions action \
+               WHERE json_extract(action.action_json, '$.kind') = 'with_inline_content' \
+             ) \
+             SELECT DISTINCT action.library_id, \
                     json_extract(dormant.value, '$.placeholderBlockId'), \
                     json_extract(dormant.value, '$.documentId') \
-             FROM structural_history_recipes recipe \
-             JOIN json_each(recipe.recipe_json, '$.action.state.dormantPages') dormant \
+             FROM recipe_actions action \
+             JOIN json_each(action.action_json, '$.state.dormantPages') dormant \
              JOIN documents document \
                ON document.id = json_extract(dormant.value, '$.documentId') \
-              AND document.library_id = recipe.library_id \
+              AND document.library_id = action.library_id \
              JOIN blocks inherited \
                ON inherited.id = json_extract(dormant.value, '$.pageId') \
-              AND inherited.library_id = recipe.library_id \
+              AND inherited.library_id = action.library_id \
               AND inherited.lifecycle = 'active' AND inherited.type <> 'page' \
              JOIN blocks placeholder \
                ON placeholder.id = json_extract(dormant.value, '$.placeholderBlockId') \
-              AND placeholder.library_id = recipe.library_id \
-             WHERE recipe.state <> 'available' \
-               AND json_extract(recipe.recipe_json, '$.action.kind') = 'restore_turned_selection' \
+              AND placeholder.library_id = action.library_id \
+             WHERE json_extract(action.action_json, '$.kind') = 'restore_turned_selection' \
                AND NOT EXISTS ( \
                  SELECT 1 FROM block_retention_deferrals deferral \
                  WHERE deferral.root_block_id = placeholder.id \
@@ -1088,10 +1097,10 @@ fn read_dormant_document_candidates(
                ) \
                AND NOT EXISTS ( \
                  SELECT 1 FROM structural_retention_members member \
-                 WHERE member.library_id = recipe.library_id \
+                 WHERE member.library_id = action.library_id \
                    AND member.member_kind = 'document' AND member.member_id = document.id \
                ) \
-             ORDER BY recipe.library_id, document.id LIMIT ?1",
+             ORDER BY action.library_id, document.id LIMIT ?1",
         )?
         .query_map([candidate_count], |row| {
             Ok(BlockRetentionCandidate {
@@ -2216,6 +2225,69 @@ mod tests {
                 Ok(())
             })
             .expect("pressure retention");
+    }
+
+    #[test]
+    fn dormant_document_discovery_traverses_composed_history_actions() {
+        let connection = rusqlite::Connection::open_in_memory().expect("retention fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE structural_history_recipes( \
+                   library_id TEXT NOT NULL, recipe_json TEXT NOT NULL, state TEXT NOT NULL \
+                 ); \
+                 CREATE TABLE documents(id TEXT PRIMARY KEY, library_id TEXT NOT NULL); \
+                 CREATE TABLE blocks( \
+                   id TEXT PRIMARY KEY, library_id TEXT NOT NULL, lifecycle TEXT NOT NULL, \
+                   type TEXT NOT NULL \
+                 ); \
+                 CREATE TABLE block_documents(document_id TEXT NOT NULL); \
+                 CREATE TABLE block_retention_deferrals( \
+                   root_block_id TEXT NOT NULL, retry_after_ms INTEGER NOT NULL \
+                 ); \
+                 CREATE TABLE structural_retention_members( \
+                   library_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_id TEXT NOT NULL \
+                 ); \
+                 INSERT INTO documents(id, library_id) \
+                 VALUES ('document:dormant', 'library:dormant'); \
+                 INSERT INTO blocks(id, library_id, lifecycle, type) VALUES \
+                   ('page:inherited', 'library:dormant', 'active', 'paragraph'), \
+                   ('block:placeholder', 'library:dormant', 'deleted', 'paragraph');",
+            )
+            .expect("dormant document authorities");
+        let recipe = serde_json::json!({
+            "action": {
+                "kind": "with_inline_content",
+                "action": {
+                    "kind": "restore_turned_selection",
+                    "state": {
+                        "dormantPages": [{
+                            "pageId": "page:inherited",
+                            "documentId": "document:dormant",
+                            "placeholderBlockId": "block:placeholder",
+                        }],
+                    },
+                },
+            },
+        });
+        connection
+            .execute(
+                "INSERT INTO structural_history_recipes(library_id, recipe_json, state) \
+                 VALUES ('library:dormant', ?1, 'consumed')",
+                [recipe.to_string()],
+            )
+            .expect("composed structural recipe");
+
+        let candidates =
+            read_dormant_document_candidates(&connection, 10).expect("dormant candidates");
+
+        assert_eq!(candidates.len(), 1);
+        let candidate = &candidates[0];
+        assert_eq!(candidate.library_id, "library:dormant");
+        assert_eq!(candidate.root_block_id, "block:placeholder");
+        assert_eq!(
+            candidate.dormant_document_id.as_deref(),
+            Some("document:dormant")
+        );
     }
 
     #[test]

@@ -1,5 +1,8 @@
 import { BlockSchema, InlineContentSchema, StyleSchema } from "@blocknote/core";
-import type { SuggestionMenuCloseReason } from "@blocknote/core/extensions";
+import type {
+  SuggestionMenuCloseReason,
+  SuggestionTemporaryInputData,
+} from "@blocknote/core/extensions";
 import { FC, useCallback, useEffect } from "react";
 
 import { useBlockNoteContext } from "../../editor/BlockNoteContext.js";
@@ -23,6 +26,16 @@ export function SuggestionMenuWrapper<Item>(props: {
   autoCloseWhenNoItems?: boolean;
   shouldCloseOnQuery?: (query: string) => boolean;
   isComposing?: boolean;
+  sessionId?: string;
+  setTemporaryInputData?: (
+    sessionId: string,
+    data: SuggestionTemporaryInputData,
+  ) => boolean;
+  temporaryInput?: {
+    readonly enabled: true;
+    readonly emptyCompletion?: string;
+    readonly getCompletion?: (item: Item, query: string) => string | null;
+  };
   suggestionMenuComponent: FC<SuggestionMenuProps<Item>>;
 }) {
   const ctx = useBlockNoteContext();
@@ -47,6 +60,9 @@ export function SuggestionMenuWrapper<Item>(props: {
     autoCloseWhenNoItems,
     shouldCloseOnQuery,
     isComposing,
+    sessionId,
+    setTemporaryInputData,
+    temporaryInput,
   } = props;
 
   const { items, usedQuery, usedRequestScopeKey, loadingState } = useLoadSuggestionMenuItems(
@@ -104,6 +120,28 @@ export function SuggestionMenuWrapper<Item>(props: {
     usedRequestScopeKey,
   );
 
+  useEffect(() => {
+    if (!temporaryInput?.enabled || !sessionId || !setTemporaryInputData) return;
+    const selectedItem = selectedIndex === undefined ? undefined : items[selectedIndex];
+    const selectedCompletion = selectedItem
+      ? (temporaryInput.getCompletion?.(selectedItem, query) ?? undefined)
+      : undefined;
+    const emptyCompletion =
+      query.length === 0 ? temporaryInput.emptyCompletion : undefined;
+    const completion = isComposing
+      ? undefined
+      : (selectedCompletion ?? emptyCompletion);
+    setTemporaryInputData(sessionId, { enabled: true, completion });
+  }, [
+    isComposing,
+    items,
+    query,
+    selectedIndex,
+    sessionId,
+    setTemporaryInputData,
+    temporaryInput,
+  ]);
+
   // set basic aria attributes when the menu is open
   useEffect(() => {
     setContentEditableProps((p) => ({
@@ -124,7 +162,7 @@ export function SuggestionMenuWrapper<Item>(props: {
   useEffect(() => {
     setContentEditableProps((p) => ({
       ...p,
-      "aria-activedescendant": selectedIndex
+      "aria-activedescendant": selectedIndex !== undefined
         ? "bn-suggestion-menu-item-" + selectedIndex
         : undefined,
     }));

@@ -49,6 +49,7 @@ interface NfmMoveToMenuProps {
   resultScope?: NfmMoveToResultScope;
   ariaLabel?: string;
   placeholder?: string;
+  autoFocus?: boolean;
 }
 
 export interface NfmMoveToMenuSurfaceProps extends NfmMoveToMenuProps {
@@ -274,6 +275,7 @@ export function NfmMoveToMenu({
   resultScope,
   ariaLabel,
   placeholder,
+  autoFocus,
 }: NfmMoveToMenuProps) {
   const { projects, loading, error } = useProjects();
   const scopedProjects = getNfmMoveToExecutableProjects(projects, sourceProjectId);
@@ -298,6 +300,7 @@ export function NfmMoveToMenu({
       resultScope={resultScope}
       ariaLabel={ariaLabel}
       placeholder={placeholder}
+      autoFocus={autoFocus}
     />
   );
 }
@@ -315,6 +318,7 @@ export function NfmMoveToMenuSurface({
   resultScope = "all",
   ariaLabel = "Move blocks to",
   placeholder = "Move blocks to…",
+  autoFocus = false,
   onAccept,
   onClose,
 }: NfmMoveToMenuSurfaceProps) {
@@ -328,7 +332,7 @@ export function NfmMoveToMenuSurface({
   const defaultPageProjectId = getDefaultNfmMoveToProjectId(projects, sourceProjectId);
   const pageProjects = useMemo(
     () =>
-      loadPageWindow && resultScope === "all"
+      loadPageWindow && resultScope !== "db-only"
         ? projects.filter((project) => project.id === defaultPageProjectId)
         : [],
     [defaultPageProjectId, loadPageWindow, projects, resultScope],
@@ -561,6 +565,7 @@ export function NfmMoveToMenuSurface({
         setQuery(nextQuery);
       }}
       onKeyDown={handleInputKeyDown}
+      autoFocus={autoFocus}
     >
       {sections.map((section) => {
         const startIndex = rowIndex;

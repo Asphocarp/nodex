@@ -6,6 +6,7 @@ import type { DocumentHeadFence } from "./block-document-surface-runtime";
  * Document head that Core must recheck.
  */
 export interface BlockDocumentStructuralMutationParticipant {
+  readonly documentId?: string;
   readonly prepareAndFence: () => Promise<DocumentHeadFence>;
 }
 
@@ -39,4 +40,19 @@ export const resolveBlockDocumentStructuralMutationParticipant = (
   const registrations = participants.get(surfaceId);
   if (!registrations || registrations.size === 0) return null;
   return [...registrations.values()].at(-1) ?? null;
+};
+
+export const resolveBlockDocumentStructuralMutationParticipantByDocumentId = (
+  documentId: string,
+): BlockDocumentStructuralMutationParticipant | null => {
+  let match: BlockDocumentStructuralMutationParticipant | null = null;
+  let matchRegistrationId = -1;
+  for (const registrations of participants.values()) {
+    for (const [registrationId, participant] of registrations) {
+      if (participant.documentId !== documentId || registrationId <= matchRegistrationId) continue;
+      match = participant;
+      matchRegistrationId = registrationId;
+    }
+  }
+  return match;
 };

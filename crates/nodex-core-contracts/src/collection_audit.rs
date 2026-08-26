@@ -157,6 +157,7 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
         | LibraryRead::PageTarget { .. }
         | LibraryRead::PageKeyTarget { .. }
         | LibraryRead::CanvasTarget { .. }
+        | LibraryRead::PageMentionDestination { .. }
         | LibraryRead::PageLocation { .. }
         | LibraryRead::ViewLocation { .. }
         | LibraryRead::PageLifecyclePreflight { .. } => ReadBudgetPolicy::Identity,

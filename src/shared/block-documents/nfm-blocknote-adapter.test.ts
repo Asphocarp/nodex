@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vite-plus/test";
 import { parseNfm } from "../nfm/parser";
-import { blockNoteToNfm, nfmToBlockNote, nfmToBlockNoteWithIds } from "./nfm-blocknote-adapter";
+import {
+  blockNoteInlineToPortableRichText,
+  blockNoteToNfm,
+  nfmToBlockNote,
+  nfmToBlockNoteWithIds,
+} from "./nfm-blocknote-adapter";
 
 describe("NFM BlockNote genesis adapter", () => {
   test("allocates one stable application identity for every nested Block", () => {
@@ -44,5 +49,23 @@ describe("NFM BlockNote genesis adapter", () => {
         children: [],
       },
     ]);
+  });
+
+  test("converts a tracked BlockNote inline range into canonical portable rich text", () => {
+    expect(
+      blockNoteInlineToPortableRichText([
+        { type: "text", text: "+", styles: { strike: true } },
+        { type: "text", text: "plan", styles: { strike: true } },
+        { type: "pageMention", props: { targetPageId: "page-1" } },
+      ]),
+    ).toEqual([
+      { type: "text", text: "+plan", styles: { strikethrough: true } },
+      { type: "pageMention", targetPageId: "page-1" },
+    ]);
+    expect(() =>
+      blockNoteInlineToPortableRichText([
+        { type: "attachment", props: { kind: "file", source: "a", name: "a" } },
+      ]),
+    ).toThrow("cannot participate in a Page mention mutation");
   });
 });
