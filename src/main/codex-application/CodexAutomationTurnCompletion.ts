@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import { parseCodexAutomationInboxItemDirective } from "../codex-scheduled-automation-runtime";
 import { AutomationRoutingIndex } from "../core-runtime/AutomationRoutingIndex";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 
 const BACKGROUND_CORE_REQUEST = { class: "background" } as const;
@@ -52,7 +53,7 @@ export const live: Layer.Layer<
           const inbox = directive(turn);
           const committed = yield* core.automation.apply(
             {
-              operationId: `codex:automation-turn-completed:${threadId}:${turn.id}`,
+              operationId: createOperationId("automation-turn.complete"),
               intent: {
                 kind: "complete_run_for_review",
                 thread_id: threadId,

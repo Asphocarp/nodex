@@ -91,18 +91,20 @@ fn automation_policy(read: &AutomationRead) -> ReadBudgetPolicy {
         | AutomationRead::Occurrences { .. }
         | AutomationRead::ReminderLeases { .. }
         | AutomationRead::ReminderSnoozes { .. } => ReadBudgetPolicy::CollectionWindow,
-        AutomationRead::Definition { .. } | AutomationRead::Run { .. } => {
-            ReadBudgetPolicy::Identity
-        }
+        AutomationRead::DueWork { .. }
+        | AutomationRead::Definition { .. }
+        | AutomationRead::Run { .. } => ReadBudgetPolicy::Identity,
     }
 }
 
 fn administration_policy(read: &StoreAdministrationRead) -> ReadBudgetPolicy {
     match read {
         StoreAdministrationRead::Backups { .. } => ReadBudgetPolicy::CollectionWindow,
-        StoreAdministrationRead::Status | StoreAdministrationRead::MaintenanceStatus => {
-            ReadBudgetPolicy::Identity
-        }
+        StoreAdministrationRead::Status
+        | StoreAdministrationRead::BackupJobs
+        | StoreAdministrationRead::OperationalJournalStatus
+        | StoreAdministrationRead::MaintenanceStatus
+        | StoreAdministrationRead::MaintenancePlan { .. } => ReadBudgetPolicy::Identity,
     }
 }
 

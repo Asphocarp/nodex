@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { assert, it } from "@effect/vitest";
@@ -25,10 +26,33 @@ const backup = {
   byte_length: 120,
 };
 
+const capacity = {
+  available_bytes: 1_000_000,
+  estimated_next_backup_bytes: 120,
+  safety_margin_bytes: 512,
+  total_ready_bytes: 120,
+  manual_ready_bytes: 0,
+  automatic_ready_bytes: 120,
+  can_create: true,
+};
+
+const jobProgress = {
+  database_copied_pages: 0,
+  database_total_pages: 0,
+  database_busy_retries: 0,
+  asset_bytes_copied: 0,
+  database_copy_ms: 0,
+  asset_copy_ms: 0,
+  validation_ms: 0,
+  digest_ms: 0,
+  publish_ms: 0,
+  writer_held_ms: 0,
+};
+
 const readSnapshot = (
   value: StoreAdministrationReadSnapshot["value"],
 ): StoreAdministrationReadSnapshot => ({
-  contract_version: 2,
+  contract_version: 4,
   store_epoch: "epoch:test",
   commit_head: 4,
   value,
@@ -87,6 +111,7 @@ it.effect("owns Backup CRUD and maintenance semantics on the typed Core Module",
   Effect.gen(function* () {
     const harness = makeHarness();
     harness.applyResults.push(committed({ backup_id: backup.backup_id }));
+    harness.readResults.push(readSnapshot({ kind: "backup_jobs", jobs: [] }));
     harness.readResults.push(
       readSnapshot({
         kind: "backups",
@@ -95,6 +120,7 @@ it.effect("owns Backup CRUD and maintenance semantics on the typed Core Module",
           next_cursor: null,
           authority: { projection_revision: 4 },
         },
+        capacity,
       }),
     );
     harness.applyResults.push(committed({ backup_id: backup.backup_id }));
@@ -121,13 +147,14 @@ it.effect("owns Backup CRUD and maintenance semantics on the typed Core Module",
       success: true,
       deletedBackupId: "core-backup",
     });
-    yield* administration.pruneBackups(-4.8);
+    yield* administration.pruneBackups(-4.8, 1_024.9);
     yield* administration.runMaintenance({
       tasks: ["document_revision_finalize", "block_retention"],
       blockRetentionCount: 37.9,
     });
 
     assert.deepStrictEqual(harness.reads, [
+      { kind: "backup_jobs" },
       { kind: "backups", window: { after: null, first: 200 } },
     ]);
     assert.deepStrictEqual(
@@ -140,10 +167,11 @@ it.effect("owns Backup CRUD and maintenance semantics on the typed Core Module",
           trigger: "auto",
         },
         { kind: "delete_backup", backup_id: "core-backup" },
-        { kind: "prune_backups", retain_count: 0 },
+        { kind: "prune_backups", retain_count: 0, retain_bytes: 1_024 },
         {
           kind: "run_maintenance",
           tasks: ["document_revision_finalize", "block_retention"],
+          work_token: null,
           block_retention_count: 37,
         },
       ],
@@ -183,6 +211,169 @@ it.effect("requires explicit confirmation and returns the safety Backup identity
       backup_id: "core-backup",
       create_safety_backup: true,
     });
+  }),
+);
+
+it.effect("returns after durable admission while the Core backup continues", () =>
+  Effect.gen(function* () {
+    const applyStarted = yield* Deferred.make<void>();
+    const finishApply = yield* Deferred.make<void>();
+    let activeOperationId: string | null = null;
+    const administrationClient: CoreModuleClients["administration"] = {
+      apply: (input) =>
+        Effect.gen(function* () {
+          activeOperationId = input.operationId;
+          yield* Deferred.succeed(applyStarted, undefined);
+          yield* Deferred.await(finishApply);
+          return committed({ backup_id: backup.backup_id });
+        }),
+      read: (read) => {
+        if (read.kind === "backup_jobs") {
+          return Effect.succeed(
+            readSnapshot({
+              kind: "backup_jobs",
+              jobs: activeOperationId
+                ? [
+                    {
+                      job_id: activeOperationId,
+                      operation_id: activeOperationId,
+                      state: "running",
+                      phase: "database_snapshot",
+                      completed_units: 1,
+                      total_units: 7,
+                      started_at_ms: 10,
+                      updated_at_ms: 20,
+                      label: "Background",
+                      include_assets: true,
+                      trigger: "manual",
+                      backup_id: backup.backup_id,
+                      error: null,
+                      progress: jobProgress,
+                    },
+                  ]
+                : [],
+            }),
+          );
+        }
+        if (read.kind === "maintenance_status") {
+          return Effect.succeed(
+            readSnapshot({
+              kind: "maintenance_status",
+              active: true,
+              operation_id: null,
+              phase: "validation",
+            }),
+          );
+        }
+        return Effect.succeed(
+          readSnapshot({
+            kind: "backups",
+            backups: {
+              items: [backup],
+              next_cursor: null,
+              authority: { projection_revision: 4 },
+            },
+            capacity,
+          }),
+        );
+      },
+    };
+    const layer = live.pipe(
+      Layer.provide(
+        Layer.succeed(
+          CoreModules,
+          CoreModules.of({ administration: administrationClient } as unknown as CoreModuleClients),
+        ),
+      ),
+    );
+    const context = yield* Layer.build(layer);
+    const administration = Context.get(context, StoreAdministration);
+
+    const admitted = yield* administration.startBackup({ label: "Background" });
+    assert.strictEqual(admitted.state, "running");
+    assert.strictEqual(admitted.phase, "database_snapshot");
+    yield* Deferred.await(applyStarted);
+    const running = yield* administration.backupJob(admitted.jobId);
+    assert.isNotNull(running);
+    assert.include(["queued", "running"], running?.state);
+
+    yield* Deferred.succeed(finishApply, undefined);
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      yield* Effect.yieldNow;
+      const completed = yield* administration.backupJob(admitted.jobId);
+      if (completed?.state !== "completed") continue;
+      assert.strictEqual(completed.backup?.id, "core-backup");
+      return;
+    }
+    assert.fail("snapshot job did not publish its completion");
+  }),
+);
+
+it.effect("resumes a durable Core snapshot job when Main starts again", () =>
+  Effect.gen(function* () {
+    const applyStarted = yield* Deferred.make<void>();
+    const finishApply = yield* Deferred.make<void>();
+    const operationId = "electron:administration:create-backup-job:recovered";
+    const durableJob = {
+      job_id: operationId,
+      operation_id: operationId,
+      state: "running",
+      phase: "validation",
+      completed_units: 3,
+      total_units: 7,
+      started_at_ms: 10,
+      updated_at_ms: 20,
+      label: "Recovered",
+      include_assets: true,
+      trigger: "manual" as const,
+      backup_id: backup.backup_id,
+      error: null,
+      progress: jobProgress,
+    };
+    const administrationClient: CoreModuleClients["administration"] = {
+      apply: () =>
+        Effect.gen(function* () {
+          yield* Deferred.succeed(applyStarted, undefined);
+          yield* Deferred.await(finishApply);
+          return committed({ backup_id: backup.backup_id });
+        }),
+      read: (read) => {
+        if (read.kind === "backup_jobs") {
+          return Effect.succeed(readSnapshot({ kind: "backup_jobs", jobs: [durableJob] }));
+        }
+        return Effect.succeed(
+          readSnapshot({
+            kind: "backups",
+            backups: {
+              items: [backup],
+              next_cursor: null,
+              authority: { projection_revision: 4 },
+            },
+            capacity,
+          }),
+        );
+      },
+    };
+    const layer = live.pipe(
+      Layer.provide(
+        Layer.succeed(
+          CoreModules,
+          CoreModules.of({ administration: administrationClient } as unknown as CoreModuleClients),
+        ),
+      ),
+    );
+    const context = yield* Layer.build(layer);
+    const administration = Context.get(context, StoreAdministration);
+
+    yield* Deferred.await(applyStarted);
+    const recovered = yield* administration.backupJob(operationId);
+    assert.strictEqual(recovered?.phase, "validation");
+    yield* Deferred.succeed(finishApply, undefined);
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      yield* Effect.yieldNow;
+      if ((yield* administration.backupJob(operationId))?.state === "completed") return;
+    }
+    assert.fail("recovered snapshot job did not finish");
   }),
 );
 

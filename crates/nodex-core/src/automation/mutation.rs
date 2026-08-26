@@ -3,10 +3,10 @@ use std::path::{Component, Path, PathBuf};
 
 use nodex_core_contracts::automation::{
     AutomationCommitValue, AutomationDefinition, AutomationDefinitionInput,
-    AutomationDefinitionKind, AutomationDefinitionStatus, AutomationEvent, AutomationEventKind,
-    AutomationExecutionEnvironment, AutomationIntent, AutomationLease, AutomationLeaseStatus,
-    AutomationReceipt, AutomationRun, AutomationRunBulkResult, PageOccurrenceMutationResult,
-    ReminderLease, ReminderSnooze,
+    AutomationDefinitionKind, AutomationDefinitionStatus, AutomationDueWorkPlan, AutomationEvent,
+    AutomationEventKind, AutomationExecutionEnvironment, AutomationIntent, AutomationLease,
+    AutomationLeaseStatus, AutomationReceipt, AutomationRun, AutomationRunBulkResult,
+    PageOccurrenceMutationResult, ReminderLease, ReminderSnooze,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CoreModuleEventPayload, ModuleApplyRequest,
@@ -82,6 +82,89 @@ struct MutationEffects {
     document_ids: Vec<String>,
     database_ids: Vec<String>,
     committed_at: String,
+}
+
+impl MutationEffects {
+    fn is_empty_scheduler_claim(&self) -> bool {
+        matches!(self.operation_kind, "claim_due" | "claim_due_reminders")
+            && self.automation_ids.is_empty()
+            && self.definitions.is_empty()
+            && self.claimed_leases.is_empty()
+            && self.lease_ids.is_empty()
+            && self.reminder_leases.is_empty()
+            && self.reminder_snoozes.is_empty()
+            && self.reminder_lease_ids.is_empty()
+            && self.snooze_ids.is_empty()
+    }
+}
+
+pub(super) fn plan_definition_due_work(
+    connection: &Connection,
+) -> Result<AutomationDueWorkPlan, StoreError> {
+    let now_ms = connection.query_row(
+        "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let candidate = connection
+        .query_row(
+            "SELECT definition.automation_id, definition.next_run_at, \
+                    MAX(definition.next_run_at, COALESCE((\
+                      SELECT MAX(lease.expires_at_ms) FROM core_automation_leases lease \
+                      WHERE lease.automation_id = definition.automation_id \
+                        AND lease.scheduled_for_ms = definition.next_run_at \
+                        AND lease.status = 'claimed'\
+                    ), definition.next_run_at)) AS eligible_at \
+             FROM codex_scheduled_automations definition \
+             WHERE definition.status = 'ACTIVE' AND definition.next_run_at IS NOT NULL \
+             ORDER BY eligible_at, definition.automation_id LIMIT 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((automation_id, scheduled_for_ms, eligible_at_ms)) = candidate else {
+        return Ok(AutomationDueWorkPlan {
+            due_now: false,
+            next_wake_at_ms: None,
+            work_token: None,
+        });
+    };
+    let due_now = eligible_at_ms <= now_ms;
+    let work_token = due_now.then(|| {
+        format!(
+            "automation-due:{:x}",
+            Sha256::digest(
+                format!("definitions:{automation_id}:{scheduled_for_ms}:{eligible_at_ms}")
+                    .as_bytes()
+            )
+        )
+    });
+    Ok(AutomationDueWorkPlan {
+        due_now,
+        next_wake_at_ms: Some(eligible_at_ms),
+        work_token,
+    })
+}
+
+fn validate_definition_work_token(
+    connection: &Connection,
+    work_token: &str,
+) -> Result<(), StoreError> {
+    let current = plan_definition_due_work(connection)?;
+    if current.due_now && current.work_token.as_deref() == Some(work_token) {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::Conflict,
+        "Automation due-work token is stale; plan due work again",
+        true,
+    ))
 }
 
 pub(super) fn apply(
@@ -233,18 +316,22 @@ pub(super) fn apply(
                     *retry_within_ms,
                 ),
                 AutomationIntent::ClaimDue {
+                    work_token,
                     limit,
                     lease_duration_ms,
-                } => claim_due(
-                    transaction,
-                    &library_id,
-                    &context,
-                    &store_epoch,
-                    &request.operation_id,
-                    &request_hash,
-                    *limit,
-                    *lease_duration_ms,
-                ),
+                } => {
+                    validate_definition_work_token(transaction, work_token)?;
+                    claim_due(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        *limit,
+                        *lease_duration_ms,
+                    )
+                }
                 AutomationIntent::CompleteLease { lease_id } => settle_lease(
                     transaction,
                     &library_id,
@@ -1170,6 +1257,9 @@ fn seal_mutation(
     SealedOutcome<crate::ModuleWriterResult<AutomationCommitValue, AutomationReceipt>>,
     StoreError,
 > {
+    if effects.is_empty_scheduler_claim() {
+        return seal_empty_scheduler_claim(scope, operation_id, effects);
+    }
     let connection = scope.connection();
     let store_epoch = scope.store_epoch();
     let commit = scope.evidence();
@@ -1264,6 +1354,60 @@ fn seal_mutation(
         ReceiptMetadata {
             operation_kind: effects.operation_kind,
             event_sequence: Some(event_sequence),
+            committed_at: &effects.committed_at,
+        },
+    ))
+}
+
+fn seal_empty_scheduler_claim(
+    scope: &DurableMutationScope<'_>,
+    operation_id: &str,
+    effects: MutationEffects,
+) -> Result<
+    SealedOutcome<crate::ModuleWriterResult<AutomationCommitValue, AutomationReceipt>>,
+    StoreError,
+> {
+    let connection = scope.connection();
+    let event_sequence =
+        connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    let commit_seq = crate::infrastructure::local_commit::head(connection)?;
+    let committed = crate::ModuleWriterResult {
+        value: AutomationCommitValue {
+            affected_automation_ids: Vec::new(),
+            definitions: Vec::new(),
+            claimed_leases: Vec::new(),
+            runs: Vec::new(),
+            deleted_run_ids: Vec::new(),
+            run_bulk: None,
+            reminder_leases: Vec::new(),
+            reminder_snoozes: Vec::new(),
+            page_occurrence_mutation: None,
+        },
+        receipt: AutomationReceipt {
+            mutation: ModuleMutationReceipt {
+                operation_id: operation_id.to_owned(),
+                duplicate: false,
+            },
+            affected_automation_ids: Vec::new(),
+            affected_lease_ids: Vec::new(),
+            affected_run_ids: Vec::new(),
+            affected_reminder_lease_ids: Vec::new(),
+            affected_snooze_ids: Vec::new(),
+            affected_page_ids: Vec::new(),
+            affected_document_ids: Vec::new(),
+            affected_database_ids: Vec::new(),
+        },
+        commit_seq,
+        event_sequence,
+        store_epoch: StoreEpoch(scope.store_epoch().to_owned()),
+    };
+    Ok(scope.no_op(
+        committed,
+        ReceiptMetadata {
+            operation_kind: effects.operation_kind,
+            event_sequence: None,
             committed_at: &effects.committed_at,
         },
     ))
@@ -1794,9 +1938,9 @@ mod tests {
     use chrono::{Duration, Utc};
     use nodex_core_contracts::automation::{
         AutomationDefinitionInput, AutomationDefinitionKind, AutomationDefinitionStatus,
-        AutomationIntent, AutomationLeaseStatus, AutomationRead, AutomationReadValue,
-        AutomationRunStatus, PageOccurrenceSchedulePatch, PageOccurrenceUpdateScope,
-        ReminderLeaseStatus,
+        AutomationDueWorkLane, AutomationIntent, AutomationLeaseStatus, AutomationRead,
+        AutomationReadValue, AutomationRunStatus, PageOccurrenceSchedulePatch,
+        PageOccurrenceUpdateScope, ReminderLeaseStatus,
     };
     use nodex_core_contracts::database::{
         DATABASE_CONTRACT_VERSION, DatabaseIntent, DatabaseTransferTarget,
@@ -1936,6 +2080,28 @@ mod tests {
                 intent,
             },
         )
+    }
+
+    fn definition_work_token(harness: &Harness) -> String {
+        harness
+            .kernel
+            .readers()
+            .read_default(super::plan_definition_due_work)
+            .expect("plan Automation due work")
+            .work_token
+            .expect("Automation is due")
+    }
+
+    fn reminder_work_token(harness: &Harness) -> String {
+        harness
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                super::super::reminder::plan_due_work(connection, "library-1")
+            })
+            .expect("plan Reminder due work")
+            .work_token
+            .expect("Reminder is due")
     }
 
     fn project_context(harness: &Harness) -> BoundModuleContext {
@@ -2181,6 +2347,69 @@ mod tests {
     }
 
     #[test]
+    fn due_work_read_prevents_idle_claims_and_empty_claims_abandon_delivery() {
+        let harness = harness();
+        let idle = harness
+            .module
+            .read(
+                &harness.context,
+                ModuleReadRequest {
+                    contract_version: AUTOMATION_CONTRACT_VERSION,
+                    read: AutomationRead::DueWork {
+                        lane: AutomationDueWorkLane::Definitions,
+                    },
+                },
+            )
+            .expect("plan idle Automation work");
+        let AutomationReadValue::DueWork { plan } = idle.value else {
+            panic!("due-work snapshot");
+        };
+        assert!(!plan.due_now);
+        assert!(plan.work_token.is_none());
+
+        let before = harness
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                Ok((
+                    connection.query_row("SELECT count(*) FROM local_commits", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                    connection.query_row("SELECT count(*) FROM change_log", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                ))
+            })
+            .expect("idle ledger baseline");
+        let rejected = apply(
+            &harness,
+            "claim-idle",
+            AutomationIntent::ClaimDue {
+                work_token: "stale-idle-token".to_owned(),
+                limit: 3,
+                lease_duration_ms: 60_000,
+            },
+        )
+        .expect_err("idle scheduler cannot claim without Core-authored due work");
+        assert_eq!(rejected.code, nodex_core_contracts::CoreErrorCode::Conflict);
+        let after = harness
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                Ok((
+                    connection.query_row("SELECT count(*) FROM local_commits", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                    connection.query_row("SELECT count(*) FROM change_log", [], |row| {
+                        row.get::<_, i64>(0)
+                    })?,
+                ))
+            })
+            .expect("idle ledger result");
+        assert_eq!(after, before);
+    }
+
+    #[test]
     fn definitions_are_typed_revisioned_and_exactly_replayed() {
         let harness = harness();
         let created = apply(
@@ -2302,6 +2531,7 @@ mod tests {
             &harness,
             "claim-1",
             AutomationIntent::ClaimDue {
+                work_token: definition_work_token(&harness),
                 limit: 3,
                 lease_duration_ms: 60_000,
             },
@@ -2329,6 +2559,7 @@ mod tests {
             &harness,
             "claim-2",
             AutomationIntent::ClaimDue {
+                work_token: definition_work_token(&harness),
                 limit: 3,
                 lease_duration_ms: 60_000,
             },
@@ -2393,6 +2624,7 @@ mod tests {
                     operation_id: "untrusted-claim".to_owned(),
                     store_epoch: harness.store_epoch.clone(),
                     intent: AutomationIntent::ClaimDue {
+                        work_token: definition_work_token(&harness),
                         limit: 1,
                         lease_duration_ms: 60_000,
                     },
@@ -2461,6 +2693,7 @@ mod tests {
             &harness,
             "claim-before-pause",
             AutomationIntent::ClaimDue {
+                work_token: definition_work_token(&harness),
                 limit: 1,
                 lease_duration_ms: 60_000,
             },
@@ -2616,6 +2849,7 @@ mod tests {
             &harness,
             "claim-before-failure",
             AutomationIntent::ClaimDue {
+                work_token: definition_work_token(&harness),
                 limit: 1,
                 lease_duration_ms: 60_000,
             },
@@ -3575,10 +3809,12 @@ mod tests {
             json!([{ "offsetMinutes": 0 }]),
         );
 
+        let first_work_token = reminder_work_token(&harness);
         let first = apply(
             &harness,
             "claim-reminder-1",
             AutomationIntent::ClaimDueReminders {
+                work_token: first_work_token.clone(),
                 limit: 10,
                 lease_duration_ms: 60_000,
             },
@@ -3593,6 +3829,7 @@ mod tests {
             &harness,
             "claim-reminder-1",
             AutomationIntent::ClaimDueReminders {
+                work_token: first_work_token,
                 limit: 10,
                 lease_duration_ms: 60_000,
             },
@@ -3623,6 +3860,7 @@ mod tests {
             &harness,
             "claim-reminder-2",
             AutomationIntent::ClaimDueReminders {
+                work_token: reminder_work_token(&harness),
                 limit: 10,
                 lease_duration_ms: 60_000,
             },
@@ -3645,16 +3883,15 @@ mod tests {
             },
         )
         .expect("complete reminder lease");
-        let no_duplicate = apply(
-            &harness,
-            "claim-reminder-after-complete",
-            AutomationIntent::ClaimDueReminders {
-                limit: 10,
-                lease_duration_ms: 60_000,
-            },
-        )
-        .expect("completed reminder is suppressed");
-        assert!(no_duplicate.committed.value.reminder_leases.is_empty());
+        let completed_plan = harness
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                crate::automation::reminder::plan_due_work(connection, "library-1")
+            })
+            .expect("plan completed Reminder");
+        assert!(!completed_plan.due_now);
+        assert!(completed_plan.work_token.is_none());
 
         let context = project_context(&harness);
         let snoozed = apply_with_context(
@@ -3685,6 +3922,7 @@ mod tests {
             &harness,
             "claim-snooze-1",
             AutomationIntent::ClaimDueReminders {
+                work_token: reminder_work_token(&harness),
                 limit: 10,
                 lease_duration_ms: 60_000,
             },
@@ -3712,6 +3950,7 @@ mod tests {
             &harness,
             "claim-snooze-2",
             AutomationIntent::ClaimDueReminders {
+                work_token: reminder_work_token(&harness),
                 limit: 10,
                 lease_duration_ms: 60_000,
             },

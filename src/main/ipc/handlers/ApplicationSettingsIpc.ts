@@ -58,6 +58,7 @@ const BackupUpdate = z
     autoEnabled: z.boolean(),
     intervalHours: z.number().int().min(1),
     retentionCount: z.number().int().nonnegative(),
+    retentionGiB: z.number().int().min(0).max(8_192),
   })
   .strict() satisfies z.ZodType<UpdateBackupSettingsInput>;
 const HistoryUpdate = z

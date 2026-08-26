@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type {
@@ -6,6 +5,7 @@ import type {
   CodexThreadStartForSessionInput,
   PageRunInTarget,
 } from "../../shared/types";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import { CODEX_APP_LOCAL_HOST_ID } from "../codex/codex-app-meta-thread-tools";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
@@ -95,7 +95,7 @@ export const make: Effect.Effect<
   const createHeartbeat = (outcome: CodexThreadLaunchOutcome) => {
     const seed = outcome.heartbeatAutomation;
     if (outcome.runInTarget !== "newWorktree" || !outcome.projectId || !seed) return Effect.void;
-    const automationId = randomUUID();
+    const automationId = createUuidV7();
     return core.automation
       .apply({
         operationId: `electron:thread-launch-heartbeat:${outcome.threadId}:${automationId}`,

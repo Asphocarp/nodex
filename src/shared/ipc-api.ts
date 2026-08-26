@@ -167,6 +167,8 @@ import type {
 
 import type {
   BackupRecord,
+  BackupCapacity,
+  SnapshotStorageOptimization,
   BackupSettings,
   DiagnosticsSettings,
   HistorySettings,
@@ -330,6 +332,7 @@ import type {
   CommandPaletteThreadSearchResult,
   CommandPaletteThreadListInput,
   CommandPaletteThreadSummary,
+  BackupJobStatus,
   CreateBackupInput,
   Project,
   ProjectActivitySummaryResult,
@@ -1010,7 +1013,11 @@ export interface IpcApi {
     result: PageOccurrenceMutationResult;
   };
   "backup:list": { args: []; result: BackupRecord[] };
-  "backup:create": { args: [input?: CreateBackupInput]; result: BackupRecord };
+  "backup:capacity:get": { args: []; result: BackupCapacity };
+  "backup:storage-optimization:get": { args: []; result: SnapshotStorageOptimization };
+  "backup:create": { args: [input?: CreateBackupInput]; result: BackupJobStatus };
+  "backup:job:get": { args: [jobId?: string]; result: BackupJobStatus | null };
+  "backup:cancel": { args: [jobId: string]; result: BackupJobStatus };
   "backup:delete": {
     args: [backupId: string];
     result: { success: true; deletedBackupId: string };

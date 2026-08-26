@@ -4,6 +4,7 @@ import { resolveBlockDocumentStructuralMutationParticipant } from "@/lib/block-d
 import type { DocumentHeadFence } from "@/lib/block-document-surface-runtime";
 import { readTaskShorthandPagePromotionEnabled } from "@/lib/page-promotion-preference";
 import type { BlockTransferDataSourcePlacement } from "../../../shared/block-transfer";
+import { createUuidV7 } from "../../../shared/uuid-v7";
 import {
   buildBlockToDataSourceTransferIntent,
   containsCanvasBlockDrag,
@@ -79,7 +80,7 @@ export const commitDatabaseViewBlockDrop = async (
   const result = await transferBlocks(
     projectId,
     buildBlockToDataSourceTransferIntent({
-      operationId: crypto.randomUUID(),
+      operationId: createUuidV7(),
       projectId,
       storeEpoch: input.storeEpoch,
       payload,

@@ -22,9 +22,11 @@ import type {
   Project,
   ProjectSession,
 } from "../../shared/types";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import { CoreModuleResponseError } from "../core-client/core-client";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { DatabaseNotifierRuntime } from "../host-runtime/DatabaseNotifierRuntime";
 import { getLogger } from "../logging/logger";
@@ -346,13 +348,13 @@ export const make = (
     const hide = Effect.fn("CodexSidebarSync.hide")(function* (entry: CodexThreadDirectoryEntry) {
       const thread = entry.durable;
       yield* core.workspace.apply({
-        operationId: `electron:sidebar-hide:${thread.threadId}:${randomUUID()}`,
+        operationId: createOperationId("sidebar.hide"),
         intent: { kind: "set_thread_archived", thread_id: thread.threadId, archived: true },
       });
       if (!thread.sessionId) return;
       yield* core.workspace
         .apply({
-          operationId: `electron:sidebar-hide-unlink:${thread.threadId}:${randomUUID()}`,
+          operationId: createOperationId("sidebar.hide-unlink"),
           intent: {
             kind: "mutate_session",
             session_id: thread.sessionId,
@@ -380,7 +382,7 @@ export const make = (
         if (existing) return existing;
       }
 
-      const sessionId = randomUUID();
+      const sessionId = createUuidV7();
       yield* core.workspace.apply({
         operationId: `electron:sidebar-session-create:${thread.threadId}:${sessionId}`,
         intent: {
@@ -693,7 +695,7 @@ export const make = (
         ? Effect.void
         : core.workspace
             .apply({
-              operationId: `electron:sidebar-sweep-observe:${sweepId}:${randomUUID()}`,
+              operationId: createOperationId("sidebar.sweep-observe"),
               intent: {
                 kind: "observe_app_server_thread_window",
                 sweep_id: sweepId,
@@ -708,7 +710,7 @@ export const make = (
       Effect.gen(function* () {
         if (state.phase === "reconcile") {
           const result = yield* core.workspace.apply({
-            operationId: `electron:sidebar-sweep-reconcile:${state.sweepId}:${randomUUID()}`,
+            operationId: createOperationId("sidebar.sweep-reconcile"),
             intent: {
               kind: "reconcile_app_server_thread_sweep",
               sweep_id: state.sweepId,

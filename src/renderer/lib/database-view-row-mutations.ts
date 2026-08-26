@@ -11,6 +11,7 @@ import {
   type LibraryDatabaseApplyResultV2,
   type LibraryDatabaseApplyV2,
 } from "../../shared/database-module-v2";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import type { DatabaseJsonValue } from "../../shared/database-kernel";
 import { databaseViewPrimaryManualOrderDirection } from "../../shared/database-view-presentation";
 import { applyDatabaseModule, applyLibraryDatabaseModule } from "./api";
@@ -282,7 +283,7 @@ export const commitDatabaseViewOperations = async (input: {
 }): Promise<DatabaseViewMutationReceipt | null> => {
   if (input.operations.length === 0) return null;
   const commonRequest = {
-    operationId: input.operationId ?? crypto.randomUUID(),
+    operationId: input.operationId ?? createUuidV7(),
     storeEpoch: input.model.storeEpoch,
     operations: input.operations,
   } as const;

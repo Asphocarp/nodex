@@ -31,6 +31,20 @@ pages are indexed, bounded, authorized, and keyed by the complete Store
 coordinate. The global LocalCommit sequence measures replay progress; it is not
 a Projection revision, Document head, or change-log sequence.
 
+The retained replay interval is `(replay floor, commit head]`. Core may remove
+an older finalized LocalCommit only after its canonical semantic result remains
+readable and every consumer below the new floor has a typed resync path. Receipt
+results that are still inside the idempotency window are detached from their
+LocalCommit parent before delivery evidence is removed. A Store epoch rotation
+cuts one canonical resync boundary and drops the old delivery window instead of
+resealing every historical operation under the new epoch.
+
+Retention is internal bookkeeping, not a semantic mutation: it creates no
+LocalCommit, projection event, change-log row, or module receipt of its own.
+The seal path accounts for each complete delivery group and applies bounded
+backpressure if maintenance cannot restore the configured operational-history
+envelope safely.
+
 Main admits scoped-live and durable-tail copies through one Main-scoped
 LocalCommit runtime. Manifest/resource identity, completion signals, causal
 lane actors, retry, checkpoint observation, and shutdown are one ownership
@@ -158,3 +172,5 @@ The durable projection model is recorded in
 [ADR 0024](../adr/0024-durable-projection-invalidation.md) and the causal local
 mutation boundary in
 [ADR 0040](../adr/0040-local-commit-authority-and-causal-structural-mutations.md).
+Finite replay and idempotency ownership is recorded in
+[ADR 0050](../adr/0050-bounded-operational-journals-and-idempotency-windows.md).

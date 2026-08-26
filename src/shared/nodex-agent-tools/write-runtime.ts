@@ -20,6 +20,8 @@ import type { NodexAgentResourceAccessOverlay } from "../nodex-agent-resource-ac
 export interface NodexAgentCallIdentity {
   readonly threadId: string;
   readonly callId: string;
+  /** Main-issued bounded identity shared by every phase of one tool call. */
+  readonly operationId?: string;
   readonly authority?: FrozenNodexAgentTurnAuthority;
   readonly resourceAccess?: NodexAgentResourceAccessOverlay;
 }

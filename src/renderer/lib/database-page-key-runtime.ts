@@ -10,6 +10,7 @@ import {
   type LibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
 import { parseDatabaseId } from "../../shared/database-identities";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import { applyDatabaseModule, readDatabaseModule, readLibraryDatabaseModule } from "./api";
 
 export interface DatabasePageKeyNamespaceAuthority {
@@ -139,7 +140,7 @@ export async function renameDatabasePageKeyPrefix(
   dependencies: DatabasePageKeyRuntimeDependencies = defaultDependencies,
 ): Promise<void> {
   const result = await dependencies.applyProject(input.projectId, {
-    operationId: input.operationId ?? crypto.randomUUID(),
+    operationId: input.operationId ?? createUuidV7(),
     projectId: input.projectId,
     storeEpoch: input.storeEpoch,
     actor: { kind: "renderer_project_settings" },

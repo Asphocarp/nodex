@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
 import * as Clock from "effect/Clock";
@@ -18,6 +17,7 @@ import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { AgentProviderRuntime } from "./AgentProviderRuntime";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexConversationProjection } from "./CodexConversationProjection";
@@ -242,7 +242,7 @@ export const make: Effect.Effect<
     const observedAtMs = yield* Clock.currentTimeMillis;
     yield* core.workspace
       .apply({
-        operationId: `electron:thread-settings:${threadId}:${randomUUID()}`,
+        operationId: createOperationId("thread-settings.update"),
         intent: {
           kind: "update_thread",
           thread_id: threadId,

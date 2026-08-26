@@ -324,18 +324,25 @@ mod tests {
                     transaction.execute(
                         "INSERT INTO block_store_metadata( \
                            id, store_epoch, created_at, updated_at \
-                         ) VALUES (1, 'epoch:profile-clone-source', '2026-08-21', '2026-08-21')",
+                         ) VALUES ( \
+                           1, 'epoch:profile-clone-source', \
+                           '2026-08-21T00:00:00.000Z', '2026-08-21T00:00:00.000Z' \
+                         )",
                         [],
                     )?;
                     transaction.execute(
                         "INSERT INTO profiles(id, created_at, updated_at) \
-                         VALUES ('profile:clone-test', '2026-08-21', '2026-08-21')",
+                         VALUES ( \
+                           'profile:clone-test', \
+                           '2026-08-21T00:00:00.000Z', '2026-08-21T00:00:00.000Z' \
+                         )",
                         [],
                     )?;
                     transaction.execute(
                         "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
                          VALUES ( \
-                           'library:clone-test', 'profile:clone-test', '2026-08-21', '2026-08-21' \
+                           'library:clone-test', 'profile:clone-test', \
+                           '2026-08-21T00:00:00.000Z', '2026-08-21T00:00:00.000Z' \
                          )",
                         [],
                     )?;
@@ -374,16 +381,13 @@ mod tests {
                     Some("profile clone test"),
                     true,
                     nodex_core_contracts::administration::BackupTrigger::Manual,
+                    &|_| Ok(()),
+                    &|| Ok(false),
                 )
             })
             .expect("stage backup");
-        backup::publish_backup(
-            &source,
-            "profile-clone-test",
-            &request_hash,
-            &backup.backup_id,
-        )
-        .expect("publish backup");
+        let backup_record = backup.record().clone();
+        backup::publish_verified_backup(backup).expect("publish backup");
         drop(kernel);
 
         let receipt = materialize_profile_clone(ProfileCloneRequest {
@@ -393,7 +397,7 @@ mod tests {
         })
         .expect("clone Profile");
 
-        assert_eq!(receipt.backup_id, backup.backup_id);
+        assert_eq!(receipt.backup_id, backup_record.backup_id);
         assert_eq!(receipt.version, PROFILE_SNAPSHOT_VERSION);
         assert_eq!(receipt.backup_integrity_evidence_version, 1);
         assert_eq!(receipt.missing_managed_asset_count, 0);
@@ -422,7 +426,7 @@ mod tests {
         );
         assert!(!source.join(PROFILE_SNAPSHOT_FILE_NAME).exists());
 
-        let published = source.join("backups").join(&backup.backup_id);
+        let published = source.join("backups").join(&backup_record.backup_id);
         fs::write(published.join("assets/unexpected.bin"), b"").expect("tampered asset tree");
         let asset_target = directory.path().join("asset-tamper-target");
         let asset_error = materialize_profile_clone(ProfileCloneRequest {

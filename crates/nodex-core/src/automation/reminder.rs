@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::automation::{
-    AutomationIntent, ReminderLease, ReminderLeaseStatus, ReminderSnooze,
+    AutomationDueWorkPlan, AutomationIntent, ReminderLease, ReminderLeaseStatus, ReminderSnooze,
 };
 use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
@@ -57,6 +57,70 @@ impl ReminderCandidate {
             self.reminder_offset_minutes,
         )
     }
+}
+
+pub(super) fn plan_due_work(
+    connection: &Connection,
+    library_id: &str,
+) -> Result<AutomationDueWorkPlan, StoreError> {
+    let (now_ms, _) = core_now(connection)?;
+    let mut candidates = collect_regular_candidates(connection, library_id, now_ms)?;
+    collect_snooze_candidates(connection, library_id, now_ms, &mut candidates, false)?;
+    let first = candidates.into_values().min_by(|left, right| {
+        left.due_at_ms
+            .cmp(&right.due_at_ms)
+            .then_with(|| left.page_id.cmp(&right.page_id))
+            .then_with(|| left.occurrence_start_ms.cmp(&right.occurrence_start_ms))
+            .then_with(|| {
+                left.reminder_offset_minutes
+                    .cmp(&right.reminder_offset_minutes)
+            })
+    });
+    if let Some(candidate) = first {
+        let token = Sha256::digest(
+            format!(
+                "reminders:{}:{}:{}:{}",
+                candidate.page_id,
+                candidate.occurrence_start_ms,
+                candidate.reminder_offset_minutes,
+                candidate.due_at_ms
+            )
+            .as_bytes(),
+        );
+        return Ok(AutomationDueWorkPlan {
+            due_now: true,
+            next_wake_at_ms: Some(candidate.due_at_ms),
+            work_token: Some(format!("reminder-due:{}", hex_digest(&token))),
+        });
+    }
+    let next_snooze = connection.query_row(
+        "SELECT MIN(CAST(unixepoch(due_at, 'subsec') * 1000 AS INTEGER)) \
+         FROM reminder_snoozes WHERE library_id = ?1 AND consumed_at IS NULL \
+           AND due_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        [library_id],
+        |row| row.get::<_, Option<i64>>(0),
+    )?;
+    Ok(AutomationDueWorkPlan {
+        due_now: false,
+        next_wake_at_ms: next_snooze,
+        work_token: None,
+    })
+}
+
+fn validate_reminder_work_token(
+    connection: &Connection,
+    library_id: &str,
+    work_token: &str,
+) -> Result<(), StoreError> {
+    let current = plan_due_work(connection, library_id)?;
+    if current.due_now && current.work_token.as_deref() == Some(work_token) {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::Conflict,
+        "Reminder due-work token is stale; plan due work again",
+        true,
+    ))
 }
 
 pub(super) fn read_lease_window(
@@ -283,15 +347,19 @@ pub(super) fn apply(
             *snooze_minutes,
         ),
         AutomationIntent::ClaimDueReminders {
+            work_token,
             limit,
             lease_duration_ms,
-        } => claim_due(
-            connection,
-            library_id,
-            operation_id,
-            *limit,
-            *lease_duration_ms,
-        ),
+        } => {
+            validate_reminder_work_token(connection, library_id, work_token)?;
+            claim_due(
+                connection,
+                library_id,
+                operation_id,
+                *limit,
+                *lease_duration_ms,
+            )
+        }
         AutomationIntent::CompleteReminderLease { lease_id } => {
             settle(connection, lease_id, None, None)
         }
@@ -395,7 +463,7 @@ fn claim_due(
     let expired_ids = expire_claims(connection, now_ms)?;
     let mut candidates = collect_regular_candidates(connection, library_id, now_ms)?;
     let consumed_snooze_ids =
-        collect_snooze_candidates(connection, library_id, now_ms, &mut candidates)?;
+        collect_snooze_candidates(connection, library_id, now_ms, &mut candidates, true)?;
     let mut candidates = candidates.into_values().collect::<Vec<_>>();
     candidates.sort_by(|left, right| {
         left.due_at_ms
@@ -557,6 +625,7 @@ fn collect_snooze_candidates(
     library_id: &str,
     now_ms: i64,
     candidates: &mut ReminderCandidates,
+    consume_receipted: bool,
 ) -> Result<Vec<i64>, StoreError> {
     let now_iso = timestamp_to_iso(now_ms)?;
     let rows = {
@@ -606,11 +675,13 @@ fn collect_snooze_candidates(
         let title = super::occurrence::read_current_page_title(connection, &page_id)?;
         let receipt_project_id = project_id.clone();
         if receipt_exists(connection, library_id, &page_id, occurrence_start_ms, -1)? {
-            connection.execute(
-                "UPDATE reminder_snoozes SET consumed_at = ?1 WHERE id = ?2",
-                params![now_iso, snooze_id],
-            )?;
-            consumed_ids.push(snooze_id);
+            if consume_receipted {
+                connection.execute(
+                    "UPDATE reminder_snoozes SET consumed_at = ?1 WHERE id = ?2",
+                    params![now_iso, snooze_id],
+                )?;
+                consumed_ids.push(snooze_id);
+            }
             continue;
         }
         let candidate = ReminderCandidate {
@@ -773,7 +844,7 @@ fn coordinate_is_blocked(
 ) -> Result<bool, StoreError> {
     let row = connection
         .query_row(
-            "SELECT status, retry_at_ms FROM core_reminder_leases \
+            "SELECT status, retry_at_ms, expires_at_ms FROM core_reminder_leases \
              WHERE library_id = ?1 AND page_id = ?2 AND occurrence_start_ms = ?3 \
                AND reminder_offset_minutes = ?4 \
              ORDER BY attempt DESC LIMIT 1",
@@ -783,14 +854,21 @@ fn coordinate_is_blocked(
                 candidate.occurrence_start_ms,
                 candidate.reminder_offset_minutes,
             ],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
         )
         .optional()?;
     Ok(match row {
         None => false,
-        Some((status, _)) if status == "claimed" || status == "completed" => true,
-        Some((_, Some(retry_at_ms))) => retry_at_ms > now_ms,
-        Some((_, None)) => false,
+        Some((status, _, expires_at_ms)) if status == "claimed" => expires_at_ms > now_ms,
+        Some((status, _, _)) if status == "completed" => true,
+        Some((_, Some(retry_at_ms), _)) => retry_at_ms > now_ms,
+        Some((_, None, _)) => false,
     })
 }
 

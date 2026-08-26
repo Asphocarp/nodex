@@ -1510,15 +1510,70 @@ export interface BackupRecord {
   totalBytes: number;
 }
 
+export interface BackupCapacity {
+  availableBytes: number;
+  estimatedNextBackupBytes: number;
+  safetyMarginBytes: number;
+  totalReadyBytes: number;
+  manualReadyBytes: number;
+  automaticReadyBytes: number;
+  canCreate: boolean;
+}
+
+export interface SnapshotStorageOptimization {
+  optimizing: boolean;
+  commitHead: number;
+  replayFloor: number;
+  pendingCommitMetadata: number;
+  pendingReceiptMetadata: number;
+  retainedCommitCount: number;
+  retainedDeliveryBytes: number;
+  retainedReceiptCount: number;
+  retainedReceiptBytes: number;
+  receiptFloorAt: string | null;
+  lastPrunedCommit: number;
+  freelistPages: number;
+  reclaimableBytes: number;
+}
+
 export interface CreateBackupInput {
   trigger?: BackupTrigger;
   label?: string;
+}
+
+export type BackupJobState = "queued" | "running" | "cancelled" | "completed" | "failed";
+
+export interface BackupJobProgress {
+  databaseCopiedPages: number;
+  databaseTotalPages: number;
+  databaseBusyRetries: number;
+  assetBytesCopied: number;
+  databaseCopyMs: number;
+  assetCopyMs: number;
+  validationMs: number;
+  digestMs: number;
+  publishMs: number;
+  writerHeldMs: number;
+}
+
+export interface BackupJobStatus {
+  jobId: string;
+  state: BackupJobState;
+  phase: string;
+  completedUnits: number;
+  totalUnits: number;
+  startedAt: number;
+  updatedAt: number;
+  backup: BackupRecord | null;
+  error: string | null;
+  progress: BackupJobProgress;
 }
 
 export interface BackupSettingsEnvOverrides {
   autoEnabled: boolean;
   intervalHours: boolean;
   retentionCount: boolean;
+  retentionGiB: boolean;
 }
 
 export interface HistorySettingsEnvOverrides {
@@ -1693,6 +1748,7 @@ export interface BackupSettings {
   autoEnabled: boolean;
   intervalHours: number;
   retentionCount: number;
+  retentionGiB: number;
   envOverrides: BackupSettingsEnvOverrides;
 }
 
@@ -1700,6 +1756,7 @@ export interface UpdateBackupSettingsInput {
   autoEnabled: boolean;
   intervalHours: number;
   retentionCount: number;
+  retentionGiB: number;
 }
 
 export interface HistorySettings {

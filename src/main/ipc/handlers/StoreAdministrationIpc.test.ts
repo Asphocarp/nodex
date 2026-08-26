@@ -48,10 +48,38 @@ it.effect("owns Store administration ingress and commits restore shutdown atomic
     });
     const administration = StoreAdministration.of({
       listBackups: Effect.succeed([]),
+      backupCapacity: Effect.succeed({
+        availableBytes: 1_000_000,
+        estimatedNextBackupBytes: 120,
+        safetyMarginBytes: 512,
+        totalReadyBytes: 0,
+        manualReadyBytes: 0,
+        automaticReadyBytes: 0,
+        canCreate: true,
+      }),
+      snapshotStorageOptimization: Effect.succeed({
+        optimizing: false,
+        commitHead: 0,
+        replayFloor: 0,
+        pendingCommitMetadata: 0,
+        pendingReceiptMetadata: 0,
+        retainedCommitCount: 0,
+        retainedDeliveryBytes: 0,
+        retainedReceiptCount: 0,
+        retainedReceiptBytes: 0,
+        receiptFloorAt: null,
+        lastPrunedCommit: 0,
+        freelistPages: 0,
+        reclaimableBytes: 0,
+      }),
       createBackup: () => Effect.die("unused"),
+      startBackup: () => Effect.die("unused"),
+      backupJob: () => Effect.succeed(null),
+      cancelBackup: () => Effect.die("unused"),
       deleteBackup: () => Effect.die("unused"),
       restoreBackup: (input) => Effect.succeed({ success: true, restoredBackupId: input.backupId }),
       pruneBackups: () => Effect.die("unused"),
+      planMaintenance: () => Effect.die("unused"),
       runMaintenance: () => Effect.die("unused"),
     });
     const scope = yield* Scope.make();
@@ -73,10 +101,14 @@ it.effect("owns Store administration ingress and commits restore shutdown atomic
     );
 
     assert.deepStrictEqual([...handlers.keys()].sort(), [
+      "backup:cancel",
+      "backup:capacity:get",
       "backup:create",
       "backup:delete",
+      "backup:job:get",
       "backup:list",
       "backup:restore",
+      "backup:storage-optimization:get",
     ]);
     const frame = { url: "app://-/index.html" };
     const event = {

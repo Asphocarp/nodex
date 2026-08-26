@@ -983,6 +983,7 @@ describe("Electron native data authority", () => {
                   actorProjectId: projectId,
                   libraryId: authorityRuntime.rootClient.handshake.library_id,
                   storeEpoch: authorityRuntime.rootClient.handshake.store_epoch,
+                  frozenAtMs: 1_785_491_085_000,
                   scope: "project",
                   source: "project_turn",
                 },
@@ -1998,7 +1999,11 @@ describe("Electron native data authority", () => {
               windowEnd: new Date("2026-07-21T00:00:00.000Z"),
             }),
           ).toEqual({ items: [], nextCursor: null });
-          expect(yield* automation.reminders.claimDue(10, 120_000)).toEqual([]);
+          expect(yield* automation.reminders.planDue).toEqual({
+            dueNow: false,
+            nextWakeAt: null,
+            workToken: null,
+          });
           expect(yield* automation.definitions.delete(definition.id)).toMatchObject({
             success: true,
             status: "deleted",

@@ -53,14 +53,34 @@ export const live: Layer.Layer<
         Effect.map((backups) => [...backups]),
       ),
     );
+    yield* handle("backup:capacity:get", (event) =>
+      authorize(event).pipe(
+        Effect.andThen(run("get-backup-capacity", administration.backupCapacity)),
+      ),
+    );
+    yield* handle("backup:storage-optimization:get", (event) =>
+      authorize(event).pipe(
+        Effect.andThen(
+          run("get-snapshot-storage-optimization", administration.snapshotStorageOptimization),
+        ),
+      ),
+    );
     yield* handle("backup:create", (event, input) =>
       authorize(event).pipe(
         Effect.andThen(
           run(
             "create-backup",
-            administration.createBackup({ trigger: "manual", label: input?.label }),
+            administration.startBackup({ trigger: "manual", label: input?.label }),
           ),
         ),
+      ),
+    );
+    yield* handle("backup:job:get", (event, jobId) =>
+      authorize(event).pipe(Effect.andThen(run("get-backup-job", administration.backupJob(jobId)))),
+    );
+    yield* handle("backup:cancel", (event, jobId) =>
+      authorize(event).pipe(
+        Effect.andThen(run("cancel-backup", administration.cancelBackup(jobId))),
       ),
     );
     yield* handle("backup:delete", (event, backupId) =>

@@ -137,8 +137,8 @@ mints its Profile-specific singleton rows in the same transaction, so an
 interrupted first open remains an empty, retryable database. A current Store
 must match the catalog's exact current fingerprint. A supported predecessor
 must match its catalog fingerprint, complete revision-independent semantics,
-and reconstructible Yrs Documents before migration is reported or a backup is
-published.
+and reconstructible Yrs Documents before a migration write begins or a backup
+is published.
 
 Deep Store validation checks SQLite integrity and foreign keys, exact schema
 and Core metadata, durable semantic invariants, and LocalCommit coverage and
@@ -162,12 +162,14 @@ logging content.
 A migration follows one durable pattern:
 
 1. identify an exact recognized source inventory;
-2. validate source semantics before reporting migration work;
-3. create and verify a regular content-addressed SQLite Online Backup;
-4. apply the ordered forward step in one `BEGIN IMMEDIATE` transaction;
-5. rebuild affected projections and validate exact current physical and
+2. report migration preparation and emit periodic heartbeats while long source
+   validation and backup work remains in progress;
+3. validate source semantics;
+4. create and verify a regular content-addressed SQLite Online Backup;
+5. apply the ordered forward step in one `BEGIN IMMEDIATE` transaction;
+6. rebuild affected projections and validate exact current physical and
    semantic authority inside that transaction;
-6. commit the target revision and one migration-history row together.
+7. commit the target revision and one migration-history row together.
 
 The verified backup exists before the write transaction and remains available
 after either success or rollback. A failed transaction leaves the live Store at
@@ -201,8 +203,10 @@ only for narrow failure injection; it is not predecessor-boundary evidence.
 
 Migration progress is authoritative evidence, not elapsed-time estimation. The
 startup UI remains quiet for ordinary opening, shows migration language only
-after Core classifies a supported older Store, and changes to opening language
-as soon as Store readiness commits.
+after Core classifies a supported older Store, receives heartbeats throughout
+reader-heavy validation and backup preparation, and changes to opening language
+as soon as Store readiness commits. A preparation heartbeat asserts liveness;
+it does not imply the Store has been mutated.
 
 ## Validation owner
 

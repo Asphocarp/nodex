@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import type {
   ThreadResumeResponse,
@@ -16,6 +15,7 @@ import { buildCodexThreadConfigOverrides } from "../codex/codex-thread-capabilit
 import { rewriteExecutionWorkspaceRoots } from "../codex/codex-execution-workspace-roots";
 import type { CodexThreadExecutionLocation } from "../codex/codex-thread-handoff-journal";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { DesktopToolRuntime } from "../host-runtime/DesktopToolRuntime";
 import type { ManagedWorktreeHandoffPreparation } from "./ManagedWorktreeHandoff";
 import { CodexConversationProjection } from "./CodexConversationProjection";
@@ -371,7 +371,7 @@ export const live: Layer.Layer<
       commit: (threadId, location) =>
         core.workspace
           .apply({
-            operationId: `electron:thread-handoff:${threadId}:${randomUUID()}`,
+            operationId: createOperationId("thread-execution.handoff"),
             intent: {
               kind: "set_thread_execution_location",
               thread_id: threadId,

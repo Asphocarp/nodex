@@ -58,6 +58,8 @@ pub enum CoreErrorCode {
     PatchAmbiguous,
     PatchOverlap,
     IdempotencyKeyReused,
+    IdempotencyWindowExpired,
+    LegacyIdempotencyUnavailable,
     ProtectedOwnerDeletion,
     DocumentUpdateMissingDependencies,
     InvalidDocumentSchema,

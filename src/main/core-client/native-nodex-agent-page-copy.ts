@@ -53,8 +53,9 @@ const envelope = <Result>(
 });
 
 export const nativeNodexAgentPageCopyOperationId = (
-  request: Pick<PrepareNodexAgentDuplicatePageRequest, "threadId" | "callId">,
+  request: Pick<PrepareNodexAgentDuplicatePageRequest, "threadId" | "callId" | "operationId">,
 ): string =>
+  request.operationId ??
   `nodex-agent-duplicate:${createHash("sha256")
     .update(JSON.stringify([request.threadId, request.callId, "duplicate_page"]))
     .digest("hex")}`;

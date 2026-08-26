@@ -1,35 +1,73 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+use std::time::Instant;
 
-use nodex_core_contracts::administration::{BackupRecord, BackupTrigger};
-use rusqlite::{Connection, MAIN_DB, OptionalExtension};
+use nodex_core_contracts::administration::{
+    BackupCapacity, BackupJobProgress, BackupJobRecord, BackupRecord, BackupTrigger,
+};
+use rusqlite::backup::{Backup, StepResult};
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::document::integrity::validate_restore_documents;
 use crate::infrastructure::schema::CURRENT_STORE_REVISION;
-use crate::infrastructure::sqlite::{
-    StoreError, StoreErrorCode, open_immutable_reader, validate_store,
-};
-use crate::infrastructure::store_validation::{
-    validate_codex_thread_timestamp_invariants, validate_database_priority_invariants,
-};
+use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, open_immutable_reader};
+use crate::infrastructure::store_validation::validate_current_store;
 
 const BACKUP_MANIFEST_VERSION: u32 = 3;
 const BACKUP_INTEGRITY_EVIDENCE_VERSION: u32 = 1;
 const BACKUP_DATABASE_FILE_NAME: &str = "nodex.db";
 const BACKUP_ASSETS_DIRECTORY_NAME: &str = "assets";
 const BACKUP_MANIFEST_FILE_NAME: &str = "manifest.json";
+const BACKUP_CONTROL_DIRECTORY_NAME: &str = ".control";
+const BACKUP_JOB_DIRECTORY_NAME: &str = "jobs";
+const BACKUP_JOB_VERSION: u32 = 1;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
+const MAX_BACKUP_JOB_BYTES: u64 = 64 * 1024;
+const MAX_BACKUP_JOBS: usize = 32;
 const MAX_BACKUP_ENTRIES: usize = 10_000;
 const MAX_BACKUP_TREE_ENTRIES: usize = 100_000;
 const DIGEST_BUFFER_BYTES: usize = 1024 * 1024;
 const ASSET_TREE_DIGEST_DOMAIN: &[u8] = b"nodex-backup-asset-tree-v1\0";
+const MIN_BACKUP_SAFETY_MARGIN_BYTES: u64 = 512 * 1024 * 1024;
+const ONLINE_BACKUP_PAGES_PER_STEP: i32 = 512;
+const ONLINE_BACKUP_STEP_PAUSE: Duration = Duration::from_millis(1);
 
 pub(super) struct BackupInventoryItem {
     pub record: BackupRecord,
     pub trigger: String,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum BackupCapacityMode {
+    /// Cheap projection for Settings. The next job performs an authoritative
+    /// live preflight before writing staging bytes.
+    InventoryEstimate,
+    LivePreflight,
+}
+
+/// Process-local proof that this exact staging directory passed the expensive
+/// database and asset validation in the current operation. Publication may
+/// consume it without repeating those reads; crash recovery deliberately does
+/// not persist this capability and therefore revalidates from bytes.
+pub(super) struct VerifiedStagedBackup {
+    record: BackupRecord,
+    root: PathBuf,
+    staging_directory: PathBuf,
+    final_directory: PathBuf,
+    staging_device: u64,
+    staging_inode: u64,
+}
+
+impl VerifiedStagedBackup {
+    pub(super) fn record(&self) -> &BackupRecord {
+        &self.record
+    }
 }
 
 pub(super) struct ValidatedRestoreBackup {
@@ -108,11 +146,25 @@ struct BackupManifest {
     core_request_hash: Option<String>,
 }
 
-pub(super) fn list_backups(profile_home: &Path) -> Result<Vec<BackupRecord>, StoreError> {
-    Ok(list_backup_inventory(profile_home)?
-        .into_iter()
-        .map(|item| item.record)
-        .collect())
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupJobJournal {
+    version: u32,
+    job_id: String,
+    operation_id: String,
+    request_hash: String,
+    profile_id: String,
+    state: String,
+    phase: String,
+    started_at_ms: i64,
+    updated_at_ms: i64,
+    label: Option<String>,
+    include_assets: bool,
+    trigger: String,
+    backup_id: String,
+    error: Option<String>,
+    #[serde(default)]
+    progress: BackupJobProgress,
 }
 
 pub(super) fn list_backup_inventory(
@@ -154,6 +206,110 @@ pub(super) fn list_backup_inventory(
             .then_with(|| right.record.backup_id.cmp(&left.record.backup_id))
     });
     Ok(backups)
+}
+
+pub(super) fn backup_capacity(
+    profile_home: &Path,
+    inventory: &[BackupInventoryItem],
+    include_assets: bool,
+    mode: BackupCapacityMode,
+) -> Result<BackupCapacity, StoreError> {
+    let database_path = profile_home.join(BACKUP_DATABASE_FILE_NAME);
+    let database_bytes = regular_file_length(&database_path)?;
+    let asset_bytes = if !include_assets {
+        0
+    } else if matches!(mode, BackupCapacityMode::LivePreflight) {
+        inspect_optional_assets(&profile_home.join(BACKUP_ASSETS_DIRECTORY_NAME))?
+    } else {
+        inventory
+            .iter()
+            .map(|item| item.record.assets_bytes)
+            .max()
+            .unwrap_or(0)
+    };
+    let estimated_next_backup_bytes = database_bytes
+        .checked_add(asset_bytes)
+        .ok_or_else(|| internal("Estimated Backup byte length exceeds its bound"))?;
+    let safety_margin_bytes = MIN_BACKUP_SAFETY_MARGIN_BYTES.max(estimated_next_backup_bytes / 10);
+    let filesystem = rustix::fs::statvfs(profile_home)
+        .map_err(|error| io_error(std::io::Error::from_raw_os_error(error.raw_os_error())))?;
+    let available_bytes = filesystem.f_bavail.saturating_mul(filesystem.f_frsize);
+    let mut total_ready_bytes = 0_u64;
+    let mut manual_ready_bytes = 0_u64;
+    let mut automatic_ready_bytes = 0_u64;
+    for item in inventory {
+        total_ready_bytes = total_ready_bytes.saturating_add(item.record.total_bytes);
+        if item.trigger == "auto" {
+            automatic_ready_bytes = automatic_ready_bytes.saturating_add(item.record.total_bytes);
+        } else {
+            manual_ready_bytes = manual_ready_bytes.saturating_add(item.record.total_bytes);
+        }
+    }
+    let required_bytes = estimated_next_backup_bytes.saturating_add(safety_margin_bytes);
+    Ok(BackupCapacity {
+        available_bytes,
+        estimated_next_backup_bytes,
+        safety_margin_bytes,
+        total_ready_bytes,
+        manual_ready_bytes,
+        automatic_ready_bytes,
+        can_create: available_bytes >= required_bytes,
+    })
+}
+
+pub(super) fn list_backup_jobs(profile_home: &Path) -> Result<Vec<BackupJobRecord>, StoreError> {
+    let root = profile_home.join("backups");
+    let jobs_directory = root
+        .join(BACKUP_CONTROL_DIRECTORY_NAME)
+        .join(BACKUP_JOB_DIRECTORY_NAME);
+    let metadata = match fs::symlink_metadata(&jobs_directory) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(io_error(error)),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(invalid_profile(
+            "Backup job control root must be a real directory",
+        ));
+    }
+    let mut journals = fs::read_dir(&jobs_directory)
+        .map_err(io_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(io_error)?
+        .into_iter()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.ends_with(".json") && !name.starts_with('.'))
+        })
+        .collect::<Vec<_>>();
+    if journals.len() > MAX_BACKUP_JOBS {
+        return Err(corrupt("Backup job journal exceeds its entry bound"));
+    }
+    journals.sort_by_key(fs::DirEntry::file_name);
+    let mut jobs = Vec::with_capacity(journals.len());
+    for entry in journals {
+        let metadata = fs::symlink_metadata(entry.path()).map_err(io_error)?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.len() > MAX_BACKUP_JOB_BYTES
+        {
+            return Err(corrupt("Backup job journal contains an invalid entry"));
+        }
+        let journal: BackupJobJournal =
+            serde_json::from_slice(&fs::read(entry.path()).map_err(io_error)?)
+                .map_err(|_| corrupt("Backup job journal JSON is invalid"))?;
+        validate_backup_job(&journal)?;
+        jobs.push(to_job_record(journal)?);
+    }
+    jobs.sort_by(|left, right| {
+        right
+            .updated_at_ms
+            .cmp(&left.updated_at_ms)
+            .then_with(|| right.job_id.cmp(&left.job_id))
+    });
+    Ok(jobs)
 }
 
 pub(super) fn validate_backup_for_deletion(
@@ -281,12 +437,10 @@ pub(super) fn create_backup(
     label: Option<&str>,
     include_assets: bool,
     trigger: BackupTrigger,
-) -> Result<BackupRecord, StoreError> {
-    let trigger = match trigger {
-        BackupTrigger::Manual => "manual",
-        BackupTrigger::Auto => "auto",
-        BackupTrigger::PreRestore => "pre-restore",
-    };
+    progress: &dyn Fn(&'static str) -> Result<(), StoreError>,
+    cancellation_requested: &dyn Fn() -> Result<bool, StoreError>,
+) -> Result<VerifiedStagedBackup, StoreError> {
+    let trigger = trigger_name(trigger);
     stage_backup_with_trigger(
         connection,
         profile_home,
@@ -296,7 +450,87 @@ pub(super) fn create_backup(
         label,
         include_assets,
         trigger,
+        progress,
+        cancellation_requested,
     )
+}
+
+pub(super) fn update_backup_job_phase(
+    profile_home: &Path,
+    operation_id: &str,
+    state: &str,
+    phase: &str,
+    error: Option<&str>,
+) -> Result<(), StoreError> {
+    let Some(mut journal) = read_backup_job(profile_home, operation_id)? else {
+        return Ok(());
+    };
+    journal.state = state.to_owned();
+    journal.phase = phase.to_owned();
+    journal.updated_at_ms = current_time_millis()?;
+    journal.error = error.map(str::to_owned);
+    write_backup_job(profile_home, &journal)
+}
+
+pub(super) fn update_backup_job_progress(
+    profile_home: &Path,
+    operation_id: &str,
+    update: impl FnOnce(&mut BackupJobProgress),
+) -> Result<(), StoreError> {
+    let Some(mut journal) = read_backup_job(profile_home, operation_id)? else {
+        return Ok(());
+    };
+    update(&mut journal.progress);
+    journal.updated_at_ms = current_time_millis()?;
+    write_backup_job(profile_home, &journal)
+}
+
+/// Durably records cancellation before publication. An active worker observes
+/// the process-local flag between bounded database-copy steps; an adopted job
+/// has no worker and can be cleaned immediately from its journal identity.
+pub(super) fn request_backup_job_cancel(
+    profile_home: &Path,
+    operation_id: &str,
+    has_active_worker: bool,
+) -> Result<bool, StoreError> {
+    let Some(mut journal) = read_backup_job(profile_home, operation_id)? else {
+        return Err(StoreError::new(
+            StoreErrorCode::NotFound,
+            "Snapshot job was not found",
+            false,
+        ));
+    };
+    if journal.state == "cancelled" || (journal.state == "cancelling" && has_active_worker) {
+        return Ok(false);
+    }
+    if journal.state == "ready"
+        || journal.state == "failed"
+        || matches!(journal.phase.as_str(), "commit" | "publishing" | "ready")
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "Snapshot can no longer be cancelled after publication has begun",
+            false,
+        ));
+    }
+    journal.updated_at_ms = current_time_millis()?;
+    journal.error = None;
+    if has_active_worker {
+        journal.state = "cancelling".to_owned();
+        journal.phase = "cancellation_requested".to_owned();
+        write_backup_job(profile_home, &journal)?;
+        return Ok(true);
+    }
+
+    let root = prepare_backup_root(profile_home)?;
+    let staging_directory = root.join(format!(".{}.tmp", journal.backup_id));
+    if staging_directory.exists() {
+        remove_owned_staging_directory(&root, &staging_directory)?;
+    }
+    journal.state = "cancelled".to_owned();
+    journal.phase = "cancelled".to_owned();
+    write_backup_job(profile_home, &journal)?;
+    Ok(true)
 }
 
 pub(super) fn create_safety_backup(
@@ -310,7 +544,7 @@ pub(super) fn create_safety_backup(
     let role_digest = Sha256::digest(format!("pre-restore\0{restore_operation_id}"));
     let operation_id = format!("pre-restore-{}", hex(&role_digest));
     let label = format!("Before restoring {restored_backup_id}");
-    let record = stage_backup_with_trigger(
+    let staged = stage_backup_with_trigger(
         connection,
         profile_home,
         profile_id,
@@ -319,8 +553,12 @@ pub(super) fn create_safety_backup(
         Some(&label),
         true,
         "pre-restore",
+        &|_| Ok(()),
+        &|| Ok(false),
     )?;
-    publish_backup(profile_home, &operation_id, request_hash, &record.backup_id)?;
+    let record = staged.record().clone();
+    publish_verified_backup(staged)?;
+    update_backup_job_phase(profile_home, &operation_id, "ready", "ready", None)?;
     Ok(record)
 }
 
@@ -334,14 +572,36 @@ fn stage_backup_with_trigger(
     label: Option<&str>,
     include_assets: bool,
     trigger: &str,
-) -> Result<BackupRecord, StoreError> {
+    progress: &dyn Fn(&'static str) -> Result<(), StoreError>,
+    cancellation_requested: &dyn Fn() -> Result<bool, StoreError>,
+) -> Result<VerifiedStagedBackup, StoreError> {
     let root = prepare_backup_root(profile_home)?;
     let backup_id = backup_id(profile_id, operation_id);
+    begin_backup_job(
+        profile_home,
+        profile_id,
+        operation_id,
+        request_hash,
+        label,
+        include_assets,
+        trigger,
+        &backup_id,
+    )?;
     let final_directory = root.join(&backup_id);
     let staging_directory = root.join(format!(".{backup_id}.tmp"));
 
     if final_directory.exists() {
-        return adopt_published_backup(&final_directory, operation_id, request_hash, &backup_id);
+        let record =
+            adopt_published_backup(&final_directory, operation_id, request_hash, &backup_id)?;
+        let metadata = fs::symlink_metadata(&final_directory).map_err(io_error)?;
+        return Ok(VerifiedStagedBackup {
+            record,
+            root,
+            staging_directory: final_directory.clone(),
+            final_directory,
+            staging_device: metadata.dev(),
+            staging_inode: metadata.ino(),
+        });
     }
     if let Some(record) = recover_staging_backup(
         &root,
@@ -350,7 +610,15 @@ fn stage_backup_with_trigger(
         request_hash,
         &backup_id,
     )? {
-        return Ok(record);
+        let metadata = fs::symlink_metadata(&staging_directory).map_err(io_error)?;
+        return Ok(VerifiedStagedBackup {
+            record,
+            root,
+            staging_directory,
+            final_directory,
+            staging_device: metadata.dev(),
+            staging_inode: metadata.ino(),
+        });
     }
 
     fs::create_dir(&staging_directory).map_err(io_error)?;
@@ -364,15 +632,85 @@ fn stage_backup_with_trigger(
         label,
         include_assets,
         trigger,
+        progress,
+        cancellation_requested,
     );
     let record = match result {
         Ok(record) => record,
         Err(error) => {
             remove_owned_staging_directory(&root, &staging_directory)?;
+            if error.code == StoreErrorCode::QueryCancelled {
+                update_backup_job_phase(
+                    profile_home,
+                    operation_id,
+                    "cancelled",
+                    "cancelled",
+                    None,
+                )?;
+            } else {
+                update_backup_job_phase(
+                    profile_home,
+                    operation_id,
+                    "failed",
+                    "failed",
+                    Some("Snapshot creation failed."),
+                )?;
+            }
             return Err(error);
         }
     };
-    Ok(record)
+    let metadata = fs::symlink_metadata(&staging_directory).map_err(io_error)?;
+    Ok(VerifiedStagedBackup {
+        record,
+        root,
+        staging_directory,
+        final_directory,
+        staging_device: metadata.dev(),
+        staging_inode: metadata.ino(),
+    })
+}
+
+pub(super) fn publish_verified_backup(
+    staged: VerifiedStagedBackup,
+) -> Result<BackupRecord, StoreError> {
+    if staged.staging_directory == staged.final_directory {
+        return Ok(staged.record);
+    }
+    let metadata = fs::symlink_metadata(&staged.staging_directory).map_err(io_error)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_dir()
+        || metadata.dev() != staged.staging_device
+        || metadata.ino() != staged.staging_inode
+    {
+        return Err(corrupt(
+            "Verified backup staging identity changed before publication",
+        ));
+    }
+    if staged.final_directory.exists() {
+        return Err(corrupt(
+            "Verified backup publication found an unexpected destination",
+        ));
+    }
+    fs::rename(&staged.staging_directory, &staged.final_directory).map_err(io_error)?;
+    sync_directory(&staged.root)?;
+    Ok(staged.record)
+}
+
+pub(super) fn discard_verified_backup(staged: VerifiedStagedBackup) -> Result<(), StoreError> {
+    if staged.staging_directory == staged.final_directory {
+        return Ok(());
+    }
+    let metadata = fs::symlink_metadata(&staged.staging_directory).map_err(io_error)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_dir()
+        || metadata.dev() != staged.staging_device
+        || metadata.ino() != staged.staging_inode
+    {
+        return Err(corrupt(
+            "Verified backup staging identity changed before cleanup",
+        ));
+    }
+    remove_owned_staging_directory(&staged.root, &staged.staging_directory)
 }
 
 pub(super) fn publish_backup(
@@ -413,34 +751,95 @@ fn stage_backup(
     label: Option<&str>,
     include_assets: bool,
     trigger: &str,
+    progress: &dyn Fn(&'static str) -> Result<(), StoreError>,
+    cancellation_requested: &dyn Fn() -> Result<bool, StoreError>,
 ) -> Result<BackupRecord, StoreError> {
+    let asset_snapshot_lease =
+        crate::infrastructure::managed_asset_snapshot::acquire_snapshot_lease()?;
+    progress("database_snapshot")?;
     let database_path = staging_directory.join(BACKUP_DATABASE_FILE_NAME);
-    connection.backup(MAIN_DB, &database_path, None)?;
+    let database_started_at = Instant::now();
+    let mut database_busy_retries = 0u64;
+    {
+        let mut destination = Connection::open(&database_path)?;
+        let backup = Backup::new(connection, &mut destination)?;
+        let mut last_reported_at = Instant::now();
+        loop {
+            if cancellation_requested()? {
+                return Err(backup_cancelled());
+            }
+            let step = backup.step(ONLINE_BACKUP_PAGES_PER_STEP)?;
+            if matches!(step, StepResult::Busy | StepResult::Locked) {
+                database_busy_retries = database_busy_retries.saturating_add(1);
+            }
+            let copy_finished = matches!(step, StepResult::Done);
+            if copy_finished || last_reported_at.elapsed() >= Duration::from_millis(250) {
+                let snapshot = backup.progress();
+                let total_pages = u64::try_from(snapshot.pagecount.max(0)).unwrap_or_default();
+                let remaining_pages = u64::try_from(snapshot.remaining.max(0)).unwrap_or_default();
+                update_backup_job_progress(profile_home, operation_id, |progress| {
+                    progress.database_total_pages = total_pages;
+                    progress.database_copied_pages = total_pages.saturating_sub(remaining_pages);
+                    progress.database_busy_retries = database_busy_retries;
+                })?;
+                last_reported_at = Instant::now();
+            }
+            match step {
+                StepResult::Done => break,
+                StepResult::More => std::thread::sleep(ONLINE_BACKUP_STEP_PAUSE),
+                StepResult::Busy | StepResult::Locked => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                _ => return Err(internal("SQLite Backup returned an unknown step state")),
+            }
+        }
+    }
     sync_file(&database_path)?;
+    update_backup_job_progress(profile_home, operation_id, |progress| {
+        progress.database_copy_ms = duration_millis(database_started_at.elapsed());
+        progress.database_busy_retries = database_busy_retries;
+    })?;
 
+    progress("asset_copy")?;
+    if cancellation_requested()? {
+        return Err(backup_cancelled());
+    }
+    let assets_started_at = Instant::now();
     let assets_directory = staging_directory.join(BACKUP_ASSETS_DIRECTORY_NAME);
-    let assets_bytes = if include_assets {
-        copy_assets(
+    let (assets_bytes, asset_tree_sha256) = if include_assets {
+        copy_assets_with_integrity(
             &profile_home.join(BACKUP_ASSETS_DIRECTORY_NAME),
             &assets_directory,
-            CopyDurability::Durable,
         )?
     } else {
-        0
-    };
-    let (store_schema_version, store_epoch) = validate_backup_database(&database_path)?;
-    let db_bytes = regular_file_length(&database_path)?;
-    let database_sha256 = sha256_regular_file(&database_path)?;
-    let (digested_asset_bytes, asset_tree_sha256) = if include_assets {
-        digest_asset_tree(&assets_directory)?
-    } else {
+        fs::create_dir(&assets_directory).map_err(io_error)?;
+        sync_directory(&assets_directory)?;
         (0, empty_asset_tree_sha256())
     };
-    if digested_asset_bytes != assets_bytes {
-        return Err(corrupt(
-            "Backup asset tree changed while integrity evidence was created",
-        ));
+    update_backup_job_progress(profile_home, operation_id, |progress| {
+        progress.asset_bytes_copied = assets_bytes;
+        progress.asset_copy_ms = duration_millis(assets_started_at.elapsed());
+    })?;
+    drop(asset_snapshot_lease);
+    if cancellation_requested()? {
+        return Err(backup_cancelled());
     }
+    progress("validation")?;
+    let validation_started_at = Instant::now();
+    let (store_schema_version, store_epoch) = validate_backup_database(&database_path)?;
+    update_backup_job_progress(profile_home, operation_id, |progress| {
+        progress.validation_ms = duration_millis(validation_started_at.elapsed());
+    })?;
+    let db_bytes = regular_file_length(&database_path)?;
+    if cancellation_requested()? {
+        return Err(backup_cancelled());
+    }
+    progress("digest")?;
+    let digest_started_at = Instant::now();
+    let database_sha256 = sha256_regular_file(&database_path)?;
+    update_backup_job_progress(profile_home, operation_id, |progress| {
+        progress.digest_ms = duration_millis(digest_started_at.elapsed());
+    })?;
     let created_at =
         connection.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
             row.get::<_, String>(0)
@@ -468,6 +867,10 @@ fn stage_backup(
         core_request_hash: Some(request_hash.to_owned()),
     };
     validate_manifest(&manifest)?;
+    if cancellation_requested()? {
+        return Err(backup_cancelled());
+    }
+    progress("commit")?;
     write_manifest(staging_directory, &manifest)?;
     // The database, manifest, asset files, and nested asset directories were
     // already synced by their writers; persist only the staging entries here.
@@ -867,6 +1270,137 @@ fn copy_assets(
     Ok(bytes)
 }
 
+/// Copies the managed asset tree and derives its integrity evidence from the
+/// same source reads. Backup creation therefore never walks and rereads every
+/// copied asset merely to publish its manifest.
+fn copy_assets_with_integrity(
+    source: &Path,
+    destination: &Path,
+) -> Result<(u64, String), StoreError> {
+    let metadata = match fs::symlink_metadata(source) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(destination).map_err(io_error)?;
+            sync_directory(destination)?;
+            return Ok((0, empty_asset_tree_sha256()));
+        }
+        Err(error) => return Err(io_error(error)),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(invalid_profile(
+            "Managed assets root must be a real directory",
+        ));
+    }
+    fs::create_dir(destination).map_err(io_error)?;
+    let mut hasher = Sha256::new();
+    hasher.update(ASSET_TREE_DIGEST_DOMAIN);
+    let mut inspected = 0usize;
+    let mut buffer = vec![0u8; DIGEST_BUFFER_BYTES];
+    let bytes = copy_and_digest_asset_directory(
+        source,
+        source,
+        destination,
+        &mut hasher,
+        &mut inspected,
+        &mut buffer,
+    )?;
+    sync_directory(destination)?;
+    Ok((bytes, hex(&hasher.finalize())))
+}
+
+fn copy_and_digest_asset_directory(
+    root: &Path,
+    source: &Path,
+    destination: &Path,
+    hasher: &mut Sha256,
+    inspected: &mut usize,
+    buffer: &mut [u8],
+) -> Result<u64, StoreError> {
+    let mut entries = fs::read_dir(source)
+        .map_err(io_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(io_error)?;
+    entries.sort_by_key(fs::DirEntry::file_name);
+    let mut total = 0u64;
+    for entry in entries {
+        *inspected = inspected
+            .checked_add(1)
+            .ok_or_else(|| corrupt("Managed asset tree exceeds its entry bound"))?;
+        if *inspected > MAX_BACKUP_TREE_ENTRIES {
+            return Err(corrupt("Managed asset tree exceeds its entry bound"));
+        }
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&source_path).map_err(io_error)?;
+        if metadata.file_type().is_symlink() {
+            return Err(invalid_profile(
+                "Managed assets must not contain symbolic links",
+            ));
+        }
+        let relative = source_path
+            .strip_prefix(root)
+            .map_err(|_| internal("Managed asset escaped its copy root"))?;
+        let relative_bytes = relative.as_os_str().as_bytes();
+        let relative_length = u64::try_from(relative_bytes.len())
+            .map_err(|_| internal("Managed asset path exceeds its digest bound"))?;
+        if metadata.is_dir() {
+            hasher.update(b"d");
+            hasher.update(relative_length.to_be_bytes());
+            hasher.update(relative_bytes);
+            fs::create_dir(&destination_path).map_err(io_error)?;
+            total = total
+                .checked_add(copy_and_digest_asset_directory(
+                    root,
+                    &source_path,
+                    &destination_path,
+                    hasher,
+                    inspected,
+                    buffer,
+                )?)
+                .ok_or_else(|| corrupt("Managed asset byte length exceeds its bound"))?;
+            sync_directory(&destination_path)?;
+            continue;
+        }
+        if !metadata.is_file() {
+            return Err(invalid_profile(
+                "Managed assets may contain only regular files and directories",
+            ));
+        }
+        hasher.update(b"f");
+        hasher.update(relative_length.to_be_bytes());
+        hasher.update(relative_bytes);
+        hasher.update(metadata.len().to_be_bytes());
+        let mut input = File::open(&source_path).map_err(io_error)?;
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination_path)
+            .map_err(io_error)?;
+        let mut file_bytes = 0u64;
+        loop {
+            let count = input.read(buffer).map_err(io_error)?;
+            if count == 0 {
+                break;
+            }
+            output.write_all(&buffer[..count]).map_err(io_error)?;
+            hasher.update(&buffer[..count]);
+            file_bytes = file_bytes
+                .checked_add(u64::try_from(count).map_err(|_| internal("Asset read is too large"))?)
+                .ok_or_else(|| corrupt("Managed asset byte length exceeds its bound"))?;
+        }
+        if file_bytes != metadata.len()
+            || fs::symlink_metadata(&source_path).map_err(io_error)?.len() != metadata.len()
+        {
+            return Err(corrupt("Managed asset changed while it was copied"));
+        }
+        output.sync_all().map_err(io_error)?;
+        total = total
+            .checked_add(file_bytes)
+            .ok_or_else(|| corrupt("Managed asset byte length exceeds its bound"))?;
+    }
+    Ok(total)
+}
+
 fn copy_directory(
     source: &Path,
     destination: &Path,
@@ -913,6 +1447,46 @@ fn copy_directory(
 fn inspect_assets(root: &Path) -> Result<u64, StoreError> {
     require_directory(root, "Backup assets")?;
     inspect_directory(root)
+}
+
+fn inspect_source_directory(root: &Path) -> Result<u64, StoreError> {
+    let mut total = 0_u64;
+    for entry in fs::read_dir(root).map_err(io_error)? {
+        let entry = entry.map_err(io_error)?;
+        let metadata = fs::symlink_metadata(entry.path()).map_err(io_error)?;
+        if metadata.file_type().is_symlink() {
+            return Err(invalid_profile(
+                "Managed assets must not contain symbolic links",
+            ));
+        }
+        let length = if metadata.is_dir() {
+            inspect_source_directory(&entry.path())?
+        } else if metadata.is_file() {
+            metadata.len()
+        } else {
+            return Err(invalid_profile(
+                "Managed assets may contain only regular files and directories",
+            ));
+        };
+        total = total
+            .checked_add(length)
+            .ok_or_else(|| invalid_profile("Managed asset byte length exceeds its bound"))?;
+    }
+    Ok(total)
+}
+
+fn inspect_optional_assets(root: &Path) -> Result<u64, StoreError> {
+    let metadata = match fs::symlink_metadata(root) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(io_error(error)),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(invalid_profile(
+            "Managed assets root must be a real directory",
+        ));
+    }
+    inspect_source_directory(root)
 }
 
 fn sha256_regular_file(path: &Path) -> Result<String, StoreError> {
@@ -1084,9 +1658,8 @@ fn inspect_removable_tree(root: &Path, inspected: &mut usize) -> Result<(), Stor
 fn validate_backup_database(path: &Path) -> Result<(u32, String), StoreError> {
     let result = (|| {
         let connection = open_immutable_reader(path)?;
-        validate_store(&connection)?;
-        validate_codex_thread_timestamp_invariants(&connection)?;
-        validate_database_priority_invariants(&connection)?;
+        validate_current_store(&connection)?;
+        validate_restore_documents(&connection)?;
         let schema_version =
             connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?;
         if schema_version != u32::try_from(CURRENT_STORE_REVISION).expect("schema version fits u32")
@@ -1122,6 +1695,282 @@ fn validate_backup_database(path: &Path) -> Result<(u32, String), StoreError> {
         )),
         _ => error,
     })
+}
+
+fn trigger_name(trigger: BackupTrigger) -> &'static str {
+    match trigger {
+        BackupTrigger::Manual => "manual",
+        BackupTrigger::Auto => "auto",
+        BackupTrigger::PreRestore => "pre-restore",
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn begin_backup_job(
+    profile_home: &Path,
+    profile_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    label: Option<&str>,
+    include_assets: bool,
+    trigger: &str,
+    backup_id: &str,
+) -> Result<(), StoreError> {
+    if let Some(mut existing) = read_backup_job(profile_home, operation_id)? {
+        if existing.request_hash != request_hash
+            || existing.profile_id != profile_id
+            || existing.label.as_deref() != label
+            || existing.include_assets != include_assets
+            || existing.trigger != trigger
+            || existing.backup_id != backup_id
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::IdempotencyKeyReused,
+                "Backup job identity is already bound to another request",
+                false,
+            ));
+        }
+        if matches!(existing.state.as_str(), "cancelling" | "cancelled") {
+            return Err(backup_cancelled());
+        }
+        if existing.state != "ready" {
+            existing.state = "running".to_owned();
+            existing.phase = "preparing".to_owned();
+            existing.updated_at_ms = current_time_millis()?;
+            existing.error = None;
+            write_backup_job(profile_home, &existing)?;
+        }
+        return Ok(());
+    }
+    let now = current_time_millis()?;
+    write_backup_job(
+        profile_home,
+        &BackupJobJournal {
+            version: BACKUP_JOB_VERSION,
+            job_id: operation_id.to_owned(),
+            operation_id: operation_id.to_owned(),
+            request_hash: request_hash.to_owned(),
+            profile_id: profile_id.to_owned(),
+            state: "running".to_owned(),
+            phase: "preparing".to_owned(),
+            started_at_ms: now,
+            updated_at_ms: now,
+            label: label.map(str::to_owned),
+            include_assets,
+            trigger: trigger.to_owned(),
+            backup_id: backup_id.to_owned(),
+            error: None,
+            progress: BackupJobProgress::default(),
+        },
+    )
+}
+
+fn current_time_millis() -> Result<i64, StoreError> {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| internal("System clock is before the Unix epoch"))?
+        .as_millis();
+    i64::try_from(millis).map_err(|_| internal("System clock exceeds the supported range"))
+}
+
+fn backup_job_path(profile_home: &Path, operation_id: &str) -> PathBuf {
+    let digest = Sha256::digest(operation_id.as_bytes());
+    profile_home
+        .join("backups")
+        .join(BACKUP_CONTROL_DIRECTORY_NAME)
+        .join(BACKUP_JOB_DIRECTORY_NAME)
+        .join(format!("{}.json", hex(&digest)))
+}
+
+fn prepare_backup_job_directory(profile_home: &Path) -> Result<PathBuf, StoreError> {
+    let root = prepare_backup_root(profile_home)?;
+    let control = root.join(BACKUP_CONTROL_DIRECTORY_NAME);
+    if !control.exists() {
+        fs::create_dir(&control).map_err(io_error)?;
+        sync_directory(&root)?;
+    }
+    require_directory(&control, "Backup control root")?;
+    let jobs = control.join(BACKUP_JOB_DIRECTORY_NAME);
+    if !jobs.exists() {
+        fs::create_dir(&jobs).map_err(io_error)?;
+        sync_directory(&control)?;
+    }
+    require_directory(&jobs, "Backup job control root")?;
+    Ok(jobs)
+}
+
+fn read_backup_job(
+    profile_home: &Path,
+    operation_id: &str,
+) -> Result<Option<BackupJobJournal>, StoreError> {
+    let path = backup_job_path(profile_home, operation_id);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(io_error(error)),
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > MAX_BACKUP_JOB_BYTES
+    {
+        return Err(corrupt("Backup job journal is not a bounded regular file"));
+    }
+    let journal: BackupJobJournal = serde_json::from_slice(&fs::read(path).map_err(io_error)?)
+        .map_err(|_| corrupt("Backup job journal JSON is invalid"))?;
+    validate_backup_job(&journal)?;
+    if journal.operation_id != operation_id {
+        return Err(corrupt("Backup job journal identity is invalid"));
+    }
+    Ok(Some(journal))
+}
+
+fn write_backup_job(profile_home: &Path, journal: &BackupJobJournal) -> Result<(), StoreError> {
+    validate_backup_job(journal)?;
+    let jobs = prepare_backup_job_directory(profile_home)?;
+    prune_terminal_backup_jobs(&jobs, Some(&journal.operation_id))?;
+    let mut bytes = serde_json::to_vec_pretty(journal)
+        .map_err(|_| internal("Backup job journal could not be encoded"))?;
+    bytes.push(b'\n');
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_BACKUP_JOB_BYTES {
+        return Err(internal("Backup job journal exceeds its size bound"));
+    }
+    let digest = hex(&Sha256::digest(journal.operation_id.as_bytes()));
+    let path = jobs.join(format!("{digest}.json"));
+    let temporary = jobs.join(format!(".{digest}.tmp"));
+    if let Ok(metadata) = fs::symlink_metadata(&temporary) {
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(invalid_profile(
+                "Backup job temporary journal is not an owned regular file",
+            ));
+        }
+        fs::remove_file(&temporary).map_err(io_error)?;
+    }
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(io_error)?;
+    file.write_all(&bytes).map_err(io_error)?;
+    file.sync_all().map_err(io_error)?;
+    fs::rename(&temporary, &path).map_err(io_error)?;
+    sync_directory(&jobs)
+}
+
+fn prune_terminal_backup_jobs(
+    jobs: &Path,
+    replacing_operation_id: Option<&str>,
+) -> Result<(), StoreError> {
+    let replacing_path = replacing_operation_id.map(|operation_id| {
+        let digest = hex(&Sha256::digest(operation_id.as_bytes()));
+        jobs.join(format!("{digest}.json"))
+    });
+    let mut entries = fs::read_dir(jobs)
+        .map_err(io_error)?
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.ends_with(".json") && !name.starts_with('.'))
+        })
+        .collect::<Vec<_>>();
+    if replacing_path
+        .as_ref()
+        .is_some_and(|path| entries.iter().any(|entry| entry.path() == *path))
+        || entries.len() < MAX_BACKUP_JOBS
+    {
+        return Ok(());
+    }
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let bytes = fs::read(entry.path()).map_err(io_error)?;
+        let journal: BackupJobJournal = serde_json::from_slice(&bytes)
+            .map_err(|_| corrupt("Backup job journal JSON is invalid"))?;
+        validate_backup_job(&journal)?;
+        if matches!(journal.state.as_str(), "cancelled" | "ready" | "failed") {
+            fs::remove_file(entry.path()).map_err(io_error)?;
+            sync_directory(jobs)?;
+            return Ok(());
+        }
+    }
+    Err(StoreError::new(
+        StoreErrorCode::ResourceExhausted,
+        "Backup job journal has too many active operations",
+        false,
+    ))
+}
+
+fn validate_backup_job(journal: &BackupJobJournal) -> Result<(), StoreError> {
+    if journal.version != BACKUP_JOB_VERSION
+        || journal.job_id != journal.operation_id
+        || journal.operation_id.is_empty()
+        || journal.operation_id.len() > 512
+        || !is_sha256(&journal.request_hash)
+        || journal.profile_id.is_empty()
+        || journal.started_at_ms < 0
+        || journal.updated_at_ms < journal.started_at_ms
+        || !matches!(
+            journal.state.as_str(),
+            "running" | "cancelling" | "cancelled" | "ready" | "failed"
+        )
+        || journal.phase.is_empty()
+        || !matches!(journal.trigger.as_str(), "manual" | "auto" | "pre-restore")
+        || !is_safe_backup_id(&journal.backup_id)
+        || journal
+            .label
+            .as_ref()
+            .is_some_and(|label| label.chars().count() > 512)
+        || (journal.state == "failed" && journal.error.is_none())
+        || (journal.state != "failed" && journal.error.is_some())
+    {
+        return Err(corrupt("Backup job journal fields are invalid"));
+    }
+    Ok(())
+}
+
+fn to_job_record(journal: BackupJobJournal) -> Result<BackupJobRecord, StoreError> {
+    let trigger = match journal.trigger.as_str() {
+        "manual" => BackupTrigger::Manual,
+        "auto" => BackupTrigger::Auto,
+        "pre-restore" => BackupTrigger::PreRestore,
+        _ => return Err(corrupt("Backup job trigger is invalid")),
+    };
+    let (completed_units, total_units) = backup_phase_units(&journal.phase);
+    Ok(BackupJobRecord {
+        job_id: journal.job_id,
+        operation_id: journal.operation_id,
+        state: journal.state,
+        phase: journal.phase,
+        completed_units,
+        total_units,
+        started_at_ms: journal.started_at_ms,
+        updated_at_ms: journal.updated_at_ms,
+        label: journal.label,
+        include_assets: journal.include_assets,
+        trigger,
+        backup_id: journal.backup_id,
+        error: journal.error,
+        progress: journal.progress,
+    })
+}
+
+fn backup_phase_units(phase: &str) -> (u64, u64) {
+    let completed = match phase {
+        "queued" | "preparing" | "cancellation_requested" | "cancelled" => 0,
+        "database_snapshot" => 1,
+        "asset_copy" => 2,
+        "validation" => 3,
+        "digest" => 4,
+        "commit" => 5,
+        "publishing" => 6,
+        "ready" => 7,
+        _ => 0,
+    };
+    (completed, 7)
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 fn write_manifest(directory: &Path, manifest: &BackupManifest) -> Result<(), StoreError> {
@@ -1213,7 +2062,7 @@ fn to_record(manifest: &BackupManifest) -> BackupRecord {
     }
 }
 
-fn backup_id(profile_id: &str, operation_id: &str) -> String {
+pub(super) fn backup_id(profile_id: &str, operation_id: &str) -> String {
     let digest = Sha256::digest(format!(
         "store-administration\0{profile_id}\0{operation_id}"
     ));
@@ -1370,6 +2219,14 @@ fn invalid_profile(message: impl Into<String>) -> StoreError {
 
 fn internal(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::Internal, message, false)
+}
+
+fn backup_cancelled() -> StoreError {
+    StoreError::new(
+        StoreErrorCode::QueryCancelled,
+        "Snapshot creation was cancelled before publication",
+        false,
+    )
 }
 
 fn io_error(error: std::io::Error) -> StoreError {

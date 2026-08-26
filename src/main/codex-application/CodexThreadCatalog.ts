@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ClientRequestResponsesByMethod } from "@nodex/effect-codex-app-server/rpc";
 import * as Context from "effect/Context";
@@ -29,6 +28,7 @@ import { CoreModuleResponseError } from "../core-client/core-client";
 import { applyResultCursor } from "../core-client/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import {
   appendMissingCodexProjectMoveSources,
@@ -448,7 +448,7 @@ export const make = (
                 current: currentWorkspace,
                 persistedRuntimeWorkspaceRoots: currentRaw.writable_roots,
               });
-      const operationId = randomUUID();
+      const operationId = createOperationId("thread-catalog.move");
       const applied = yield* core.workspace.apply({
         operationId,
         intent: {
@@ -481,7 +481,7 @@ export const make = (
       });
       if (source.pinned || target.pinned) {
         yield* core.workspace.apply({
-          operationId: `electron:catalog-pin-after-move:${input.threadId}:${randomUUID()}`,
+          operationId: createOperationId("thread-catalog.pin-after-move"),
           intent: {
             kind: "set_thread_pinned",
             thread_id: input.threadId,
@@ -683,7 +683,7 @@ export const make = (
             const thread = yield* readCoreThread(normalized);
             if (!thread) return yield* readSnapshot();
             yield* core.workspace.apply({
-              operationId: `electron:catalog-pin:${normalized}:${randomUUID()}`,
+              operationId: createOperationId("thread-catalog.pin"),
               intent: {
                 kind: "set_thread_pinned",
                 thread_id: normalized,
@@ -709,7 +709,7 @@ export const make = (
         runMutation(
           core.workspace
             .apply({
-              operationId: `electron:catalog-reorder-pinned:${randomUUID()}`,
+              operationId: createOperationId("thread-catalog.reorder-pinned"),
               intent: { kind: "reorder_pinned_threads", thread_ids: [...orderedThreadIds] },
             })
             .pipe(

@@ -1,5 +1,5 @@
 import { describe, expect, vi, test } from "vite-plus/test";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import { installWindowApi } from "@/test/browser-globals";
 import { render, settleAsyncRender } from "@/test/dom";
@@ -480,10 +480,12 @@ describe("SettingsRouteShell backups", () => {
             autoEnabled: false,
             intervalHours: 24,
             retentionCount: 10,
+            retentionGiB: 32,
             envOverrides: {
               autoEnabled: false,
               intervalHours: false,
               retentionCount: false,
+              retentionGiB: false,
             },
           };
         case "settings:history:get":
@@ -495,6 +497,22 @@ describe("SettingsRouteShell backups", () => {
           };
         case "backup:list":
           return null;
+        case "backup:storage-optimization:get":
+          return {
+            optimizing: true,
+            commitHead: 100,
+            replayFloor: 1,
+            pendingCommitMetadata: 7,
+            pendingReceiptMetadata: 5,
+            retainedCommitCount: 100,
+            retainedDeliveryBytes: 1024,
+            retainedReceiptCount: 100,
+            retainedReceiptBytes: 1024,
+            receiptFloorAt: null,
+            lastPrunedCommit: 0,
+            freelistPages: 0,
+            reclaimableBytes: 0,
+          };
         default:
           return null;
       }
@@ -504,6 +522,148 @@ describe("SettingsRouteShell backups", () => {
     await settleAsyncRender();
 
     view.getByText("No snapshots yet.");
+    view.getByText("Optimizing snapshot storage");
+    view.getByText("12 historical records remain to be measured before safe trimming.");
+  });
+
+  test("starts a snapshot immediately and follows its background verification phases", async () => {
+    const created: BackupRecord = {
+      version: 3,
+      id: "backup-background",
+      createdAt: "2026-08-26T00:00:00.000Z",
+      trigger: "manual",
+      label: "Before migration",
+      includesAssets: true,
+      dbBytes: 1024,
+      assetsBytes: 512,
+      totalBytes: 1536,
+    };
+    let completeJob = false;
+    let published = false;
+    let jobReadCount = 0;
+    mockInvokeImpl = async (channel: string, ...args: unknown[]) => {
+      switch (channel) {
+        case "settings:backup:get":
+          return {
+            autoEnabled: false,
+            intervalHours: 24,
+            retentionCount: 10,
+            retentionGiB: 32,
+            envOverrides: {
+              autoEnabled: false,
+              intervalHours: false,
+              retentionCount: false,
+              retentionGiB: false,
+            },
+          };
+        case "settings:history:get":
+          return { retentionCount: 1000, envOverrides: { retentionCount: false } };
+        case "backup:list":
+          return published ? [created] : [];
+        case "backup:create":
+          return {
+            jobId: "job-background",
+            state: "queued",
+            phase: "queued",
+            completedUnits: 0,
+            totalUnits: 7,
+            startedAt: 1,
+            updatedAt: 1,
+            backup: null,
+            error: null,
+            progress: {
+              databaseCopiedPages: 0,
+              databaseTotalPages: 0,
+              databaseBusyRetries: 0,
+              assetBytesCopied: 0,
+              databaseCopyMs: 0,
+              assetCopyMs: 0,
+              validationMs: 0,
+              digestMs: 0,
+              publishMs: 0,
+              writerHeldMs: 0,
+            },
+          };
+        case "backup:job:get":
+          if (!args[0]) return null;
+          jobReadCount += 1;
+          if (jobReadCount === 1) return null;
+          if (!completeJob) {
+            return {
+              jobId: "job-background",
+              state: "running",
+              phase: "validation",
+              completedUnits: 3,
+              totalUnits: 7,
+              startedAt: 1,
+              updatedAt: 2,
+              backup: null,
+              error: null,
+              progress: {
+                databaseCopiedPages: 500,
+                databaseTotalPages: 1000,
+                databaseBusyRetries: 1,
+                assetBytesCopied: 0,
+                databaseCopyMs: 120,
+                assetCopyMs: 0,
+                validationMs: 0,
+                digestMs: 0,
+                publishMs: 0,
+                writerHeldMs: 4,
+              },
+            };
+          }
+          published = true;
+          return {
+            jobId: "job-background",
+            state: "completed",
+            phase: "ready",
+            completedUnits: 7,
+            totalUnits: 7,
+            startedAt: 1,
+            updatedAt: 3,
+            backup: created,
+            error: null,
+            progress: {
+              databaseCopiedPages: 1000,
+              databaseTotalPages: 1000,
+              databaseBusyRetries: 1,
+              assetBytesCopied: 512,
+              databaseCopyMs: 240,
+              assetCopyMs: 10,
+              validationMs: 80,
+              digestMs: 20,
+              publishMs: 1,
+              writerHeldMs: 8,
+            },
+          };
+        default:
+          return null;
+      }
+    };
+
+    const view = await renderOverlay();
+    await settleAsyncRender();
+    fireEvent.change(view.getByPlaceholderText("Optional snapshot label"), {
+      target: { value: "Before migration" },
+    });
+    fireEvent.click(view.getByRole("button", { name: "Create snapshot" }));
+
+    await waitFor(() => {
+      view.getByRole("button", { name: "Creating…" });
+      view.getByText("Snapshot started in the background.");
+    });
+    await waitFor(() => {
+      view.getByText("Checking database integrity");
+      expect(
+        view.getByRole("progressbar", { name: "Snapshot progress" }).getAttribute("aria-valuenow"),
+      ).toBe("3");
+    });
+    completeJob = true;
+    await waitFor(() => {
+      view.getByText("Manual snapshot created.");
+      view.getByText("Before migration");
+    });
   });
 
   test("deletes a snapshot through inline row confirmation", async () => {
@@ -529,10 +689,12 @@ describe("SettingsRouteShell backups", () => {
             autoEnabled: false,
             intervalHours: 24,
             retentionCount: 10,
+            retentionGiB: 32,
             envOverrides: {
               autoEnabled: false,
               intervalHours: false,
               retentionCount: false,
+              retentionGiB: false,
             },
           };
         case "settings:history:get":

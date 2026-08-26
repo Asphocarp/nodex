@@ -16,6 +16,7 @@ import {
 import { executeNodexAgentV3Tool } from "./NodexAgentDynamicExecution";
 import { NodexAgentApplication } from "./NodexAgentApplication";
 import { DynamicToolRegistryError } from "../codex/dynamic-tool-registry";
+import { createOperationId, createStableOperationId } from "../core-runtime/operation-identity";
 import {
   buildNodexAgentV3DynamicToolCatalog,
   validateNodexAgentV3DynamicToolCall,
@@ -126,6 +127,14 @@ const execute = (
     const output = yield* executeNodexAgentV3Tool(params.tool, validated.input, {
       threadId: params.threadId,
       callId: params.callId,
+      operationId: input.authority
+        ? createStableOperationId(`nodex-agent.${params.tool}`, input.authority.frozenAtMs, [
+            params.threadId,
+            params.turnId,
+            params.callId,
+            params.tool,
+          ])
+        : createOperationId(`nodex-agent.${params.tool}`),
       authority: input.authority,
       access: input.access,
       ...(input.resourceAccess ? { resourceAccess: input.resourceAccess } : {}),

@@ -29,22 +29,26 @@ export class NodexAgentProtocolTools extends Context.Service<
   }
 >()("nodex/main/nodex-agent-application/NodexAgentProtocolTools") {}
 
-const fromCoreAuthority = (authority: {
-  readonly thread_id: string;
-  readonly turn_id: string;
-  readonly root_thread_id: string;
-  readonly actor_project_id: string;
-  readonly library_id: string;
-  readonly store_epoch: string;
-  readonly scope: FrozenNodexAgentTurnAuthority["scope"];
-  readonly source: FrozenNodexAgentTurnAuthority["source"];
-}): FrozenNodexAgentTurnAuthority => ({
+const fromCoreAuthority = (
+  authority: {
+    readonly thread_id: string;
+    readonly turn_id: string;
+    readonly root_thread_id: string;
+    readonly actor_project_id: string;
+    readonly library_id: string;
+    readonly store_epoch: string;
+    readonly scope: FrozenNodexAgentTurnAuthority["scope"];
+    readonly source: FrozenNodexAgentTurnAuthority["source"];
+  },
+  frozenAtMs: number,
+): FrozenNodexAgentTurnAuthority => ({
   threadId: authority.thread_id,
   turnId: authority.turn_id,
   rootThreadId: authority.root_thread_id,
   actorProjectId: authority.actor_project_id,
   libraryId: authority.library_id,
   storeEpoch: authority.store_epoch,
+  frozenAtMs,
   scope: authority.scope,
   source: authority.source,
 });
@@ -94,8 +98,8 @@ export const live: Layer.Layer<
         return yield* Effect.die(new Error("Core returned the wrong Turn authority variant"));
       }
       const resolution = snapshot.value.resolution;
-      return resolution.persisted && resolution.authority
-        ? fromCoreAuthority(resolution.authority)
+      return resolution.persisted && resolution.authority && resolution.frozen_at_ms != null
+        ? fromCoreAuthority(resolution.authority, resolution.frozen_at_ms)
         : null;
     });
 

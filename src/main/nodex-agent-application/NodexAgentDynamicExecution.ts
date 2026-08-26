@@ -373,6 +373,7 @@ const executePageUpdate = (
         const identity = {
           threadId: context.threadId,
           callId: context.callId,
+          operationId: context.operationId,
           projectId,
           authority: context.authority ?? undefined,
           ...(resourceAccess ? { resourceAccess } : {}),
@@ -421,6 +422,7 @@ const executePageUpdate = (
       tool,
       threadId: context.threadId,
       callId: context.callId,
+      operationId: context.operationId,
       projectId,
       authority: context.authority ?? undefined,
       ...(prepared.resourceAccess ? { resourceAccess: prepared.resourceAccess } : {}),
@@ -576,6 +578,7 @@ export const executeNodexAgentV3Tool = (
                 request: {
                   threadId: context.threadId,
                   callId: context.callId,
+                  operationId: context.operationId,
                   projectId,
                   authority: context.authority ?? undefined,
                   ...(resourceAccess ? { resourceAccess } : {}),
@@ -650,6 +653,7 @@ export const executeNodexAgentV3Tool = (
                 request: {
                   threadId: context.threadId,
                   callId: context.callId,
+                  operationId: context.operationId,
                   projectId,
                   authority: context.authority ?? undefined,
                   ...(resourceAccess ? { resourceAccess } : {}),
@@ -701,6 +705,7 @@ export const executeNodexAgentV3Tool = (
                 request: {
                   threadId: context.threadId,
                   callId: context.callId,
+                  operationId: context.operationId,
                   projectId,
                   authority: context.authority ?? undefined,
                   ...(resourceAccess ? { resourceAccess } : {}),

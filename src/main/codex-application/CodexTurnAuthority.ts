@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import { FULL_ACCESS_PERMISSION_PROFILE_ID } from "../codex/codex-permission-resolver";
 import { CoreModuleResponseError } from "../core-client/core-client";
 import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
@@ -85,13 +85,17 @@ type CoreTurnAuthority = NonNullable<
   >["resolution"]["authority"]
 >;
 
-const fromCoreAuthority = (authority: CoreTurnAuthority): FrozenNodexAgentTurnAuthority => ({
+const fromCoreAuthority = (
+  authority: CoreTurnAuthority,
+  frozenAtMs: number,
+): FrozenNodexAgentTurnAuthority => ({
   threadId: authority.thread_id,
   turnId: authority.turn_id,
   rootThreadId: authority.root_thread_id,
   actorProjectId: authority.actor_project_id,
   libraryId: authority.library_id,
   storeEpoch: authority.store_epoch,
+  frozenAtMs,
   scope: authority.scope,
   source: authority.source,
 });
@@ -178,7 +182,7 @@ export const make: Effect.Effect<
           ? "inherited_builtin_full_access"
           : "project_turn";
       const launch: CodexTurnAuthorityLaunch = {
-        launchId: randomUUID(),
+        launchId: createUuidV7(),
         snapshot: {
           threadId: normalizedThreadId,
           rootThreadId,
@@ -362,12 +366,16 @@ export const make: Effect.Effect<
       if (!normalizeIdentity(coordinate.actorProjectId)) return null;
       const resolution = yield* readResolution(coordinate);
       if (resolution.persisted) {
-        return resolution.authority ? fromCoreAuthority(resolution.authority) : null;
+        return resolution.authority && resolution.frozen_at_ms != null
+          ? fromCoreAuthority(resolution.authority, resolution.frozen_at_ms)
+          : null;
       }
-      if (!launch) return resolution.authority ? fromCoreAuthority(resolution.authority) : null;
+      if (!launch) return null;
       yield* bind(threadId, launch, turnId);
       const bound = yield* readResolution(coordinate);
-      return bound.persisted && bound.authority ? fromCoreAuthority(bound.authority) : null;
+      return bound.persisted && bound.authority && bound.frozen_at_ms != null
+        ? fromCoreAuthority(bound.authority, bound.frozen_at_ms)
+        : null;
     }).pipe(
       Effect.mapError(
         (cause) => new CodexTurnAuthorityError({ operation: "capture", threadId, cause }),

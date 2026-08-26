@@ -9,6 +9,11 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { afterEach, describe } from "vite-plus/test";
+import {
+  INITIAL_PROJECT_APPEARANCE,
+  INITIAL_PROJECT_DESCRIPTION,
+  INITIAL_PROJECT_NAME,
+} from "../../shared/initial-project-welcome";
 import { extractPlainText } from "../../shared/nfm";
 import type { Project } from "../../shared/types";
 import type {
@@ -25,7 +30,11 @@ import {
   InitialProjectBootstrapRuntime,
   live,
 } from "./InitialProjectBootstrapRuntime";
-import { resolveInitialProjectJournalPath } from "./initial-project-journal-store";
+import {
+  type InitialProjectJournal,
+  InitialProjectRecoveryJournal,
+  resolveInitialProjectJournalPath,
+} from "./initial-project-journal-store";
 
 const temporaryDirectories: string[] = [];
 
@@ -186,7 +195,7 @@ describe("InitialProjectBootstrapRuntime", () => {
     ),
   );
 
-  it.effect("replays the exact operation after presentation persistence fails", () =>
+  it.effect("reconciles a committed Project without replaying an old operation", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const root = createTemporaryDirectory();
@@ -220,11 +229,54 @@ describe("InitialProjectBootstrapRuntime", () => {
           Effect.sync(() => recoveredPresentations.push(presentation)).pipe(Effect.asVoid),
         );
 
-        assert.strictEqual(workspace.createInputs.length, 2);
-        assert.deepEqual(workspace.createInputs[1], workspace.createInputs[0]);
+        assert.strictEqual(workspace.createInputs.length, 1);
         assert.strictEqual(recoveredPresentations.length, 1);
         assert.isFalse(existsSync(journalPath));
         assert.deepEqual(readdirSync(join(root, "workspace", "My Project")), []);
+      }),
+    ),
+  );
+
+  it.effect("renews a legacy recovery operation after an empty authoritative read", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const root = createTemporaryDirectory();
+        const sourceRoot = join(root, "workspace", "My Project");
+        const journalPath = resolveInitialProjectJournalPath(join(root, ".nodex"));
+        const legacyOperationId = "22222222-2222-4222-8222-222222222222";
+        const attempt = {
+          schemaVersion: 2,
+          attemptId: "11111111-1111-4111-8111-111111111111",
+          operationId: legacyOperationId,
+          payload: {
+            projectId: "33333333-3333-4333-8333-333333333333",
+            name: INITIAL_PROJECT_NAME,
+            description: INITIAL_PROJECT_DESCRIPTION,
+            appearance: {
+              color: INITIAL_PROJECT_APPEARANCE.color,
+              marker: { ...INITIAL_PROJECT_APPEARANCE.marker },
+            },
+            sources: [sourceRoot],
+            starterPage: {
+              pageId: "44444444-4444-4444-8444-444444444444",
+              documentId: "55555555-5555-4555-8555-555555555555",
+              titleMarkdown: "Welcome to Nodex",
+              nfm: "Welcome to Nodex",
+            },
+          },
+        } satisfies InitialProjectJournal;
+        yield* Effect.promise(() =>
+          new InitialProjectRecoveryJournal({ filePath: journalPath }).save(attempt),
+        );
+        const workspace = new FakeProjectWorkspace();
+        const runtime = yield* getRuntime({ root, workspace });
+
+        yield* runtime.ensure(() => Effect.void);
+
+        const operationId = workspace.createInputs[0]?.operationId ?? "";
+        assert.notStrictEqual(operationId, legacyOperationId);
+        assert.match(operationId, /^nodexop:v1:\d+:\d+:initial-project\.bootstrap:/);
+        assert.isFalse(existsSync(journalPath));
       }),
     ),
   );

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ThreadGoal, Turn } from "@nodex/codex-app-server-protocol/v2";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -19,6 +18,7 @@ import type { CodexCanonicalSteeringUserMessageItem } from "../../shared/codex-c
 import type { ConversationEntityState } from "./internal/ConversationEntityState";
 import { CoreModuleResponseError } from "../core-client/core-client";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexRendererConversationRegistry } from "./CodexRendererConversationRegistry";
 import { ConversationEntityMap } from "./internal/ConversationEntityMap";
@@ -181,7 +181,7 @@ export const make: Effect.Effect<
     if (current?.ephemeral) return Effect.succeed(null);
     return core.workspace
       .apply({
-        operationId: `electron:thread-status:${threadId}:${randomUUID()}`,
+        operationId: createOperationId("conversation.thread-status"),
         intent: {
           kind: "update_thread",
           thread_id: threadId,

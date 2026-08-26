@@ -56,6 +56,7 @@ const parentAuthority: FrozenNodexAgentTurnAuthority = {
   actorProjectId: "project-a",
   libraryId: "library-a",
   storeEpoch: "epoch-a",
+  frozenAtMs: 1_785_491_085_000,
   scope: "library",
   source: "builtin_full_access",
 };

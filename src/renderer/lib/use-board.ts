@@ -246,7 +246,7 @@ export function useBoard(options: UseBoardOptions) {
         return { status: "error", error: "No mutable Page metadata was specified" };
       }
       const conflictKeys = conflictKeysForPatch(pageId, updates);
-      const metadataMutationId = crypto.randomUUID();
+      const metadataMutationId = createUuidV7();
       const outcome = await store.runOptimisticMutation<PageMetadataBoardMutationEnvelope>({
         kind: "block:properties",
         conflictKeys,
@@ -350,7 +350,7 @@ export function useBoard(options: UseBoardOptions) {
         ...(sessionId ? { clientSessionId: sessionId } : {}),
         ...(columnId ? { columnId } : {}),
         pageId,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
       });
       if (!deleted) return false;
       onMutation?.();
@@ -366,7 +366,7 @@ export function useBoard(options: UseBoardOptions) {
         store,
         projectId,
         move: input,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
       });
       if (!moved) return false;
       onMutation?.();
@@ -382,7 +382,7 @@ export function useBoard(options: UseBoardOptions) {
         store,
         projectId,
         move: input,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
       });
       if (!moved) return false;
       onMutation?.();
@@ -511,7 +511,7 @@ export function useBoard(options: UseBoardOptions) {
       if (!requireWritableSelectedView()) return false;
       const command: PageOccurrenceCompleteInput = {
         ...input,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
         createdPageId: createUuidV7(),
       };
       const outcome = await store.runOptimisticMutation<SuccessfulPageOccurrenceMutation>({
@@ -545,7 +545,7 @@ export function useBoard(options: UseBoardOptions) {
       if (!requireWritableSelectedView()) return false;
       const command: PageOccurrenceActionInput = {
         ...input,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
       };
       const outcome = await store.runOptimisticMutation<SuccessfulPageOccurrenceMutation>({
         kind: "page:occurrence:skip",
@@ -578,7 +578,7 @@ export function useBoard(options: UseBoardOptions) {
       if (!requireWritableSelectedView()) return false;
       const command = {
         ...input,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
         ...(input.scope === "all" ? {} : { createdPageId: createUuidV7() }),
       } as PageOccurrenceUpdateInput;
       const optimisticPatch = normalizeOccurrenceUpdatesToPagePatch(command);

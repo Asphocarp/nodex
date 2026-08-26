@@ -88,6 +88,7 @@ it.effect("owns the complete application settings ingress with the Main Scope", 
         autoEnabled: true,
         intervalHours: 6,
         retentionCount: 28,
+        retentionGiB: 32,
         unexpected: true,
       }),
     );

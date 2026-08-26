@@ -89,7 +89,7 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 | Page–Project Session Linked chat edges and Page Chat activity                               | Rust Core Workspace Module                                                   | Effect Main Workspace Adapter; renderer joins bounded Workspace activity with Database Page windows                                              |
 | Project access to Library resources                                                         | Rust Core Library authorization and resource-grant boundary                  | Workspace supplies Project identity; Electron and CLI bind access context                                                                        |
 | Automation definitions, runs, occurrences, reminder leases and receipts                     | Rust Core Automation Module                                                  | Electron scheduler/executor and renderer queries                                                                                                 |
-| Backups, restore, retention, Store maintenance                                              | Rust Core Administration Module                                              | Electron administration adapter and controlled relaunch                                                                                          |
+| Backups, restore, bounded operational journals, Store maintenance                           | Rust Core Administration Module                                              | Electron administration adapter, background backup jobs, and controlled relaunch                                                                 |
 | Active Codex conversation document                                                          | Current renderer owner, seeded from app-server state                         | Main holds a validated relay/recovery replica; followers render validated copies                                                                 |
 | Codex wire protocol and remote Thread observations                                          | Pinned Codex-compatible app-server                                           | Main validates and routes generated protocol envelopes                                                                                           |
 | Managed worktree creation and lifecycle                                                     | Electron Main lifecycle coordinator and the worktree's execution-host worker | Renderer projects typed pending/availability/inventory state; Core persists only durable execution location and Session/Thread/worktree metadata |
@@ -125,7 +125,7 @@ Each public Module presents a versioned `read`/`apply` Interface in [`crates/nod
 
 Core Server also owns one request-execution boundary for synchronous Module work. It admits bounded `interactive`, `background`, and `maintenance` classes, preserves capacity for interactive requests, runs admitted work outside async transport workers, and carries one absolute deadline and cancellation token through reader checkout, writer queueing, and SQLite execution. Electron supplies request identity and intent but does not decide when Core work has actually stopped. A semantic deadline, caller cancellation, admission overload, and authority/transport loss are distinct typed outcomes.
 
-That class continues through the serialized Store writer rather than ending at request admission. The writer prefers interactive commands, ages bounded background/maintenance work for fairness, promptly evicts interrupted queued commands, and checks the same cancellation/deadline again across dequeue races. Maintenance owns resumable orchestration and must yield through short writer commands; read-heavy planning belongs on a consistent reader snapshot with an explicit writer-side authority fence. A transaction boundary hidden inside one long writer closure is not a scheduling boundary.
+That class continues through the serialized Store writer rather than ending at request admission. The writer prefers interactive commands, ages bounded background/maintenance work for fairness, promptly evicts interrupted queued commands, and checks the same cancellation/deadline again across dequeue races. Maintenance owns resumable orchestration and must yield through short writer commands; read-heavy planning belongs on a consistent reader snapshot with an explicit writer-side authority fence. A transaction boundary hidden inside one long writer closure is not a scheduling boundary. Administration snapshots use a dedicated online-backup reader and publish through a durable background-job coordinator, so database copying, validation, and hashing never borrow writer ownership.
 
 Store formats and migration sequences are implementation/recovery contracts, not architecture prose. Their executable authority is under [`crates/nodex-core/src/infrastructure`](crates/nodex-core/src/infrastructure), [`crates/nodex-core/schema`](crates/nodex-core/schema), and the corresponding Core tests. Operational expectations belong in [Reliability](docs/RELIABILITY.md).
 
@@ -706,8 +706,12 @@ projection; `StoreAdministrationSchedulerRuntime` owns automatic backup and the
 three Store maintenance lanes. Every schedule is a scoped Effect fiber.
 Per-domain semaphores reject overlapping ticks, the maintenance lanes share one
 Store-wide permit, and backup configuration replacement interrupts the previous
-schedule through one `FiberHandle`. Core remains the durable definition and
-lease authority. `AutomationRoutingIndex` owns the synchronous routing
+schedule through one `FiberHandle`. Each lane first reads its owning Core
+Module's typed due-work plan and claims only the stable work token that plan
+returned. Core re-plans inside the writer transaction before applying the
+claim, so idle polling and stale ticks neither create semantic commits nor turn
+Main's clock into a second due-work authority. Core remains the durable
+definition and lease authority. `AutomationRoutingIndex` owns the synchronous routing
 projection from Codex Thread IDs to all runs and active heartbeat definitions.
 A complete cursor-paginated background read, including archived runs, atomically
 rebuilds that projection. A newer committed mutation fences a stale read and

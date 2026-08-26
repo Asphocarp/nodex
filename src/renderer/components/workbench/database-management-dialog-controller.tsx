@@ -191,7 +191,7 @@ export function DatabaseManagementDialogController({
       const next = await commitDatabaseManagementOperations({
         projectId,
         preferredDatabaseId: selectedDatabaseIdRef.current,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
         buildOperations,
       });
       applyAuthority(await hydratePropertyOptions(next));

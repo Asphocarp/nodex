@@ -24,7 +24,7 @@ instead of selecting another Profile silently.
 The `[server]` table currently owns these product setting families:
 
 - `home` for Profile selection;
-- automatic backup enablement, interval, and retention;
+- automatic backup enablement, interval, count retention, and automatic-snapshot byte budget;
 - deleted-content history retention compatibility setting;
 - automatic app-update checks;
 - opt-in diagnostics and optional renderer Session Replay;
@@ -40,8 +40,8 @@ that require restart say so in the UI.
 Supported operational overrides include:
 
 - `NODEX_HOME`;
-- `NODEX_BACKUP_AUTO_ENABLED`, `NODEX_BACKUP_INTERVAL_HOURS`, and
-  `NODEX_BACKUP_RETENTION`;
+- `NODEX_BACKUP_AUTO_ENABLED`, `NODEX_BACKUP_INTERVAL_HOURS`,
+  `NODEX_BACKUP_RETENTION`, and `NODEX_BACKUP_RETENTION_GIB`;
 - `NODEX_HISTORY_RETENTION` for the retained compatibility setting;
 - `NODEX_SENTRY_ENABLED`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`,
   `SENTRY_RELEASE`, `NODEX_SENTRY_TRACES_SAMPLE_RATE`,

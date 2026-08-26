@@ -959,6 +959,36 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
         .map_err(|_| corrupt("LocalCommit projection is invalid"))?;
     let audience_json =
         serde_json::to_string(&audience).map_err(|_| corrupt("LocalCommit audience is invalid"))?;
+    let manifest_json =
+        serde_json::to_string(&manifest).map_err(|_| corrupt("CommitManifest is invalid"))?;
+    let sealed_at_ms = connection.query_row(
+        "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let child_bytes = connection.query_row(
+        "SELECT COALESCE(SUM(byte_length), 0) FROM (\
+           SELECT length(resources_json) + length(projection_impact_json) AS byte_length \
+             FROM local_commit_effects WHERE store_epoch = ?1 AND commit_seq = ?2 \
+           UNION ALL \
+           SELECT length(required_resources_json) + length(payload_json) \
+             FROM local_commit_delivery_atoms WHERE store_epoch = ?1 AND commit_seq = ?2 \
+           UNION ALL \
+           SELECT length(descriptor_json) FROM local_commit_sealed_projection_effects \
+             WHERE store_epoch = ?1 AND commit_seq = ?2 \
+           UNION ALL \
+           SELECT update_byte_length FROM local_commit_documents \
+             WHERE store_epoch = ?1 AND commit_seq = ?2\
+         )",
+        params![context.store_epoch, context.commit_seq],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let delivery_bytes =
+        i64::try_from(projection_json.len() + audience_json.len() + manifest_json.len())
+            .map_err(|_| corrupt("LocalCommit delivery size exceeds SQLite bounds"))?
+            .checked_add(child_bytes)
+            .ok_or_else(|| corrupt("LocalCommit delivery size overflowed"))?;
+    super::operational_journal::ensure_capacity_for_seal(connection, delivery_bytes)?;
     let changed = connection.execute(
         "UPDATE local_commits
          SET projection_impact_json = ?1, projection_json = ?2,
@@ -970,7 +1000,7 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
             projection_json,
             audience_json,
             manifest.identity.manifest_hash,
-            serde_json::to_string(&manifest).map_err(|_| corrupt("CommitManifest is invalid"))?,
+            manifest_json,
             context.store_epoch,
             context.commit_seq,
         ],
@@ -978,6 +1008,35 @@ pub(super) fn seal(connection: &Connection, context: &CommitContext) -> Result<i
     if changed != 1 {
         return Err(corrupt("LocalCommit finalization lost its open parent"));
     }
+    connection.execute(
+        "INSERT INTO local_commit_retention_metadata( \
+           store_epoch, commit_seq, sealed_at_ms, delivery_bytes \
+         ) VALUES (?1, ?2, ?3, ?4)",
+        params![
+            context.store_epoch,
+            context.commit_seq,
+            sealed_at_ms,
+            delivery_bytes,
+        ],
+    )?;
+    let advanced = connection.execute(
+        "UPDATE operational_journal_state \
+         SET commit_head_seq = ?1, \
+             replay_floor_seq = CASE WHEN replay_floor_seq = 0 THEN ?1 ELSE replay_floor_seq END, \
+             retained_commit_count = retained_commit_count + 1, \
+             retained_delivery_bytes = retained_delivery_bytes + ?3, \
+             updated_at = ?2 \
+         WHERE id = 1 AND commit_head_seq < ?1",
+        params![
+            context.commit_seq,
+            super::operational_journal::timestamp_from_ms(sealed_at_ms)?,
+            delivery_bytes,
+        ],
+    )?;
+    if advanced != 1 {
+        return Err(corrupt("LocalCommit head did not advance monotonically"));
+    }
+    super::operational_journal::refresh_delivery_pressure(connection)?;
     Ok(context.commit_seq)
 }
 
@@ -1080,7 +1139,7 @@ pub(crate) fn abandon(connection: &Connection, context: &CommitContext) -> Resul
 
 pub(crate) fn head(connection: &Connection) -> Result<i64, StoreError> {
     let head = connection.query_row(
-        "SELECT COALESCE(max(commit_seq), 0) FROM local_commits WHERE finalized = 1",
+        "SELECT commit_head_seq FROM operational_journal_state WHERE id = 1",
         [],
         |row| row.get::<_, i64>(0),
     )?;
@@ -1468,71 +1527,34 @@ pub(crate) fn rebase_store_epoch(
 ) -> Result<(), StoreError> {
     validate_identity(store_epoch, "LocalCommit Store epoch")?;
     connection.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
+    // A Store replacement rotates the authorization epoch, so every existing
+    // delivery cursor must resync from semantic state. Keeping and resealing
+    // the old delivery graph made restore cost proportional to all retained
+    // operations. Instead, cut one canonical resync checkpoint at the durable
+    // head and discard only the bounded, rebuildable delivery window.
+    let previous_head = head(connection)?;
     connection.execute(
-        "UPDATE local_commit_effects SET store_epoch = ?1 WHERE store_epoch <> ?1",
-        [store_epoch],
+        "UPDATE core_module_receipts SET local_commit_seq = NULL \
+         WHERE local_commit_seq IS NOT NULL",
+        [],
     )?;
-    connection.execute(
-        "UPDATE local_commit_documents SET store_epoch = ?1 WHERE store_epoch <> ?1",
-        [store_epoch],
-    )?;
-    connection.execute(
-        "UPDATE local_commit_library_effects SET store_epoch = ?1 WHERE store_epoch <> ?1",
-        [store_epoch],
-    )?;
-    connection.execute(
-        "UPDATE local_commit_revocations SET store_epoch = ?1 WHERE store_epoch <> ?1",
-        [store_epoch],
-    )?;
-    super::visibility_delta_journal::rebase_store_epoch(connection, store_epoch)?;
-    // Atom identities bind the Store epoch. Recompile them from immutable
-    // physical evidence after rebasing instead of carrying stale identities
-    // across the replacement boundary.
-    connection.execute("DELETE FROM local_commit_delivery_atoms", [])?;
-    // Scope heads are derived chain tips. Replaying pre-rotation manifests against
-    // their final tip would make every non-tip effect look corrupt.
-    // Rebuild the chain in commit order under the installed epoch instead.
     connection.execute("DELETE FROM projection_scope_heads", [])?;
+    connection.execute("DELETE FROM local_commits", [])?;
     connection.execute(
-        "UPDATE local_commits SET store_epoch = ?1, finalized = 0 WHERE store_epoch <> ?1",
-        [store_epoch],
+        "UPDATE operational_journal_state \
+         SET commit_head_seq = ?1, replay_floor_seq = ?2, \
+             retained_commit_count = 0, retained_delivery_bytes = 0, \
+             delivery_pressure_active = 0, \
+             pending_metadata_count = 0, maintenance_revision = maintenance_revision + 1, \
+             updated_at = ?3 WHERE id = 1",
+        params![
+            previous_head,
+            previous_head.saturating_add(1),
+            connection.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
+                row.get::<_, String>(0)
+            },)?,
+        ],
     )?;
-    let sequences = connection
-        .prepare("SELECT commit_seq FROM local_commits ORDER BY commit_seq")?
-        .query_map([], |row| row.get::<_, i64>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    for commit_seq in sequences {
-        let (operation_id, intent_hash, committed_at) = connection.query_row(
-            "SELECT operation_id, intent_hash, committed_at FROM local_commits
-             WHERE commit_seq = ?1",
-            [commit_seq],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
-        )?;
-        let context = CommitContext {
-            commit_seq,
-            store_epoch: store_epoch.to_owned(),
-            operation_id,
-            intent_hash,
-            committed_at,
-        };
-        let projection = draft_projection(connection, &context)?;
-        let projection = CommitProjectionDraft {
-            result_cursor: CommitCursor {
-                store_epoch: StoreEpoch(store_epoch.to_owned()),
-                commit_seq,
-            },
-            effects: Vec::new(),
-            ..projection
-        };
-        write_projection(connection, &context, &projection)?;
-        seal(connection, &context)?;
-    }
     Ok(())
 }
 

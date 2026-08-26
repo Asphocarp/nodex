@@ -113,7 +113,7 @@ export async function createBoardPage({
     ...createInput,
     status,
   });
-  const operationId = crypto.randomUUID();
+  const operationId = createUuidV7();
   const outcome = await store.runOptimisticMutation<PageLifecycleExecutionResultV2>({
     kind: "page:create",
     conflictKeys: conflictKeysForCreate(status, optimisticPage.id),

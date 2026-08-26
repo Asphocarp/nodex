@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
@@ -11,6 +10,7 @@ import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { normalizeCodexManualThreadTitle } from "../../shared/codex-thread-title";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexConversationProjection } from "./CodexConversationProjection";
 import { CodexSidebarSyncRuntime } from "./CodexSidebarSyncRuntime";
@@ -146,7 +146,7 @@ export const make: Effect.Effect<
     const observedAtMs = yield* Clock.currentTimeMillis;
     yield* core.workspace
       .apply({
-        operationId: `electron:thread-title:${input.threadId}:${randomUUID()}`,
+        operationId: createOperationId("thread-title.persist"),
         intent: {
           kind: "update_thread",
           thread_id: input.threadId,

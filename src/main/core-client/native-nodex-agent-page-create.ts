@@ -55,8 +55,9 @@ const envelope = <Result>(
 });
 
 export const nativeNodexAgentPageCreateOperationId = (
-  request: Pick<PrepareNodexAgentCreatePagesRequest, "threadId" | "callId">,
+  request: Pick<PrepareNodexAgentCreatePagesRequest, "threadId" | "callId" | "operationId">,
 ): string =>
+  request.operationId ??
   `nodex-agent-create-pages:${createHash("sha256")
     .update(JSON.stringify([request.threadId, request.callId, "create_pages"]))
     .digest("hex")}`;

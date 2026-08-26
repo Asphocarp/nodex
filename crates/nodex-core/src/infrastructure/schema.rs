@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn current_schema_artifact_matches_catalog() {
-        assert_eq!(CURRENT_STORE_REVISION, 135);
+        assert_eq!(CURRENT_STORE_REVISION, 136);
         let mut artifact = Connection::open_in_memory().expect("artifact Store");
         install_current_schema(&mut artifact).expect("current schema artifact");
         let artifact_inventory = read_schema_inventory(&artifact).expect("artifact inventory");
@@ -196,6 +196,10 @@ mod tests {
             "structural_cut_claims",
             "structural_history_recipes",
             "structural_retention_members",
+            "document_version_retention_index",
+            "document_version_retention_members",
+            "block_retention_state",
+            "block_retention_deferrals",
         ] {
             assert!(
                 artifact_inventory

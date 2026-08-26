@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { RequestId } from "@nodex/codex-app-server-protocol";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
@@ -31,11 +30,13 @@ import {
   CODEX_APP_READ_THREAD_MAX_OUTPUT_CHARS,
   CODEX_APP_READ_THREAD_MAX_TURN_LIMIT,
 } from "../codex/codex-app-meta-thread-tools";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import type { CodexDynamicCreatePermissionMode } from "../codex/codex-dynamic-create-permissions";
 import { parseCodexDynamicCreateThreadInput } from "../codex/codex-dynamic-thread-create";
 import { createCodexProjectlessWorkspace } from "../codex/codex-projectless-workspace";
 import { getCodexFileChangeList } from "../../shared/codex-file-change";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { TerminalSessions } from "../terminal-runtime/TerminalSessions";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { AutomationApplication } from "../automation-application/AutomationApplication";
@@ -798,7 +799,7 @@ export const make: Effect.Effect<
             return yield* toolError(`Project '${projectId}' was not found`);
           }
         }
-        const sessionId = randomUUID();
+        const sessionId = createUuidV7();
         yield* core.workspace.apply(
           {
             operationId: `codex-app:create-thread:${params.callId}:${sessionId}`,
@@ -891,7 +892,7 @@ export const make: Effect.Effect<
         const operation =
           existing ??
           (yield* handoffs.launch({
-            operationId: params.callId || randomUUID(),
+            operationId: createOperationId("codex-app.handoff-thread"),
             threadId,
             destinationHostId: stringArg(args.destinationHostId),
             followUpPrompt: stringArg(args.followUpPrompt),

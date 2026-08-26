@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
@@ -18,6 +17,7 @@ import { makeCodexBackgroundProcessRecordId } from "../../shared/codex-backgroun
 import { buildCodexBackgroundProcessRow } from "../codex/background-process-rows";
 import type { ProjectWorkspaceReadSnapshot } from "../core-client/types";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { ProjectRuntimeLifecycleRuntime } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { TerminalSessions, type TerminalOwner } from "../terminal-runtime/TerminalSessions";
@@ -246,7 +246,7 @@ export const make: Effect.Effect<
   ): Effect.Effect<void, CodexBackgroundProcessesError> =>
     core.workspace
       .apply({
-        operationId: `electron:background-process:${record.id}:${randomUUID()}`,
+        operationId: createOperationId("background-process.update"),
         intent: {
           kind: "upsert_background_process",
           process: {

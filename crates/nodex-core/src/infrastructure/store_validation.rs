@@ -54,6 +54,8 @@ pub(crate) fn validate_store_semantics(connection: &Connection) -> Result<(), St
     validate_document_page_references(connection)?;
     validate_block_transfer_undo(connection)?;
     validate_structural_edit_evidence(connection)?;
+    validate_document_version_retention_index(connection)?;
+    validate_block_retention_state(connection)?;
     validate_document_materialization_derivation(connection)?;
     crate::workspace::queued_follow_up::validate_all_stored_ledgers(
         connection,
@@ -64,6 +66,66 @@ pub(crate) fn validate_store_semantics(connection: &Connection) -> Result<(), St
         "Semantic Store validation completed"
     );
     Ok(())
+}
+
+fn validate_block_retention_state(connection: &Connection) -> Result<(), StoreError> {
+    let installed = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' \
+             AND name = 'block_retention_state'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !installed {
+        return Ok(());
+    }
+    let invalid: i64 = connection.query_row(
+        "SELECT CASE WHEN \
+           (SELECT count(*) FROM block_retention_state WHERE id = 1) <> 1 \
+           OR (SELECT maintenance_revision FROM block_retention_state WHERE id = 1) \
+              < (SELECT count(*) FROM block_retention_deferrals) \
+           OR EXISTS ( \
+             SELECT 1 FROM block_retention_deferrals deferral \
+             LEFT JOIN blocks block ON block.id = deferral.root_block_id \
+             WHERE block.id IS NULL \
+           ) \
+         THEN 1 ELSE 0 END",
+        [],
+        |row| row.get(0),
+    )?;
+    if invalid != 0 {
+        return Err(corrupt("Block retention deferral state is inconsistent"));
+    }
+    Ok(())
+}
+
+fn validate_document_version_retention_index(connection: &Connection) -> Result<(), StoreError> {
+    let installed = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' \
+             AND name = 'document_version_retention_index'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !installed {
+        return Ok(());
+    }
+    let invalid: i64 = connection.query_row(
+        "SELECT count(*) FROM document_version_retention_index retention \
+         JOIN document_versions version ON version.version_id = retention.version_id \
+         WHERE retention.checkpoint_hash <> version.checkpoint_hash \
+            OR retention.member_count <> ( \
+              SELECT count(*) FROM document_version_retention_members member \
+              WHERE member.version_id = retention.version_id \
+            )",
+        [],
+        |row| row.get(0),
+    )?;
+    expect_zero(invalid, "invalid Document version retention indexes")
 }
 
 pub(crate) fn validate_core_metadata(connection: &Connection) -> Result<(), StoreError> {

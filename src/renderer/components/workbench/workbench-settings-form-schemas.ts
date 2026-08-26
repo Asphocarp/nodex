@@ -4,6 +4,7 @@ export interface BackupScheduleFormInput {
   autoEnabled: boolean;
   intervalHours: string;
   retentionCount: string;
+  retentionGiB: string;
 }
 
 export interface HistoryRetentionFormInput {
@@ -36,6 +37,7 @@ export const BACKUP_SCHEDULE_FORM_DEFAULTS: BackupScheduleFormInput = {
   autoEnabled: false,
   intervalHours: "6",
   retentionCount: "28",
+  retentionGiB: "32",
 };
 
 export const BackupScheduleFormSchema = z
@@ -43,11 +45,13 @@ export const BackupScheduleFormSchema = z
     autoEnabled: z.boolean(),
     intervalHours: integerTextField("Frequency", 1),
     retentionCount: integerTextField("Retention", 0),
+    retentionGiB: integerTextField("Storage budget", 0),
   })
   .transform((value) => ({
     autoEnabled: value.autoEnabled,
     intervalHours: Number.parseInt(value.intervalHours.trim(), 10),
     retentionCount: Number.parseInt(value.retentionCount.trim(), 10),
+    retentionGiB: Number.parseInt(value.retentionGiB.trim(), 10),
   }));
 
 export type BackupScheduleFormValue = z.output<typeof BackupScheduleFormSchema>;

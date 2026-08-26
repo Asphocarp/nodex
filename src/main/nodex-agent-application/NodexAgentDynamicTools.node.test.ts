@@ -115,11 +115,13 @@ it.effect("authorizes a prepared Page creation before the canonical application 
       actorProjectId: "project:agent",
       libraryId: "library:agent",
       storeEpoch: "epoch:agent",
+      frozenAtMs: 1_785_491_085_000,
       scope: "project" as const,
       source: "project_turn" as const,
     };
     const taskGrants: string[] = [];
     const context: NodexAgentDynamicExecutionContext = {
+      operationId: "nodexop:v1:1785491085000:1786095885000:test:operation",
       threadId: authority.threadId,
       callId: "call:agent",
       authority,

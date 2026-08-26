@@ -43,6 +43,23 @@ Response loss is handled by retrying the same idempotent intent. The original
 receipt is returned without applying the mutation again. Reusing an operation
 identity for different intent is a typed collision.
 
+Exact retry history is finite. New operation identities carry a bounded issue
+and expiry window; a retry whose receipt has already crossed the durable receipt
+floor fails with a typed expiry instead of running again. A rolling cutover
+keeps existing legacy receipts replayable for one complete window before a
+missing legacy identity becomes an explicit error.
+
+A child operation with a durable parent episode derives its bounded identity
+from that parent's Core-owned issue coordinate and its own semantic key. In
+particular, an Agent tool retry after a Main restart retains the same identity
+for its frozen Turn and call rather than silently executing again.
+
+A state-idempotent request with no durable retry owner instead receives a fresh
+bounded identity at admission and keeps it only for that request's retry
+episode. It never uses the target entity's age as the issue time. After a crash,
+the owner reads authoritative state first and starts a new episode only when the
+earlier mutation is known not to have committed.
+
 Optimistic presentation may continue after acknowledgement until a bounded
 projection materializes the committed result. The optimistic owner must remain
 semantic and identity-keyed; it cannot infer canonical success from elapsed
@@ -142,7 +159,10 @@ authority together. Detailed identity and allocation decisions are recorded in
 ## Backup, restore, and maintenance
 
 A whole-Store backup covers the database and managed assets behind one Core
-maintenance boundary. Managed asset files are immutable and become visible only
+maintenance boundary. Starting a backup creates a durable background job;
+online database capture, complete validation, hashing, and asset copying run
+outside the serialized Store writer, while short authority checks and final
+receipt publication remain transactional. Managed asset files are immutable and become visible only
 through same-filesystem atomic publication from a sibling staging directory
 outside the backup closure; Core snapshots the database before
 enumerating that asset closure, so concurrent materialization can add only an
@@ -155,14 +175,30 @@ that epoch.
 Maintenance has one canonical coordinator for integrity, compaction, retention,
 collection, and vacuum. It never rewrites immutable receipts/history or removes
 pinned revisions. Block collection uses version-fenced current projections and
-a commit-fenced WAL reader snapshot rather than reconstructing every current
-Document for every candidate. Evidence loading never owns the serialized writer,
+a commit-fenced WAL reader snapshot rather than reconstructing retained
+Document checkpoints for every candidate. Retained tombstones carry bounded,
+commit-fenced reevaluation times so candidate scans advance instead of spinning
+on an uncollectible prefix. Evidence loading never owns the serialized writer,
 and collection releases that writer between bounded candidate slices.
+
+Operational delivery and idempotency evidence is not semantic history. Core
+keeps it inside versioned time, row, byte, and global high/low watermarks,
+advances durable replay and receipt floors, and prunes it in short self-silent
+transactions. A cursor below the replay floor performs canonical resync;
+semantic state, user-visible revision history, and pinned recovery roots are not
+deleted with the delivery tail. Bounded identity sets and indexed foreign-key
+and semantic-reference probes keep each logical deletion slice proportional to
+the retained window rather than total historical ledger size. Logical pruning
+finishes before time-budgeted incremental page reclamation; current Profiles
+opt into incremental auto-vacuum at creation, while existing database header
+modes are preserved without an implicit full rewrite.
 
 The Main application scope owns the automatic backup and maintenance lanes.
 Changing backup interval or retention replaces only the backup lane; it must not
-stop maintenance. Core authority recovery wakes deferred lanes, and process
-scope close removes their timers and power-resume listener together.
+stop maintenance. Maintenance lanes share a fair FIFO permit with at most one
+queued pass per lane; only Core's due-work result may select an idle interval.
+Core authority recovery wakes deferred lanes, and process scope close removes
+their timers and power-resume listener together.
 
 Read [Backup, Restore, and Maintenance](reliability/backup-restore-and-maintenance.md).
 

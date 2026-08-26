@@ -7,15 +7,15 @@ mod restore;
 mod tests;
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, TryLockError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nodex_core_contracts::administration::{
-    BackupRecord, MaintenanceTask, SchemaOwner, StoreAdministrationCommitValue,
-    StoreAdministrationEvent, StoreAdministrationEventKind, StoreAdministrationIntent,
-    StoreAdministrationRead, StoreAdministrationReadValue, StoreAdministrationReceipt,
-    StoreIntegrity, StoreReadiness,
+    BackupRecord, MaintenanceDueWorkPlan, MaintenanceTask, SchemaOwner,
+    StoreAdministrationCommitValue, StoreAdministrationEvent, StoreAdministrationEventKind,
+    StoreAdministrationIntent, StoreAdministrationRead, StoreAdministrationReadValue,
+    StoreAdministrationReceipt, StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
@@ -37,7 +37,9 @@ use crate::infrastructure::durable_mutation::{
     self, CommitResult, OperationIdentity, ReceiptMetadata, ReplayIdentity,
 };
 use crate::infrastructure::local_commit;
-use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
+use crate::infrastructure::sqlite::{
+    StoreError, StoreErrorCode, open_reader, with_immediate_transaction,
+};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::store_replacement::{
     StoreReplacementPhase, cleanup_store_replacement, read_store_replacement_journal,
@@ -64,6 +66,13 @@ pub struct StoreAdministrationApplyOutcome {
     pub committed:
         crate::ModuleWriterResult<StoreAdministrationCommitValue, StoreAdministrationReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
+    pub durability: StoreAdministrationOutcomeDurability,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoreAdministrationOutcomeDurability {
+    DurableReceipt,
+    Transient,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -145,6 +154,7 @@ struct DurableBackupDeletionEvidence {
 struct ActiveOperation {
     operation_id: String,
     phase: String,
+    cancellation_requested: bool,
 }
 
 fn backup_window(
@@ -216,6 +226,29 @@ struct RuntimeState {
     integrity: StoreIntegrity,
 }
 
+fn automatic_backups_outside_budget(
+    inventory: Vec<backup::BackupInventoryItem>,
+    retain_count: usize,
+    retain_bytes: u64,
+) -> Vec<String> {
+    let mut retained_count = 0usize;
+    let mut retained_bytes = 0u64;
+    inventory
+        .into_iter()
+        .filter_map(|item| {
+            let next_bytes = retained_bytes.checked_add(item.record.total_bytes);
+            if retained_count < retain_count
+                && next_bytes.is_some_and(|bytes| bytes <= retain_bytes)
+            {
+                retained_count += 1;
+                retained_bytes = next_bytes.expect("validated retained Backup bytes");
+                return None;
+            }
+            Some(item.record.backup_id)
+        })
+        .collect()
+}
+
 pub struct StoreAdministrationModule {
     profile_id: String,
     library_id: String,
@@ -277,20 +310,35 @@ impl StoreAdministrationModule {
                 "Store Administration Module has no managed Profile home",
             ));
         };
-        let operation_guard = if matches!(request.read, StoreAdministrationRead::Backups { .. }) {
-            Some(
-                self.operation_lock
-                    .lock()
-                    .map_err(|_| unavailable("Store Administration operation lock failed"))?,
-            )
-        } else {
-            None
+        let maintenance_plan = match &request.read {
+            StoreAdministrationRead::MaintenancePlan {
+                tasks,
+                block_retention_count,
+            } => {
+                let tasks = normalize_maintenance_tasks(tasks)?;
+                if block_retention_count.is_some()
+                    && !tasks.contains(&MaintenanceTask::BlockRetention)
+                {
+                    return Err(invalid(
+                        "block retention policy requires the block_retention task",
+                    ));
+                }
+                let retain_count = block_retention_count
+                    .map(|count| {
+                        usize::try_from(count)
+                            .map_err(|_| invalid("block retention count exceeds platform bounds"))
+                    })
+                    .transpose()?
+                    .unwrap_or(DEFAULT_BLOCK_RETENTION_COUNT);
+                Some((tasks, retain_count))
+            }
+            _ => None,
         };
         let profile_id = self.profile_id.clone();
         let library_id = self.library_id.clone();
         let profile_home = profile_home.clone();
         let runtime = Arc::clone(&self.runtime);
-        let snapshot = readers
+        readers
             .read_default(move |connection| {
                 let transaction = connection.unchecked_transaction()?;
                 assert_identity(&transaction, &profile_id, &library_id)?;
@@ -330,8 +378,18 @@ impl StoreAdministrationModule {
                     }
                     StoreAdministrationRead::Backups { window } => {
                         let deleted = logically_deleted_backup_ids(&transaction)?;
-                        let mut items = backup::list_backups(&profile_home)?;
-                        items.retain(|item| !deleted.contains(&item.backup_id));
+                        let mut inventory = backup::list_backup_inventory(&profile_home)?;
+                        inventory.retain(|item| !deleted.contains(&item.record.backup_id));
+                        let capacity = backup::backup_capacity(
+                            &profile_home,
+                            &inventory,
+                            true,
+                            backup::BackupCapacityMode::InventoryEstimate,
+                        )?;
+                        let items = inventory
+                            .into_iter()
+                            .map(|item| item.record)
+                            .collect::<Vec<_>>();
                         StoreAdministrationReadValue::Backups {
                             backups: backup_window(
                                 &transaction,
@@ -339,6 +397,19 @@ impl StoreAdministrationModule {
                                 commit_seq,
                                 items,
                                 &window,
+                            )?,
+                            capacity,
+                        }
+                    }
+                    StoreAdministrationRead::BackupJobs => {
+                        StoreAdministrationReadValue::BackupJobs {
+                            jobs: backup::list_backup_jobs(&profile_home)?,
+                        }
+                    }
+                    StoreAdministrationRead::OperationalJournalStatus => {
+                        StoreAdministrationReadValue::OperationalJournalStatus {
+                            status: crate::infrastructure::operational_journal::read_status(
+                                &transaction,
                             )?,
                         }
                     }
@@ -358,6 +429,19 @@ impl StoreAdministrationModule {
                                 .map(|operation| operation.phase.clone()),
                         }
                     }
+                    StoreAdministrationRead::MaintenancePlan { .. } => {
+                        let (tasks, retain_count) = maintenance_plan
+                            .as_ref()
+                            .ok_or_else(|| internal("Store maintenance plan was not normalized"))?;
+                        StoreAdministrationReadValue::MaintenancePlan {
+                            plan: plan_maintenance_due_work(
+                                &transaction,
+                                tasks,
+                                *retain_count,
+                                commit_seq,
+                            )?,
+                        }
+                    }
                 };
                 transaction.commit()?;
                 Ok(ModuleReadSnapshot {
@@ -368,9 +452,7 @@ impl StoreAdministrationModule {
                     value,
                 })
             })
-            .map_err(core_error);
-        drop(operation_guard);
-        snapshot
+            .map_err(core_error)
     }
 
     pub fn apply(
@@ -384,11 +466,20 @@ impl StoreAdministrationModule {
         }
         require_private_adapter(context)?;
         validate_operation_id(&request.operation_id)?;
+        if matches!(
+            &request.intent,
+            StoreAdministrationIntent::CancelBackup { .. }
+        ) {
+            return self.apply_cancel_backup(context, request);
+        }
         let intent = request.intent.clone();
         let (phase, normalized_label, maintenance_tasks) = match &intent {
             StoreAdministrationIntent::CreateBackup { label, .. } => {
                 ("online_backup", normalize_label(label)?, None)
             }
+            StoreAdministrationIntent::CancelBackup { .. } => unreachable!(
+                "backup cancellation is handled before exclusive administration ownership"
+            ),
             StoreAdministrationIntent::RestoreBackup { .. } => ("restore", None, None),
             StoreAdministrationIntent::DeleteBackup { .. } => ("delete_backup", None, None),
             StoreAdministrationIntent::PruneBackups { .. } => ("prune_backups", None, None),
@@ -410,6 +501,9 @@ impl StoreAdministrationModule {
             StoreAdministrationIntent::CreateBackup { .. } => {
                 self.apply_create_backup(context, request, normalized_label)
             }
+            StoreAdministrationIntent::CancelBackup { .. } => unreachable!(
+                "backup cancellation is handled before exclusive administration ownership"
+            ),
             StoreAdministrationIntent::RestoreBackup { .. } => {
                 self.apply_restore_backup(context, request)
             }
@@ -428,6 +522,110 @@ impl StoreAdministrationModule {
         self.clear_active();
         drop(operation_guard);
         result
+    }
+
+    fn apply_cancel_backup(
+        &self,
+        context: &BoundModuleContext,
+        request: ModuleApplyRequest<StoreAdministrationIntent>,
+    ) -> Result<StoreAdministrationApplyOutcome, CoreError> {
+        let Some(writer) = &self.writer else {
+            return Err(unavailable(
+                "Store Administration Module has no durable writer",
+            ));
+        };
+        let Some(profile_home) = &self.profile_home else {
+            return Err(unavailable(
+                "Store Administration Module has no managed Profile home",
+            ));
+        };
+        let StoreAdministrationIntent::CancelBackup { job_id } = &request.intent else {
+            unreachable!("apply dispatches only Backup cancellation here")
+        };
+        validate_operation_id(job_id)?;
+        let request_hash = sha256(
+            &serde_json::to_vec(&(
+                &self.profile_id,
+                &self.library_id,
+                request.contract_version,
+                &request.store_epoch,
+                "cancel_backup",
+                job_id,
+            ))
+            .map_err(|_| unavailable("Backup cancellation cannot be fingerprinted"))?,
+        );
+        let has_active_worker = {
+            let mut state = self
+                .runtime
+                .lock()
+                .map_err(|_| unavailable("Store Administration runtime state lock failed"))?;
+            let active = state
+                .active
+                .as_mut()
+                .filter(|active| active.operation_id == *job_id);
+            if let Some(active) = active {
+                if matches!(active.phase.as_str(), "commit" | "publishing" | "ready") {
+                    return Err(CoreError {
+                        code: CoreErrorCode::Conflict,
+                        message: "Snapshot can no longer be cancelled after publication has begun"
+                            .to_owned(),
+                        retryable: false,
+                        recovery: CoreErrorRecovery::None,
+                    });
+                }
+                active.cancellation_requested = true;
+                true
+            } else {
+                false
+            }
+        };
+        backup::request_backup_job_cancel(profile_home, job_id, has_active_worker)
+            .map_err(core_error)?;
+
+        let profile_id = self.profile_id.clone();
+        let library_id = self.library_id.clone();
+        let context = context.clone();
+        let job_id = job_id.clone();
+        let operation_id = request.operation_id;
+        let requested_epoch = request.store_epoch.0;
+        writer
+            .call(move |connection| {
+                let store_epoch = validate_maintenance_attempt(
+                    connection,
+                    &profile_id,
+                    &library_id,
+                    &requested_epoch,
+                )?;
+                if let Some(outcome) = replay_outcome(connection, &operation_id, &request_hash)? {
+                    return Ok(outcome);
+                }
+                let committed_at = sqlite_now(connection)?;
+                finish_administration_mutation(
+                    connection,
+                    &library_id,
+                    &context,
+                    &operation_id,
+                    &request_hash,
+                    &store_epoch,
+                    "cancel_backup",
+                    &committed_at,
+                    StoreAdministrationCommitValue {
+                        backup_id: None,
+                        safety_backup_id: None,
+                        cancelled_backup_job_id: Some(job_id.clone()),
+                        completed_tasks: Vec::new(),
+                    },
+                    Vec::new(),
+                    StoreAdministrationEvent {
+                        kind: StoreAdministrationEventKind::StoreAdministrationChanged,
+                        operation: "cancel_backup".to_owned(),
+                        backup_ids: Vec::new(),
+                        readiness_changed: false,
+                    },
+                    false,
+                )
+            })
+            .map_err(core_error)
     }
 
     fn apply_create_backup(
@@ -470,72 +668,295 @@ impl StoreAdministrationModule {
         let context = context.clone();
         let profile_home = profile_home.clone();
         let operation_id = request.operation_id;
-        let requested_store_epoch = request.store_epoch;
-        let outcome = writer
+        let requested_store_epoch = request.store_epoch.0;
+        let preflight_profile_id = profile_id.clone();
+        let preflight_library_id = library_id.clone();
+        let preflight_operation_id = operation_id.clone();
+        let preflight_request_hash = request_hash.clone();
+        let preflight_epoch = requested_store_epoch.clone();
+        let preflight_started_at = Instant::now();
+        let preflight = writer
             .call(move |connection| {
-                assert_identity(connection, &profile_id, &library_id)?;
+                assert_identity(connection, &preflight_profile_id, &preflight_library_id)?;
                 let store_epoch = read_store_epoch(connection)?;
-                if requested_store_epoch.0 != store_epoch {
-                    return Err(StoreError::new(
-                        StoreErrorCode::StaleStoreEpoch,
-                        "Store Administration mutation targets a stale store epoch",
-                        true,
-                    ));
+                if preflight_epoch != store_epoch {
+                    return Err(stale_store_epoch());
                 }
-                if let Some(outcome) = replay_outcome(connection, &operation_id, &request_hash)? {
-                    let backup_id = outcome
-                        .committed
-                        .value
-                        .backup_id
-                        .as_deref()
-                        .ok_or_else(|| corrupt("Backup creation receipt has no Backup identity"))?;
-                    operation_journal::publish_backup(
-                        &profile_home,
-                        &operation_id,
-                        &request_hash,
-                        backup_id,
-                    )?;
-                    return Ok(outcome);
+                if let Some(outcome) =
+                    replay_outcome(connection, &preflight_operation_id, &preflight_request_hash)?
+                {
+                    return Ok(Some(outcome));
                 }
-                let backup_count = backup::list_backups(&profile_home)?.len();
-                if backup_count >= MAX_BACKUPS {
-                    return Err(StoreError::new(
-                        StoreErrorCode::ResourceExhausted,
-                        "Backup collection exceeds its fixed bound; delete an older Backup first",
-                        false,
-                    ));
-                }
-                let record = operation_journal::stage_backup(
-                    connection,
-                    &profile_home,
-                    &profile_id,
-                    &operation_id,
-                    &request_hash,
-                    normalized_label.as_deref(),
-                    include_assets,
-                    trigger,
-                )?;
-                let outcome = finish_backup_creation(
-                    connection,
-                    &library_id,
-                    &context,
-                    &operation_id,
-                    &request_hash,
-                    &store_epoch,
-                    &record,
-                )?;
-                operation_journal::publish_backup(
-                    &profile_home,
-                    &operation_id,
-                    &request_hash,
-                    &record.backup_id,
-                )?;
-                Ok(outcome)
+                Ok(None)
             })
             .map_err(core_error)?;
+        if let Some(outcome) = preflight {
+            let backup_id = outcome
+                .committed
+                .value
+                .backup_id
+                .as_deref()
+                .ok_or_else(|| {
+                    core_error(corrupt("Backup creation receipt has no Backup identity"))
+                })?;
+            operation_journal::publish_backup(
+                &profile_home,
+                &operation_id,
+                &request_hash,
+                backup_id,
+            )
+            .map_err(core_error)?;
+            backup::update_backup_job_phase(&profile_home, &operation_id, "ready", "ready", None)
+                .map_err(core_error)?;
+            return Ok(outcome);
+        }
+
+        let trigger_name = match trigger {
+            nodex_core_contracts::administration::BackupTrigger::Manual => "manual",
+            nodex_core_contracts::administration::BackupTrigger::Auto => "auto",
+            nodex_core_contracts::administration::BackupTrigger::PreRestore => "pre-restore",
+        };
+        let expected_backup_id = backup::backup_id(&profile_id, &operation_id);
+        backup::begin_backup_job(
+            &profile_home,
+            &profile_id,
+            &operation_id,
+            &request_hash,
+            normalized_label.as_deref(),
+            include_assets,
+            trigger_name,
+            &expected_backup_id,
+        )
+        .map_err(core_error)?;
+        backup::update_backup_job_progress(&profile_home, &operation_id, |progress| {
+            progress.writer_held_ms = progress
+                .writer_held_ms
+                .saturating_add(duration_millis(preflight_started_at.elapsed()));
+        })
+        .map_err(core_error)?;
+        let inventory = backup::list_backup_inventory(&profile_home).map_err(|error| {
+            fail_backup_job(
+                &profile_home,
+                &operation_id,
+                "Snapshot inventory could not be read.",
+                error,
+            )
+        })?;
+        let capacity = backup::backup_capacity(
+            &profile_home,
+            &inventory,
+            include_assets,
+            backup::BackupCapacityMode::LivePreflight,
+        )
+        .map_err(|error| {
+            fail_backup_job(
+                &profile_home,
+                &operation_id,
+                "Snapshot capacity could not be verified.",
+                error,
+            )
+        })?;
+        if inventory.len() >= MAX_BACKUPS || !capacity.can_create {
+            backup::update_backup_job_phase(
+                &profile_home,
+                &operation_id,
+                "failed",
+                "failed",
+                Some(if inventory.len() >= MAX_BACKUPS {
+                    "Snapshot limit reached. Delete an older snapshot first."
+                } else {
+                    "Not enough disk space to create this snapshot safely."
+                }),
+            )
+            .map_err(core_error)?;
+            return Err(core_error(StoreError::new(
+                StoreErrorCode::ResourceExhausted,
+                if inventory.len() >= MAX_BACKUPS {
+                    "Backup collection exceeds its fixed bound; delete an older Backup first"
+                } else {
+                    "Backup requires more free disk space and safety headroom"
+                },
+                false,
+            )));
+        }
+
+        // The copy and full validation intentionally run on a dedicated reader
+        // outside the serialized writer. WAL keeps the snapshot consistent
+        // while interactive mutations continue to commit.
+        let admin_reader = open_reader(&profile_home.join("nodex.db")).map_err(|error| {
+            fail_backup_job(
+                &profile_home,
+                &operation_id,
+                "Snapshot source could not be opened.",
+                error,
+            )
+        })?;
+        assert_identity(&admin_reader, &profile_id, &library_id).map_err(|error| {
+            fail_backup_job(
+                &profile_home,
+                &operation_id,
+                "Snapshot source identity could not be verified.",
+                error,
+            )
+        })?;
+        let source_epoch = read_store_epoch(&admin_reader).map_err(|error| {
+            fail_backup_job(
+                &profile_home,
+                &operation_id,
+                "Snapshot source authority could not be verified.",
+                error,
+            )
+        })?;
+        if source_epoch != requested_store_epoch {
+            return Err(fail_backup_job(
+                &profile_home,
+                &operation_id,
+                "Snapshot source changed before capture began.",
+                stale_store_epoch(),
+            ));
+        }
+        let progress_runtime = Arc::clone(&self.runtime);
+        let cancellation_runtime = Arc::clone(&self.runtime);
+        let cancellation_operation_id = operation_id.clone();
+        let progress_profile_home = profile_home.clone();
+        let progress_operation_id = operation_id.clone();
+        let progress = move |phase: &'static str| {
+            backup::update_backup_job_phase(
+                &progress_profile_home,
+                &progress_operation_id,
+                "running",
+                phase,
+                None,
+            )?;
+            let mut state = progress_runtime
+                .lock()
+                .map_err(|_| internal("Store Administration runtime state lock failed"))?;
+            let active = state
+                .active
+                .as_mut()
+                .filter(|active| active.operation_id == progress_operation_id)
+                .ok_or_else(|| internal("Backup operation lost its runtime ownership"))?;
+            active.phase = phase.to_owned();
+            Ok(())
+        };
+        let cancellation_requested = move || {
+            let state = cancellation_runtime
+                .lock()
+                .map_err(|_| internal("Store Administration runtime state lock failed"))?;
+            let active = state
+                .active
+                .as_ref()
+                .filter(|active| active.operation_id == cancellation_operation_id)
+                .ok_or_else(|| internal("Backup operation lost its runtime ownership"))?;
+            Ok(active.cancellation_requested)
+        };
+        let staged = operation_journal::stage_backup(
+            &admin_reader,
+            &profile_home,
+            &profile_id,
+            &operation_id,
+            &request_hash,
+            normalized_label.as_deref(),
+            include_assets,
+            trigger,
+            &progress,
+            &cancellation_requested,
+        )
+        .map_err(|error| {
+            fail_backup_job(
+                &profile_home,
+                &operation_id,
+                "Snapshot capture or verification failed.",
+                error,
+            )
+        })?;
+        let record = staged.record().clone();
+        drop(admin_reader);
+        backup::update_backup_job_phase(&profile_home, &operation_id, "running", "commit", None)
+            .map_err(core_error)?;
+
+        let finish_profile_id = profile_id;
+        let finish_library_id = library_id;
+        let finish_context = context;
+        let finish_operation_id = operation_id.clone();
+        let finish_request_hash = request_hash.clone();
+        let finish_epoch = requested_store_epoch;
+        let finish_record = record.clone();
+        let finish_writer_started_at = Instant::now();
+        let outcome = match writer.call(move |connection| {
+            assert_identity(connection, &finish_profile_id, &finish_library_id)?;
+            let store_epoch = read_store_epoch(connection)?;
+            if finish_epoch != store_epoch {
+                return Err(stale_store_epoch());
+            }
+            if let Some(outcome) =
+                replay_outcome(connection, &finish_operation_id, &finish_request_hash)?
+            {
+                return Ok(outcome);
+            }
+            finish_backup_creation(
+                connection,
+                &finish_library_id,
+                &finish_context,
+                &finish_operation_id,
+                &finish_request_hash,
+                &store_epoch,
+                &finish_record,
+            )
+        }) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                operation_journal::discard_verified_backup(staged).map_err(core_error)?;
+                backup::update_backup_job_phase(
+                    &profile_home,
+                    &operation_id,
+                    "failed",
+                    "failed",
+                    Some("Snapshot could not be committed."),
+                )
+                .map_err(core_error)?;
+                return Err(core_error(error));
+            }
+        };
+        backup::update_backup_job_progress(&profile_home, &operation_id, |progress| {
+            progress.writer_held_ms = progress
+                .writer_held_ms
+                .saturating_add(duration_millis(finish_writer_started_at.elapsed()));
+        })
+        .map_err(core_error)?;
+        backup::update_backup_job_phase(
+            &profile_home,
+            &operation_id,
+            "running",
+            "publishing",
+            None,
+        )
+        .map_err(core_error)?;
+        // Keep a publication failure durably running: the receipt already
+        // exists, so startup recovery must retry adoption with the same
+        // operation identity instead of turning a recoverable boundary into a
+        // terminal job.
+        let publish_started_at = Instant::now();
+        let published = operation_journal::publish_verified_backup(staged).map_err(core_error)?;
+        backup::update_backup_job_progress(&profile_home, &operation_id, |progress| {
+            progress.publish_ms = duration_millis(publish_started_at.elapsed());
+        })
+        .map_err(core_error)?;
+        if published.backup_id != record.backup_id
+            || outcome.committed.value.backup_id.as_deref() != Some(record.backup_id.as_str())
+        {
+            return Err(fail_backup_job(
+                &profile_home,
+                &operation_id,
+                "Snapshot publication evidence diverged.",
+                corrupt("Backup publication diverges from its durable receipt"),
+            ));
+        }
         if let Ok(mut state) = self.runtime.lock() {
             state.integrity = StoreIntegrity::Ok;
         }
+        backup::update_backup_job_phase(&profile_home, &operation_id, "ready", "ready", None)
+            .map_err(core_error)?;
         Ok(outcome)
     }
 
@@ -650,7 +1071,11 @@ impl StoreAdministrationModule {
                 "Store Administration Module has no managed Profile home",
             ));
         };
-        let StoreAdministrationIntent::PruneBackups { retain_count } = request.intent else {
+        let StoreAdministrationIntent::PruneBackups {
+            retain_count,
+            retain_bytes,
+        } = request.intent
+        else {
             unreachable!("apply validates the Store Administration intent")
         };
         let fingerprint = serde_json::to_vec(&(
@@ -660,6 +1085,7 @@ impl StoreAdministrationModule {
             &request.store_epoch,
             "prune_backups",
             retain_count,
+            retain_bytes,
         ))
         .map_err(|_| unavailable("Backup pruning request cannot be fingerprinted"))?;
         let request_hash = sha256(&fingerprint);
@@ -685,15 +1111,15 @@ impl StoreAdministrationModule {
                 let logically_deleted = logically_deleted_backup_ids(connection)?;
                 let retain_count = usize::try_from(retain_count)
                     .map_err(|_| invalid_store("Backup retention count is invalid"))?;
-                let deleted_backup_ids = backup::list_backup_inventory(&profile_home_for_write)?
+                let automatic = backup::list_backup_inventory(&profile_home_for_write)?
                     .into_iter()
                     .filter(|item| {
                         item.trigger == "auto"
                             && !logically_deleted.contains(&item.record.backup_id)
                     })
-                    .skip(retain_count)
-                    .map(|item| item.record.backup_id)
                     .collect::<Vec<_>>();
+                let deleted_backup_ids =
+                    automatic_backups_outside_budget(automatic, retain_count, retain_bytes);
                 for backup_id in &deleted_backup_ids {
                     backup::validate_backup_for_deletion(&profile_home_for_write, backup_id)?;
                 }
@@ -733,7 +1159,12 @@ impl StoreAdministrationModule {
                 "Store Administration Module has no durable writer",
             ));
         };
-        let retention_readers = if tasks.contains(&MaintenanceTask::BlockRetention) {
+        let retention_readers = if tasks.iter().any(|task| {
+            matches!(
+                task,
+                MaintenanceTask::BlockRetention | MaintenanceTask::OperationalJournal
+            )
+        }) {
             Some(
                 self.readers
                     .clone()
@@ -744,6 +1175,7 @@ impl StoreAdministrationModule {
         };
         let StoreAdministrationIntent::RunMaintenance {
             block_retention_count,
+            work_token,
             ..
         } = &request.intent
         else {
@@ -762,14 +1194,11 @@ impl StoreAdministrationModule {
             "run_maintenance",
             &tasks,
             block_retention_count,
+            work_token,
         ))
         .map_err(|_| unavailable("Store maintenance request cannot be fingerprinted"))?;
         let request_hash = sha256(&fingerprint);
-        let profile_id = self.profile_id.clone();
-        let library_id = self.library_id.clone();
-        let finish_context = context.clone();
-        let operation_id = request.operation_id;
-        let requested_store_epoch = request.store_epoch.0;
+        let work_token = work_token.clone();
         let block_retention_count = block_retention_count
             .as_ref()
             .map(|count| {
@@ -777,6 +1206,11 @@ impl StoreAdministrationModule {
                     .map_err(|_| invalid("block retention count exceeds platform bounds"))
             })
             .transpose()?;
+        let profile_id = self.profile_id.clone();
+        let library_id = self.library_id.clone();
+        let finish_context = context.clone();
+        let operation_id = request.operation_id;
+        let requested_store_epoch = request.store_epoch.0;
         let verifies_integrity = tasks.iter().any(|task| {
             matches!(
                 task,
@@ -789,6 +1223,8 @@ impl StoreAdministrationModule {
             let operation_id = operation_id.clone();
             let request_hash = request_hash.clone();
             let requested_store_epoch = requested_store_epoch.clone();
+            let work_token = work_token.clone();
+            let tasks = tasks.clone();
             writer.call(move |connection| {
                 validate_maintenance_attempt(
                     connection,
@@ -796,18 +1232,63 @@ impl StoreAdministrationModule {
                     &library_id,
                     &requested_store_epoch,
                 )?;
-                replay_outcome(connection, &operation_id, &request_hash)
+                if let Some(outcome) = replay_outcome(connection, &operation_id, &request_hash)? {
+                    return Ok(Some(outcome));
+                }
+                if let Some(work_token) = work_token.as_deref() {
+                    let commit_head = crate::infrastructure::local_commit::head(connection)?;
+                    let expected_token = maintenance_work_token(
+                        connection,
+                        &tasks,
+                        block_retention_count.unwrap_or(DEFAULT_BLOCK_RETENTION_COUNT),
+                        commit_head,
+                    )?;
+                    if expected_token != work_token {
+                        return Err(StoreError::new(
+                            StoreErrorCode::Conflict,
+                            "Store maintenance due-work token is stale; plan maintenance again",
+                            true,
+                        ));
+                    }
+                }
+                Ok(None)
             })
         };
         let result = match preflight {
             Ok(Some(outcome)) => Ok(outcome),
             Ok(None) => {
-                let mut task_result = Ok(());
+                let mut task_result = Ok(0usize);
                 for task in &tasks {
                     if task_result.is_err() {
                         break;
                     }
-                    if *task == MaintenanceTask::BlockRetention {
+                    let completed = task_result.expect("maintenance result was checked");
+                    if *task == MaintenanceTask::OperationalJournal {
+                        let readers = retention_readers
+                            .as_ref()
+                            .expect("Operational Journal readers were validated");
+                        let plan = readers.read_default(
+                            crate::infrastructure::operational_journal::plan_bounded_pass,
+                        );
+                        task_result = plan.and_then(|plan| {
+                            let profile_id = profile_id.clone();
+                            let library_id = library_id.clone();
+                            let requested_store_epoch = requested_store_epoch.clone();
+                            writer.call(move |connection| {
+                                validate_maintenance_attempt(
+                                    connection,
+                                    &profile_id,
+                                    &library_id,
+                                    &requested_store_epoch,
+                                )?;
+                                crate::infrastructure::operational_journal::run_bounded_pass_with_plan(
+                                    connection,
+                                    &plan,
+                                )?;
+                                Ok(completed)
+                            })
+                        });
+                    } else if *task == MaintenanceTask::BlockRetention {
                         let retain_count =
                             block_retention_count.unwrap_or(DEFAULT_BLOCK_RETENTION_COUNT);
                         let planning_profile_id = profile_id.clone();
@@ -833,28 +1314,32 @@ impl StoreAdministrationModule {
                         });
                         task_result = planned.and_then(|planned| {
                             let mut cursor = 0;
+                            let mut changed_rows = completed;
                             while cursor < planned.len() {
                                 let slice =
                                     planned.slice_from(cursor, BLOCK_RETENTION_SLICE_CANDIDATES)?;
                                 let profile_id = profile_id.clone();
                                 let library_id = library_id.clone();
                                 let requested_store_epoch = requested_store_epoch.clone();
-                                let processed = writer.call(move |connection| {
-                                    validate_maintenance_attempt(
-                                        connection,
-                                        &profile_id,
-                                        &library_id,
-                                        &requested_store_epoch,
-                                    )?;
-                                    let result =
-                                        crate::document::run_bounded_block_retention_slice(
+                                let (processed, collected_blocks) =
+                                    writer.call(move |connection| {
+                                        validate_maintenance_attempt(
                                             connection,
-                                            &slice,
-                                            retain_count,
-                                            BLOCK_RETENTION_SLICE_TARGET,
+                                            &profile_id,
+                                            &library_id,
+                                            &requested_store_epoch,
                                         )?;
-                                    Ok(result.processed_candidates)
-                                })?;
+                                        let result =
+                                            crate::document::run_bounded_block_retention_slice(
+                                                connection,
+                                                &slice,
+                                                BLOCK_RETENTION_SLICE_TARGET,
+                                            )?;
+                                        Ok((
+                                            result.processed_candidates,
+                                            result.summary.collected_blocks,
+                                        ))
+                                    })?;
                                 if processed == 0 {
                                     return Err(StoreError::new(
                                         StoreErrorCode::Internal,
@@ -869,8 +1354,12 @@ impl StoreAdministrationModule {
                                         false,
                                     )
                                 })?;
+                                changed_rows =
+                                    changed_rows.checked_add(collected_blocks).ok_or_else(
+                                        || corrupt("Maintenance change count overflowed"),
+                                    )?;
                             }
-                            Ok(())
+                            Ok(changed_rows)
                         });
                     } else {
                         let task = *task;
@@ -885,11 +1374,14 @@ impl StoreAdministrationModule {
                                 &library_id,
                                 &requested_store_epoch,
                             )?;
-                            run_maintenance_task(connection, &task_context, task)
+                            let changed = run_maintenance_task(connection, &task_context, task)?;
+                            completed
+                                .checked_add(changed)
+                                .ok_or_else(|| corrupt("Maintenance change count overflowed"))
                         });
                     }
                 }
-                task_result.and_then(|()| {
+                task_result.and_then(|changed_rows| {
                     let profile_id = profile_id.clone();
                     let library_id = library_id.clone();
                     let finish_library_id = library_id.clone();
@@ -919,6 +1411,7 @@ impl StoreAdministrationModule {
                             &request_hash,
                             &store_epoch,
                             &tasks,
+                            changed_rows,
                             &committed_at,
                         )
                     })
@@ -1127,6 +1620,7 @@ impl StoreAdministrationModule {
         state.active = Some(ActiveOperation {
             operation_id: operation_id.to_owned(),
             phase: phase.to_owned(),
+            cancellation_requested: false,
         });
         Ok(())
     }
@@ -1175,6 +1669,7 @@ fn replay_outcome(
     Ok(Some(StoreAdministrationApplyOutcome {
         committed: durable.committed,
         event: None,
+        durability: StoreAdministrationOutcomeDurability::DurableReceipt,
     }))
 }
 
@@ -1198,6 +1693,7 @@ fn replay_cleanup_outcome(
         StoreAdministrationApplyOutcome {
             committed: durable.committed,
             event: None,
+            durability: StoreAdministrationOutcomeDurability::DurableReceipt,
         },
         durable.deleted_backup_ids,
     )))
@@ -1359,6 +1855,7 @@ fn finish_administration_mutation(
         Ok(StoreAdministrationApplyOutcome {
             committed: durable.committed,
             event: None,
+            durability: StoreAdministrationOutcomeDurability::DurableReceipt,
         })
     })
 }
@@ -1384,6 +1881,7 @@ fn finish_backup_creation(
         StoreAdministrationCommitValue {
             backup_id: Some(backup.backup_id.clone()),
             safety_backup_id: None,
+            cancelled_backup_job_id: None,
             completed_tasks: Vec::new(),
         },
         Vec::new(),
@@ -1422,6 +1920,7 @@ fn finish_cleanup_operation(
         StoreAdministrationCommitValue {
             backup_id: backup_id.map(str::to_owned),
             safety_backup_id: None,
+            cancelled_backup_job_id: None,
             completed_tasks: Vec::new(),
         },
         deleted_backup_ids.to_vec(),
@@ -1449,11 +1948,105 @@ fn validate_maintenance_attempt(
     Ok(store_epoch)
 }
 
+fn plan_maintenance_due_work(
+    connection: &Connection,
+    tasks: &[MaintenanceTask],
+    block_retention_count: usize,
+    commit_head: i64,
+) -> Result<MaintenanceDueWorkPlan, StoreError> {
+    let now_ms = connection.query_row(
+        "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let mut due_tasks = Vec::new();
+    let mut next_wake_at_ms = None;
+    for task in tasks {
+        let due = match task {
+            MaintenanceTask::IntegrityCheck | MaintenanceTask::ForeignKeyCheck => true,
+            MaintenanceTask::DocumentRevisionFinalize => {
+                let next = crate::document::next_revision_maintenance_at_ms(connection)?;
+                if let Some(next) = next {
+                    next_wake_at_ms =
+                        Some(next_wake_at_ms.map_or(next, |current: i64| current.min(next)));
+                }
+                next.is_some_and(|next| next <= now_ms)
+            }
+            MaintenanceTask::DocumentCompaction => {
+                crate::document::has_document_compaction_work(connection)?
+            }
+            MaintenanceTask::HistoryRetention => {
+                crate::document::has_document_history_retention_work(connection)?
+            }
+            MaintenanceTask::BlockRetention => {
+                let (due, next) = crate::document::plan_block_retention_due_work(
+                    connection,
+                    block_retention_count,
+                )?;
+                if let Some(next) = next {
+                    next_wake_at_ms =
+                        Some(next_wake_at_ms.map_or(next, |current: i64| current.min(next)));
+                }
+                due
+            }
+            MaintenanceTask::OperationalJournal => {
+                let (due, next) =
+                    crate::infrastructure::operational_journal::plan_due_work(connection)?;
+                if let Some(next) = next {
+                    next_wake_at_ms =
+                        Some(next_wake_at_ms.map_or(next, |current: i64| current.min(next)));
+                }
+                due
+            }
+        };
+        if due {
+            due_tasks.push(*task);
+        }
+    }
+    let work_token = (!due_tasks.is_empty())
+        .then(|| maintenance_work_token(connection, &due_tasks, block_retention_count, commit_head))
+        .transpose()?;
+    Ok(MaintenanceDueWorkPlan {
+        due_tasks,
+        next_wake_at_ms,
+        work_token,
+    })
+}
+
+fn maintenance_work_token(
+    connection: &Connection,
+    due_tasks: &[MaintenanceTask],
+    block_retention_count: usize,
+    commit_head: i64,
+) -> Result<String, StoreError> {
+    let journal_revision = if due_tasks.contains(&MaintenanceTask::OperationalJournal) {
+        Some(crate::infrastructure::operational_journal::work_revision(
+            connection,
+        )?)
+    } else {
+        None
+    };
+    let block_retention_revision = if due_tasks.contains(&MaintenanceTask::BlockRetention) {
+        Some(crate::document::block_retention_work_revision(connection)?)
+    } else {
+        None
+    };
+    let encoded = serde_json::to_vec(&(
+        commit_head,
+        due_tasks,
+        block_retention_count,
+        journal_revision,
+        block_retention_revision,
+    ))
+    .map_err(|_| internal("Store maintenance plan cannot be fingerprinted"))?;
+    Ok(format!("maintenance-due:{}", sha256(&encoded)))
+}
+
 fn run_maintenance_task(
     connection: &mut Connection,
     context: &BoundModuleContext,
     task: MaintenanceTask,
-) -> Result<(), StoreError> {
+) -> Result<usize, StoreError> {
     match task {
         MaintenanceTask::IntegrityCheck => {
             let integrity = connection
@@ -1477,21 +2070,27 @@ fn run_maintenance_task(
             }
         }
         MaintenanceTask::DocumentRevisionFinalize => {
-            crate::document::finalize_idle_document_revisions(connection, context)?;
+            return crate::document::finalize_idle_document_revisions(connection, context);
         }
         MaintenanceTask::DocumentCompaction => {
-            crate::document::compact_eligible_documents(connection)?;
+            return crate::document::compact_eligible_documents(connection);
         }
         MaintenanceTask::HistoryRetention => {
-            crate::document::prune_document_history_pass(connection)?;
+            return crate::document::prune_document_history_pass(connection);
         }
         MaintenanceTask::BlockRetention => {
             return Err(internal(
                 "Block retention must run through the sliced maintenance coordinator",
             ));
         }
+        MaintenanceTask::OperationalJournal => {
+            let _pass = crate::infrastructure::operational_journal::run_bounded_pass(connection)?;
+            // Operational retention advances replay metadata, not product
+            // state, so it must not manufacture another semantic LocalCommit.
+            return Ok(0);
+        }
     }
-    Ok(())
+    Ok(0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1503,8 +2102,37 @@ fn finish_maintenance(
     request_hash: &str,
     store_epoch: &str,
     completed_tasks: &[MaintenanceTask],
+    changed_rows: usize,
     committed_at: &str,
 ) -> Result<StoreAdministrationApplyOutcome, StoreError> {
+    if changed_rows == 0 {
+        // A read-only check or an Operational Journal slice has no product
+        // outcome to replay. Persisting a no-op receipt here would make idle
+        // maintenance grow the very journal it is responsible for bounding.
+        return Ok(StoreAdministrationApplyOutcome {
+            committed: crate::ModuleWriterResult {
+                value: StoreAdministrationCommitValue {
+                    backup_id: None,
+                    safety_backup_id: None,
+                    cancelled_backup_job_id: None,
+                    completed_tasks: completed_tasks.to_vec(),
+                },
+                receipt: StoreAdministrationReceipt {
+                    mutation: ModuleMutationReceipt {
+                        operation_id: operation_id.to_owned(),
+                        duplicate: false,
+                    },
+                    backup_id: None,
+                    safety_backup_id: None,
+                },
+                commit_seq: local_commit::head(connection)?,
+                event_sequence: 0,
+                store_epoch: StoreEpoch(store_epoch.to_owned()),
+            },
+            event: None,
+            durability: StoreAdministrationOutcomeDurability::Transient,
+        });
+    }
     finish_administration_mutation(
         connection,
         library_id,
@@ -1517,6 +2145,7 @@ fn finish_maintenance(
         StoreAdministrationCommitValue {
             backup_id: None,
             safety_backup_id: None,
+            cancelled_backup_job_id: None,
             completed_tasks: completed_tasks.to_vec(),
         },
         Vec::new(),
@@ -1526,7 +2155,7 @@ fn finish_maintenance(
             backup_ids: Vec::new(),
             readiness_changed: true,
         },
-        !completed_tasks.is_empty(),
+        true,
     )
 }
 
@@ -1558,6 +2187,7 @@ fn finish_restore(
         StoreAdministrationCommitValue {
             backup_id: Some(backup_id.to_owned()),
             safety_backup_id: safety_backup_id.map(str::to_owned),
+            cancelled_backup_job_id: None,
             completed_tasks: Vec::new(),
         },
         Vec::new(),
@@ -1633,13 +2263,14 @@ fn normalize_label(label: &Option<String>) -> Result<Option<String>, CoreError> 
 fn normalize_maintenance_tasks(
     tasks: &[MaintenanceTask],
 ) -> Result<Vec<MaintenanceTask>, CoreError> {
-    const ORDER: [MaintenanceTask; 6] = [
+    const ORDER: [MaintenanceTask; 7] = [
         MaintenanceTask::IntegrityCheck,
         MaintenanceTask::ForeignKeyCheck,
         MaintenanceTask::DocumentRevisionFinalize,
         MaintenanceTask::DocumentCompaction,
         MaintenanceTask::HistoryRetention,
         MaintenanceTask::BlockRetention,
+        MaintenanceTask::OperationalJournal,
     ];
     if tasks.is_empty() || tasks.len() > ORDER.len() {
         return Err(invalid(
@@ -1693,6 +2324,29 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn fail_backup_job(
+    profile_home: &Path,
+    operation_id: &str,
+    user_message: &str,
+    cause: StoreError,
+) -> CoreError {
+    let cancelled = cause.code == StoreErrorCode::QueryCancelled;
+    if let Err(journal_error) = backup::update_backup_job_phase(
+        profile_home,
+        operation_id,
+        if cancelled { "cancelled" } else { "failed" },
+        if cancelled { "cancelled" } else { "failed" },
+        (!cancelled).then_some(user_message),
+    ) {
+        return core_error(journal_error);
+    }
+    core_error(cause)
+}
+
 fn core_error(error: StoreError) -> CoreError {
     let code = match error.code {
         StoreErrorCode::InvalidInput => CoreErrorCode::InvalidInput,
@@ -1707,6 +2361,8 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
         StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
+        StoreErrorCode::IdempotencyWindowExpired => CoreErrorCode::IdempotencyWindowExpired,
+        StoreErrorCode::LegacyIdempotencyUnavailable => CoreErrorCode::LegacyIdempotencyUnavailable,
         StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
         StoreErrorCode::MaterializationStale => CoreErrorCode::MaterializationStale,

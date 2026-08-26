@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { createUuidV7 } from "../../../shared/uuid-v7";
 import { OwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
 import { PageStageContentSkeleton } from "@/components/board/page-stage/content-skeleton";
 import { PageStageToolbar } from "@/components/board/page-stage/toolbar";
@@ -463,7 +464,7 @@ export function PageStageSessionTab({
               await commitPageDetailMetadataPatch({
                 projectId: tab.config.projectId,
                 pageId,
-                operationId: crypto.randomUUID(),
+                operationId: createUuidV7(),
                 clientSessionId: tab.id,
                 patch: updates,
               })
@@ -474,7 +475,7 @@ export function PageStageSessionTab({
                 pageId,
                 propertyId,
                 edit,
-                operationId: crypto.randomUUID(),
+                operationId: createUuidV7(),
                 clientSessionId: tab.id,
               })
             }

@@ -56,6 +56,7 @@ export type NodexAgentDynamicAuthorizationResolution =
 export interface NodexAgentDynamicExecutionContext {
   readonly threadId: string;
   readonly callId: string;
+  readonly operationId: string;
   readonly authority: FrozenNodexAgentTurnAuthority | null;
   readonly access: NodexAgentAccess;
   readonly resourceAccess?: NodexAgentResourceAccessOverlay;

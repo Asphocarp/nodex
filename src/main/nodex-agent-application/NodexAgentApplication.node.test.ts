@@ -273,6 +273,7 @@ it.effect("carries interruption to the in-flight Core request", () => {
             actorProjectId: projectId,
             libraryId: identity.libraryId,
             storeEpoch: identity.storeEpoch,
+            frozenAtMs: 1_785_491_085_000,
             scope: "project",
             source: "project_turn",
           },

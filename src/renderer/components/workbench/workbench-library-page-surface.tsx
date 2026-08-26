@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createUuidV7 } from "../../../shared/uuid-v7";
 
 import { PageStage } from "./workbench-page-stage";
 import { prepareLibraryOwnedBlockDocument } from "../../lib/api";
@@ -199,7 +200,7 @@ export function WorkbenchLibraryPageSurface({
       onUpdate={async (targetPageId, patch) => {
         const result = await commitLibraryPageDetailMetadataPatch({
           pageId: targetPageId,
-          operationId: crypto.randomUUID(),
+          operationId: createUuidV7(),
           clientSessionId: `library-page:${pageId}`,
           patch,
         });
@@ -214,7 +215,7 @@ export function WorkbenchLibraryPageSurface({
           pageId: targetPageId,
           propertyId,
           edit,
-          operationId: crypto.randomUUID(),
+          operationId: createUuidV7(),
           clientSessionId: `library-page:${pageId}`,
         });
         await queryClient.invalidateQueries({

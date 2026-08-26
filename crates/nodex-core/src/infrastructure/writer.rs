@@ -875,6 +875,8 @@ fn store_error_code_name(code: StoreErrorCode) -> &'static str {
         StoreErrorCode::PatchAmbiguous => "patch_ambiguous",
         StoreErrorCode::PatchOverlap => "patch_overlap",
         StoreErrorCode::IdempotencyKeyReused => "idempotency_key_reused",
+        StoreErrorCode::IdempotencyWindowExpired => "idempotency_window_expired",
+        StoreErrorCode::LegacyIdempotencyUnavailable => "legacy_idempotency_unavailable",
         StoreErrorCode::ProtectedOwnerDeletion => "protected_owner_deletion",
         StoreErrorCode::InvalidInput => "invalid_input",
         StoreErrorCode::InvalidProfile => "invalid_profile",

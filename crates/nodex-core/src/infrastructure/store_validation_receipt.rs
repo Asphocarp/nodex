@@ -77,17 +77,14 @@ pub(crate) fn consume(profile_home: &Path) -> Result<ConsumedStoreValidationRece
 }
 
 pub(crate) fn current(connection: &Connection) -> Result<StoreValidationReceipt, StoreError> {
-    let (store_epoch, commit_head) = connection
+    let store_epoch = connection
         .query_row(
-            "SELECT metadata.store_epoch, COALESCE(MAX(ledger.commit_seq), 0) \
-             FROM block_store_metadata metadata \
-             LEFT JOIN local_commits ledger ON ledger.store_epoch = metadata.store_epoch \
-             WHERE metadata.id = 1 \
-             GROUP BY metadata.store_epoch",
+            "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
             [],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            |row| row.get::<_, String>(0),
         )
         .map_err(StoreError::from)?;
+    let commit_head = super::local_commit::head(connection)?;
     let receipt = StoreValidationReceipt {
         version: RECEIPT_VERSION,
         schema_version: connection

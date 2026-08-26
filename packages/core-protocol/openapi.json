@@ -3245,6 +3245,38 @@
           "DELETED"
         ]
       },
+      "AutomationDueWorkLane": {
+        "type": "string",
+        "enum": [
+          "definitions",
+          "reminders"
+        ]
+      },
+      "AutomationDueWorkPlan": {
+        "type": "object",
+        "description": "A Core-authored scheduling decision. Main owns sleeping and wake sources,\nwhile the Automation Module remains the authority for durable due state.",
+        "required": [
+          "due_now"
+        ],
+        "properties": {
+          "due_now": {
+            "type": "boolean"
+          },
+          "next_wake_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "work_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AutomationEvent": {
         "type": "object",
         "required": [
@@ -3532,6 +3564,193 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "BackupCapacity": {
+        "type": "object",
+        "required": [
+          "available_bytes",
+          "estimated_next_backup_bytes",
+          "safety_margin_bytes",
+          "total_ready_bytes",
+          "manual_ready_bytes",
+          "automatic_ready_bytes",
+          "can_create"
+        ],
+        "properties": {
+          "automatic_ready_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "available_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "can_create": {
+            "type": "boolean"
+          },
+          "estimated_next_backup_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "manual_ready_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "safety_margin_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_ready_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "BackupJobProgress": {
+        "type": "object",
+        "required": [
+          "database_copied_pages",
+          "database_total_pages",
+          "database_busy_retries",
+          "asset_bytes_copied",
+          "database_copy_ms",
+          "asset_copy_ms",
+          "validation_ms",
+          "digest_ms",
+          "publish_ms",
+          "writer_held_ms"
+        ],
+        "properties": {
+          "asset_bytes_copied": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "asset_copy_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "database_busy_retries": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "database_copied_pages": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "database_copy_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "database_total_pages": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "digest_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "publish_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "validation_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "writer_held_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "BackupJobRecord": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "operation_id",
+          "state",
+          "phase",
+          "completed_units",
+          "total_units",
+          "started_at_ms",
+          "updated_at_ms",
+          "include_assets",
+          "trigger",
+          "backup_id",
+          "progress"
+        ],
+        "properties": {
+          "backup_id": {
+            "type": "string"
+          },
+          "completed_units": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "include_assets": {
+            "type": "boolean"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/BackupJobProgress"
+          },
+          "started_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "type": "string"
+          },
+          "total_units": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/BackupTrigger"
+          },
+          "updated_at_ms": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -6087,6 +6306,8 @@
           "patch_ambiguous",
           "patch_overlap",
           "idempotency_key_reused",
+          "idempotency_window_expired",
+          "legacy_idempotency_unavailable",
           "protected_owner_deletion",
           "document_update_missing_dependencies",
           "invalid_document_schema",
@@ -20199,6 +20420,33 @@
           }
         ]
       },
+      "MaintenanceDueWorkPlan": {
+        "type": "object",
+        "required": [
+          "due_tasks"
+        ],
+        "properties": {
+          "due_tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MaintenanceTask"
+            }
+          },
+          "next_wake_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "work_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "MaintenanceTask": {
         "type": "string",
         "enum": [
@@ -20207,7 +20455,8 @@
           "document_revision_finalize",
           "document_compaction",
           "history_retention",
-          "block_retention"
+          "block_retention",
+          "operational_journal"
         ]
       },
       "ModuleApplyRequest_AutomationIntent": {
@@ -20361,6 +20610,7 @@
               {
                 "type": "object",
                 "required": [
+                  "work_token",
                   "limit",
                   "lease_duration_ms",
                   "kind"
@@ -20381,6 +20631,9 @@
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
+                  },
+                  "work_token": {
+                    "type": "string"
                   }
                 }
               },
@@ -20789,6 +21042,7 @@
               {
                 "type": "object",
                 "required": [
+                  "work_token",
                   "limit",
                   "lease_duration_ms",
                   "kind"
@@ -20809,6 +21063,9 @@
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
+                  },
+                  "work_token": {
+                    "type": "string"
                   }
                 }
               },
@@ -23102,6 +23359,24 @@
               {
                 "type": "object",
                 "required": [
+                  "job_id",
+                  "kind"
+                ],
+                "properties": {
+                  "job_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "cancel_backup"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "backup_id",
                   "create_safety_backup",
                   "kind"
@@ -23143,6 +23418,7 @@
                 "type": "object",
                 "required": [
                   "retain_count",
+                  "retain_bytes",
                   "kind"
                 ],
                 "properties": {
@@ -23151,6 +23427,11 @@
                     "enum": [
                       "prune_backups"
                     ]
+                  },
+                  "retain_bytes": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
                   },
                   "retain_count": {
                     "type": "integer",
@@ -23185,6 +23466,12 @@
                     "items": {
                       "$ref": "#/components/schemas/MaintenanceTask"
                     }
+                  },
+                  "work_token": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 }
               }
@@ -23820,6 +24107,24 @@
           },
           "read": {
             "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "lane",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "due_work"
+                    ]
+                  },
+                  "lane": {
+                    "$ref": "#/components/schemas/AutomationDueWorkLane"
+                  }
+                }
+              },
               {
                 "type": "object",
                 "required": [
@@ -26284,12 +26589,152 @@
                   "kind": {
                     "type": "string",
                     "enum": [
+                      "backup_jobs"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "operational_journal_status"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
                       "maintenance_status"
                     ]
                   }
                 }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "tasks",
+                  "kind"
+                ],
+                "properties": {
+                  "block_retention_count": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "maintenance_plan"
+                    ]
+                  },
+                  "tasks": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/MaintenanceTask"
+                    }
+                  }
+                }
               }
             ]
+          }
+        }
+      },
+      "OperationalJournalStatus": {
+        "type": "object",
+        "required": [
+          "optimizing",
+          "commit_head_seq",
+          "replay_floor_seq",
+          "pending_commit_metadata",
+          "pending_receipt_metadata",
+          "retained_commit_count",
+          "retained_delivery_bytes",
+          "retained_receipt_count",
+          "retained_receipt_bytes",
+          "last_pruned_commit_seq",
+          "freelist_pages",
+          "reclaimable_bytes"
+        ],
+        "properties": {
+          "commit_head_seq": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "freelist_pages": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "last_pruned_commit_seq": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "optimizing": {
+            "type": "boolean"
+          },
+          "pending_commit_metadata": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pending_receipt_metadata": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "receipt_floor_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reclaimable_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "replay_floor_seq": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "retained_commit_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "retained_delivery_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "retained_receipt_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "retained_receipt_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -28861,6 +29306,14 @@
               }
             ]
           },
+          "frozen_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Present only for persisted authority and stable across process restarts."
+          },
           "persisted": {
             "type": "boolean"
           }
@@ -31420,6 +31873,12 @@
                               "null"
                             ]
                           },
+                          "cancelled_backup_job_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "completed_tasks": {
                             "type": "array",
                             "items": {
@@ -31485,6 +31944,12 @@
                         ],
                         "properties": {
                           "backup_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "cancelled_backup_job_id": {
                             "type": [
                               "string",
                               "null"
@@ -31609,6 +32074,24 @@
                   },
                   "value": {
                     "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "plan",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "due_work"
+                            ]
+                          },
+                          "plan": {
+                            "$ref": "#/components/schemas/AutomationDueWorkPlan"
+                          }
+                        }
+                      },
                       {
                         "type": "object",
                         "required": [
@@ -33973,17 +34456,60 @@
                         "type": "object",
                         "required": [
                           "backups",
+                          "capacity",
                           "kind"
                         ],
                         "properties": {
                           "backups": {
                             "$ref": "#/components/schemas/CollectionWindow_BackupRecord"
                           },
+                          "capacity": {
+                            "$ref": "#/components/schemas/BackupCapacity"
+                          },
                           "kind": {
                             "type": "string",
                             "enum": [
                               "backups"
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "jobs",
+                          "kind"
+                        ],
+                        "properties": {
+                          "jobs": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/BackupJobRecord"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "backup_jobs"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "operational_journal_status"
+                            ]
+                          },
+                          "status": {
+                            "$ref": "#/components/schemas/OperationalJournalStatus"
                           }
                         }
                       },
@@ -34014,6 +34540,24 @@
                               "string",
                               "null"
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "plan",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "maintenance_plan"
+                            ]
+                          },
+                          "plan": {
+                            "$ref": "#/components/schemas/MaintenanceDueWorkPlan"
                           }
                         }
                       }

@@ -3782,6 +3782,7 @@ mod tests {
             panic!("unrecorded Turn authority read");
         };
         assert!(!resolution.persisted);
+        assert_eq!(resolution.frozen_at_ms, None);
         assert_eq!(
             resolution.authority.expect("project fallback").scope,
             ProjectWorkspaceTurnAuthorityScope::Project
@@ -3868,6 +3869,7 @@ mod tests {
             panic!("Turn authority read");
         };
         assert!(resolution.persisted);
+        assert!(resolution.frozen_at_ms.is_some_and(|value| value > 0));
         assert_eq!(
             resolution.authority.expect("current authority").scope,
             ProjectWorkspaceTurnAuthorityScope::Library
@@ -4033,6 +4035,7 @@ mod tests {
         };
         assert!(resolution.persisted);
         assert!(resolution.authority.is_none());
+        assert_eq!(resolution.frozen_at_ms, None);
     }
 
     #[test]

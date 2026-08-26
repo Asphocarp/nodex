@@ -19,7 +19,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use super::block_document::decode_block_document_allowing_illegal_children;
 use super::history::canonical_json_bytes;
 use super::persistence::{
-    persist_materialization, replace_document_block_index_for_schema_migration,
+    persist_materialization_for_schema_migration, replace_document_block_index_for_schema_migration,
 };
 use super::{
     BlockDocumentKind, BlockDocumentSchema, DecodedBlockDocument, DocumentMaterialization,
@@ -482,7 +482,7 @@ fn write_document(
             timestamp,
         ],
     )?;
-    persist_materialization(
+    persist_materialization_for_schema_migration(
         connection,
         &prepared.head.id,
         prepared.head.generation,

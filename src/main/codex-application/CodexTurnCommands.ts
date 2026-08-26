@@ -20,6 +20,7 @@ import type {
   CodexTurnStartOptions,
   CodexTurnSummary,
 } from "../../shared/types";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { CoreModules } from "../core-runtime/CoreModules";
@@ -441,7 +442,7 @@ export const make: Effect.Effect<
         ({
           steerId: `steer:${input.threadId}:${now}:${nonce.toString(36).padStart(6, "0")}`,
           recoveryRow: {
-            followUpId: `follow-up:${randomUUID()}`,
+            followUpId: `follow-up:${createUuidV7()}`,
             clientUserMessageId: randomUUID(),
             threadId: input.threadId,
             prompt: input.prompt,

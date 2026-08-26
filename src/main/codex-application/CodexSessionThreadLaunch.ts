@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ThreadStartParams, ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2";
 import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
 import * as Context from "effect/Context";
@@ -11,6 +10,7 @@ import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
 import { summarizeCodexPendingWorktreeLabel } from "../../shared/codex-pending-worktree";
 import { createCodexTextUserInput } from "../../shared/codex-prompt-preparation";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import type {
   CodexConversationSnapshot,
   CodexThreadDetail,
@@ -350,7 +350,7 @@ export const make: Effect.Effect<
         }
         const freshLaunch = {
           ...outcome,
-          launchId: randomUUID(),
+          launchId: createUuidV7(),
           rendererClientId: context.ownerClientId,
           clientUserMessageId: plan.clientUserMessageId,
           canonicalParams: plan.canonicalParams,

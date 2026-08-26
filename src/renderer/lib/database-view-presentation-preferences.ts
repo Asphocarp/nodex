@@ -1,4 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
+import { createUuidV7 } from "../../shared/uuid-v7";
 
 import { parseDatabaseViewId, type DatabaseViewId } from "../../shared/database-identities";
 import {
@@ -151,7 +152,7 @@ const writeCorePresentation = async (input: {
 }): Promise<{ readonly revision: number; readonly commitSeq: number }> => {
   const result = await applyDatabaseModule(input.projectId, {
     projectId: input.projectId,
-    operationId: crypto.randomUUID(),
+    operationId: createUuidV7(),
     storeEpoch: input.storeEpoch,
     actor: { kind: "renderer_database_view_personal_state" },
     operations: [
@@ -179,7 +180,7 @@ const writeCoreDisclosure = async (input: {
 }): Promise<number> => {
   const result = await applyDatabaseModule(input.projectId, {
     projectId: input.projectId,
-    operationId: crypto.randomUUID(),
+    operationId: createUuidV7(),
     storeEpoch: input.storeEpoch,
     actor: { kind: "renderer_database_view_personal_state" },
     operations: [

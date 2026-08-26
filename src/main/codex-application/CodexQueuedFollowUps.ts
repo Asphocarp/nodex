@@ -20,12 +20,14 @@ import type {
   CodexQueueOwnerUpdateResult,
   CodexServiceTier,
 } from "../../shared/types";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import {
   CODEX_INTERRUPTED_STEER_REASON,
   CODEX_QUEUE_OWNER_UPDATE_METHOD,
   CODEX_QUEUED_FOLLOW_UP_PAYLOAD_SCHEMA_VERSION,
 } from "../../shared/codex-queued-follow-up-state";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import type { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 import { MAIN_RELIABLE_COMMAND_CAPACITY } from "../runtime-limits";
@@ -494,8 +496,7 @@ export const make: Effect.Effect<
         yield* publishProjection(threadId, settled);
         return { changed: false, projection: settled };
       }
-      const operationId =
-        options.operationId ?? `electron:queued-follow-up:${operation}:${randomUUID()}`;
+      const operationId = options.operationId ?? createOperationId(`queued-follow-up.${operation}`);
       let revision: number;
       const attempted = yield* Effect.exit(
         applyCoreCommit(threadId, operation, previous.ledgerRevision, next.entries, operationId),
@@ -642,7 +643,7 @@ export const make: Effect.Effect<
             (state) => completeCodexQueuedFollowUp(state, followUpId),
             {
               clearInFlight: true,
-              operationId: `electron:queued-follow-up:settle:${followUpId}`,
+              operationId: createOperationId("queued-follow-up.settle"),
             },
           ),
         );
@@ -801,7 +802,7 @@ export const make: Effect.Effect<
           const createdAtMs = yield* Clock.currentTimeMillis;
           const row = yield* payloads
             .freeze({
-              followUpId: `follow-up:${randomUUID()}`,
+              followUpId: `follow-up:${createUuidV7()}`,
               clientUserMessageId: randomUUID(),
               threadId,
               prompt,
