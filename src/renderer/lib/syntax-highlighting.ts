@@ -1,4 +1,4 @@
-import { codeBlockOptions } from "@blocknote/code-block";
+import { createCodeBlockHighlighter } from "@blocknote/code-block";
 import { createParser } from "prosemirror-highlight/shiki";
 
 export const NFM_CODE_THEMES = {
@@ -11,8 +11,7 @@ export const NFM_CODE_THEME_PAIR = [NFM_CODE_THEMES.light, NFM_CODE_THEMES.dark]
 const shikiParserSymbol = Symbol.for("blocknote.shikiParser");
 const shikiHighlighterPromiseSymbol = Symbol.for("blocknote.shikiHighlighterPromise");
 
-type BlockNoteCreateHighlighter = NonNullable<typeof codeBlockOptions.createHighlighter>;
-type BlockNoteHighlighter = Awaited<ReturnType<BlockNoteCreateHighlighter>>;
+type BlockNoteHighlighter = Awaited<ReturnType<typeof createCodeBlockHighlighter>>;
 type BlockNoteParser = ReturnType<typeof createParser>;
 
 type GlobalThisWithBlockNoteShiki = typeof globalThis & {
@@ -26,13 +25,10 @@ function getGlobalThisForBlockNoteShiki(): GlobalThisWithBlockNoteShiki {
 
 export function getSharedBlockNoteCodeHighlighter(): Promise<BlockNoteHighlighter> {
   const globalState = getGlobalThisForBlockNoteShiki();
-  const createHighlighter = codeBlockOptions.createHighlighter;
-
-  if (!createHighlighter) {
-    throw new Error("BlockNote code blocks require a createHighlighter implementation.");
-  }
-
-  globalState[shikiHighlighterPromiseSymbol] ??= createHighlighter();
+  globalState[shikiHighlighterPromiseSymbol] ??= createCodeBlockHighlighter({
+    themes: [...NFM_CODE_THEME_PAIR],
+    langs: [],
+  });
   return globalState[shikiHighlighterPromiseSymbol];
 }
 

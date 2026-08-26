@@ -41,6 +41,7 @@ import {
 } from "@blocknote/react";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import type { CodexThreadSummary, Project } from "@/lib/types";
+import { codeLanguagePreference } from "@/lib/nfm/code-language-preference";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../../../shared/project-appearance";
 
 describe("Page reference insertion bookmark", () => {
@@ -517,6 +518,7 @@ describe("NfmSlashMenu", () => {
     ) as NfmSuggestionItem[];
     const actionKeys = [
       "callout",
+      "code_block",
       "table",
       "canvas",
       "mention_page",
@@ -558,6 +560,42 @@ describe("NfmSlashMenu", () => {
 
     expect(updateBlock).toHaveBeenCalledTimes(1);
     expect(updateBlock.mock.calls[0]?.[1]).toEqual({ type: "callout" });
+  });
+
+  test("creates Code through slash with the validated recent language", () => {
+    let currentBlock = { id: "block-1", type: "paragraph", content: [] as unknown[] };
+    const updateBlock = vi.fn(
+      (block: typeof currentBlock, patch: { type: string; props?: Record<string, unknown> }) => {
+        currentBlock = { ...block, ...patch };
+        return currentBlock;
+      },
+    );
+    const editor = {
+      getTextCursorPosition: () => ({ block: currentBlock }),
+      updateBlock,
+      setTextCursorPosition: vi.fn(),
+      schema: {
+        blockSchema: {
+          paragraph: { content: "inline" },
+          codeBlock: { content: "inline" },
+        },
+      },
+    };
+
+    codeLanguagePreference.set("Python");
+    try {
+      getNfmSlashMenuCustomItems(editor)
+        .find((item) => item.key === "code_block")
+        ?.onItemClick();
+    } finally {
+      codeLanguagePreference.set("text");
+    }
+
+    expect(updateBlock).toHaveBeenCalledTimes(1);
+    expect(updateBlock.mock.calls[0]?.[1]).toEqual({
+      type: "codeBlock",
+      props: { language: "python" },
+    });
   });
 
   test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {

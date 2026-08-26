@@ -26,6 +26,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ClipboardEvent as ReactClipboardEvent,
   type ComponentPropsWithoutRef,
   type CSSProperties,
@@ -51,15 +52,26 @@ import {
   NfmSideMenuTableHeaderIcon,
   NfmSideMenuTurnIntoIcon,
   PlusIcon,
+  ReviewEnableWordWrapIcon,
 } from "@/components/shared/icons";
+import { Copy, WandSparkles } from "@/components/shared/icons/generic-icons";
 import { NodexPopover, NodexPopoverAnchor } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { claimEditorSelectionSurface } from "@/lib/editor-selection-presentation";
+import { writeTextToClipboard } from "@/lib/clipboard";
+import { canFormatCodeLanguage, getCodeBlockPlainText } from "@/lib/nfm/code-block-model";
+import { codeBlockViewState } from "@/lib/nfm/code-block-view-state";
+import { formatCode } from "@/lib/nfm/code-formatters";
+import { codeLanguagePreference } from "@/lib/nfm/code-language-preference";
 import { cn } from "@/lib/utils";
 import { hasTypedOwnerBlock } from "@/lib/typed-owner-blocks";
 import { NFM_TURN_INTO_DEFINITIONS } from "@/lib/nfm-turn-into-targets";
 import type { LibraryStructuralTurnIntoTarget } from "../../../../shared/library-module";
+import {
+  CODE_LANGUAGE_CATALOG,
+  normalizeCodeLanguageId,
+} from "../../../../shared/nfm/code-language-catalog";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 import { NfmStructuredClipboardExtension, type NfmClipboardCommand } from "./nfm-editor-extensions";
 import { NfmFloatingPopover, type NfmPopoverReference } from "./nfm-floating-popover";
@@ -124,6 +136,7 @@ interface SideMenuEditorRuntime extends SideMenuSelectionEditor {
   ) => unknown[];
   removeBlocks?: (blocks: unknown[]) => void;
   updateBlock?: (block: unknown, update: unknown) => void;
+  transact?: <T>(callback: () => T) => T;
   focus?: () => void;
   settings?: {
     tables?: {
@@ -181,6 +194,7 @@ interface NfmSideMenuOpenSelectionInput {
 
 interface NfmSideMenuOpenController {
   acquireSideMenuFreeze: () => () => void;
+  openBlockId: string | null;
   openForBlock: (input: NfmSideMenuOpenBlockInput) => boolean;
   openForCurrentSelection: (input?: NfmSideMenuOpenSelectionInput) => boolean;
   formattingToolbarSuppressionRange: NfmSideMenuSelectionRange | null;
@@ -234,6 +248,7 @@ interface NfmSideMenuSurfaceProps {
   sourcePageId: string | null;
   textColor: string;
   backgroundColor: string;
+  codeLanguageId: string;
   footerPrimary: string | null;
   footerSecondary: string | null;
   onQueryChange: (query: string) => void;
@@ -245,6 +260,7 @@ interface NfmSideMenuSurfaceProps {
   onSubmenuChange: (submenu: NfmSideMenuSubmenuKey | null) => void;
   onTurnInto: (item: NfmSideMenuTurnIntoItem) => void;
   onColor: (kind: "text" | "background", color: NfmSideMenuColorValue) => void;
+  onCodeLanguageChange: (languageId: string) => void;
   onClipboardCommand?: (command: NfmClipboardCommand, clipboardEvent: ClipboardEvent) => boolean;
   onMoveBlocksToDestination: (destination: NfmMoveToDestination) => Promise<void> | void;
   renderMoveToMenu?: (props: {
@@ -280,6 +296,7 @@ const SIDE_MENU_COLOR_VALUES = [
 
 const DEFAULT_SIDE_MENU_OPEN_CONTROLLER: NfmSideMenuOpenController = {
   acquireSideMenuFreeze: () => () => undefined,
+  openBlockId: null,
   openForBlock: () => false,
   openForCurrentSelection: () => false,
   formattingToolbarSuppressionRange: null,
@@ -521,7 +538,9 @@ function getTurnIntoItems(
   selectedBlocks: readonly SideMenuBlock[],
 ): NfmSideMenuTurnIntoItem[] {
   return NFM_TURN_INTO_DEFINITIONS.map((item) => {
-    const props = "props" in item.localPatch ? item.localPatch.props : undefined;
+    const baseProps = "props" in item.localPatch ? item.localPatch.props : undefined;
+    const props =
+      item.key === "code" ? { ...baseProps, language: codeLanguagePreference.get() } : baseProps;
     const acceptsChildren = editor.schema.acceptsBlockChildren({
       type: item.localPatch.type,
       ...(props ? { props } : {}),
@@ -550,6 +569,10 @@ function getBlockTypeIcon(item: NfmSideMenuTurnIntoItem) {
 }
 
 function getActionIcon(key: NfmSideMenuActionKey) {
+  if (key === "copy-code") return <Copy className="size-4" />;
+  if (key === "wrap-code") return <ReviewEnableWordWrapIcon className="size-4" />;
+  if (key === "code-language") return <CodeBracketsIcon className="size-5" />;
+  if (key === "format-code") return <WandSparkles className="size-4" />;
   if (key === "turn-into") return <NfmSideMenuTurnIntoIcon />;
   if (key === "color") return <NfmSideMenuColorIcon />;
   if (key === "copy-link-to-block") return <NfmSideMenuCopyLinkIcon />;
@@ -753,6 +776,7 @@ function NfmSideMenuRow({
           {row.shortcut}
         </span>
       ) : null}
+      {row.checked ? <CheckmarkIcon className="size-4 shrink-0" /> : null}
       {row.kind === "submenu" ? (
         <NfmSideMenuChevronRightIcon className="text-token-description-foreground" />
       ) : null}
@@ -761,7 +785,7 @@ function NfmSideMenuRow({
 
   if (row.kind !== "submenu" || !row.submenu || !submenuContent) return rowElement;
 
-  const submenuWidth = row.submenu === "move-to" ? 330 : 226;
+  const submenuWidth = row.submenu === "move-to" ? 330 : row.submenu === "language" ? 240 : 226;
   const isMoveToSubmenu = row.submenu === "move-to";
 
   return (
@@ -789,7 +813,9 @@ function NfmSideMenuRow({
           "text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl",
           isMoveToSubmenu
             ? "w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0"
-            : "w-[226px] overflow-y-auto p-1",
+            : row.submenu === "language"
+              ? "w-[240px] max-h-[50vh] overflow-y-auto p-1"
+              : "w-[226px] overflow-y-auto p-1",
         )}
         style={{ width: submenuWidth }}
       >
@@ -983,8 +1009,10 @@ function NfmSideMenuSubmenu({
   sourcePageId,
   textColor,
   backgroundColor,
+  codeLanguageId,
   onTurnInto,
   onColor,
+  onCodeLanguageChange,
   onMoveBlocksToDestination,
   renderMoveToMenu,
 }: Pick<
@@ -998,8 +1026,10 @@ function NfmSideMenuSubmenu({
   | "sourcePageId"
   | "textColor"
   | "backgroundColor"
+  | "codeLanguageId"
   | "onTurnInto"
   | "onColor"
+  | "onCodeLanguageChange"
   | "onMoveBlocksToDestination"
   | "renderMoveToMenu"
 > & {
@@ -1025,6 +1055,20 @@ function NfmSideMenuSubmenu({
 
   return (
     <>
+      {submenu === "language" ? (
+        <div role="menu" aria-label="Language">
+          {CODE_LANGUAGE_CATALOG.map((language) => (
+            <NfmSideMenuSubmenuRow
+              key={language.id}
+              selected={language.id === codeLanguageId}
+              leftSlot={<CodeBracketsIcon className="size-5" />}
+              onClick={() => onCodeLanguageChange(language.id)}
+            >
+              {language.label}
+            </NfmSideMenuSubmenuRow>
+          ))}
+        </div>
+      ) : null}
       {submenu === "turn-into" ? (
         <div role="menu" aria-label="Turn into">
           <div className="flex h-6 items-center px-2 text-[12px] text-token-description-foreground">
@@ -1159,6 +1203,7 @@ export function NfmSideMenuSurface({
   sourcePageId,
   textColor,
   backgroundColor,
+  codeLanguageId,
   footerPrimary,
   footerSecondary,
   onQueryChange,
@@ -1170,6 +1215,7 @@ export function NfmSideMenuSurface({
   onSubmenuChange,
   onTurnInto,
   onColor,
+  onCodeLanguageChange,
   onClipboardCommand,
   onMoveBlocksToDestination,
   renderMoveToMenu,
@@ -1245,8 +1291,10 @@ export function NfmSideMenuSurface({
         sourcePageId={sourcePageId}
         textColor={textColor}
         backgroundColor={backgroundColor}
+        codeLanguageId={codeLanguageId}
         onTurnInto={onTurnInto}
         onColor={onColor}
+        onCodeLanguageChange={onCodeLanguageChange}
         onMoveBlocksToDestination={onMoveBlocksToDestination}
         renderMoveToMenu={renderMoveToMenu}
       />
@@ -1368,6 +1416,19 @@ function NfmSideMenuPopup({
   );
   const selectedTopLevelBlock = topLevelSelectedBlocks[0] ?? block ?? null;
   const currentBlockId = selectedTopLevelBlock ? getCurrentBlockId(selectedTopLevelBlock) : null;
+  const subscribeCodeWrapped = useCallback(
+    (listener: () => void) =>
+      currentBlockId ? codeBlockViewState.subscribe(currentBlockId, listener) : () => undefined,
+    [currentBlockId],
+  );
+  const getCodeWrapped = useCallback(
+    () => (currentBlockId ? codeBlockViewState.getWrapped(currentBlockId) : false),
+    [currentBlockId],
+  );
+  const codeWrapped = useSyncExternalStore(subscribeCodeWrapped, getCodeWrapped, getCodeWrapped);
+  const codeLanguageId = normalizeCodeLanguageId(selectedTopLevelBlock?.props?.language);
+  const isSingleCodeBlock =
+    selectedTopLevelBlock?.type === "codeBlock" && topLevelSelectedBlocks.length === 1;
   const colorTargetBlocks = useMemo(
     () => (selectedActionBlocks.length > 0 ? selectedActionBlocks : block ? [block] : []),
     [block, selectedActionBlocks],
@@ -1406,15 +1467,24 @@ function NfmSideMenuPopup({
         isTableBlock: selectedTopLevelBlock?.type === "table",
         canUseTableHeaders: editor.settings?.tables?.headers === true,
         showMockActions: import.meta.env.DEV,
+        codeBlock: isSingleCodeBlock
+          ? {
+              wrapped: codeWrapped,
+              canFormat: canFormatCodeLanguage(codeLanguageId),
+            }
+          : undefined,
       }),
     [
       selectedTopLevelBlock?.type,
       colorSupport.background,
       colorSupport.text,
       currentBlockId,
+      codeLanguageId,
+      codeWrapped,
       editor.settings?.tables?.headers,
       runtimeSnapshot.hasConvertDividerToThreadSection,
       isEditable,
+      isSingleCodeBlock,
       runtimeSnapshot.canSendBlocks,
       selectionTitle,
       topLevelSelectedBlocks.length,
@@ -1570,6 +1640,53 @@ function NfmSideMenuPopup({
         return;
       }
 
+      if (key === "copy-code") {
+        void writeTextToClipboard(getCodeBlockPlainText(selectedTopLevelBlock ?? block)).then(
+          (copied) => {
+            if (!copied) toast.danger("Could not copy code");
+          },
+        );
+        close("action");
+        return;
+      }
+
+      if (key === "wrap-code") {
+        codeBlockViewState.setWrapped(currentBlockId, !codeWrapped);
+        return;
+      }
+
+      if (key === "format-code") {
+        const sourceBlock = selectedTopLevelBlock ?? block;
+        if (sourceBlock.type !== "codeBlock") return;
+        const source = getCodeBlockPlainText(sourceBlock);
+        void formatCode(codeLanguageId, source).then((result) => {
+          if (result.status === "failed") {
+            toast.danger("Could not format code", { description: result.error.message });
+            return;
+          }
+          if (result.status === "unsupported") return;
+          if (result.status === "unchanged") {
+            toast.info("Code is already formatted");
+            close("action");
+            return;
+          }
+
+          const latestBlock = editor.getBlock?.(currentBlockId);
+          if (!latestBlock || getCodeBlockPlainText(latestBlock) !== source) {
+            toast.info("Code changed before formatting finished");
+            return;
+          }
+          const update = () => editor.updateBlock?.(latestBlock, { content: result.code });
+          if (editor.transact) {
+            editor.transact(update);
+          } else {
+            update();
+          }
+          close("action");
+        });
+        return;
+      }
+
       if (key === "delete") {
         if (
           runtimeSnapshot.onDeleteBlocks(
@@ -1609,7 +1726,18 @@ function NfmSideMenuPopup({
         close("action");
       }
     },
-    [block, close, currentBlockId, editor, isEditable, openState, runtimeSnapshot],
+    [
+      block,
+      close,
+      codeLanguageId,
+      codeWrapped,
+      currentBlockId,
+      editor,
+      isEditable,
+      openState,
+      runtimeSnapshot,
+      selectedTopLevelBlock,
+    ],
   );
 
   const activateRow = useCallback(
@@ -1783,6 +1911,7 @@ function NfmSideMenuPopup({
         sourcePageId={runtimeSnapshot.sourcePageId}
         textColor={toStringProp(block.props, "textColor")}
         backgroundColor={toStringProp(block.props, "backgroundColor")}
+        codeLanguageId={codeLanguageId}
         footerPrimary={null}
         footerSecondary={null}
         onQueryChange={setQuery}
@@ -1840,6 +1969,21 @@ function NfmSideMenuPopup({
               props: { [propName]: nextValue },
             });
           }
+          close("action");
+        }}
+        onCodeLanguageChange={(languageId) => {
+          if (!isSingleCodeBlock || !selectedTopLevelBlock) return;
+          const nextLanguageId = normalizeCodeLanguageId(languageId);
+          const update = () =>
+            editor.updateBlock?.(selectedTopLevelBlock, {
+              props: { language: nextLanguageId },
+            });
+          if (editor.transact) {
+            editor.transact(update);
+          } else {
+            update();
+          }
+          codeLanguagePreference.set(nextLanguageId);
           close("action");
         }}
         onClipboardCommand={(command, clipboardEvent) => {
@@ -1957,11 +2101,18 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
   const value = useMemo<NfmSideMenuOpenController>(
     () => ({
       acquireSideMenuFreeze: freezeController.acquire,
+      openBlockId: openState?.block ? getCurrentBlockId(openState.block) : null,
       openForBlock,
       openForCurrentSelection,
       formattingToolbarSuppressionRange,
     }),
-    [formattingToolbarSuppressionRange, freezeController, openForBlock, openForCurrentSelection],
+    [
+      formattingToolbarSuppressionRange,
+      freezeController,
+      openForBlock,
+      openForCurrentSelection,
+      openState,
+    ],
   );
 
   const shouldKeepSuppressionRange = shouldKeepNfmSideMenuFormattingToolbarSuppression({

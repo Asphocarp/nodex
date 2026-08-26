@@ -82,8 +82,14 @@ describe("NfmRenderer", () => {
     await waitForStreamdownCodeHighlight(container);
 
     expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
-    expect(container.querySelector('[data-language="ts"]')).not.toBeNull();
+    expect(container.querySelector('[data-language="tsx"]')).not.toBeNull();
     expect(container.querySelector('[data-streamdown="code-block-actions"]') === null).toBe(true);
+    expect(
+      container.querySelector(
+        '[data-nfm-code-block-readonly-header][data-language-id="typescript"]',
+      )?.textContent,
+    ).toContain("TypeScript");
+    expect(container.querySelector('[aria-label="Open block actions menu"]')).toBeNull();
     expect(textContent(container).includes("const")).toBe(true);
   });
 

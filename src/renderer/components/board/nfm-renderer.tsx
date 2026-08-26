@@ -34,6 +34,8 @@ import { streamdownCodePlugin } from "@/lib/streamdown";
 import { DateMentionInlineVisual } from "./date-mention-inline-visual";
 import { ThreadMentionInlineVisual } from "./thread-mention-inline-visual";
 import { PageMentionInlineVisual } from "./page-mention-inline-visual";
+import { CodeBlockReadOnlyHeader } from "@/components/shared/code-block-readonly-header";
+import { resolveCodeLanguage } from "../../../shared/nfm/code-language-catalog";
 
 interface NfmRendererProps {
   content: string;
@@ -445,11 +447,15 @@ function HighlightedCodeBlock({
   language: string;
   className?: string;
 }) {
-  const normalizedLanguage = language.trim().toLowerCase();
-  const fencedCode = `\`\`\`${normalizedLanguage}\n${code}\n\`\`\``;
+  const resolvedLanguage = resolveCodeLanguage(language);
+  const highlightLanguage = resolvedLanguage.shikiLanguage ?? "text";
+  const fencedCode = `\`\`\`${highlightLanguage}\n${code}\n\`\`\``;
 
   return (
-    <div className={cn("nfm-code-block my-2 text-sm", className)}>
+    <div className={cn("nfm-code-block relative my-2 text-sm", className)}>
+      <div className="absolute top-1 right-1 z-[3]">
+        <CodeBlockReadOnlyHeader languageId={resolvedLanguage.id} code={code} />
+      </div>
       <Streamdown plugins={{ code: streamdownCodePlugin }} controls={false} lineNumbers={false}>
         {fencedCode}
       </Streamdown>

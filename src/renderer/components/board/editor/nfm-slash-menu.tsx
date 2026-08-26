@@ -90,6 +90,7 @@ import { StatusIcon } from "@/lib/status-presentation";
 import { WORKFLOW_STATUS_LABELS } from "../../../../shared/workflow-status";
 import { contentAccessContextKey } from "../../../../shared/content-access-context";
 import { NFM_TURN_INTO_DEFINITIONS } from "@/lib/nfm-turn-into-targets";
+import { codeLanguagePreference } from "@/lib/nfm/code-language-preference";
 import { NfmTurnIntoBlockIcon, type NfmTurnIntoBlockKey } from "./nfm-turn-into-block-icon";
 import {
   evaluateNfmTypedSuggestionTrigger,
@@ -696,6 +697,20 @@ export function getNfmSlashMenuCustomItems(
     },
   } satisfies NfmSuggestionItem;
 
+  const codeItem = {
+    key: "code_block",
+    title: "Code",
+    subtext: "Capture code with syntax highlighting",
+    aliases: ["code", "snippet", "source"],
+    hint: null,
+    onItemClick: () => {
+      insertBlock(editor, {
+        type: "codeBlock",
+        props: { language: codeLanguagePreference.get() },
+      });
+    },
+  } satisfies NfmSuggestionItem;
+
   const tableItem = {
     key: "table",
     title: "Table",
@@ -809,6 +824,7 @@ export function getNfmSlashMenuCustomItems(
 
   const items = [
     calloutItem,
+    codeItem,
     tableItem,
     ...(canvasItem ? [canvasItem] : []),
     ...(mentionPageItem ? [mentionPageItem] : []),

@@ -10,6 +10,7 @@
   ],
   "main": "out/main/bootstrap.js",
   "scripts": {
+    "generate:code-languages": "node scripts/generate-code-language-artifacts.mjs",
     "test": "vp run test:unit && vp run test:effect-codex && vp run test:core-client && vp run test:main && vp run test:renderer && vp run test:integration",
     "test:unit": "vp test run --config vitest.node.config.ts",
     "test:effect-codex": "vp test run --config vitest.effect-codex.config.ts",
@@ -169,6 +170,7 @@
   },
   "dependencies": {
     "@effect/platform-node": "4.0.0-rc.111",
+    "@prettier/plugin-xml": "3.4.2",
     "@radix-ui/react-slider": "1.4.7",
     "@sentry/electron": "7.13.0",
     "effect": "4.0.0-rc.111",
@@ -176,6 +178,7 @@
     "mime-types": "^2.1.35",
     "node-pty": "^1.1.0",
     "pdfjs-dist": "5.4.296",
+    "prettier": "3.8.3",
     "rrule": "2.8.1",
     "smol-toml": "1.6.1",
     "uuid": "14.0.0",

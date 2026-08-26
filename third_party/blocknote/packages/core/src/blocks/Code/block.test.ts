@@ -2,7 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TextSelection } from "@tiptap/pm/state";
 import { BlockNoteEditor } from "../../editor/BlockNoteEditor.js";
 import type { PartialBlock } from "../defaultBlocks.js";
-import { getLanguageId, type CodeBlockOptions } from "./block.js";
+import {
+  createCodeBlockExtensions,
+  getLanguageId,
+  resolveCodeBlockInputLanguage,
+  type CodeBlockOptions,
+} from "./block.js";
 
 /**
  * @vitest-environment jsdom
@@ -98,8 +103,7 @@ describe("Code block input rule", () => {
 
     const block = editor.document[0];
     expect(block.type).toBe("codeBlock");
-    // Without supportedLanguages configured, the raw alias is used
-    expect((block.props as any).language).toBe("ts");
+    expect((block.props as any).language).toBe("text");
   });
 
   it("converts ``` + space into a codeBlock with empty language", () => {
@@ -107,7 +111,7 @@ describe("Code block input rule", () => {
 
     const block = editor.document[0];
     expect(block.type).toBe("codeBlock");
-    expect((block.props as any).language).toBe("");
+    expect((block.props as any).language).toBe("text");
   });
 
   it("converts ```javascript + space into a codeBlock", () => {
@@ -115,7 +119,7 @@ describe("Code block input rule", () => {
 
     const block = editor.document[0];
     expect(block.type).toBe("codeBlock");
-    expect((block.props as any).language).toBe("javascript");
+    expect((block.props as any).language).toBe("text");
   });
 
   it("does not trigger input rule without trailing space", () => {
@@ -154,7 +158,7 @@ describe("Code block input rule", () => {
 
     const block = editor.document[0];
     expect(block.type).toBe("codeBlock");
-    expect((block.props as any).language).toBe("ts");
+    expect((block.props as any).language).toBe("text");
     expect(block.content).toEqual([]);
   });
 
@@ -164,7 +168,7 @@ describe("Code block input rule", () => {
 
     const block = editor.document[0];
     expect(block.type).toBe("codeBlock");
-    expect((block.props as any).language).toBe("");
+    expect((block.props as any).language).toBe("text");
   });
 
   it("converts ```javascript + Enter into a codeBlock", () => {
@@ -173,7 +177,7 @@ describe("Code block input rule", () => {
 
     const block = editor.document[0];
     expect(block.type).toBe("codeBlock");
-    expect((block.props as any).language).toBe("javascript");
+    expect((block.props as any).language).toBe("text");
   });
 
   it("does not trigger Enter conversion in non-empty paragraph with preceding text", () => {
@@ -242,7 +246,7 @@ describe("Code block input rule", () => {
     // Enter inside a code block should insert a newline, not convert again.
     const after = editor.document[0];
     expect(after.type).toBe("codeBlock");
-    expect((after.props as any).language).toBe("ts");
+    expect((after.props as any).language).toBe("text");
   });
 });
 
@@ -281,6 +285,29 @@ describe("getLanguageId", () => {
 
   it("returns undefined with no supportedLanguages", () => {
     expect(getLanguageId({}, "ts")).toBeUndefined();
+  });
+
+  it("falls back unknown and empty input-rule languages to the configured default", () => {
+    expect(resolveCodeBlockInputLanguage(options, "TS")).toBe("typescript");
+    expect(resolveCodeBlockInputLanguage({ ...options, defaultLanguage: "python" }, "vue")).toBe(
+      "python",
+    );
+    expect(resolveCodeBlockInputLanguage({ ...options, defaultLanguage: "python" }, "")).toBe(
+      "python",
+    );
+  });
+
+  it("reads a dynamic creation default without changing explicit supported languages", () => {
+    const getDefaultLanguage = () => "python";
+    const preferredOptions = { ...options, defaultLanguage: "text", getDefaultLanguage };
+
+    expect(resolveCodeBlockInputLanguage(preferredOptions, "TS")).toBe("typescript");
+    expect(resolveCodeBlockInputLanguage(preferredOptions, "vue")).toBe("python");
+    expect(resolveCodeBlockInputLanguage(preferredOptions, "")).toBe("python");
+  });
+
+  it("exposes the shared code extensions for React block specs", () => {
+    expect(createCodeBlockExtensions(options)).toHaveLength(2);
   });
 });
 

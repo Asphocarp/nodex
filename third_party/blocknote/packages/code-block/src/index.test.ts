@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { codeBlockOptions } from "./index.js";
+import { createCodeBlockHighlighter } from "./index.js";
 
-describe("codeBlock", () => {
-  it("should exist", () => {
-    expect(codeBlockOptions).toBeDefined();
-  });
-  it("should have defaultLanguage", () => {
-    expect(codeBlockOptions.defaultLanguage).toBeDefined();
-  });
-  it("should have supportedLanguages", () => {
-    expect(codeBlockOptions.supportedLanguages).toBeDefined();
-  });
-  it("should have createHighlighter", () => {
-    expect(codeBlockOptions.createHighlighter).toBeDefined();
+describe("@blocknote/code-block", () => {
+  it("exposes the generated highlighter factory", async () => {
+    const highlighter = await createCodeBlockHighlighter({
+      themes: ["github-light", "github-dark"],
+      langs: [],
+    });
+
+    await expect(highlighter.loadLanguage("typescript")).resolves.toBeUndefined();
+    await expect(highlighter.loadLanguage("arduino")).resolves.toBeUndefined();
+    await expect(highlighter.loadLanguage("python")).resolves.toBeUndefined();
+    await expect(highlighter.loadLanguage("visual-basic")).resolves.toBeUndefined();
+    expect(highlighter.getLoadedLanguages()).toContain("tsx");
+    expect(highlighter.getLoadedLanguages()).toEqual(
+      expect.arrayContaining(["cpp", "python", "vb"]),
+    );
   });
 });

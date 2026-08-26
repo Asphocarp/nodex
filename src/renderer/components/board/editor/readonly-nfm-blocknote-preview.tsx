@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
   BlockNoteSchema,
-  createCodeBlockSpec,
   defaultBlockSpecs,
   defaultInlineContentSpecs,
   defaultStyleSpecs,
@@ -42,6 +41,7 @@ import { createReadonlyPageMentionInlineContentSpec } from "./page-mention-inlin
 import { resolveThreadMentionDisplay } from "@/lib/nfm/thread-mention-display";
 import { createCalloutBlock } from "./callout-block";
 import { editorCodeBlockOptions } from "./code-block-options";
+import { createNfmCodeBlockSpec } from "./nfm-code-block-spec";
 import { imageBlockSpec } from "./image-block";
 import { openNfmResolvedLinkAction, resolveNfmLinkAction } from "@/lib/nfm-link-actions";
 import { useFileReferenceRouter } from "@/lib/file-reference-router";
@@ -265,7 +265,10 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     numberedListItem: defaultBlockSpecs.numberedListItem,
     checkListItem: defaultBlockSpecs.checkListItem,
     toggleListItem: defaultBlockSpecs.toggleListItem,
-    codeBlock: createCodeBlockSpec(editorCodeBlockOptions),
+    codeBlock: createNfmCodeBlockSpec({
+      ...editorCodeBlockOptions,
+      presentation: "readonly",
+    }),
     table: defaultBlockSpecs.table,
     quote: defaultBlockSpecs.quote,
     divider: defaultBlockSpecs.divider,

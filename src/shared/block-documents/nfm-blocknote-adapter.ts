@@ -26,6 +26,7 @@ import { serializeInlineContent } from "../nfm/serializer-inline";
 import { MAX_BLOCK_ID_LENGTH } from "./contracts";
 import { normalizeBlockChildrenForest } from "./block-children-policy";
 import { nfmBlockAcceptsChildren } from "../nfm/block-children";
+import { normalizeCodeLanguageId } from "../nfm/code-language-catalog";
 import {
   canonicalizePortableRichText,
   type PortableRichText,
@@ -189,7 +190,7 @@ function nfmBlockToBN(block: NfmBlock, toggleStates?: Map<string, boolean>): BNP
     case "codeBlock":
       return {
         type: "codeBlock",
-        props: { language: block.language },
+        props: { language: normalizeCodeLanguageId(block.language) },
         content: [{ type: "text", text: block.code, styles: {} }],
         children,
       };
@@ -485,12 +486,8 @@ function readBlockNoteBlock(value: unknown): BNBlock {
 }
 
 function normalizeCodeBlockLanguage(language: unknown): string {
-  if (typeof language !== "string") return "";
-
-  const normalizedLanguage = language.trim();
-  if (normalizedLanguage === "text") return "";
-
-  return normalizedLanguage;
+  const normalizedLanguage = normalizeCodeLanguageId(language);
+  return normalizedLanguage === "text" ? "" : normalizedLanguage;
 }
 
 function bnBlockToNfm(block: BNBlock): NfmBlock | null {

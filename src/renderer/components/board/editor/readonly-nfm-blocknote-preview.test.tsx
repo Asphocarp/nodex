@@ -41,6 +41,30 @@ function installDateMentionClock(start: string) {
 }
 
 describe("readonly NFM BlockNote preview", () => {
+  test("shows only the shared language label and Copy for Code Blocks", async () => {
+    const view = render(
+      <ReadonlyNfmBlockNotePreview
+        content={"```ts\nconst answer = 42\n```"}
+        projectId="alpha"
+        pageId="card-code"
+        historyId={0}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(view.container.querySelector("[data-nfm-code-block-readonly-header]")).not.toBeNull();
+    });
+    expect(
+      view.container.querySelector("[data-nfm-code-block-readonly-header]")?.textContent,
+    ).toContain("TypeScript");
+    expect(
+      view.container.querySelector<HTMLElement>("[data-nfm-code-block-surface]")?.dataset.wrapped,
+    ).toBe("false");
+    expect(view.getByRole("button", { name: "Copy code to clipboard" })).not.toBeNull();
+    expect(view.queryByRole("button", { name: "Open block actions menu" })).toBeNull();
+    expect(view.queryByText("Wrap code")).toBeNull();
+  });
+
   test("renders NFM content through the read-only BlockNote surface", async () => {
     const view = render(
       <ReadonlyNfmBlockNotePreview

@@ -1,7 +1,7 @@
 # NFM Block Side Menu Behavior
 
 Status: Active
-Last updated: 2026-08-23
+Last updated: 2026-08-26
 
 ## Purpose
 
@@ -55,6 +55,15 @@ Production row order for a normal editable block is:
 
 `Make thread section` appears only for one selected `divider` root when the Card Stage runtime can convert dividers. Table header row/column actions appear only for one selected `table` root when table headers are supported.
 
+For one selected Code Block, the menu prepends this Code group:
+
+1. `Copy code`
+2. `Wrap code`
+3. `Language`
+4. `Format code`, only when the selected language has a registered formatter
+
+The generic production rows follow this group. `Wrap code` reads and writes renderer-local state without changing the Block Document or closing the menu. `Language` uses the canonical Code language catalog. Code Blocks do not expose a caption action. The full Code contract is defined by [NFM Editor Code Block Behavior](nfm-editor-code-block-behavior.md).
+
 ## Page connections
 
 Page Mention, Page Reference Block, Page Link, and owning Subpage behavior is
@@ -72,7 +81,7 @@ The side menu surface is a compact dialog:
 - Search input at the top
 - Listbox semantics for rows
 - Group separators at visual group boundaries
-- Right-side submenu flyouts for `Turn into`, `Color`, and `Move to`
+- Right-side submenu flyouts for `Turn into`, `Color`, `Move to`, and Code `Language`
 - Entry/exit motion: `200ms` opacity/scale, with reduced-motion fallback
 - Transform origin follows popup placement, including right-side `50%` origin behavior
 

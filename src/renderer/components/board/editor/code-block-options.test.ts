@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { editorCodeBlockOptions } from "./code-block-options";
+import { codeLanguagePreference } from "@/lib/nfm/code-language-preference";
 
 const shikiParserSymbol = Symbol.for("blocknote.shikiParser");
 const shikiHighlighterPromiseSymbol = Symbol.for("blocknote.shikiHighlighterPromise");
@@ -16,6 +17,28 @@ function clearBlockNoteShikiState(): void {
 }
 
 describe("editorCodeBlockOptions", () => {
+  test("offers exactly the shared 88-language product catalog", () => {
+    const names = Object.values(editorCodeBlockOptions.supportedLanguages ?? {}).map(
+      ({ name }) => name,
+    );
+
+    expect(names).toHaveLength(88);
+    expect(names.at(0)).toBe("ABAP");
+    expect(names.at(-1)).toBe("YAML");
+    expect(names).toContain("Rocq");
+    expect(names).not.toContain("Vue");
+  });
+
+  test("reads the validated recent language only when a new block asks for a default", () => {
+    codeLanguagePreference.set("Python");
+    try {
+      expect(editorCodeBlockOptions.defaultLanguage).toBe("text");
+      expect(editorCodeBlockOptions.getDefaultLanguage?.()).toBe("python");
+    } finally {
+      codeLanguagePreference.set("text");
+    }
+  });
+
   test("seeds a dual-theme BlockNote parser for light and dark code blocks", async () => {
     clearBlockNoteShikiState();
     try {
@@ -25,7 +48,7 @@ describe("editorCodeBlockOptions", () => {
       }
 
       const highlighter = await createHighlighter();
-      await highlighter.loadLanguage("ts");
+      await highlighter.loadLanguage("typescript");
 
       const parser = (globalThis as GlobalThisWithBlockNoteShiki)[shikiParserSymbol];
 
@@ -35,7 +58,7 @@ describe("editorCodeBlockOptions", () => {
       const content = "const answer = 42";
       const decorations = parser({
         content,
-        language: "ts",
+        language: "typescript",
         pos: 0,
         size: content.length + 2,
       });

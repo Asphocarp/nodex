@@ -1,5 +1,5 @@
 import type { HighlighterGeneric } from "@shikijs/types";
-import { DOMParser } from "@tiptap/pm/model";
+import { DOMParser, type Schema } from "@tiptap/pm/model";
 import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import { createExtension } from "../../editor/BlockNoteExtension.js";
 import { createBlockConfig, createBlockSpec } from "../../schema/index.js";
@@ -63,6 +63,11 @@ export type CodeBlockOptions = {
    */
   defaultLanguage?: string;
   /**
+   * Resolves the default at creation time. This is useful for renderer-local preferences while
+   * keeping the schema default deterministic.
+   */
+  getDefaultLanguage?: () => string;
+  /**
    * The languages that are supported in the editor.
    *
    * @example
@@ -111,6 +116,34 @@ export const createCodeBlockConfig = createBlockConfig(
     }) as const,
 );
 
+export function parseCodeBlockElement(element: HTMLElement) {
+  if (element.tagName !== "PRE") return undefined;
+  if (
+    element.childElementCount !== 1 ||
+    element.firstElementChild?.tagName !== "CODE"
+  ) {
+    return undefined;
+  }
+
+  const code = element.firstElementChild;
+  const language =
+    code.getAttribute("data-language") ||
+    code.className
+      .split(" ")
+      .find((name) => name.includes("language-"))
+      ?.replace("language-", "");
+  return { language };
+}
+
+export function parseCodeBlockContent(element: HTMLElement, schema: Schema) {
+  const parser = DOMParser.fromSchema(schema);
+  const code = element.firstElementChild!;
+  return parser.parse(code, {
+    preserveWhitespace: "full",
+    topNode: schema.nodes["codeBlock"].create(),
+  }).content;
+}
+
 export const createCodeBlockSpec = createBlockSpec(
   createCodeBlockConfig,
   (options) => ({
@@ -119,38 +152,9 @@ export const createCodeBlockSpec = createBlockSpec(
       defining: true,
       isolating: false,
     },
-    parse: (e) => {
-      if (e.tagName !== "PRE") {
-        return undefined;
-      }
+    parse: parseCodeBlockElement,
 
-      if (
-        e.childElementCount !== 1 ||
-        e.firstElementChild?.tagName !== "CODE"
-      ) {
-        return undefined;
-      }
-
-      const code = e.firstElementChild!;
-      const language =
-        code.getAttribute("data-language") ||
-        code.className
-          .split(" ")
-          .find((name) => name.includes("language-"))
-          ?.replace("language-", "");
-
-      return { language };
-    },
-
-    parseContent: ({ el, schema }) => {
-      const parser = DOMParser.fromSchema(schema);
-      const code = el.firstElementChild!;
-
-      return parser.parse(code, {
-        preserveWhitespace: "full",
-        topNode: schema.nodes["codeBlock"].create(),
-      }).content;
-    },
+    parseContent: ({ el, schema }) => parseCodeBlockContent(el, schema),
 
     render(block, editor) {
       const wrapper = document.createDocumentFragment();
@@ -319,7 +323,7 @@ export const createCodeBlockSpec = createBlockSpec(
             replace: ({ match }) => {
               const languageName = match[1].trim();
               const attributes = {
-                language: getLanguageId(options, languageName) ?? languageName,
+                language: resolveCodeBlockInputLanguage(options, languageName),
               };
 
               return {
@@ -337,13 +341,33 @@ export const createCodeBlockSpec = createBlockSpec(
   },
 );
 
+export function createCodeBlockExtensions(options: CodeBlockOptions) {
+  return createCodeBlockSpec(options).extensions ?? [];
+}
+
+export function resolveCodeBlockInputLanguage(
+  options: CodeBlockOptions,
+  languageName: string,
+): string {
+  return (
+    getLanguageId(options, languageName) ??
+    options.getDefaultLanguage?.() ??
+    options.defaultLanguage ??
+    "text"
+  );
+}
+
 export function getLanguageId(
   options: CodeBlockOptions,
   languageName: string,
 ): string | undefined {
+  const normalizedName = languageName.normalize("NFKC").trim().toLocaleLowerCase();
   return Object.entries(options.supportedLanguages ?? {}).find(
     ([id, { aliases }]) => {
-      return aliases?.includes(languageName) || id === languageName;
+      return (
+        aliases?.some((alias) => alias.toLocaleLowerCase() === normalizedName) ||
+        id.toLocaleLowerCase() === normalizedName
+      );
     },
   )?.[0];
 }

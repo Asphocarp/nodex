@@ -8,6 +8,40 @@ import {
 } from "./nfm-blocknote-adapter";
 
 describe("NFM BlockNote genesis adapter", () => {
+  test("normalizes imported code languages to the product catalog", () => {
+    expect(
+      nfmToBlockNote([
+        { type: "codeBlock", language: "JS", code: "const ok = true", children: [] },
+        { type: "codeBlock", language: "vue", code: "<template />", children: [] },
+      ]),
+    ).toMatchObject([
+      { type: "codeBlock", props: { language: "javascript" } },
+      { type: "codeBlock", props: { language: "text" } },
+    ]);
+  });
+
+  test("exports only supported canonical code languages", () => {
+    expect(
+      blockNoteToNfm([
+        {
+          type: "codeBlock",
+          props: { language: "tsx" },
+          content: [{ type: "text", text: "const ok: boolean = true", styles: {} }],
+          children: [],
+        },
+        {
+          type: "codeBlock",
+          props: { language: "svelte" },
+          content: [{ type: "text", text: "<script />", styles: {} }],
+          children: [],
+        },
+      ]),
+    ).toMatchObject([
+      { type: "codeBlock", language: "typescript" },
+      { type: "codeBlock", language: "" },
+    ]);
+  });
+
   test("allocates one stable application identity for every nested Block", () => {
     let nextId = 0;
     const blocks = nfmToBlockNoteWithIds(
