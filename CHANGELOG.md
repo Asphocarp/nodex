@@ -35,7 +35,7 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
-- Hardened imported and pasted rich documents against resource exhaustion by bounding table dimensions and eliminating document-derived regular expressions from Markdown fence parsing.
+- Hardened imported and pasted rich documents against resource exhaustion by bounding table dimensions and replacing backtracking Markdown block parsing with linear scans.
 
 ## [0.2.2] - 2026-08-18
 

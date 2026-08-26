@@ -628,6 +628,276 @@ function isClosingCodeFence(
   return line.slice(index + fenceLength).trim() === "";
 }
 
+function isWhitespaceCharacter(character: string | undefined): boolean {
+  return character !== undefined && character.trim() === "";
+}
+
+function countLeadingWhitespace(value: string): number {
+  let index = 0;
+  while (isWhitespaceCharacter(value[index])) {
+    index++;
+  }
+  return index;
+}
+
+function parseOpeningCodeFence(
+  line: string,
+): { character: "`" | "~"; length: number; language: string } | null {
+  let index = 0;
+  while (line[index] === " " && index < 4) {
+    index++;
+  }
+  if (index > 3 || (line[index] !== "`" && line[index] !== "~")) {
+    return null;
+  }
+
+  const character = line[index] as "`" | "~";
+  let length = 0;
+  while (line[index + length] === character) {
+    length++;
+  }
+  if (length < 3) {
+    return null;
+  }
+
+  return {
+    character,
+    length,
+    language: line.slice(index + length).trim(),
+  };
+}
+
+function parseAtxHeading(
+  line: string,
+): { level: number; content: string } | null {
+  let level = 0;
+  while (line[level] === "#" && level < 7) {
+    level++;
+  }
+  if (
+    level < 1 ||
+    level > 6 ||
+    !isWhitespaceCharacter(line[level])
+  ) {
+    return null;
+  }
+
+  let contentStart = level;
+  while (isWhitespaceCharacter(line[contentStart])) {
+    contentStart++;
+  }
+  if (contentStart >= line.length) {
+    return null;
+  }
+
+  let contentEnd = line.length;
+  while (contentEnd > contentStart && isWhitespaceCharacter(line[contentEnd - 1])) {
+    contentEnd--;
+  }
+
+  let closingHashStart = contentEnd;
+  while (closingHashStart > contentStart && line[closingHashStart - 1] === "#") {
+    closingHashStart--;
+  }
+  if (
+    closingHashStart < contentEnd &&
+    closingHashStart > contentStart &&
+    isWhitespaceCharacter(line[closingHashStart - 1])
+  ) {
+    contentEnd = closingHashStart - 1;
+    while (contentEnd > contentStart && isWhitespaceCharacter(line[contentEnd - 1])) {
+      contentEnd--;
+    }
+  }
+
+  const content = line.slice(contentStart, contentEnd);
+  return content ? { level, content } : null;
+}
+
+function isAtxHeadingStart(line: string): boolean {
+  let level = 0;
+  while (line[level] === "#" && level < 7) {
+    level++;
+  }
+  return level >= 1 && level <= 6 && isWhitespaceCharacter(line[level]);
+}
+
+function isHorizontalRule(line: string): boolean {
+  const leadingWhitespace = countLeadingWhitespace(line);
+  if (leadingWhitespace > 3) {
+    return false;
+  }
+
+  const marker = line[leadingWhitespace];
+  if (marker !== "-" && marker !== "*" && marker !== "_") {
+    return false;
+  }
+
+  let markerCount = 0;
+  for (let index = leadingWhitespace; index < line.length; index++) {
+    if (line[index] === marker) {
+      markerCount++;
+      continue;
+    }
+    if (!isWhitespaceCharacter(line[index])) {
+      return false;
+    }
+  }
+  return markerCount >= 3;
+}
+
+function isSetextMarkerLine(
+  line: string,
+  allowedMarkers: ReadonlySet<"=" | "-">,
+): boolean {
+  let index = 0;
+  while (allowedMarkers.has(line[index] as "=" | "-")) {
+    index++;
+  }
+  if (index === 0) {
+    return false;
+  }
+  while (index < line.length && isWhitespaceCharacter(line[index])) {
+    index++;
+  }
+  return index === line.length;
+}
+
+const SETEXT_H1_MARKERS = new Set<"=" | "-">(["="]);
+const SETEXT_H2_MARKERS = new Set<"=" | "-">(["-"]);
+const SETEXT_MARKERS = new Set<"=" | "-">(["=", "-"]);
+
+function getBlockquotePrefixLength(line: string): number | null {
+  const leadingWhitespace = countLeadingWhitespace(line);
+  if (leadingWhitespace > 3 || line[leadingWhitespace] !== ">") {
+    return null;
+  }
+
+  const afterMarker = leadingWhitespace + 1;
+  return afterMarker + (isWhitespaceCharacter(line[afterMarker]) ? 1 : 0);
+}
+
+type ParsedListItem = {
+  indent: number;
+  markerLength: number;
+  markerSpaceLength: number;
+  orderedStart?: number;
+  checkboxLength: number;
+  checked?: boolean;
+  content: string;
+};
+
+function parseListItem(line: string): ParsedListItem | null {
+  const indent = countLeadingWhitespace(line);
+  let index = indent;
+  let orderedStart: number | undefined;
+
+  if (line[index] === "-" || line[index] === "*" || line[index] === "+") {
+    index++;
+  } else {
+    const digitStart = index;
+    while (line[index] >= "0" && line[index] <= "9") {
+      index++;
+    }
+    if (
+      index === digitStart ||
+      (line[index] !== "." && line[index] !== ")")
+    ) {
+      return null;
+    }
+    orderedStart = parseInt(line.slice(digitStart, index), 10);
+    index++;
+  }
+
+  const markerLength = index - indent;
+  const markerSpaceStart = index;
+  while (isWhitespaceCharacter(line[index])) {
+    index++;
+  }
+  if (index === markerSpaceStart) {
+    return null;
+  }
+  const markerSpaceLength = index - markerSpaceStart;
+
+  let checkboxLength = 0;
+  let checked: boolean | undefined;
+  if (
+    line[index] === "[" &&
+    (line[index + 1] === " " ||
+      line[index + 1] === "x" ||
+      line[index + 1] === "X") &&
+    line[index + 2] === "]" &&
+    line[index + 3] === " "
+  ) {
+    checkboxLength = 4;
+    checked = line[index + 1] !== " ";
+    index += checkboxLength;
+  }
+
+  return {
+    indent,
+    markerLength,
+    markerSpaceLength,
+    orderedStart,
+    checkboxLength,
+    checked,
+    content: line.slice(index),
+  };
+}
+
+function looksLikePipeDelimitedRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.length > 2 && trimmed.startsWith("|") && trimmed.endsWith("|");
+}
+
+function isTableSeparatorCell(cell: string): boolean {
+  const trimmed = cell.trim();
+  let index = trimmed.startsWith(":") ? 1 : 0;
+  const dashStart = index;
+  while (trimmed[index] === "-") {
+    index++;
+  }
+  if (index === dashStart) {
+    return false;
+  }
+  if (trimmed[index] === ":") {
+    index++;
+  }
+  return index === trimmed.length;
+}
+
+function isTableSeparatorLine(line: string): boolean {
+  return line.includes("|") && parsePipeCells(line).every(isTableSeparatorCell);
+}
+
+function trimLineBreaks(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (value[start] === "\n") {
+    start++;
+  }
+  while (end > start && value[end - 1] === "\n") {
+    end--;
+  }
+  return value.slice(start, end);
+}
+
+function normalizeParagraphLine(line: string): string {
+  let start = 0;
+  while (start < 3 && line[start] === " ") {
+    start++;
+  }
+  return line.slice(start);
+}
+
+function trimTrailingHorizontalWhitespace(value: string): string {
+  let end = value.length;
+  while (end > 0 && (value[end - 1] === " " || value[end - 1] === "\t")) {
+    end--;
+  }
+  return value.slice(0, end);
+}
+
 // ─── Block-Level Tokenizer ──────────────────────────────────────────────────
 
 function tokenize(markdown: string): Token[] {
@@ -647,16 +917,18 @@ function tokenize(markdown: string): Token[] {
     }
 
     // Fenced code block (0-3 leading spaces allowed per CommonMark)
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-    if (fenceMatch) {
-      const fence = fenceMatch[1];
-      const fenceChar = fence[0] as "`" | "~";
-      const fenceLen = fence.length;
-      const language = fenceMatch[2].trim();
+    const openingFence = parseOpeningCodeFence(line);
+    if (openingFence) {
       const codeLines: string[] = [];
       i++;
       while (i < lines.length) {
-        if (isClosingCodeFence(lines[i], fenceChar, fenceLen)) {
+        if (
+          isClosingCodeFence(
+            lines[i],
+            openingFence.character,
+            openingFence.length,
+          )
+        ) {
           i++;
           break;
         }
@@ -665,7 +937,7 @@ function tokenize(markdown: string): Token[] {
       }
       tokens.push({
         type: "codeBlock",
-        language: language || "",
+        language: openingFence.language,
         code: codeLines.join("\n"),
       });
       prevLineWasBlank = false;
@@ -676,12 +948,12 @@ function tokenize(markdown: string): Token[] {
     // - Closing `#` sequence requires a preceding space (so `### foo###`
     //   keeps the trailing #s as text, while `### foo ###` strips them).
     // - Trailing whitespace is always stripped from the heading content.
-    const headingMatch = line.match(/^(#{1,6})\s+(.+?)(?:\s+#+\s*|\s*)$/);
-    if (headingMatch) {
+    const heading = parseAtxHeading(line);
+    if (heading) {
       tokens.push({
         type: "heading",
-        level: headingMatch[1].length,
-        content: headingMatch[2],
+        level: heading.level,
+        content: heading.content,
       });
       prevLineWasBlank = false;
       i++;
@@ -689,12 +961,12 @@ function tokenize(markdown: string): Token[] {
     }
 
     // Horizontal rule: ---, ***, ___ (3+ chars, optionally with spaces)
-    if (/^(\s{0,3})([-*_])\s*(\2\s*){2,}$/.test(line)) {
+    if (isHorizontalRule(line)) {
       // Setext H2: --- immediately after a paragraph (no blank line between)
       const prevToken = tokens[tokens.length - 1];
       if (
         !prevLineWasBlank &&
-        line.trim().match(/^-+$/) &&
+        isSetextMarkerLine(line, SETEXT_H2_MARKERS) &&
         prevToken &&
         prevToken.type === "paragraph"
       ) {
@@ -717,7 +989,10 @@ function tokenize(markdown: string): Token[] {
     // Setext heading detection: check if next line is === or ---
     if (i + 1 < lines.length) {
       const nextLine = lines[i + 1];
-      if (/^={1,}\s*$/.test(nextLine) && line.trim().length > 0) {
+      if (
+        isSetextMarkerLine(nextLine, SETEXT_H1_MARKERS) &&
+        line.trim().length > 0
+      ) {
         tokens.push({
           type: "heading",
           level: 1,
@@ -740,11 +1015,12 @@ function tokenize(markdown: string): Token[] {
     }
 
     // Blockquote
-    if (/^\s{0,3}>/.test(line)) {
+    if (getBlockquotePrefixLength(line) !== null) {
       const quoteLines: string[] = [];
-      while (i < lines.length && /^\s{0,3}>/.test(lines[i])) {
-        // Remove the > prefix
-        quoteLines.push(lines[i].replace(/^\s{0,3}>\s?/, ""));
+      while (i < lines.length) {
+        const prefixLength = getBlockquotePrefixLength(lines[i]);
+        if (prefixLength === null) {break;}
+        quoteLines.push(lines[i].slice(prefixLength));
         i++;
       }
       // Lazy continuation: collect non-blank lines that don't start a new
@@ -753,12 +1029,12 @@ function tokenize(markdown: string): Token[] {
         const cur = lines[i];
         if (cur.trim() === "") {break;}
         // Stop on block-level markers
-        if (/^\s{0,3}>/.test(cur)) {break;} // new blockquote
-        if (/^(#{1,6})\s/.test(cur)) {break;} // heading
-        if (/^(`{3,}|~{3,})/.test(cur)) {break;} // code fence
-        if (/^(\s{0,3})([-*_])\s*(\2\s*){2,}$/.test(cur)) {break;} // hr
-        if (/^\s*([-*+]|\d+[.)])\s+/.test(cur)) {break;} // list item
-        if (/^\s*\|(.+\|)+\s*$/.test(cur)) {break;} // table
+        if (getBlockquotePrefixLength(cur) !== null) {break;} // new blockquote
+        if (isAtxHeadingStart(cur)) {break;} // heading
+        if (parseOpeningCodeFence(cur)) {break;} // code fence
+        if (isHorizontalRule(cur)) {break;} // hr
+        if (parseListItem(cur)) {break;} // list item
+        if (looksLikePipeDelimitedRow(cur)) {break;} // table
         quoteLines.push(cur);
         i++;
       }
@@ -771,26 +1047,20 @@ function tokenize(markdown: string): Token[] {
     }
 
     // List item (bullet, ordered, or task)
-    const listItemMatch = line.match(
-      /^(\s*)([-*+]|\d+[.)])(\s+)(\[[ xX]\] )?(.*)$/
-    );
-    if (listItemMatch) {
-      const indent = listItemMatch[1].length;
-      const marker = listItemMatch[2];
-      const markerSpaces = listItemMatch[3];
-      const checkbox = listItemMatch[4];
-      const firstLineContent = listItemMatch[5];
+    const listItem = parseListItem(line);
+    if (listItem) {
+      const { indent } = listItem;
 
       let listType: "bullet" | "ordered" | "task";
       let start: number | undefined;
       let checked: boolean | undefined;
 
-      if (checkbox) {
+      if (listItem.checked !== undefined) {
         listType = "task";
-        checked = checkbox.trim() !== "[ ]";
-      } else if (/^\d+[.)]$/.test(marker)) {
+        checked = listItem.checked;
+      } else if (listItem.orderedStart !== undefined) {
         listType = "ordered";
-        start = parseInt(marker, 10);
+        start = listItem.orderedStart;
       } else {
         listType = "bullet";
       }
@@ -798,9 +1068,9 @@ function tokenize(markdown: string): Token[] {
       // Content indent = column where content actually starts
       const contentIndent =
         indent +
-        marker.length +
-        markerSpaces.length +
-        (checkbox ? checkbox.length : 0);
+        listItem.markerLength +
+        listItem.markerSpaceLength +
+        listItem.checkboxLength;
 
       // Minimum indent for child content: anything indented past the marker
       // (sub-lists can start at indent > marker position)
@@ -809,13 +1079,13 @@ function tokenize(markdown: string): Token[] {
       // Helper to check if a line belongs to this list item
       const belongsToItem = (lineStr: string): boolean => {
         if (lineStr.trim() === "") {return true;} // blank lines checked separately
-        const lineInd = lineStr.match(/^\s*/)![0].length;
+        const lineInd = countLeadingWhitespace(lineStr);
         // Lines at contentIndent are continuation text
         if (lineInd >= contentIndent) {return true;}
         // Lines between marker and content column that start a sub-list
         if (
           lineInd >= minChildIndent &&
-          lineStr.match(/^\s*([-*+]|\d+[.)])\s+/)
+          parseListItem(lineStr)
         ) {
           return true;
         }
@@ -846,7 +1116,7 @@ function tokenize(markdown: string): Token[] {
 
         // Strip indent: for lines at contentIndent+, strip contentIndent chars;
         // for sub-list lines between minChildIndent and contentIndent, strip minChildIndent
-        const lineIndent = cur.match(/^\s*/)![0].length;
+        const lineIndent = countLeadingWhitespace(cur);
         if (lineIndent >= contentIndent) {
           subLines.push(cur.substring(contentIndent));
         } else {
@@ -859,12 +1129,12 @@ function tokenize(markdown: string): Token[] {
       // Build the list item token
       // If there are sub-lines, they become child content (recursively tokenized)
       // Don't trim — preserve relative indentation of sub-lines
-      const childContent = subLines.join("\n").replace(/^\n+|\n+$/g, "");
+      const childContent = trimLineBreaks(subLines.join("\n"));
       tokens.push({
         type: "listItem",
         listType,
         indent,
-        content: firstLineContent.trim(),
+        content: listItem.content.trim(),
         start,
         checked,
         childContent: childContent || undefined,
@@ -898,17 +1168,17 @@ function tokenize(markdown: string): Token[] {
       // Stop paragraph on blank line
       if (nextLine.trim() === "") {break;}
       // Stop on block-level element
-      if (/^(#{1,6})\s/.test(nextLine)) {break;}
-      if (/^(`{3,}|~{3,})/.test(nextLine)) {break;}
-      if (/^\s{0,3}>/.test(nextLine)) {break;}
-      if (/^(\s{0,3})([-*_])\s*(\2\s*){2,}$/.test(nextLine)) {break;}
-      if (/^\s*([-*+]|\d+[.)])\s+/.test(nextLine)) {break;}
-      if (/^\s*\|(.+\|)+\s*$/.test(nextLine)) {break;}
+      if (isAtxHeadingStart(nextLine)) {break;}
+      if (parseOpeningCodeFence(nextLine)) {break;}
+      if (getBlockquotePrefixLength(nextLine) !== null) {break;}
+      if (isHorizontalRule(nextLine)) {break;}
+      if (parseListItem(nextLine)) {break;}
+      if (looksLikePipeDelimitedRow(nextLine)) {break;}
       if (isHtmlBlockStart(nextLine)) {break;}
       // Check if next-next line is setext marker
       if (
         i + 1 < lines.length &&
-        /^[=-]+\s*$/.test(lines[i + 1]) &&
+        isSetextMarkerLine(lines[i + 1], SETEXT_MARKERS) &&
         nextLine.trim().length > 0
       ) {
         break;
@@ -922,10 +1192,9 @@ function tokenize(markdown: string): Token[] {
     // literal trailing spaces in the rendered output.
     tokens.push({
       type: "paragraph",
-      content: paraLines
-        .map((l) => l.replace(/^ {1,3}/, ""))
-        .join("\n")
-        .replace(/[ \t]+$/, ""),
+      content: trimTrailingHorizontalWhitespace(
+        paraLines.map(normalizeParagraphLine).join("\n"),
+      ),
     });
     prevLineWasBlank = false;
   }
@@ -945,10 +1214,7 @@ function tryParseTable(
 
   // Check separator line format: | --- | --- | or --- | --- (outer pipes optional)
   // Must contain at least one pipe and only dashes, colons, pipes, and whitespace
-  if (
-    !separatorLine.includes("|") ||
-    !/^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(separatorLine)
-  ) {return null;}
+  if (!isTableSeparatorLine(separatorLine)) {return null;}
 
   // Check header line has at least one pipe (required to distinguish from plain text)
   if (!headerLine.includes("|")) {return null;}
