@@ -1329,21 +1329,22 @@ export function NfmSideMenuSurface({
 function NfmSideMenuPopup({
   openState,
   editor,
+  structuredClipboard,
   releaseSideMenuFreeze,
   onCloseSelection,
   onClose,
 }: {
   openState: NfmSideMenuOpenState | null;
   editor: SideMenuEditorRuntime;
+  structuredClipboard: NonNullable<
+    ReturnType<ReturnType<typeof NfmStructuredClipboardExtension>>
+  > | null;
   releaseSideMenuFreeze?: () => void;
   onCloseSelection: (reason: NfmSideMenuCloseReason) => void;
   onClose: () => void;
 }) {
   const runtime = useNfmSideMenuRuntime();
   const formattingToolbar = useExtension(FormattingToolbarExtension, {
-    editor: editor as never,
-  });
-  const structuredClipboard = useExtension(NfmStructuredClipboardExtension, {
     editor: editor as never,
   });
   const listboxId = useId();
@@ -1842,7 +1843,7 @@ function NfmSideMenuPopup({
           close("action");
         }}
         onClipboardCommand={(command, clipboardEvent) => {
-          if (!structuredClipboard.executeClipboardCommand(command, clipboardEvent)) return false;
+          if (!structuredClipboard?.executeClipboardCommand(command, clipboardEvent)) return false;
           close("clipboard-command");
           return true;
         }}
@@ -1866,6 +1867,7 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
   const blockNoteEditor = useBlockNoteEditor();
   const editor = blockNoteEditor as unknown as SideMenuEditorRuntime;
   const sideMenu = useExtension(SideMenuExtension);
+  const structuredClipboard = blockNoteEditor.getExtension(NfmStructuredClipboardExtension) ?? null;
   const [openState, setOpenState] = useState<NfmSideMenuOpenState | null>(null);
   const [formattingToolbarSuppressionRange, setFormattingToolbarSuppressionRange] =
     useState<NfmSideMenuSelectionRange | null>(null);
@@ -1986,6 +1988,7 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
       <NfmSideMenuPopup
         openState={openState}
         editor={editor}
+        structuredClipboard={structuredClipboard}
         releaseSideMenuFreeze={freezeController.release}
         onCloseSelection={captureFormattingToolbarSuppression}
         onClose={close}

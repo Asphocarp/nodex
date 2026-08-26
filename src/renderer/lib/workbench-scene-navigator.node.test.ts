@@ -15,7 +15,7 @@ import {
   type WorkbenchSceneNavigatorPort,
 } from "./workbench-scene-navigator";
 
-function createHarness() {
+function createHarness(options: { readonly sessionHasAttachedThread?: boolean } = {}) {
   const scenes: Record<string, WorkbenchSceneSnapshot> = {};
   const previews: Record<string, WorkbenchScenePreviewEntry> = {};
   const selectLocation = vi.fn();
@@ -27,6 +27,7 @@ function createHarness() {
     },
   );
   const port: WorkbenchSceneNavigatorPort = {
+    hasAttachedThread: () => options.sessionHasAttachedThread ?? true,
     setScene(owner, update) {
       const key = makeWorkbenchSceneKey(owner);
       scenes[key] = update(scenes[key]);
@@ -239,6 +240,27 @@ describe("WorkbenchSceneNavigator", () => {
     ).resolves.toEqual({
       status: "unavailable",
       reason: "Review requires an attached Session",
+    });
+    expect(harness.scenes).toEqual({});
+  });
+
+  test("rejects Review surfaces in a threadless Session Scene", async () => {
+    const harness = createHarness({ sessionHasAttachedThread: false });
+
+    await expect(
+      harness.navigator.presentPanelSurface({
+        owner: { kind: "session", sessionId: "session-1" },
+        request: {
+          kind: "review",
+          config: { projectId: "alpha" },
+        },
+        target: { panelId: "right" },
+        mode: "durable",
+        navigation: "background",
+      }),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "Review requires an attached Thread",
     });
     expect(harness.scenes).toEqual({});
   });

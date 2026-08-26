@@ -128,8 +128,8 @@ pub struct BackupCapacity {
 pub struct BackupJobRecord {
     pub job_id: String,
     pub operation_id: String,
-    pub state: String,
-    pub phase: String,
+    pub state: BackupJobState,
+    pub phase: BackupJobPhase,
     pub completed_units: u64,
     pub total_units: u64,
     pub started_at_ms: i64,
@@ -140,6 +140,52 @@ pub struct BackupJobRecord {
     pub backup_id: String,
     pub error: Option<String>,
     pub progress: BackupJobProgress,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BackupJobState {
+    Running,
+    Cancelling,
+    Cancelled,
+    Ready,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BackupJobPhase {
+    Queued,
+    Preparing,
+    CancellationRequested,
+    Cancelled,
+    DatabaseSnapshot,
+    AssetCopy,
+    Validation,
+    Digest,
+    Commit,
+    Publishing,
+    Ready,
+    Failed,
+}
+
+impl BackupJobPhase {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Preparing => "preparing",
+            Self::CancellationRequested => "cancellation_requested",
+            Self::Cancelled => "cancelled",
+            Self::DatabaseSnapshot => "database_snapshot",
+            Self::AssetCopy => "asset_copy",
+            Self::Validation => "validation",
+            Self::Digest => "digest",
+            Self::Commit => "commit",
+            Self::Publishing => "publishing",
+            Self::Ready => "ready",
+            Self::Failed => "failed",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

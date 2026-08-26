@@ -5,7 +5,6 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -65,17 +64,16 @@ import { useCodexServiceTierSettings } from "../../lib/use-codex-service-tier-se
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
 import { useThreadNotificationSettings } from "../../lib/use-thread-notification-settings";
 import { useWindowRestoreSettings } from "../../lib/use-window-restore-settings";
+import { useStoreBackupRuntime } from "../../lib/use-store-backup-runtime";
 import { isDiagnosticsSettings } from "../../../shared/diagnostics/diagnostics-settings";
 import { isTelemetrySettings } from "../../../shared/diagnostics/telemetry-settings";
 import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
-  BackupCapacity,
   BackupRecord,
   BackupJobStatus,
   BackupSettings,
   DiagnosticsSettings,
   HistorySettings,
-  SnapshotStorageOptimization,
   Project,
   UpdateDiagnosticsSettingsInput,
   TelemetrySettings,
@@ -128,22 +126,6 @@ const BACKUP_TRIGGER_LABELS: Record<BackupRecord["trigger"], string> = {
   manual: "Manual",
   auto: "Auto",
   "pre-restore": "Safety",
-};
-
-const formatBackupJobPhase = (phase: string): string => {
-  const labels: Record<string, string> = {
-    queued: "Queued",
-    preparing: "Preparing snapshot",
-    online_backup: "Copying database",
-    database_snapshot: "Copying database",
-    asset_copy: "Copying assets",
-    validation: "Checking database integrity",
-    digest: "Sealing integrity evidence",
-    commit: "Recording snapshot",
-    publishing: "Publishing snapshot",
-    ready: "Snapshot ready",
-  };
-  return labels[phase] ?? phase.replaceAll("_", " ");
 };
 
 const DEFAULT_DIAGNOSTICS_SETTINGS: DiagnosticsSettings = {
@@ -1311,16 +1293,26 @@ function formatBackupTimestamp(value: string): string {
 export function BackupSettingsControl({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<BackupSettings | null>(null);
   const [historySettings, setHistorySettings] = useState<HistorySettings | null>(null);
-  const [backups, setBackups] = useState<BackupRecord[]>([]);
-  const [backupCapacity, setBackupCapacity] = useState<BackupCapacity | null>(null);
-  const [storageOptimization, setStorageOptimization] =
-    useState<SnapshotStorageOptimization | null>(null);
-  const [backupJob, setBackupJob] = useState<BackupJobStatus | null>(null);
+  const backupRuntime = useStoreBackupRuntime({ invoke, open });
+  const {
+    backups,
+    cancelJob: cancelBackupJob,
+    cancelPending,
+    capacity: backupCapacity,
+    clearNotice: clearBackupNotice,
+    installJob: setBackupJob,
+    job: backupJob,
+    notice: backupNotice,
+    presentation: backupJobPresentation,
+    refresh: refreshBackupRuntime,
+    reloadInventory: loadBackups,
+    storageOptimization,
+  } = backupRuntime;
   const [createSafetyBackup, setCreateSafetyBackup] = useState(true);
   const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<
-    "refresh" | "save" | "create" | "cancel" | "restore" | "delete" | null
+    "refresh" | "save" | "create" | "restore" | "delete" | null
   >(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1416,6 +1408,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
     onSubmit: async ({ value, formApi }) => {
       const parsed = ManualSnapshotFormSchema.parse(value);
       setBusyAction("create");
+      clearBackupNotice();
       setError(null);
       setStatus(null);
 
@@ -1449,32 +1442,6 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
     });
   }, [scheduleForm]);
 
-  const loadBackups = useCallback(async () => {
-    const list = (await invoke("backup:list")) as BackupRecord[];
-    if (!Array.isArray(list)) {
-      setBackups([]);
-      return;
-    }
-    setBackups(list);
-  }, []);
-
-  const loadBackupCapacity = useCallback(async () => {
-    const capacity = (await invoke("backup:capacity:get")) as BackupCapacity;
-    setBackupCapacity(capacity);
-  }, []);
-
-  const loadStorageOptimization = useCallback(async () => {
-    const optimization = (await invoke(
-      "backup:storage-optimization:get",
-    )) as SnapshotStorageOptimization;
-    setStorageOptimization(optimization);
-  }, []);
-
-  const loadBackupJob = useCallback(async () => {
-    const job = (await invoke("backup:job:get")) as BackupJobStatus | null;
-    setBackupJob(job);
-  }, []);
-
   const loadHistorySettings = useCallback(async () => {
     const data = (await invoke("settings:history:get")) as HistorySettings;
     setHistorySettings(data);
@@ -1489,14 +1456,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
     setStatus(null);
 
     try {
-      await Promise.all([
-        loadBackupSettings(),
-        loadHistorySettings(),
-        loadBackups(),
-        loadBackupCapacity(),
-        loadStorageOptimization(),
-        loadBackupJob(),
-      ]);
+      await Promise.all([loadBackupSettings(), loadHistorySettings(), refreshBackupRuntime()]);
       setConfirmRestoreId(null);
       setConfirmDeleteId(null);
     } catch (err) {
@@ -1504,89 +1464,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
     } finally {
       setBusyAction(null);
     }
-  }, [
-    loadBackupCapacity,
-    loadBackupSettings,
-    loadBackups,
-    loadBackupJob,
-    loadHistorySettings,
-    loadStorageOptimization,
-  ]);
-
-  const settleBackupJob = useEffectEvent(async (job: BackupJobStatus) => {
-    if (job.state === "completed") {
-      await Promise.all([loadBackups(), loadBackupCapacity()]);
-      setStatus("Manual snapshot created.");
-      setError(null);
-      return;
-    }
-    if (job.state === "failed") {
-      setStatus(null);
-      setError(job.error ?? "Could not create snapshot.");
-      return;
-    }
-    if (job.state === "cancelled") {
-      setStatus("Snapshot cancelled before publication.");
-      setError(null);
-    }
-  });
-
-  const cancelBackupJob = async () => {
-    if (!backupJob || (backupJob.state !== "queued" && backupJob.state !== "running")) return;
-    setBusyAction("cancel");
-    setError(null);
-    try {
-      const cancelled = (await invoke("backup:cancel", backupJob.jobId)) as BackupJobStatus;
-      setBackupJob(cancelled);
-      if (cancelled.state === "cancelled") {
-        setStatus("Snapshot cancelled before publication.");
-      }
-    } catch (cause) {
-      setError(resolveFormErrorMessage(cause) ?? "Could not cancel snapshot.");
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  const activeBackupJobId =
-    backupJob?.state === "queued" || backupJob?.state === "running" ? backupJob.jobId : null;
-  useEffect(() => {
-    if (!open || !activeBackupJobId) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const poll = async () => {
-      try {
-        const next = (await invoke("backup:job:get", activeBackupJobId)) as BackupJobStatus | null;
-        if (cancelled) return;
-        if (!next) {
-          timer = setTimeout(poll, 250);
-          return;
-        }
-        setError(null);
-        setBackupJob(next);
-        if (next.state === "queued" || next.state === "running") {
-          timer = setTimeout(poll, 250);
-          return;
-        }
-        await settleBackupJob(next);
-      } catch (cause) {
-        if (cancelled) return;
-        setError(resolveFormErrorMessage(cause) ?? "Could not read snapshot progress.");
-        timer = setTimeout(poll, 1_000);
-      }
-    };
-    timer = setTimeout(poll, 250);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [activeBackupJobId, open]);
-
-  useEffect(() => {
-    if (!open || !storageOptimization?.optimizing) return;
-    const timer = setInterval(() => void loadStorageOptimization(), 2_000);
-    return () => clearInterval(timer);
-  }, [loadStorageOptimization, open, storageOptimization?.optimizing]);
+  }, [loadBackupSettings, loadHistorySettings, refreshBackupRuntime]);
 
   useEffect(() => {
     if (!open) return;
@@ -1595,12 +1473,13 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
 
   useEffect(() => {
     if (open) return;
+    clearBackupNotice();
     setStatus(null);
     setError(null);
     setConfirmRestoreId(null);
     setConfirmDeleteId(null);
     snapshotForm.reset();
-  }, [historyForm, open, snapshotForm]);
+  }, [clearBackupNotice, historyForm, open, snapshotForm]);
 
   const handleRestoreBackup = useCallback(
     async (backupId: string) => {
@@ -1612,6 +1491,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
       }
 
       setBusyAction("restore");
+      clearBackupNotice();
       setError(null);
       setStatus(null);
 
@@ -1630,7 +1510,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
         setBusyAction(null);
       }
     },
-    [confirmRestoreId, createSafetyBackup, loadBackups],
+    [clearBackupNotice, confirmRestoreId, createSafetyBackup, loadBackups],
   );
 
   const handleDeleteBackup = useCallback(
@@ -1644,6 +1524,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
       }
 
       setBusyAction("delete");
+      clearBackupNotice();
       setError(null);
       setStatus(null);
 
@@ -1658,7 +1539,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
         setBusyAction(null);
       }
     },
-    [confirmDeleteId, loadBackups],
+    [clearBackupNotice, confirmDeleteId, loadBackups],
   );
 
   const hasBackupEnvOverrides =
@@ -1667,12 +1548,9 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
     settings?.envOverrides.retentionCount ||
     settings?.envOverrides.retentionGiB;
   const hasHistoryEnvOverride = historySettings?.envOverrides.retentionCount;
-  const backupProgressUnits =
-    backupJob?.phase === "database_snapshot" && backupJob.progress.databaseTotalPages > 0
-      ? backupJob.completedUnits +
-        backupJob.progress.databaseCopiedPages / backupJob.progress.databaseTotalPages
-      : (backupJob?.completedUnits ?? 0);
-  const backupProgressTotal = Math.max(1, backupJob?.totalUnits ?? 1);
+  const backupProgressUnits = backupJobPresentation?.progressUnits ?? 0;
+  const backupProgressTotal = backupJobPresentation?.progressTotal ?? 1;
+  const isBackupBusy = busyAction !== null || cancelPending;
 
   return (
     <div className="flex flex-col gap-[var(--padding-panel)]">
@@ -1737,7 +1615,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
               variant="secondary"
               size="sm"
               onClick={() => void refresh()}
-              disabled={busyAction !== null}
+              disabled={isBackupBusy}
             >
               Refresh
             </NodexButton>
@@ -1745,7 +1623,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
               variant="primary"
               size="sm"
               onClick={() => void scheduleForm.handleSubmit()}
-              disabled={busyAction !== null}
+              disabled={isBackupBusy}
             >
               Save schedule
             </NodexButton>
@@ -1779,7 +1657,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
             variant="primary"
             size="sm"
             onClick={() => void historyForm.handleSubmit()}
-            disabled={busyAction !== null}
+            disabled={isBackupBusy}
           >
             Apply
           </NodexButton>
@@ -1843,38 +1721,29 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
             variant="secondary"
             size="sm"
             disabled={
-              busyAction !== null ||
-              backupJob?.state === "queued" ||
-              backupJob?.state === "running" ||
-              backupCapacity?.canCreate === false
+              isBackupBusy || backupJobPresentation?.active || backupCapacity?.canCreate === false
             }
           >
-            {backupJob?.state === "queued" || backupJob?.state === "running"
-              ? "Creating…"
-              : "Create snapshot"}
+            {backupJobPresentation?.active ? "Creating…" : "Create snapshot"}
           </NodexButton>
         </form>
-        {backupJob && (backupJob.state === "queued" || backupJob.state === "running") ? (
+        {backupJob && backupJobPresentation?.active ? (
           <div
             className="semantic-text-secondary flex flex-col gap-1.5 px-3 pb-3 text-xs"
             aria-live="polite"
           >
             <div className="flex items-center gap-2">
               <span className="size-1.5 shrink-0 rounded-full bg-text-info" aria-hidden="true" />
-              <span className="text-info">{formatBackupJobPhase(backupJob.phase)}</span>
+              <span className="text-info">{backupJobPresentation.phaseLabel}</span>
               <span aria-hidden="true">·</span>
               <span>The app remains available while the snapshot is verified.</span>
               <button
                 type="button"
                 className="ms-auto cursor-interaction text-foreground underline-offset-2 hover:underline disabled:cursor-default disabled:opacity-50"
-                disabled={
-                  busyAction === "cancel" ||
-                  backupJob.phase === "commit" ||
-                  backupJob.phase === "publishing"
-                }
+                disabled={cancelPending || !backupJobPresentation.cancellable}
                 onClick={() => void cancelBackupJob()}
               >
-                {busyAction === "cancel" ? "Cancelling…" : "Cancel"}
+                {cancelPending ? "Cancelling…" : "Cancel"}
               </button>
             </div>
             <div
@@ -1938,7 +1807,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
                         variant="destructive"
                         size="sm"
                         onClick={() => void handleDeleteBackup(backup.id)}
-                        disabled={busyAction !== null}
+                        disabled={isBackupBusy}
                       >
                         Confirm delete
                       </NodexButton>
@@ -1946,7 +1815,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
                         variant="ghost"
                         size="sm"
                         onClick={() => setConfirmDeleteId(null)}
-                        disabled={busyAction !== null}
+                        disabled={isBackupBusy}
                       >
                         Cancel
                       </NodexButton>
@@ -1957,7 +1826,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
                         variant={confirmRestoreId === backup.id ? "destructive" : "secondary"}
                         size="sm"
                         onClick={() => void handleRestoreBackup(backup.id)}
-                        disabled={busyAction !== null}
+                        disabled={isBackupBusy}
                       >
                         {confirmRestoreId === backup.id ? "Confirm restore" : "Restore"}
                       </NodexButton>
@@ -1966,7 +1835,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
                           variant="ghost"
                           size="icon-xs"
                           onClick={() => void handleDeleteBackup(backup.id)}
-                          disabled={busyAction !== null}
+                          disabled={isBackupBusy}
                           aria-label={`Delete snapshot ${backup.label?.trim() || backup.id}`}
                         >
                           <Trash2 className="size-3.5" />
@@ -1983,6 +1852,18 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
 
       {status ? <p className="text-sm text-token-text-secondary">{status}</p> : null}
       {error ? <p className="text-sm text-token-error-foreground">{error}</p> : null}
+      {backupNotice ? (
+        <p
+          className={cn(
+            "text-sm",
+            backupNotice.tone === "error"
+              ? "text-token-error-foreground"
+              : "text-token-text-secondary",
+          )}
+        >
+          {backupNotice.message}
+        </p>
+      ) : null}
     </div>
   );
 }

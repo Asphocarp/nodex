@@ -47,6 +47,20 @@ type CoreOperationalJournalStatus = Extract<
   { readonly kind: "operational_journal_status" }
 >["status"];
 
+const mapCoreBackupJobState = (state: CoreBackupJob["state"]): BackupJobStatus["state"] => {
+  switch (state) {
+    case "running":
+    case "cancelling":
+      return "running";
+    case "cancelled":
+      return "cancelled";
+    case "ready":
+      return "completed";
+    case "failed":
+      return "failed";
+  }
+};
+
 export type StoreMaintenanceTask = Extract<
   StoreAdministrationIntent,
   { readonly kind: "run_maintenance" }
@@ -289,14 +303,7 @@ export const live: Layer.Layer<StoreAdministration, never, CoreModules> = Layer.
       backup: BackupRecord | null = null,
     ): BackupJobStatus => ({
       jobId: job.job_id,
-      state:
-        job.state === "ready"
-          ? "completed"
-          : job.state === "failed"
-            ? "failed"
-            : job.state === "cancelled"
-              ? "cancelled"
-              : "running",
+      state: mapCoreBackupJobState(job.state),
       phase: job.phase,
       completedUnits: job.completed_units,
       totalUnits: job.total_units,

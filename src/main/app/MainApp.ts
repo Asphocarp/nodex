@@ -131,7 +131,8 @@ export const program = <R, E>(options: MainAppOptions<R, E>) =>
     }
     if (
       applicationExit.value._tag === "AuthorityDriftRelaunch" ||
-      applicationExit.value._tag === "StoreRestoreRelaunch"
+      applicationExit.value._tag === "StoreRestoreRelaunch" ||
+      applicationExit.value._tag === "StartupFailure"
     ) {
       yield* electron.relaunch;
     }

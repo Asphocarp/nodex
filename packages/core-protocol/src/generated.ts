@@ -878,6 +878,8 @@ export interface components {
             /** Format: int64 */
             readonly total_ready_bytes: number;
         };
+        /** @enum {string} */
+        readonly BackupJobPhase: "queued" | "preparing" | "cancellation_requested" | "cancelled" | "database_snapshot" | "asset_copy" | "validation" | "digest" | "commit" | "publishing" | "ready" | "failed";
         readonly BackupJobProgress: {
             /** Format: int64 */
             readonly asset_bytes_copied: number;
@@ -909,17 +911,19 @@ export interface components {
             readonly job_id: string;
             readonly label?: string | null;
             readonly operation_id: string;
-            readonly phase: string;
+            readonly phase: components["schemas"]["BackupJobPhase"];
             readonly progress: components["schemas"]["BackupJobProgress"];
             /** Format: int64 */
             readonly started_at_ms: number;
-            readonly state: string;
+            readonly state: components["schemas"]["BackupJobState"];
             /** Format: int64 */
             readonly total_units: number;
             readonly trigger: components["schemas"]["BackupTrigger"];
             /** Format: int64 */
             readonly updated_at_ms: number;
         };
+        /** @enum {string} */
+        readonly BackupJobState: "running" | "cancelling" | "cancelled" | "ready" | "failed";
         /** @enum {string} */
         readonly BackupTrigger: "manual" | "auto" | "pre-restore";
         readonly CanvasCompactionStats: {

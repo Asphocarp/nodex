@@ -135,6 +135,12 @@ const VERSION_SURFACES: readonly Surface[] = [
     "validate captured evidence before backup reuse",
   ],
   [
+    "crates/nodex-core/src/administration/backup.rs:BACKUP_JOB_VERSION",
+    "durableFormat",
+    "backup job recovery record",
+    "reject unsupported job records during recovery",
+  ],
+  [
     "crates/nodex-core/src/administration/backup.rs:BACKUP_MANIFEST_VERSION",
     "durableFormat",
     "Store backup manifest",
@@ -189,6 +195,24 @@ const VERSION_SURFACES: readonly Surface[] = [
     "recompute hashes with the named algorithm",
   ],
   [
+    "crates/nodex-core/src/document/schema_migration.rs:BASELINE_PAGE_SCHEMA_VERSION",
+    "durableFormat",
+    "Block children migration Page baseline",
+    "migrate the exact legacy Page schema",
+  ],
+  [
+    "crates/nodex-core/src/document/schema_migration.rs:BASELINE_REUSABLE_TEMPLATE_SCHEMA_VERSION",
+    "durableFormat",
+    "Block children migration reusable-template baseline",
+    "migrate the exact legacy reusable-template schema",
+  ],
+  [
+    "crates/nodex-core/src/document/schema_migration.rs:BASELINE_SYNCED_BLOCK_SCHEMA_VERSION",
+    "durableFormat",
+    "Block children migration synced-Block baseline",
+    "migrate the exact legacy synced-Block schema",
+  ],
+  [
     "crates/nodex-core/src/document/materialization.rs:CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION",
     "durableFormat",
     "Document materialization derivation",
@@ -223,6 +247,12 @@ const VERSION_SURFACES: readonly Surface[] = [
     "algorithmIdentity",
     "Local Commit canonical hash",
     "migrate canonical manifests",
+  ],
+  [
+    "crates/nodex-core/src/infrastructure/operational_journal.rs:POLICY_VERSION",
+    "algorithmIdentity",
+    "operational journal maintenance policy",
+    "invalidate completed work after policy changes",
   ],
   [
     "crates/nodex-core/src/infrastructure/local_commit.rs:PROJECTION_SCHEMA_VERSION",

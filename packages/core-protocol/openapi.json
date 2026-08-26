@@ -3614,6 +3614,23 @@
           }
         }
       },
+      "BackupJobPhase": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "preparing",
+          "cancellation_requested",
+          "cancelled",
+          "database_snapshot",
+          "asset_copy",
+          "validation",
+          "digest",
+          "commit",
+          "publishing",
+          "ready",
+          "failed"
+        ]
+      },
       "BackupJobProgress": {
         "type": "object",
         "required": [
@@ -3728,7 +3745,7 @@
             "type": "string"
           },
           "phase": {
-            "type": "string"
+            "$ref": "#/components/schemas/BackupJobPhase"
           },
           "progress": {
             "$ref": "#/components/schemas/BackupJobProgress"
@@ -3738,7 +3755,7 @@
             "format": "int64"
           },
           "state": {
-            "type": "string"
+            "$ref": "#/components/schemas/BackupJobState"
           },
           "total_units": {
             "type": "integer",
@@ -3753,6 +3770,16 @@
             "format": "int64"
           }
         }
+      },
+      "BackupJobState": {
+        "type": "string",
+        "enum": [
+          "running",
+          "cancelling",
+          "cancelled",
+          "ready",
+          "failed"
+        ]
       },
       "BackupTrigger": {
         "type": "string",

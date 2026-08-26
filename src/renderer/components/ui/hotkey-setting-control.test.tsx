@@ -1,23 +1,19 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import { invoke } from "@/lib/api";
+import { describe, expect, test, vi } from "vitest";
 import { HotkeySettingControl, bareModifierIdentity } from "./hotkey-setting-control";
 
-vi.mock("@/lib/api", () => ({
-  invoke: vi.fn().mockResolvedValue(null),
-}));
-
-beforeEach(() => {
-  vi.mocked(invoke).mockReset().mockResolvedValue(null);
-});
-
-function renderCapture(onCapture: (accelerator: string) => void, allowsBareModifiers = true) {
+function renderCapture(
+  onCapture: (accelerator: string) => void,
+  allowsBareModifiers = true,
+  captureFnHotkey: () => Promise<string | null> = () => Promise.resolve(null),
+) {
   render(
     <HotkeySettingControl
       accelerator="Ctrl+Space"
       acceleratorLabel="⌃Space"
       allowsBareModifiers={allowsBareModifiers}
       captureAriaLabel="Toggle dictation hotkey capture"
+      captureFnHotkey={captureFnHotkey}
       hotkeyName="Toggle dictation hotkey"
       isCapturing
       onCancelCapture={() => undefined}
@@ -62,9 +58,9 @@ describe("HotkeySettingControl", () => {
   });
 
   test("ignores non-Fn values from the native Fn-only capture boundary", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce("Ctrl" as never);
+    const captureFnHotkey = vi.fn().mockResolvedValue("Ctrl");
     const onCapture = vi.fn();
-    const input = renderCapture(onCapture);
+    const input = renderCapture(onCapture, true, captureFnHotkey);
 
     fireEvent.keyDown(input, {
       code: "ControlLeft",
@@ -73,7 +69,7 @@ describe("HotkeySettingControl", () => {
       location: 1,
     });
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("global-dictation-capture-fn-hotkey"));
+    await waitFor(() => expect(captureFnHotkey).toHaveBeenCalledOnce());
     await act(async () => {
       await Promise.resolve();
     });
@@ -90,10 +86,10 @@ describe("HotkeySettingControl", () => {
   });
 
   test("accepts Fn from the native Fn-only capture boundary", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce("Fn");
+    const captureFnHotkey = vi.fn().mockResolvedValue("Fn");
     const onCapture = vi.fn();
 
-    renderCapture(onCapture);
+    renderCapture(onCapture, true, captureFnHotkey);
 
     await waitFor(() => expect(onCapture).toHaveBeenCalledWith("Fn"));
   });
@@ -143,6 +139,24 @@ describe("HotkeySettingControl", () => {
       location: 1,
     });
     expect(onCapture).toHaveBeenCalledWith("LeftControl");
+  });
+
+  test.each([
+    ["Alt", "DoubleOption"],
+    ["Meta", "DoubleCommand"],
+    ["Shift", "DoubleShift"],
+  ] as const)("captures both %s keys as %s", (key, accelerator) => {
+    const onCapture = vi.fn();
+    const input = renderCapture(onCapture);
+    const modifierState =
+      key === "Alt" ? { altKey: true } : key === "Meta" ? { metaKey: true } : { shiftKey: true };
+
+    fireEvent.keyDown(input, { ...modifierState, key, location: 1 });
+    fireEvent.keyDown(input, { ...modifierState, key, location: 2 });
+    fireEvent.keyUp(input, { ...modifierState, key, location: 1 });
+
+    expect(onCapture).toHaveBeenCalledOnce();
+    expect(onCapture).toHaveBeenCalledWith(accelerator);
   });
 
   test("preserves modifier side and rejects right Control as a bare shortcut", () => {

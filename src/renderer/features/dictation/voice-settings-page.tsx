@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NodexButton } from "@/components/ui/button";
 import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { HotkeySettingControl } from "@/components/ui/hotkey-setting-control";
+import { Input } from "@/components/ui/input";
 import {
   NodexSettingsPageSurface,
   NodexSettingsRow,
@@ -57,6 +58,11 @@ const DICTIONARY_PLACEHOLDERS = [
   "useCartState",
 ] as const;
 const MAX_DICTIONARY_ENTRIES = 100;
+
+const captureGlobalDictationFnHotkey = async (): Promise<string | null> => {
+  const hotkey = await invoke("global-dictation-capture-fn-hotkey");
+  return hotkey === "Fn" ? hotkey : null;
+};
 
 const formatRecordingTimestamp = (createdAtMs: number): string =>
   new Intl.DateTimeFormat(undefined, {
@@ -383,6 +389,7 @@ export function VoiceSettingsPage(_props: { readonly onPathChange: (path: string
                 captureAriaLabel={
                   isToggle ? "Toggle dictation hotkey capture" : "Hold-to-dictate hotkey capture"
                 }
+                captureFnHotkey={captureGlobalDictationFnHotkey}
                 conflict={
                   shortcutCapture?.commandId === commandId ? shortcutCapture.conflict : null
                 }
@@ -458,7 +465,7 @@ export function VoiceSettingsPage(_props: { readonly onPathChange: (path: string
         </NodexSettingsRow>
         {dictionaryEntries.map((entry, index) => (
           <div key={index} className="flex w-full items-center gap-2 px-4 py-2">
-            <input
+            <Input
               data-dictation-dictionary-entry-index={index}
               aria-label={`Dictionary entry ${index + 1}`}
               placeholder={DICTIONARY_PLACEHOLDERS[index] ?? DICTIONARY_PLACEHOLDERS[0] ?? ""}
@@ -496,15 +503,16 @@ export function VoiceSettingsPage(_props: { readonly onPathChange: (path: string
                     ?.focus();
                 });
               }}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-token-border bg-token-input-background px-3 text-sm text-token-text-primary outline-none placeholder:text-token-text-tertiary focus:border-token-focus-border disabled:opacity-50"
+              className="h-9 flex-1 rounded-lg px-3 text-sm"
             />
-            <button
-              type="button"
+            <NodexButton
               aria-label={`Remove dictionary entry ${index + 1}`}
+              size="icon-sm"
+              variant="ghost"
               disabled={
                 updateSettings.isPending || (dictionaryEntries.length === 1 && entry.length === 0)
               }
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary disabled:opacity-40"
+              className="text-token-text-tertiary hover:text-token-text-primary"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 void commitDictionary(
@@ -513,7 +521,7 @@ export function VoiceSettingsPage(_props: { readonly onPathChange: (path: string
               }}
             >
               <ShortcutTrashIcon className="icon-2xs" />
-            </button>
+            </NodexButton>
           </div>
         ))}
       </NodexSettingsSection>

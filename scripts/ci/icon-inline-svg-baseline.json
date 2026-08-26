@@ -1,4 +1,5 @@
 {
+  "src/renderer/bootstrap/nodex-logo-source.ts": 1,
   "src/renderer/components/board/column.tsx": 2,
   "src/renderer/components/board/editor/nfm-table-handles.stories.tsx": 1,
   "src/renderer/components/board/list-view.tsx": 1,

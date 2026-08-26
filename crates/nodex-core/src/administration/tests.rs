@@ -4,9 +4,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use nodex_core_contracts::administration::{
-    BackupTrigger, MaintenanceTask, SchemaOwner, StoreAdministrationEvent,
-    StoreAdministrationIntent, StoreAdministrationRead, StoreAdministrationReadValue,
-    StoreIntegrity, StoreReadiness,
+    BackupJobPhase, BackupJobState, BackupTrigger, MaintenanceTask, SchemaOwner,
+    StoreAdministrationEvent, StoreAdministrationIntent, StoreAdministrationRead,
+    StoreAdministrationReadValue, StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::collection::CollectionWindowRequest;
 use nodex_core_contracts::workspace::{
@@ -359,7 +359,7 @@ fn cancels_an_admitted_backup_before_publication_and_rejects_ready_artifacts() {
     else {
         panic!("Backup jobs")
     };
-    assert_eq!(jobs[0].state, "cancelled");
+    assert_eq!(jobs[0].state, BackupJobState::Cancelled);
 
     let ready = fixture.create_backup("administration:create-backup:ready-cancel", None, false);
     let ready_job = "administration:create-backup:ready-cancel";
@@ -590,8 +590,8 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
         .iter()
         .find(|job| job.operation_id == "administration:create-backup:1")
         .expect("durable backup job");
-    assert_eq!(job.state, "ready");
-    assert_eq!(job.phase, "ready");
+    assert_eq!(job.state, BackupJobState::Ready);
+    assert_eq!(job.phase, BackupJobPhase::Ready);
     assert_eq!(job.backup_id, backup_id);
 
     assert_eq!(

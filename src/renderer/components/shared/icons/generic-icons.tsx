@@ -48,7 +48,6 @@ import {
   GitPullRequest as LucideGitPullRequest,
   GripVertical as LucideGripVertical,
   Hash as LucideHash,
-  Heading1 as LucideHeading1,
   History as LucideHistory,
   ImageIcon as LucideImageIcon,
   ImagePlus as LucideImagePlus,
@@ -332,10 +331,6 @@ export const GripVertical: LucideIconType = /* @__PURE__ */ createGenericIcon(
   "GripVertical",
 );
 export const Hash: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideHash, "Hash");
-export const Heading1: LucideIconType = /* @__PURE__ */ createGenericIcon(
-  LucideHeading1,
-  "Heading1",
-);
 export const History: LucideIconType = /* @__PURE__ */ createGenericIcon(LucideHistory, "History");
 export const ImageIcon: LucideIconType = /* @__PURE__ */ createGenericIcon(
   LucideImageIcon,

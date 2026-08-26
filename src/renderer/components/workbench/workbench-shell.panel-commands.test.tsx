@@ -53,7 +53,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 2,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
       rightLayout: makePanelLayout(
         ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
@@ -539,7 +539,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 2,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
       rightLayout: makePanelLayout(
         ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
@@ -594,7 +594,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 2,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
       rightLayout: makePanelLayout(
         ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
@@ -646,7 +646,7 @@ describe("workbench session shell / panel-commands", () => {
       rightActiveTabId: "browser-tab",
       rightFullWidth: false,
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       id: "session:alpha:split-cycle",
       title: "Split cycle",
       panels: {
@@ -743,7 +743,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 2,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
       rightLayout: makePanelLayout(
         ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
@@ -800,7 +800,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 2,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
       rightLayout: makePanelLayout(
         ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
@@ -1322,7 +1322,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 2,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [firstTab, secondTab, thirdTab],
       rightLayout: makePanelLayout([firstTab.id, secondTab.id, thirdTab.id], firstTab.id),
     });
@@ -1406,7 +1406,7 @@ describe("workbench session shell / panel-commands", () => {
         newBranchId: "branch:review-close",
       },
     );
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [firstTab, secondTab, thirdTab],
       rightLayout,
     });
@@ -1475,7 +1475,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 2,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [firstTab, secondTab, thirdTab],
       rightLayout: makePanelLayout([firstTab.id, secondTab.id, thirdTab.id], firstTab.id),
     });
@@ -1531,7 +1531,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 1,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [openerTab, unrelatedTab],
       rightLayout: makePanelLayout([openerTab.id, unrelatedTab.id], openerTab.id),
     });
@@ -1590,7 +1590,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 1,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [openerTab, unrelatedTab],
       rightLayout: makePanelLayout([openerTab.id, unrelatedTab.id], openerTab.id),
     });
@@ -1656,7 +1656,7 @@ describe("workbench session shell / panel-commands", () => {
       order: 2,
       config: { projectId: "alpha" },
     });
-    const session = makeSession({
+    const session = makeAttachedSession({
       tabs: [firstTab, secondTab, thirdTab],
       rightLayout: makePanelLayout([firstTab.id, secondTab.id, thirdTab.id], firstTab.id),
     });

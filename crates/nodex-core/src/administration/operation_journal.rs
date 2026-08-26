@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use nodex_core_contracts::administration::{BackupRecord, BackupTrigger};
+use nodex_core_contracts::administration::{BackupJobPhase, BackupRecord, BackupTrigger};
 use rusqlite::Connection;
 
 use crate::infrastructure::sqlite::StoreError;
@@ -25,7 +25,7 @@ pub(super) fn stage_backup(
     label: Option<&str>,
     include_assets: bool,
     trigger: BackupTrigger,
-    progress: &dyn Fn(&'static str) -> Result<(), StoreError>,
+    progress: &dyn Fn(BackupJobPhase) -> Result<(), StoreError>,
     cancellation_requested: &dyn Fn() -> Result<bool, StoreError>,
 ) -> Result<backup::VerifiedStagedBackup, StoreError> {
     backup::create_backup(

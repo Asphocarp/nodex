@@ -11,7 +11,6 @@ import {
   keyboardEventToAccelerator,
   type RuntimePlatform,
 } from "../../../shared/command-keybindings";
-import { invoke } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ShortcutKeycaps } from "./shortcut-keycaps";
 
@@ -73,6 +72,36 @@ export function bareModifierIdentity(
   return null;
 }
 
+function physicalBareModifierIdentity(event: BareModifierKeyboardEvent): string | null {
+  if (event.key.toLowerCase() === "fn") return "Fn";
+
+  const side =
+    event.location === LEFT_KEY_LOCATION
+      ? "Left"
+      : event.location === RIGHT_KEY_LOCATION
+        ? "Right"
+        : null;
+  if (!side) return null;
+  if (event.key === "Alt") return `${side}Option`;
+  if (event.key === "Meta") return `${side}Command`;
+  if (event.key === "Shift") return `${side}Shift`;
+  if (event.key === "Control") return `${side}Control`;
+  return null;
+}
+
+function doubleModifierIdentity(pressedModifiers: ReadonlySet<string>): string | null {
+  if (pressedModifiers.has("LeftOption") && pressedModifiers.has("RightOption")) {
+    return "DoubleOption";
+  }
+  if (pressedModifiers.has("LeftCommand") && pressedModifiers.has("RightCommand")) {
+    return "DoubleCommand";
+  }
+  if (pressedModifiers.has("LeftShift") && pressedModifiers.has("RightShift")) {
+    return "DoubleShift";
+  }
+  return null;
+}
+
 function preventCaptureButtonBlur(event: ReactMouseEvent<HTMLButtonElement>): void {
   event.preventDefault();
 }
@@ -85,6 +114,7 @@ export interface HotkeySettingControlProps {
   readonly ariaLabelledBy?: string;
   readonly canAppend?: boolean;
   readonly captureAriaLabel: string;
+  readonly captureFnHotkey?: () => Promise<string | null>;
   readonly className?: string;
   readonly conflict?: string | null;
   readonly disabled?: boolean;
@@ -109,6 +139,7 @@ export function HotkeySettingControl({
   ariaLabelledBy,
   canAppend = false,
   captureAriaLabel,
+  captureFnHotkey,
   className,
   conflict = null,
   disabled = false,
@@ -124,7 +155,7 @@ export function HotkeySettingControl({
   valueLabelId,
 }: HotkeySettingControlProps) {
   const nativeCaptureGenerationRef = useRef(0);
-  const pressedBareModifierRef = useRef<string | null>(null);
+  const pressedBareModifiersRef = useRef(new Set<string>());
   const pendingSequenceRef = useRef<string | null>(null);
   const sequenceTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const [captureValue, setCaptureValue] = useState<string | null>(null);
@@ -136,7 +167,7 @@ export function HotkeySettingControl({
       sequenceTimerRef.current = null;
     }
     pendingSequenceRef.current = null;
-    pressedBareModifierRef.current = null;
+    pressedBareModifiersRef.current.clear();
     setCaptureValue(null);
   };
 
@@ -173,8 +204,9 @@ export function HotkeySettingControl({
   useEffect(() => {
     nativeCaptureGenerationRef.current += 1;
     const generation = nativeCaptureGenerationRef.current;
-    if (isCapturing && allowsBareModifiers && platform === "macOS") {
-      void invoke("global-dictation-capture-fn-hotkey")
+    const pressedBareModifiers = pressedBareModifiersRef.current;
+    if (isCapturing && allowsBareModifiers && platform === "macOS" && captureFnHotkey) {
+      void captureFnHotkey()
         .then((hotkey) => {
           if (hotkey === "Fn" && nativeCaptureGenerationRef.current === generation) {
             commitCapture(hotkey);
@@ -184,13 +216,13 @@ export function HotkeySettingControl({
     }
     return () => {
       nativeCaptureGenerationRef.current += 1;
-      pressedBareModifierRef.current = null;
+      pressedBareModifiers.clear();
       pendingSequenceRef.current = null;
       if (sequenceTimerRef.current !== null) globalThis.clearTimeout(sequenceTimerRef.current);
     };
     // commitCapture intentionally follows the active capture generation rather than its render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowsBareModifiers, isCapturing, platform]);
+  }, [allowsBareModifiers, captureFnHotkey, isCapturing, platform]);
 
   const handleCaptureKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
     if (event.repeat) return;
@@ -209,13 +241,13 @@ export function HotkeySettingControl({
     }
 
     if (MODIFIER_KEYS.has(event.key)) {
-      pressedBareModifierRef.current = allowsBareModifiers
-        ? bareModifierIdentity(event.nativeEvent, "pressed")
-        : null;
+      if (!allowsBareModifiers) return;
+      const physicalModifier = physicalBareModifierIdentity(event.nativeEvent);
+      if (physicalModifier) pressedBareModifiersRef.current.add(physicalModifier);
       return;
     }
 
-    pressedBareModifierRef.current = null;
+    pressedBareModifiersRef.current.clear();
     const acceleratorFromEvent = keyboardEventToAccelerator(event.nativeEvent, platform);
     if (acceleratorFromEvent) captureChord(acceleratorFromEvent);
   };
@@ -225,10 +257,21 @@ export function HotkeySettingControl({
     event.stopPropagation();
     if (!allowsBareModifiers) return;
 
-    const bareModifier = bareModifierIdentity(event.nativeEvent, "released");
-    if (bareModifier && pressedBareModifierRef.current === bareModifier) {
-      commitCapture(bareModifier);
+    const physicalModifier = physicalBareModifierIdentity(event.nativeEvent);
+    if (!physicalModifier || !pressedBareModifiersRef.current.has(physicalModifier)) return;
+
+    const doubleModifier = doubleModifierIdentity(pressedBareModifiersRef.current);
+    if (doubleModifier) {
+      commitCapture(doubleModifier);
+      return;
     }
+
+    const bareModifier = bareModifierIdentity(event.nativeEvent, "released");
+    if (bareModifier && pressedBareModifiersRef.current.size === 1) {
+      commitCapture(bareModifier);
+      return;
+    }
+    pressedBareModifiersRef.current.delete(physicalModifier);
   };
 
   if (isCapturing) {

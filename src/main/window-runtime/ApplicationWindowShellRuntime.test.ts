@@ -1,7 +1,9 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import { TestClock } from "effect/testing";
 import { EventEmitter } from "node:events";
 import type {
   BrowserWindow,
@@ -10,7 +12,7 @@ import type {
   WebContents,
 } from "electron";
 import { it } from "@effect/vitest";
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, test, vi } from "vite-plus/test";
 import type { WindowSessionRecord } from "../../shared/window-session";
 import { resolveElectronWindowBackdrop } from "../electron-window-backdrop";
 import type { WindowRuntimeService } from "./WindowRuntime";
@@ -25,6 +27,10 @@ let nextWindowId = 1;
 class FakeBrowserWindow extends EventEmitter {
   readonly id = nextWindowId++;
   private destroyed = false;
+  showCount = 0;
+  constructor(private readonly loadFailure: Error | null = null) {
+    super();
+  }
   readonly webContents = Object.assign(new EventEmitter(), {
     id: this.id + 100,
     setWindowOpenHandler: () => undefined,
@@ -41,12 +47,16 @@ class FakeBrowserWindow extends EventEmitter {
     return this.destroyed;
   }
   loadURL(): Promise<void> {
-    return Promise.resolve();
+    return this.loadFailure ? Promise.reject(this.loadFailure) : Promise.resolve();
   }
   maximize(): void {}
   setFullScreen(): void {}
-  show(): void {}
-  showInactive(): void {}
+  show(): void {
+    this.showCount += 1;
+  }
+  showInactive(): void {
+    this.showCount += 1;
+  }
 }
 
 const session = (id: string, lastFocusedAt: number): WindowSessionRecord =>
@@ -151,4 +161,62 @@ describe("ApplicationWindowShellRuntime", () => {
       }),
     );
   });
+
+  it.effect(
+    "fails activation and requests native recovery when the renderer document fails",
+    () => {
+      const sessions = [session("primary", 1)];
+      const loadFailure = new Error("renderer unavailable");
+      const onRendererDocumentLoadFailure = vi.fn();
+      const windows = {
+        attach: (_window: BrowserWindow, sessionId: string) =>
+          sessions.find((candidate) => candidate.id === sessionId)!,
+        markFocused: () => undefined,
+        selectStartupSessions: () => sessions,
+      } as unknown as WindowRuntimeService;
+
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const context = yield* Layer.build(
+            live({
+              createWindow: (_options: BrowserWindowConstructorOptions) =>
+                new FakeBrowserWindow(loadFailure) as unknown as BrowserWindow,
+              displays: {
+                getAllDisplays: () => [
+                  {
+                    bounds: { height: 1_080, width: 1_920, x: 0, y: 0 },
+                    scaleFactor: 2,
+                  } as Display,
+                ],
+                getDisplayMatching: () => ({ scaleFactor: 2 }) as Display,
+                getPrimaryDisplay: () => ({ scaleFactor: 2 }) as Display,
+              },
+              iconPath: "",
+              onRendererDocumentLoadFailure,
+              platform: "darwin",
+              preloadPath: "/tmp/nodex-preload.js",
+              rendererUrl: "app://-/index.html",
+              theme: { prefersReducedTransparency: false, shouldUseDarkColors: false },
+              windows,
+            }),
+          );
+          const shell = Context.get(context, ApplicationWindowShellRuntime);
+          const [opened] = shell.openInitial("all");
+          if (!opened) throw new Error("Expected the initial window");
+
+          yield* Effect.yieldNow;
+          const activation = yield* Effect.exit(shell.awaitActivation(opened.webContents.id));
+          yield* TestClock.adjust("2 seconds");
+
+          expect(Exit.isFailure(activation)).toBe(true);
+          expect((opened as unknown as FakeBrowserWindow).showCount).toBe(0);
+          expect(shell.claimPendingActivation()).toEqual([]);
+          expect(onRendererDocumentLoadFailure).toHaveBeenCalledOnce();
+          expect(onRendererDocumentLoadFailure).toHaveBeenCalledWith({
+            cause: loadFailure,
+          });
+        }),
+      );
+    },
+  );
 });

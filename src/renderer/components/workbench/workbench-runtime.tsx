@@ -728,6 +728,9 @@ export function WorkbenchRuntime({
   const sceneNavigator = useMemo(
     () =>
       createWorkbenchSceneNavigator({
+        hasAttachedThread(sessionId) {
+          return (sessionCatalogRef.current.findById(sessionId)?.domain.thread ?? null) !== null;
+        },
         setScene(owner, update) {
           workbenchWindowRef.current.setScene(owner, update);
         },

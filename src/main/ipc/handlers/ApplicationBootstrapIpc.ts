@@ -6,9 +6,9 @@ import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
 import { APP_INITIALIZATION_STEP_CHANNEL, APP_RESTART_CHANNEL } from "../../../shared/app-startup";
 import { MainConfig } from "../../app/MainConfig";
+import { MainShutdown } from "../../app/MainShutdown";
 import { ApplicationInitializationRuntime } from "../../host-runtime/ApplicationInitializationRuntime";
 import { safeSendToWebContents } from "../../ipc-safe-send";
-import { ElectronApp } from "../../platform/electron/ElectronApp";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { ApplicationWindowShellRuntime } from "../../window-runtime/ApplicationWindowShellRuntime";
@@ -41,17 +41,17 @@ export const live: Layer.Layer<
   never,
   | ApplicationInitializationRuntime
   | ApplicationWindowShellRuntime
-  | ElectronApp
   | ElectronIpc
   | MainConfig
+  | MainShutdown
   | WindowRuntime
 > = Layer.effect(
   ApplicationBootstrapIpc,
   Effect.gen(function* () {
     const config = yield* MainConfig;
-    const electron = yield* ElectronApp;
     const initialization = yield* ApplicationInitializationRuntime;
     const ipc = yield* ElectronIpc;
+    const shutdown = yield* MainShutdown;
     const shell = yield* ApplicationWindowShellRuntime;
     const windows = yield* WindowRuntime;
     const authorize = (event: IpcMainEvent | IpcMainInvokeEvent, capabilityName: string) =>
@@ -130,8 +130,8 @@ export const live: Layer.Layer<
     );
     yield* ipc.handle(APP_RESTART_CHANNEL, (event) =>
       authorize(event, "Application restart").pipe(
-        Effect.andThen(electron.relaunch),
-        Effect.andThen(electron.quit),
+        Effect.andThen(shutdown.request({ _tag: "StartupFailure" })),
+        Effect.asVoid,
       ),
     );
     return ApplicationBootstrapIpc.of({});
