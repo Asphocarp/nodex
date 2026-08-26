@@ -52,12 +52,33 @@ describe("resolveBrowserRuntimeBundle", () => {
     expect(result.status).toBe("available");
     if (result.status !== "available") return;
     expect(result.bundle.paths.nodeRepl).toBe(path.join(bundleRoot, "bin", "node_repl"));
+    expect(result.bundle.paths.browserPluginService).toBe(
+      path.join(bundleRoot, "marketplace", "plugins", "browser", "service.js"),
+    );
+    expect(result.bundle.paths.computerUseRpcService).toBe(
+      path.join(
+        bundleRoot,
+        "runtime",
+        "lib",
+        "node_modules",
+        "@oai",
+        "sky",
+        "dist",
+        "project",
+        "cua",
+        "sky_js",
+        "src",
+        "service.js",
+      ),
+    );
     expect(result.bundle.browserPluginRoot).toBe(
       path.join(bundleRoot, "marketplace", "plugins", "browser"),
     );
-    expect(result.bundle.browserPluginClientSha256).toBe(
-      manifest.artifacts.find((artifact) => artifact.path === manifest.browserPlugin.client)
-        ?.sha256,
+    if (manifest.capabilities.computerUse.status !== "available") {
+      throw new Error("Computer Use fixture is unavailable");
+    }
+    expect(manifest.artifacts).toContainEqual(
+      expect.objectContaining({ path: manifest.capabilities.computerUse.rpcService }),
     );
   });
 

@@ -7,14 +7,17 @@ import {
   resolveSelectedCodexHooksEntry,
 } from "./codex-hooks-model";
 
+type CommandHookMetadata = Extract<HookMetadata, { handlerType: "command" }>;
+
 function hook(
-  overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "source">,
-): HookMetadata {
+  overrides: Partial<CommandHookMetadata> & Pick<CommandHookMetadata, "key" | "source">,
+): CommandHookMetadata {
   return {
     eventName: "stop",
     handlerType: "command",
     matcher: null,
     command: "echo done",
+    async: false,
     timeoutSec: 10n,
     statusMessage: null,
     sourcePath: "/tmp/hooks.json",

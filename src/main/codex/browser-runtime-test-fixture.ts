@@ -59,6 +59,12 @@ const FIXTURE_FILES = [
     architecture: "any",
     executable: false,
     kind: "data",
+    path: "marketplace/plugins/browser/service.js",
+  },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
     path: "marketplace/plugins/browser/docs/SKILL.md",
   },
   {
@@ -76,6 +82,12 @@ const FIXTURE_FILES = [
 ] as const;
 
 const COMPUTER_USE_FIXTURE_FILES = [
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
+    path: "runtime/lib/node_modules/@oai/sky/dist/project/cua/sky_js/src/service.js",
+  },
   {
     architecture: "any",
     executable: false,
@@ -197,6 +209,7 @@ export function writeBrowserRuntimeFixture(
       marketplaceRoot: "marketplace",
       nodeModuleDirs: [BROWSER_PLUGIN_NODE_MODULE_DIR],
       root: "marketplace/plugins/browser",
+      service: "marketplace/plugins/browser/service.js",
       version: "1.0.0-test",
     },
     buildFlavor: "test",
@@ -219,6 +232,8 @@ export function writeBrowserRuntimeFixture(
                 root: "marketplace/plugins/computer-use",
                 version: "1.0.0-test",
               },
+              rpcService:
+                "runtime/lib/node_modules/@oai/sky/dist/project/cua/sky_js/src/service.js",
               serviceExecutable:
                 "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
               signingTeamId: "TESTTEAM",
@@ -253,7 +268,7 @@ export function writeBrowserRuntimeFixture(
       node: "24.0.0",
       peerAuthorization: "test",
     },
-    schemaVersion: 4,
+    schemaVersion: 5,
     supportedBackends: ["iab", "chrome"],
     targetArch,
     targetPlatform: options.targetPlatform ?? "darwin",

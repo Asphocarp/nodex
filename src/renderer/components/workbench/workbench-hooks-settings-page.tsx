@@ -277,17 +277,30 @@ function HooksOverview({
   );
 }
 
+function hookHandlerRows(hook: HookMetadata): readonly (readonly [string, string])[] {
+  switch (hook.handlerType) {
+    case "command":
+      return [
+        ["Handler", "Command"],
+        ["Command", hook.command],
+        ["Execution", hook.async ? "Asynchronous" : "Synchronous"],
+      ];
+    case "mcpTool":
+      return [
+        ["Handler", "MCP tool"],
+        ["Server", hook.server],
+        ["Tool", hook.tool],
+      ];
+    case "prompt":
+      return [["Handler", "Prompt"]];
+    case "agent":
+      return [["Handler", "Agent"]];
+  }
+}
+
 function HookDetails({ hook }: { hook: HookMetadata }) {
   const rows = [
-    [
-      "Handler",
-      hook.handlerType === "command"
-        ? "Command"
-        : hook.handlerType === "prompt"
-          ? "Prompt"
-          : "Agent",
-    ],
-    ...(hook.command == null ? [] : [["Command", hook.command]]),
+    ...hookHandlerRows(hook),
     ...(hook.matcher == null ? [] : [["Matcher", hook.matcher]]),
     [
       "Timeout",

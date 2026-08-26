@@ -54,7 +54,7 @@ describe("BrowserUseThreadConfigBuilder", () => {
     await expect(builder.build()).resolves.toBeNull();
   });
 
-  test("builds the pinned Node REPL config only from verified paths and hashes", async () => {
+  test("builds the pinned Node REPL config only from verified paths", async () => {
     const { browserRuntime, bundleRoot } = makeVerifiedRuntime();
     const runtimeStateHome = path.join(bundleRoot, "..", "state");
     const builder = new BrowserUseThreadConfigBuilder({
@@ -90,10 +90,13 @@ describe("BrowserUseThreadConfigBuilder", () => {
           path.join(bundleRoot, "runtime", "lib", "node_modules"),
         ].join(path.delimiter),
         NODE_REPL_NODE_PATH: path.join(bundleRoot, "bin", "node"),
-        NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S: browserRuntime.bundle.browserPluginClientSha256,
         NODE_REPL_TRUSTED_CODE_PATHS: [path.resolve(runtimeStateHome), bundleRoot].join(
           path.delimiter,
         ),
+        NODE_REPL_TRUSTED_RPC_ENABLED: "1",
+        NODE_REPL_TRUSTED_SERVICES: JSON.stringify({
+          browser: path.join(bundleRoot, "marketplace", "plugins", "browser", "service.js"),
+        }),
       },
     });
     expect(
@@ -168,8 +171,23 @@ describe("BrowserUseThreadConfigBuilder", () => {
       SKY_CUA_SERVICE_PATH: "/tmp/nodex-agent/computer-use/Codex Computer Use.app",
     });
     expect(nodeRepl.env?.BROWSER_USE_AVAILABLE_BACKENDS).toBe("");
-    expect(nodeRepl.env?.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S).toBe(
-      browserRuntime.bundle.browserPluginClientSha256,
+    expect(nodeRepl.env?.NODE_REPL_TRUSTED_SERVICES).toBe(
+      JSON.stringify({
+        sky: path.join(
+          bundleRoot,
+          "runtime",
+          "lib",
+          "node_modules",
+          "@oai",
+          "sky",
+          "dist",
+          "project",
+          "cua",
+          "sky_js",
+          "src",
+          "service.js",
+        ),
+      }),
     );
   });
 });

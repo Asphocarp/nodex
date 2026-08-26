@@ -72,13 +72,19 @@ function buildAvailableConfig(
   computerUseRuntime: Extract<ComputerUseRuntimeResult, { status: "available" }> | null,
 ): BrowserUseThreadConfig {
   const availableBackendsValue = availableBackends.join(",");
-  const trustedClientHashes = bundle.browserPluginClientSha256;
   // app-server installs local marketplace plugins into versioned directories
   // beneath CODEX_HOME/plugins/cache and exposes skill paths from that cache.
   // Trust the app-server-owned home so both the marketplace source and the
-  // effective installed copy receive the privileged Node REPL bridge. Browser
-  // clients remain independently constrained by their verified SHA-256.
+  // effective installed copy can load dependencies. Privileged operations stay
+  // behind the reviewed services from the verified runtime closure.
   const trustedCodePaths = [runtimeStateHome, bundle.rootPath].join(path.delimiter);
+  const trustedServices: Record<string, string> = {};
+  if (availableBackends.length > 0) {
+    trustedServices.browser = bundle.paths.browserPluginService;
+  }
+  if (computerUseRuntime && bundle.paths.computerUseRpcService) {
+    trustedServices.sky = bundle.paths.computerUseRpcService;
+  }
   const env: Record<string, string> = {
     BROWSER_USE_AVAILABLE_BACKENDS: availableBackendsValue,
     BROWSER_USE_CODEX_APP_BUILD_FLAVOR: bundle.manifest.buildFlavor,
@@ -90,11 +96,10 @@ function buildAvailableConfig(
     NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS: "1000",
     NODE_REPL_NODE_MODULE_DIRS: bundle.nodeModuleDirs.join(path.delimiter),
     NODE_REPL_NODE_PATH: bundle.paths.node,
+    NODE_REPL_TRUSTED_RPC_ENABLED: "1",
+    NODE_REPL_TRUSTED_SERVICES: JSON.stringify(trustedServices),
     NODE_REPL_TRUSTED_CODE_PATHS: trustedCodePaths,
   };
-  if (availableBackends.length > 0 || computerUseRuntime) {
-    env.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = trustedClientHashes;
-  }
   if (availableBackends.includes("iab")) {
     env.NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = BROWSER_USE_IN_APP_INSTRUCTIONS;
   }
@@ -130,7 +135,6 @@ function buildAvailableConfig(
   return {
     ...config,
     "shell_environment_policy.set.BROWSER_USE_AVAILABLE_BACKENDS": availableBackendsValue,
-    "shell_environment_policy.set.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S": trustedClientHashes,
     "shell_environment_policy.set.NODE_REPL_TRUSTED_CODE_PATHS": trustedCodePaths,
   };
 }

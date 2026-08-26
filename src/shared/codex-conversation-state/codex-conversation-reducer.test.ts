@@ -800,6 +800,7 @@ describe("canonical item lifecycle reducer", () => {
       status: "completed",
       revisedPrompt: null,
       result: "fallback-base64",
+      failure: null,
       savedPath: "C:\\Fixture\\generated.png",
     } satisfies ThreadItem;
     const collab = {

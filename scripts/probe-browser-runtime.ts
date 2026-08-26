@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import type * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -159,25 +159,8 @@ function textFromToolResponse(response: McpServerToolCallResponse): string {
     .join("\n");
 }
 
-const TRUSTED_BRIDGE_PROBE_SOURCE = `
-const trustedNodeRepl = globalThis.nodeRepl;
-
-export function inspectTrustedBridge() {
-  return {
-    authenticatedFetchAvailable: typeof trustedNodeRepl?.fetch === "function",
-    nativePipeAvailable:
-      typeof trustedNodeRepl?.nativePipe?.createConnection === "function",
-    requestMetaAvailable: trustedNodeRepl?.requestMeta != null,
-  };
-}
-`;
-
-function makeBrowserClientProbeCode(
-  browserClientPath: string,
-  trustedBridgeProbePath: string,
-): string {
+function makeBrowserClientProbeCode(browserClientPath: string): string {
   return `
-const { inspectTrustedBridge } = await import(${JSON.stringify(trustedBridgeProbePath)});
 if (globalThis.agent?.browsers == null) {
   const { setupBrowserRuntime } = await import(${JSON.stringify(browserClientPath)});
   globalThis.agent = await setupBrowserRuntime({ globals: globalThis });
@@ -197,8 +180,8 @@ nodeRepl.write(JSON.stringify({
     fetchAvailable: typeof globalThis.nodeRepl?.fetch === "function",
     keys: Object.keys(globalThis.nodeRepl ?? {}).sort(),
     requestMetaAvailable: globalThis.nodeRepl?.requestMeta != null,
+    rpcAvailable: typeof globalThis.nodeRepl?.rpc === "function",
   },
-  trustedBridge: inspectTrustedBridge(),
 }));
 `;
 }
@@ -229,14 +212,6 @@ async function probeBrowserRuntimePromise(
 
   const bundle = runtime.browserRuntime.bundle;
   const stateHome = fs.mkdtempSync(path.join(projectRoot, ".generated", "browser-runtime-probe-"));
-  const trustedBridgeProbePath = path.join(stateHome, "trusted-bridge-probe.mjs");
-  fs.writeFileSync(trustedBridgeProbePath, TRUSTED_BRIDGE_PROBE_SOURCE, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  const trustedBridgeProbeSha256 = createHash("sha256")
-    .update(TRUSTED_BRIDGE_PROBE_SOURCE)
-    .digest("hex");
   const sessionId = randomUUID();
   const turnId = randomUUID();
   const nativePipeMethods: string[] = [];
@@ -370,13 +345,6 @@ async function probeBrowserRuntimePromise(
           ) {
             throw new Error("Browser runtime thread config is missing Node REPL environment");
           }
-          const nodeReplEnv = nodeReplConfig.env;
-          const trustedClientHashes = nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S;
-          if (typeof trustedClientHashes !== "string" || trustedClientHashes.length === 0) {
-            throw new Error("Browser runtime thread config is missing its trusted client hash");
-          }
-          nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = `${trustedClientHashes},${trustedBridgeProbeSha256}`;
-
           const threadResponse = await client.request<ThreadStartResponse>("thread/start", {
             config: browserConfig,
             cwd: projectRoot,
@@ -394,10 +362,7 @@ async function probeBrowserRuntimePromise(
                 },
               },
               arguments: {
-                code: makeBrowserClientProbeCode(
-                  bundle.paths.browserPluginClient,
-                  trustedBridgeProbePath,
-                ),
+                code: makeBrowserClientProbeCode(bundle.paths.browserPluginClient),
               },
               server: "node_repl",
               threadId,
@@ -409,9 +374,7 @@ async function probeBrowserRuntimePromise(
             toolResponse.isError ||
             !nodeReplResult.includes('"backendType":"iab"') ||
             !nodeReplResult.includes('"rootNodeRepl":{"fetchAvailable":false') ||
-            !nodeReplResult.includes(
-              '"trustedBridge":{"authenticatedFetchAvailable":true,"nativePipeAvailable":true',
-            )
+            !nodeReplResult.includes('"rpcAvailable":true')
           ) {
             throw new Error(
               `Browser client conformance failed: ${nodeReplResult || "empty result"}` +

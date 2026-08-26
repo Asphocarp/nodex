@@ -12,6 +12,12 @@ import * as Logger from "effect/Logger";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import {
+  distributeObjectOneOf,
+  parseCodexNotificationEntries,
+  parseCodexRequestEntries,
+  type CodexMethodEntry,
+} from "../../../scripts/codex-schema-generator.ts";
 
 const JsonSchemaDocument = Schema.StructWithRest(
   Schema.Struct({
@@ -33,10 +39,7 @@ interface GeneratedPaths {
   readonly namespacesOutputPath: string;
 }
 
-interface MethodEntry {
-  readonly method: string;
-  readonly paramsType?: string;
-}
+type MethodEntry = CodexMethodEntry;
 
 interface JsonSchemaFile {
   readonly namespace?: string;
@@ -268,32 +271,6 @@ function toPascalCaseMethod(method: string) {
     .join("");
 }
 
-function parseRequestEntries(fileContents: string): ReadonlyArray<MethodEntry> {
-  const entryPattern = /\{\s*"method":\s*"([^"]+)",\s*id:\s*RequestId,\s*params:\s*([^,}]+)/g;
-  const entries: Array<MethodEntry> = [];
-  let match: RegExpExecArray | null;
-  while ((match = entryPattern.exec(fileContents)) !== null) {
-    entries.push({
-      method: match[1]!,
-      paramsType: match[2]!.trim(),
-    });
-  }
-  return entries;
-}
-
-function parseNotificationEntries(fileContents: string): ReadonlyArray<MethodEntry> {
-  const entryPattern = /\{\s*"method":\s*"([^"]+)"(?:,\s*"params":\s*([^ }]+))?\s*\}/g;
-  const entries: Array<MethodEntry> = [];
-  let match: RegExpExecArray | null;
-  while ((match = entryPattern.exec(fileContents)) !== null) {
-    entries.push({
-      method: match[1]!,
-      ...(match[2] ? { paramsType: match[2].trim() } : {}),
-    });
-  }
-  return entries;
-}
-
 function resolveSchemaTypeName(
   rawTypeName: string,
   generatedSchemaNames: ReadonlySet<string>,
@@ -353,9 +330,16 @@ function renderResolvedSchema(
       ? "undefined"
       : `CodexSchema.${resolveSchemaTypeName(parts[0]!, generatedSchemaNames)}`;
   }
-  const nonNull = parts.filter((part) => part !== "null");
-  if (nonNull.length === 1 && parts.includes("null")) {
-    return `Schema.NullOr(CodexSchema.${resolveSchemaTypeName(nonNull[0]!, generatedSchemaNames)})`;
+  const nonNullish = parts.filter((part) => part !== "null" && part !== "undefined");
+  if (nonNullish.length === 1) {
+    let resolved = `CodexSchema.${resolveSchemaTypeName(nonNullish[0]!, generatedSchemaNames)}`;
+    if (parts.includes("null")) {
+      resolved = `Schema.NullOr(${resolved})`;
+    }
+    if (parts.includes("undefined")) {
+      resolved = `Schema.UndefinedOr(${resolved})`;
+    }
+    return resolved;
   }
   throw new Error(`Unsupported protocol type union: ${rawTypeName}`);
 }
@@ -563,16 +547,18 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
     );
 
     for (const [definitionName, definitionSchema] of Object.entries(parsed.definitions ?? {})) {
-      aggregateSchemas[localDefinitionNames.get(definitionName)!] = stripNullDefaults(
-        normalizeNullableTypes(
-          rewriteExternalRefs(
-            definitionSchema,
-            localDefinitionNames,
-            file.namespace,
-            exportNameByQualifiedName,
+      aggregateSchemas[localDefinitionNames.get(definitionName)!] = distributeObjectOneOf(
+        stripNullDefaults(
+          normalizeNullableTypes(
+            rewriteExternalRefs(
+              definitionSchema,
+              localDefinitionNames,
+              file.namespace,
+              exportNameByQualifiedName,
+            ),
           ),
         ),
-      );
+      ) as Schema.Json;
     }
 
     const topLevelSchema: Record<string, Schema.Json> = {};
@@ -582,16 +568,18 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
       }
     }
 
-    aggregateSchemas[file.exportName] = stripNullDefaults(
-      normalizeNullableTypes(
-        rewriteExternalRefs(
-          topLevelSchema,
-          localDefinitionNames,
-          file.namespace,
-          exportNameByQualifiedName,
+    aggregateSchemas[file.exportName] = distributeObjectOneOf(
+      stripNullDefaults(
+        normalizeNullableTypes(
+          rewriteExternalRefs(
+            topLevelSchema,
+            localDefinitionNames,
+            file.namespace,
+            exportNameByQualifiedName,
+          ),
         ),
       ),
-    );
+    ) as Schema.Json;
   }
 
   for (const [name, schema] of Object.entries(ManualSchemas)) {
@@ -623,10 +611,10 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
   const serverRequestRaw = yield* readText(join(typescriptInputPath, "ServerRequest.ts"));
   const serverNotificationRaw = yield* readText(join(typescriptInputPath, "ServerNotification.ts"));
 
-  const clientRequestEntries = parseRequestEntries(clientRequestRaw);
-  const clientNotificationEntries = parseNotificationEntries(clientNotificationRaw);
-  const serverRequestEntries = parseRequestEntries(serverRequestRaw);
-  const serverNotificationEntries = parseNotificationEntries(serverNotificationRaw);
+  const clientRequestEntries = parseCodexRequestEntries(clientRequestRaw);
+  const clientNotificationEntries = parseCodexNotificationEntries(clientNotificationRaw);
+  const serverRequestEntries = parseCodexRequestEntries(serverRequestRaw);
+  const serverNotificationEntries = parseCodexNotificationEntries(serverNotificationRaw);
 
   const prelude = ["// Generated from the staged Nodex Codex runtime. Do not edit manually.", ""];
 

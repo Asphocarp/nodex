@@ -1,8 +1,4 @@
-import type {
-  InterpreterHarness,
-  InterpreterProvider,
-  Model,
-} from "@nodex/codex-app-server-protocol/v2";
+import type { Model } from "@nodex/codex-app-server-protocol/v2";
 import {
   formatAgentReasoningEffortLabel,
   type AgentModelOption,
@@ -16,6 +12,44 @@ export const SUPPORTED_PROVIDER_IDS = [
   "moonshotai",
   "openrouter",
 ] as const;
+
+/** Open Interpreter extension payload, parsed at the raw app-server boundary. */
+export interface InterpreterProvider {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly isCurrent: boolean;
+  readonly baseUrl?: string;
+  readonly wireApi: AgentWireApi;
+  readonly envKey?: string;
+  readonly configured: boolean;
+  readonly isDefault: boolean;
+}
+
+/** Open Interpreter extension payload, parsed at the raw app-server boundary. */
+export interface InterpreterHarness {
+  readonly id?: string;
+  readonly label: string;
+  readonly description: string;
+  readonly isRecommended: boolean;
+}
+
+type InterpreterModel = Pick<
+  Model,
+  | "id"
+  | "model"
+  | "displayName"
+  | "description"
+  | "modelSpecialty"
+  | "hidden"
+  | "supportedReasoningEfforts"
+  | "defaultReasoningEffort"
+  | "inputModalities"
+  | "supportsPersonality"
+  | "serviceTiers"
+  | "defaultServiceTier"
+  | "isDefault"
+>;
 
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/u;
 const MAX_CATALOG_STRING_LENGTH = 512;
@@ -69,7 +103,7 @@ export function parseProviderResponse(value: unknown): InterpreterProvider[] {
   return value.data.map(parseProvider);
 }
 
-function parseModel(value: unknown, providerId: string, index: number): Model {
+function parseModel(value: unknown, providerId: string, index: number): InterpreterModel {
   if (!isRecord(value)) throw new Error(`Agent runtime model ${providerId}[${index}] is invalid`);
   const id = parseCatalogString(value.id, `model ${providerId}[${index}] id`);
   const model = parseCatalogString(value.model, `model ${providerId}/${id} runtime id`);
@@ -126,9 +160,6 @@ function parseModel(value: unknown, providerId: string, index: number): Model {
   return {
     id,
     model,
-    upgrade: null,
-    upgradeInfo: null,
-    availabilityNux: null,
     displayName: typeof value.displayName === "string" ? value.displayName.trim() : id,
     description: typeof value.description === "string" ? value.description.trim() : "",
     modelSpecialty: parseOptionalCatalogString(
@@ -140,14 +171,13 @@ function parseModel(value: unknown, providerId: string, index: number): Model {
     defaultReasoningEffort,
     inputModalities,
     supportsPersonality: value.supportsPersonality === true,
-    additionalSpeedTiers: [],
     serviceTiers,
     defaultServiceTier,
     isDefault: value.isDefault === true,
   };
 }
 
-export function parseModelResponse(value: unknown, providerId: string): Model[] {
+export function parseModelResponse(value: unknown, providerId: string): InterpreterModel[] {
   if (!isRecord(value) || !Array.isArray(value.data)) {
     throw new Error(`Agent runtime model catalog response for ${providerId} is invalid`);
   }
@@ -179,7 +209,7 @@ export function recommendedHarnessId(harnesses: readonly InterpreterHarness[]): 
 
 export function toModelOption(
   providerId: string,
-  model: Model,
+  model: InterpreterModel,
   providerRecommendedHarnessId: string | null,
 ): AgentModelOption {
   return {

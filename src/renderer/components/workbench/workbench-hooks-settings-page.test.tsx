@@ -5,14 +5,17 @@ import type { HooksListEntry } from "@nodex/codex-app-server-protocol/v2/HooksLi
 import { render } from "../../test/dom";
 import { CodexHooksSettingsView } from "./workbench-hooks-settings-page";
 
+type CommandHookMetadata = Extract<HookMetadata, { handlerType: "command" }>;
+
 function hook(
-  overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "source">,
-): HookMetadata {
+  overrides: Partial<CommandHookMetadata> & Pick<CommandHookMetadata, "key" | "source">,
+): CommandHookMetadata {
   return {
     eventName: "stop",
     handlerType: "command",
     matcher: null,
     command: "echo done",
+    async: false,
     timeoutSec: 10n,
     statusMessage: null,
     sourcePath: "/workspace/nodex/.codex/hooks.json",
@@ -120,5 +123,36 @@ describe("Hooks settings", () => {
         "Hooks can run outside of the sandbox so we ask you to review any recently installed or modified hooks",
       ),
     ).toBeTruthy();
+  });
+
+  test("shows MCP tool handler identity in hook details", () => {
+    const mcpHook: HookMetadata = {
+      key: "mcp-tool",
+      eventName: "postToolUse",
+      handlerType: "mcpTool",
+      server: "filesystem",
+      tool: "read_file",
+      matcher: null,
+      timeoutSec: 10n,
+      statusMessage: null,
+      source: "user",
+      sourcePath: "/workspace/nodex/.codex/hooks.json",
+      pluginId: null,
+      displayOrder: 0n,
+      enabled: true,
+      isManaged: false,
+      currentHash: "hash",
+      trustStatus: "trusted",
+      additionalContextLimit: null,
+    };
+    const { getByText } = renderView({
+      entries: [{ cwd: "/workspace/nodex", hooks: [mcpHook], warnings: [], errors: [] }],
+      path: "/settings/hooks-settings?hostId=default&source=user",
+    });
+
+    fireEvent.click(getByText("Hook 1"));
+    expect(getByText("MCP tool")).toBeTruthy();
+    expect(getByText("filesystem")).toBeTruthy();
+    expect(getByText("read_file")).toBeTruthy();
   });
 });

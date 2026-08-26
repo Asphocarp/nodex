@@ -313,6 +313,13 @@
         "includeTools": {
           "description": "When true, include display-only public tool summaries in the returned metadata.",
           "type": "boolean"
+        },
+        "threadId": {
+          "description": "Optional loaded thread id used to evaluate effective app configuration.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1701,32 +1708,6 @@
         },
         {
           "properties": {
-            "id": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "type": {
-              "enum": [
-                "input_video"
-              ],
-              "title": "InputVideoFunctionCallOutputContentItemType",
-              "type": "string"
-            },
-            "video_url": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "type",
-            "video_url"
-          ],
-          "title": "InputVideoFunctionCallOutputContentItem",
-          "type": "object"
-        },
-        {
-          "properties": {
             "encrypted_content": {
               "type": "string"
             },
@@ -1756,6 +1737,18 @@
         }
       },
       "title": "GetAccountParams",
+      "type": "object"
+    },
+    "definitions__v2__GetAccountTokenUsageParams": {
+      "properties": {
+        "threadId": {
+          "description": "When present, read estimated usage for this thread instead of account-wide token activity.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "definitions__v2__HookMigration": {
@@ -1802,124 +1795,6 @@
           ]
         }
       },
-      "type": "object"
-    },
-    "definitions__v2__InterpreterHarnessListParams": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "properties": {
-        "model": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "providerId": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "providerId"
-      ],
-      "title": "InterpreterHarnessListParams",
-      "type": "object"
-    },
-    "definitions__v2__InterpreterHarnessSetParams": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "properties": {
-        "harness": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "profile": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "title": "InterpreterHarnessSetParams",
-      "type": "object"
-    },
-    "definitions__v2__InterpreterModelListParams": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "properties": {
-        "includeHidden": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "modelProvider": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "title": "InterpreterModelListParams",
-      "type": "object"
-    },
-    "definitions__v2__InterpreterModelSetParams": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "properties": {
-        "model": {
-          "type": "string"
-        },
-        "profile": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "reasoningEffort": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/definitions__v2__ReasoningEffort"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "model"
-      ],
-      "title": "InterpreterModelSetParams",
-      "type": "object"
-    },
-    "definitions__v2__InterpreterProviderListParams": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "properties": {
-        "includeUnconfigured": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
-      },
-      "title": "InterpreterProviderListParams",
-      "type": "object"
-    },
-    "definitions__v2__InterpreterProviderSetParams": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "properties": {
-        "profile": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "providerId": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "providerId"
-      ],
-      "title": "InterpreterProviderSetParams",
       "type": "object"
     },
     "definitions__v2__LegacyAppPathString": {
@@ -2258,9 +2133,28 @@
       ],
       "type": "object"
     },
+    "definitions__v2__McpServerOauthClientRegistration": {
+      "enum": [
+        "auto",
+        "cimd",
+        "dcr"
+      ],
+      "type": "string"
+    },
     "definitions__v2__McpServerOauthLoginParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
+        "clientRegistration": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/definitions__v2__McpServerOauthClientRegistration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Registration strategy for this login only; omission selects automatic discovery."
+        },
         "name": {
           "type": "string"
         },
@@ -2456,13 +2350,6 @@
             "integer",
             "null"
           ]
-        },
-        "modelProvider": {
-          "description": "Optional provider id to list models for instead of the active provider.",
-          "type": [
-            "string",
-            "null"
-          ]
         }
       },
       "title": "ModelListParams",
@@ -2573,6 +2460,13 @@
     "definitions__v2__PluginInstallParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
+        "installAttemptId": {
+          "description": "Client-generated identifier used to correlate one installation attempt.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "marketplacePath": {
           "anyOf": [
             {
@@ -4418,6 +4312,11 @@
       "title": "SendAddCreditsNudgeEmailParams",
       "type": "object"
     },
+    "definitions__v2__ServerDiagnosticsParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ServerDiagnosticsParams",
+      "type": "object"
+    },
     "definitions__v2__SessionMigration": {
       "properties": {
         "cwd": {
@@ -5250,6 +5149,139 @@
       "title": "ThreadMetadataUpdateParams",
       "type": "object"
     },
+    "definitions__v2__ThreadQueueAddParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "clientUserMessageId": {
+          "type": "string"
+        },
+        "input": {
+          "items": {
+            "$ref": "#/definitions/definitions__v2__UserInput"
+          },
+          "type": "array"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "clientUserMessageId",
+        "input",
+        "threadId"
+      ],
+      "title": "ThreadQueueAddParams",
+      "type": "object"
+    },
+    "definitions__v2__ThreadQueueDeleteParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "queuedSubmissionId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "queuedSubmissionId",
+        "threadId"
+      ],
+      "title": "ThreadQueueDeleteParams",
+      "type": "object"
+    },
+    "definitions__v2__ThreadQueueListParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "cursor": {
+          "description": "Opaque pagination cursor returned by a previous call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Optional page size; defaults to the standard thread-list page size.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadQueueListParams",
+      "type": "object"
+    },
+    "definitions__v2__ThreadQueueReorderParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "queuedSubmissionIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "queuedSubmissionIds",
+        "threadId"
+      ],
+      "title": "ThreadQueueReorderParams",
+      "type": "object"
+    },
+    "definitions__v2__ThreadQueueStartParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "queuedSubmissionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadQueueStartParams",
+      "type": "object"
+    },
+    "definitions__v2__ThreadQueueUpdateParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "input": {
+          "items": {
+            "$ref": "#/definitions/definitions__v2__UserInput"
+          },
+          "type": "array"
+        },
+        "queuedSubmissionId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "queuedSubmissionId",
+        "threadId"
+      ],
+      "title": "ThreadQueueUpdateParams",
+      "type": "object"
+    },
     "definitions__v2__ThreadReadParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
@@ -5793,6 +5825,25 @@
       "title": "ThreadResumeParams",
       "type": "object"
     },
+    "definitions__v2__ThreadRevertParams": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "description": "Replace a paginated thread's durable history with the prefix before one turn.\n\nThis only changes persisted conversation history. It does not revert local file changes.",
+      "properties": {
+        "beforeTurnId": {
+          "description": "Turn excluded from the replacement history, together with every later turn.",
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "beforeTurnId",
+        "threadId"
+      ],
+      "title": "ThreadRevertParams",
+      "type": "object"
+    },
     "definitions__v2__ThreadRollbackParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "description": "DEPRECATED: `thread/rollback` will be removed soon.",
@@ -5926,10 +5977,39 @@
       ],
       "type": "string"
     },
+    "definitions__v2__ThreadSectionAppearance": {
+      "description": "Extensible visual presentation for a custom thread section.",
+      "properties": {
+        "color": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "definitions__v2__ThreadSectionCreateParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "description": "Parameters for creating an independently persisted thread section.",
       "properties": {
+        "appearance": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/definitions__v2__ThreadSectionAppearance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "name": {
           "description": "The user-visible name of the section.",
           "type": "string"
@@ -6014,6 +6094,17 @@
       "$schema": "http://json-schema.org/draft-07/schema#",
       "description": "Parameters for updating an independently persisted thread section.",
       "properties": {
+        "appearance": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/definitions__v2__ThreadSectionAppearance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Omit to preserve appearance, use `null` to clear it, or provide a replacement."
+        },
         "name": {
           "description": "The updated user-visible name of the section.",
           "type": "string"
@@ -7056,6 +7147,31 @@
       "type": "object"
     },
     {
+      "description": "Read content-free, process-local diagnostics.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/definitions__v2__RequestId"
+        },
+        "method": {
+          "enum": [
+            "server/diagnostics"
+          ],
+          "title": "Server/diagnosticsRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/definitions__v2__ServerDiagnosticsParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Server/diagnosticsRequest",
+      "type": "object"
+    },
+    {
       "description": "NEW APIs",
       "properties": {
         "id": {
@@ -7344,6 +7460,150 @@
         "params"
       ],
       "title": "Thread/goal/clearRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/definitions__v2__RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/queue/add"
+          ],
+          "title": "Thread/queue/addRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/definitions__v2__ThreadQueueAddParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/queue/addRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/definitions__v2__RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/queue/list"
+          ],
+          "title": "Thread/queue/listRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/definitions__v2__ThreadQueueListParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/queue/listRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/definitions__v2__RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/queue/update"
+          ],
+          "title": "Thread/queue/updateRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/definitions__v2__ThreadQueueUpdateParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/queue/updateRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/definitions__v2__RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/queue/delete"
+          ],
+          "title": "Thread/queue/deleteRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/definitions__v2__ThreadQueueDeleteParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/queue/deleteRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/definitions__v2__RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/queue/reorder"
+          ],
+          "title": "Thread/queue/reorderRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/definitions__v2__ThreadQueueReorderParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/queue/reorderRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/definitions__v2__RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/queue/start"
+          ],
+          "title": "Thread/queue/startRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/definitions__v2__ThreadQueueStartParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/queue/startRequest",
       "type": "object"
     },
     {
@@ -7655,6 +7915,30 @@
         "params"
       ],
       "title": "Thread/rollbackRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/definitions__v2__RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/revert"
+          ],
+          "title": "Thread/revertRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/definitions__v2__ThreadRevertParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "title": "Thread/revertRequest",
       "type": "object"
     },
     {
@@ -8985,150 +9269,6 @@
         },
         "method": {
           "enum": [
-            "interpreter/provider/list"
-          ],
-          "title": "Interpreter/provider/listRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/definitions__v2__InterpreterProviderListParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "Interpreter/provider/listRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/definitions__v2__RequestId"
-        },
-        "method": {
-          "enum": [
-            "interpreter/provider/set"
-          ],
-          "title": "Interpreter/provider/setRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/definitions__v2__InterpreterProviderSetParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "Interpreter/provider/setRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/definitions__v2__RequestId"
-        },
-        "method": {
-          "enum": [
-            "interpreter/model/list"
-          ],
-          "title": "Interpreter/model/listRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/definitions__v2__InterpreterModelListParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "Interpreter/model/listRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/definitions__v2__RequestId"
-        },
-        "method": {
-          "enum": [
-            "interpreter/model/set"
-          ],
-          "title": "Interpreter/model/setRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/definitions__v2__InterpreterModelSetParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "Interpreter/model/setRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/definitions__v2__RequestId"
-        },
-        "method": {
-          "enum": [
-            "interpreter/harness/list"
-          ],
-          "title": "Interpreter/harness/listRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/definitions__v2__InterpreterHarnessListParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "Interpreter/harness/listRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/definitions__v2__RequestId"
-        },
-        "method": {
-          "enum": [
-            "interpreter/harness/set"
-          ],
-          "title": "Interpreter/harness/setRequestMethod",
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/definitions__v2__InterpreterHarnessSetParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "title": "Interpreter/harness/setRequest",
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/definitions__v2__RequestId"
-        },
-        "method": {
-          "enum": [
             "experimentalFeature/list"
           ],
           "title": "ExperimentalFeature/listRequestMethod",
@@ -9795,7 +9935,14 @@
           "type": "string"
         },
         "params": {
-          "type": "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/definitions__v2__GetAccountTokenUsageParams"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

@@ -23,7 +23,6 @@ export type BrowserRuntimeUnavailableReason =
   | "target-mismatch";
 
 export type VerifiedBrowserRuntimeBundle = {
-  browserPluginClientSha256: string;
   browserPluginMarketplaceRoot: string;
   browserPluginRoot: string;
   manifest: BrowserRuntimeManifest;
@@ -33,10 +32,12 @@ export type VerifiedBrowserRuntimeBundle = {
     browserPluginClient: string;
     browserPluginDocs: string;
     browserPluginManifest: string;
+    browserPluginService: string;
     codexCli: string;
     computerUseApp: string | null;
     computerUseClient: string | null;
     computerUsePluginRoot: string | null;
+    computerUseRpcService: string | null;
     computerUseService: string | null;
     node: string;
     nodeRepl: string;
@@ -250,12 +251,10 @@ export function resolveBrowserRuntimeBundle(
     }
   }
 
-  const artifactByPath = new Map(manifest.artifacts.map((artifact) => [artifact.path, artifact]));
   const resolve = (relativePath: string): string => resolveRelativePath(rootPath, relativePath);
   return {
     status: "available",
     bundle: {
-      browserPluginClientSha256: artifactByPath.get(manifest.browserPlugin.client)!.sha256,
       browserPluginMarketplaceRoot: resolve(manifest.browserPlugin.marketplaceRoot),
       browserPluginRoot: resolve(manifest.browserPlugin.root),
       manifest,
@@ -272,6 +271,7 @@ export function resolveBrowserRuntimeBundle(
         browserPluginClient: resolve(manifest.browserPlugin.client),
         browserPluginDocs: resolve(manifest.browserPlugin.docs),
         browserPluginManifest: resolve(manifest.browserPlugin.manifest),
+        browserPluginService: resolve(manifest.browserPlugin.service),
         codexCli: resolve(manifest.entrypoints.codexCli),
         computerUseApp:
           manifest.capabilities.computerUse.status === "available"
@@ -284,6 +284,10 @@ export function resolveBrowserRuntimeBundle(
         computerUsePluginRoot:
           manifest.capabilities.computerUse.status === "available"
             ? resolve(manifest.capabilities.computerUse.plugin.root)
+            : null,
+        computerUseRpcService:
+          manifest.capabilities.computerUse.status === "available"
+            ? resolve(manifest.capabilities.computerUse.rpcService)
             : null,
         computerUseService:
           manifest.capabilities.computerUse.status === "available"

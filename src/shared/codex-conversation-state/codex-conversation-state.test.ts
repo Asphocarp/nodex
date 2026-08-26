@@ -894,6 +894,7 @@ describe("protocol-backed canonical conversation state", () => {
       status: "completed",
       revisedPrompt: null,
       result: "aHlkcmF0ZWQ=",
+      failure: null,
     } satisfies ThreadItem;
     const collab = {
       type: "collabAgentToolCall",

@@ -10,6 +10,7 @@ function hook(key: string, currentHash: string): HookMetadata {
     handlerType: "command",
     matcher: null,
     command: "echo done",
+    async: false,
     timeoutSec: 10n,
     statusMessage: null,
     source: "user",

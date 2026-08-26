@@ -1,6 +1,6 @@
 export const BROWSER_RUNTIME_BUNDLE_DIRECTORY = "browser-runtime";
 export const BROWSER_RUNTIME_MANIFEST_FILENAME = "browser-runtime-manifest.json";
-export const BROWSER_RUNTIME_SCHEMA_VERSION = 4;
+export const BROWSER_RUNTIME_SCHEMA_VERSION = 5;
 export const BROWSER_PLUGIN_NODE_MODULE_DIR = "marketplace/plugins/browser/node_modules";
 
 export type BrowserRuntimeArtifactArchitecture = "any" | "arm64" | "universal" | "x64";
@@ -30,6 +30,7 @@ export type BrowserRuntimeComputerUseCapability =
       ipcProtocol: "CodexComputerUseIPC-2";
       minimumMacOSVersion: "14.4";
       plugin: BrowserRuntimeBundledPlugin;
+      rpcService: string;
       serviceExecutable: string;
       signingTeamId: string;
       status: "available";
@@ -61,6 +62,7 @@ export type BrowserRuntimeManifest = {
     marketplaceRoot: string;
     nodeModuleDirs: string[];
     root: string;
+    service: string;
     version: string;
   };
   capabilities: {
@@ -154,6 +156,7 @@ function parseBrowserPlugin(value: unknown): BrowserRuntimeManifest["browserPlug
   const root = parseNonEmptyString(value.root);
   const manifest = parseNonEmptyString(value.manifest);
   const client = parseNonEmptyString(value.client);
+  const service = parseNonEmptyString(value.service);
   const docs = parseNonEmptyString(value.docs);
   const marketplaceRoot = parseNonEmptyString(value.marketplaceRoot);
   const marketplaceManifest = parseNonEmptyString(value.marketplaceManifest);
@@ -162,15 +165,18 @@ function parseBrowserPlugin(value: unknown): BrowserRuntimeManifest["browserPlug
     !root ||
     !manifest ||
     !client ||
+    !service ||
     !docs ||
     !marketplaceRoot ||
     !marketplaceManifest
   )
     return null;
-  const pluginPaths = [root, manifest, client, docs, marketplaceRoot, marketplaceManifest];
+  const pluginPaths = [root, manifest, client, service, docs, marketplaceRoot, marketplaceManifest];
   if (!pluginPaths.every(isSafeBrowserRuntimeRelativePath)) return null;
   const rootPrefix = `${root}/`;
-  if (![manifest, client, docs].every((entry) => entry.startsWith(rootPrefix))) return null;
+  if (![manifest, client, service, docs].every((entry) => entry.startsWith(rootPrefix))) {
+    return null;
+  }
   const marketplaceRootPrefix = `${marketplaceRoot}/`;
   if (
     !root.startsWith(marketplaceRootPrefix) ||
@@ -197,6 +203,7 @@ function parseBrowserPlugin(value: unknown): BrowserRuntimeManifest["browserPlug
     marketplaceRoot,
     nodeModuleDirs: parsedNodeModuleDirs,
     root,
+    service,
     version,
   };
 }
@@ -276,6 +283,7 @@ function parseComputerUseCapability(value: unknown): BrowserRuntimeComputerUseCa
   const appBundle = parseNonEmptyString(value.appBundle);
   const appBundleIdentifier = parseNonEmptyString(value.appBundleIdentifier);
   const client = parseNonEmptyString(value.client);
+  const rpcService = parseNonEmptyString(value.rpcService);
   const serviceExecutable = parseNonEmptyString(value.serviceExecutable);
   const signingTeamId = parseNonEmptyString(value.signingTeamId);
   const plugin = parseComputerUsePlugin(value.plugin);
@@ -283,15 +291,19 @@ function parseComputerUseCapability(value: unknown): BrowserRuntimeComputerUseCa
     !appBundle ||
     !appBundleIdentifier ||
     !client ||
+    !rpcService ||
     !serviceExecutable ||
     !signingTeamId ||
     !plugin
   ) {
     return null;
   }
-  if (![appBundle, client, serviceExecutable].every(isSafeBrowserRuntimeRelativePath)) return null;
+  if (![appBundle, client, rpcService, serviceExecutable].every(isSafeBrowserRuntimeRelativePath)) {
+    return null;
+  }
   if (!serviceExecutable.startsWith(`${appBundle}/`)) return null;
   if (!client.startsWith(`${plugin.root}/`)) return null;
+  if (!rpcService.startsWith(`${plugin.nodeModuleDirs[0]}/`)) return null;
   return {
     appBundle,
     appBundleIdentifier,
@@ -299,6 +311,7 @@ function parseComputerUseCapability(value: unknown): BrowserRuntimeComputerUseCa
     ipcProtocol: value.ipcProtocol,
     minimumMacOSVersion: value.minimumMacOSVersion,
     plugin,
+    rpcService,
     serviceExecutable,
     signingTeamId,
     status: value.status,
@@ -403,6 +416,7 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
   const pluginArtifacts = [
     artifactsByPath.get(browserPlugin.manifest),
     artifactsByPath.get(browserPlugin.client),
+    artifactsByPath.get(browserPlugin.service),
     artifactsByPath.get(browserPlugin.docs),
     artifactsByPath.get(browserPlugin.marketplaceManifest),
   ];
@@ -425,6 +439,7 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
       artifactsByPath.get(capabilities.computerUse.plugin.docs),
       artifactsByPath.get(capabilities.computerUse.plugin.marketplaceManifest),
       artifactsByPath.get(capabilities.computerUse.client),
+      artifactsByPath.get(capabilities.computerUse.rpcService),
       artifactsByPath.get(capabilities.computerUse.serviceExecutable),
     ];
     if (computerUseArtifacts.some((artifact) => artifact === undefined)) return null;
@@ -435,7 +450,8 @@ export function parseBrowserRuntimeManifest(value: unknown): BrowserRuntimeManif
     ) {
       return null;
     }
-    if (computerUseArtifacts[4]?.kind !== "executable") return null;
+    if (computerUseArtifacts[4]?.kind !== "data") return null;
+    if (computerUseArtifacts[5]?.kind !== "executable") return null;
   }
   if (targetArch === "x64" && capabilities.computerUse.status !== "unavailable") return null;
 

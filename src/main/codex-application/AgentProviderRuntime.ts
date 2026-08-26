@@ -6,7 +6,6 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import type { ClientRequestResponsesByMethod } from "@nodex/effect-codex-app-server/rpc";
-import type { InterpreterProvider } from "@nodex/codex-app-server-protocol/v2/InterpreterProvider";
 import type {
   AgentExecutionProfile,
   AgentProviderCatalog,
@@ -23,6 +22,7 @@ import {
   recommendedHarnessId,
   SUPPORTED_PROVIDER_IDS,
   toModelOption,
+  type InterpreterProvider,
 } from "../codex/agent-provider-catalog";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
@@ -103,9 +103,11 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
       const catalogLock = yield* Semaphore.make(1);
       const credentialMutationLock = yield* Semaphore.make(1);
       const restartLock = yield* Semaphore.make(1);
+      const requestInterpreter = (method: string, params: unknown) =>
+        gateway.requestRawOnHost(gateway.localHostId, method, params);
 
       const discover = Effect.fn("AgentProviderRuntime.discover")(function* () {
-        const raw = yield* gateway.requestLocal("interpreter/provider/list", {
+        const raw = yield* requestInterpreter("interpreter/provider/list", {
           includeUnconfigured: true,
         });
         const providers = yield* Effect.try({
@@ -121,11 +123,11 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
           ordered,
           (provider) =>
             Effect.all([
-              gateway.requestLocal("interpreter/model/list", {
+              requestInterpreter("interpreter/model/list", {
                 modelProvider: provider.id,
                 includeHidden: false,
               }),
-              gateway.requestLocal("interpreter/harness/list", {
+              requestInterpreter("interpreter/harness/list", {
                 providerId: provider.id,
                 model: null,
               }),
@@ -265,7 +267,7 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
                 new Error(`Service tier '${requested.serviceTier}' is unavailable`),
               );
             }
-            const rawHarnesses = yield* gateway.requestLocal("interpreter/harness/list", {
+            const rawHarnesses = yield* requestInterpreter("interpreter/harness/list", {
               providerId: provider.id,
               model: model.modelId,
             });

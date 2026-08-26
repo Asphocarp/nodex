@@ -840,6 +840,7 @@ describe("scoped canonical lifecycle projection diff", () => {
       status: "completed",
       revisedPrompt: null,
       result: "aW1hZ2U=",
+      failure: null,
       src: "data:image/png;base64,aW1hZ2U=",
     } satisfies CodexCanonicalItem;
 
