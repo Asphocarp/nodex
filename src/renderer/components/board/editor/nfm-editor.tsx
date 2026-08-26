@@ -131,7 +131,6 @@ import {
   type EditorForExternalBlockDrop,
   runInEditorTransaction,
 } from "./external-block-drag-session";
-import { shouldSuppressPreferIndentBoundaryTab } from "./prefer-indent-tab-boundary";
 import {
   buildThreadSectionPromptInput,
   createEmptyThreadSectionBlock,
@@ -1560,19 +1559,6 @@ function NfmEditorInstance({
         event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
 
       if (!targetIsTextField && structuralEditingController.current?.handleKeyDown(event)) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-
-      if (
-        !targetIsTextField &&
-        event.key === "Tab" &&
-        !event.altKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        shouldSuppressPreferIndentBoundaryTab(editor, event.target, event.shiftKey)
-      ) {
         event.preventDefault();
         event.stopPropagation();
         return;

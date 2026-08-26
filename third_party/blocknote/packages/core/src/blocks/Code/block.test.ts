@@ -358,3 +358,39 @@ describe("Code block line indentation", () => {
     });
   });
 });
+
+describe("Prefer-indent Tab boundaries", () => {
+  it.each([
+    { key: "Tab", shiftKey: false },
+    { key: "Tab", shiftKey: true },
+  ])("consumes an ordinary top-level $key no-op", ({ key, shiftKey }) => {
+    const editor = BlockNoteEditor.create({
+      tabBehavior: "prefer-indent",
+      initialContent: [{ id: "paragraph-0", type: "paragraph", content: "alpha" }],
+    });
+    editor.mount(document.createElement("div"));
+    editor.setTextCursorPosition("paragraph-0", "start");
+
+    expect(pressKey(editor, key, shiftKey)).toBe(true);
+    expect(editor.prosemirrorState.doc.textContent).toBe("alpha");
+
+    editor._tiptapEditor.destroy();
+  });
+
+  it.each([
+    { key: "Tab", shiftKey: false },
+    { key: "Tab", shiftKey: true },
+  ])("leaves a top-level $key no-op available for UI navigation", ({ key, shiftKey }) => {
+    const editor = BlockNoteEditor.create({
+      tabBehavior: "prefer-navigate-ui",
+      initialContent: [{ id: "paragraph-0", type: "paragraph", content: "alpha" }],
+    });
+    editor.mount(document.createElement("div"));
+    editor.setTextCursorPosition("paragraph-0", "start");
+
+    expect(pressKey(editor, key, shiftKey)).toBeUndefined();
+    expect(editor.prosemirrorState.doc.textContent).toBe("alpha");
+
+    editor._tiptapEditor.destroy();
+  });
+});

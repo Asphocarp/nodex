@@ -3025,7 +3025,7 @@ test.describe("parallel functional Electron smoke", () => {
     }
   });
 
-  test("keeps semantic children enclosed and atomic Blocks leaf-only across restart @block-children-smoke", async () => {
+  test("keeps semantic children and Code Tab/Shift-Tab behavior stable across restart @block-children-smoke", async () => {
     test.setTimeout(120_000);
     const harness = await ElectronScenarioHarness.create({ label: "block-children" });
     const workspace = harness.profile.initialProjectsDirectory;
@@ -3122,6 +3122,12 @@ test.describe("parallel functional Electron smoke", () => {
       const imageSibling = editor
         .locator('.bn-block[data-content-type="paragraph"]')
         .filter({ hasText: "Image sibling" });
+      await code.getByText("const value = 1", { exact: true }).click();
+      await page.keyboard.press("Home");
+      await page.keyboard.press("Tab");
+      await expect.poll(() => code.locator("code").textContent()).toBe("\tconst value = 1");
+      await page.keyboard.press("Shift+Tab");
+      await expect.poll(() => code.locator("code").textContent()).toBe("const value = 1");
       await assertTabCannotNest(code, codeSibling);
       await assertTabCannotNest(image, imageSibling);
       const codeId = requireString(await code.getAttribute("data-id"), "Code Block id");

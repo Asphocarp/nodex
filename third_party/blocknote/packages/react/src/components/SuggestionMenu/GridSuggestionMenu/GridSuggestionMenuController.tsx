@@ -212,7 +212,7 @@ export function GridSuggestionMenuController<
           triggerCharacter={triggerCharacter}
           query={state.query}
           closeMenu={suggestionMenu.closeMenu}
-          clearQuery={suggestionMenu.clearQuery}
+          acceptMenu={suggestionMenu.acceptMenu}
           getItems={getItemsOrDefault}
           columns={columns}
           gridSuggestionMenuComponent={

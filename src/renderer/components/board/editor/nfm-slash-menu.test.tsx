@@ -1103,7 +1103,7 @@ describe("NfmSlashMenu", () => {
 
   test("keeps the live suggestion menu open for pointer and Enter on utility rows", async () => {
     let closeMenuCalls = 0;
-    let clearQueryCalls = 0;
+    let acceptMenuCalls = 0;
     let activationCalls = 0;
     const editorElement = document.createElement("div");
     const suggestionMenu = {
@@ -1135,8 +1135,9 @@ describe("NfmSlashMenu", () => {
           closeMenu={() => {
             closeMenuCalls += 1;
           }}
-          clearQuery={() => {
-            clearQueryCalls += 1;
+          acceptMenu={() => {
+            acceptMenuCalls += 1;
+            return true;
           }}
           getItems={async () => ["expand"]}
           onItemClick={() => {
@@ -1165,7 +1166,7 @@ describe("NfmSlashMenu", () => {
 
     expect(activationCalls).toBe(2);
     expect(closeMenuCalls).toBe(0);
-    expect(clearQueryCalls).toBe(0);
+    expect(acceptMenuCalls).toBe(0);
   });
 
   test("keeps a long no-result mention query open for correction", async () => {
@@ -1196,7 +1197,7 @@ describe("NfmSlashMenu", () => {
           closeMenu={() => {
             closeMenuCalls += 1;
           }}
-          clearQuery={() => undefined}
+          acceptMenu={() => false}
           getItems={async () => []}
           autoCloseWhenNoItems={false}
           suggestionMenuComponent={EmptyMentionMenu}

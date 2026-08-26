@@ -35,6 +35,104 @@ function EmojiMenu(_props: GridSuggestionMenuProps<string>) {
 }
 
 describe("NFM typed suggestion sessions in Chromium", () => {
+  test("replaces an accepted emoji query instead of appending to it", async () => {
+    const editor = BlockNoteEditor.create({
+      initialContent: [{ id: "paragraph-0", type: "paragraph", content: "" }],
+    });
+    const controllers = createNfmTypedSuggestionControllerConfig("en-US");
+    const view = render(
+      <BlockNoteView
+        editor={editor}
+        emojiPicker={false}
+        formattingToolbar={false}
+        linkToolbar={false}
+        sideMenu={false}
+        slashMenu={false}
+        tableHandles={false}
+      >
+        <GridSuggestionMenuController
+          triggerCharacter={controllers.emoji.triggerCharacter}
+          columns={controllers.emoji.columns}
+          getItems={async () => ["😀"]}
+          gridSuggestionMenuComponent={EmojiMenu}
+          minQueryLength={controllers.emoji.minQueryLength}
+          onItemClick={(emoji) => editor.insertInlineContent(emoji)}
+          shouldOpen={controllers.emoji.shouldOpen}
+        />
+      </BlockNoteView>,
+    );
+
+    try {
+      editor.setTextCursorPosition("paragraph-0", "start");
+      editor.focus();
+
+      await act(async () => {
+        await userEvent.keyboard(":sm");
+        await settleEditor();
+      });
+      expect(await view.findByTestId("emoji-menu")).toBeTruthy();
+
+      await act(async () => {
+        await userEvent.keyboard("{Enter}");
+        await settleEditor();
+      });
+
+      expect(editor.prosemirrorState.doc.textContent).toBe("😀");
+      expect(editor.getExtension(SuggestionMenu)?.getLastCloseReason()).toBe("accepted");
+    } finally {
+      view.unmount();
+      editor._tiptapEditor.destroy();
+    }
+  });
+
+  test("replaces an accepted linear suggestion query", async () => {
+    const editor = BlockNoteEditor.create({
+      initialContent: [{ id: "paragraph-0", type: "paragraph", content: "" }],
+    });
+    const controllers = createNfmTypedSuggestionControllerConfig("en-US");
+    const view = render(
+      <BlockNoteView
+        editor={editor}
+        emojiPicker={false}
+        formattingToolbar={false}
+        linkToolbar={false}
+        sideMenu={false}
+        slashMenu={false}
+        tableHandles={false}
+      >
+        <SuggestionMenuController
+          triggerCharacter={controllers.mention.triggerCharacter}
+          getItems={async () => ["mention"]}
+          onItemClick={() => editor.insertInlineContent("MENTION")}
+          shouldOpen={controllers.mention.shouldOpen}
+          suggestionMenuComponent={MentionMenu}
+        />
+      </BlockNoteView>,
+    );
+
+    try {
+      editor.setTextCursorPosition("paragraph-0", "start");
+      editor.focus();
+
+      await act(async () => {
+        await userEvent.keyboard("@me");
+        await settleEditor();
+      });
+      expect(await view.findByTestId("mention-menu")).toBeTruthy();
+
+      await act(async () => {
+        await userEvent.keyboard("{Enter}");
+        await settleEditor();
+      });
+
+      expect(editor.prosemirrorState.doc.textContent).toBe("MENTION");
+      expect(editor.getExtension(SuggestionMenu)?.getLastCloseReason()).toBe("accepted");
+    } finally {
+      view.unmount();
+      editor._tiptapEditor.destroy();
+    }
+  });
+
   test("connects lexical policy, live sessions, popup gates, and editor transitions", async () => {
     const editor = BlockNoteEditor.create({
       initialContent: [

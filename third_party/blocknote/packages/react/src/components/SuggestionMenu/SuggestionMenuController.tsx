@@ -220,7 +220,7 @@ export function SuggestionMenuController<
           triggerCharacter={triggerCharacter}
           query={state.query}
           closeMenu={suggestionMenu.closeMenu}
-          clearQuery={suggestionMenu.clearQuery}
+          acceptMenu={suggestionMenu.acceptMenu}
           getItems={getItemsOrDefault}
           getImmediateItems={props.getImmediateItems}
           requestScopeKey={props.requestScopeKey}
