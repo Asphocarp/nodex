@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { relative, resolve } from "node:path";
 
 interface LintDiagnostic {
   readonly code?: string;
@@ -23,6 +24,36 @@ interface RunLintOptions {
 
 const projectRoot = resolve(import.meta.dirname, "../..");
 const vpExecutable = process.platform === "win32" ? "vp.cmd" : "vp";
+const directPnpmCommandPattern = /(?:^|[;&|()\s])pnpm(?:\.cmd)?(?:\s|$)/u;
+
+interface PackageManifest {
+  readonly scripts?: Readonly<Record<string, unknown>>;
+}
+
+function ownedPackageManifestPaths(): readonly string[] {
+  const packagesDirectory = resolve(projectRoot, "packages");
+  const workspaceManifests = readdirSync(packagesDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => resolve(packagesDirectory, entry.name, "package.json"));
+  return [resolve(projectRoot, "package.json"), ...workspaceManifests];
+}
+
+function verifyOwnedPackageScriptControlPlane(): void {
+  const violations = ownedPackageManifestPaths().flatMap((manifestPath) => {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as PackageManifest;
+    if (!manifest.scripts) return [];
+
+    return Object.entries(manifest.scripts).flatMap(([scriptName, command]) => {
+      if (typeof command !== "string" || !directPnpmCommandPattern.test(command)) return [];
+      return [`${relative(projectRoot, manifestPath)}#${scriptName}`];
+    });
+  });
+  if (violations.length === 0) return;
+
+  throw new Error(
+    `Owned package scripts must use the Vite+ control plane; replace direct pnpm commands in ${violations.join(", ")}`,
+  );
+}
 
 function runLint(
   paths: readonly string[],
@@ -154,6 +185,8 @@ function verifyWorkspaceTaskGraph(): void {
   );
 }
 
+verifyOwnedPackageScriptControlPlane();
+
 verifyInvalidFixtures([
   {
     code: "react-hooks(rules-of-hooks)",
@@ -214,4 +247,6 @@ verifyValidFixtures(["scripts/fixtures/tooling/tailwind-valid.tsx"], tailwindEnv
 
 verifyWorkspaceTaskGraph();
 
-console.log("Tooling contracts verified: Oxlint rules and the Vite+ workspace task graph.");
+console.log(
+  "Tooling contracts verified: package scripts, Oxlint rules, and the Vite+ workspace task graph.",
+);
