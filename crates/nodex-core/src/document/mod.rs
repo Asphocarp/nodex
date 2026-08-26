@@ -18,6 +18,7 @@ mod realtime;
 mod recovery;
 mod retention;
 mod runtime;
+mod schema_compatibility;
 mod schema_migration;
 mod semantic;
 mod yrs_engine;
@@ -97,8 +98,13 @@ pub(crate) use primary_canvas::{
     primary_canvas_block_id, primary_canvas_document_id,
 };
 pub(crate) use runtime::reconstruct_yjs_engine;
+pub(crate) use schema_compatibility::{
+    current_schema_for_stored_identity, normalize_stored_document_materialization,
+    normalize_stored_materialized_forest,
+};
 pub(crate) use schema_migration::{
-    migrate_block_children_contract, validate_block_children_migration_source,
+    migrate_block_children_contract, repair_document_schema_projections,
+    validate_block_children_migration_source,
 };
 pub(crate) use semantic::{
     mint_document_projection_etags, mint_document_semantic_etags, mint_etag,

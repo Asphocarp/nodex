@@ -237,11 +237,6 @@ export function PageStageDevStoryPage({
     return { status: "updated", didMutate: true } as const;
   }, []);
 
-  const handleMove = useCallback(async (pageId: string, toStatus: string) => {
-    void pageId;
-    void toStatus;
-  }, []);
-
   const threadCountLabel =
     relatedChats.length === 1 ? "1 linked chat" : `${relatedChats.length} linked chats`;
 
@@ -289,7 +284,6 @@ export function PageStageDevStoryPage({
               {...(stagePage.databaseContext.kind === "member"
                 ? {
                     onDelete: async () => {},
-                    onMove: handleMove,
                   }
                 : {})}
               onToggleHistoryPanel={handleToggleHistoryPanel}

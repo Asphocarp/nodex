@@ -1,11 +1,5 @@
 import type { MutableRefObject, ReactNode } from "react";
-import type {
-  PageInput,
-  WorkflowStatus,
-  CodexPromptInput,
-  CodexThreadSummary,
-  PageChatItem,
-} from "@/lib/types";
+import type { PageInput, CodexPromptInput, CodexThreadSummary, PageChatItem } from "@/lib/types";
 import type { ReadyPageBlockDocumentDescriptor } from "@/lib/owned-block-document";
 import type { BlockDocumentSurfaceDependencies } from "@/components/block-documents/block-document-surface";
 import type { PageTitleResourceIdentity } from "@/lib/page-title-projection-context";
@@ -95,10 +89,8 @@ export interface PageStageProps {
   /** Re-reads current Page/Property authority after a stale read window. */
   onRefreshProperties?: () => Promise<void>;
   onDelete?: (pageId: string) => Promise<void>;
-  onMove?: (pageId: string, toStatus: WorkflowStatus) => Promise<void>;
   onCompleteOccurrence?: (pageId: string, occurrenceStart: Date) => Promise<void>;
   onSkipOccurrence?: (pageId: string, occurrenceStart: Date) => Promise<void>;
-  onColumnIdChange?: (columnId: string) => void;
   onOpenTerminalPanel?: () => void;
   onToggleHistoryPanel?: (snapshot: PageStageHistorySnapshot) => void;
   sessionId?: string | null;

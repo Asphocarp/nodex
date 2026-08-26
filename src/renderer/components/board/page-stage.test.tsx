@@ -177,7 +177,6 @@ function renderStage(
         {...(page.databaseContext.kind === "member"
           ? {
               onDelete: async () => undefined,
-              onMove: async () => undefined,
             }
           : {})}
       />

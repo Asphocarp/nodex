@@ -465,8 +465,16 @@ owning surface mounts, before their pickers open, so a closed-value projection
 never leaves the picker at only its current selection. Tags and custom
 registries remain lazy and load from their picker.
 Scalar changes use their captured field revision; set-like changes preserve
-add/remove intent. Conflicts and collection failures stay on the control or
-popover that owns the action and do not hide unaffected fields.
+add/remove intent. Status in Page Stage follows this same scalar Property path;
+it is not translated into a Board move or manual-position write. Conflicts and
+collection failures stay on the control or popover that owns the action and do
+not hide unaffected fields.
+
+Any mutation that advances a Page Block's metadata or lifecycle also refreshes
+its existing schedule index in the same transaction, even when the operation
+does not change schedule values. A Page detail read rejects stale schedule
+source coordinates rather than combining schedule data with a newer Page
+authority.
 
 Relation is a one-way Page-reference Property targeting one Data Source. Its
 schema declares cardinality `one` or `many`, and that cardinality selects the

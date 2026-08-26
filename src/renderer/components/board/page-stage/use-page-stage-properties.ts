@@ -3,7 +3,6 @@ import type { DataSourcePropertyOptionRegistryState } from "@/components/databas
 import { usePropertyOptionRegistries } from "@/components/database/use-property-option-registries";
 import type { DatabasePropertyOption } from "../../../../shared/database-kernel";
 import type { ContentAccessContext } from "../../../../shared/content-access-context";
-import { isWorkflowStatus } from "../../../../shared/workflow-status";
 import {
   readDataSourceRelationTargets,
   readDataSourceRelationTargetDescriptor,
@@ -88,8 +87,6 @@ export function usePageStageProperties(input: {
   readonly pageModel: PageStagePageModel | null;
   readonly contentAccessContext: ContentAccessContext;
   readonly onUpdateProperty: PageStageProps["onUpdateProperty"];
-  readonly onMove: PageStageProps["onMove"];
-  readonly onColumnIdChange: PageStageProps["onColumnIdChange"];
   readonly onOpenPage: PageStageProps["onOpenPage"];
   readonly onRefreshProperties: PageStageProps["onRefreshProperties"];
   readonly beginSaving: () => () => void;
@@ -98,8 +95,6 @@ export function usePageStageProperties(input: {
     pageModel,
     contentAccessContext,
     onUpdateProperty,
-    onMove,
-    onColumnIdChange,
     onOpenPage,
     onRefreshProperties,
     beginSaving,
@@ -172,17 +167,6 @@ export function usePageStageProperties(input: {
       });
       const endSaving = beginSaving();
       try {
-        if (
-          propertyId === "status" &&
-          property.property.valueType === "select" &&
-          editIntent.kind === "replace" &&
-          isWorkflowStatus(editIntent.value) &&
-          onMove
-        ) {
-          await onMove(pageId, editIntent.value);
-          onColumnIdChange?.(editIntent.value);
-          return { status: "updated", didMutate: true };
-        }
         const result = await onUpdateProperty(pageId, propertyId, editIntent);
         const resolved = result ?? errorResult("Missing Property update result");
         if (resolved.status === "error") {
@@ -223,7 +207,7 @@ export function usePageStageProperties(input: {
         });
       }
     },
-    [beginSaving, onColumnIdChange, onMove, onUpdateProperty, pageModel?.page.id],
+    [beginSaving, onUpdateProperty, pageModel?.page.id],
   );
 
   const patchRelation = useCallback(

@@ -34,7 +34,6 @@ import { projectContentAccess } from "../../../shared/content-access-context";
 import type {
   CodexPromptInput,
   CodexThreadSummary,
-  DatabasePage,
   PageInput,
   Project,
   WorkbenchTabProjection,
@@ -74,7 +73,6 @@ export interface PageStageHistoryModalContext {
 
 interface PageStageDatabaseCapability {
   readonly onDelete?: (pageId: string) => Promise<void>;
-  readonly onMove?: (pageId: string, toStatus: DatabasePage["status"]) => Promise<void>;
   readonly onCompleteOccurrence: (pageId: string, occurrenceStart: Date) => Promise<void>;
   readonly onSkipOccurrence: (pageId: string, occurrenceStart: Date) => Promise<void>;
 }
@@ -99,34 +97,27 @@ function PageStageDatabaseCapabilityBoundary({
     enabled: properties !== null && databaseViewId !== null,
   });
   if (!properties || !databaseViewId) return children(null);
-  const status = properties.status;
   return children({
     onDelete: async (pageId: string) => {
-      const deleted = await board.deletePage(status, pageId);
+      const deleted = await board.deletePage(properties.status, pageId);
       if (!deleted) throw new Error(`Page ${pageId} delete did not commit`);
     },
-    ...(status
-      ? {
-          onMove: async (pageId: string, toStatus: DatabasePage["status"]) => {
-            await board.movePage({ fromStatus: status, pageId, toStatus });
-            await fetchPageDetail(projectId, pageId);
-          },
-        }
-      : {}),
     onCompleteOccurrence: async (pageId, occurrenceStart) => {
-      await board.completeOccurrence({
+      const completed = await board.completeOccurrence({
         pageId,
         occurrenceStart,
         source: "page-detail",
       });
+      if (!completed) throw new Error(`Page ${pageId} occurrence completion did not commit`);
       await fetchPageDetail(projectId, pageId);
     },
     onSkipOccurrence: async (pageId, occurrenceStart) => {
-      await board.skipOccurrence({
+      const skipped = await board.skipOccurrence({
         pageId,
         occurrenceStart,
         source: "page-detail",
       });
+      if (!skipped) throw new Error(`Page ${pageId} occurrence skip did not commit`);
       await fetchPageDetail(projectId, pageId);
     },
   });
@@ -483,7 +474,6 @@ export function PageStageSessionTab({
               await fetchPageDetail(tab.config.projectId, tab.config.pageId);
             }}
             {...(databaseCapability?.onDelete ? { onDelete: databaseCapability.onDelete } : {})}
-            {...(databaseCapability?.onMove ? { onMove: databaseCapability.onMove } : {})}
             {...(databaseCapability
               ? {
                   onCompleteOccurrence: databaseCapability.onCompleteOccurrence,

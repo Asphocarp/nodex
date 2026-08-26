@@ -3119,6 +3119,7 @@ fn place_staged_page_in_data_source_with_access(
     effects.database_ids.insert(source.database_id.clone());
     effects.data_source_ids.insert(source.id.clone());
     effects.page_ids.insert(staged_page_id.to_owned());
+    refresh_scheduled_page_indexes(connection, &effects.page_ids, now)?;
     let metadata_revision = connection.query_row(
         "SELECT metadata_revision FROM blocks WHERE id = ?1",
         [staged_page_id],
@@ -3402,6 +3403,7 @@ fn transfer_existing_page_for_structural_move(
             },
         )
         .optional()?;
+    refresh_scheduled_page_indexes(connection, &effects.page_ids, now)?;
     effects
         .revisions
         .insert(format!("blockLocation:{page_id}"), location_revision);
@@ -3554,6 +3556,7 @@ pub(crate) fn finalize_agent_moved_pages_in_data_source_prevalidated(
             true,
         )?;
     }
+    refresh_scheduled_page_indexes(connection, &effects.page_ids, now)?;
     Ok(AgentMoveDataSourceFinalization {
         affected_database_ids: effects.database_ids.into_iter().collect(),
         affected_view_ids: effects.view_ids.into_iter().collect(),
@@ -5935,22 +5938,23 @@ fn refresh_scheduled_page_indexes(
     for page_id in page_ids {
         let scheduled_start = active_page_schedule_value(connection, page_id, "scheduled_start")?;
         let scheduled_end = active_page_schedule_value(connection, page_id, "scheduled_end")?;
-        let metadata_revision = connection
+        let authority = connection
             .query_row(
-                "SELECT metadata_revision FROM blocks WHERE id = ?1 AND type = 'page'",
+                "SELECT metadata_revision, lifecycle FROM blocks WHERE id = ?1 AND type = 'page'",
                 [page_id],
-                |row| row.get::<_, i64>(0),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
-        let Some(metadata_revision) = metadata_revision else {
+        let Some((metadata_revision, lifecycle)) = authority else {
             continue;
         };
         connection.execute(
-            "UPDATE scheduled_page_index SET scheduled_start = ?1, scheduled_end = ?2, \
-               is_all_day = CASE WHEN ?1 IS NOT NULL AND ?2 IS NOT NULL \
-                 THEN is_all_day ELSE 0 END, source_metadata_revision = ?3, updated_at = ?4 \
-             WHERE page_block_id = ?5",
+            "UPDATE scheduled_page_index SET lifecycle = ?1, scheduled_start = ?2, scheduled_end = ?3, \
+               is_all_day = CASE WHEN ?2 IS NOT NULL AND ?3 IS NOT NULL \
+                 THEN is_all_day ELSE 0 END, source_metadata_revision = ?4, updated_at = ?5 \
+             WHERE page_block_id = ?6",
             params![
+                lifecycle,
                 scheduled_start,
                 scheduled_end,
                 metadata_revision,
@@ -5960,6 +5964,19 @@ fn refresh_scheduled_page_indexes(
         )?;
     }
     Ok(())
+}
+
+pub(crate) fn repair_scheduled_page_indexes(
+    connection: &Connection,
+    now: &str,
+) -> Result<usize, StoreError> {
+    let page_ids = connection
+        .prepare("SELECT page_block_id FROM scheduled_page_index ORDER BY page_block_id")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+    let repaired = page_ids.len();
+    refresh_scheduled_page_indexes(connection, &page_ids, now)?;
+    Ok(repaired)
 }
 
 fn option_config(

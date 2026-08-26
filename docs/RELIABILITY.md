@@ -131,9 +131,14 @@ Semantic history and operational update logs have different retention. Restore
 creates a new forward mutation. Deleted-content collection proves complete
 unreachability and permanently retires stable identities.
 
-Structural clipboard bundles and editor history recipes are explicit retention
-roots. Available cut claims retain their original identity closure; consumed,
-superseded, or surface-released recipes drop their normalized retention members.
+Structural clipboard bundles, editor history recipes, and Block-transfer Undo
+recipes are explicit retention roots. Available cut claims retain their original
+identity closure; consumed, superseded, or surface-released recipes drop their
+normalized retention members.
+Their persisted bytes and hashes remain immutable across Document schema
+upgrades. Core authenticates the original capability first, then adapts its
+materialized Block forest and every dependent root coordinate in memory before
+Paste, Undo, or Redo.
 Undo and Redo run new forward Core transactions and return fresh single-use
 inverse tokens. Releasing history is durable internal housekeeping and does not
 publish a content-change event.

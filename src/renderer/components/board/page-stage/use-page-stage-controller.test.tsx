@@ -79,7 +79,6 @@ function buildProps(overrides: Partial<PageStageProps> = {}): PageStageProps {
     onUpdate: async (_pageId, updates) => updatedResult(sourcePage, updates),
     onUpdateProperty: async () => ({ status: "updated", didMutate: true }),
     onDelete: async () => undefined,
-    onMove: async () => undefined,
     ...overrides,
   };
 }

@@ -28,7 +28,8 @@ pub(crate) use mutation::{
     place_staged_page_in_data_source, place_staged_page_in_data_source_prevalidated,
     plan_page_task_shorthand,
     refresh_transferred_page_projection as refresh_copied_page_projection,
-    resolve_page_transfer_board_destination, resolve_page_transfer_data_source_destination,
+    repair_scheduled_page_indexes, resolve_page_transfer_board_destination,
+    resolve_page_transfer_data_source_destination,
     resolve_page_transfer_data_source_destination_prevalidated,
     resolve_page_transfer_list_destination, synchronize_membership_completion_timestamp,
     synchronize_relation_value_projections, transfer_existing_page_for_agent_move_prevalidated,
@@ -5011,6 +5012,65 @@ mod tests {
             })
             .expect("read degraded schedule index");
         assert_eq!(indexed_start, None);
+
+        let (schedule_revision, metadata_revision, status_value) = kernel
+            .writer()
+            .call(|connection| {
+                let (expected_parent_revision, expected_membership_revision) = connection
+                    .query_row(
+                        "SELECT block.placement_revision, membership.revision \
+                         FROM blocks block \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.page_block_id = block.id AND membership.removed_at IS NULL \
+                         WHERE block.id = 'page:schedule-row'",
+                        [],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )?;
+                let destination = PageCopyDataSourceDestination {
+                    data_source_id: SOURCE_ID.to_owned(),
+                    expected_data_source_revision: 1,
+                    values: vec![PageCopyValueDraft {
+                        property_id: "status".to_owned(),
+                        value: json!("plan"),
+                    }],
+                    view: None,
+                };
+                transfer_existing_page_for_block_transfer(
+                    connection,
+                    "library-1",
+                    "project-1",
+                    "page:schedule-row",
+                    expected_parent_revision,
+                    expected_membership_revision,
+                    ExistingPageTransferTarget::DataSource(&destination),
+                    NOW,
+                )?;
+                connection
+                    .query_row(
+                        "SELECT schedule.source_metadata_revision, block.metadata_revision, value.value_json \
+                         FROM scheduled_page_index schedule \
+                         JOIN blocks block ON block.id = schedule.page_block_id \
+                         JOIN data_source_page_memberships membership \
+                           ON membership.page_block_id = block.id AND membership.removed_at IS NULL \
+                         JOIN data_source_property_values value \
+                           ON value.membership_id = membership.id \
+                          AND value.data_source_id = membership.data_source_id \
+                          AND value.property_id = 'status' \
+                         WHERE schedule.page_block_id = 'page:schedule-row'",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, String>(2)?,
+                            ))
+                        },
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("structural Page transfer keeps schedule coordinates current");
+        assert_eq!(schedule_revision, metadata_revision);
+        assert_eq!(status_value, "\"plan\"");
     }
 
     #[test]

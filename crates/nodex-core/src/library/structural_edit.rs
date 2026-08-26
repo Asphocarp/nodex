@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::{
     CanvasScene, DocumentBlockOperation, DocumentBlockUpdatePatch, DocumentPlacementEvidence,
-    PersistYjsGenesis, clone_canvas_scene_genesis, load_canvas_scene,
-    persist_yjs_genesis_with_local_commit, prepare_yjs_clone_genesis, read_document_authority,
-    sha256,
+    PersistYjsGenesis, clone_canvas_scene_genesis, current_schema_for_stored_identity,
+    load_canvas_scene, normalize_stored_materialized_forest, persist_yjs_genesis_with_local_commit,
+    prepare_yjs_clone_genesis, read_document_authority, schema_metadata, sha256,
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::identity::stable_uuid_v7;
@@ -316,6 +316,153 @@ enum StructuralRecipeAction {
 struct StructuralHistoryRecipe {
     version: u32,
     action: StructuralRecipeAction,
+}
+
+type RootExpansion = BTreeMap<String, Vec<String>>;
+type DocumentRootExpansions = BTreeMap<String, RootExpansion>;
+
+fn normalize_stored_roots(
+    stored_roots: Vec<MaterializedBlockNode>,
+) -> Result<(Vec<MaterializedBlockNode>, RootExpansion), StoreError> {
+    let mut roots = Vec::new();
+    let mut expansion = RootExpansion::new();
+    for root in stored_roots {
+        let root_id = root.id.clone();
+        let normalized = normalize_stored_materialized_forest(&[root])?;
+        expansion.insert(
+            root_id,
+            normalized.iter().map(|block| block.id.clone()).collect(),
+        );
+        roots.extend(normalized);
+    }
+    Ok((roots, expansion))
+}
+
+fn expand_stored_root_ids(
+    stored_root_ids: &[String],
+    expansion: &RootExpansion,
+) -> Result<Vec<String>, StoreError> {
+    let mut expanded = Vec::new();
+    for root_id in stored_root_ids {
+        let current_root_ids = expansion
+            .get(root_id)
+            .ok_or_else(|| corrupt("Stored structural root coordinates are incomplete"))?;
+        expanded.extend(current_root_ids.iter().cloned());
+    }
+    Ok(expanded)
+}
+
+/// Converts authenticated immutable structural evidence into the current
+/// in-memory Document shape. Stored JSON and capability hashes remain exact.
+fn normalize_stored_snapshot(
+    mut snapshot: OwnershipClosureSnapshot,
+) -> Result<
+    (
+        OwnershipClosureSnapshot,
+        RootExpansion,
+        DocumentRootExpansions,
+    ),
+    StoreError,
+> {
+    let (roots, expansion) = normalize_stored_roots(std::mem::take(&mut snapshot.roots))?;
+    snapshot.roots = roots;
+    normalize_stored_location(&mut snapshot.source, &expansion)?;
+
+    let mut document_expansions = DocumentRootExpansions::new();
+    for document in &mut snapshot.documents {
+        let OwnedDocumentBody::Yjs { blocks, .. } = &mut document.body else {
+            continue;
+        };
+        let schema =
+            current_schema_for_stored_identity(&document.schema_key, document.schema_version)?;
+        let (normalized, root_expansion) = normalize_stored_roots(std::mem::take(blocks))?;
+        *blocks = normalized;
+        document_expansions.insert(document.document_id.clone(), root_expansion);
+        let metadata = schema_metadata(schema);
+        document.schema_key = metadata.schema_key.to_owned();
+        document.schema_version = i64::from(metadata.schema_version);
+    }
+    Ok((snapshot, expansion, document_expansions))
+}
+
+fn normalize_stored_location(
+    location: &mut StructuralLocation,
+    expansion: &RootExpansion,
+) -> Result<(), StoreError> {
+    let mut placements = Vec::new();
+    for placement in std::mem::take(&mut location.placements) {
+        let root_ids = expansion
+            .get(&placement.block_id)
+            .ok_or_else(|| corrupt("Stored structural placement names an unknown root"))?;
+        placements.extend(root_ids.iter().map(|block_id| RootPlacement {
+            block_id: block_id.clone(),
+            parent_block_id: placement.parent_block_id.clone(),
+            before_block_id: placement.before_block_id.clone(),
+        }));
+    }
+    location.placements = placements;
+    Ok(())
+}
+
+fn normalize_stored_recipe(
+    mut recipe: StructuralHistoryRecipe,
+) -> Result<StructuralHistoryRecipe, StoreError> {
+    match &mut recipe.action {
+        StructuralRecipeAction::RestoreDeleted {
+            snapshot, target, ..
+        } => {
+            let (normalized, expansion, _) = normalize_stored_snapshot(snapshot.clone())?;
+            *snapshot = normalized;
+            normalize_stored_location(target, &expansion)?;
+        }
+        StructuralRecipeAction::DeleteActive {
+            snapshot, source, ..
+        } => {
+            let (normalized, expansion, _) = normalize_stored_snapshot(snapshot.clone())?;
+            *snapshot = normalized;
+            normalize_stored_location(source, &expansion)?;
+        }
+        StructuralRecipeAction::MoveActive {
+            snapshot,
+            source,
+            target,
+        } => {
+            let (normalized, expansion, _) = normalize_stored_snapshot(snapshot.clone())?;
+            *snapshot = normalized;
+            normalize_stored_location(source, &expansion)?;
+            normalize_stored_location(target, &expansion)?;
+        }
+        StructuralRecipeAction::SwapActiveWithDeleted {
+            active, deleted, ..
+        } => {
+            *active = normalize_stored_snapshot(active.clone())?.0;
+            *deleted = normalize_stored_snapshot(deleted.clone())?.0;
+        }
+        StructuralRecipeAction::RestoreTurnedSelection { state } => {
+            let (original, _, document_expansions) =
+                normalize_stored_snapshot(state.original.clone())?;
+            state.original = original;
+            state.active = normalize_stored_snapshot(state.active.clone())?.0;
+            for dormant in &mut state.dormant_pages {
+                if dormant.moved_root_ids.is_empty() {
+                    continue;
+                }
+                let expansion = document_expansions
+                    .get(&dormant.document_id)
+                    .ok_or_else(|| corrupt("Turn history lost Page Document root coordinates"))?;
+                dormant.moved_root_ids =
+                    expand_stored_root_ids(&dormant.moved_root_ids, expansion)?;
+            }
+        }
+        StructuralRecipeAction::TurnActiveSelection { snapshot, .. } => {
+            *snapshot = normalize_stored_snapshot(snapshot.clone())?.0;
+        }
+        StructuralRecipeAction::RestoreBackwardMerge { state }
+        | StructuralRecipeAction::ApplyBackwardMerge { state } => {
+            state.snapshot = normalize_stored_snapshot(state.snapshot.clone())?.0;
+        }
+    }
+    Ok(recipe)
 }
 
 struct BundleAuthority {
@@ -3911,12 +4058,18 @@ fn read_bundle(
         }
         let recipe = serde_json::from_str::<StructuralHistoryRecipe>(&recipe_json)
             .map_err(|_| corrupt("Cut history recipe is invalid"))?;
+        if recipe.version != RECIPE_VERSION {
+            return Err(unsupported(
+                "Structural history recipe version is unsupported",
+            ));
+        }
+        let recipe = normalize_stored_recipe(recipe)?;
         match recipe.action {
             StructuralRecipeAction::RestoreDeleted { snapshot, .. } => snapshot,
             _ => return Err(corrupt("Cut history does not restore deleted content")),
         }
     } else {
-        clipboard_snapshot
+        normalize_stored_snapshot(clipboard_snapshot)?.0
     };
     Ok(BundleAuthority {
         token: token.clone(),
@@ -4053,7 +4206,7 @@ fn read_history_recipe(
             "Structural history recipe version is unsupported",
         ));
     }
-    Ok(recipe)
+    normalize_stored_recipe(recipe)
 }
 
 fn history_token(
@@ -6853,6 +7006,121 @@ mod tests {
             content: Some(Value::Array(Vec::new())),
             children,
         }
+    }
+
+    #[test]
+    fn authenticated_snapshot_normalization_expands_lifted_roots_and_their_coordinates() {
+        let stored = OwnershipClosureSnapshot {
+            version: SNAPSHOT_VERSION,
+            roots: vec![MaterializedBlockNode {
+                id: "code".to_owned(),
+                block_type: "codeBlock".to_owned(),
+                props: BTreeMap::new(),
+                content: Some(Value::Array(Vec::new())),
+                children: vec![paragraph("lifted", Vec::new())],
+            }],
+            blocks: Vec::new(),
+            documents: vec![OwnedDocumentSnapshot {
+                owner_block_id: "page:nested".to_owned(),
+                owner_type: "page".to_owned(),
+                document_id: "document:nested".to_owned(),
+                containing_document_id: "document:source".to_owned(),
+                schema_key: "nodex.page".to_owned(),
+                schema_version: 2,
+                generation: 1,
+                head_seq: 1,
+                body: OwnedDocumentBody::Yjs {
+                    rich_title: Vec::new(),
+                    blocks: vec![MaterializedBlockNode {
+                        id: "nested-code".to_owned(),
+                        block_type: "codeBlock".to_owned(),
+                        props: BTreeMap::new(),
+                        content: Some(Value::Array(Vec::new())),
+                        children: vec![paragraph("nested-lifted", Vec::new())],
+                    }],
+                },
+            }],
+            pages: Vec::new(),
+            databases: Vec::new(),
+            source: StructuralLocation {
+                document_id: "document:source".to_owned(),
+                document_generation: 1,
+                host_page_id: "page:source".to_owned(),
+                placements: vec![RootPlacement {
+                    block_id: "code".to_owned(),
+                    parent_block_id: None,
+                    before_block_id: Some("after".to_owned()),
+                }],
+                placeholder_block_id: None,
+            },
+        };
+        let original = stored.clone();
+
+        let (normalized, expansion, document_expansions) =
+            normalize_stored_snapshot(stored).expect("normalize authenticated snapshot");
+
+        assert_eq!(root_ids(&normalized.roots), ["code", "lifted"]);
+        assert_eq!(expansion["code"], ["code", "lifted"]);
+        assert_eq!(
+            normalized
+                .source
+                .placements
+                .iter()
+                .map(|placement| placement.block_id.as_str())
+                .collect::<Vec<_>>(),
+            ["code", "lifted"]
+        );
+        assert!(
+            normalized
+                .source
+                .placements
+                .iter()
+                .all(|placement| placement.before_block_id.as_deref() == Some("after"))
+        );
+        let document = &normalized.documents[0];
+        assert_eq!(document.schema_version, 3);
+        let OwnedDocumentBody::Yjs { blocks, .. } = &document.body else {
+            panic!("Page Document must remain Yjs");
+        };
+        assert_eq!(root_ids(blocks), ["nested-code", "nested-lifted"]);
+        assert_eq!(
+            expand_stored_root_ids(
+                &["nested-code".to_owned()],
+                &document_expansions["document:nested"],
+            )
+            .expect("expand dormant Page roots"),
+            ["nested-code", "nested-lifted"]
+        );
+
+        let recipe = normalize_stored_recipe(StructuralHistoryRecipe {
+            version: RECIPE_VERSION,
+            action: StructuralRecipeAction::RestoreTurnedSelection {
+                state: TurnedSelectionState {
+                    original: original.clone(),
+                    active: original.clone(),
+                    target: LibraryStructuralTurnIntoTarget::Paragraph,
+                    dormant_pages: vec![DormantPageState {
+                        page_id: "page:nested".to_owned(),
+                        document_id: "document:nested".to_owned(),
+                        generation: 1,
+                        head_seq: 1,
+                        placeholder_block_id: "placeholder".to_owned(),
+                        moved_root_ids: vec!["nested-code".to_owned()],
+                        moved_block_ids: vec!["nested-code".to_owned(), "nested-lifted".to_owned()],
+                        revoked_grant_ids: Vec::new(),
+                    }],
+                },
+            },
+        })
+        .expect("normalize Turn history coordinates");
+        let StructuralRecipeAction::RestoreTurnedSelection { state } = recipe.action else {
+            panic!("recipe kind must remain stable");
+        };
+        assert_eq!(
+            state.dormant_pages[0].moved_root_ids,
+            ["nested-code", "nested-lifted"]
+        );
+        assert_eq!(original.roots[0].children[0].id, "lifted");
     }
 
     #[test]

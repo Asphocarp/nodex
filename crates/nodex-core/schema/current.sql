@@ -3485,6 +3485,10 @@ CREATE TRIGGER page_read_model_validate_insert BEFORE INSERT ON page_read_model
 WHEN NOT EXISTS (
   SELECT 1 FROM blocks block
   JOIN pages page ON page.block_id = block.id
+  JOIN block_documents ownership
+    ON ownership.block_id = page.block_id
+   AND ownership.document_id = page.document_id
+   AND ownership.library_id = page.library_id
   JOIN documents document ON document.id = page.document_id
   LEFT JOIN library_block_placements placement
     ON placement.block_id = page.block_id AND page.parent_kind = 'library'
@@ -3530,6 +3534,10 @@ CREATE TRIGGER page_read_model_validate_update BEFORE UPDATE ON page_read_model
 WHEN NOT EXISTS (
   SELECT 1 FROM blocks block
   JOIN pages page ON page.block_id = block.id
+  JOIN block_documents ownership
+    ON ownership.block_id = page.block_id
+   AND ownership.document_id = page.document_id
+   AND ownership.library_id = page.library_id
   JOIN documents document ON document.id = page.document_id
   LEFT JOIN library_block_placements placement
     ON placement.block_id = page.block_id AND page.parent_kind = 'library'
@@ -3627,6 +3635,11 @@ END;
 CREATE TRIGGER scheduled_page_index_require_page_insert BEFORE INSERT ON scheduled_page_index
 WHEN NOT EXISTS (
   SELECT 1 FROM blocks block
+  JOIN pages page ON page.block_id = block.id AND page.library_id = block.library_id
+  JOIN block_documents ownership
+    ON ownership.block_id = page.block_id
+   AND ownership.document_id = page.document_id
+   AND ownership.library_id = page.library_id
   WHERE block.id = NEW.page_block_id AND block.library_id = NEW.library_id
     AND block.type = 'page'
     AND block.lifecycle = NEW.lifecycle
@@ -3635,9 +3648,15 @@ WHEN NOT EXISTS (
   SELECT RAISE(ABORT, 'Scheduled Page index owner must be a Page in the Library');
 END;
 CREATE TRIGGER scheduled_page_index_require_page_update
-BEFORE UPDATE OF page_block_id, library_id ON scheduled_page_index
+BEFORE UPDATE OF page_block_id, library_id, lifecycle, source_metadata_revision
+ON scheduled_page_index
 WHEN NOT EXISTS (
   SELECT 1 FROM blocks block
+  JOIN pages page ON page.block_id = block.id AND page.library_id = block.library_id
+  JOIN block_documents ownership
+    ON ownership.block_id = page.block_id
+   AND ownership.document_id = page.document_id
+   AND ownership.library_id = page.library_id
   WHERE block.id = NEW.page_block_id AND block.library_id = NEW.library_id
     AND block.type = 'page'
     AND block.lifecycle = NEW.lifecycle
@@ -4306,4 +4325,4 @@ CREATE TABLE operational_journal_state (
   ),
   CHECK (length(operation_identity_cutover_at) > 0)
 ) WITHOUT ROWID, STRICT;
-PRAGMA user_version = 136;
+PRAGMA user_version = 137;

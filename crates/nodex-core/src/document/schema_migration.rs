@@ -7,8 +7,8 @@ use yrs::{ReadTxn, StateVector, Transact};
 
 use crate::domain::block_children::normalize_block_children_forest;
 use crate::domain::block_materialization::{
-    MaterializedBlockNode, dematerialize_block_tree_allowing_illegal_children,
-    materialize_block_tree,
+    MaterializedBlockNode, dematerialize_block_tree,
+    dematerialize_block_tree_allowing_illegal_children, materialize_block_tree,
 };
 use crate::domain::rich_text::{RichTextItem, rich_text_to_delta};
 use crate::infrastructure::document_repository::{
@@ -19,7 +19,9 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use super::block_document::decode_block_document_allowing_illegal_children;
 use super::history::canonical_json_bytes;
 use super::persistence::{
-    persist_materialization_for_schema_migration, replace_document_block_index_for_schema_migration,
+    persist_materialization_for_schema_migration,
+    replace_document_block_index_for_schema_migration,
+    replace_secondary_projections_for_schema_migration,
 };
 use super::{
     BlockDocumentKind, BlockDocumentSchema, DecodedBlockDocument, DocumentMaterialization,
@@ -39,6 +41,14 @@ pub(crate) struct BlockChildrenMigrationEvidence {
     pub(crate) scanned_versions: usize,
     pub(crate) changed_versions: usize,
     pub(crate) lifted_roots: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DocumentProjectionRepairEvidence {
+    pub(crate) scanned_documents: usize,
+    pub(crate) refreshed_owned_projections: usize,
+    pub(crate) cleared_unowned_projections: usize,
 }
 
 struct PreparedDocument {
@@ -124,6 +134,68 @@ pub(crate) fn migrate_block_children_contract(
         write_version(connection, version)?;
     }
     Ok(prepared.evidence)
+}
+
+/// Repairs Profiles that completed the original Document schema migration
+/// without rebuilding the full owner-scoped projection bundle.
+pub(crate) fn repair_document_schema_projections(
+    connection: &Connection,
+    completed_at_unix_ms: i64,
+) -> Result<DocumentProjectionRepairEvidence, StoreError> {
+    let timestamp = Utc
+        .timestamp_millis_opt(completed_at_unix_ms)
+        .single()
+        .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Millis, true))
+        .ok_or_else(|| internal("Document projection repair timestamp is outside the UTC range"))?;
+    let repository = DocumentReadRepository::new(connection);
+    let mut evidence = DocumentProjectionRepairEvidence::default();
+    for head in repository.live_yjs_heads()? {
+        let persisted = repository
+            .materialization(&head.id)?
+            .ok_or_else(|| corrupt(format!("Document {} has no materialization", head.id)))?;
+        if persisted.generation != head.generation
+            || persisted.projected_seq != head.head_seq
+            || persisted.schema_version != head.schema_version
+        {
+            return Err(corrupt(format!(
+                "Document {} materialization is not at its current head",
+                head.id
+            )));
+        }
+        let schema = BlockDocumentSchema::from_identity(&head.schema_key, head.schema_version)
+            .ok_or_else(|| corrupt(format!("Document {} schema is not current", head.id)))?;
+        let rich_title = serde_json::from_value::<Vec<RichTextItem>>(persisted.rich_title)
+            .map_err(|_| corrupt(format!("Document {} rich title is invalid", head.id)))?;
+        let blocks = serde_json::from_value::<Vec<MaterializedBlockNode>>(persisted.block_tree)
+            .map_err(|_| corrupt(format!("Document {} Block tree is invalid", head.id)))?;
+        let block_tree = dematerialize_block_tree(&blocks)
+            .map_err(|error| corrupt(format!("Document {} Block tree: {error}", head.id)))?;
+        let title = schema
+            .has_title()
+            .then(|| rich_text_to_delta(&rich_title))
+            .transpose()
+            .map_err(|error| corrupt(format!("Document {} rich title: {error}", head.id)))?;
+        let materialization = materialize_decoded_document(&DecodedBlockDocument {
+            document_id: head.id.clone(),
+            schema,
+            title,
+            block_tree,
+        })
+        .map_err(|error| corrupt(format!("Document {} materialization: {error}", head.id)))?;
+        evidence.scanned_documents += 1;
+        if replace_secondary_projections_for_schema_migration(
+            connection,
+            &head.id,
+            &materialization,
+            head.head_seq,
+            &timestamp,
+        )? {
+            evidence.refreshed_owned_projections += 1;
+        } else {
+            evidence.cleared_unowned_projections += 1;
+        }
+    }
+    Ok(evidence)
 }
 
 fn prepare_migration(connection: &Connection) -> Result<PreparedMigration, StoreError> {
@@ -495,7 +567,15 @@ fn write_document(
         &prepared.head.id,
         prepared.head.head_seq,
         &prepared.materialization,
-    )
+    )?;
+    let _owned = replace_secondary_projections_for_schema_migration(
+        connection,
+        &prepared.head.id,
+        &prepared.materialization,
+        prepared.head.head_seq,
+        timestamp,
+    )?;
+    Ok(())
 }
 
 fn write_version(connection: &Connection, prepared: &PreparedVersion) -> Result<(), StoreError> {
@@ -926,6 +1006,14 @@ mod tests {
             .expect("Document owner");
         connection
             .execute(
+                "INSERT INTO pages( \
+                   block_id, library_id, document_id, parent_kind, parent_id, created_at, updated_at \
+                 ) VALUES ('page-owner', 'library-1', 'document-1', 'library', 'library-1', ?1, ?1)",
+                [NOW],
+            )
+            .expect("Page authority");
+        connection
+            .execute(
                 "INSERT INTO document_snapshots( \
                    document_id, generation, snapshot_seq, state_vector, snapshot_update, \
                    snapshot_hash, schema_version, created_at \
@@ -965,6 +1053,21 @@ mod tests {
                 [],
             )
             .expect("retained deleted Document");
+        connection
+            .execute(
+                "INSERT INTO page_read_model( \
+                   page_block_id, library_id, lifecycle, parent_kind, parent_id, \
+                   placement_revision, metadata_revision, document_id, document_generation, \
+                   document_projected_seq, document_schema_version, document_authority, \
+                   title, description_preview, description_length, has_description, \
+                   created_at, updated_at \
+                 ) VALUES ( \
+                   'page-owner', 'library-1', 'deleted', 'library', 'library-1', \
+                   1, 1, 'document-1', 1, 0, 2, 'ydoc_primary', '', '', 0, 0, ?1, ?1 \
+                 )",
+                [NOW],
+            )
+            .expect("baseline Page projection");
 
         let evidence = migrate_block_children_contract(&connection, 1_777_000_000_000)
             .expect("Block children migration");
@@ -998,6 +1101,17 @@ mod tests {
         assert_eq!(
             connection
                 .query_row(
+                    "SELECT document_schema_version FROM page_read_model \
+                     WHERE page_block_id = 'page-owner'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("migrated Page projection"),
+            3
+        );
+        assert_eq!(
+            connection
+                .query_row(
                     "SELECT count(*) FROM blocks \
                      WHERE id IN ('page-owner', 'code', 'paragraph') AND lifecycle = 'deleted'",
                     [],
@@ -1028,6 +1142,39 @@ mod tests {
                 ("code".to_owned(), None, 0),
                 ("paragraph".to_owned(), None, 1),
             ]
+        );
+
+        connection
+            .execute_batch("DROP TRIGGER page_read_model_validate_update;")
+            .expect("controlled stale projection fixture");
+        connection
+            .execute(
+                "UPDATE page_read_model SET document_schema_version = 2, \
+                   database_values_json = '{\"status\":\"ship\"}' \
+                 WHERE page_block_id = 'page-owner'",
+                [],
+            )
+            .expect("published stale projection shape");
+        let repair = repair_document_schema_projections(&connection, 1_777_000_000_001)
+            .expect("repair published projection gap");
+        assert_eq!(
+            repair,
+            DocumentProjectionRepairEvidence {
+                scanned_documents: 1,
+                refreshed_owned_projections: 1,
+                cleared_unowned_projections: 0,
+            }
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT document_schema_version, database_values_json \
+                     FROM page_read_model WHERE page_block_id = 'page-owner'",
+                    [],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                )
+                .expect("repaired Page projection"),
+            (3, "{\"status\":\"ship\"}".to_owned())
         );
     }
 }

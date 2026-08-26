@@ -453,7 +453,8 @@ export function useBoard(options: UseBoardOptions) {
           commitSeq: receipt.commitSeq,
         }),
       });
-      if (!outcome.ok || !outcome.result) return false;
+      if (!outcome.ok) throw outcome.error ?? new Error("The Board drop did not commit");
+      if (!outcome.result) return false;
       onMutation?.();
       return true;
     },
