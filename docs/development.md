@@ -21,6 +21,27 @@ The install lifecycle runs `electron-builder install-app-deps`, which rebuilds
 Electron-compatible binary with a host-Node binary. SQLite and collaborative
 Document authority are native Rust code and do not use a Node addon.
 
+### Machine-local artifact cache
+
+Pinned Browser, Agent, and Sparkle archives are downloaded into
+`<worktree>/cache.local/`. Each archive is addressed by its locked SHA-256,
+verified before use, and published atomically under a cross-process download
+lock. Extracted runtimes, native builds, and other source-derived outputs remain
+isolated under each worktree's `.generated/` directory.
+
+Developers with several local worktrees should keep the real cache in the
+primary checkout and link every other worktree to it:
+
+```bash
+ln -s /absolute/path/to/primary/cache.local /absolute/path/to/worktree/cache.local
+```
+
+The `*.local` ignore rule excludes both the real directory and these links from
+Git. The cache contains no source of truth or credentials and may be deleted at
+any time; the next materialization verifies or downloads the required archives
+again. Do not place `.generated` outputs, test Profiles, logs, or release
+artifacts in `cache.local`.
+
 Start the desktop app in development mode:
 
 ```bash

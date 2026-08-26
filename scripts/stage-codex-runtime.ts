@@ -4,7 +4,6 @@ import {
   chmodSync,
   closeSync,
   copyFileSync,
-  createWriteStream,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -13,15 +12,11 @@ import {
   readFileSync,
   readSync,
   readdirSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { Readable } from "node:stream";
-import type { ReadableStream as WebReadableStream } from "node:stream/web";
-import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import {
   AGENT_RUNTIME_LAYOUT_VERSION,
@@ -38,6 +33,7 @@ import {
   type AgentRuntimeTargetPlatform,
   type OpenInterpreterReleaseLock,
 } from "./agent-runtime-release-lock";
+import { ensureImmutableArtifact, resolveImmutableArtifactPath } from "./immutable-artifact-cache";
 import { replaceOwnedDirectory } from "./replace-owned-directory";
 import { stageBrowserRuntime } from "./stage-browser-runtime";
 import type { BrowserRuntimePlatformArtifactVerifier } from "../src/main/codex/browser-runtime-bundle";
@@ -359,27 +355,12 @@ function validateArchivePaths(archivePath: string): void {
   }
 }
 
-async function downloadArchive(url: string, destinationPath: string): Promise<void> {
-  const response = await fetch(url, { redirect: "follow" });
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download Open Interpreter runtime: HTTP ${response.status}`);
-  }
-  mkdirSync(dirname(destinationPath), { recursive: true });
-  const temporaryPath = `${destinationPath}.part-${process.pid}`;
-  try {
-    const body = Readable.fromWeb(response.body as WebReadableStream<Uint8Array>);
-    await pipeline(body, createWriteStream(temporaryPath, { flags: "wx", mode: 0o600 }));
-    renameSync(temporaryPath, destinationPath);
-  } finally {
-    rmSync(temporaryPath, { force: true });
-  }
-}
-
 async function resolveSourceRoot(input: {
   archivePath?: string;
-  cachePath: string;
+  cachePath?: string;
   extractionParent: string;
   lock: OpenInterpreterReleaseLock;
+  projectRoot: string;
   sourceRoot?: string;
   target: AgentRuntimeTarget;
 }): Promise<{ cleanup: () => void; sourceRoot: string }> {
@@ -391,12 +372,24 @@ async function resolveSourceRoot(input: {
 
   const asset = input.lock.assets[input.target.targetKey];
   const archivePath = resolve(
-    input.archivePath ?? join(input.cachePath, input.lock.release.tag, asset.assetName),
+    input.archivePath ??
+      resolveImmutableArtifactPath({
+        archiveSha256: asset.archiveSha256,
+        assetName: asset.assetName,
+        cachePath: input.cachePath,
+        family: "agent-runtime",
+        projectRoot: input.projectRoot,
+      }),
   );
-  if (!existsSync(archivePath)) {
-    await downloadArchive(asset.url, archivePath);
-  }
-  validateArchive(archivePath, asset.archiveSha256, asset.archiveSize);
+  await ensureImmutableArtifact({
+    destinationPath: archivePath,
+    expectedSize: asset.archiveSize,
+    label: "Open Interpreter runtime",
+    replaceInvalid: input.archivePath === undefined,
+    url: asset.url,
+    validate: (candidatePath) =>
+      validateArchive(candidatePath, asset.archiveSha256, asset.archiveSize),
+  });
   validateArchivePaths(archivePath);
 
   const extractionRoot = mkdtempSync(join(input.extractionParent, "open-interpreter-extract-"));
@@ -472,9 +465,7 @@ export async function stageCodexRuntime(
   }
   const tempOutputPath = mkdtempSync(join(outputPath, ".agent-runtime-stage-"));
   const tempRuntimeRoot = join(tempOutputPath, "agent-runtime");
-  const cachePath = resolve(
-    options.cachePath ?? join(repositoryRoot, ".generated", "agent-runtime-cache"),
-  );
+  const cachePath = options.cachePath ? resolve(options.cachePath) : undefined;
   let sourceCleanup = (): void => undefined;
 
   try {
@@ -483,6 +474,7 @@ export async function stageCodexRuntime(
       cachePath,
       extractionParent: outputParent,
       lock,
+      projectRoot: repositoryRoot,
       sourceRoot: options.sourceRoot,
       target,
     });

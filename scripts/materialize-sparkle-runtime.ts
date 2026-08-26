@@ -2,25 +2,20 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
-  createWriteStream,
-  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   readlinkSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { Readable, Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 
+import { ensureImmutableArtifact, resolveImmutableArtifactPath } from "./immutable-artifact-cache";
 import { replaceOwnedDirectory } from "./replace-owned-directory";
 import {
   readSparkleReleaseLock,
@@ -107,55 +102,6 @@ function assertArchiveMatches(archivePath: string, lock: SparkleReleaseLock): vo
   }
   assertFileSha256(archivePath, lock.archive.sha256, "Sparkle archive");
   assertArchivePathsAreSafe(archivePath);
-}
-
-async function downloadArchive(
-  url: string,
-  destinationPath: string,
-  expectedSize: number,
-): Promise<void> {
-  const response = await fetch(url, { redirect: "follow" });
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download Sparkle: HTTP ${response.status}.`);
-  }
-  const reportedLength = response.headers.get("content-length");
-  if (reportedLength && Number(reportedLength) !== expectedSize) {
-    throw new Error(
-      `Sparkle download size mismatch: expected ${expectedSize}, server reported ${reportedLength}.`,
-    );
-  }
-
-  mkdirSync(path.dirname(destinationPath), { recursive: true });
-  const temporaryPath = `${destinationPath}.part-${process.pid}`;
-  let downloadedSize = 0;
-  const sizeLimiter = new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      downloadedSize += chunk.length;
-      if (downloadedSize > expectedSize) {
-        callback(new Error("Sparkle download exceeded its locked size."));
-        return;
-      }
-      callback(null, chunk);
-    },
-  });
-
-  try {
-    const body = Readable.fromWeb(response.body as WebReadableStream<Uint8Array>);
-    await pipeline(
-      body,
-      sizeLimiter,
-      createWriteStream(temporaryPath, { flags: "wx", mode: 0o600 }),
-    );
-    if (downloadedSize !== expectedSize) {
-      throw new Error(
-        `Sparkle download size mismatch: expected ${expectedSize}, received ${downloadedSize}.`,
-      );
-    }
-    if (existsSync(destinationPath)) return;
-    renameSync(temporaryPath, destinationPath);
-  } finally {
-    rmSync(temporaryPath, { force: true });
-  }
 }
 
 function assertSymlinkClosure(rootPath: string, currentPath = rootPath): void {
@@ -276,24 +222,24 @@ export async function materializeSparkleRuntime(
     // A missing or stale owned output is replaced only after a fresh verified extraction.
   }
 
-  const cachePath = path.resolve(
-    options.cachePath ?? path.join(projectRoot, ".generated", "sparkle-cache"),
-  );
   const archivePath = path.resolve(
-    options.archivePath ?? path.join(cachePath, lock.archive.sha256, lock.archive.name),
+    options.archivePath ??
+      resolveImmutableArtifactPath({
+        archiveSha256: lock.archive.sha256,
+        assetName: lock.archive.name,
+        cachePath: options.cachePath,
+        family: "sparkle",
+        projectRoot,
+      }),
   );
-  if (existsSync(archivePath)) {
-    try {
-      assertArchiveMatches(archivePath, lock);
-    } catch (error) {
-      if (options.archivePath) throw error;
-      rmSync(archivePath, { force: true });
-    }
-  }
-  if (!existsSync(archivePath)) {
-    await downloadArchive(lock.archive.url, archivePath, lock.archive.size);
-  }
-  assertArchiveMatches(archivePath, lock);
+  await ensureImmutableArtifact({
+    destinationPath: archivePath,
+    expectedSize: lock.archive.size,
+    label: "Sparkle",
+    replaceInvalid: options.archivePath === undefined,
+    url: lock.archive.url,
+    validate: (candidatePath) => assertArchiveMatches(candidatePath, lock),
+  });
 
   mkdirSync(path.dirname(outputPath), { recursive: true });
   const extractionParent = mkdtempSync(

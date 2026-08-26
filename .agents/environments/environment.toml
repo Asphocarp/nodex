@@ -4,5 +4,6 @@ name = "nodex"
 
 [setup]
 script = '''
-pnpm install
-ln -s $HOME/repo/nodex/notes.local notes.local'''
+vp install
+ln -s $HOME/repo/nodex/notes.local notes.local
+ln -s $HOME/repo/nodex/cache.local cache.local'''
