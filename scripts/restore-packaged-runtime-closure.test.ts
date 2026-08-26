@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vite-plus/test";
 
+import { BROWSER_RUNTIME_SCHEMA_VERSION } from "../src/shared/browser-runtime-metadata";
 import { restorePackagedBrowserRuntimeClosure } from "./restore-packaged-runtime-closure.mjs";
 
 const temporaryRoots: string[] = [];
@@ -38,7 +39,7 @@ function createFixture(): {
         size: 0,
       },
     ],
-    schemaVersion: 4,
+    schemaVersion: BROWSER_RUNTIME_SCHEMA_VERSION,
   };
   const manifestBytes = `${JSON.stringify(manifest)}\n`;
   fs.writeFileSync(path.join(sourceBrowserRoot, "browser-runtime-manifest.json"), manifestBytes);
@@ -57,7 +58,7 @@ afterEach(() => {
 });
 
 describe("restorePackagedBrowserRuntimeClosure", () => {
-  test("restores only manifest-declared placeholders omitted by Electron Builder", () => {
+  test("restores placeholders from the current Browser runtime manifest schema", () => {
     const fixture = createFixture();
 
     expect(restorePackagedBrowserRuntimeClosure(fixture)).toBe(1);

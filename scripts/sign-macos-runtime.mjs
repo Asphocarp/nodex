@@ -22,7 +22,7 @@ const sparkleCodeObjectRelativePaths = [
   "Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app",
   "Contents/Frameworks/Sparkle.framework",
 ];
-const browserRuntimeSchemaVersion = 4;
+const browserRuntimeSchemaVersion = 5;
 const expectedBinaryPaths = new Map([
   ["nodex", "Resources/bin/nodex"],
   ["nodex-appshot-helper", "Resources/bin/nodex-appshot-helper"],
