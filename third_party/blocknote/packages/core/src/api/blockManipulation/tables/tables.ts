@@ -10,10 +10,12 @@ import {
   isStyledTextInlineContent,
 } from "../../../schema/index.js";
 import {
+  assertTableDimensions,
   getColspan,
   getRowspan,
   isPartialTableCell,
   mapTableCell,
+  TABLE_RESOURCE_LIMITS,
 } from "../../../util/table.js";
 
 /**
@@ -194,9 +196,10 @@ export function getTableCellOccupancyGrid(
    * This is used because rowspans and colspans take up multiple spaces
    * So, we need to track the occupied cells in the grid to know where to place the next cell
    */
-  const grid: OccupancyGrid = new Array(height)
-    .fill(false)
-    .map(() => new Array(width).fill(null));
+  const grid: OccupancyGrid = [];
+  for (let row = 0; row < height; row++) {
+    grid.push([]);
+  }
 
   // Find the next unoccupied cell in the table, row-major order
   const findNextAvailable = (row: number, col: number) => {
@@ -228,6 +231,12 @@ export function getTableCellOccupancyGrid(
       // Fill in the rowspan X colspan cells, starting from the next available cell, with the correct relative row and column indices
       for (let i = startRow; i < startRow + rowspan; i++) {
         for (let j = startCol; j < startCol + colspan; j++) {
+          if (!grid[i] || j >= width) {
+            throw new Error(
+              `Unable to create occupancy grid for table, cell at ${i},${j} is outside the table bounds`,
+            );
+          }
+
           if (grid[i][j]) {
             // The cell is already occupied, the table is malformed
             throw new Error(
@@ -246,8 +255,6 @@ export function getTableCellOccupancyGrid(
       }
     }
   }
-
-  // console.log(grid);
 
   return grid;
 }
@@ -338,8 +345,11 @@ export function getDimensionsOfTable(
    */
   width: number;
 } {
-  // Due to the way we store the table, the height is always the number of rows
+  // Due to the way we store the table, the height is always the number of rows.
   const height = block.content.rows.length;
+  if (height > TABLE_RESOURCE_LIMITS.rows) {
+    assertTableDimensions(height, 0);
+  }
 
   // Calculating the width is a bit more complex, as it is the maximum width of any row
   let width = 0;
@@ -348,12 +358,16 @@ export function getDimensionsOfTable(
     let rowWidth = 0;
     row.cells.forEach((cell) => {
       rowWidth += getColspan(cell);
+      if (rowWidth > TABLE_RESOURCE_LIMITS.columns) {
+        assertTableDimensions(height, rowWidth);
+      }
     });
 
     // Update the width if the row is wider than the current width
     width = Math.max(width, rowWidth);
   });
 
+  assertTableDimensions(height, width);
   return { height, width };
 }
 

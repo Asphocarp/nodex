@@ -16,6 +16,8 @@ const testFiles = selectTieredTestFiles({
   defaultInclude: [
     "src/renderer/**/*.test.tsx",
     "src/renderer/**/*.jsdom.test.ts",
+    "third_party/blocknote/packages/core/src/api/blockManipulation/tables/table-resource-limits.test.ts",
+    "third_party/blocknote/packages/core/src/api/parsers/markdown/markdownToHtml.security.test.ts",
     "third_party/blocknote/packages/core/src/blocks/Code/block.test.ts",
     "third_party/blocknote/packages/core/src/blocks/Code/indentation.test.ts",
     "third_party/blocknote/packages/core/src/extensions/SuggestionMenu/SuggestionMenu.test.ts",
