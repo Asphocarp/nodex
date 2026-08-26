@@ -1,18 +1,6 @@
 import { execFileSync } from "node:child_process";
-import {
-  createWriteStream,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
-import { Readable, Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import {
   BROWSER_RUNTIME_MANIFEST_FILENAME,
@@ -27,6 +15,7 @@ import {
   type BrowserRuntimeTargetKey,
   type BrowserRuntimeTargetPlatform,
 } from "./browser-runtime-release-lock";
+import { ensureImmutableArtifact, resolveImmutableArtifactPath } from "./immutable-artifact-cache";
 import { replaceOwnedDirectory } from "./replace-owned-directory";
 import {
   assertBrowserRuntimeSourceClosure,
@@ -200,58 +189,6 @@ function assertArchiveMatches(archivePath: string, asset: BrowserRuntimeReleaseA
   assertArchivePathsAreSafe(archivePath);
 }
 
-async function downloadArchive(
-  url: string,
-  destinationPath: string,
-  expectedSize: number,
-): Promise<void> {
-  const response = await fetch(url, { redirect: "follow" });
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download Browser runtime: HTTP ${response.status}`);
-  }
-  const contentLength = response.headers.get("content-length");
-  if (contentLength && Number(contentLength) !== expectedSize) {
-    throw new Error(
-      `Browser runtime download size mismatch: expected ${expectedSize}, ` +
-        `server reported ${contentLength}`,
-    );
-  }
-  mkdirSync(path.dirname(destinationPath), { recursive: true });
-  const temporaryPath = `${destinationPath}.part-${process.pid}`;
-  let downloadedSize = 0;
-  const sizeLimiter = new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      downloadedSize += chunk.length;
-      if (downloadedSize > expectedSize) {
-        callback(new Error("Browser runtime download exceeded its locked size"));
-        return;
-      }
-      callback(null, chunk);
-    },
-  });
-  try {
-    const body = Readable.fromWeb(response.body as WebReadableStream<Uint8Array>);
-    await pipeline(
-      body,
-      sizeLimiter,
-      createWriteStream(temporaryPath, { flags: "wx", mode: 0o600 }),
-    );
-    if (downloadedSize !== expectedSize) {
-      throw new Error(
-        `Browser runtime download size mismatch: expected ${expectedSize}, ` +
-          `received ${downloadedSize}`,
-      );
-    }
-    if (existsSync(destinationPath)) {
-      rmSync(temporaryPath, { force: true });
-      return;
-    }
-    renameSync(temporaryPath, destinationPath);
-  } finally {
-    rmSync(temporaryPath, { force: true });
-  }
-}
-
 export async function materializeBrowserRuntime(
   options: MaterializeBrowserRuntimeOptions,
 ): Promise<BrowserRuntimeManifest> {
@@ -275,24 +212,24 @@ export async function materializeBrowserRuntime(
     return reusable;
   }
 
-  const cachePath = path.resolve(
-    options.cachePath ?? path.join(projectRoot, ".generated", "browser-runtime-cache"),
-  );
   const archivePath = path.resolve(
-    options.archivePath ?? path.join(cachePath, asset.archiveSha256, asset.assetName),
+    options.archivePath ??
+      resolveImmutableArtifactPath({
+        archiveSha256: asset.archiveSha256,
+        assetName: asset.assetName,
+        cachePath: options.cachePath,
+        family: "browser-runtime",
+        projectRoot,
+      }),
   );
-  if (existsSync(archivePath)) {
-    try {
-      assertArchiveMatches(archivePath, asset);
-    } catch (error) {
-      if (options.archivePath) throw error;
-      rmSync(archivePath, { force: true });
-    }
-  }
-  if (!existsSync(archivePath)) {
-    await downloadArchive(asset.url, archivePath, asset.archiveSize);
-  }
-  assertArchiveMatches(archivePath, asset);
+  await ensureImmutableArtifact({
+    destinationPath: archivePath,
+    expectedSize: asset.archiveSize,
+    label: "Browser runtime",
+    replaceInvalid: options.archivePath === undefined,
+    url: asset.url,
+    validate: (candidatePath) => assertArchiveMatches(candidatePath, asset),
+  });
 
   mkdirSync(path.dirname(outputPath), { recursive: true });
   const extractionParent = mkdtempSync(

@@ -7,6 +7,7 @@ const generatedOrExternalPaths = [
   ".generated/**",
   ".vite-plus/**",
   "build/**",
+  "cache.local/**",
   "coverage/**",
   "dist/**",
   "node_modules/**",
@@ -350,20 +351,24 @@ export default defineConfig({
       check: {
         command: "vp check",
         env: ["ESLINT_BETTER_TAILWIND", "NODEX_TOOLING_FIXTURE_MODE"],
+        input: [{ auto: true }, "!cache.local", "!cache.local/**"],
         output: [],
       },
       "fmt:check": {
         command: "vp fmt --check",
+        input: [{ auto: true }, "!cache.local", "!cache.local/**"],
         output: [],
       },
       lint: {
         command: "vp lint --report-unused-disable-directives",
         env: ["ESLINT_BETTER_TAILWIND", "NODEX_TOOLING_FIXTURE_MODE"],
+        input: [{ auto: true }, "!cache.local", "!cache.local/**"],
         output: [],
       },
       typecheck: {
         command: "vp check --no-fmt",
         env: ["ESLINT_BETTER_TAILWIND", "NODEX_TOOLING_FIXTURE_MODE"],
+        input: [{ auto: true }, "!cache.local", "!cache.local/**"],
         output: [],
       },
     },

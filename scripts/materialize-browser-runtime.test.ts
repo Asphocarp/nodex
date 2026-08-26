@@ -100,11 +100,38 @@ describe("materializeBrowserRuntime", () => {
       manifest.artifacts.find((artifact) => artifact.path === manifest.browserPlugin.client)!.size,
     );
 
+    const defaultCachedArchivePath = path.join(
+      root,
+      "cache.local",
+      "browser-runtime",
+      archive.archiveSha256,
+      archive.assetName,
+    );
+    fs.mkdirSync(path.dirname(defaultCachedArchivePath), { recursive: true });
+    fs.copyFileSync(archivePath, defaultCachedArchivePath);
+    const defaultFetch = vi.fn(async () => {
+      throw new Error("default cache should prevent a download");
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = defaultFetch as typeof fetch;
+    try {
+      await materializeBrowserRuntime({
+        lockPath,
+        outputPath: path.join(root, "default-cache-output"),
+        projectRootPath: root,
+        targetArch: "arm64",
+        targetPlatform: "darwin",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(defaultFetch).not.toHaveBeenCalled();
+
     const cachePath = path.join(root, "cache");
     const cachedArchivePath = path.join(cachePath, archive.archiveSha256, archive.assetName);
     fs.mkdirSync(path.dirname(cachedArchivePath), { recursive: true });
     fs.writeFileSync(cachedArchivePath, "corrupt");
-    const originalFetch = globalThis.fetch;
+    const originalDownloadFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(
       async () =>
         new Response(fs.readFileSync(archivePath), {
@@ -123,7 +150,7 @@ describe("materializeBrowserRuntime", () => {
         targetPlatform: "darwin",
       });
     } finally {
-      globalThis.fetch = originalFetch;
+      globalThis.fetch = originalDownloadFetch;
     }
     expect(readBrowserRuntimeFileSha256(cachedArchivePath)).toBe(archive.archiveSha256);
   });
