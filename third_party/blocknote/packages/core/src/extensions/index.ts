@@ -4,6 +4,7 @@ export * from "./Collaboration/schemaMigration/SchemaMigration.js";
 export * from "./Collaboration/YCursorPlugin.js";
 export * from "./Collaboration/YSync.js";
 export * from "./Collaboration/YUndo.js";
+export * from "./AutomaticInputRules/index.js";
 export * from "./DropCursor/DropCursor.js";
 export * from "./FilePanel/FilePanel.js";
 export * from "./FormattingToolbar/FormattingToolbar.js";

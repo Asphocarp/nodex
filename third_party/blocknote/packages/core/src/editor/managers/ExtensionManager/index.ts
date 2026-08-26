@@ -1,16 +1,17 @@
 import {
-  InputRule,
-  inputRules as inputRulesPlugin,
-} from "@handlewithcare/prosemirror-inputrules";
-import {
   AnyExtension as AnyTiptapExtension,
   Extension as TiptapExtension,
 } from "@tiptap/core";
 import { keymap } from "@tiptap/pm/keymap";
-import { Plugin, TextSelection } from "prosemirror-state";
+import { Plugin } from "prosemirror-state";
 import { updateBlockTr } from "../../../api/blockManipulation/commands/updateBlock/updateBlock.js";
 import { setTextCursorPosition } from "../../../api/blockManipulation/selections/textCursorPosition.js";
 import { getBlockInfoFromTransaction } from "../../../api/getBlockInfoFromPos.js";
+import {
+  createAutomaticInputRulesPlugin,
+  type AutomaticInputRule,
+} from "../../../extensions/AutomaticInputRules/AutomaticInputRules.js";
+import { createDefaultInlineInputRules } from "../../../extensions/AutomaticInputRules/defaultInlineInputRules.js";
 import { sortByDependencies } from "../../../util/topo-sort.js";
 import type {
   BlockNoteEditor,
@@ -344,7 +345,7 @@ export class ExtensionManager {
 
     const getPriority = sortByDependencies(this.extensions);
 
-    const inputRulesByPriority = new Map<number, InputRule[]>();
+    const inputRulesByPriority = new Map<number, AutomaticInputRule[]>();
     for (const extension of this.extensions) {
       if (extension.tiptapExtensions) {
         tiptapExtensions.push(...extension.tiptapExtensions);
@@ -372,12 +373,13 @@ export class ExtensionManager {
       }
     }
 
-    // Collect all input rules into 1 extension to reduce conflicts
+    // Collect every typing rule into one engine so raw input, automatic
+    // transforms, history boundaries, and immediate Backspace share one model.
     tiptapExtensions.push(
       TiptapExtension.create({
         name: "blocknote-input-rules",
         addProseMirrorPlugins() {
-          const rules = [] as InputRule[];
+          const rules = createDefaultInlineInputRules(this.editor.schema);
           Array.from(inputRulesByPriority.keys())
             // We sort the rules by their priority (the key)
             .sort()
@@ -386,49 +388,7 @@ export class ExtensionManager {
               // Append in reverse priority order
               rules.push(...inputRulesByPriority.get(priority)!);
             });
-          const inputRules = inputRulesPlugin({ rules });
-          // Sidecar plugin: triggers the same input rules on Enter by
-          // delegating to the inputRules plugin's handleTextInput with a
-          // synthetic "\n" insertion. The handlewithcare regex `\s$` already
-          // matches `\n`, so any rule that fires on space fires on Enter too.
-          // We call its handleTextInput directly (rather than via
-          // view.someProp) so other plugins don't observe the synthetic input,
-          // and so the rule's undo metadata is keyed to the same plugin
-          // instance that Tiptap's `commands.undoInputRule` reads from.
-          const inputRulesEnter = new Plugin({
-            props: {
-              handleKeyDown(view, event) {
-                if (event.key !== "Enter") {
-                  return false;
-                }
-                // Only trigger on plain Enter — modifier combos like
-                // Shift/Cmd/Ctrl/Alt+Enter are reserved for other handlers
-                // (e.g. soft-break, submit) and should fall through.
-                if (
-                  event.shiftKey ||
-                  event.ctrlKey ||
-                  event.metaKey ||
-                  event.altKey
-                ) {
-                  return false;
-                }
-                const { $cursor } = view.state.selection as TextSelection;
-                if (!$cursor) {
-                  return false;
-                }
-                return !!inputRules.props.handleTextInput?.call(
-                  inputRules,
-                  view,
-                  $cursor.pos,
-                  $cursor.pos,
-                  "\n",
-                  () =>
-                    view.state.tr.insertText("\n", $cursor.pos, $cursor.pos),
-                );
-              },
-            },
-          });
-          return [inputRules, inputRulesEnter];
+          return [createAutomaticInputRulesPlugin({ rules })];
         },
       }),
     );
@@ -466,10 +426,10 @@ export class ExtensionManager {
    */
   private getProsemirrorPluginsFromExtension(extension: Extension): {
     plugins: Plugin[];
-    inputRules: InputRule[];
+    inputRules: AutomaticInputRule[];
   } {
     const plugins: Plugin[] = [...(extension.prosemirrorPlugins ?? [])];
-    const inputRules: InputRule[] = [];
+    const inputRules: AutomaticInputRule[] = [];
     if (
       !extension.prosemirrorPlugins?.length &&
       !Object.keys(extension.keyboardShortcuts || {}).length &&
@@ -484,12 +444,13 @@ export class ExtensionManager {
     if (extension.inputRules?.length) {
       inputRules.push(
         ...extension.inputRules.map((inputRule) => {
-          return new InputRule(
-            inputRule.find,
-            (state, match, start, end) => {
+          return {
+            find: inputRule.find,
+            inCodeMark: false,
+            transform: ({ state, match, range }) => {
               const replaceWith = inputRule.replace({
                 match,
-                range: { from: start, to: end },
+                range,
                 editor: this.editor,
               });
               if (replaceWith) {
@@ -504,7 +465,7 @@ export class ExtensionManager {
                   return null;
                 }
 
-                tr.deleteRange(start, end);
+                tr.deleteRange(range.from, range.to);
                 updateBlockTr(tr, blockInfo.bnBlock.beforePos, replaceWith);
                 // updateBlockTr's replaceWith path leaves the selection after
                 // the new block when the content is replaced wholesale (e.g.
@@ -518,8 +479,7 @@ export class ExtensionManager {
               }
               return null;
             },
-            { undoable: true },
-          );
+          } satisfies AutomaticInputRule;
         }),
       );
     }

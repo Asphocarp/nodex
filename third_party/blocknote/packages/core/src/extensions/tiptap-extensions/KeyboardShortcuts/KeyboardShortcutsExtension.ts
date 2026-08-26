@@ -22,6 +22,7 @@ import {
   getBlockInfoFromSelection,
 } from "../../../api/getBlockInfoFromPos.js";
 import { BlockNoteEditor } from "../../../editor/BlockNoteEditor.js";
+import { undoAutomaticInputRule } from "../../AutomaticInputRules/AutomaticInputRules.js";
 import { FormattingToolbarExtension } from "../../FormattingToolbar/FormattingToolbar.js";
 import { FilePanelExtension } from "../../FilePanel/FilePanel.js";
 
@@ -39,8 +40,11 @@ export const KeyboardShortcutsExtension = Extension.create<{
       this.editor.commands.first(({ chain, commands }) => [
         // Deletes the selection if it's not empty.
         () => commands.deleteSelection(),
-        // Undoes an input rule if one was triggered in the last editor state change.
-        () => commands.undoInputRule(),
+        // Restores the literal input for the most recent automatic transform.
+        () =>
+          commands.command(({ state, dispatch }) =>
+            undoAutomaticInputRule(state, dispatch, this.editor.view),
+          ),
         // Reverts block content type to a paragraph if the selection is at the start of the block.
         () =>
           commands.command(({ state }) => {

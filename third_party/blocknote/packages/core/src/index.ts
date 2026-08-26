@@ -37,6 +37,11 @@ export { selectedFragmentToHTML } from "./api/clipboard/toClipboard/copyExtensio
 export * from "./api/nodeConversions/blockToNode.js";
 export * from "./api/nodeConversions/nodeToBlock.js";
 export * from "./extensions/tiptap-extensions/UniqueID/UniqueID.js";
+export {
+  autolink as createAutomaticAutolinkPlugin,
+  type AutolinkOptions,
+  type AutolinkToken,
+} from "./extensions/tiptap-extensions/Link/helpers/autolink.js";
 
 // for server-util (TODO: maybe move):
 export * from "./api/exporters/markdown/markdownExporter.js";

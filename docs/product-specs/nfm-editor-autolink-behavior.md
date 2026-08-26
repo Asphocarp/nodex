@@ -1,7 +1,7 @@
 # NFM Editor Autolink Behavior
 
 Status: Active
-Last Updated: 2026-03-10
+Last Updated: 2026-08-26
 
 This document describes the current automatic link-recognition behavior inside the NFM / BlockNote editor.
 
@@ -143,6 +143,11 @@ Rejected patterns include:
 This is a product decision, not a generic URL standard. The goal is to reduce false positives in code- and repo-heavy text.
 
 ## Typing Behavior
+
+Typing autolink participates in the independent automatic-transform Undo and
+Redo contract defined by [NFM Editor Automatic Transform History
+Behavior](nfm-editor-automatic-transform-history-behavior.md). URL recognition
+and paste behavior remain owned by this document.
 
 While typing, autolink only applies when:
 
