@@ -166,7 +166,7 @@ export function PagesTabPicker({
       }}
     >
       <NodexTooltip tooltipContent="Open Page, Database, or Canvas" side="bottom">
-        <NodexPopoverTrigger asChild>
+        <NodexPopoverTrigger>
           {triggerButton ?? (
             <button
               type="button"
@@ -184,10 +184,7 @@ export function PagesTabPicker({
         align="start"
         sideOffset={6}
         className="w-[360px] max-w-[calc(100vw-24px)] overflow-hidden p-0"
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
-          inputRef.current?.focus();
-        }}
+        initialFocus={inputRef}
       >
         <div className="flex h-10 items-center gap-2 border-b border-token-border px-3">
           <SearchIcon className="icon-sm shrink-0 text-token-text-tertiary" />

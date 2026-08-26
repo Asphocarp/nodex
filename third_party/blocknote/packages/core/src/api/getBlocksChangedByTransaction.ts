@@ -1,6 +1,6 @@
 import { combineTransactionSteps } from "@tiptap/core";
 import deepEqual from "fast-deep-equal";
-import type { Node } from "prosemirror-model";
+import { Fragment, type Node } from "prosemirror-model";
 import type { Transaction } from "prosemirror-state";
 import {
   Block,
@@ -11,9 +11,12 @@ import {
 import type { BlockSchema } from "../schema/index.js";
 import type { InlineContentSchema } from "../schema/inlineContent/types.js";
 import type { StyleSchema } from "../schema/styles/types.js";
+import {
+  getNodeId,
+  isSuggestedDeletionNode,
+} from "./getBlockInfoFromPos.js";
 import { nodeToBlock } from "./nodeConversions/nodeToBlock.js";
 import { isNodeBlock } from "./nodeUtil.js";
-import { getPmSchema } from "./pmUtil.js";
 
 /**
  * Change detection utilities for BlockNote.
@@ -40,7 +43,7 @@ function getParentBlockId(doc: Node, pos: number): string | undefined {
   for (let i = resolvedPos.depth; i > 0; i--) {
     const parent = resolvedPos.node(i);
     if (isNodeBlock(parent)) {
-      return parent.attrs.id;
+      return getNodeId(parent, doc);
     }
   }
   return undefined;
@@ -163,6 +166,69 @@ type BlockSnapshot<
   childrenByParent: Record<string, string[]>;
 };
 
+const TRANSIENT_SNAPSHOT_ID_PREFIX = "__blocknote-change-snapshot__";
+
+class UnassignedBlockIdInSnapshot extends Error {}
+
+function collectAssignedBlockIds(docs: readonly Node[]): Set<string> {
+  const ids = new Set<string>();
+  for (const doc of docs) {
+    doc.descendants((node) => {
+      if (isNodeBlock(node) && node.attrs.id) {
+        ids.add(node.attrs.id);
+      }
+      return true;
+    });
+  }
+  return ids;
+}
+
+/**
+ * Makes a read-only snapshot safe to inspect before UniqueID's
+ * `appendTransaction` has assigned persistent IDs. Split, paste, and copy-drop
+ * transactions all legitimately contain transient ID-less blocks while
+ * ProseMirror `filterTransaction` hooks are running.
+ *
+ * Before and after snapshots intentionally use disjoint namespaces. If an
+ * already-ID-less block somehow survives across both documents, treating it as
+ * delete + insert is safer than inventing continuity for owner-bound blocks.
+ * These IDs exist only in the copied snapshot and are never dispatched.
+ */
+function materializeTransientSnapshotIds(
+  doc: Node,
+  phase: "before" | "after",
+  assignedIds: ReadonlySet<string>,
+): Node {
+  const usedIds = new Set(assignedIds);
+  let sequence = 0;
+  const allocateId = () => {
+    let candidate = `${TRANSIENT_SNAPSHOT_ID_PREFIX}:${phase}:${sequence++}`;
+    while (usedIds.has(candidate)) {
+      candidate = `${TRANSIENT_SNAPSHOT_ID_PREFIX}:${phase}:${sequence++}`;
+    }
+    usedIds.add(candidate);
+    return candidate;
+  };
+  const copyNode = (node: Node): Node => {
+    if (node.isText) {
+      return node;
+    }
+    const children: Node[] = [];
+    node.forEach((child) => children.push(copyNode(child)));
+    const content = Fragment.fromArray(children);
+    if (!isNodeBlock(node) || node.attrs.id) {
+      return node.copy(content);
+    }
+    return node.type.create(
+      { ...node.attrs, id: allocateId() },
+      content,
+      node.marks,
+    );
+  };
+
+  return copyNode(doc);
+}
+
 /**
  * Collects a snapshot of blocks and per-parent child order in a single traversal.
  * Uses "__root__" to represent the root level where parentId is undefined.
@@ -181,19 +247,29 @@ function collectSnapshot<
     }
   > = {};
   const childrenByParent: Record<string, string[]> = {};
-  const pmSchema = getPmSchema(doc);
   doc.descendants((node, pos) => {
     if (!isNodeBlock(node)) {
       return true;
+    }
+    // Suggested-deletion copies are attribution rendering artifacts, not
+    // document blocks. Their duplicated, position-derived IDs are unstable as
+    // surrounding content moves, so neither they nor their children belong in
+    // a semantic change snapshot.
+    if (isSuggestedDeletionNode(node)) {
+      return false;
+    }
+    if (!node.attrs.id) {
+      throw new UnassignedBlockIdInSnapshot();
     }
     const parentId = getParentBlockId(doc, pos);
     const key = parentId ?? ROOT_KEY;
     if (!childrenByParent[key]) {
       childrenByParent[key] = [];
     }
-    const block = nodeToBlock(node, pmSchema);
-    byId[node.attrs.id] = { block, parentId };
-    childrenByParent[key].push(node.attrs.id);
+    const block = nodeToBlock(node, doc);
+    const nodeId = getNodeId(node, doc);
+    byId[nodeId] = { block, parentId };
+    childrenByParent[key].push(nodeId);
     return true;
   });
   return { byId, childrenByParent };
@@ -347,11 +423,34 @@ export function getBlocksChangedByTransaction<
     ...appendedTransactions,
   ]);
 
-  const prevSnap = collectSnapshot<BSchema, ISchema, SSchema>(
+  let assignedIds: Set<string> | undefined;
+  const collectTransactionSnapshot = (
+    doc: Node,
+    phase: "before" | "after",
+  ) => {
+    try {
+      return collectSnapshot<BSchema, ISchema, SSchema>(doc);
+    } catch (error) {
+      if (!(error instanceof UnassignedBlockIdInSnapshot)) {
+        throw error;
+      }
+      assignedIds ??= collectAssignedBlockIds([
+        combinedTransaction.before,
+        combinedTransaction.doc,
+      ]);
+      return collectSnapshot<BSchema, ISchema, SSchema>(
+        materializeTransientSnapshotIds(doc, phase, assignedIds),
+      );
+    }
+  };
+
+  const prevSnap = collectTransactionSnapshot(
     combinedTransaction.before,
+    "before",
   );
-  const nextSnap = collectSnapshot<BSchema, ISchema, SSchema>(
+  const nextSnap = collectTransactionSnapshot(
     combinedTransaction.doc,
+    "after",
   );
 
   const changes: BlocksChanged<BSchema, ISchema, SSchema> = [];

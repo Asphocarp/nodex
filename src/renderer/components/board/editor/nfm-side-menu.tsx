@@ -801,7 +801,7 @@ function NfmSideMenuRow({
         }
       }}
     >
-      <NodexPopoverAnchor asChild>{rowElement}</NodexPopoverAnchor>
+      <NodexPopoverAnchor>{rowElement}</NodexPopoverAnchor>
       <NfmEditorPopoverContent
         side="right"
         align="start"
@@ -1096,7 +1096,7 @@ function NfmSideMenuSubmenu({
               setCardInOpen(false);
             }}
           >
-            <NodexPopoverAnchor asChild>
+            <NodexPopoverAnchor>
               <NfmSideMenuSubmenuRow
                 ref={cardInRowRef}
                 leftSlot={<NfmSideMenuPageInIcon />}

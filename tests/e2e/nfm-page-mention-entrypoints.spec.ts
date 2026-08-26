@@ -7,8 +7,8 @@ import { focusBoardDenseUi } from "../../scripts/scenarios/scenarios/board-dense
 const primaryShortcut = (key: string): string =>
   `${process.platform === "darwin" ? "Meta" : "Control"}+${key}`;
 
-const focusEditableBlockEnd = async (block: Locator): Promise<void> => {
-  await block.evaluate((element) => {
+const focusEditableBlockEnd = async (page: Page, block: Locator): Promise<void> => {
+  const point = await block.evaluate((element) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     let editableText: Text | null = null;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -18,13 +18,14 @@ const focusEditableBlockEnd = async (block: Locator): Promise<void> => {
     }
     if (!editableText) throw new Error("Block has no editable text boundary");
     const range = document.createRange();
-    range.setStart(editableText, editableText.data.length);
-    range.collapse(true);
-    const selection = globalThis.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    element.closest<HTMLElement>('.ProseMirror[contenteditable="true"]')?.focus();
+    const offset = Math.max(0, editableText.data.length - 1);
+    range.setStart(editableText, offset);
+    range.setEnd(editableText, editableText.data.length);
+    const rect = range.getBoundingClientRect();
+    return { x: rect.right - 1, y: rect.top + rect.height / 2 };
   });
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.press("End");
 };
 
 const waitForMentionOrFailure = async (page: Page, mention: Locator): Promise<void> => {
@@ -57,7 +58,7 @@ test("opens an empty-query Page destination flow and resumes the mention session
         .locator(".bn-block[data-id]")
         .filter({ hasText: "Keep Board and Page views convergent." })
         .first();
-      await focusEditableBlockEnd(sourceBlock);
+      await focusEditableBlockEnd(page, sourceBlock);
       await page.keyboard.press("Enter");
       await page.keyboard.type("@");
 
@@ -97,7 +98,7 @@ test("creates Page mentions atomically under current and chosen parent Pages", a
         .locator(".bn-block[data-id]")
         .filter({ hasText: "Keep Board and Page views convergent." })
         .first();
-      await focusEditableBlockEnd(sourceBlock);
+      await focusEditableBlockEnd(page, sourceBlock);
       await page.keyboard.press("Enter");
 
       const title = "E2E atomic mention child";
@@ -130,7 +131,7 @@ test("creates Page mentions atomically under current and chosen parent Pages", a
       const destinationPageId = manifest.pageIdsByKey.boundedProjection;
       if (!destinationPageId) throw new Error("board/dense has no destination Page");
       const remoteTitle = "E2E remote mention child";
-      await focusEditableBlockEnd(sourceBlock);
+      await focusEditableBlockEnd(page, sourceBlock);
       await page.keyboard.press("Enter");
       await page.keyboard.type(`+${remoteTitle}`);
       await page

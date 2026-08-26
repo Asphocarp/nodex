@@ -79,10 +79,10 @@ export interface TurnDiffFileSidePanelTarget {
 }
 
 const TURN_DIFF_PREVIEW_TOOLTIP_WIDTH =
-  "clamp(0px, calc(var(--radix-tooltip-trigger-width, 0px) - 64px), var(--radix-tooltip-content-available-width, 100vw))";
+  "clamp(0px, calc(var(--nodex-floating-surface-anchor-width, 0px) - 64px), var(--nodex-floating-surface-available-width, 100vw))";
 
 const TURN_DIFF_PREVIEW_TOOLTIP_MAX_HEIGHT =
-  "min(420px, var(--radix-tooltip-content-available-height, 420px), calc(100vh - 16px))";
+  "min(420px, var(--nodex-floating-surface-available-height, 420px), calc(100vh - 16px))";
 
 const TURN_DIFF_PREVIEW_TOOLTIP_STYLE: CSSProperties = {
   width: TURN_DIFF_PREVIEW_TOOLTIP_WIDTH,
@@ -264,7 +264,7 @@ function TurnDiffFileRow({
   return (
     <div className={cn(deferOffscreenRendering && "thread-diff-virtualized")}>
       <NodexTooltip
-        delayDuration={800}
+        delay={800}
         disabled={disableHoverPreview || !row.fileDiff || row.isTooLarge}
         surface="rich"
         hoverable

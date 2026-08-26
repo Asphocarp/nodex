@@ -47,9 +47,9 @@ function RenameChatDialogContent({
     >
       <NodexDialogContent
         size="narrow"
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
+        initialFocus={() => {
           window.requestAnimationFrame(focusAndSelectInput);
+          return inputRef.current;
         }}
       >
         <NodexDialogForm

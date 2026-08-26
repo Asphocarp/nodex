@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
-import { render, settleAsyncRender, textContent } from "../../../../test/dom";
+import { openNodexMenu, render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
 import { useAutoReviewApprovalNudgeActions } from "../../auto-review-approval-nudge-state";
@@ -476,10 +476,7 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
     const menuTrigger = view.getByRole("button", { name: "Queued message actions" });
     expect((menuTrigger as HTMLButtonElement).disabled).toBe(false);
-    await act(async () => {
-      fireEvent.keyDown(menuTrigger, { key: "Enter", code: "Enter" });
-      await settleAsyncRender();
-    });
+    await openNodexMenu(menuTrigger);
     const item = await view.findByText("Turn on queueing");
     await act(async () => {
       fireEvent.click(item);

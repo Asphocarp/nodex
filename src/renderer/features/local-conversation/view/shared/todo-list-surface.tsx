@@ -147,7 +147,7 @@ function resolveActiveStepIndex(steps: TodoStep[], completedCount: number): numb
 
 function TodoListCompactTooltip({ steps }: { steps: TodoStep[] }) {
   return (
-    <div className="flex max-h-[min(var(--radix-tooltip-content-available-height),calc(100vh-16px))] min-h-0 max-w-80 flex-1 flex-col overflow-hidden rounded-xl">
+    <div className="flex max-h-[min(var(--nodex-floating-surface-available-height),calc(100vh-16px))] min-h-0 max-w-80 flex-1 flex-col overflow-hidden rounded-xl">
       <div className="vertical-scroll-fade-mask flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 py-2 [--edge-fade-distance:1rem]">
         {steps.map((step, index) => (
           <div key={`${index}:${step.step}`} className="flex max-w-80 min-w-0 items-start gap-2">
@@ -227,14 +227,14 @@ export function TodoListCompactPillContent({ item }: TodoListSurfaceProps) {
 
   return (
     <NodexTooltip
-      delayDuration={0}
+      delay={0}
       hoverable
       surface="rich"
       side="top"
       sideOffset={8}
       tooltipContent={<TodoListCompactTooltip steps={steps} />}
       style={{
-        maxWidth: "min(24rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
+        maxWidth: "min(24rem, var(--nodex-floating-surface-available-width), calc(100vw - 16px))",
       }}
     >
       <span className="inline-flex max-w-full min-w-0 cursor-interaction hover:text-token-foreground">

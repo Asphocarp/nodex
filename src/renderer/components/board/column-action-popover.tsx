@@ -179,7 +179,7 @@ export function ColumnActionPopover({
   return (
     <NodexPopover open={open} onOpenChange={setOpen}>
       <NodexTooltip tooltipContent={`More options for ${columnName}`} side="bottom">
-        <NodexPopoverTrigger asChild>
+        <NodexPopoverTrigger>
           <button
             type="button"
             aria-label={`More options for ${columnName}`}
@@ -201,12 +201,7 @@ export function ColumnActionPopover({
         </NodexPopoverTrigger>
       </NodexTooltip>
 
-      <NodexPopoverContent
-        side="bottom"
-        align="end"
-        className="w-52"
-        onOpenAutoFocus={(event) => event.preventDefault()}
-      >
+      <NodexPopoverContent side="bottom" align="end" className="w-52" initialFocus={false}>
         <ColumnActionPopoverContent
           columnName={columnName}
           collapsed={collapsed}

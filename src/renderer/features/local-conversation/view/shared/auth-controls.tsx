@@ -106,7 +106,7 @@ export function AuthPopover({
 
   return (
     <NodexPopover>
-      <NodexPopoverTrigger asChild>
+      <NodexPopoverTrigger>
         <button
           type="button"
           className="h-5 shrink-0 rounded-full bg-(--foreground) px-2 text-xs font-medium text-(--background) outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-(--ring)"

@@ -83,7 +83,7 @@ export function NfmCompactLinkToolbar({
       tabIndex={0}
       className={NFM_LINK_TOOLBAR_CLASS}
     >
-      <NodexTooltip tooltipContent={href} side="top" delayDuration={0}>
+      <NodexTooltip tooltipContent={href} side="top" delay={0}>
         <span
           className="max-w-[220px] truncate px-2 text-xs text-token-text-secondary"
           data-testid="nfm-link-toolbar-preview"
@@ -92,7 +92,7 @@ export function NfmCompactLinkToolbar({
         </span>
       </NodexTooltip>
 
-      <NodexTooltip tooltipContent={editTooltip} side="top" delayDuration={0}>
+      <NodexTooltip tooltipContent={editTooltip} side="top" delay={0}>
         <button
           type="button"
           contentEditable={false}
@@ -109,7 +109,7 @@ export function NfmCompactLinkToolbar({
         </button>
       </NodexTooltip>
 
-      <NodexTooltip tooltipContent={clearTooltip} side="top" delayDuration={0}>
+      <NodexTooltip tooltipContent={clearTooltip} side="top" delay={0}>
         <button
           type="button"
           contentEditable={false}
@@ -132,7 +132,7 @@ export function NfmCompactLinkToolbar({
         className="mx-1 h-3 w-px shrink-0 bg-token-border-default p-0"
       />
 
-      <NodexTooltip tooltipContent={copyActionTooltip} side="top" delayDuration={0}>
+      <NodexTooltip tooltipContent={copyActionTooltip} side="top" delay={0}>
         <button
           type="button"
           contentEditable={false}
@@ -157,7 +157,7 @@ export function NfmCompactLinkToolbar({
         </button>
       </NodexTooltip>
 
-      <NodexTooltip tooltipContent={openActionTooltip} side="top" delayDuration={0}>
+      <NodexTooltip tooltipContent={openActionTooltip} side="top" delay={0}>
         <span className="inline-flex h-full" tabIndex={canOpen ? undefined : 0}>
           <button
             type="button"

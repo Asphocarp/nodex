@@ -93,7 +93,7 @@ export function McpCapabilityViewFrame({
         <NodexTooltip
           tooltipContent={isExpanded ? "Exit fullscreen" : "Open fullscreen"}
           side="top"
-          delayDuration={0}
+          delay={0}
         >
           <button
             type="button"

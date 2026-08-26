@@ -1820,10 +1820,10 @@ export function ThreadSummaryPanelSurface({
           src={previewImage.src}
           alt={previewImage.row.label}
           allowLocalPath
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
+          finalFocus={() => {
             previewReturnFocusRef.current?.focus();
             previewReturnFocusRef.current = null;
+            return false;
           }}
         />
       ) : null}
@@ -1882,7 +1882,7 @@ export function ThreadSummaryPanelPopover({
   return (
     <NodexPopover open={open} onOpenChange={handleOpenChange}>
       <NodexTooltip tooltipContent="Toggle summary" side="bottom">
-        <NodexPopoverTrigger asChild>
+        <NodexPopoverTrigger>
           <ThreadSummaryPanelToggleButton label="Toggle summary" pressed={open} />
         </NodexPopoverTrigger>
       </NodexTooltip>
@@ -1898,7 +1898,7 @@ export function ThreadSummaryPanelPopover({
       >
         <div
           data-thread-summary-panel-mode="popover"
-          className="flex max-h-[min(var(--radix-popover-content-available-height),calc(100vh-16px))] flex-col"
+          className="flex max-h-[min(var(--nodex-floating-surface-available-height),calc(100vh-16px))] flex-col"
           style={{ width: CODEX_SUMMARY_PANEL_WIDTH }}
         >
           <ThreadSummaryPanelSurface {...props} isVisible />

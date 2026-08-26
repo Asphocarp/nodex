@@ -18,7 +18,6 @@ import {
   DefaultStyleSchema,
   PartialBlock,
 } from "../blocks/index.js";
-import type { CollaborationOptions } from "../extensions/Collaboration/Collaboration.js";
 import {
   BlockChangeExtension,
   DropCursorOptions,
@@ -43,7 +42,11 @@ import "../style.css";
 import { mergeCSSClasses } from "../util/browser.js";
 import { EventEmitter } from "../util/EventEmitter.js";
 import type { NoInfer } from "../util/typescript.js";
-import { ExtensionFactoryInstance } from "./BlockNoteExtension.js";
+import {
+  Extension,
+  ExtensionFactory,
+  ExtensionFactoryInstance,
+} from "./BlockNoteExtension.js";
 import type { TextCursorPosition } from "./cursorPositionTypes.js";
 import {
   getEditorInteractionOwnership,
@@ -86,12 +89,6 @@ export interface BlockNoteEditorOptions<
    * @default false
    */
   autofocus?: FocusPosition;
-
-  /**
-   * When enabled, allows for collaboration between multiple users.
-   * See [Real-time Collaboration](https://www.blocknotejs.org/docs/advanced/real-time-collaboration) for more info.
-   */
-  collaboration?: CollaborationOptions;
 
   /**
    * Use default BlockNote font and reset the styles of <p> <li> <h1> elements etc., that are used in BlockNote.
@@ -198,10 +195,7 @@ export interface BlockNoteEditorOptions<
    * @deprecated, provide placeholders via dictionary instead
    * @internal
    */
-  placeholders?: Record<
-    string | "default" | "emptyDocument",
-    string | undefined
-  >;
+  placeholders?: Record<string, string | undefined>;
 
   /**
    * Custom paste handler that can be used to override the default paste behavior.
@@ -519,17 +513,6 @@ export class BlockNoteEditor<
 
     const tiptapExtensions = this._extensionManager.getTiptapExtensions();
 
-    const collaborationEnabled =
-      this._extensionManager.hasExtension("ySync") ||
-      this._extensionManager.hasExtension("liveblocksExtension");
-
-    if (collaborationEnabled && newOptions.initialContent) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        "When using Collaboration, initialContent might cause conflicts, because changes should come from the collaboration provider",
-      );
-    }
-
     const tiptapOptions: EditorOptions = {
       ...blockNoteTipTapOptions,
       ...newOptions._tiptapOptions,
@@ -537,12 +520,14 @@ export class BlockNoteEditor<
       autofocus: newOptions.autofocus ?? false,
       extensions: tiptapExtensions,
       editorProps: {
+        scrollMargin: { top: 72, bottom: 72, left: 0, right: 0 },
         ...newOptions._tiptapOptions?.editorProps,
         attributes: {
           // As of TipTap v2.5.0 the tabIndex is removed when the editor is not
           // editable, so you can't focus it. We want to revert this as we have
           // UI behaviour that relies on it.
           tabIndex: "0",
+          // eslint-disable-next-line @typescript-eslint/no-misused-spread
           ...newOptions._tiptapOptions?.editorProps?.attributes,
           ...newOptions.domAttributes?.editor,
           class: mergeCSSClasses(
@@ -556,29 +541,24 @@ export class BlockNoteEditor<
     } as any;
 
     try {
-      const initialContent =
-        newOptions.initialContent ||
-        (collaborationEnabled
-          ? [
-              {
-                type: "paragraph",
-                id: "initialBlockId",
-              },
-            ]
-          : [
-              {
-                type: "paragraph",
-                id: this.generateBlockId(),
-              },
-            ]);
+      const initialContent = newOptions.initialContent || [
+        {
+          type: "paragraph",
+          id: this.generateBlockId(),
+        },
+      ];
 
       if (!Array.isArray(initialContent) || initialContent.length === 0) {
         throw new Error(
           "initialContent must be a non-empty array of blocks, received: " +
-            initialContent,
+            JSON.stringify(initialContent),
         );
       }
       const schema = getSchema(tiptapOptions.extensions!);
+      // `blockToNode` (via `isPlainContentNodeType`) resolves the block schema
+      // through `schema.cached.blockNoteEditor`, so stamp it on this throwaway
+      // schema now — the real `pmSchema` is stamped separately below.
+      schema.cached.blockNoteEditor = this;
       const pmNodes = initialContent.map((b) =>
         blockToNode(
           b,
@@ -613,25 +593,6 @@ export class BlockNoteEditor<
       );
     }
 
-    // When y-prosemirror creates an empty document, the `blockContainer` node is created with an `id` of `null`.
-    // This causes the unique id extension to generate a new id for the initial block, which is not what we want
-    // Since it will be randomly generated & cause there to be more updates to the ydoc
-    // This is a hack to make it so that anytime `schema.doc.createAndFill` is called, the initial block id is already set to "initialBlockId"
-    let cache: Node | undefined = undefined;
-    const oldCreateAndFill = this.pmSchema.nodes.doc.createAndFill;
-    this.pmSchema.nodes.doc.createAndFill = (...args: any) => {
-      if (cache) {
-        return cache;
-      }
-      const ret = oldCreateAndFill.apply(this.pmSchema.nodes.doc, args)!;
-
-      // create a copy that we can mutate (otherwise, assigning attrs is not safe and corrupts the pm state)
-      const jsonNode = JSON.parse(JSON.stringify(ret.toJSON()));
-      jsonNode.content[0].content[0].attrs.id = "initialBlockId";
-
-      cache = Node.fromJSON(this.pmSchema, jsonNode);
-      return cache;
-    };
     this.pmSchema.cached.blockNoteEditor = this;
 
     this._tiptapEditor.on("mount", () => {
@@ -746,11 +707,36 @@ export class BlockNoteEditor<
   ) => this._extensionManager.registerExtension(...args) as any;
 
   /**
+   * Atomically unregister old extensions and register new ones in a single
+   * plugin update, avoiding re-entrant dispatch issues.
+   */
+  public replaceExtension: ExtensionManager["replaceExtension"] = (
+    ...args: Parameters<ExtensionManager["replaceExtension"]>
+  ) => this._extensionManager.replaceExtension(...args);
+
+  /**
    * Get an extension from the editor
    */
-  public getExtension: ExtensionManager["getExtension"] = ((
-    ...args: Parameters<ExtensionManager["getExtension"]>
-  ) => this._extensionManager.getExtension(...args)) as any;
+  // Declared as an explicit intersection of the two `ExtensionManager`
+  // overloads rather than `ExtensionManager["getExtension"]`: indexed access on
+  // an overloaded method collapses the signatures, which widened the factory
+  // overload's `ReturnType<ReturnType<T>>` result to `any` (losing e.g. a
+  // returned extension's `store` type).
+  public getExtension: (<
+    const Ext extends Extension | ExtensionFactory = Extension,
+  >(
+    extension: string,
+  ) =>
+    | (Ext extends Extension
+        ? Ext
+        : Ext extends ExtensionFactory
+          ? ReturnType<ReturnType<Ext>>
+          : never)
+    | undefined) &
+    (<const T extends ExtensionFactory>(
+      extension: T,
+    ) => ReturnType<ReturnType<T>> | undefined) = ((extension: any) =>
+    this._extensionManager.getExtension(extension)) as any;
 
   /**
    * Mount the editor to a DOM element.
@@ -802,7 +788,7 @@ export class BlockNoteEditor<
    * Unmount the editor from the DOM element it is bound to
    */
   public unmount = () => {
-    this.portalElement?.remove();
+    this._portalElement?.remove();
     this._tiptapEditor.unmount();
     this.clearMountedInteractionRoots();
   };

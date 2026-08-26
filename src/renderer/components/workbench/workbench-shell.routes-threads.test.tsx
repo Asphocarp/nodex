@@ -397,6 +397,7 @@ describe("workbench session shell / routes-threads", () => {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.click(within(dbToolbarTabList).getByRole("tab", { name: "List" }));
       await Promise.resolve();
     });
     await settleAsyncRender();

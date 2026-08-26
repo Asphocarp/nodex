@@ -27,14 +27,19 @@ let nextWindowId = 1;
 class FakeBrowserWindow extends EventEmitter {
   readonly id = nextWindowId++;
   private destroyed = false;
+  readonly #webContents = Object.assign(new EventEmitter(), {
+    id: this.id + 100,
+    setWindowOpenHandler: () => undefined,
+  }) as unknown as WebContents;
   showCount = 0;
   constructor(private readonly loadFailure: Error | null = null) {
     super();
   }
-  readonly webContents = Object.assign(new EventEmitter(), {
-    id: this.id + 100,
-    setWindowOpenHandler: () => undefined,
-  }) as unknown as WebContents;
+
+  get webContents(): WebContents {
+    if (this.destroyed) throw new TypeError("Object has been destroyed");
+    return this.#webContents;
+  }
 
   destroy(): void {
     if (this.destroyed) return;
@@ -158,6 +163,59 @@ describe("ApplicationWindowShellRuntime", () => {
 
         shell.reportRenderer(opened[1]!.webContents.id);
         yield* Fiber.join(tertiary);
+        shell.reportRenderer(opened[2]!.webContents.id);
+
+        const dynamicSession = session("dynamic", 4);
+        sessions.push(dynamicSession);
+        const dynamic = shell.create(dynamicSession);
+        const [dynamicLease] = shell.claimPendingActivation();
+        expect(dynamicLease?.window).toBe(dynamic);
+        shell.completeActivation(dynamic.webContents.id);
+        yield* shell.awaitActivation(dynamic.webContents.id);
+      }),
+    );
+  });
+
+  it.effect("clears pending watchdogs after Electron destroys the window object", () => {
+    const sessions = [session("primary", 1)];
+    const windows = {
+      attach: (_window: BrowserWindow, sessionId: string) =>
+        sessions.find((candidate) => candidate.id === sessionId)!,
+      markFocused: () => undefined,
+      selectStartupSessions: () => sessions,
+    } as unknown as WindowRuntimeService;
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const context = yield* Layer.build(
+          live({
+            createWindow: (_options: BrowserWindowConstructorOptions) =>
+              new FakeBrowserWindow() as unknown as BrowserWindow,
+            displays: {
+              getAllDisplays: () => [
+                {
+                  bounds: { height: 1_080, width: 1_920, x: 0, y: 0 },
+                  scaleFactor: 2,
+                } as Display,
+              ],
+              getDisplayMatching: () => ({ scaleFactor: 2 }) as Display,
+              getPrimaryDisplay: () => ({ scaleFactor: 2 }) as Display,
+            },
+            iconPath: "",
+            platform: "darwin",
+            preloadPath: "/tmp/nodex-preload.js",
+            rendererUrl: "app://-/index.html",
+            theme: { prefersReducedTransparency: false, shouldUseDarkColors: false },
+            windows,
+          }),
+        );
+        const shell = Context.get(context, ApplicationWindowShellRuntime);
+        const [opened] = shell.openInitial("all");
+        if (!opened) throw new Error("Expected the initial window");
+
+        expect(() => opened.destroy()).not.toThrow();
+        yield* TestClock.adjust("2 seconds");
+        expect(shell.claimPendingActivation()).toEqual([]);
       }),
     );
   });

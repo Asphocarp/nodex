@@ -2034,7 +2034,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const fastOption = view.container.ownerDocument.body.querySelectorAll(
-      "[data-radix-collection-item]",
+      '[data-slot="dropdown-item"]',
     );
     const fastItem = Array.from(fastOption).find((node) => node.textContent?.includes("Fast"));
     if (!(fastItem instanceof HTMLElement)) {
@@ -2063,7 +2063,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const menuItems = Array.from(
-      view.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+      view.container.ownerDocument.body.querySelectorAll('[data-slot="dropdown-item"]'),
     );
     expect(menuItems.some((node) => node.textContent?.includes("Speed"))).toBe(false);
   });
@@ -4584,7 +4584,7 @@ describe("ThreadComposer speed menu", () => {
     });
     const visibleModelLabels = Array.from(
       view.container.ownerDocument.body.querySelectorAll<HTMLElement>(
-        "[data-radix-collection-item]",
+        '[data-slot="dropdown-item"]',
       ),
     )
       .map((item) => item.textContent?.trim())
@@ -4642,7 +4642,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const modelItem = Array.from(
-      modelView.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+      modelView.container.ownerDocument.body.querySelectorAll('[data-slot="dropdown-item"]'),
     ).find((node) => node.textContent?.includes("GPT-5.5"));
     if (!(modelItem instanceof HTMLElement)) {
       throw new Error("Expected the Model flyout to include GPT-5.5.");
@@ -4675,7 +4675,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const nextMenuItems = Array.from(
-      reasoningView.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+      reasoningView.container.ownerDocument.body.querySelectorAll('[data-slot="dropdown-item"]'),
     );
     const reasoningItem = nextMenuItems.find((node) => node.textContent?.includes("Medium"));
     if (!(reasoningItem instanceof HTMLElement)) {
@@ -4717,7 +4717,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const modelTrigger = Array.from(
-      view.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+      view.container.ownerDocument.body.querySelectorAll('[data-slot="dropdown-submenu-trigger"]'),
     ).find((node) => node.textContent?.includes("GPT-5.3 Codex"));
     if (!(modelTrigger instanceof HTMLElement)) {
       throw new Error("Expected the model selector to include the current model row.");
@@ -4729,7 +4729,7 @@ describe("ThreadComposer speed menu", () => {
     });
 
     const modelItem = Array.from(
-      view.container.ownerDocument.body.querySelectorAll("[data-radix-collection-item]"),
+      view.container.ownerDocument.body.querySelectorAll('[data-slot="dropdown-item"]'),
     ).find((node) => node.textContent?.includes("GPT-5.5"));
     if (!(modelItem instanceof HTMLElement)) {
       throw new Error("Expected the Model flyout to include GPT-5.5.");
@@ -4815,16 +4815,20 @@ describe("ThreadComposer speed menu", () => {
       await Promise.resolve();
     });
 
-    const modelMenuText = view.container.ownerDocument.body.textContent ?? "";
+    const modelMenu = Array.from(
+      view.container.ownerDocument.body.querySelectorAll<HTMLElement>(
+        '[data-slot="dropdown-submenu-content"]',
+      ),
+    ).find((content) => content.textContent?.includes("GPT-5.4-Mini"));
+    if (!modelMenu) throw new Error("Expected the Model flyout content.");
+    const modelMenuText = modelMenu.textContent ?? "";
     expect(Boolean(modelMenuText.includes("GPT-5.4-Mini"))).toBe(true);
     expect(Boolean(modelMenuText.includes("GPT-5.3-Codex-Spark"))).toBe(true);
     expect(Boolean(modelMenuText.includes("Other models"))).toBe(false);
     expect(Boolean(modelMenuText.includes("Latest Codex model"))).toBe(false);
     expect(Boolean(modelMenuText.includes("Previous stable Codex model"))).toBe(false);
     const visibleModelLabels = Array.from(
-      view.container.ownerDocument.body.querySelectorAll<HTMLElement>(
-        "[data-radix-collection-item]",
-      ),
+      modelMenu.querySelectorAll<HTMLElement>('[data-slot="dropdown-item"]'),
     )
       .map((item) => item.textContent?.trim())
       .filter(

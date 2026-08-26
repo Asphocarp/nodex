@@ -24,7 +24,7 @@ function TestMenu({ onResolve }: { readonly onResolve: (id: string) => void }) {
   );
   return (
     <NodexContextMenuRoot>
-      <NodexContextMenuTrigger asChild>
+      <NodexContextMenuTrigger>
         <button type="button">Target</button>
       </NodexContextMenuTrigger>
       <NodexContextMenuPortal>

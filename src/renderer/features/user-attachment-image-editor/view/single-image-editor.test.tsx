@@ -73,10 +73,13 @@ describe("SingleImageEditor", () => {
     expect(view.getAllByRole("button", { name: "Download" })).toHaveLength(1);
 
     await act(async () => {
-      fireEvent.pointerDown(await view.findByRole("button", { name: "Resize" }), {
+      const trigger = await view.findByRole("button", { name: "Resize" });
+      fireEvent.pointerDown(trigger, {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await settleAsyncRender();
     });
     expect(view.getByRole("menuitem", { name: /Square.*1:1/u })).toBeTruthy();
@@ -132,10 +135,13 @@ describe("SingleImageEditor", () => {
     expect(invokeCalls).toContainEqual(["shell:open-path-default", "/tmp/local-reference.png"]);
 
     await act(async () => {
-      fireEvent.pointerDown(view.getByRole("button", { name: "Open options" }), {
+      const trigger = view.getByRole("button", { name: "Open options" });
+      fireEvent.pointerDown(trigger, {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await settleAsyncRender();
     });
     await act(async () => {

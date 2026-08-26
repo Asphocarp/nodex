@@ -455,10 +455,9 @@ export function CodexProjectActionsMenu({
       <NodexDropdownMenu
         open={open}
         onOpenChange={setMenuOpen}
-        onCloseAutoFocus={(event) => {
-          if (!openEditAfterMenuCloseRef.current) return;
+        finalFocus={() => {
+          if (!openEditAfterMenuCloseRef.current) return true;
           openEditAfterMenuCloseRef.current = false;
-          event.preventDefault();
           void waitForProjectCatalogUpdates(project).then((editableProject) => {
             let expectedBindingRevision = editableProject.bindingRevision;
             openModal(appHandle, ProjectEditDialog, {
@@ -478,6 +477,7 @@ export function CodexProjectActionsMenu({
               onArchiveProject,
             });
           });
+          return false;
         }}
         side="bottom"
         align="start"

@@ -224,7 +224,8 @@ describe("codex sidebar thread row", () => {
     expect(icon).not.toBeNull();
     expect((icon as HTMLElement).dataset.phase).toBe("ready");
 
-    fireEvent.pointerMove(icon as Element);
+    fireEvent.pointerMove(icon as Element, { pointerType: "mouse" });
+    fireEvent.mouseEnter(icon as Element);
     await waitFor(() => {
       expect(view.getByRole("tooltip").textContent).toBe(
         "This conversation is running in a local git worktree.",

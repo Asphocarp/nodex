@@ -1,8 +1,8 @@
 import {
   createCodeBlockConfig,
-  createCodeBlockExtensions,
-  parseCodeBlockContent,
-  parseCodeBlockElement,
+  createCodeBlockSpec,
+  parsePreCode,
+  parsePreCodeContent,
   type CodeBlockOptions,
 } from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
@@ -78,9 +78,10 @@ export const createNfmCodeBlockSpec = createReactBlockSpec(
       code: true,
       defining: true,
       isolating: false,
+      highlight: (block) => block.props.language,
     },
-    parse: parseCodeBlockElement,
-    parseContent: ({ el, schema }) => parseCodeBlockContent(el, schema),
+    parse: parsePreCode,
+    parseContent: (options) => parsePreCodeContent(options, "codeBlock"),
     render: ({ block, contentRef }) => {
       const props = {
         blockId: block.id,
@@ -108,5 +109,5 @@ export const createNfmCodeBlockSpec = createReactBlockSpec(
       </pre>
     ),
   }),
-  (options) => createCodeBlockExtensions(options),
+  (options) => createCodeBlockSpec(options).extensions ?? [],
 );

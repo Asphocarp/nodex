@@ -286,7 +286,7 @@ export function CodexSetupContextRequestCardView({
 
       <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-4">
         <NodexPopover>
-          <NodexPopoverTrigger asChild>
+          <NodexPopoverTrigger>
             <button
               type="button"
               disabled={isLoading}

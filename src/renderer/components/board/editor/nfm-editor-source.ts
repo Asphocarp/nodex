@@ -1,3 +1,5 @@
+import type { BlockNoteEditorOptions } from "@blocknote/core";
+import { withCollaboration, type CollaborationOptions } from "@blocknote/core/yjs";
 import type { Awareness } from "y-protocols/awareness";
 import type { ContentAccessContext } from "../../../../shared/content-access-context";
 import { contentAccessContextKey } from "../../../../shared/content-access-context";
@@ -43,30 +45,29 @@ const resolveTransactionOrigin = (source: NfmEditorSource): object => {
   return origin;
 };
 
-export interface NfmEditorModeOptions {
-  readonly collaboration: {
-    readonly fragment: Y.XmlFragment;
-    readonly user: {
-      readonly name: string;
-      readonly color: string;
-    };
-    readonly provider?: {
-      readonly awareness?: Awareness;
-    };
-    readonly transactionOrigin: object;
+export function createNfmEditorCollaborationOptions(source: NfmEditorSource): CollaborationOptions {
+  return {
+    fragment: source.fragment,
+    user: source.user,
+    ...(source.provider ? { provider: source.provider } : {}),
+    transactionOrigin: resolveTransactionOrigin(source),
   };
-  readonly initialContent?: never;
 }
 
-export function createNfmEditorModeOptions(source: NfmEditorSource): NfmEditorModeOptions {
-  return {
-    collaboration: {
-      fragment: source.fragment,
-      user: source.user,
-      ...(source.provider ? { provider: source.provider } : {}),
-      transactionOrigin: resolveTransactionOrigin(source),
-    },
-  };
+/**
+ * Installs BlockNote's extension-backed collaboration mode around the complete
+ * editor option set so its history and extension decisions cannot be
+ * overwritten by later object spreads.
+ */
+export function createNfmEditorModeOptions<
+  Options extends Partial<BlockNoteEditorOptions<any, any, any>> = Partial<
+    BlockNoteEditorOptions<any, any, any>
+  >,
+>(source: NfmEditorSource, options?: Options): Options {
+  return withCollaboration({
+    ...(options ?? ({} as Options)),
+    collaboration: createNfmEditorCollaborationOptions(source),
+  });
 }
 
 const collaborativeFragmentIds = new WeakMap<Y.XmlFragment, number>();

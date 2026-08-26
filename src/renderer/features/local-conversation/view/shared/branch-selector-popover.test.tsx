@@ -40,7 +40,9 @@ describe("branch selector popover", () => {
       await settleAsyncRender();
     });
 
-    const content = view.container.ownerDocument.body.querySelector("[data-radix-menu-content]");
+    const content = view.container.ownerDocument.body.querySelector(
+      '[data-slot="dropdown-content"]',
+    );
     const popover = view.container.ownerDocument.body.querySelector(
       '[data-slot="popover-content"]',
     );

@@ -1,8 +1,8 @@
 import { SearchIcon } from "@/components/shared/icons";
 import { type ComponentType, type ReactNode, type RefObject } from "react";
 import { XCircle } from "@/components/shared/icons/generic-icons";
-import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { NodexIconButton } from "@/components/ui/button";
+import { NodexTabsList, NodexTabsRoot, NodexTabsTab } from "@/components/ui/tabs";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -84,14 +84,14 @@ export function DbViewToolbar({
     >
       <div className="pl-4 pr-2 pb-2">
         <div className="flex min-h-11 items-center gap-2">
-          <TabsPrimitive.Root
+          <NodexTabsRoot
             value={activeItem.id}
             onValueChange={(value) => {
               const nextItem = items.find((item) => item.id === value);
               nextItem?.onSelect();
             }}
           >
-            <TabsPrimitive.List
+            <NodexTabsList
               aria-label="Database views"
               className="hide-scrollbar -ml-1 flex min-w-0 items-center overflow-x-auto"
             >
@@ -99,7 +99,7 @@ export function DbViewToolbar({
                 const isActive = item.id === activeItem.id;
                 const Icon = item.icon;
                 return (
-                  <TabsPrimitive.Trigger
+                  <NodexTabsTab
                     key={item.id}
                     value={item.id}
                     aria-label={item.label}
@@ -135,11 +135,11 @@ export function DbViewToolbar({
                         <span className="block pl-1.5 pt-px text-left">{item.label}</span>
                       </span>
                     </span>
-                  </TabsPrimitive.Trigger>
+                  </NodexTabsTab>
                 );
               })}
-            </TabsPrimitive.List>
-          </TabsPrimitive.Root>
+            </NodexTabsList>
+          </NodexTabsRoot>
           {destinationItems.map((item) => {
             const Icon = item.icon;
             return (

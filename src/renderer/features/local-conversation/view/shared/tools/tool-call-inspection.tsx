@@ -151,7 +151,7 @@ export function ToolCallRawDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {triggerKind === "icon" ? (
-        <NodexTooltip tooltipContent={triggerLabel} side="top" delayDuration={0}>
+        <NodexTooltip tooltipContent={triggerLabel} side="top" delay={0}>
           {trigger}
         </NodexTooltip>
       ) : (
@@ -163,10 +163,7 @@ export function ToolCallRawDialog({
         tabIndex={-1}
         showCloseButton={false}
         aria-describedby={undefined}
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
-          contentRef.current?.focus();
-        }}
+        initialFocus={contentRef}
       >
         <DialogFrame>
           <DialogHeader className="gap-0">

@@ -793,7 +793,7 @@ function AppShellTab({
         side="bottom"
         align="start"
         style={{
-          maxWidth: "min(32rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
+          maxWidth: "min(32rem, var(--nodex-floating-surface-available-width), calc(100vw - 16px))",
         }}
       >
         <span className="flex min-w-0 items-center gap-1">
@@ -1086,7 +1086,7 @@ function AppShellTab({
         onCloseModeExit();
       }}
     >
-      <NodexContextMenuTrigger asChild>{chrome}</NodexContextMenuTrigger>
+      <NodexContextMenuTrigger>{chrome}</NodexContextMenuTrigger>
       <NodexContextMenuPortal>
         <NodexContextMenuContent className="min-w-36">
           {contextMenuItems.map((item) =>

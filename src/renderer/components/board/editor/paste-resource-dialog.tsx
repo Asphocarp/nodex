@@ -1,6 +1,6 @@
 import { FileIcon, FolderIcon, PageIcon } from "@/components/shared/icons";
 import { Link2 } from "@/components/shared/icons/generic-icons";
-import { useRef } from "react";
+import { useRef, type ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 import { canMaterializePasteResourceItems, type PasteResourceDialogState } from "./paste-resource";
 import {
@@ -21,7 +21,7 @@ interface PasteResourceDialogProps {
   pending?: boolean;
   error?: string | null;
   onOpenChange: (open: boolean) => void;
-  onCloseAutoFocus?: (event: Event) => void;
+  finalFocus?: ComponentProps<typeof DialogContent>["finalFocus"];
   onChooseMode: (mode: "materialized" | "link") => void;
   onContinueInline?: () => void;
 }
@@ -64,7 +64,7 @@ export function PasteResourceDialog({
   pending = false,
   error = null,
   onOpenChange,
-  onCloseAutoFocus,
+  finalFocus,
   onChooseMode,
   onContinueInline,
 }: PasteResourceDialogProps) {
@@ -88,14 +88,7 @@ export function PasteResourceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        size="wide"
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
-          primaryActionRef.current?.focus();
-        }}
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
+      <DialogContent size="wide" initialFocus={primaryActionRef} finalFocus={finalFocus}>
         <DialogFrame>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>

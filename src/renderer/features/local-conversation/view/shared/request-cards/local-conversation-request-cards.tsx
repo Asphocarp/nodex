@@ -464,7 +464,7 @@ function UserInputQuestionSection({
                             <NodexTooltip
                               tooltipContent={option.description}
                               side="top"
-                              delayDuration={0}
+                              delay={0}
                               tooltipBodyClassName="max-w-64"
                             >
                               <span

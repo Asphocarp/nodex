@@ -97,10 +97,13 @@ describe("PageStagePropertiesSection", () => {
     expect(view.queryByText("Project cwd")).toBeNull();
 
     await act(async () => {
-      fireEvent.pointerDown(view.getByRole("button", { name: "Add chat" }), {
+      const trigger = view.getByRole("button", { name: "Add chat" });
+      fireEvent.pointerDown(trigger, {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await Promise.resolve();
     });
     await act(async () => {
@@ -176,10 +179,13 @@ describe("PageStagePropertiesSection", () => {
     expect(handleRemoveRelatedChat).toHaveBeenCalledWith("session-threadless");
 
     await act(async () => {
-      fireEvent.pointerDown(view.getByRole("button", { name: "Add chat" }), {
+      const trigger = view.getByRole("button", { name: "Add chat" });
+      fireEvent.pointerDown(trigger, {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await Promise.resolve();
     });
     const linkExisting = view.getByRole("menuitem", { name: "Link to chat…" });

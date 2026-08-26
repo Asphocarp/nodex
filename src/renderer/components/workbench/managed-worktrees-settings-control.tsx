@@ -436,9 +436,9 @@ export function ManagedWorktreesSettingControl({
         <NodexDialogContent
           size="compact"
           showCloseButton={false}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
+          finalFocus={() => {
             disableDialogReturnFocusRef.current?.focus();
+            return false;
           }}
         >
           <NodexDialogFrame>

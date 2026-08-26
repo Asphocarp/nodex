@@ -536,7 +536,7 @@ export function DateMentionInlineContentView({
   return (
     <NodexPopover open={open} onOpenChange={setOpen}>
       <span className="inline align-baseline">
-        <NodexPopoverAnchor asChild>
+        <NodexPopoverAnchor>
           <span className="inline align-baseline">
             <DateMentionInlineVisual
               as="button"
@@ -569,7 +569,7 @@ export function DateMentionInlineContentView({
         side="top"
         align="start"
         className="w-auto min-w-[180px] max-w-[calc(100vw-24px)] overflow-hidden p-0 [animation-duration:200ms] [animation-timing-function:ease]"
-        onOpenAutoFocus={(event) => event.preventDefault()}
+        initialFocus={false}
       >
         <DateMentionPopoverBody props={props} onPatch={handlePatch} />
       </NodexPopoverContent>

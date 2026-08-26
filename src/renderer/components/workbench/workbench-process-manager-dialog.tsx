@@ -463,7 +463,7 @@ export function WorkbenchProcessManagerDialog({
           <NodexDialogTitle className="truncate text-center text-sm font-medium">
             Process Manager
           </NodexDialogTitle>
-          <NodexDialogClose asChild>
+          <NodexDialogClose>
             <NodexButton
               variant="ghost"
               size="icon-xs"

@@ -7,6 +7,7 @@ import {
   NFM_CODE_BLOCK_ACTIONS_SCENARIO_ID,
   NFM_CODE_BLOCK_ACTIONS_SOURCE,
 } from "../../scripts/scenarios/scenarios/nfm-code-block-actions";
+import { openBoardPageFromCard } from "./support/open-board-page";
 
 const primaryShortcut = (key: string): string =>
   `${process.platform === "darwin" ? "Meta" : "Control"}+${key}`;
@@ -32,11 +33,7 @@ async function focusCodeBlockScene(
     .evaluate((element) => (element as HTMLElement).click());
   await page.getByRole("tab", { name: "Project Home" }).waitFor();
   const card = page.locator(`[data-board-uuid-v7="${pageId}"]`);
-  await card.waitFor();
-  await card
-    .locator('[data-card-context-menu-trigger="true"]')
-    .evaluate((element) => (element as HTMLElement).click());
-  await page.getByRole("tab", { name: "Exercise Code Block actions" }).waitFor();
+  await openBoardPageFromCard({ card, page, tabName: "Exercise Code Block actions" });
 
   const editor = page.locator(`[data-page-stage-page-id="${pageId}"]:visible .nfm-editor`);
   const initialSurface = editor

@@ -5,10 +5,10 @@ import {
   useBlockNoteEditor,
   useComponentsContext,
 } from "@blocknote/react";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   createContext,
   forwardRef,
+  isValidElement,
   useContext,
   useId,
   useMemo,
@@ -26,8 +26,11 @@ import { NodexButton } from "@/components/ui/button";
 import {
   NodexDropdownContent,
   NodexDropdownItem,
+  NodexDropdownPortal,
+  NodexDropdownRoot,
   NodexDropdownSectionLabel,
   NodexDropdownSeparator,
+  NodexDropdownTrigger,
 } from "@/components/ui/dropdown";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
@@ -166,7 +169,7 @@ const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(function
       shortcutLabel={secondaryTooltip}
       side="top"
       sideOffset={6}
-      delayDuration={0}
+      delay={0}
     >
       {button}
     </NodexTooltip>
@@ -192,8 +195,8 @@ function ToolbarSelect({
   if (!selectedItem) return null;
 
   return (
-    <DropdownMenuPrimitive.Root modal={false}>
-      <DropdownMenuPrimitive.Trigger asChild disabled={isDisabled}>
+    <NodexDropdownRoot>
+      <NodexDropdownTrigger disabled={isDisabled}>
         <button
           type="button"
           contentEditable={false}
@@ -212,15 +215,13 @@ function ToolbarSelect({
           <span className="min-w-0 flex-1 truncate text-left">{selectedItem.text}</span>
           <ChevronDownIcon className="size-3 shrink-0 text-token-text-secondary" />
         </button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
+      </NodexDropdownTrigger>
+      <NodexDropdownPortal>
         <NodexDropdownContent
           side="top"
           align="start"
           sideOffset={6}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-          }}
+          finalFocus={false}
           className="min-w-[13rem]"
         >
           <div dir="ltr">
@@ -248,8 +249,8 @@ function ToolbarSelect({
             ))}
           </div>
         </NodexDropdownContent>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+      </NodexDropdownPortal>
+    </NodexDropdownRoot>
   );
 }
 
@@ -263,31 +264,30 @@ function MenuRoot({
   onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <DropdownMenuPrimitive.Root modal={false} open={open} onOpenChange={onOpenChange}>
+    <NodexDropdownRoot open={open} onOpenChange={onOpenChange}>
       {children}
-    </DropdownMenuPrimitive.Root>
+    </NodexDropdownRoot>
   );
 }
 
 function MenuTrigger({ children }: { children?: ReactNode }) {
-  return <DropdownMenuPrimitive.Trigger asChild>{children}</DropdownMenuPrimitive.Trigger>;
+  if (!isValidElement(children)) return null;
+  return <NodexDropdownTrigger>{children}</NodexDropdownTrigger>;
 }
 
 function MenuDropdown({ children, className }: { children?: ReactNode; className?: string }) {
   return (
-    <DropdownMenuPrimitive.Portal>
+    <NodexDropdownPortal>
       <NodexDropdownContent
         side="top"
         align="start"
         sideOffset={6}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-        }}
+        finalFocus={false}
         className={cn("min-w-[13rem]", className)}
       >
         <div dir="ltr">{children}</div>
       </NodexDropdownContent>
-    </DropdownMenuPrimitive.Portal>
+    </NodexDropdownPortal>
   );
 }
 
@@ -346,7 +346,7 @@ function PopoverRoot({
 }
 
 function PopoverTrigger({ children }: { children?: ReactNode }) {
-  return <NodexPopoverTrigger asChild>{children}</NodexPopoverTrigger>;
+  return <NodexPopoverTrigger>{children}</NodexPopoverTrigger>;
 }
 
 function PopoverContent({
@@ -364,9 +364,7 @@ function PopoverContent({
       align="start"
       sideOffset={6}
       collisionPadding={8}
-      onCloseAutoFocus={(event) => {
-        event.preventDefault();
-      }}
+      finalFocus={false}
       className={cn(
         "overflow-hidden gap-0 p-0",
         variant === "panel-popover" ? "w-[18rem]" : "w-[16.5rem]",

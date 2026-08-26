@@ -1,7 +1,7 @@
 /**
- * Interactive submenu content is not a Radix MenuItem collection. When a
- * flipped submenu crosses its pointer-grace edge, Radix can briefly focus the
- * root menu before the pointer reaches the submenu. Preserve that transition;
+ * Interactive submenu content is not a MenuItem collection. When a flipped
+ * submenu crosses its pointer-grace edge, focus can briefly return to the root
+ * menu before the pointer reaches the submenu. Preserve that transition;
  * focus on another item or outside the menu still dismisses normally.
  */
 export const preserveInteractiveSubmenuRootFocus = (event: Event): void => {

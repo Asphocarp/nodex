@@ -99,11 +99,21 @@ export interface CodexQueuedFollowUpEnqueueInput {
   readonly summary?: CodexQueuedFollowUp["summary"];
 }
 
+export interface CodexQueuedFollowUpReadOptions {
+  /**
+   * Resume hydration targets the recovery replica until the renderer has
+   * atomically adopted ownership. Ordinary reads may project through the
+   * current renderer owner.
+   */
+  readonly projectionTarget?: "owner" | "replica";
+}
+
 export class CodexQueuedFollowUps extends Context.Service<
   CodexQueuedFollowUps,
   {
     readonly read: (
       threadId: string,
+      options?: CodexQueuedFollowUpReadOptions,
     ) => Effect.Effect<CodexQueuedFollowUpProjection, CodexQueuedFollowUpsError>;
     readonly list: (threadId: string) => readonly CodexQueuedFollowUp[];
     readonly enqueue: (
@@ -280,12 +290,14 @@ export const make: Effect.Effect<
   const conversationProjection = yield* CodexConversationProjection;
   const dispatchIntents = yield* Queue.bounded<string>(MAIN_RELIABLE_COMMAND_CAPACITY);
   const dispatches = yield* FiberMap.make<string, void, CodexQueuedFollowUpsError>();
+  const deferredDispatchThreadIds = new Set<string>();
   const hydratedGenerationByThread = new Map<string, number>();
   let closed = false;
 
   yield* Effect.addFinalizer(() =>
     Effect.sync(() => {
       closed = true;
+      deferredDispatchThreadIds.clear();
       hydratedGenerationByThread.clear();
     }).pipe(Effect.andThen(Queue.shutdown(dispatchIntents))),
   );
@@ -375,6 +387,7 @@ export const make: Effect.Effect<
   const loadInCurrentLane = (
     threadId: string,
     force = false,
+    projectionTarget: "owner" | "replica" = "owner",
   ): Effect.Effect<CodexQueuedFollowUpProjection, CodexQueuedFollowUpsError> =>
     Effect.gen(function* () {
       const aggregate = current(threadId);
@@ -393,7 +406,9 @@ export const make: Effect.Effect<
         editingFollowUpId: null,
         error: null,
       };
-      installProjection(threadId, loading, !rendererConversations.hasOwner(threadId));
+      const projectReplica =
+        projectionTarget === "replica" || !rendererConversations.hasOwner(threadId);
+      installProjection(threadId, loading, projectReplica);
       const ledger = yield* readCoreLedger(threadId).pipe(
         Effect.catch((cause) => {
           const failed: CodexQueuedFollowUpProjection = {
@@ -402,7 +417,8 @@ export const make: Effect.Effect<
             projectionRevision: loading.projectionRevision + 1,
             error: safeErrorMessage(cause),
           };
-          installProjection(threadId, failed, !rendererConversations.hasOwner(threadId));
+          installProjection(threadId, failed, projectReplica);
+          if (projectionTarget === "replica") return Effect.fail(cause);
           return publishProjection(threadId, failed).pipe(
             Effect.catch(() => Effect.void),
             Effect.andThen(Effect.fail(cause)),
@@ -416,7 +432,11 @@ export const make: Effect.Effect<
         error: null,
       });
       hydratedGenerationByThread.set(threadId, aggregate.generation);
-      yield* publishProjection(threadId, ready);
+      if (projectionTarget === "replica") {
+        installProjection(threadId, ready, true);
+      } else {
+        yield* publishProjection(threadId, ready);
+      }
       return ready;
     });
 
@@ -733,7 +753,22 @@ export const make: Effect.Effect<
   const forkDispatch = (threadId: string, effect: Effect.Effect<void, CodexQueuedFollowUpsError>) =>
     Effect.gen(function* () {
       const running = Option.getOrUndefined(FiberMap.getUnsafe(dispatches, threadId));
-      if (running) return running;
+      if (running) {
+        if (!deferredDispatchThreadIds.has(threadId)) {
+          deferredDispatchThreadIds.add(threadId);
+          yield* Effect.forkChild(
+            Fiber.await(running).pipe(
+              Effect.andThen(
+                Effect.sync(() => {
+                  deferredDispatchThreadIds.delete(threadId);
+                }),
+              ),
+              Effect.andThen(requestDispatch(threadId)),
+            ),
+          );
+        }
+        return running;
+      }
       const fiber = yield* Effect.forkChild(effect, { startImmediately: false });
       FiberMap.setUnsafe(dispatches, threadId, fiber, { onlyIfMissing: true });
       return Option.getOrUndefined(FiberMap.getUnsafe(dispatches, threadId)) ?? fiber;
@@ -772,9 +807,13 @@ export const make: Effect.Effect<
     }).pipe(Effect.mapError((cause) => queueError("terminal", input.threadId, cause)));
 
   return CodexQueuedFollowUps.of({
-    read: (threadId) => {
+    read: (threadId, options = {}) => {
       const normalized = normalizeId(threadId);
-      return runMutation(normalized, "read", loadInCurrentLane(normalized));
+      return runMutation(
+        normalized,
+        "read",
+        loadInCurrentLane(normalized, false, options.projectionTarget),
+      );
     },
     list: (threadId) =>
       current(normalizeId(threadId))?.readQueuedFollowUpProjection().entries ?? [],

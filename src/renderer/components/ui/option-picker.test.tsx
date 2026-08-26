@@ -25,10 +25,7 @@ describe("NodexOptionPicker", () => {
     );
 
     await act(async () => {
-      fireEvent.pointerDown(view.getByRole("button", { name: "Change direction" }), {
-        button: 0,
-        ctrlKey: false,
-      });
+      fireEvent.click(view.getByRole("button", { name: "Change direction" }));
       await settleAsyncRender();
     });
 

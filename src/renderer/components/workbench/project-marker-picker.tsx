@@ -80,7 +80,7 @@ export function ProjectMarkerPicker({
 
   return (
     <NodexPopover open={isOpen} onOpenChange={setOpen}>
-      <NodexPopoverTrigger asChild>
+      <NodexPopoverTrigger>
         <NodexButton
           variant="ghost"
           size="icon-sm"

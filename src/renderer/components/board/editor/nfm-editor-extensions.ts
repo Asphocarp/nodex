@@ -46,6 +46,7 @@ import type {
 } from "./nfm-structural-editing-extension";
 import { getNfmBlockSelectionIds } from "./nfm-block-selection";
 import { hasTypedOwnerBlock } from "@/lib/typed-owner-blocks";
+import { nfmSyntaxHighlighter } from "@/lib/syntax-highlighting";
 
 const toggleInputRule = createExtension({
   key: "toggle-input-rule",
@@ -472,6 +473,7 @@ export interface NfmEditorExtensionOptions {
 
 export function createNfmEditorExtensions(options: NfmEditorExtensionOptions = {}) {
   return [
+    nfmSyntaxHighlighter,
     nfmSearchExtension(),
     canvasCreatePendingExtension(),
     nfmTaskShorthandPreviewExtension(),

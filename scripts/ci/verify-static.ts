@@ -30,6 +30,12 @@ export const STATIC_CHECKS: readonly StaticCheck[] = [
     name: "icon boundaries",
   },
   {
+    command: ["run", "verify:renderer-ui-boundaries"],
+    group: "ui-contracts",
+    id: "renderer-ui-boundaries",
+    name: "renderer UI dependency boundaries",
+  },
+  {
     command: ["run", "ci:workflow-contracts"],
     group: "ci-contracts",
     id: "workflow-contracts",

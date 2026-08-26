@@ -153,6 +153,7 @@ describe("thread mention inline content", () => {
 
     const mention = view.getByRole("button");
     fireEvent.pointerMove(mention, { pointerType: "mouse" });
+    fireEvent.mouseEnter(mention);
     await settleAsyncRender();
 
     await waitFor(() => {

@@ -51,7 +51,7 @@ belong to `Date`. `+` is Page-only and places Page-creation actions before Page
 results once the query is non-empty. `[[` is Page-only and places Page results
 before Page-creation actions. All three entry points use the same authorized
 Page candidate source and produce the same persisted Page Mention occurrence.
-When a query has no matches, the menu remains open with `No matching mentions` so the user can continue typing or Backspace into a useful query; it closes only through the normal explicit dismissal, selection, focus, caret, or Block lifecycle.
+When a query has no reference matches, the menu remains open so the user can continue typing or Backspace into a useful query. Authorized Page-creation actions remain available for the literal query; `No matching mentions` is shown only when the session has neither reference results nor creation actions. The menu closes only through the normal explicit dismissal, selection, focus, caret, or Block lifecycle.
 An empty query orders them as Date, Page, then Chat so Today and Now advertise the temporal affordance.
 For a non-empty query, sections follow the relevance of their strongest result; explicit date intent therefore leads, followed by exact title, Page key, title prefix, broader title, and content matches, with active-project context used only as a tie-break boost.
 Each section has an independent visible budget so one abundant provider cannot crowd out the others.

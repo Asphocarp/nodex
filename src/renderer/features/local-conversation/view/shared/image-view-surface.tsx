@@ -179,9 +179,9 @@ export function ImageViewSurface({ imagePaths }: { imagePaths: readonly string[]
           src={activeSource}
           alt="Inspected image"
           allowLocalPath
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
+          finalFocus={() => {
             previewTriggerRef.current?.focus();
+            return false;
           }}
           onPreviousImage={
             openIndex !== null && openIndex > 0

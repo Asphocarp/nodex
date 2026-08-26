@@ -100,10 +100,13 @@ describe("ThreadStageHeader", () => {
       />,
     );
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Task actions" }), {
+    const trigger = screen.getByRole("button", { name: "Task actions" });
+    fireEvent.pointerDown(trigger, {
       button: 0,
       ctrlKey: false,
     });
+    fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
     await settleAsyncRender();
 
     const bodyText = textContent(document.body);
@@ -129,10 +132,13 @@ describe("ThreadStageHeader", () => {
       />,
     );
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Task actions" }), {
+    const trigger = screen.getByRole("button", { name: "Task actions" });
+    fireEvent.pointerDown(trigger, {
       button: 0,
       ctrlKey: false,
     });
+    fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
     await settleAsyncRender();
     fireEvent.keyDown(screen.getByRole("menuitem", { name: "Copy" }), { key: "ArrowRight" });
     await settleAsyncRender();

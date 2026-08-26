@@ -9,7 +9,7 @@ import {
 export function LocalEnvironmentVariablesPopover() {
   return (
     <NodexPopover>
-      <NodexPopoverTrigger asChild>
+      <NodexPopoverTrigger>
         <NodexButton size="composer" variant="secondary">
           Variables
         </NodexButton>

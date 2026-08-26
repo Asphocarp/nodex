@@ -30,6 +30,7 @@ import {
   ElectronScenarioHarness,
   stopNodexElectronApplication as stopApplication,
 } from "../../scripts/scenarios/harness/electron-e2e-harness";
+import { openBoardPageFromCard } from "./support/open-board-page";
 
 const repositoryRoot = process.cwd();
 const largeContentFixtureRoot = path.join(repositoryRoot, "tests/e2e/large-content-fixture");
@@ -313,11 +314,14 @@ async function selectEditorBlockRange({
   firstBlock: Locator;
   lastBlock: Locator;
 }): Promise<void> {
-  const firstContent = firstBlock.locator(":scope > .bn-block-content .bn-inline-content");
-  const lastContent = lastBlock.locator(":scope > .bn-block-content .bn-inline-content");
+  const selectionEndpointBox = async (block: Locator) => {
+    const inlineContent = block.locator(":scope > .bn-block-content .bn-inline-content");
+    if ((await inlineContent.count()) > 0) return await inlineContent.boundingBox();
+    return await block.boundingBox();
+  };
   const [firstBox, lastBox] = await Promise.all([
-    firstContent.boundingBox(),
-    lastContent.boundingBox(),
+    selectionEndpointBox(firstBlock),
+    selectionEndpointBox(lastBlock),
   ]);
   if (!firstBox || !lastBox) throw new Error("Editor selection endpoints have no layout boxes");
 
@@ -1429,11 +1433,11 @@ test.describe("parallel functional Electron smoke", () => {
       await page.getByRole("tab", { name: "Project Home" }).waitFor();
       const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
       await expect(board).toBeVisible({ timeout: 15_000 });
-      await board
-        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Structural source" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${source.pageId}"]`),
+        page,
+        tabName: "Structural source",
+      });
 
       const sourcePanel = page.getByRole("tabpanel", { name: /Structural source$/ });
       const sourceEditor = sourcePanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
@@ -1510,6 +1514,11 @@ test.describe("parallel functional Electron smoke", () => {
       await expect(
         page.getByText("Nodex blocked an incomplete structural change.", { exact: false }),
       ).toHaveCount(0);
+      await expect(after).toHaveCount(0);
+      await expect(before).toContainText("beforeafter");
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+Z`);
+      await expect(after).toBeVisible({ timeout: 15_000 });
+      await expect(before).toHaveText("before");
 
       await selectEditorBlockRange({
         page,
@@ -1564,11 +1573,11 @@ test.describe("parallel functional Electron smoke", () => {
         )
         .toBe(true);
 
-      await board
-        .locator(`[data-board-uuid-v7="${target.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Structural target" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${target.pageId}"]`),
+        page,
+        tabName: "Structural target",
+      });
       const targetPanel = page.getByRole("tabpanel", { name: /Structural target$/ });
       const targetEditor = targetPanel
         .locator('.nfm-editor .ProseMirror[contenteditable="true"]')
@@ -1646,11 +1655,11 @@ test.describe("parallel functional Electron smoke", () => {
       await page.getByRole("tab", { name: "Project Home" }).waitFor();
       const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
       await expect(board).toBeVisible({ timeout: 15_000 });
-      await board
-        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Turn into source" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${source.pageId}"]`),
+        page,
+        tabName: "Turn into source",
+      });
 
       const sourcePanel = page.getByRole("tabpanel", { name: /Turn into source$/ });
       const sourceEditor = sourcePanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
@@ -1774,11 +1783,11 @@ test.describe("parallel functional Electron smoke", () => {
         .click();
       await page.getByRole("tab", { name: "Project Home" }).waitFor();
       const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
-      await board
-        .locator(`[data-board-uuid-v7="${parent.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Retained parent" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${parent.pageId}"]`),
+        page,
+        tabName: "Retained parent",
+      });
 
       const parentPanel = page.getByRole("tabpanel", { name: /Retained parent$/ });
       const parentEditor = parentPanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
@@ -1904,11 +1913,11 @@ test.describe("parallel functional Electron smoke", () => {
         .click();
       await page.getByRole("tab", { name: "Project Home" }).waitFor();
       const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
-      await board
-        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Consecutive cut source" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${source.pageId}"]`),
+        page,
+        tabName: "Consecutive cut source",
+      });
 
       const sourcePanel = page.getByRole("tabpanel", { name: /Consecutive cut source$/ });
       const sourceEditor = sourcePanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
@@ -1942,11 +1951,11 @@ test.describe("parallel functional Electron smoke", () => {
         page.getByText("Nodex blocked an incomplete structural change.", { exact: false }),
       ).toHaveCount(0);
 
-      await board
-        .locator(`[data-board-uuid-v7="${target.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Consecutive cut target" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${target.pageId}"]`),
+        page,
+        tabName: "Consecutive cut target",
+      });
       const targetPanel = page.getByRole("tabpanel", { name: /Consecutive cut target$/ });
       const targetEditor = targetPanel
         .locator('.nfm-editor .ProseMirror[contenteditable="true"]')
@@ -1997,11 +2006,11 @@ test.describe("parallel functional Electron smoke", () => {
       await page.getByRole("tab", { name: "Project Home" }).waitFor();
       const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
       await expect(board).toBeVisible({ timeout: 15_000 });
-      await board
-        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Cut source" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${source.pageId}"]`),
+        page,
+        tabName: "Cut source",
+      });
 
       const sourcePanel = page.getByRole("tabpanel", { name: /Cut source$/ });
       const sourceEditor = sourcePanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
@@ -2053,11 +2062,11 @@ test.describe("parallel functional Electron smoke", () => {
         )
         .toBe(true);
 
-      await board
-        .locator(`[data-board-uuid-v7="${target.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Cut target" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${target.pageId}"]`),
+        page,
+        tabName: "Cut target",
+      });
       const targetPanel = page.getByRole("tabpanel", { name: /Cut target$/ });
       const targetEditor = targetPanel.locator('.nfm-editor .ProseMirror[contenteditable="true"]');
       await expect(targetEditor).toBeVisible({ timeout: 15_000 });
@@ -3195,11 +3204,11 @@ test.describe("parallel functional Electron smoke", () => {
       await expect(triageColumn).toBeVisible({ timeout: 15_000 });
       await expect(triageColumn.locator("[data-board-uuid-v7]")).toHaveCount(1);
 
-      await triageColumn
-        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Picker source Page" }).waitFor();
+      await openBoardPageFromCard({
+        card: triageColumn.locator(`[data-board-uuid-v7="${source.pageId}"]`),
+        page,
+        tabName: "Picker source Page",
+      });
 
       const sourcePanel = page.getByRole("tabpanel", {
         name: /Picker source Page$/,
@@ -3288,11 +3297,11 @@ test.describe("parallel functional Electron smoke", () => {
       await page.getByRole("button", { name: "Open Editor subtree DnD", exact: true }).click();
       await page.getByRole("tab", { name: "Project Home" }).waitFor();
       const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
-      await board
-        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Editor subtree source" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${source.pageId}"]`),
+        page,
+        tabName: "Editor subtree source",
+      });
 
       const sourcePanel = page.getByRole("tabpanel", { name: /Editor subtree source$/ });
       const sourceEditor = sourcePanel.locator(".nfm-editor");
@@ -3385,11 +3394,11 @@ test.describe("parallel functional Electron smoke", () => {
       await page.getByRole("button", { name: "Open Editor toggle DnD", exact: true }).click();
       await page.getByRole("tab", { name: "Project Home" }).waitFor();
       const board = page.locator('[data-board-column-root][data-board-column-id="triage"]');
-      await board
-        .locator(`[data-board-uuid-v7="${source.pageId}"]`)
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "Editor toggle source" }).waitFor();
+      await openBoardPageFromCard({
+        card: board.locator(`[data-board-uuid-v7="${source.pageId}"]`),
+        page,
+        tabName: "Editor toggle source",
+      });
 
       const sourcePanel = page.getByRole("tabpanel", { name: /Editor toggle source$/ });
       const sourceEditor = sourcePanel.locator(".nfm-editor");
@@ -3518,13 +3527,7 @@ test.describe("parallel functional Electron smoke", () => {
 
       const sourceCard = triageColumn.locator(`[data-board-uuid-v7="${source.pageId}"]`);
       await expect(sourceCard).toBeVisible();
-      // Opening the fixture Page is setup for the gesture under test. Dispatch
-      // the card click directly so its delayed hover tooltip cannot race and
-      // intercept Playwright's pointer action during repeat runs.
-      await sourceCard
-        .locator('[data-card-context-menu-trigger="true"]')
-        .evaluate((element) => (element as HTMLElement).click());
-      await page.getByRole("tab", { name: "DnD source Page" }).waitFor();
+      await openBoardPageFromCard({ card: sourceCard, page, tabName: "DnD source Page" });
       await expect(triageColumn).toBeVisible({ timeout: 15_000 });
 
       const sourcePanel = page.getByRole("tabpanel", {
@@ -4327,8 +4330,7 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
 
     const sourceCard = page.locator(`[data-board-uuid-v7="${source.pageId}"]`);
     await expect(sourceCard).toBeVisible({ timeout: 15_000 });
-    await sourceCard.locator('button[data-card-context-menu-trigger="true"]').click();
-    await page.getByRole("tab", { name: "Cross-tab source" }).waitFor();
+    await openBoardPageFromCard({ card: sourceCard, page, tabName: "Cross-tab source" });
     await expect(triageColumn).toBeVisible({ timeout: 15_000 });
 
     const sourceEditor = page.locator('.nfm-editor .ProseMirror[contenteditable="true"]').last();
@@ -4370,8 +4372,11 @@ test("converges a high-pressure Page promotion across tab groups and WebContents
       .toBe(HIGH_PRESSURE_BOARD_PAGE_COUNT);
     const audienceSourceCard = audiencePage.locator(`[data-board-uuid-v7="${source.pageId}"]`);
     await expect(audienceSourceCard).toBeVisible({ timeout: 15_000 });
-    await audienceSourceCard.locator('button[data-card-context-menu-trigger="true"]').click();
-    await audiencePage.getByRole("tab", { name: "Cross-tab source" }).waitFor();
+    await openBoardPageFromCard({
+      card: audienceSourceCard,
+      page: audiencePage,
+      tabName: "Cross-tab source",
+    });
     await expect(audienceTriageColumn).toBeVisible({ timeout: 15_000 });
     const audienceSourceEditor = audiencePage
       .locator('.nfm-editor .ProseMirror[contenteditable="true"]')

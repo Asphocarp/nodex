@@ -2,12 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TextSelection } from "@tiptap/pm/state";
 import { BlockNoteEditor } from "../../editor/BlockNoteEditor.js";
 import type { PartialBlock } from "../defaultBlocks.js";
+import { createCodeBlockSpec } from "./block.js";
 import {
-  createCodeBlockExtensions,
   getLanguageId,
   resolveCodeBlockInputLanguage,
   type CodeBlockOptions,
-} from "./block.js";
+} from "./CodeBlockOptions.js";
 
 /**
  * @vitest-environment jsdom
@@ -210,9 +210,9 @@ describe("Code block input rule", () => {
     const after = editor.document[0];
     expect(after.type).toBe("codeBlock");
     expect(after.id).toBe(block.id);
-    expect((after.content as Array<{ type: string; text: string }>)[0].text).toBe(
-      "hello",
-    );
+    expect(after.content).toEqual([
+      { type: "text", text: "hello", styles: {} },
+    ]);
   });
 
   it("places cursor inside the new code block after Enter conversion", () => {
@@ -229,9 +229,9 @@ describe("Code block input rule", () => {
     const after = editor.document[0];
     expect(after.type).toBe("codeBlock");
     expect(after.id).toBe(block.id);
-    expect((after.content as Array<{ type: string; text: string }>)[0].text).toBe(
-      "world",
-    );
+    expect(after.content).toEqual([
+      { type: "text", text: "world", styles: {} },
+    ]);
   });
 
   it("Enter inside an existing code block does not retrigger conversion", () => {
@@ -306,8 +306,8 @@ describe("getLanguageId", () => {
     expect(resolveCodeBlockInputLanguage(preferredOptions, "")).toBe("python");
   });
 
-  it("exposes the shared code extensions for React block specs", () => {
-    expect(createCodeBlockExtensions(options)).toHaveLength(2);
+  it("exposes the shared keyboard extension for React block specs", () => {
+    expect(createCodeBlockSpec(options).extensions).toHaveLength(1);
   });
 });
 

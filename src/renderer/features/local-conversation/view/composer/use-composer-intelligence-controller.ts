@@ -140,7 +140,7 @@ export function useComposerIntelligenceController(
     if (lastFailureRef.current) throw lastFailureRef.current;
   }, [drain]);
 
-  // This ref is composed through Tooltip and Dropdown `asChild` triggers. Keeping it stable
+  // This ref is composed through Tooltip and Dropdown triggers. Keeping it stable
   // prevents React 19 from detaching the shared DOM node during unrelated composer renders.
   const triggerRef = useCallback((element: HTMLButtonElement | null) => {
     triggerElementRef.current = element;

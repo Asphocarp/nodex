@@ -313,10 +313,10 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
           </div>
         }
         side="top"
-        delayDuration={0}
+        delay={0}
       >
         <span className="inline align-baseline">
-          <NodexPopoverTrigger asChild>
+          <NodexPopoverTrigger>
             <button
               type="button"
               contentEditable={false}
@@ -343,12 +343,7 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
         </span>
       </NodexTooltip>
 
-      <NodexPopoverContent
-        side="top"
-        align="start"
-        className="w-full"
-        onOpenAutoFocus={(event) => event.preventDefault()}
-      >
+      <NodexPopoverContent side="top" align="start" className="w-full" initialFocus={false}>
         <AttachmentPopover props={inlineContent.props} onPrimaryOpen={handlePrimaryOpen} />
       </NodexPopoverContent>
     </NodexPopover>

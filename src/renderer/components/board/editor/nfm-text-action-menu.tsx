@@ -1,7 +1,6 @@
 import { editorHasBlockWithType, isTableCellSelection } from "@blocknote/core";
 import { FormattingToolbarExtension } from "@blocknote/core/extensions";
 import { useBlockNoteEditor, useEditorState, useExtension } from "@blocknote/react";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   forwardRef,
   type ComponentPropsWithoutRef,
@@ -44,7 +43,13 @@ import {
   TextActionStrikeIcon,
   TextActionUnderlineIcon,
 } from "@/components/shared/icons";
-import { NodexDropdownContent, NodexDropdownItem } from "@/components/ui/dropdown";
+import {
+  NodexDropdownContent,
+  NodexDropdownItem,
+  NodexDropdownPortal,
+  NodexDropdownRoot,
+  NodexDropdownTrigger,
+} from "@/components/ui/dropdown";
 import { NodexPopover, NodexPopoverAnchor } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
@@ -511,7 +516,7 @@ const TextActionButton = forwardRef<HTMLDivElement, TextActionButtonProps>(
 
 function TextActionButtonTooltip({ children, label }: { children: ReactNode; label: ReactNode }) {
   return (
-    <NodexTooltip tooltipContent={label} side="top" delayDuration={0}>
+    <NodexTooltip tooltipContent={label} side="top" delay={0}>
       {children}
     </NodexTooltip>
   );
@@ -534,15 +539,13 @@ function TextActionMenuContent({
   align?: "start" | "center" | "end";
 }) {
   return (
-    <DropdownMenuPrimitive.Portal>
+    <NodexDropdownPortal>
       <NodexDropdownContent
         side={side}
         align={align}
         sideOffset={8}
         collisionPadding={8}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-        }}
+        finalFocus={false}
         className={cn(
           "w-[192px] bg-token-dropdown-background px-1 py-1 text-[14px] backdrop-blur-xl",
           className,
@@ -550,7 +553,7 @@ function TextActionMenuContent({
       >
         {children}
       </NodexDropdownContent>
-    </DropdownMenuPrimitive.Portal>
+    </NodexDropdownPortal>
   );
 }
 
@@ -771,8 +774,7 @@ function TextActionColorMenu({
   }
 
   return (
-    <DropdownMenuPrimitive.Root
-      modal={false}
+    <NodexDropdownRoot
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
@@ -780,13 +782,13 @@ function TextActionColorMenu({
       }}
     >
       <TextActionButtonTooltip label="Color">
-        <DropdownMenuPrimitive.Trigger asChild>
+        <NodexDropdownTrigger>
           <TextActionButton label="Color" hasPopup="dialog" expanded={open}>
             <TextActionColorTriggerGlyph textColor={textColor} backgroundColor={backgroundColor} />
           </TextActionButton>
-        </DropdownMenuPrimitive.Trigger>
+        </NodexDropdownTrigger>
       </TextActionButtonTooltip>
-      <DropdownMenuPrimitive.Portal>
+      <NodexDropdownPortal>
         <NodexDropdownContent
           role="dialog"
           aria-modal="true"
@@ -795,9 +797,7 @@ function TextActionColorMenu({
           align="start"
           sideOffset={4}
           collisionPadding={12}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-          }}
+          finalFocus={false}
           style={{
             width: "190px",
             minWidth: "180px",
@@ -866,8 +866,8 @@ function TextActionColorMenu({
             </div>
           </div>
         </NodexDropdownContent>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+      </NodexDropdownPortal>
+    </NodexDropdownRoot>
   );
 }
 
@@ -888,9 +888,9 @@ function TextActionBlockTypeMenu({
     null;
 
   return (
-    <DropdownMenuPrimitive.Root modal={false} onOpenChange={onOpenChange}>
+    <NodexDropdownRoot onOpenChange={onOpenChange}>
       <TextActionButtonTooltip label="Change block type">
-        <DropdownMenuPrimitive.Trigger asChild>
+        <NodexDropdownTrigger>
           <div
             role="button"
             tabIndex={0}
@@ -905,7 +905,7 @@ function TextActionBlockTypeMenu({
             <span className="min-w-0 flex-1 truncate text-left">{currentBlockTypeLabel}</span>
             <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
           </div>
-        </DropdownMenuPrimitive.Trigger>
+        </NodexDropdownTrigger>
       </TextActionButtonTooltip>
       <TextActionMenuContent>
         {blockTypeItems.map((item) => (
@@ -924,7 +924,7 @@ function TextActionBlockTypeMenu({
           </NodexDropdownItem>
         ))}
       </TextActionMenuContent>
-    </DropdownMenuPrimitive.Root>
+    </NodexDropdownRoot>
   );
 }
 
@@ -945,7 +945,7 @@ function TextActionDisabledButton({
   const ariaLabel = mock ? `${label} Mock` : label;
 
   return (
-    <NodexTooltip tooltipContent={tooltipContent} side="top" delayDuration={0}>
+    <NodexTooltip tooltipContent={tooltipContent} side="top" delay={0}>
       <TextActionButton label={ariaLabel} disabled className={className}>
         {children}
       </TextActionButton>
@@ -1125,7 +1125,7 @@ const TextActionSkillRow = forwardRef<HTMLDivElement, TextActionSkillRowProps>(
       <NodexTooltip
         tooltipContent={label}
         side="top"
-        delayDuration={0}
+        delay={0}
         open={tooltipOpen && labelOverflowing}
         onOpenChange={(nextOpen) => {
           if (!nextOpen) {
@@ -1188,7 +1188,7 @@ function TextActionMoveToRow({
         onOpenChange(nextOpen);
       }}
     >
-      <NodexPopoverAnchor asChild>
+      <NodexPopoverAnchor>
         <TextActionSkillRow
           ref={rowRef}
           label={row.label}
@@ -1269,7 +1269,7 @@ function TextActionSendToThreadRow({
         onOpenChange(nextOpen);
       }}
     >
-      <NodexPopoverAnchor asChild>
+      <NodexPopoverAnchor>
         <TextActionSkillRow
           ref={rowRef}
           label={row.label}
@@ -1524,6 +1524,7 @@ export function NfmTextActionMenuSurface({
 }: NfmTextActionMenuSurfaceProps) {
   const showAiPane = showReferenceMocks || nodexRows.length > 0;
   const selectionPresentationOwnersRef = useRef(new Set<TextActionSelectionPresentationOwner>());
+  const nodexActionCloseLeaseRef = useRef(0);
   const surfaceMountedRef = useRef(true);
   const selectionPresentationChangeRef = useRef(onSelectionPresentationChange);
   useLayoutEffect(() => {
@@ -1589,7 +1590,21 @@ export function NfmTextActionMenuSurface({
     [handleSelectionPresentationOwnerChange],
   );
   const handleNodexActionPopoverOpenChange = useCallback(
-    (open: boolean) => handleSelectionPresentationOwnerChange("nodex-action", open),
+    (open: boolean) => {
+      const lease = ++nodexActionCloseLeaseRef.current;
+      if (open) {
+        handleSelectionPresentationOwnerChange("nodex-action", true);
+        return;
+      }
+
+      // Moving between sibling action popovers closes the old surface before
+      // opening the new one. Defer release for one microtask so the editor's
+      // retained selection does not visibly disappear during that handoff.
+      queueMicrotask(() => {
+        if (nodexActionCloseLeaseRef.current !== lease) return;
+        handleSelectionPresentationOwnerChange("nodex-action", false);
+      });
+    },
     [handleSelectionPresentationOwnerChange],
   );
 

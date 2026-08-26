@@ -84,19 +84,18 @@ export function ProjectArchiveChatsDialog({
   };
 
   return (
-    <NodexDialog open={open} onOpenChange={setOpen}>
-      <NodexDialogContent
-        size="compact"
-        onEscapeKeyDown={(event) => {
-          if (archiving) event.preventDefault();
-        }}
-        onPointerDownOutside={(event) => {
-          if (archiving) event.preventDefault();
-        }}
-        onInteractOutside={(event) => {
-          if (archiving) event.preventDefault();
-        }}
-      >
+    <NodexDialog
+      open={open}
+      disablePointerDismissal={archiving}
+      onOpenChange={(nextOpen, details) => {
+        if (!nextOpen && archiving) {
+          details.cancel();
+          return;
+        }
+        setOpen(nextOpen);
+      }}
+    >
+      <NodexDialogContent size="compact">
         <NodexDialogForm onSubmit={(event) => void submit(event)}>
           <NodexDialogHeader>
             <NodexDialogTitle>Archive {chatCountLabel(items.length)}?</NodexDialogTitle>

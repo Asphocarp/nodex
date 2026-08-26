@@ -497,7 +497,7 @@ function McpResultBody({
       {shouldShowRawDialog ? (
         <div className="inline-flex w-fit items-center gap-1">
           {resource && onOpenMcpAppSidePanel ? (
-            <NodexTooltip tooltipContent="Open app in side panel" side="top" delayDuration={0}>
+            <NodexTooltip tooltipContent="Open app in side panel" side="top" delay={0}>
               <button
                 type="button"
                 className={cn(

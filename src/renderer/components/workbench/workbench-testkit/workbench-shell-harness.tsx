@@ -71,7 +71,7 @@ import type {
   SidebarCollapsibleSectionId,
   SidebarCollapsibleSectionsState,
 } from "@/lib/use-workbench-profile-preferences";
-import { render, settleAsyncRender } from "../../../test/dom";
+import { openNodexMenu, render, settleAsyncRender } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
 import { RendererStateProvider } from "../../../app-providers";
 import { NodexModalHost } from "@/lib/modal-registry";
@@ -4016,11 +4016,7 @@ export async function openPanelMenu(
   screen: ReturnType<typeof renderWorkbench>,
   label: "Open side panel tab" | "Open bottom panel tab",
 ): Promise<HTMLElement> {
-  await act(async () => {
-    fireEvent.pointerDown(screen.getByRole("button", { name: label }), { button: 0 });
-    await Promise.resolve();
-  });
-  await settleAsyncRender();
+  await openNodexMenu(screen.getByRole("button", { name: label }));
   await waitFor(() => {
     expect(screen.queryByRole("menu") !== null).toBe(true);
   });

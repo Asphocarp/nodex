@@ -190,7 +190,7 @@ function DialogPreview() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <div className="flex flex-col items-start gap-3">
-        <DialogTrigger asChild>
+        <DialogTrigger>
           <Button variant="default">
             <WandSparkles className="size-4" />
             Open Confirm Dialog

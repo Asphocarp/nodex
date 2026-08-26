@@ -64,7 +64,7 @@ export function DatabaseViewSort({
 
   return (
     <NodexPopover open={open} onOpenChange={onOpenChange}>
-      <NodexPopoverTrigger asChild>
+      <NodexPopoverTrigger>
         <NodexIconButton
           icon={ArrowUpDown}
           size="sm"

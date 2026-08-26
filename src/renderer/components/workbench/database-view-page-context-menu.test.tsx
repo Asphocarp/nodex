@@ -246,7 +246,7 @@ describe("DatabaseViewPageContextMenu", () => {
     );
   });
 
-  test("keeps Radix keyboard navigation across the submenu boundary", async () => {
+  test("keeps keyboard navigation across the submenu boundary", async () => {
     const screen = renderMenu();
     await openMenu(screen);
     const search = await screen.findByRole("textbox", {

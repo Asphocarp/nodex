@@ -31,6 +31,7 @@ import {
 } from "@/components/shared/icons/generic-icons";
 
 import { cn } from "@/lib/utils";
+import { nfmSyntaxHighlighter } from "@/lib/syntax-highlighting";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
 import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
@@ -361,6 +362,7 @@ export function ReadonlyNfmBlockNotePreview({
   const editor = useCreateBlockNote(
     {
       schema: readonlyNfmBlockNotePreviewSchema,
+      extensions: [nfmSyntaxHighlighter],
       initialContent: previewDocument.initialContent,
       resolveFileUrl: async (source) => {
         const displayUrl = resolveAssetSourceToDisplayUrl(source);

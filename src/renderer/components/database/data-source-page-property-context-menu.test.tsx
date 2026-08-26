@@ -79,7 +79,7 @@ function Harness({
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <NodexContextMenuRoot open={menuOpen} onOpenChange={setMenuOpen}>
-      <NodexContextMenuTrigger asChild>
+      <NodexContextMenuTrigger>
         <button type="button">Page row</button>
       </NodexContextMenuTrigger>
       <NodexContextMenuPortal>

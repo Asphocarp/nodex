@@ -17,7 +17,7 @@ describe("nodex popover", () => {
       view = render(
         <div data-testid="owner">
           <NodexPopover>
-            <NodexPopoverTrigger asChild>
+            <NodexPopoverTrigger>
               <button type="button">Open popover</button>
             </NodexPopoverTrigger>
             <NodexPopoverContent>
@@ -52,7 +52,7 @@ describe("nodex popover", () => {
       view = render(
         <div data-testid="owner">
           <NodexPopover open>
-            <NodexPopoverTrigger asChild>
+            <NodexPopoverTrigger>
               <button type="button">Open inline popover</button>
             </NodexPopoverTrigger>
             <NodexPopoverContent portalled={false}>

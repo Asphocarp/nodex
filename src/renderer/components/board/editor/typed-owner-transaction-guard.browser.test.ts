@@ -1,5 +1,5 @@
 import { BlockNoteEditor } from "@blocknote/core";
-import { NodeSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, test } from "vite-plus/test";
 import * as Y from "yjs";
@@ -15,6 +15,7 @@ import {
   runNfmEditorFocusPreservingMutation,
 } from "./nfm-editor-relocation";
 import { nfmSchema } from "./nfm-schema";
+import { splitBlockTr } from "../../../../../third_party/blocknote/packages/core/src/api/blockManipulation/commands/splitBlock/splitBlock.js";
 
 const settleEditor = async () => {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -24,6 +25,57 @@ const settleEditor = async () => {
 type BlockedDecision = Exclude<TypedOwnerDocumentChangeDecision, { readonly kind: "allow" }>;
 
 describe("typed owner transaction guard in Chromium", () => {
+  test("allows Enter to split rich inline text without treating a later owner as crossed", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: nfmSchema,
+      headless: true,
+      initialContent: [
+        {
+          id: "text",
+          type: "paragraph",
+          content: [
+            "Review ",
+            { type: "pageMention", props: { targetPageId: "mentioned-page" } },
+            " tomorrow",
+          ],
+        },
+        { id: "page-after", type: "page" },
+      ],
+    });
+    const text = editor.getBlock("text");
+    if (!text) throw new Error("Expected the fixture paragraph");
+    const blocked: BlockedDecision[] = [];
+    const releaseGuard = editor.onBeforeChange(({ getChanges }) => {
+      const changes = getChanges();
+      const decision = resolveTypedOwnerDocumentChanges(changes);
+      if (decision.kind === "allow") return;
+      blocked.push(decision);
+      return false;
+    });
+
+    try {
+      const split = editor.transact((transaction) => {
+        let paragraphEnd: number | undefined;
+        transaction.doc.descendants((node, position) => {
+          if (paragraphEnd !== undefined || node.type.name !== "paragraph") return true;
+          paragraphEnd = position + 1 + node.content.size;
+          return false;
+        });
+        if (paragraphEnd === undefined) throw new Error("Expected paragraph content");
+        transaction.setSelection(TextSelection.create(transaction.doc, paragraphEnd));
+        return splitBlockTr(transaction, paragraphEnd);
+      });
+      await act(settleEditor);
+
+      expect(blocked).toEqual([]);
+      expect(split).toBe(true);
+      expect(editor.document.map(({ type }) => type)).toEqual(["paragraph", "paragraph", "page"]);
+    } finally {
+      releaseGuard();
+      editor._tiptapEditor.destroy();
+    }
+  });
+
   test("intercepts every local Page deletion shape while accepting lifecycle delivery", async () => {
     const genesis = createPageDocumentGenesis({
       documentId: "document:typed-owner-guard",
@@ -85,15 +137,13 @@ describe("typed owner transaction guard in Chromium", () => {
       expect(blocked).toHaveLength(0);
 
       await act(async () => {
+        const blockedBeforeBackspace = blocked.length;
         local.setTextCursorPosition("text", "start");
         fireEvent.keyDown(localView.dom, { key: "Backspace", code: "Backspace" });
         await settleEditor();
+        expect(blocked).toHaveLength(blockedBeforeBackspace);
       });
       expect(local.getBlock("page-before")?.type).toBe("page");
-      expect(blocked.at(-1)).toEqual({
-        kind: "forbidden",
-        reason: "generic_typed_owner_mutation",
-      });
 
       await act(async () => {
         local.setTextCursorPosition("text", "start");

@@ -1,3 +1,4 @@
+import { SyntaxHighlightingExtension } from "@blocknote/core";
 import { createCodeBlockHighlighter } from "@blocknote/code-block";
 import { createParser } from "prosemirror-highlight/shiki";
 
@@ -32,8 +33,7 @@ export function getSharedBlockNoteCodeHighlighter(): Promise<BlockNoteHighlighte
   return globalState[shikiHighlighterPromiseSymbol];
 }
 
-// BlockNote's lazy Shiki plugin falls back to the first loaded theme unless we
-// seed its shared parser with explicit light/dark mappings.
+// Seed BlockNote's process-wide lazy parser with explicit light/dark mappings.
 export async function preloadBlockNoteDualThemeParser(): Promise<BlockNoteHighlighter> {
   const highlighter = await getSharedBlockNoteCodeHighlighter();
   const globalState = getGlobalThisForBlockNoteShiki();
@@ -50,3 +50,7 @@ export async function preloadBlockNoteDualThemeParser(): Promise<BlockNoteHighli
 
   return highlighter;
 }
+
+export const nfmSyntaxHighlighter = SyntaxHighlightingExtension({
+  createHighlighter: preloadBlockNoteDualThemeParser,
+});

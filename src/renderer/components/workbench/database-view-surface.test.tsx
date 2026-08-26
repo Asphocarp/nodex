@@ -1468,13 +1468,6 @@ describe("DatabaseViewSurface", () => {
     const openInNewChatItem = await screen.findByRole("menuitem", {
       name: "Open in new chat",
     });
-    await waitFor(() => {
-      expect(
-        openInNewChatItem
-          .closest('[data-slot="context-menu-subcontent"]')
-          ?.getAttribute("data-state"),
-      ).toBe("open");
-    });
     await act(async () => {
       fireEvent.click(openInNewChatItem);
       await Promise.resolve();

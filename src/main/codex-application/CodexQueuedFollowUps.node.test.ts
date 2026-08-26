@@ -11,6 +11,7 @@ import type {
   CodexQueuedFollowUp,
   CodexSteerTurnInput,
 } from "../../shared/types";
+import { CODEX_INTERRUPTED_STEER_REASON } from "../../shared/codex-queued-follow-up-state";
 import { CoreModules } from "../core-runtime/CoreModules";
 import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 import { CodexConversationProjection } from "./CodexConversationProjection";
@@ -124,6 +125,7 @@ const makeHarness = (
   state: DurableTestState,
   options: {
     readonly activeTurnId?: string | null;
+    readonly ownerClientId?: string;
     readonly submit?: (row: {
       readonly threadId: string;
       readonly prompt: string;
@@ -136,6 +138,7 @@ const makeHarness = (
     const conversations = Context.get(context, ConversationEntityMap);
     conversations.entity(threadId).installSnapshot(snapshot());
     const registry = makeCodexRendererConversationRegistryState();
+    if (options.ownerClientId) registry.setOwner(threadId, options.ownerClientId);
     const submit = options.submit ?? (() => Effect.void);
     const turns = CodexTurnCommands.of({
       start: (id: string, prompt: string) =>
@@ -212,6 +215,22 @@ it.effect("hydrates the same durable order and interruption pause in a replaceme
   }),
 );
 
+it.effect("hydrates a resume replica without contacting a transitioning renderer owner", () =>
+  Effect.gen(function* () {
+    const state = emptyState();
+    const harness = yield* makeHarness(state, { ownerClientId: "renderer-transitioning" });
+
+    const projection = yield* harness.queued.read(threadId, { projectionTarget: "replica" });
+
+    assert.strictEqual(projection.status, "ready");
+    assert.deepEqual(
+      harness.conversations.current(threadId)?.readSnapshot()?.queuedFollowUps,
+      projection,
+    );
+    yield* close(harness.scope);
+  }),
+);
+
 it.effect("replaces an edited row in place only at the captured ledger revision", () =>
   Effect.gen(function* () {
     const state = emptyState();
@@ -270,6 +289,45 @@ it.effect(
       assert.strictEqual(state.ledger.entries.length, 0);
       yield* close(harness.scope);
     }),
+);
+
+it.effect("replays a dispatch wake-up that arrives while the previous delivery is settling", () =>
+  Effect.gen(function* () {
+    const state = emptyState();
+    const firstStarted = yield* Deferred.make<void>();
+    const releaseFirst = yield* Deferred.make<void>();
+    const submitted: string[] = [];
+    const harness = yield* makeHarness(state, {
+      submit: ({ prompt }) =>
+        Effect.sync(() => {
+          submitted.push(prompt);
+        }).pipe(
+          Effect.andThen(
+            prompt === "first"
+              ? Deferred.succeed(firstStarted, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseFirst)),
+                )
+              : Effect.void,
+          ),
+          Effect.asVoid,
+        ),
+    });
+    const interrupted = {
+      kind: "interrupted" as const,
+      reason: CODEX_INTERRUPTED_STEER_REASON,
+    };
+    yield* harness.queued.enqueue({ threadId, prompt: "first", pause: interrupted });
+    yield* harness.queued.enqueue({ threadId, prompt: "second", pause: interrupted });
+
+    yield* harness.queued.resumeInterrupted(threadId);
+    yield* Deferred.await(firstStarted);
+    yield* harness.queued.requestDispatch(threadId);
+    yield* Deferred.succeed(releaseFirst, undefined);
+
+    while (harness.queued.list(threadId).length > 0) yield* Effect.yieldNow;
+    assert.deepEqual(submitted, ["first", "second"]);
+    yield* close(harness.scope);
+  }),
 );
 
 it.effect("commits a transport failure onto the same row and blocks automatic retry", () =>

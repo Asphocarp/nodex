@@ -441,6 +441,17 @@ export class SideMenuView<
     if (this.editor.isEditable) {
       const blockContentBoundingBox = block.node.getBoundingClientRect();
       const column = block.node.closest("[data-node-type=column]");
+      const sideMenuBlock = this.editor.getBlock(
+        this.hoveredBlock!.getAttribute("data-id")!,
+      );
+      if (!sideMenuBlock) {
+        if (this.state?.show) {
+          this.state.show = false;
+          this.hoveredBlock = undefined;
+          this.emitUpdate(this.state);
+        }
+        return;
+      }
       this.state = {
         show: true,
         referencePos: new DOMRect(
@@ -457,9 +468,7 @@ export class SideMenuView<
           blockContentBoundingBox.width,
           blockContentBoundingBox.height,
         ),
-        block: this.editor.getBlock(
-          this.hoveredBlock!.getAttribute("data-id")!,
-        )!,
+        block: sideMenuBlock,
       };
       this.updateState(this.state);
     }
@@ -848,6 +857,14 @@ export class SideMenuView<
       return;
     }
 
+    // Synthetic mousemove events created via `new Event("mousemove")` (e.g.
+    // dispatched by browser extensions) have no `clientX`/`clientY`, which
+    // would make `elementsFromPoint` throw on the resulting non-finite
+    // coordinates.
+    if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) {
+      return;
+    }
+
     const interactionOwnership = this.editor.getInteractionOwnership(event);
     if (interactionOwnership === "other") {
       this.mousePositionOwnedByEditor = false;
@@ -1095,6 +1112,14 @@ export const SideMenuExtension = createExtension(({ editor }) => {
       if (!shouldPreserveFocus) {
         editor.blur();
       }
+    },
+
+    /**
+     * Whether the side menu is currently frozen (e.g. because the drag handle
+     * menu is open).
+     */
+    get menuFrozen() {
+      return view!.menuFrozen;
     },
 
     /**

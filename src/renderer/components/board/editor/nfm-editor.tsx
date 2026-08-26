@@ -629,11 +629,8 @@ function NfmEditorInstance({
   );
   const tiptapExtensions = useMemo(() => [createNfmLinkExtension()], []);
 
-  const editorModeOptions = createNfmEditorModeOptions(source);
-
-  const editorOptions = {
+  const editorOptions = createNfmEditorModeOptions(source, {
     schema: nfmSchema,
-    ...editorModeOptions,
     generateBlockId: createUuidV7,
     tabBehavior: "prefer-indent" as const,
     placeholders: createNfmEditorPlaceholders(placeholder),
@@ -651,7 +648,7 @@ function NfmEditorInstance({
     _tiptapOptions: {
       extensions: tiptapExtensions,
     },
-  };
+  });
   const retainedEditor = editorSession?.getOrCreateEditor(editorInstanceKey, () =>
     BlockNoteEditor.create(editorOptions),
   );
@@ -2765,7 +2762,7 @@ function NfmEditorInstance({
             if (!open) closeThreadSectionPicker();
           }}
         >
-          <NodexPopoverAnchor asChild>
+          <NodexPopoverAnchor>
             <span
               aria-hidden="true"
               className="pointer-events-none fixed"
@@ -2782,7 +2779,7 @@ function NfmEditorInstance({
             align="center"
             sideOffset={6}
             aria-label="Send thread section to chat"
-            onCloseAutoFocus={(event) => event.preventDefault()}
+            finalFocus={false}
             className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
             style={{ width: 330 }}
           >
@@ -2824,6 +2821,7 @@ function NfmEditorInstance({
                     editable
                     onChange={handleChange}
                     theme={themeMode}
+                    attributionTooltip={false}
                     formattingToolbar={false}
                     emojiPicker={false}
                     linkToolbar={false}
@@ -2872,9 +2870,9 @@ function NfmEditorInstance({
               closePasteResourceDialog();
             }
           }}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
+          finalFocus={() => {
             restoreEditorFocus();
+            return false;
           }}
           onChooseMode={(mode) => {
             void handlePasteResourceChoice(mode);
@@ -2889,9 +2887,9 @@ function NfmEditorInstance({
           alt={imagePreview.alt}
           allowLocalPath
           closeOnSpace
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
+          finalFocus={() => {
             restoreEditorFocus();
+            return false;
           }}
           onOpenChange={(nextOpen) => {
             if (!nextOpen) {

@@ -1,4 +1,10 @@
-import { act, render as rtlRender, type RenderOptions, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render as rtlRender,
+  type RenderOptions,
+  waitFor,
+} from "@testing-library/react";
 import { useEffect, type ReactElement, type ReactNode } from "react";
 import {
   createMaitaiStore,
@@ -61,6 +67,19 @@ export async function settleAsyncRender() {
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
+
+/** Exercise the complete browser press ingress owned by Nodex dropdown triggers. */
+export async function openNodexMenu(trigger: HTMLElement) {
+  await act(async () => {
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.pointerUp(trigger, { button: 0, ctrlKey: false });
+    fireEvent.mouseUp(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
 }
 
 export async function waitForStreamdownCodeHighlight(node: ParentNode) {

@@ -48,7 +48,7 @@ export function PageStageToolbar({
   return (
     <div className="flex h-11 items-center gap-2 px-3">
       {onNavigateBack ? (
-        <NodexTooltip tooltipContent="Back to Library" side="bottom" delayDuration={0}>
+        <NodexTooltip tooltipContent="Back to Library" side="bottom" delay={0}>
           <button
             type="button"
             aria-label="Back to Library"
@@ -76,7 +76,7 @@ export function PageStageToolbar({
         <NodexTooltip
           tooltipContent={showRawContent ? "Show editor" : "Show raw-format content"}
           side="bottom"
-          delayDuration={0}
+          delay={0}
         >
           <button
             type="button"
@@ -99,7 +99,7 @@ export function PageStageToolbar({
           </button>
         </NodexTooltip>
 
-        <NodexTooltip tooltipContent="Full width" side="bottom" delayDuration={0}>
+        <NodexTooltip tooltipContent="Full width" side="bottom" delay={0}>
           <button
             type="button"
             onClick={onToggleContentWidth}
@@ -129,7 +129,7 @@ export function PageStageToolbar({
           </button>
         </NodexTooltip>
 
-        <NodexTooltip tooltipContent="History" side="bottom" delayDuration={0}>
+        <NodexTooltip tooltipContent="History" side="bottom" delay={0}>
           <button
             type="button"
             onClick={onToggleHistoryPanel}

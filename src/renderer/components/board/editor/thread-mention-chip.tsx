@@ -264,7 +264,7 @@ export function ThreadMentionInlineContentView({
       side="top"
       align="start"
       sideOffset={4}
-      delayDuration={0}
+      delay={0}
       disabled={open}
       tooltipClassName="px-2 py-1.5"
     >
@@ -282,16 +282,11 @@ export function ThreadMentionInlineContentView({
 
   return (
     <NodexPopover open={open} onOpenChange={setOpen}>
-      <NodexPopoverAnchor asChild>
+      <NodexPopoverAnchor>
         <span className="inline align-baseline">{renderTooltip(trigger)}</span>
       </NodexPopoverAnchor>
 
-      <NodexPopoverContent
-        side="top"
-        align="start"
-        className="w-full"
-        onOpenAutoFocus={(event) => event.preventDefault()}
-      >
+      <NodexPopoverContent side="top" align="start" className="w-full" initialFocus={false}>
         <ThreadMentionPopoverBody
           uuid={props.uuid}
           thread={thread}

@@ -288,7 +288,7 @@ describe("TurnDiffSurface", () => {
       enabledView.container,
       "src/file-1.ts",
     ) as HTMLButtonElement;
-    expect(enabledRow.getAttribute("data-state") ?? null).toBe("closed");
+    expect(enabledRow.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
     enabledView.unmount();
 
     let focusedPath: string | null = null;
@@ -309,7 +309,7 @@ describe("TurnDiffSurface", () => {
       disabledView.container,
       "src/file-1.ts",
     ) as HTMLButtonElement;
-    expect(disabledRow.getAttribute("data-state") ?? null).toBe(null);
+    expect(disabledRow.hasAttribute("data-base-ui-tooltip-trigger")).toBe(false);
 
     fireEvent.click(disabledRow);
     expect(focusedPath).toBe("src/file-1.ts");

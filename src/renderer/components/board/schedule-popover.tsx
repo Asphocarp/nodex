@@ -55,7 +55,7 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
       </div>
       <div className="flex-1 px-2">
         <NodexPopover open={open} onOpenChange={setOpen}>
-          <NodexPopoverTrigger asChild>
+          <NodexPopoverTrigger>
             <button
               type="button"
               className={cn(
@@ -91,7 +91,7 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
             align="start"
             side="bottom"
             className="w-80 p-0"
-            onOpenAutoFocus={(e) => e.preventDefault()}
+            initialFocus={false}
           >
             {/* Section 1: Date & Time */}
             <div className="space-y-2.5 border-b border-(--border) p-3">

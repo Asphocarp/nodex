@@ -221,6 +221,8 @@ describe("LocalEnvironmentsSettingsPage", () => {
     const iconTrigger = view.getByRole("button", { name: "Test" });
     await act(async () => {
       fireEvent.pointerDown(iconTrigger, { button: 0, ctrlKey: false });
+      fireEvent.mouseDown(iconTrigger, { button: 0, ctrlKey: false });
+      fireEvent.click(iconTrigger);
       await Promise.resolve();
     });
     await view.findByRole("menu");

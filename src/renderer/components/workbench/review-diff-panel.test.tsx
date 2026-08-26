@@ -781,7 +781,7 @@ async function openReviewOptionsMenu(view: {
   getByLabelText: (text: string) => HTMLElement;
 }): Promise<void> {
   await act(async () => {
-    fireEvent.pointerDown(view.getByLabelText("Review options"), {
+    fireEvent.mouseDown(view.getByLabelText("Review options"), {
       button: 0,
       ctrlKey: false,
     });
@@ -1509,7 +1509,7 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
     await act(async () => {
-      fireEvent.pointerDown(view.getByLabelText("Review source"), {
+      fireEvent.mouseDown(view.getByLabelText("Review source"), {
         button: 0,
         ctrlKey: false,
       });
@@ -2894,7 +2894,7 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     await dispatchReviewEvent(() => {
-      fireEvent.pointerDown(view.getByLabelText("Jump to file"), {
+      fireEvent.mouseDown(view.getByLabelText("Jump to file"), {
         button: 0,
         ctrlKey: false,
       });

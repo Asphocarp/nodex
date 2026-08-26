@@ -63,7 +63,7 @@ export function ToolbarDropdownMenu({
       triggerButton={<ToolbarDropdown label={label} className={className} ariaLabel={ariaLabel} />}
       side="top"
       align="start"
-      contentClassName="max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height,20rem))]"
+      contentClassName="max-h-[min(20rem,var(--nodex-floating-surface-available-height,20rem))]"
     >
       <NodexDropdownSection className="flex min-w-40 flex-col overflow-hidden pt-1">
         <NodexDropdownTitle>{title}</NodexDropdownTitle>

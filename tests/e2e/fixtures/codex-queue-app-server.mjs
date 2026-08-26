@@ -97,6 +97,7 @@ const threadResponse = (includeTurns = false) => ({
 });
 
 const completeTurn = (turnId, status) => {
+  state = readState();
   const current = state.turns.find((entry) => entry.id === turnId);
   if (!current || current.status !== "inProgress") return;
   current.status = status;
@@ -107,7 +108,12 @@ const completeTurn = (turnId, status) => {
   notify("thread/status/changed", { threadId: thread().id, status: { type: "idle" } });
 };
 
+const scheduleAutomaticCompletion = (turnId) => {
+  setTimeout(() => completeTurn(turnId, "completed"), 120);
+};
+
 const startTurn = (params) => {
+  state = readState();
   state.turnSequence += 1;
   const shouldAutoComplete = state.turnSequence > 1;
   const next = turn(`turn-queue-parity-${state.turnSequence}`, "inProgress");
@@ -120,9 +126,7 @@ const startTurn = (params) => {
       threadId: thread().id,
       status: { type: "active", activeFlags: [] },
     });
-    if (shouldAutoComplete) {
-      setTimeout(() => completeTurn(next.id, "completed"), 120);
-    }
+    if (shouldAutoComplete) scheduleAutomaticCompletion(next.id);
   }, 0);
   return next;
 };
@@ -170,6 +174,7 @@ const model = {
   defaultReasoningEffort: "medium",
   inputModalities: ["text", "image"],
   supportsPersonality: false,
+  multiAgentVersion: null,
   additionalSpeedTiers: [],
   serviceTiers: [],
   defaultServiceTier: null,
@@ -177,6 +182,7 @@ const model = {
 };
 
 const handle = (message) => {
+  state = readState();
   const method = message.method;
   if (typeof method !== "string") return;
   const id = message.id;
@@ -219,7 +225,7 @@ const handle = (message) => {
       respond(id, { data: [], nextCursor: null });
       return;
     case "plugin/installed":
-      respond(id, { plugins: [] });
+      respond(id, { marketplaces: [], marketplaceLoadErrors: [] });
       return;
     case "mcpServerStatus/list":
       respond(id, { data: [], nextCursor: null });
@@ -257,6 +263,9 @@ const handle = (message) => {
         turnsBackwardsCursor: null,
         itemsBackwardsCursor: null,
       });
+      for (const pending of state.turns.slice(1)) {
+        if (pending.status === "inProgress") scheduleAutomaticCompletion(pending.id);
+      }
       return;
     case "thread/read":
       respond(id, { thread: thread(true) });

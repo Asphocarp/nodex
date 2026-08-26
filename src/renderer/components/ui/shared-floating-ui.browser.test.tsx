@@ -1,10 +1,14 @@
 import { act, fireEvent, render } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, test } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 import "../../globals.css";
 import { PropertyOptionPicker } from "@/components/database/property-option-picker";
 import { NFM_EDITOR_FLOATING_UI_Z_INDEX } from "@/components/board/editor/nfm-blocknote-floating-ui";
 import { Circle } from "@/components/shared/icons/generic-icons";
+import { openNodexMenu } from "@/test/dom";
 import { NodexDropdownButtonTrigger, NodexDropdownMenu, NodexOptionPicker } from "./dropdown";
+import { NodexDialog, NodexDialogContent, NodexDialogTitle } from "./dialog";
 import { NodexHoverCard, NodexHoverCardProvider } from "./hover-card";
 import { NodexPopover, NodexPopoverAnchor, NodexPopoverContent } from "./popover";
 import { __resetNodexToastStoreForTests, NodexToastProvider, toast } from "./toast";
@@ -19,6 +23,30 @@ function ProbeIcon({ testId }: { testId: string }) {
   return <Circle data-testid={testId} className="size-3 fill-current" aria-hidden="true" />;
 }
 
+function DialogPopoverEscapeProbe() {
+  const [dialogOpen, setDialogOpen] = useState(true);
+  const [popoverOpen, setPopoverOpen] = useState(true);
+  const [actionDisabled, setActionDisabled] = useState(false);
+
+  return (
+    <NodexDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <NodexDialogContent initialFocus={false}>
+        <NodexDialogTitle>Outer dialog</NodexDialogTitle>
+        <NodexPopover open={popoverOpen} onOpenChange={setPopoverOpen}>
+          <NodexPopoverAnchor>
+            <button type="button">Filter trigger</button>
+          </NodexPopoverAnchor>
+          <NodexPopoverContent finalFocus={false}>
+            <button type="button" disabled={actionDisabled} onClick={() => setActionDisabled(true)}>
+              Nested filter action
+            </button>
+          </NodexPopoverContent>
+        </NodexPopover>
+      </NodexDialogContent>
+    </NodexDialog>
+  );
+}
+
 afterEach(async () => {
   await act(async () => {
     __resetNodexToastStoreForTests();
@@ -27,6 +55,21 @@ afterEach(async () => {
 });
 
 describe("shared floating UI in Chromium", () => {
+  test("lets Escape close a nested popover without dismissing its dialog owner", async () => {
+    const view = render(<DialogPopoverEscapeProbe />);
+    await act(settleFloatingSurface);
+
+    const nestedAction = view.getByRole("button", { name: "Nested filter action" });
+    await act(async () => {
+      await userEvent.click(nestedAction);
+      await userEvent.keyboard("{Escape}");
+      await settleFloatingSurface();
+    });
+
+    expect(view.queryByRole("button", { name: "Nested filter action" })).toBeNull();
+    expect(view.getByRole("dialog", { name: "Outer dialog" })).toBeTruthy();
+  });
+
   test("keeps actionable toasts outside the window drag region on one visual axis", async () => {
     const view = render(
       <NodexToastProvider>
@@ -98,13 +141,7 @@ describe("shared floating UI in Chromium", () => {
     const dropdownTrigger = view.getByTestId("dropdown-chip-status-icon").closest("button");
     if (!dropdownTrigger) throw new Error("Expected a compact dropdown trigger.");
 
-    await act(async () => {
-      fireEvent.pointerDown(dropdownTrigger, {
-        button: 0,
-        ctrlKey: false,
-      });
-      await settleFloatingSurface();
-    });
+    await openNodexMenu(dropdownTrigger);
 
     expect(view.getByTestId("menu-status-icon").getBoundingClientRect().width).toBe(16);
   });
@@ -147,15 +184,14 @@ describe("shared floating UI in Chromium", () => {
     );
 
     await act(settleFloatingSurface);
-    const tooltip = view.getByRole("tooltip").parentElement;
-    if (!tooltip) throw new Error("Expected a tooltip content surface.");
+    const tooltip = view.getByRole("tooltip");
     const tooltipZIndex = Number(getComputedStyle(tooltip).zIndex);
     expect(tooltipZIndex).toBeGreaterThan(NFM_EDITOR_FLOATING_UI_Z_INDEX);
   });
 
   test("keeps dropdown trigger tooltips padded around compact shortcut chips", async () => {
     const view = render(
-      <NodexTooltipProvider delayDuration={0}>
+      <NodexTooltipProvider delay={0}>
         <NodexDropdownMenu
           triggerButton={<button type="button">Model</button>}
           triggerTooltipContent="Select model"
@@ -168,12 +204,11 @@ describe("shared floating UI in Chromium", () => {
     const trigger = view.getByRole("button", { name: "Model" });
 
     await act(async () => {
-      fireEvent.focus(trigger);
+      fireEvent.mouseEnter(trigger);
       await settleFloatingSurface();
     });
 
-    const tooltip = view.getByRole("tooltip").parentElement;
-    if (!tooltip) throw new Error("Expected a visual tooltip surface.");
+    const tooltip = view.getByRole("tooltip");
     const shortcut = tooltip.querySelector("kbd");
     if (!shortcut) throw new Error("Expected a tooltip shortcut chip.");
     const style = getComputedStyle(tooltip);
@@ -188,12 +223,12 @@ describe("shared floating UI in Chromium", () => {
   test("increments the layer for recursively portalled floating surfaces", async () => {
     const view = render(
       <NodexPopover open>
-        <NodexPopoverAnchor asChild>
+        <NodexPopoverAnchor>
           <button type="button">Outer floating action</button>
         </NodexPopoverAnchor>
         <NodexPopoverContent data-testid="outer-floating-surface">
           <NodexPopover open>
-            <NodexPopoverAnchor asChild>
+            <NodexPopoverAnchor>
               <button type="button">Inner floating action</button>
             </NodexPopoverAnchor>
             <NodexPopoverContent data-testid="inner-floating-surface">
@@ -215,7 +250,7 @@ describe("shared floating UI in Chromium", () => {
     );
   });
 
-  test("carries the floating layer through Floating UI and Radix portals", async () => {
+  test("carries the floating layer through nested Floating UI portals", async () => {
     const view = render(
       <NodexHoverCardProvider>
         <NodexHoverCard
@@ -223,7 +258,7 @@ describe("shared floating UI in Chromium", () => {
           ariaLabel="Floating owner"
           hoverCardContent={
             <NodexPopover open>
-              <NodexPopoverAnchor asChild>
+              <NodexPopoverAnchor>
                 <button type="button">Nested hover-card action</button>
               </NodexPopoverAnchor>
               <NodexPopoverContent data-testid="hover-card-child-surface">

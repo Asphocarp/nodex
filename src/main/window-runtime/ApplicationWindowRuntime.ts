@@ -271,14 +271,13 @@ export const live = (
         );
       };
 
-      const create = (session: WindowSessionRecord): BrowserWindow => {
-        const window = options.shell.create(session, "foreground");
+      const activateClaimedWindow = (window: BrowserWindow, session: WindowSessionRecord): void => {
+        const webContentsId = window.webContents.id;
         try {
           activate(window, session);
-          options.shell.completeActivation(window.webContents.id);
-          return window;
+          options.shell.completeActivation(webContentsId);
         } catch (cause) {
-          options.shell.failActivation(window.webContents.id, cause);
+          options.shell.failActivation(webContentsId, cause);
           if (!window.isDestroyed()) window.destroy();
           throw cause;
         }
@@ -286,15 +285,16 @@ export const live = (
 
       const activateClaimedWindows = (): void => {
         for (const lease of options.shell.claimPendingActivation()) {
-          try {
-            activate(lease.window, lease.session);
-            options.shell.completeActivation(lease.window.webContents.id);
-          } catch (cause) {
-            options.shell.failActivation(lease.window.webContents.id, cause);
-            throw cause;
-          }
+          activateClaimedWindow(lease.window, lease.session);
         }
       };
+
+      const create = (session: WindowSessionRecord): BrowserWindow => {
+        const window = options.shell.create(session, "foreground");
+        activateClaimedWindows();
+        return window;
+      };
+
       activateClaimedWindows();
 
       const coordinator = createApplicationWindowCoordinator({

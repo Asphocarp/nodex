@@ -1,7 +1,7 @@
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import {
   forwardRef,
-  useEffect,
+  isValidElement,
   useId,
   useRef,
   useState,
@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
   type ReactElement,
   type ReactNode,
+  type RefObject,
 } from "react";
 import {
   CheckmarkIcon,
@@ -21,11 +22,17 @@ import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 import { NODEX_RAISED_CONTROL_CHROME_CLASS_NAME } from "./control-chrome";
 import { NodexFloatingLayerProvider, useNodexFloatingLayerIndex } from "./floating-layer";
+import { makeNodexFloatingSurfaceBoundaryStyle } from "./floating-surface";
+import { handleNodexMenuItemClick, type NodexMenuSelectHandler } from "./menu-selection";
 import { nodexMenuSurfaceClassName } from "./menu-surface";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "./popover";
 import { NodexTooltip } from "./tooltip";
 
 export type NodexDropdownSurface = "menu" | "panel";
+export type NodexDropdownFinalFocus =
+  | boolean
+  | RefObject<HTMLElement | null>
+  | (() => boolean | HTMLElement | null | void);
 export type NodexDropdownContentWidth =
   | "icon"
   | "xs"
@@ -39,108 +46,191 @@ export type NodexDropdownContentWidth =
   | "panelWide";
 export type NodexDropdownContentMaxHeight = "list" | "tall" | "halfViewport";
 
-const CONTENT_BOUNDARY_STYLE: CSSProperties = {
-  maxWidth: "min(var(--radix-dropdown-menu-content-available-width), calc(100vw - 16px))",
-  maxHeight: "min(var(--radix-dropdown-menu-content-available-height), calc(100vh - 16px))",
+type NodexMenuBoundaryStyle = CSSProperties & {
+  "--nodex-menu-transform-origin": string;
 };
 
-function NodexDropdownRoot(props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root modal={false} {...props} />;
+const CONTENT_BOUNDARY_STYLE: NodexMenuBoundaryStyle = {
+  ...makeNodexFloatingSurfaceBoundaryStyle(
+    "var(--available-width)",
+    "var(--available-height)",
+    "var(--anchor-width)",
+    "var(--anchor-height)",
+  ),
+  "--nodex-menu-transform-origin": "var(--transform-origin)",
+  maxWidth: "min(var(--nodex-floating-surface-available-width), calc(100vw - 16px))",
+  maxHeight: "min(var(--nodex-floating-surface-available-height), calc(100vh - 16px))",
+};
+
+export interface NodexDropdownRootProps {
+  children?: ReactNode;
+  open?: boolean;
+  defaultOpen?: boolean;
+  disabled?: boolean;
+  loopFocus?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onOpenChangeComplete?: (open: boolean) => void;
 }
 
-const NodexDropdownTrigger = forwardRef<
-  HTMLButtonElement,
-  ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>
->(function NodexDropdownTrigger({ asChild, className, disabled, ...props }, ref) {
+export function NodexDropdownRoot({
+  onOpenChange,
+  onOpenChangeComplete,
+  ...props
+}: NodexDropdownRootProps) {
   return (
-    <DropdownMenuPrimitive.Trigger
-      ref={ref}
-      data-slot={asChild ? undefined : "dropdown-trigger"}
-      asChild={asChild}
-      disabled={disabled}
-      className={cn("outline-hidden", !disabled && "cursor-interaction", className)}
+    <MenuPrimitive.Root
+      modal={false}
       {...props}
+      onOpenChange={onOpenChange ? (open) => onOpenChange(open) : undefined}
+      onOpenChangeComplete={onOpenChangeComplete ? (open) => onOpenChangeComplete(open) : undefined}
     />
   );
-});
-
-function NodexDropdownPortal(props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Portal>) {
-  return <DropdownMenuPrimitive.Portal data-slot="dropdown-portal" {...props} />;
 }
 
-function NodexDropdownSubmenu(props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Sub>) {
-  return <DropdownMenuPrimitive.Sub data-slot="dropdown-submenu" {...props} />;
+export interface NodexDropdownTriggerProps {
+  children: ReactElement;
+  disabled?: boolean;
+  className?: string;
+  nativeButton?: boolean;
+  openOnHover?: boolean;
+  delay?: number;
+  closeDelay?: number;
 }
 
-const NodexDropdownSubmenuTrigger = forwardRef<
-  HTMLDivElement,
-  ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger>
->(function NodexDropdownSubmenuTrigger({ className, ...props }, ref) {
-  return (
-    <DropdownMenuPrimitive.SubTrigger
-      ref={ref}
-      className={cn(dropdownItemBaseClassName, dropdownItemInteractiveClassName, className)}
-      {...props}
-    />
-  );
-});
+export const NodexDropdownTrigger = forwardRef<HTMLButtonElement, NodexDropdownTriggerProps>(
+  function NodexDropdownTrigger({ children, className, disabled, nativeButton, ...props }, ref) {
+    if (!isValidElement(children)) {
+      throw new Error("NodexDropdownTrigger requires one concrete interactive child");
+    }
 
-const NodexDropdownSubmenuContent = forwardRef<
-  HTMLDivElement,
-  ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent> & {
-    surface?: NodexDropdownSurface | "bare";
-    motion?: "default" | "none";
-  }
->(function NodexDropdownSubmenuContent(
-  {
-    className,
-    children,
-    style,
-    collisionPadding = 6,
-    sideOffset = 4,
-    alignOffset = -4,
-    surface = "menu",
-    motion = "none",
-    ...props
+    return (
+      <MenuPrimitive.Trigger
+        ref={ref}
+        data-slot="dropdown-trigger"
+        render={children}
+        disabled={disabled}
+        nativeButton={nativeButton ?? children.type === "button"}
+        className={cn("outline-hidden", !disabled && "cursor-interaction", className)}
+        {...props}
+      />
+    );
   },
-  ref,
-) {
-  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+);
 
+export interface NodexDropdownPortalProps {
+  children?: ReactNode;
+  container?: HTMLElement | ShadowRoot | RefObject<HTMLElement | ShadowRoot | null> | null;
+  keepMounted?: boolean;
+}
+
+export function NodexDropdownPortal(props: NodexDropdownPortalProps) {
+  return <MenuPrimitive.Portal data-slot="dropdown-portal" {...props} />;
+}
+
+interface NodexDropdownSubmenuProps {
+  children?: ReactNode;
+  open?: boolean;
+  defaultOpen?: boolean;
+  disabled?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
+function NodexDropdownSubmenu({ onOpenChange, ...props }: NodexDropdownSubmenuProps) {
   return (
-    <DropdownMenuPrimitive.SubContent
-      ref={ref}
-      data-slot="dropdown-submenu-content"
-      collisionPadding={collisionPadding}
-      sideOffset={sideOffset}
-      alignOffset={alignOffset}
-      style={{ ...CONTENT_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
-      className={cn(
-        surface === "bare"
-          ? cn(
-              "m-0 flex min-w-[180px] select-none flex-col overflow-x-hidden overflow-y-auto p-0",
-              APP_SHELL_FLOATING_UI_LAYER_CLASS,
-            )
-          : cn(
-              dropdownContentSurfaceClassName,
-              surface === "menu" && dropdownAdaptiveWidthClassName,
-            ),
-        motion === "default"
-          ? dropdownContentMotionClassName
-          : "data-[state=closed]:invisible data-[state=closed]:pointer-events-none",
-        className,
-      )}
+    <MenuPrimitive.SubmenuRoot
       {...props}
-      data-nodex-keyboard-scope="local"
-    >
-      <NodexFloatingLayerProvider zIndex={layerIndex}>{children}</NodexFloatingLayerProvider>
-    </DropdownMenuPrimitive.SubContent>
+      onOpenChange={onOpenChange ? (open) => onOpenChange(open) : undefined}
+    />
   );
-});
+}
+
+interface NodexDropdownSubmenuTriggerProps extends ComponentPropsWithoutRef<"div"> {
+  disabled?: boolean;
+  openOnHover?: boolean;
+  delay?: number;
+  closeDelay?: number;
+}
+
+const NodexDropdownSubmenuTrigger = forwardRef<HTMLDivElement, NodexDropdownSubmenuTriggerProps>(
+  function NodexDropdownSubmenuTrigger({ className, ...props }, ref) {
+    return (
+      <MenuPrimitive.SubmenuTrigger
+        ref={ref}
+        data-slot="dropdown-submenu-trigger"
+        className={cn(dropdownItemBaseClassName, dropdownItemInteractiveClassName, className)}
+        {...props}
+      />
+    );
+  },
+);
+
+interface NodexDropdownSubmenuContentProps extends ComponentPropsWithoutRef<"div"> {
+  align?: "start" | "center" | "end";
+  alignOffset?: number;
+  sideOffset?: number;
+  collisionPadding?: number;
+  surface?: NodexDropdownSurface | "bare";
+  motion?: "default" | "none";
+}
+
+const NodexDropdownSubmenuContent = forwardRef<HTMLDivElement, NodexDropdownSubmenuContentProps>(
+  function NodexDropdownSubmenuContent(
+    {
+      className,
+      children,
+      style,
+      collisionPadding = 6,
+      sideOffset = 4,
+      alignOffset = -4,
+      surface = "menu",
+      motion = "none",
+      ...props
+    },
+    ref,
+  ) {
+    const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+
+    return (
+      <MenuPrimitive.Positioner
+        data-slot="dropdown-submenu-positioner"
+        collisionPadding={collisionPadding}
+        sideOffset={sideOffset}
+        alignOffset={alignOffset}
+        className={APP_SHELL_FLOATING_UI_LAYER_CLASS}
+        style={{ zIndex: layerIndex }}
+      >
+        <MenuPrimitive.Popup
+          ref={ref}
+          data-slot="dropdown-submenu-content"
+          style={{ ...CONTENT_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
+          className={cn(
+            surface === "bare"
+              ? cn(
+                  "m-0 flex min-w-[180px] select-none flex-col overflow-x-hidden overflow-y-auto p-0",
+                  APP_SHELL_FLOATING_UI_LAYER_CLASS,
+                )
+              : cn(
+                  dropdownContentSurfaceClassName,
+                  surface === "menu" && dropdownAdaptiveWidthClassName,
+                ),
+            motion === "default"
+              ? dropdownContentMotionClassName
+              : "data-closed:invisible data-closed:pointer-events-none",
+            className,
+          )}
+          {...props}
+          data-nodex-keyboard-scope="local"
+        >
+          <NodexFloatingLayerProvider zIndex={layerIndex}>{children}</NodexFloatingLayerProvider>
+        </MenuPrimitive.Popup>
+      </MenuPrimitive.Positioner>
+    );
+  },
+);
 
 const dropdownContentSurfaceClassName = cn(
   nodexMenuSurfaceClassName,
-  "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)] [will-change:opacity,transform]",
+  "[transform-origin:var(--nodex-menu-transform-origin)] [will-change:opacity,transform]",
 );
 
 const dropdownItemBaseClassName =
@@ -162,8 +252,8 @@ const dropdownContentMotionClassName = cn(
   "data-[side=top]:[--dropdown-entry-transform:translateY(calc(var(--dropdown-translate)_*_1))_scale(var(--dropdown-scale))]",
   "data-[side=right]:[--dropdown-entry-transform:translateX(calc(var(--dropdown-translate)_*_-1))_scale(var(--dropdown-scale))]",
   "data-[side=left]:[--dropdown-entry-transform:translateX(calc(var(--dropdown-translate)_*_1))_scale(var(--dropdown-scale))]",
-  "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[var(--dropdown-scale)] data-[side=bottom]:data-[state=open]:slide-in-from-top-[var(--dropdown-translate)] data-[side=left]:data-[state=open]:slide-in-from-right-[var(--dropdown-translate)] data-[side=right]:data-[state=open]:slide-in-from-left-[var(--dropdown-translate)] data-[side=top]:data-[state=open]:slide-in-from-bottom-[var(--dropdown-translate)]",
-  "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-[var(--dropdown-scale)]",
+  "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[var(--dropdown-scale)] data-[side=bottom]:data-open:slide-in-from-top-[var(--dropdown-translate)] data-[side=left]:data-open:slide-in-from-right-[var(--dropdown-translate)] data-[side=right]:data-open:slide-in-from-left-[var(--dropdown-translate)] data-[side=top]:data-open:slide-in-from-bottom-[var(--dropdown-translate)]",
+  "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[var(--dropdown-scale)]",
 );
 
 function resolveDropdownSurfaceClass(surface: NodexDropdownSurface): string | undefined {
@@ -204,17 +294,11 @@ export interface NodexDropdownMenuProps {
   disabled?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  dir?: "ltr" | "rtl";
   side?: "top" | "right" | "bottom" | "left";
   align?: "start" | "center" | "end";
   sideOffset?: number;
   alignOffset?: number;
-  onCloseAutoFocus?: ComponentPropsWithoutRef<
-    typeof DropdownMenuPrimitive.Content
-  >["onCloseAutoFocus"];
-  onEscapeKeyDown?: ComponentPropsWithoutRef<
-    typeof DropdownMenuPrimitive.Content
-  >["onEscapeKeyDown"];
+  finalFocus?: NodexDropdownFinalFocus;
   contentClassName?: string;
   contentStyle?: CSSProperties;
   surface?: NodexDropdownSurface;
@@ -232,13 +316,11 @@ export function NodexDropdownMenu({
   disabled = false,
   open,
   onOpenChange,
-  dir,
   side,
   align = "start",
   sideOffset = 4,
   alignOffset,
-  onCloseAutoFocus,
-  onEscapeKeyDown,
+  finalFocus,
   contentClassName,
   contentStyle,
   surface = "menu",
@@ -248,13 +330,13 @@ export function NodexDropdownMenu({
   motion = "default",
 }: NodexDropdownMenuProps) {
   const trigger = (
-    <NodexDropdownTrigger asChild disabled={disabled}>
+    <NodexDropdownTrigger disabled={disabled} nativeButton>
       {triggerButton}
     </NodexDropdownTrigger>
   );
 
   return (
-    <NodexDropdownRoot dir={dir} open={open} onOpenChange={onOpenChange}>
+    <NodexDropdownRoot open={open} onOpenChange={onOpenChange}>
       {triggerTooltipContent == null ? (
         trigger
       ) : (
@@ -274,8 +356,7 @@ export function NodexDropdownMenu({
             align={align}
             sideOffset={sideOffset}
             alignOffset={alignOffset}
-            onCloseAutoFocus={onCloseAutoFocus}
-            onEscapeKeyDown={onEscapeKeyDown}
+            finalFocus={finalFocus}
             style={contentStyle}
             className={cn(
               resolveDropdownWidthClass(contentWidth),
@@ -293,9 +374,13 @@ export function NodexDropdownMenu({
   );
 }
 
-export interface NodexDropdownContentProps extends ComponentPropsWithoutRef<
-  typeof DropdownMenuPrimitive.Content
-> {
+export interface NodexDropdownContentProps extends ComponentPropsWithoutRef<"div"> {
+  side?: "top" | "right" | "bottom" | "left";
+  align?: "start" | "center" | "end";
+  sideOffset?: number;
+  alignOffset?: number;
+  collisionPadding?: number;
+  finalFocus?: NodexDropdownFinalFocus;
   surface?: NodexDropdownSurface;
   motion?: "default" | "none";
 }
@@ -310,6 +395,10 @@ export const NodexDropdownContent = forwardRef<HTMLDivElement, NodexDropdownCont
       motion = "default",
       style,
       collisionPadding = 6,
+      side,
+      sideOffset,
+      alignOffset,
+      finalFocus,
       ...props
     },
     ref,
@@ -317,25 +406,35 @@ export const NodexDropdownContent = forwardRef<HTMLDivElement, NodexDropdownCont
     const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
 
     return (
-      <DropdownMenuPrimitive.Content
-        ref={ref}
+      <MenuPrimitive.Positioner
+        data-slot="dropdown-positioner"
         align={align}
+        side={side}
+        sideOffset={sideOffset}
+        alignOffset={alignOffset}
         collisionPadding={collisionPadding}
-        style={{ ...CONTENT_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
-        className={cn(
-          dropdownContentSurfaceClassName,
-          motion === "default"
-            ? dropdownContentMotionClassName
-            : "data-[state=closed]:invisible data-[state=closed]:pointer-events-none",
-          "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)]",
-          resolveDropdownSurfaceClass(surface),
-          className,
-        )}
-        {...props}
-        data-nodex-keyboard-scope="local"
+        className={APP_SHELL_FLOATING_UI_LAYER_CLASS}
+        style={{ zIndex: layerIndex }}
       >
-        <NodexFloatingLayerProvider zIndex={layerIndex}>{children}</NodexFloatingLayerProvider>
-      </DropdownMenuPrimitive.Content>
+        <MenuPrimitive.Popup
+          ref={ref}
+          data-slot="dropdown-content"
+          finalFocus={finalFocus}
+          style={{ ...CONTENT_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
+          className={cn(
+            dropdownContentSurfaceClassName,
+            motion === "default"
+              ? dropdownContentMotionClassName
+              : "data-closed:invisible data-closed:pointer-events-none",
+            resolveDropdownSurfaceClass(surface),
+            className,
+          )}
+          {...props}
+          data-nodex-keyboard-scope="local"
+        >
+          <NodexFloatingLayerProvider zIndex={layerIndex}>{children}</NodexFloatingLayerProvider>
+        </MenuPrimitive.Popup>
+      </MenuPrimitive.Positioner>
     );
   },
 );
@@ -406,9 +505,10 @@ export const NodexSettingsDropdownTrigger = forwardRef<
   return <NodexDropdownButtonTrigger ref={ref} chrome="outline" size="settings" {...props} />;
 });
 
-export interface NodexDropdownItemProps extends ComponentPropsWithoutRef<
-  typeof DropdownMenuPrimitive.Item
-> {
+export interface NodexDropdownItemProps extends Omit<ComponentPropsWithoutRef<"div">, "onSelect"> {
+  disabled?: boolean;
+  onSelect?: NodexMenuSelectHandler;
+  closeOnClick?: boolean;
   leftSlot?: ReactNode;
   rightSlot?: ReactNode;
   subText?: ReactNode;
@@ -446,11 +546,13 @@ export const NodexDropdownItem = forwardRef<HTMLDivElement, NodexDropdownItemPro
     ref,
   ) {
     const item = (
-      <DropdownMenuPrimitive.Item
+      <MenuPrimitive.Item
         ref={ref}
+        data-slot="dropdown-item"
         disabled={disabled}
-        onClick={disabled ? undefined : onClick}
-        onSelect={disabled ? undefined : onSelect}
+        onClick={
+          disabled ? undefined : (event) => handleNodexMenuItemClick(event, onClick, onSelect)
+        }
         className={cn(
           "no-drag",
           dropdownItemBaseClassName,
@@ -496,7 +598,7 @@ export const NodexDropdownItem = forwardRef<HTMLDivElement, NodexDropdownItemPro
           ) : null}
           {rightSlot ? <span className="shrink-0">{rightSlot}</span> : null}
         </div>
-      </DropdownMenuPrimitive.Item>
+      </MenuPrimitive.Item>
     );
 
     if (!tooltipText) return item;
@@ -516,15 +618,28 @@ export const NodexDropdownItem = forwardRef<HTMLDivElement, NodexDropdownItemPro
   },
 );
 
-export function NodexDropdownRadioGroup(
-  props: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>,
-) {
-  return <DropdownMenuPrimitive.RadioGroup {...props} />;
+export interface NodexDropdownRadioGroupProps extends ComponentPropsWithoutRef<"div"> {
+  value?: string;
+  onValueChange?: (value: string) => void;
 }
 
-export interface NodexDropdownRadioItemProps extends ComponentPropsWithoutRef<
-  typeof DropdownMenuPrimitive.RadioItem
+export function NodexDropdownRadioGroup({ onValueChange, ...props }: NodexDropdownRadioGroupProps) {
+  return (
+    <MenuPrimitive.RadioGroup
+      {...props}
+      onValueChange={onValueChange ? (value) => onValueChange(value) : undefined}
+    />
+  );
+}
+
+export interface NodexDropdownRadioItemProps extends Omit<
+  ComponentPropsWithoutRef<"div">,
+  "onSelect"
 > {
+  value: string;
+  disabled?: boolean;
+  onSelect?: NodexMenuSelectHandler;
+  closeOnClick?: boolean;
   leftSlot?: ReactNode;
   rightSlot?: ReactElement;
   allowWrap?: boolean;
@@ -546,11 +661,14 @@ export const NodexDropdownRadioItem = forwardRef<HTMLDivElement, NodexDropdownRa
     ref,
   ) {
     return (
-      <DropdownMenuPrimitive.RadioItem
+      <MenuPrimitive.RadioItem
         ref={ref}
+        data-slot="dropdown-radio-item"
         disabled={disabled}
-        onClick={disabled ? undefined : onClick}
-        onSelect={disabled ? undefined : onSelect}
+        closeOnClick
+        onClick={
+          disabled ? undefined : (event) => handleNodexMenuItemClick(event, onClick, onSelect)
+        }
         className={cn(
           "no-drag",
           dropdownItemBaseClassName,
@@ -575,11 +693,9 @@ export const NodexDropdownRadioItem = forwardRef<HTMLDivElement, NodexDropdownRa
           <span className={cn("min-w-0 flex-1", allowWrap ? "whitespace-normal" : "truncate")}>
             <span className={cn("min-w-0", !allowWrap && "truncate")}>{children}</span>
           </span>
-          <DropdownMenuPrimitive.ItemIndicator asChild>
-            {rightSlot ?? <NodexDropdownSelectedIcon />}
-          </DropdownMenuPrimitive.ItemIndicator>
+          <MenuPrimitive.RadioItemIndicator render={rightSlot ?? <NodexDropdownSelectedIcon />} />
         </div>
-      </DropdownMenuPrimitive.RadioItem>
+      </MenuPrimitive.RadioItem>
     );
   },
 );
@@ -883,21 +999,9 @@ function NodexFilterOptionPicker({
     }
   };
 
-  useEffect(() => {
-    if (!open) return;
-    const frame = requestAnimationFrame(() => {
-      const activeElement = document.activeElement;
-      if (activeElement && listboxRef.current?.contains(activeElement)) return;
-      inputRef.current?.focus();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [open]);
-
   return (
     <NodexPopover open={open} onOpenChange={changeOpen}>
-      <NodexPopoverTrigger asChild disabled={disabled}>
-        {triggerButton}
-      </NodexPopoverTrigger>
+      <NodexPopoverTrigger disabled={disabled}>{triggerButton}</NodexPopoverTrigger>
       {disabled ? null : (
         <NodexPopoverContent
           align={align}
@@ -905,7 +1009,7 @@ function NodexFilterOptionPicker({
           sideOffset={sideOffset}
           alignOffset={alignOffset}
           portalContainer={portalContainer}
-          onOpenAutoFocus={(event) => event.preventDefault()}
+          initialFocus={inputRef}
           className={cn(
             "overflow-hidden p-1",
             resolveDropdownWidthClass(contentWidth),
@@ -1188,7 +1292,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   tooltipTextClassName?: string;
   tooltipSide?: "top" | "right" | "bottom" | "left";
   tooltipAlign?: "start" | "center" | "end";
-  onOpenChange?: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Sub>["onOpenChange"];
+  onOpenChange?: (open: boolean) => void;
   open?: boolean;
 }) {
   const trigger = (
@@ -1274,7 +1378,7 @@ export function NodexDropdownSummarySubmenuItem({
   disabled?: boolean;
   contentClassName?: string;
   tooltipText?: ReactNode;
-  onOpenChange?: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Sub>["onOpenChange"];
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
     <NodexDropdownFlyoutSubmenuItem

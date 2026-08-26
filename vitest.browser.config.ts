@@ -16,6 +16,21 @@ export default defineConfig({
   plugins: createRendererVitePlugins(),
   resolve: rendererViteResolve,
   css: rendererViteCss,
+  optimizeDeps: {
+    include: [
+      "@base-ui/react/button",
+      "@base-ui/react/collapsible",
+      "@base-ui/react/context-menu",
+      "@base-ui/react/dialog",
+      "@base-ui/react/menu",
+      "@base-ui/react/popover",
+      "@base-ui/react/scroll-area",
+      "@base-ui/react/slider",
+      "@base-ui/react/tabs",
+      "@base-ui/react/tooltip",
+      "@base-ui/react/use-render",
+    ],
+  },
   test: {
     browser: {
       enabled: true,

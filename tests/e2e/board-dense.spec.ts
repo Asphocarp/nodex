@@ -14,8 +14,8 @@ import {
 const primaryShortcut = (key: string): string =>
   `${process.platform === "darwin" ? "Meta" : "Control"}+${key}`;
 
-const focusEditableBlockEnd = async (block: Locator): Promise<void> => {
-  await block.evaluate((element) => {
+const focusEditableBlockEnd = async (page: Page, block: Locator): Promise<void> => {
+  const point = await block.evaluate((element) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     let editableText: Text | null = null;
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -25,17 +25,19 @@ const focusEditableBlockEnd = async (block: Locator): Promise<void> => {
     }
     if (!editableText) throw new Error("Block has no editable text boundary");
     const range = document.createRange();
-    range.setStart(editableText, editableText.data.length);
-    range.collapse(true);
-    const selection = globalThis.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    element.closest<HTMLElement>('.ProseMirror[contenteditable="true"]')?.focus();
+    const offset = Math.max(0, editableText.data.length - 1);
+    range.setStart(editableText, offset);
+    range.setEnd(editableText, editableText.data.length);
+    const rect = range.getBoundingClientRect();
+    return { x: rect.right - 1, y: rect.top + rect.height / 2 };
   });
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.press("End");
 };
 
 const focusEditableBlockAfterPageMention = async (block: Locator): Promise<void> => {
   await block.evaluate((element) => {
+    element.closest<HTMLElement>('.ProseMirror[contenteditable="true"]')?.focus();
     const mentionRoot = element.querySelector<HTMLElement>('[data-mention-inline-root="true"]');
     if (!mentionRoot) throw new Error("Block has no page mention boundary");
     const mentionNodeView =
@@ -47,7 +49,6 @@ const focusEditableBlockAfterPageMention = async (block: Locator): Promise<void>
     const selection = globalThis.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
-    element.closest<HTMLElement>('.ProseMirror[contenteditable="true"]')?.focus();
   });
 };
 
@@ -667,6 +668,51 @@ test("opens an unopened Page with Enter from Command Palette", async ({}, testIn
   );
 });
 
+test("creates a new collaborative Page Block with Enter", async () => {
+  await withElectronScenario(
+    {
+      label: "board-dense-enter-regression",
+      scenarioId: BOARD_DENSE_SCENARIO_ID,
+    },
+    async ({ page, manifest }) => {
+      if (!manifest) throw new Error("board/dense did not materialize");
+      await focusBoardDenseUi(page, manifest);
+      const sourcePageId = manifest.pageIdsByKey[BOARD_DENSE_PRIMARY_PAGE_KEY];
+      if (!sourcePageId) throw new Error("board/dense source Page is missing");
+      const editor = page
+        .locator(`[data-page-stage-page-id="${sourcePageId}"]:visible`)
+        .locator('.nfm-editor .ProseMirror[contenteditable="true"]')
+        .first();
+      const blocks = editor.locator(".bn-block[data-id]");
+      const originalCount = await blocks.count();
+      const sourceBlock = blocks
+        .filter({ hasText: "Keep Board and Page views convergent" })
+        .first();
+      const sourceIndex = (await blocks.allTextContents()).findIndex((text) =>
+        text.includes("Keep Board and Page views convergent"),
+      );
+      if (sourceIndex < 0) throw new Error("board/dense Enter source Block is missing");
+      const originalText = (await sourceBlock.innerText()).replace(/\s+/gu, " ").trim();
+
+      await sourceBlock.click();
+      await page.keyboard.press("End");
+      await page.keyboard.press("Enter");
+
+      await expect(blocks).toHaveCount(originalCount + 1);
+      await expect
+        .poll(async () => {
+          const splitTexts = await Promise.all(
+            [sourceIndex, sourceIndex + 1].map(async (index) =>
+              (await blocks.nth(index).innerText()).replace(/\s+/gu, " ").trim(),
+            ),
+          );
+          return splitTexts.join("");
+        })
+        .toBe(originalText);
+    },
+  );
+});
+
 test("materializes and opens the authoritative board/dense environment", async ({}, testInfo) => {
   test.setTimeout(120_000);
   await withElectronScenario(
@@ -1046,7 +1092,8 @@ test("materializes and opens the authoritative board/dense environment", async (
       await expect(pageRows).toHaveCount(pageRowsBeforeExpansion - 1 + hiddenPageCount);
       await page.keyboard.type("zzzz");
       await expect(mentionMenu).toBeVisible();
-      await expect(mentionMenu.getByText("No matching mentions", { exact: true })).toBeVisible();
+      await expect(mentionMenu.getByRole("option", { name: "New “zzzz” sub-page" })).toBeVisible();
+      await expect(mentionMenu.getByRole("option", { name: /New “zzzz” page in/u })).toBeVisible();
       for (let index = 0; index < 4; index += 1) {
         await page.keyboard.press("Backspace");
       }
@@ -1071,7 +1118,8 @@ test("materializes and opens the authoritative board/dense environment", async (
       }
       await page.keyboard.type("Keep projection updates bounded");
       const targetMentionOption = page.getByRole("option", {
-        name: /Keep projection updates bounded/u,
+        name: "Keep projection updates bounded",
+        exact: true,
       });
       await expect(targetMentionOption).toContainText("Keep projection updates bounded");
       await expect(targetMentionOption.locator(".font-medium")).toHaveCount(4);
@@ -1239,8 +1287,30 @@ test("materializes and opens the authoritative board/dense environment", async (
         page.getByRole("tab", { name: "Unify Database View rendering" }),
       ).toHaveAttribute("aria-selected", "true");
 
-      await focusEditableBlockEnd(insertedMentionBlock);
+      await focusEditableBlockEnd(page, insertedMentionBlock);
+      await expect
+        .poll(() =>
+          insertedMentionBlock.evaluate((element) => {
+            const selection = globalThis.getSelection();
+            const focusElement =
+              selection?.focusNode instanceof Element
+                ? selection.focusNode
+                : selection?.focusNode?.parentElement;
+            return {
+              focusInside: Boolean(focusElement && element.contains(focusElement)),
+              mentionSelected: Boolean(
+                element.querySelector('[data-mention-token-selected="true"]'),
+              ),
+              selectedText: selection?.toString() ?? "",
+            };
+          }),
+        )
+        .toEqual({ focusInside: true, mentionSelected: false, selectedText: "" });
+      const blockCountBeforeEmbed = await sourceEditor.locator(".bn-block[data-id]").count();
       await page.keyboard.press("Enter");
+      await expect(sourceEditor.locator(".bn-block[data-id]")).toHaveCount(
+        blockCountBeforeEmbed + 1,
+      );
       await page.keyboard.type("/embed page");
       await page.getByRole("option", { name: /Embed page/u }).click();
       await page.getByRole("option", { name: /Keep projection updates bounded/u }).click();
@@ -1260,8 +1330,12 @@ test("materializes and opens the authoritative board/dense environment", async (
         "affected projection window",
       );
 
-      await focusEditableBlockEnd(insertedMentionBlock);
+      await focusEditableBlockEnd(page, insertedMentionBlock);
+      const blockCountBeforeSubpage = await sourceEditor.locator(".bn-block[data-id]").count();
       await page.keyboard.press("Enter");
+      await expect(sourceEditor.locator(".bn-block[data-id]")).toHaveCount(
+        blockCountBeforeSubpage + 1,
+      );
       await page.keyboard.type("/subpage");
       await page.getByRole("option", { name: /^Subpage/u }).click();
       await page.keyboard.type("Reference model child");

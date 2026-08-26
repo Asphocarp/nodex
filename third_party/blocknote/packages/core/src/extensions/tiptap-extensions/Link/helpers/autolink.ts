@@ -60,7 +60,10 @@ function createAutolinkInputRule(options: AutolinkOptions): AutomaticInputRule {
 
       for (const token of tokens) {
         if (!token.isLink) continue;
-        if (!options.validate(token.value) || !options.shouldAutoLink(token.value)) {
+        if (
+          !options.validate(token.value) ||
+          !options.shouldAutoLink(token.value)
+        ) {
           continue;
         }
 

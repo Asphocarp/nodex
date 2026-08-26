@@ -420,7 +420,7 @@ export function RelationPropertyEditor({
       }}
     >
       {host === "popover" ? (
-        <NodexPopoverTrigger asChild disabled={actionDisabled}>
+        <NodexPopoverTrigger disabled={actionDisabled}>
           <button
             type="button"
             aria-label={`Edit ${label} relation`}

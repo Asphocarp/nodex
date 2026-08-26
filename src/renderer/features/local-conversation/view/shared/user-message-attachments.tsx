@@ -300,9 +300,9 @@ export function UserAttachmentStrip({ attachments }: { attachments: CodexUserAtt
           onOpenChange={(open) => {
             if (!open) setActivePreview(null);
           }}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
+          finalFocus={() => {
             activePreview.trigger.focus();
+            return false;
           }}
           src={activeImage.src}
           downloadSrc={activeImage.downloadSrc}

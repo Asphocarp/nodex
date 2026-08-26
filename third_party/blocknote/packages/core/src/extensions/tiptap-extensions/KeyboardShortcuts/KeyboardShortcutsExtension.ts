@@ -23,8 +23,8 @@ import {
 } from "../../../api/getBlockInfoFromPos.js";
 import { BlockNoteEditor } from "../../../editor/BlockNoteEditor.js";
 import { undoAutomaticInputRule } from "../../AutomaticInputRules/AutomaticInputRules.js";
-import { FormattingToolbarExtension } from "../../FormattingToolbar/FormattingToolbar.js";
 import { FilePanelExtension } from "../../FilePanel/FilePanel.js";
+import { FormattingToolbarExtension } from "../../FormattingToolbar/FormattingToolbar.js";
 
 export const KeyboardShortcutsExtension = Extension.create<{
   editor: BlockNoteEditor<any, any, any>;
@@ -141,8 +141,7 @@ export const KeyboardShortcutsExtension = Extension.create<{
             }
 
             const selectionAtBlockStart =
-              state.selection.from ===
-              blockInfo.blockContent.beforePos + 1;
+              state.selection.from === blockInfo.blockContent.beforePos + 1;
             if (!selectionAtBlockStart) {
               return false;
             }
@@ -341,11 +340,13 @@ export const KeyboardShortcutsExtension = Extension.create<{
                 return false;
               }
 
+              // A contentless atomic block is not an empty text block. Treating
+              // it as one makes Tiptap's cut command construct a TextSelection
+              // on the surrounding blockContainer before product policy can
+              // decide whether the atom may be removed.
               const prevBlockNotTableAndNoContent =
-                bottomBlock.blockContent.node.type.spec.content === "" ||
-                (bottomBlock.blockContent.node.type.spec.content ===
-                  "inline*" &&
-                  bottomBlock.blockContent.node.childCount === 0);
+                bottomBlock.blockContent.node.isTextblock &&
+                bottomBlock.blockContent.node.childCount === 0;
 
               if (prevBlockNotTableAndNoContent) {
                 return chain()
@@ -483,8 +484,7 @@ export const KeyboardShortcutsExtension = Extension.create<{
             }
 
             const selectionAtBlockEnd =
-              state.selection.from ===
-              blockInfo.blockContent.afterPos - 1;
+              state.selection.from === blockInfo.blockContent.afterPos - 1;
             if (!selectionAtBlockEnd) {
               return false;
             }
@@ -810,10 +810,20 @@ export const KeyboardShortcutsExtension = Extension.create<{
           commands.command(({ state }) => {
             const blockInfo = getBlockInfoFromSelection(state);
 
+            const blockSpec =
+              this.options.editor.schema.blockSpecs[blockInfo.blockNoteType];
+
+            // NOTE: This likely doesn't work as intended - `blockSchema[type]`
+            // holds the block *config* (type/propSchema/content), which carries
+            // no `meta`, so `meta?.hardBreakShortcut` is always `undefined` and
+            // this falls back to the default. It should read from the block
+            // spec's implementation instead (i.e.
+            // `editor.schema.blockSpecs[type].implementation.meta`), the way the
+            // syntax-highlighting extension reads `meta.highlight`. Left as-is
+            // for a follow-up pass.
             const blockHardBreakShortcut =
-              this.options.editor.schema.blockSchema[
-                blockInfo.blockNoteType as keyof typeof this.options.editor.schema.blockSchema
-              ].meta?.hardBreakShortcut ?? "shift+enter";
+              blockSpec?.implementation?.meta?.hardBreakShortcut ??
+              "shift+enter";
 
             if (blockHardBreakShortcut === "none") {
               return false;
@@ -827,6 +837,15 @@ export const KeyboardShortcutsExtension = Extension.create<{
               // both enter and shift+enter.
               blockHardBreakShortcut === "enter"
             ) {
+              // "plain" blocks (e.g. code/math/diagram source) hold text only
+              // (their content is `text*`), which can't contain a `hardBreak`
+              // node - inserting one would split the block into a new one.
+              // They represent line breaks as literal newline characters.
+              if (blockSpec?.config?.content === "plain") {
+                tr.insertText("\n", tr.selection.head);
+                return true;
+              }
+
               const marks =
                 tr.storedMarks ||
                 tr.selection.$head
@@ -926,6 +945,7 @@ export const KeyboardShortcutsExtension = Extension.create<{
                     selectionAtBlockStart,
                   ),
                 )
+                .scrollIntoView()
                 .run();
 
               return true;

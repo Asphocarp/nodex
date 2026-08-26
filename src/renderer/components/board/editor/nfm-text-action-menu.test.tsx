@@ -283,10 +283,7 @@ describe("nfm text action menu surface", () => {
 
   async function openColorMenu(view: ReturnType<typeof renderTextActionMenu>["view"]) {
     await act(async () => {
-      fireEvent.pointerDown(view.getByRole("button", { name: "Color" }), {
-        button: 0,
-        ctrlKey: false,
-      });
+      fireEvent.click(view.getByRole("button", { name: "Color" }));
       await settleAsyncRender();
     });
   }
@@ -304,10 +301,7 @@ describe("nfm text action menu surface", () => {
     const { actions, view } = renderTextActionMenu();
 
     await act(async () => {
-      fireEvent.pointerDown(view.getByRole("button", { name: "Normal Text" }), {
-        button: 0,
-        ctrlKey: false,
-      });
+      fireEvent.click(view.getByRole("button", { name: "Normal Text" }));
       await settleAsyncRender();
     });
 
@@ -333,7 +327,7 @@ describe("nfm text action menu surface", () => {
     );
 
     await act(async () => {
-      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await settleAsyncRender();
     });
 
@@ -435,7 +429,9 @@ describe("nfm text action menu surface", () => {
     ).toBe(0);
 
     await act(async () => {
-      fireEvent.pointerMove(view.getByTestId("send-to-thread-wrap-mode-info"));
+      const info = view.getByTestId("send-to-thread-wrap-mode-info");
+      fireEvent.pointerEnter(info, { pointerType: "mouse" });
+      fireEvent.mouseEnter(info);
       await settleAsyncRender();
     });
     expect(
@@ -1061,7 +1057,9 @@ describe("nfm text action menu surface", () => {
     const { view } = renderTextActionMenu();
 
     await act(async () => {
-      fireEvent.pointerMove(view.getByRole("button", { name: "Italic" }));
+      const italic = view.getByRole("button", { name: "Italic" });
+      fireEvent.pointerEnter(italic, { pointerType: "mouse" });
+      fireEvent.mouseEnter(italic);
       await settleAsyncRender();
     });
 

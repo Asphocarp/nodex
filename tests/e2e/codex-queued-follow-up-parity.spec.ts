@@ -7,6 +7,9 @@ import { prepareScenarioCodexAppServerRuntimeSync } from "../../scripts/scenario
 const repositoryRoot = process.cwd();
 const interruptedReason = "Queue paused because you interrupted";
 
+const queuedRow = (page: Page, prompt: string) =>
+  page.locator("[data-queued-follow-up-row]").filter({ hasText: prompt });
+
 const createQueueHarness = async (
   label: string,
   environment: Readonly<Record<string, string>> = {},
@@ -34,19 +37,42 @@ const queueAndInterrupt = async (
 ): Promise<Page> => {
   const page = await harness.launch();
   await page.getByRole("button", { name: "New chat" }).first().click();
-  const composer = page.locator('[data-codex-composer="true"]');
-  await expect(composer).toBeVisible();
-  await composer.fill("Hold the active turn for queue parity");
-  await page.getByRole("button", { name: "Send prompt" }).click();
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(async () => {
+          const projects = (await window.api?.invoke("projects:list")) as
+            | { items?: Array<{ id?: unknown }> }
+            | undefined;
+          const projectId = projects?.items?.[0]?.id;
+          if (typeof projectId !== "string") return 0;
+          const tasks = (await window.api?.invoke("workspace:tasks:list", projectId, {
+            first: 50,
+          })) as { items?: Array<{ thread?: unknown }> } | undefined;
+          return tasks?.items?.filter((item) => item.thread == null).length ?? 0;
+        }),
+    )
+    .toBe(1);
+  const newThreadComposer = page.locator('[data-codex-composer="true"][aria-label="Do anything"]');
+  await expect(newThreadComposer).toBeVisible();
+  await newThreadComposer.fill("Hold the active turn for queue parity");
+  await expect(newThreadComposer).toHaveText("Hold the active turn for queue parity");
+  const sendButton = page.getByRole("button", { name: "Send prompt" });
+  await expect(sendButton).toBeEnabled();
+  await sendButton.click();
   const stopButton = page.getByRole("button", { name: "Stop", exact: true });
   await expect(stopButton).toBeVisible({ timeout: 30_000 });
+  const composer = page.locator(
+    '[data-codex-composer="true"][aria-label="Ask for follow-up changes"]',
+  );
+  await expect(composer).toBeVisible({ timeout: 30_000 });
 
   for (const prompt of prompts) {
     await composer.fill(prompt);
     await composer.press("Meta+Enter");
-    await expect(page.getByText(prompt, { exact: true })).toBeVisible();
+    await expect(queuedRow(page, prompt)).toBeVisible({ timeout: 30_000 });
     await expect(composer).toHaveAttribute("contenteditable", "true");
-    await expect(composer).toHaveText("");
+    await expect(composer).toHaveText("", { timeout: 30_000 });
   }
 
   await stopButton.click();
@@ -56,9 +82,6 @@ const queueAndInterrupt = async (
   return page;
 };
 
-const queuedRow = (page: Page, prompt: string) =>
-  page.locator("[data-queued-follow-up-row]").filter({ hasText: prompt });
-
 const resumeQueue = async (page: Page): Promise<void> => {
   await page
     .locator("#above-composer-queue-portal")
@@ -66,14 +89,14 @@ const resumeQueue = async (page: Page): Promise<void> => {
     .click();
 };
 
-const readTurnStartPrompts = (logPath: string): string[] => {
+const readAcceptedPrompts = (logPath: string): string[] => {
   const entries = fs
     .readFileSync(logPath, "utf8")
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as { method?: string; params?: { input?: unknown[] } });
   return entries
-    .filter((entry) => entry.method === "turn/start")
+    .filter((entry) => entry.method === "turn/start" || entry.method === "turn/steer")
     .map((entry) => {
       const text = entry.params?.input?.find(
         (item): item is { type: "text"; text: string } =>
@@ -112,7 +135,7 @@ test("persists an interrupted queue across restart and resumes FIFO", async () =
       timeout: 30_000,
     });
     await expect
-      .poll(() => readTurnStartPrompts(scenarioLogPath))
+      .poll(() => readAcceptedPrompts(scenarioLogPath))
       .toEqual([
         "Hold the active turn for queue parity",
         "First queued follow-up",
@@ -147,13 +170,13 @@ test("keeps a failed head in place while a later row is sent and retried manuall
     await expect(laterRow).toHaveCount(0, { timeout: 30_000 });
     await expect(failedRow).toBeVisible();
     await expect
-      .poll(() => readTurnStartPrompts(scenarioLogPath))
+      .poll(() => readAcceptedPrompts(scenarioLogPath))
       .toEqual(["Hold the active turn for queue parity", laterPrompt]);
 
     await failedRow.getByRole("button", { name: "Try sending this queued message again" }).click();
     await expect(failedRow).toHaveCount(0, { timeout: 30_000 });
     await expect
-      .poll(() => readTurnStartPrompts(scenarioLogPath))
+      .poll(() => readAcceptedPrompts(scenarioLogPath))
       .toEqual(["Hold the active turn for queue parity", laterPrompt, failedPrompt]);
   } finally {
     await harness.close();
