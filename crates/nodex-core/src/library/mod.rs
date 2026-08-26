@@ -2628,6 +2628,25 @@ mod tests {
         assert_eq!(value.body_nfm, "");
         assert!(value.references.is_empty());
         assert!(value.asset_refs.is_empty());
+        let destination = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageMentionDestination {
+                        page_id: ROOT_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("Page mention destination");
+        let LibraryReadValue::PageMentionDestination { value } = destination.value else {
+            panic!("Page mention destination");
+        };
+        assert_eq!(value.page_id, ROOT_PAGE);
+        assert_eq!(value.document_id, ROOT_DOCUMENT);
+        assert_eq!(value.document_generation, 1);
+        assert_eq!(value.document_head_seq, 1);
+        assert!(destination.authorization.is_some());
         kernel
             .writer()
             .call(|connection| {

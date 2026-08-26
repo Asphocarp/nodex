@@ -272,6 +272,27 @@ describe("nfm move-to menu model", () => {
     );
   });
 
+  test("can restrict results to Page destinations for inline Page creation", () => {
+    const sections = buildNfmMoveToSections({
+      projects: PROJECTS,
+      pageBoardMap: BOARD_MAP,
+      sourceProjectId: "alpha",
+      sourcePageId: "source-page",
+      expandedProjectIds: new Set(["alpha"]),
+      query: "runtime",
+      searchResult: {
+        normalizedQuery: "runtime",
+        matchedProjectIds: new Set(),
+        matchedColumnIdsByProjectId: new Map(),
+        pageHits: [pageHit("beta", "runtime", "Runtime polish", "plan", "Plan")],
+      },
+      resultScope: "page-only",
+    });
+
+    expect(sections.map((section) => section.label)).toEqual(["Page"]);
+    expect(flattenNfmMoveToRows(sections).map((row) => row.id)).toEqual(["page:beta:runtime"]);
+  });
+
   test("renders shared-kernel Page hits without inspecting loaded Board metadata", () => {
     const commandPalette = pageHit(
       "alpha",

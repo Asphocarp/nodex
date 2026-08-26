@@ -51,6 +51,17 @@ export function SuggestionMenuController<
     shouldCloseOnQuery?: (query: string) => boolean;
     /** Keeps utility rows such as incremental disclosure actions open. */
     shouldCloseOnItemClick?: (item: ItemType<GetItemsType>) => boolean;
+    /** Session-owned, non-persistent presentation for typed trigger/query text. */
+    temporaryInput?: {
+      readonly enabled: true;
+      readonly emptyCompletion?: string;
+      readonly getCompletion?: (
+        item: ItemType<GetItemsType>,
+        query: string,
+      ) => string | null;
+    };
+    /** Keeps an empty typed session active without mounting or loading the popup. */
+    deferPopupWhenQueryEmpty?: boolean;
     floatingUIOptions?: FloatingUIOptions;
     /**
      * Override the DOM node this floating element portals into. Falls back to
@@ -130,6 +141,31 @@ export function SuggestionMenuController<
   }, [suggestionMenu, triggerCharacter, shouldOpenLatest]);
 
   const state = useExtensionState(SuggestionMenuExtension);
+  const activeState =
+    state?.triggerCharacter === triggerCharacter ? state : undefined;
+  const temporaryInput = props.temporaryInput;
+  useEffect(() => {
+    if (!activeState || !temporaryInput?.enabled) return;
+    const sessionId = activeState.sessionId;
+    suggestionMenu.setTemporaryInputData(sessionId, {
+      enabled: true,
+      completion:
+        activeState.isComposing ||
+        activeState.acceptancePhase === "pending_authoritative" ||
+        activeState.query.length > 0
+          ? undefined
+          : temporaryInput.emptyCompletion,
+    });
+    return () => {
+      suggestionMenu.setTemporaryInputData(sessionId, { enabled: false });
+    };
+  }, [
+    activeState?.isComposing,
+    activeState?.query,
+    activeState?.sessionId,
+    suggestionMenu,
+    temporaryInput,
+  ]);
   const reference = useExtensionState(SuggestionMenuExtension, {
     selector: (state) =>
       ({
@@ -202,6 +238,10 @@ export function SuggestionMenuController<
 
   if (
     !state ||
+    state.triggerCharacter !== triggerCharacter ||
+    (state.triggerCharacter === triggerCharacter &&
+      props.deferPopupWhenQueryEmpty &&
+      state.query.length === 0) ||
     (!state.ignoreQueryLength &&
       minQueryLength &&
       (state.query.startsWith(" ") || state.query.length < minQueryLength))
@@ -231,7 +271,12 @@ export function SuggestionMenuController<
           shouldCloseOnItemClick={shouldCloseOnItemClick}
           autoCloseWhenNoItems={autoCloseWhenNoItems}
           shouldCloseOnQuery={props.shouldCloseOnQuery}
-          isComposing={state.isComposing}
+          isComposing={
+            state.isComposing || state.acceptancePhase === "pending_authoritative"
+          }
+          sessionId={state.sessionId}
+          setTemporaryInputData={suggestionMenu.setTemporaryInputData}
+          temporaryInput={props.temporaryInput}
         />
       )}
     </GenericPopover>

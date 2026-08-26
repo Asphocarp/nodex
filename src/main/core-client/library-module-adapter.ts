@@ -15,6 +15,7 @@ import type {
   LibraryNavigationNode,
   LibraryNavigationParent,
   LibraryMoveDestinationScope,
+  LibraryPageInsertion,
   LibraryReadValue,
   LibraryResourceTarget,
   LibraryRouteTarget,
@@ -161,6 +162,26 @@ const toCoreMoveDestinationScope = (scope: LibraryMoveDestinationScope) => {
   return { kind: scope.kind, parent: toCoreParent(scope.parent) } as const;
 };
 
+const toCorePageInsertion = (insertion: LibraryPageInsertion) => {
+  if (insertion.kind === "append") {
+    return {
+      kind: insertion.kind,
+      parent_block_id: insertion.parentBlockId ?? null,
+    } as const;
+  }
+  if (insertion.kind === "before") {
+    return {
+      kind: insertion.kind,
+      parent_block_id: insertion.parentBlockId ?? null,
+      anchor_block_id: insertion.anchorBlockId,
+    } as const;
+  }
+  return {
+    kind: insertion.kind,
+    block_id: insertion.blockId,
+  } as const;
+};
+
 const toCoreWriteParent = (parent: LibraryWriteParent) => {
   const before = parent.before
     ? {
@@ -175,23 +196,7 @@ const toCoreWriteParent = (parent: LibraryWriteParent) => {
     expected_document_generation: parent.expectedDocumentGeneration,
     expected_document_head_seq: parent.expectedDocumentHeadSeq,
     before,
-    insertion: parent.insertion
-      ? parent.insertion.kind === "append"
-        ? {
-            kind: parent.insertion.kind,
-            parent_block_id: parent.insertion.parentBlockId ?? null,
-          }
-        : parent.insertion.kind === "before"
-          ? {
-              kind: parent.insertion.kind,
-              parent_block_id: parent.insertion.parentBlockId ?? null,
-              anchor_block_id: parent.insertion.anchorBlockId,
-            }
-          : {
-              kind: parent.insertion.kind,
-              block_id: parent.insertion.blockId,
-            }
-      : null,
+    insertion: parent.insertion ? toCorePageInsertion(parent.insertion) : null,
   } as const;
 };
 
@@ -207,31 +212,12 @@ const toCoreCanvasDestination = (destination: LibraryCanvasDestination) => {
         : null,
     } as const;
   }
-  const insertion = (() => {
-    if (destination.insertion.kind === "append") {
-      return {
-        kind: destination.insertion.kind,
-        parent_block_id: destination.insertion.parentBlockId ?? null,
-      } as const;
-    }
-    if (destination.insertion.kind === "before") {
-      return {
-        kind: destination.insertion.kind,
-        parent_block_id: destination.insertion.parentBlockId ?? null,
-        anchor_block_id: destination.insertion.anchorBlockId,
-      } as const;
-    }
-    return {
-      kind: destination.insertion.kind,
-      block_id: destination.insertion.blockId,
-    } as const;
-  })();
   return {
     kind: destination.kind,
     page_id: destination.pageId,
     expected_document_generation: destination.expectedDocumentGeneration,
     expected_document_head_seq: destination.expectedDocumentHeadSeq,
-    insertion,
+    insertion: toCorePageInsertion(destination.insertion),
   } as const;
 };
 
@@ -284,6 +270,11 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
         scope: toCoreMoveDestinationScope(read.scope),
         cursor: read.cursor ?? null,
         limit: read.limit,
+      };
+    case "page_mention_destination":
+      return {
+        kind: read.mode,
+        page_id: read.pageId,
       };
     case "page_reference_candidates":
       return {
@@ -439,6 +430,29 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
         document_id: operation.documentId,
         title: operation.title,
         parent: toCoreWriteParent(operation.parent),
+      };
+    case "create_page_mention":
+      return {
+        kind: operation.kind,
+        page_id: operation.pageId,
+        document_id: operation.documentId,
+        title: operation.title,
+        mention_host: {
+          page_id: operation.mentionHost.pageId,
+          document_id: operation.mentionHost.documentId,
+          expected_document_generation: operation.mentionHost.expectedDocumentGeneration,
+          expected_document_head_seq: operation.mentionHost.expectedDocumentHeadSeq,
+          block_id: operation.mentionHost.blockId,
+          expected_content: operation.mentionHost.expectedContent,
+          replacement_content: operation.mentionHost.replacementContent,
+        },
+        destination: {
+          page_id: operation.destination.pageId,
+          document_id: operation.destination.documentId,
+          expected_document_generation: operation.destination.expectedDocumentGeneration,
+          expected_document_head_seq: operation.destination.expectedDocumentHeadSeq,
+          insertion: toCorePageInsertion(operation.destination.insertion),
+        },
       };
     case "create_database":
       return {
@@ -961,6 +975,16 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
         hasMore: value.has_more,
         total: value.total,
         rootIsCurrent: value.root_is_current,
+      } as const;
+    case "page_mention_destination":
+      return {
+        kind: value.kind,
+        value: {
+          pageId: value.value.page_id,
+          documentId: value.value.document_id,
+          documentGeneration: value.value.document_generation,
+          documentHeadSeq: value.value.document_head_seq,
+        },
       } as const;
     case "page_reference_candidates":
       return {

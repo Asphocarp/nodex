@@ -5,6 +5,7 @@ import type {
   ContentCanvasNavigationTarget,
   ContentPageNavigationTarget,
 } from "../../../shared/content-access-context";
+import type { PortableRichText } from "../../../shared/block-documents/portable-rich-text";
 
 export interface BlockReferenceHostRuntime {
   /** Authority inherited by every nested content editor in this host chain. */
@@ -36,6 +37,14 @@ export interface BlockReferenceHostRuntime {
   readonly createSubpageAtEmptyParagraph?: (input: {
     readonly blockId: string;
     readonly title: string;
+  }) => Promise<{ readonly pageId: string }>;
+  readonly createPageMention?: (input: {
+    readonly pageId: string;
+    readonly title: string;
+    readonly blockId: string;
+    readonly expectedContent: PortableRichText;
+    readonly replacementContent: PortableRichText;
+    readonly destinationPageId?: string;
   }) => Promise<{ readonly pageId: string }>;
   readonly renameCanvas?: (input: {
     readonly canvasBlockId: string;

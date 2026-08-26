@@ -31,6 +31,11 @@ function getSuggestionPluginState(editor: BlockNoteEditor) {
   return state?.status === "active" ? state : undefined;
 }
 
+function getSuggestionDecorations(editor: BlockNoteEditor) {
+  const plugin = findSuggestionPlugin(editor);
+  return plugin.props.decorations?.(editor._tiptapEditor.state)?.find() ?? [];
+}
+
 /**
  * Calls the `handleTextInput` prop of the SuggestionMenu plugin directly,
  * which mirrors what ProseMirror would do when the user types a character.
@@ -56,6 +61,107 @@ function createEditor() {
 }
 
 describe("SuggestionMenu", () => {
+  it("owns one temporary input range from a multi-character trigger through the query", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "[[" });
+
+    editor.replaceBlocks(editor.document, [
+      { id: "paragraph-0", type: "paragraph", content: "prefix " },
+    ]);
+    editor.setTextCursorPosition("paragraph-0", "end");
+    expect(simulateTextInput(editor, "[")).toBe(false);
+    editor.insertInlineContent("[");
+    expect(simulateTextInput(editor, "[")).toBe(true);
+    editor.insertInlineContent("road");
+
+    const state = suggestionMenu.getMenuState();
+    expect(state).toMatchObject({
+      triggerCharacter: "[[",
+      query: "road",
+      acceptancePhase: "editing",
+    });
+    expect(
+      suggestionMenu.setTemporaryInputData(state!.sessionId, {
+        enabled: true,
+        completion: "map",
+      }),
+    ).toBe(true);
+
+    const decorations = getSuggestionDecorations(editor);
+    const range = decorations.find((decoration) => decoration.from !== decoration.to);
+    expect(range).toMatchObject({
+      from: editor._tiptapEditor.state.selection.from - "[[road".length,
+      to: editor._tiptapEditor.state.selection.from,
+    });
+    expect(decorations).toHaveLength(1);
+    expect(
+      editor.prosemirrorView?.dom
+        .querySelector(".bn-suggestion-temporary-input")
+        ?.getAttribute("data-suggestion-completion"),
+    ).toBe("map");
+    expect(suggestionMenu.setTemporaryInputData("stale-session", { enabled: false })).toBe(false);
+
+    suggestionMenu.closeMenu("escape");
+    expect(getSuggestionDecorations(editor)).toEqual([]);
+    expect(editor._tiptapEditor.state.doc.textContent).toBe("prefix [[road");
+    editor._tiptapEditor.destroy();
+  });
+
+  it("leases deferred acceptance without changing the live Document and rolls back in place", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "+" });
+    editor.replaceBlocks(editor.document, [
+      { id: "paragraph-0", type: "paragraph", content: "before " },
+    ]);
+    editor.setTextCursorPosition("paragraph-0", "end");
+    expect(simulateTextInput(editor, "+")).toBe(true);
+    editor.insertInlineContent("Child");
+
+    const lease = suggestionMenu.beginDeferredAcceptance(["CHILD "]);
+    expect(lease).not.toBeNull();
+    expect(lease).toMatchObject({ blockId: "paragraph-0" });
+    expect(editor._tiptapEditor.state.doc.textContent).toBe("before +Child");
+    expect(suggestionMenu.getMenuState()?.acceptancePhase).toBe("pending_authoritative");
+
+    editor.transact((transaction) => transaction.setMeta("blur", true));
+    expect(suggestionMenu.getMenuState()?.acceptancePhase).toBe("pending_authoritative");
+    editor.transact((transaction) => transaction.setMeta("focus", true));
+    expect(suggestionMenu.getMenuState()?.acceptancePhase).toBe("pending_authoritative");
+
+    expect(lease!.rollback("head-conflict")).toBe(true);
+    expect(suggestionMenu.getMenuState()).toMatchObject({
+      query: "Child",
+      acceptancePhase: "editing",
+    });
+    expect(editor._tiptapEditor.state.doc.textContent).toBe("before +Child");
+
+    editor.transact((transaction) => transaction.setMeta("blur", true));
+    expect(suggestionMenu.getMenuState()).toBeUndefined();
+    expect(suggestionMenu.getLastCloseReason()).toBe("blur");
+    editor._tiptapEditor.destroy();
+  });
+
+  it("closes a deferred session only after the authoritative replacement is visible", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "+" });
+    editor.replaceBlocks(editor.document, [
+      { id: "paragraph-0", type: "paragraph", content: "before " },
+    ]);
+    editor.setTextCursorPosition("paragraph-0", "end");
+    expect(simulateTextInput(editor, "+")).toBe(true);
+    editor.insertInlineContent("Child");
+
+    const lease = suggestionMenu.beginDeferredAcceptance(["CHILD "]);
+    expect(lease?.commit()).toBe(false);
+    editor.updateBlock("paragraph-0", { content: lease!.replacementContent as never });
+    expect(lease!.commit()).toBe(true);
+    expect(suggestionMenu.getMenuState()).toBeUndefined();
+    expect(editor.getBlock("paragraph-0")?.content).toEqual(lease!.replacementContent);
+    editor._tiptapEditor.destroy();
+  });
   it("should open suggestion menu in a paragraph", () => {
     const editor = createEditor();
     const sm = editor.getExtension(SuggestionMenu)!;

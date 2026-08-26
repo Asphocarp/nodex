@@ -77,7 +77,6 @@ import type {
   PageReferenceIntent,
 } from "@/lib/page-reference-picker/types";
 import {
-  selectMentionSuggestionSections,
   type MentionSuggestionFamily,
   type MentionSuggestionRank,
 } from "@/lib/nfm/mention-suggestion-model";
@@ -97,6 +96,16 @@ import {
   getNfmSlashTriggerCharacters,
   type NfmTypedSuggestionKind,
 } from "@/lib/nfm/editor-trigger-policy";
+import {
+  getNfmPageMentionEntryProfile,
+  selectNfmPageMentionSections,
+  type NfmPageMentionEntryProfile,
+} from "@/lib/nfm/page-mention-entrypoint";
+import { useNfmPageMentionCreateFlow } from "./nfm-page-mention-create-flow";
+import type { NfmSuggestionItem } from "./nfm-suggestion-item";
+
+export { buildNfmPageMentionCreateSuggestionItems } from "./nfm-page-mention-create-flow";
+export type { NfmSuggestionItem } from "./nfm-suggestion-item";
 
 interface NfmSlashMenuProps {
   executionProjectId: string | null;
@@ -106,26 +115,16 @@ interface NfmSlashMenuProps {
 
 type UnsafeEditor = Parameters<typeof insertOrUpdateBlockForSlashMenu>[0];
 type UnsafeBlock = Parameters<typeof insertOrUpdateBlockForSlashMenu>[1];
-export type NfmSuggestionItem = DefaultReactSuggestionItem & {
-  key?: string;
-  hint?: string | null;
-  tooltipContent?: ReactNode | null;
-  disabled?: boolean;
-  detail?: string | null;
-  titleSegments?: readonly CommandPaletteHighlightSegment[] | null;
-  detailSegments?: readonly CommandPaletteHighlightSegment[] | null;
-  mentionRank?: MentionSuggestionRank;
-  mentionUtility?: {
-    readonly kind: "expand_section";
-    readonly family: MentionSuggestionFamily;
-  };
-};
 type UnsafeInlineContentEditor = {
   insertInlineContent: (content: unknown[], options?: { updateSelection?: boolean }) => void;
 };
 
 const PAGE_EMBED_PICKER_TRIGGER = "\uE000";
 const SUBPAGE_NAME_TRIGGER = "\uE001";
+const SLASH_TEMPORARY_INPUT = {
+  enabled: true,
+  emptyCompletion: "Type to search",
+} as const;
 
 function getBrowserLocale(): string {
   return typeof navigator === "undefined" ? "en-US" : navigator.language;
@@ -146,30 +145,44 @@ export function createNfmTypedSuggestionShouldOpen(input: {
     if (parent.type.spec.code) return false;
     if (input.kind === "slash" && parent.type.isInGroup("tableContent")) return false;
 
-    const textBeforeTrigger = parent.textBetween(0, parentOffset, undefined, "\ufffc");
+    const textBeforeTrigger = parent.textBetween(
+      0,
+      Math.max(0, parentOffset - Math.max(0, input.trigger.length - 1)),
+      undefined,
+      "\ufffc",
+    );
     return evaluateNfmTypedSuggestionTrigger({ ...input, textBeforeTrigger }).allowed;
   };
 }
 
-export function createNfmTypedSuggestionControllerConfig(locale: string) {
+export function createNfmTypedSuggestionControllerConfig(
+  locale: string,
+  options: { readonly canCreatePageMention?: boolean } = {},
+) {
+  const canCreatePageMention = options.canCreatePageMention ?? true;
   return {
     slash: getNfmSlashTriggerCharacters(locale).map((triggerCharacter) => ({
       triggerCharacter,
+      temporaryInput: SLASH_TEMPORARY_INPUT,
       shouldOpen: createNfmTypedSuggestionShouldOpen({
         kind: "slash",
         trigger: triggerCharacter,
         locale,
       }),
     })),
-    mention: {
-      triggerCharacter: "@",
-      shouldOpen: createNfmTypedSuggestionShouldOpen({
-        kind: "mention",
-        trigger: "@",
-        locale,
-      }),
+    pageMention: (["@", "+", "[["] as const).map((triggerCharacter) => ({
+      triggerCharacter,
+      profile: getNfmPageMentionEntryProfile(triggerCharacter),
+      shouldOpen:
+        triggerCharacter === "+" && !canCreatePageMention
+          ? () => false
+          : createNfmTypedSuggestionShouldOpen({
+              kind: "page-mention",
+              trigger: triggerCharacter,
+              locale,
+            }),
       autoCloseWhenNoItems: false,
-    },
+    })),
     emoji: {
       triggerCharacter: ":",
       shouldOpen: createNfmTypedSuggestionShouldOpen({
@@ -818,11 +831,14 @@ export function NfmSlashMenu({
 }: NfmSlashMenuProps) {
   const editor = useBlockNoteEditor();
   const locale = useMemo(() => localeProp ?? getBrowserLocale(), [localeProp]);
-  const typedSuggestionControllers = useMemo(
-    () => createNfmTypedSuggestionControllerConfig(locale),
-    [locale],
-  );
   const hostRuntime = useBlockReferenceHostRuntime();
+  const typedSuggestionControllers = useMemo(
+    () =>
+      createNfmTypedSuggestionControllerConfig(locale, {
+        canCreatePageMention: Boolean(hostRuntime?.createPageMention),
+      }),
+    [hostRuntime?.createPageMention, locale],
+  );
   const embedPageBookmarkRef = useRef<PageReferenceInsertionBookmark | null>(null);
   const startMentionFlow = useCallback(() => {
     startNfmMentionAtCursor(editor);
@@ -874,22 +890,26 @@ export function NfmSlashMenu({
 
   return (
     <NodexFloatingLayerProvider zIndex={NFM_SUGGESTION_MENU_Z_INDEX}>
-      {typedSuggestionControllers.slash.map(({ triggerCharacter, shouldOpen }) => (
+      {typedSuggestionControllers.slash.map(({ triggerCharacter, shouldOpen, temporaryInput }) => (
         <SuggestionMenuController
           key={triggerCharacter}
           triggerCharacter={triggerCharacter}
           getItems={getItems}
           shouldOpen={shouldOpen}
           shouldCloseOnQuery={shouldCloseNfmSlashQuery}
+          temporaryInput={temporaryInput}
           {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
           suggestionMenuComponent={NfmSuggestionMenuSurface}
         />
       ))}
-      <MentionMenu
-        activeProjectId={executionProjectId}
-        allowPageReferences={allowPageReferences}
-        controller={typedSuggestionControllers.mention}
-      />
+      {typedSuggestionControllers.pageMention.map((controller) => (
+        <MentionMenu
+          key={controller.triggerCharacter}
+          activeProjectId={executionProjectId}
+          allowPageReferences={allowPageReferences}
+          controller={controller}
+        />
+      ))}
       <GridSuggestionMenuController
         triggerCharacter={typedSuggestionControllers.emoji.triggerCharacter}
         columns={typedSuggestionControllers.emoji.columns}
@@ -906,6 +926,8 @@ export function NfmSlashMenu({
 function SubpageMenu() {
   const editor = useBlockNoteEditor();
   const hostRuntime = useBlockReferenceHostRuntime();
+  const hostRuntimeRef = useRef(hostRuntime);
+  hostRuntimeRef.current = hostRuntime;
   const getItems = useCallback(
     async (query: string): Promise<NfmSuggestionItem[]> => {
       const title = query.trim() || "Untitled";
@@ -1331,19 +1353,42 @@ export function selectNfmMentionSuggestionItems(
     readonly onExpandSection?: (family: MentionSuggestionFamily) => void;
   } = {},
 ): NfmSuggestionItem[] {
-  const sections = selectMentionSuggestionSections({
+  return selectNfmPageMentionSuggestionItems(
     query,
-    expandedFamilies: options.expandedFamilies,
-    candidates: items.flatMap((item) =>
+    items,
+    getNfmPageMentionEntryProfile("@"),
+    [],
+    options,
+  );
+}
+
+export function selectNfmPageMentionSuggestionItems(
+  query: string,
+  items: readonly NfmSuggestionItem[],
+  profile: NfmPageMentionEntryProfile,
+  createItems: readonly NfmSuggestionItem[],
+  options: {
+    readonly expandedFamilies?: ReadonlySet<MentionSuggestionFamily>;
+    readonly onExpandSection?: (family: MentionSuggestionFamily) => void;
+  } = {},
+): NfmSuggestionItem[] {
+  const sections = selectNfmPageMentionSections({
+    profile,
+    query,
+    rankedResults: items.flatMap((item) =>
       item.mentionRank ? [{ rank: item.mentionRank, value: item }] : [],
     ),
+    createItems,
+    expandedFamilies: options.expandedFamilies,
   });
   return sections.flatMap((section) => {
     const visibleItems = section.items.map((item) => ({
       ...item,
-      group: section.label,
+      group: section.label ?? item.group,
     }));
-    if (section.hiddenItemCount === 0) return visibleItems;
+    if (section.hiddenItemCount === 0 || section.family === "create_page") {
+      return visibleItems;
+    }
 
     const overflowCount = section.hiddenItemCount;
     return [
@@ -1364,6 +1409,15 @@ export function selectNfmMentionSuggestionItems(
       } satisfies NfmSuggestionItem,
     ];
   });
+}
+
+export function resolveNfmPageMentionCompletion(
+  item: NfmSuggestionItem,
+  query: string,
+): string | null {
+  if (!query) return null;
+  if (!item.title.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) return null;
+  return item.title.slice(query.length) || null;
 }
 
 export interface NfmMentionGetItemsLoaders {
@@ -1619,9 +1673,10 @@ function MentionMenu({
 }: {
   activeProjectId: string | null;
   allowPageReferences: boolean;
-  controller: ReturnType<typeof createNfmTypedSuggestionControllerConfig>["mention"];
+  controller: ReturnType<typeof createNfmTypedSuggestionControllerConfig>["pageMention"][number];
 }) {
   const editor = useBlockNoteEditor();
+  const { buildCreateItems, destinationMenu } = useNfmPageMentionCreateFlow({ activeProjectId });
   const getNonPageItems = useNfmMentionGetItems({
     editor,
     activeProjectId,
@@ -1640,32 +1695,72 @@ function MentionMenu({
   const getItems = useCallback(
     async (query: string) => {
       const [nonPageItems, pageResults] = await Promise.all([
-        getNonPageItems(query),
+        controller.profile.entry === "broad" ? getNonPageItems(query) : Promise.resolve([]),
         allowPageReferences ? pageItems.getItems(query) : Promise.resolve([]),
       ]);
-      return selectNfmMentionSuggestionItems(query, [...pageResults, ...nonPageItems], {
-        expandedFamilies: sectionExpansion.query === query ? sectionExpansion.families : undefined,
-        onExpandSection: (family) => expandSection(query, family),
-      });
+      return selectNfmPageMentionSuggestionItems(
+        query,
+        [...pageResults, ...nonPageItems],
+        controller.profile,
+        buildCreateItems(query),
+        {
+          expandedFamilies:
+            sectionExpansion.query === query ? sectionExpansion.families : undefined,
+          onExpandSection: (family) => expandSection(query, family),
+        },
+      );
     },
-    [allowPageReferences, expandSection, getNonPageItems, pageItems, sectionExpansion],
+    [
+      allowPageReferences,
+      buildCreateItems,
+      controller.profile,
+      expandSection,
+      getNonPageItems,
+      pageItems,
+      sectionExpansion,
+    ],
   );
   const getImmediateItems = useCallback(
     (query: string) =>
-      selectNfmMentionSuggestionItems(
+      selectNfmPageMentionSuggestionItems(
         query,
         allowPageReferences ? pageItems.getImmediateItems(query) : [],
+        controller.profile,
+        buildCreateItems(query),
         {
           expandedFamilies:
             sectionExpansion.query === query ? sectionExpansion.families : undefined,
           onExpandSection: (family) => expandSection(query, family),
         },
       ),
-    [allowPageReferences, expandSection, pageItems, sectionExpansion],
+    [
+      allowPageReferences,
+      buildCreateItems,
+      controller.profile,
+      expandSection,
+      pageItems,
+      sectionExpansion,
+    ],
   );
   const shouldCloseOnItemClick = useCallback(
-    (item: NfmSuggestionItem) => item.mentionUtility?.kind !== "expand_section",
+    (item: NfmSuggestionItem) =>
+      item.mentionUtility?.kind !== "expand_section" && item.mentionCreate === undefined,
     [],
+  );
+  const temporaryInput = useMemo(
+    () => ({
+      enabled: true as const,
+      emptyCompletion:
+        controller.profile.entry === "create_first" ? "Type to add or link page…" : undefined,
+      getCompletion: resolveNfmPageMentionCompletion,
+    }),
+    [controller.profile.entry],
+  );
+  const suggestionMenuComponent = useCallback(
+    (props: SuggestionMenuProps<NfmSuggestionItem>) => {
+      return destinationMenu ?? <NfmMentionSuggestionMenuSurface {...props} />;
+    },
+    [destinationMenu],
   );
 
   return (
@@ -1677,8 +1772,10 @@ function MentionMenu({
       shouldOpen={controller.shouldOpen}
       shouldCloseOnItemClick={shouldCloseOnItemClick}
       autoCloseWhenNoItems={controller.autoCloseWhenNoItems}
+      deferPopupWhenQueryEmpty={controller.profile.emptyQueryPopup === "defer"}
+      temporaryInput={temporaryInput}
       {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
-      suggestionMenuComponent={NfmMentionSuggestionMenuSurface}
+      suggestionMenuComponent={suggestionMenuComponent}
     />
   );
 }

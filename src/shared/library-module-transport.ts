@@ -43,6 +43,7 @@ import {
   type ProjectAppearance,
 } from "./project-appearance";
 import { assertUuidV7 } from "./uuid-v7";
+import { canonicalizePortableRichText } from "./block-documents/portable-rich-text";
 
 const MAX_ID_LENGTH = 512;
 const MAX_TITLE_LENGTH = 1_000_000;
@@ -616,6 +617,26 @@ const parseCanvasDestination = (value: unknown, label: string): LibraryCanvasDes
   };
 };
 
+const parsePageMentionDocumentTarget = (value: unknown, label: string) => {
+  const target = record(value, label);
+  const expectedDocumentGeneration = revision(
+    target.expectedDocumentGeneration,
+    `${label}.expectedDocumentGeneration`,
+  );
+  if (expectedDocumentGeneration < 1) {
+    throw new TypeError(`${label}.expectedDocumentGeneration must be positive`);
+  }
+  return {
+    pageId: uuidV7(target.pageId, `${label}.pageId`),
+    documentId: string(target.documentId, `${label}.documentId`),
+    expectedDocumentGeneration,
+    expectedDocumentHeadSeq: revision(
+      target.expectedDocumentHeadSeq,
+      `${label}.expectedDocumentHeadSeq`,
+    ),
+  };
+};
+
 const parseApplyResourceTarget = (
   value: unknown,
   label: string,
@@ -662,6 +683,72 @@ export const bindLibraryModuleApply = (value: unknown): LibraryModuleApplyReques
           true,
         ),
         parent: parseWriteParent(operation.parent, "libraryModuleApply.operation.parent"),
+      },
+    };
+  }
+  if (operation.kind === "create_page_mention") {
+    exactKeys(operation, "libraryModuleApply.operation", [
+      "kind",
+      "pageId",
+      "documentId",
+      "title",
+      "mentionHost",
+      "destination",
+    ]);
+    const mentionHost = record(operation.mentionHost, "libraryModuleApply.operation.mentionHost");
+    exactKeys(mentionHost, "libraryModuleApply.operation.mentionHost", [
+      "pageId",
+      "documentId",
+      "expectedDocumentGeneration",
+      "expectedDocumentHeadSeq",
+      "blockId",
+      "expectedContent",
+      "replacementContent",
+    ]);
+    const destination = record(operation.destination, "libraryModuleApply.operation.destination");
+    exactKeys(destination, "libraryModuleApply.operation.destination", [
+      "pageId",
+      "documentId",
+      "expectedDocumentGeneration",
+      "expectedDocumentHeadSeq",
+      "insertion",
+    ]);
+    const parsedInsertion = parsePageInsertion(
+      destination.insertion,
+      "libraryModuleApply.operation.destination.insertion",
+    );
+    if (parsedInsertion.kind !== "append") {
+      throw new TypeError("libraryModuleApply.operation.destination.insertion.kind must be append");
+    }
+    return {
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        pageId: uuidV7(operation.pageId, "pageId"),
+        documentId: uuidV7(operation.documentId, "documentId"),
+        title: string(
+          operation.title,
+          "libraryModuleApply.operation.title",
+          MAX_TITLE_LENGTH,
+          true,
+        ),
+        mentionHost: {
+          ...parsePageMentionDocumentTarget(
+            mentionHost,
+            "libraryModuleApply.operation.mentionHost",
+          ),
+          blockId: uuidV7(mentionHost.blockId, "libraryModuleApply.operation.mentionHost.blockId"),
+          expectedContent: canonicalizePortableRichText(mentionHost.expectedContent),
+          replacementContent: canonicalizePortableRichText(mentionHost.replacementContent),
+        },
+        destination: {
+          ...parsePageMentionDocumentTarget(
+            destination,
+            "libraryModuleApply.operation.destination",
+          ),
+          insertion: parsedInsertion,
+        },
       },
     };
   }
@@ -1398,6 +1485,15 @@ export const bindLibraryModuleRead = (value: unknown): LibraryModuleReadRequest 
       },
     };
   }
+  if (read.mode === "page_mention_destination") {
+    exactKeys(read, "libraryModuleRead.read", ["mode", "pageId"]);
+    return {
+      read: {
+        mode: read.mode,
+        pageId: uuidV7(read.pageId, "libraryModuleRead.read.pageId"),
+      },
+    };
+  }
   if (read.mode === "page_reference_candidates") {
     exactKeys(read, "libraryModuleRead.read", ["mode", "query"], ["limit", "sourcePageId"]);
     const query = string(
@@ -1667,7 +1763,7 @@ const parseCanvasTarget = (value: unknown, label: string): LibraryCanvasTarget =
       return {
         kind: "page" as const,
         pageId: uuidV7(location.pageId, `${label}.summary.location.pageId`),
-        documentId: uuidV7(location.documentId, `${label}.summary.location.documentId`),
+        documentId: string(location.documentId, `${label}.summary.location.documentId`),
       };
     }
     throw new TypeError(`${label}.summary.location.kind is unsupported`);
@@ -2002,6 +2098,31 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
       rootIsCurrent: boolean(readValue.rootIsCurrent, "library move destinations rootIsCurrent"),
     };
   }
+  if (readValue.kind === "page_mention_destination") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind", "value"]);
+    const value = record(readValue.value, "library Page mention destination");
+    exactKeys(value, "library Page mention destination", [
+      "pageId",
+      "documentId",
+      "documentGeneration",
+      "documentHeadSeq",
+    ]);
+    return {
+      kind: readValue.kind,
+      value: {
+        pageId: uuidV7(value.pageId, "library Page mention destination.pageId"),
+        documentId: string(value.documentId, "library Page mention destination.documentId"),
+        documentGeneration: revision(
+          value.documentGeneration,
+          "library Page mention destination.documentGeneration",
+        ),
+        documentHeadSeq: revision(
+          value.documentHeadSeq,
+          "library Page mention destination.documentHeadSeq",
+        ),
+      },
+    };
+  }
   if (readValue.kind === "page_reference_candidates") {
     exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind", "items"]);
     if (!Array.isArray(readValue.items)) {
@@ -2167,7 +2288,7 @@ const parseDocumentCommitRef = (value: unknown, label: string) => {
     "stateVector",
   ]);
   return {
-    documentId: uuidV7(commit.documentId, `${label}.documentId`),
+    documentId: string(commit.documentId, `${label}.documentId`),
     generation: revision(commit.generation, `${label}.generation`),
     baseHeadSeq: revision(commit.baseHeadSeq, `${label}.baseHeadSeq`),
     headSeq: revision(commit.headSeq, `${label}.headSeq`),

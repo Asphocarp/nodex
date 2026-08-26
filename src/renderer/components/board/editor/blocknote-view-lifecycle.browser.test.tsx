@@ -107,9 +107,12 @@ describe("BlockNote view lifecycle in Chromium", () => {
           block: table,
         });
         suggestionMenu.store.setState({
+          sessionId: "suggestion:lifecycle-test",
           show: true,
           referencePos: new DOMRect(),
           query: "",
+          isComposing: false,
+          acceptancePhase: "editing",
           triggerCharacter: "/",
         });
         await settleEditor();

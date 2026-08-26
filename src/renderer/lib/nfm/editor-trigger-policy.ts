@@ -1,4 +1,6 @@
-export type NfmTypedSuggestionKind = "slash" | "mention" | "emoji";
+export type NfmTypedSuggestionKind = "slash" | "page-mention" | "emoji";
+
+export type NfmPageMentionTrigger = "@" | "+" | "[[";
 
 export type NfmTriggerRejectionReason =
   | "unsupported-trigger"
@@ -39,7 +41,9 @@ function isSupportedTrigger(input: NfmTriggerPolicyInput): boolean {
   if (input.kind === "slash") {
     return getNfmSlashTriggerCharacters(input.locale).includes(input.trigger);
   }
-  if (input.kind === "mention") return input.trigger === "@";
+  if (input.kind === "page-mention") {
+    return input.trigger === "@" || input.trigger === "+" || input.trigger === "[[";
+  }
   return input.trigger === ":";
 }
 
@@ -51,6 +55,11 @@ function hasSlashBoundary(textBeforeTrigger: string): boolean {
 function hasMentionBoundary(textBeforeTrigger: string): boolean {
   if (!textBeforeTrigger) return true;
   return /[\s()\[\]]/u.test(normalizedLastCharacter(textBeforeTrigger));
+}
+
+function hasPageMentionBoundary(trigger: string, textBeforeTrigger: string): boolean {
+  if (trigger === "[[") return true;
+  return hasMentionBoundary(textBeforeTrigger);
 }
 
 function hasEmojiBoundary(textBeforeTrigger: string): boolean {
@@ -80,8 +89,8 @@ export function evaluateNfmTypedSuggestionTrigger(
   const hasBoundary =
     input.kind === "slash"
       ? hasSlashBoundary(input.textBeforeTrigger)
-      : input.kind === "mention"
-        ? hasMentionBoundary(input.textBeforeTrigger)
+      : input.kind === "page-mention"
+        ? hasPageMentionBoundary(input.trigger, input.textBeforeTrigger)
         : hasEmojiBoundary(input.textBeforeTrigger);
 
   return hasBoundary ? { allowed: true } : reject("invalid-left-boundary");

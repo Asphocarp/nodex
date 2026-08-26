@@ -1,7 +1,10 @@
 import { findParentNode } from "@tiptap/core";
+import { Fragment } from "prosemirror-model";
 import { EditorState, Plugin, PluginKey, Transaction } from "prosemirror-state";
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 
+import { inlineContentToNodes } from "../../api/nodeConversions/blockToNode.js";
+import { nodeToBlock } from "../../api/nodeConversions/nodeToBlock.js";
 import { trackPosition } from "../../api/positionMapping.js";
 import { BlockNoteEditor } from "../../editor/BlockNoteEditor.js";
 import {
@@ -17,17 +20,38 @@ function normalizeDOMRect(rect: DOMRect): DOMRect {
 }
 
 export type SuggestionMenuState = UiElementPosition & {
+  sessionId: string;
   query: string;
   ignoreQueryLength?: boolean;
   isComposing?: boolean;
+  acceptancePhase: SuggestionAcceptancePhase;
 };
 
 export type SuggestionMenuRuntimeState = {
+  sessionId: string;
   triggerCharacter: string;
   query: string;
   show: boolean;
   isComposing: boolean;
+  acceptancePhase: SuggestionAcceptancePhase;
 };
+
+export interface SuggestionTemporaryInputData {
+  readonly enabled: boolean;
+  readonly completion?: string;
+  readonly suffix?: string;
+}
+
+export type SuggestionAcceptancePhase = "editing" | "pending_authoritative";
+
+export interface SuggestionDeferredAcceptance {
+  readonly sessionId: string;
+  readonly blockId: string;
+  readonly expectedContent: unknown;
+  readonly replacementContent: unknown;
+  commit(): boolean;
+  rollback(reason?: string): boolean;
+}
 
 export type SuggestionMenuCloseReason =
   | "escape"
@@ -66,6 +90,7 @@ class SuggestionMenuView {
         ...this.state,
         ignoreQueryLength: this.pluginState?.ignoreQueryLength,
         isComposing: this.isComposing,
+        acceptancePhase: this.pluginState?.acceptancePhase ?? "editing",
       });
     };
 
@@ -83,8 +108,9 @@ class SuggestionMenuView {
   handleCompositionStart = () => {
     if (this.compositionEndTimer) clearTimeout(this.compositionEndTimer);
     this.isComposing = true;
-    if (this.state) this.state.isComposing = true;
-    if (this.state?.show) this.emitUpdate(this.pluginState!.triggerCharacter!);
+    this.editor.transact((tr) =>
+      tr.setMeta(suggestionMenuPluginKey, { type: "set-composing", value: true }),
+    );
   };
 
   handleCompositionEnd = () => {
@@ -92,8 +118,9 @@ class SuggestionMenuView {
     this.compositionEndTimer = setTimeout(() => {
       this.compositionEndTimer = undefined;
       this.isComposing = false;
-      if (this.state) this.state.isComposing = false;
-      if (this.state?.show) this.emitUpdate(this.pluginState!.triggerCharacter!);
+      this.editor.transact((tr) =>
+        tr.setMeta(suggestionMenuPluginKey, { type: "set-composing", value: false }),
+      );
     }, 0);
   };
 
@@ -144,10 +171,12 @@ class SuggestionMenuView {
 
     if (this.editor.isEditable && decorationNode) {
       this.state = {
+        sessionId: this.pluginState!.sessionId,
         show: true,
         referencePos: normalizeDOMRect(decorationNode.getBoundingClientRect()),
         query: this.pluginState!.query,
         isComposing: this.isComposing,
+        acceptancePhase: this.pluginState!.acceptancePhase,
       };
 
       this.emitUpdate(this.pluginState!.triggerCharacter!);
@@ -204,16 +233,99 @@ class SuggestionMenuView {
       return true;
     });
   };
+
+  beginDeferredAcceptance = (
+    inlineContent: readonly unknown[],
+  ): SuggestionDeferredAcceptance | null => {
+    const state = this.editor.prosemirrorState;
+    const session = getActiveSuggestionSession(suggestionMenuPluginKey.getState(state));
+    if (!session || session.acceptancePhase !== "editing") return null;
+
+    const queryStart = session.queryStartPos();
+    const from = queryStart - (session.deleteTriggerCharacter ? session.triggerCharacter.length : 0);
+    const to = state.selection.from;
+    if (from > to || !state.selection.empty) return null;
+
+    const sourceBlock = findBlock(state.selection);
+    if (!sourceBlock?.node.attrs.id) return null;
+
+    const replacementTransaction = state.tr.replaceWith(
+      from,
+      to,
+      Fragment.fromArray(
+        inlineContentToNodes(
+          inlineContent as never,
+          state.schema,
+          state.selection.$from.parent.type.name,
+        ),
+      ),
+    );
+    const replacementBlock = findBlock(replacementTransaction.selection);
+    if (!replacementBlock) return null;
+
+    const expectedContent = nodeToBlock(sourceBlock.node, state.schema).content;
+    const replacementContent = nodeToBlock(replacementBlock.node, state.schema).content;
+    const sessionId = session.sessionId;
+    const blockId = sourceBlock.node.attrs.id as string;
+
+    this.editor.transact((tr) =>
+      tr.setMeta(suggestionMenuPluginKey, {
+        type: "set-acceptance-phase",
+        sessionId,
+        phase: "pending_authoritative",
+      }),
+    );
+
+    return {
+      sessionId,
+      blockId,
+      expectedContent,
+      replacementContent,
+      commit: () => {
+        const currentContent = this.editor.getBlock(blockId)?.content;
+        if (JSON.stringify(currentContent) !== JSON.stringify(replacementContent)) return false;
+
+        const currentSession = getActiveSuggestionSession(
+          suggestionMenuPluginKey.getState(this.editor.prosemirrorState),
+        );
+        if (currentSession?.sessionId === sessionId) this.closeMenu("accepted");
+        return true;
+      },
+      rollback: () => {
+        const currentSession = getActiveSuggestionSession(
+          suggestionMenuPluginKey.getState(this.editor.prosemirrorState),
+        );
+        if (
+          currentSession?.sessionId !== sessionId ||
+          currentSession.acceptancePhase !== "pending_authoritative"
+        ) {
+          return false;
+        }
+        this.editor.transact((tr) =>
+          tr.setMeta(suggestionMenuPluginKey, {
+            type: "set-acceptance-phase",
+            sessionId,
+            phase: "editing",
+          }),
+        );
+        return true;
+      },
+    };
+  };
 }
 
 type ActiveSuggestionPluginState = {
   readonly status: "active";
+  readonly sessionId: string;
   triggerCharacter: string;
   deleteTriggerCharacter: boolean;
   queryStartPos: () => number;
   query: string;
   decorationId: string;
   ignoreQueryLength?: boolean;
+  temporaryInputData: SuggestionTemporaryInputData;
+  acceptancePhase: SuggestionAcceptancePhase;
+  isComposing: boolean;
 };
 
 type SuggestionPluginState =
@@ -233,6 +345,20 @@ type SuggestionMenuTransactionMeta =
   | {
       readonly type: "close";
       readonly reason: SuggestionMenuCloseReason;
+    }
+  | {
+      readonly type: "set-temporary-input";
+      readonly sessionId: string;
+      readonly data: SuggestionTemporaryInputData;
+    }
+  | {
+      readonly type: "set-acceptance-phase";
+      readonly sessionId: string;
+      readonly phase: SuggestionAcceptancePhase;
+    }
+  | {
+      readonly type: "set-composing";
+      readonly value: boolean;
     };
 
 function getActiveSuggestionSession(
@@ -258,6 +384,7 @@ type RegisteredSuggestionMenu = {
 const suggestionMenuPluginKey = new PluginKey<SuggestionPluginState>(
   "SuggestionMenuPlugin",
 );
+let nextSuggestionSessionId = 0;
 
 /**
  * A ProseMirror plugin for suggestions, designed to make '/'-commands possible as well as mentions.
@@ -302,15 +429,35 @@ export const SuggestionMenu = createExtension(({ editor }) => {
     },
     /** Consumes the tracked query and closes its session as one accepted action. */
     acceptMenu: () => view?.acceptMenu() ?? false,
+    setTemporaryInputData: (
+      sessionId: string,
+      data: SuggestionTemporaryInputData,
+    ) => {
+      const session = getCurrentSession();
+      if (!session || session.sessionId !== sessionId) return false;
+      if (JSON.stringify(session.temporaryInputData) === JSON.stringify(data)) return true;
+      editor.transact((tr) =>
+        tr.setMeta(suggestionMenuPluginKey, {
+          type: "set-temporary-input",
+          sessionId,
+          data,
+        }),
+      );
+      return true;
+    },
+    beginDeferredAcceptance: (inlineContent: readonly unknown[]) =>
+      view?.beginDeferredAcceptance(inlineContent) ?? null,
     getMenuState: (): SuggestionMenuRuntimeState | undefined => {
       const session = getCurrentSession();
-      if (!view?.state || !session) return undefined;
+      if (!session) return undefined;
 
       return {
+        sessionId: session.sessionId,
         triggerCharacter: session.triggerCharacter,
         query: session.query,
-        show: Boolean(view.state.show),
-        isComposing: view.state.isComposing ?? false,
+        show: Boolean(view?.state?.show),
+        isComposing: session.isComposing,
+        acceptancePhase: session.acceptancePhase,
       };
     },
     getLastCloseReason: () => view?.lastCloseReason,
@@ -406,6 +553,7 @@ export const SuggestionMenu = createExtension(({ editor }) => {
               );
               return {
                 status: "active",
+                sessionId: `suggestion_${++nextSuggestionSessionId}`,
                 triggerCharacter: transactionMeta.triggerCharacter,
                 deleteTriggerCharacter: transactionMeta.deleteTriggerCharacter !== false,
                 // When reading the queryStartPos, we offset the result by the length of the trigger character, to make it easy on the caller
@@ -414,16 +562,41 @@ export const SuggestionMenu = createExtension(({ editor }) => {
                 query: "",
                 decorationId: `id_${Math.floor(Math.random() * 0xffffffff)}`,
                 ignoreQueryLength: transactionMeta.ignoreQueryLength,
+                temporaryInputData: { enabled: false },
+                acceptancePhase: "editing",
+                isComposing: false,
               };
             }
 
             // Checks if the menu is hidden, in which case it doesn't need to be hidden or updated.
             if (!activeSession) return prev;
 
+            if (transactionMeta?.type === "set-temporary-input") {
+              if (transactionMeta.sessionId !== activeSession.sessionId) return prev;
+              return { ...activeSession, temporaryInputData: transactionMeta.data };
+            }
+            if (transactionMeta?.type === "set-acceptance-phase") {
+              if (transactionMeta.sessionId !== activeSession.sessionId) return prev;
+              return { ...activeSession, acceptancePhase: transactionMeta.phase };
+            }
+            if (transactionMeta?.type === "set-composing") {
+              return { ...activeSession, isComposing: transactionMeta.value };
+            }
+
             if (!newState.selection.empty) return closeSession("selection-expanded");
             if (transactionMeta?.type === "close") return closeSession(transactionMeta.reason);
-            if (transaction.getMeta("focus")) return closeSession("outside");
-            if (transaction.getMeta("blur")) return closeSession("blur");
+            if (
+              transaction.getMeta("focus") &&
+              activeSession.acceptancePhase !== "pending_authoritative"
+            ) {
+              return closeSession("outside");
+            }
+            if (
+              transaction.getMeta("blur") &&
+              activeSession.acceptancePhase !== "pending_authoritative"
+            ) {
+              return closeSession("blur");
+            }
             if (transaction.getMeta("pointer")) return closeSession("pointer");
             if (newState.selection.from < activeSession.queryStartPos()) {
               return closeSession("backspace-before-trigger");
@@ -514,19 +687,30 @@ export const SuggestionMenu = createExtension(({ editor }) => {
                 ]);
               }
             }
-            // Creates an inline decoration around the trigger character.
-            return DecorationSet.create(state.doc, [
+            const temporaryInput = suggestionPluginState.temporaryInputData;
+            const to = temporaryInput.enabled
+              ? state.selection.from
+              : suggestionPluginState.queryStartPos();
+            const completion =
+              temporaryInput.enabled && !suggestionPluginState.isComposing
+                ? temporaryInput.completion
+                : undefined;
+            const decorations = [
               Decoration.inline(
                 suggestionPluginState.queryStartPos() -
-                  suggestionPluginState.triggerCharacter!.length,
-                suggestionPluginState.queryStartPos(),
+                  suggestionPluginState.triggerCharacter.length,
+                to,
                 {
                   nodeName: "span",
-                  class: "bn-suggestion-decorator",
+                  class: temporaryInput.enabled
+                    ? "bn-suggestion-decorator bn-suggestion-temporary-input"
+                    : "bn-suggestion-decorator",
                   "data-decoration-id": suggestionPluginState.decorationId,
+                  ...(completion ? { "data-suggestion-completion": completion } : {}),
                 },
               ),
-            ]);
+            ];
+            return DecorationSet.create(state.doc, decorations);
           },
         },
       }),

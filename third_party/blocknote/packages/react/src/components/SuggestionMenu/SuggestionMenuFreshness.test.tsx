@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { describe, expect, test } from "vitest";
 import { act, useEffect } from "react";
@@ -426,6 +426,54 @@ describe("suggestion menu freshness", () => {
     expect(itemClickCalls).toBe(0);
     expect(closeMenuCalls).toBe(0);
     expect(acceptMenuCalls).toBe(0);
+  });
+
+  test("keeps the empty-query completion when the menu selects its first item", async () => {
+    const temporaryInputUpdates: Array<{
+      sessionId: string;
+      data: { enabled: boolean; completion?: string };
+    }> = [];
+    const fakeSuggestionMenu = {
+      getMenuState: () => ({
+        triggerCharacter: "/",
+        query: "",
+        show: true,
+      }),
+    };
+    const editor = {
+      ...createFakeEditor(),
+      getExtension: () => fakeSuggestionMenu,
+    };
+
+    const view = render(
+      <BlockNoteContext.Provider
+        value={{ editor, setContentEditableProps: () => undefined }}
+      >
+        <SuggestionMenuWrapper
+          triggerCharacter="/"
+          query=""
+          closeMenu={() => undefined}
+          acceptMenu={() => true}
+          getItems={async () => ["Text"]}
+          sessionId="slash-session"
+          setTemporaryInputData={(sessionId, data) => {
+            temporaryInputUpdates.push({ sessionId, data });
+            return true;
+          }}
+          temporaryInput={{ enabled: true, emptyCompletion: "Type to search" }}
+          suggestionMenuComponent={() => null}
+        />
+      </BlockNoteContext.Provider>,
+    );
+
+    await waitFor(() => {
+      expect(temporaryInputUpdates.at(-1)).toEqual({
+        sessionId: "slash-session",
+        data: { enabled: true, completion: "Type to search" },
+      });
+    });
+
+    view.unmount();
   });
 
   test("can activate a fresh utility item without closing or clearing the menu", async () => {

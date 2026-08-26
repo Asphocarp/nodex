@@ -16,7 +16,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 33;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 34;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -77,6 +77,36 @@ pub enum LibraryPageInsertion {
     ReplaceEmptyParagraph {
         block_id: String,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryPageMentionHost {
+    pub page_id: String,
+    pub document_id: String,
+    pub expected_document_generation: i64,
+    pub expected_document_head_seq: i64,
+    pub block_id: String,
+    pub expected_content: Vec<Value>,
+    pub replacement_content: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryPageMentionDestination {
+    pub page_id: String,
+    pub document_id: String,
+    pub expected_document_generation: i64,
+    pub expected_document_head_seq: i64,
+    pub insertion: LibraryPageInsertion,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageMentionDestinationHead {
+    pub page_id: String,
+    pub document_id: String,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -742,6 +772,9 @@ pub enum LibraryRead {
         scope: LibraryMoveDestinationScope,
         cursor: Option<String>,
         limit: Option<u32>,
+    },
+    PageMentionDestination {
+        page_id: String,
     },
     PageDetail {
         page_id: String,
@@ -2215,6 +2248,9 @@ pub enum LibraryReadValue {
         total: u64,
         root_is_current: bool,
     },
+    PageMentionDestination {
+        value: LibraryPageMentionDestinationHead,
+    },
     PageDetail {
         value: Box<LibraryPageDetail>,
     },
@@ -2312,6 +2348,13 @@ pub enum LibraryIntent {
         document_id: String,
         title: String,
         parent: LibraryWriteParent,
+    },
+    CreatePageMention {
+        page_id: String,
+        document_id: String,
+        title: String,
+        mention_host: LibraryPageMentionHost,
+        destination: LibraryPageMentionDestination,
     },
     CreatePageFromNfm {
         title_markdown: String,

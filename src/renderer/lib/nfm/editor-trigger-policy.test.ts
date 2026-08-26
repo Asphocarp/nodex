@@ -6,7 +6,7 @@ import {
 } from "./editor-trigger-policy";
 
 function evaluate(
-  kind: "slash" | "mention" | "emoji",
+  kind: "slash" | "page-mention" | "emoji",
   trigger: string,
   textBeforeTrigger: string,
   locale = "en-US",
@@ -64,19 +64,19 @@ describe("NFM typed suggestion trigger policy", () => {
   it.each(["", "hello ", "hello(", "hello)", "hello[", "hello]"])(
     "opens mention suggestions at a supported boundary: %j",
     (textBeforeTrigger) => {
-      expect(evaluate("mention", "@", textBeforeTrigger)).toEqual({ allowed: true });
+      expect(evaluate("page-mention", "@", textBeforeTrigger)).toEqual({ allowed: true });
     },
   );
 
   it("keeps word-adjacent mentions literal", () => {
-    expect(evaluate("mention", "@", "hello")).toEqual({
+    expect(evaluate("page-mention", "@", "hello")).toEqual({
       allowed: false,
       reason: "invalid-left-boundary",
     });
   });
 
   it.each(["hello.", "hello-"])("rejects unsupported mention punctuation: %j", (text) => {
-    expect(evaluate("mention", "@", text)).toMatchObject({
+    expect(evaluate("page-mention", "@", text)).toMatchObject({
       allowed: false,
       reason: "invalid-left-boundary",
     });
@@ -85,7 +85,31 @@ describe("NFM typed suggestion trigger policy", () => {
   it.each(["hello（", "hello）", "hello［", "hello］"])(
     "normalizes fullwidth mention boundaries: %j",
     (text) => {
-      expect(evaluate("mention", "@", text)).toEqual({ allowed: true });
+      expect(evaluate("page-mention", "@", text)).toEqual({ allowed: true });
+    },
+  );
+
+  it.each(["", "hello ", "hello(", "hello)", "hello[", "hello]"])(
+    "opens create-first Page mentions at a supported boundary: %j",
+    (textBeforeTrigger) => {
+      expect(evaluate("page-mention", "+", textBeforeTrigger)).toEqual({ allowed: true });
+    },
+  );
+
+  it.each(["hello", "hello.", "7"])(
+    "keeps word-adjacent create-first Page mentions literal: %j",
+    (textBeforeTrigger) => {
+      expect(evaluate("page-mention", "+", textBeforeTrigger)).toEqual({
+        allowed: false,
+        reason: "invalid-left-boundary",
+      });
+    },
+  );
+
+  it.each(["", "hello", "hello ", "hello["])(
+    "opens wiki-link Page mentions whenever the bracket pair completes: %j",
+    (textBeforeTrigger) => {
+      expect(evaluate("page-mention", "[[", textBeforeTrigger)).toEqual({ allowed: true });
     },
   );
 
@@ -118,7 +142,7 @@ describe("NFM typed suggestion trigger policy", () => {
       allowed: false,
       reason: "unsupported-trigger",
     });
-    expect(evaluate("mention", "／", "")).toEqual({
+    expect(evaluate("page-mention", "／", "")).toEqual({
       allowed: false,
       reason: "unsupported-trigger",
     });

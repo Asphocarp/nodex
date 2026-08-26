@@ -7,8 +7,8 @@ use nodex_core_contracts::library::{
     LibraryAccess, LibraryBlockPropertyMutationReceipt, LibraryBlockTransferDocumentCommit,
     LibraryBlockTransferResult, LibraryCanvasMutationResult, LibraryCommitValue, LibraryIntent,
     LibraryPageCopyResult, LibraryPageCreateResult, LibraryPageInsertion,
-    LibraryPageLifecycleMutationReceipt, LibraryProjectAccessChange, LibraryReceipt,
-    LibraryResourceTarget, LibraryWriteParent,
+    LibraryPageLifecycleMutationReceipt, LibraryPageMentionDestination, LibraryPageMentionHost,
+    LibraryProjectAccessChange, LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, ModuleApplyRequest, ModuleMutationReceipt, ModuleName,
@@ -21,10 +21,10 @@ use yrs::{ReadTxn, Transact};
 
 use crate::database::create_database_authority_records;
 use crate::document::{
-    BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
-    DocumentPlacementEvidence, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsCommit,
-    PersistYjsGenesis, YrsDocumentEngine, decode_block_document, materialize_decoded_document,
-    mint_document_semantic_etags, parse_inline_markdown_title,
+    BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentBlockUpdatePatch,
+    DocumentMaterialization, DocumentPlacementEvidence, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION,
+    PersistYjsCommit, PersistYjsGenesis, YrsDocumentEngine, decode_block_document,
+    materialize_decoded_document, mint_document_semantic_etags, parse_inline_markdown_title,
     persist_yjs_commit_with_local_commit, persist_yjs_genesis_with_local_commit,
     prepare_document_operation_update, prepare_page_yjs_genesis,
     prepare_page_yjs_genesis_with_content, read_document_authority, read_store_epoch,
@@ -35,6 +35,10 @@ use crate::domain::fractional_rank::{
     FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
 };
 use crate::domain::identity::stable_uuid_v7;
+use crate::domain::materialized_inline::{
+    materialized_inline_from_rich_text, rich_text_from_materialized_inline,
+};
+use crate::domain::rich_text::{RichTextItem, RichTextStyles, canonicalize_rich_text};
 use crate::infrastructure::durable_mutation::{
     self, CommitResult, DurableMutationScope, OperationIdentity, ReceiptMetadata, ReplayIdentity,
     SealedOutcome,
@@ -236,6 +240,25 @@ pub(super) fn apply(
                     document_id,
                     PageGenesisInput::PlainTitle(title),
                     parent,
+                ),
+                LibraryIntent::CreatePageMention {
+                    page_id,
+                    document_id,
+                    title,
+                    mention_host,
+                    destination,
+                } => create_page_mention(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    page_id,
+                    document_id,
+                    title,
+                    mention_host,
+                    destination,
                 ),
                 LibraryIntent::CreatePageFromNfm {
                     title_markdown,
@@ -1911,7 +1934,7 @@ pub(super) fn load_parent_document(
     })
 }
 
-fn find_materialized_block(
+pub(super) fn find_materialized_block(
     blocks: &[MaterializedBlockNode],
     block_id: &str,
 ) -> Option<MaterializedBlockNode> {
@@ -2406,6 +2429,164 @@ fn create_database(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn create_page_records_and_genesis(
+    connection: &Connection,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    page_id: &str,
+    document_id: &str,
+    genesis: PageGenesisInput<'_>,
+    parent: &LibraryWriteParent,
+    resolved_parent: &ResolvedWriteParent,
+    project_id: &str,
+    now: &str,
+    commit: &CommitContext,
+) -> Result<LibraryPageCreateResult, StoreError> {
+    let prepared = match genesis {
+        PageGenesisInput::PlainTitle(title) => {
+            let root_block_id = deterministic_block_id(operation_id);
+            prepare_page_yjs_genesis(document_id, title, &root_block_id)?
+        }
+        PageGenesisInput::NestedMarkdown {
+            title_markdown,
+            nfm,
+        } => {
+            let rich_title = parse_inline_markdown_title(title_markdown)
+                .map_err(|error| invalid(&error.to_string()))?;
+            let mut ordinal = 0_u64;
+            prepare_page_yjs_genesis_with_content(document_id, &rich_title, nfm, &mut || {
+                let block_id =
+                    stable_uuid_v7(operation_id, "page_body_block", &ordinal.to_string());
+                ordinal += 1;
+                block_id
+            })?
+        }
+    };
+
+    connection.execute(
+        "INSERT INTO blocks (\
+           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
+           created_at, updated_at\
+         ) VALUES (?1, ?2, 'page', 'active', 1, 1, ?3, ?3)",
+        params![page_id, library_id, now],
+    )?;
+    connection.execute(
+        "INSERT INTO documents(\
+           id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
+           state_hash, readiness, authority, genesis_source_revision, created_at, updated_at, \
+           sync_engine\
+         ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', '', 'pending_genesis', 'legacy_shadow', \
+           NULL, ?5, ?5, 'yjs')",
+        params![
+            document_id,
+            library_id,
+            PAGE_SCHEMA_KEY,
+            i64::from(PAGE_SCHEMA_VERSION),
+            now
+        ],
+    )?;
+    connection.execute(
+        "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
+         VALUES (?1, ?2, ?3, ?4)",
+        params![page_id, document_id, library_id, now],
+    )?;
+    connection.execute(
+        "INSERT INTO pages(\
+           block_id, library_id, document_id, parent_kind, parent_id, created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![
+            page_id,
+            library_id,
+            document_id,
+            if resolved_parent.page_id.is_some() {
+                "page"
+            } else {
+                "library"
+            },
+            resolved_parent.page_id.as_deref().unwrap_or(library_id),
+            now
+        ],
+    )?;
+    if resolved_parent.document.is_none() {
+        insert_library_placement(
+            connection,
+            library_id,
+            page_id,
+            match parent {
+                LibraryWriteParent::Library { before } => before.as_ref(),
+                LibraryWriteParent::Page { .. } => None,
+            },
+            now,
+        )?;
+        if let Some(creator_project_id) = resolved_parent.creator_project_id.as_deref() {
+            insert_creator_resource_grant(
+                connection,
+                creator_project_id,
+                library_id,
+                "page",
+                page_id,
+                now,
+            )?;
+        }
+    }
+    let authority = read_document_authority(connection, document_id)?
+        .ok_or_else(|| corrupt("Created Page has no Document authority"))?;
+    if authority.head.schema_key != BlockDocumentSchema::PageV3.schema_key()
+        || authority.head.schema_version != i64::from(PAGE_SCHEMA_VERSION)
+    {
+        return Err(corrupt("Created Page has the wrong Document schema"));
+    }
+    let genesis_update_id = format!("library-page-genesis:{}", sha256(operation_id.as_bytes()));
+    let full_state = prepared.engine.full_state_v1();
+    let persisted = persist_yjs_genesis_with_local_commit(
+        connection,
+        PersistYjsGenesis {
+            authority: &authority,
+            actor_project_id: project_id,
+            materialization: &prepared.materialization,
+            update_id: &genesis_update_id,
+            client_session_id: "library-module",
+            update: &prepared.update_v1,
+            state_vector: &prepared.state_vector_v1,
+            full_state: &full_state,
+            store_epoch,
+            operation_id: &genesis_update_id,
+            placement: DocumentPlacementEvidence::STRUCTURAL,
+            emit_event: false,
+        },
+        commit,
+    )?;
+    insert_page_read_model(
+        connection,
+        page_id,
+        &prepared.materialization,
+        persisted.head_seq,
+        now,
+    )?;
+    ensure_default_page_intrinsic_properties(connection, page_id, now)?;
+    refresh_page_intrinsic_projection(connection, page_id, now)?;
+    let (title_etag, body_etag) = mint_document_semantic_etags(
+        connection,
+        project_id,
+        store_epoch,
+        document_id,
+        &prepared.materialization,
+    )
+    .map_err(|error| internal(&error.to_string()))?;
+    Ok(LibraryPageCreateResult {
+        page_id: page_id.to_owned(),
+        page_key: None,
+        document_id: document_id.to_owned(),
+        document_generation: 1,
+        document_head_seq: persisted.head_seq,
+        block_ids: materialized_block_ids(&prepared.materialization.block_tree),
+        title_etag,
+        body_etag,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn create_page(
     connection: &Connection,
     context: &BoundModuleContext,
@@ -2456,138 +2637,20 @@ fn create_page(
             context,
         },
         |scope| {
-            let prepared = match genesis {
-                PageGenesisInput::PlainTitle(title) => {
-                    let root_block_id = deterministic_block_id(operation_id);
-                    prepare_page_yjs_genesis(document_id, title, &root_block_id)?
-                }
-                PageGenesisInput::NestedMarkdown {
-                    title_markdown,
-                    nfm,
-                } => {
-                    let rich_title = parse_inline_markdown_title(title_markdown)
-                        .map_err(|error| invalid(&error.to_string()))?;
-                    let mut ordinal = 0_u64;
-                    prepare_page_yjs_genesis_with_content(
-                        document_id,
-                        &rich_title,
-                        nfm,
-                        &mut || {
-                            let block_id = stable_uuid_v7(
-                                operation_id,
-                                "page_body_block",
-                                &ordinal.to_string(),
-                            );
-                            ordinal += 1;
-                            block_id
-                        },
-                    )?
-                }
-            };
-
-            connection.execute(
-                "INSERT INTO blocks (\
-           id, library_id, type, lifecycle, placement_revision, metadata_revision, \
-           created_at, updated_at\
-         ) VALUES (?1, ?2, 'page', 'active', 1, 1, ?3, ?3)",
-                params![page_id, library_id, now],
-            )?;
-            connection.execute(
-                "INSERT INTO documents(\
-           id, library_id, generation, head_seq, schema_key, schema_version, state_vector, \
-           state_hash, readiness, authority, genesis_source_revision, created_at, updated_at, \
-           sync_engine\
-         ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', '', 'pending_genesis', 'legacy_shadow', \
-           NULL, ?5, ?5, 'yjs')",
-                params![
-                    document_id,
-                    library_id,
-                    PAGE_SCHEMA_KEY,
-                    i64::from(PAGE_SCHEMA_VERSION),
-                    now
-                ],
-            )?;
-            connection.execute(
-                "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
-         VALUES (?1, ?2, ?3, ?4)",
-                params![page_id, document_id, library_id, now],
-            )?;
-            connection.execute(
-                "INSERT INTO pages(\
-           block_id, library_id, document_id, parent_kind, parent_id, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-                params![
-                    page_id,
-                    library_id,
-                    document_id,
-                    if resolved_parent.page_id.is_some() {
-                        "page"
-                    } else {
-                        "library"
-                    },
-                    resolved_parent.page_id.as_deref().unwrap_or(library_id),
-                    now
-                ],
-            )?;
-            if resolved_parent.document.is_none() {
-                insert_library_placement(
-                    connection,
-                    library_id,
-                    page_id,
-                    match parent {
-                        LibraryWriteParent::Library { before } => before.as_ref(),
-                        LibraryWriteParent::Page { .. } => None,
-                    },
-                    &now,
-                )?;
-                if let Some(creator_project_id) = resolved_parent.creator_project_id.as_deref() {
-                    insert_creator_resource_grant(
-                        connection,
-                        creator_project_id,
-                        library_id,
-                        "page",
-                        page_id,
-                        &now,
-                    )?;
-                }
-            }
-            let authority = read_document_authority(connection, document_id)?
-                .ok_or_else(|| corrupt("Created Page has no Document authority"))?;
-            if authority.head.schema_key != BlockDocumentSchema::PageV3.schema_key()
-                || authority.head.schema_version != i64::from(PAGE_SCHEMA_VERSION)
-            {
-                return Err(corrupt("Created Page has the wrong Document schema"));
-            }
-            let genesis_update_id =
-                format!("library-page-genesis:{}", sha256(operation_id.as_bytes()));
-            let full_state = prepared.engine.full_state_v1();
-            let persisted = persist_yjs_genesis_with_local_commit(
+            let page_create = create_page_records_and_genesis(
                 connection,
-                PersistYjsGenesis {
-                    authority: &authority,
-                    actor_project_id: &project_id,
-                    materialization: &prepared.materialization,
-                    update_id: &genesis_update_id,
-                    client_session_id: "library-module",
-                    update: &prepared.update_v1,
-                    state_vector: &prepared.state_vector_v1,
-                    full_state: &full_state,
-                    store_epoch,
-                    operation_id: &genesis_update_id,
-                    placement: DocumentPlacementEvidence::STRUCTURAL,
-                    emit_event: false,
-                },
+                store_epoch,
+                library_id,
+                operation_id,
+                page_id,
+                document_id,
+                genesis,
+                parent,
+                &resolved_parent,
+                &project_id,
+                &now,
                 scope.evidence(),
             )?;
-            insert_page_read_model(
-                connection,
-                page_id,
-                &prepared.materialization,
-                persisted.head_seq,
-                &now,
-            )?;
-            ensure_default_page_intrinsic_properties(connection, page_id, &now)?;
-            refresh_page_intrinsic_projection(connection, page_id, &now)?;
 
             let parent_insertion = match parent {
                 LibraryWriteParent::Page { insertion, .. } => insertion.as_ref(),
@@ -2621,25 +2684,6 @@ fn create_page(
                     )
                 })
                 .transpose()?;
-            let (title_etag, body_etag) = mint_document_semantic_etags(
-                connection,
-                &project_id,
-                store_epoch,
-                document_id,
-                &prepared.materialization,
-            )
-            .map_err(|error| internal(&error.to_string()))?;
-            let page_create = LibraryPageCreateResult {
-                page_id: page_id.to_owned(),
-                page_key: None,
-                document_id: document_id.to_owned(),
-                document_generation: 1,
-                document_head_seq: persisted.head_seq,
-                block_ids: materialized_block_ids(&prepared.materialization.block_tree),
-                title_etag,
-                body_etag,
-            };
-
             seal_mutation(
                 scope,
                 context,
@@ -2671,7 +2715,10 @@ fn create_page(
                         [
                             (format!("blockLocation:{page_id}"), 1),
                             (format!("blockMetadata:{page_id}"), 1),
-                            (format!("documentHead:{document_id}"), persisted.head_seq),
+                            (
+                                format!("documentHead:{document_id}"),
+                                page_create.document_head_seq,
+                            ),
                         ]
                         .into_iter()
                         .chain(
@@ -2698,6 +2745,455 @@ fn create_page(
                     agent_move_pages: None,
                     change_payload: None,
                     committed_at: now.clone(),
+                },
+            )
+        },
+    )?;
+    library_commit_result(connection, commit_result)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PageMentionRichTextUnit {
+    Character {
+        value: char,
+        styles: RichTextStyles,
+        href: Option<String>,
+    },
+    Atom(RichTextItem),
+}
+
+fn page_mention_rich_text_units(items: &[RichTextItem]) -> Vec<PageMentionRichTextUnit> {
+    items
+        .iter()
+        .flat_map(|item| match item {
+            RichTextItem::Text { text, styles } => text
+                .chars()
+                .map(|value| PageMentionRichTextUnit::Character {
+                    value,
+                    styles: styles.clone(),
+                    href: None,
+                })
+                .collect(),
+            RichTextItem::Link { text, href, styles } => text
+                .chars()
+                .map(|value| PageMentionRichTextUnit::Character {
+                    value,
+                    styles: styles.clone(),
+                    href: Some(href.clone()),
+                })
+                .collect(),
+            item => vec![PageMentionRichTextUnit::Atom(item.clone())],
+        })
+        .collect()
+}
+
+fn parse_page_mention_rich_text(
+    value: &[serde_json::Value],
+    label: &str,
+) -> Result<Vec<RichTextItem>, StoreError> {
+    let parsed =
+        serde_json::from_value::<Vec<RichTextItem>>(serde_json::Value::Array(value.to_vec()))
+            .map_err(|_| invalid(&format!("{label} is not portable rich text")))?;
+    let canonical = canonicalize_rich_text(&parsed)
+        .map_err(|_| invalid(&format!("{label} is not canonical portable rich text")))?;
+    if parsed != canonical.rich_text {
+        return Err(invalid(&format!(
+            "{label} must already be canonical portable rich text"
+        )));
+    }
+    Ok(parsed)
+}
+
+fn is_plain_space(unit: &PageMentionRichTextUnit) -> bool {
+    matches!(
+        unit,
+        PageMentionRichTextUnit::Character {
+            value: ' ',
+            styles,
+            href: None,
+        } if styles == &RichTextStyles::default()
+    )
+}
+
+fn is_valid_page_mention_replacement(
+    expected: &[RichTextItem],
+    replacement: &[RichTextItem],
+    page_id: &str,
+) -> bool {
+    let expected_target_count = expected
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                RichTextItem::PageMention { target_page_id } if target_page_id == page_id
+            )
+        })
+        .count();
+    let replacement_target_count = replacement
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                RichTextItem::PageMention { target_page_id } if target_page_id == page_id
+            )
+        })
+        .count();
+    if replacement_target_count != expected_target_count + 1 {
+        return false;
+    }
+
+    let expected_units = page_mention_rich_text_units(expected);
+    let replacement_units = page_mention_rich_text_units(replacement);
+    replacement_units
+        .iter()
+        .enumerate()
+        .filter(|(_, unit)| {
+            matches!(
+                unit,
+                PageMentionRichTextUnit::Atom(RichTextItem::PageMention { target_page_id })
+                    if target_page_id == page_id
+            )
+        })
+        .any(|(mention_index, _)| {
+            [true, false].into_iter().any(|consume_space| {
+                let suffix_index = mention_index + 1 + usize::from(consume_space);
+                if suffix_index > replacement_units.len() {
+                    return false;
+                }
+                if consume_space
+                    && !replacement_units
+                        .get(mention_index + 1)
+                        .is_some_and(is_plain_space)
+                {
+                    return false;
+                }
+                let prefix = &replacement_units[..mention_index];
+                let suffix = &replacement_units[suffix_index..];
+                if expected_units.len() < prefix.len() + suffix.len()
+                    || !expected_units.starts_with(prefix)
+                    || !expected_units.ends_with(suffix)
+                {
+                    return false;
+                }
+                let removed = &expected_units[prefix.len()..expected_units.len() - suffix.len()];
+                if removed.is_empty()
+                    || removed.iter().any(|unit| {
+                        !matches!(unit, PageMentionRichTextUnit::Character { href: None, .. })
+                    })
+                {
+                    return false;
+                }
+                let removed_text = removed
+                    .iter()
+                    .filter_map(|unit| match unit {
+                        PageMentionRichTextUnit::Character { value, .. } => Some(*value),
+                        PageMentionRichTextUnit::Atom(_) => None,
+                    })
+                    .collect::<String>();
+                removed_text.starts_with('@')
+                    || removed_text.starts_with('+')
+                    || removed_text.starts_with("[[")
+            })
+        })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_page_mention(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    page_id: &str,
+    document_id: &str,
+    title: &str,
+    mention_host: &LibraryPageMentionHost,
+    destination: &LibraryPageMentionDestination,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    validate_id("page_id", page_id)?;
+    validate_id("document_id", document_id)?;
+    validate_id("operation_id", operation_id)?;
+    if title.len() > MAX_PAGE_TITLE_LENGTH {
+        return Err(invalid("Page title exceeds its bound"));
+    }
+    if !matches!(destination.insertion, LibraryPageInsertion::Append { .. }) {
+        return Err(invalid(
+            "Page mention creation only supports append destinations",
+        ));
+    }
+    let expected_rich_text =
+        parse_page_mention_rich_text(&mention_host.expected_content, "expected_content")?;
+    let replacement_rich_text =
+        parse_page_mention_rich_text(&mention_host.replacement_content, "replacement_content")?;
+    if !is_valid_page_mention_replacement(&expected_rich_text, &replacement_rich_text, page_id) {
+        return Err(invalid(
+            "Page mention replacement must replace one typed trigger with the new Page mention",
+        ));
+    }
+    let expected_content = materialized_inline_from_rich_text(&expected_rich_text)
+        .map_err(|_| invalid("expected_content cannot be materialized"))?;
+    let replacement_content = materialized_inline_from_rich_text(&replacement_rich_text)
+        .map_err(|_| invalid("replacement_content cannot be materialized"))?;
+
+    let destination_parent = LibraryWriteParent::Page {
+        page_id: destination.page_id.clone(),
+        expected_document_generation: destination.expected_document_generation,
+        expected_document_head_seq: destination.expected_document_head_seq,
+        before: None,
+        insertion: Some(destination.insertion.clone()),
+    };
+    let resolved_destination =
+        resolve_write_parent_for_context(connection, context, library_id, &destination_parent)?;
+    let destination_document = resolved_destination
+        .document
+        .as_ref()
+        .ok_or_else(|| corrupt("Page mention destination lost its Document"))?;
+    if destination_document.authority.head.id != destination.document_id {
+        return Err(invalid(
+            "Page mention destination Document identity does not match its Page",
+        ));
+    }
+
+    let same_document = mention_host.document_id == destination.document_id;
+    let resolved_host = if same_document {
+        if mention_host.page_id != destination.page_id
+            || mention_host.expected_document_generation != destination.expected_document_generation
+            || mention_host.expected_document_head_seq != destination.expected_document_head_seq
+        {
+            return Err(invalid(
+                "One Page Document cannot have different mention and destination coordinates",
+            ));
+        }
+        None
+    } else {
+        let host_parent = LibraryWriteParent::Page {
+            page_id: mention_host.page_id.clone(),
+            expected_document_generation: mention_host.expected_document_generation,
+            expected_document_head_seq: mention_host.expected_document_head_seq,
+            before: None,
+            insertion: None,
+        };
+        Some(resolve_write_parent_for_context(
+            connection,
+            context,
+            library_id,
+            &host_parent,
+        )?)
+    };
+    let host_document = resolved_host
+        .as_ref()
+        .and_then(|host| host.document.as_ref())
+        .unwrap_or(destination_document);
+    if host_document.authority.head.id != mention_host.document_id
+        || host_document.authority.owner_block_id != mention_host.page_id
+    {
+        return Err(invalid(
+            "Page mention host Document identity does not match its Page",
+        ));
+    }
+    let host_block = find_materialized_block(
+        &host_document.base_materialization.block_tree,
+        &mention_host.block_id,
+    )
+    .ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::Conflict,
+            "Page mention host Block is unavailable",
+            true,
+        )
+    })?;
+    let current_content = host_block
+        .content
+        .as_ref()
+        .ok_or_else(|| invalid("Page mention host Block has no inline content"))?;
+    let current_rich_text = rich_text_from_materialized_inline(current_content)
+        .map_err(|_| invalid("Page mention host Block is not portable inline content"))?;
+    if current_rich_text.rich_text != expected_rich_text {
+        return Err(StoreError::new(
+            StoreErrorCode::HeadConflict,
+            "Page mention host content changed",
+            true,
+        ));
+    }
+    if connection
+        .query_row(
+            "SELECT 1 WHERE EXISTS (SELECT 1 FROM blocks WHERE id = ?1) \
+             OR EXISTS (SELECT 1 FROM documents WHERE id = ?2)",
+            params![page_id, document_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some()
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "New Page or Document identity already exists",
+            false,
+        ));
+    }
+
+    let project_id = resolved_destination.actor_project_id.clone();
+    let now = sqlite_now(connection)?;
+    let commit_result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let page_create = create_page_records_and_genesis(
+                connection,
+                store_epoch,
+                library_id,
+                operation_id,
+                page_id,
+                document_id,
+                PageGenesisInput::PlainTitle(title),
+                &destination_parent,
+                &resolved_destination,
+                &project_id,
+                &now,
+                scope.evidence(),
+            )?;
+            let write = ParentDocumentWriteContext {
+                actor_project_id: &project_id,
+                store_epoch,
+                operation_id,
+                commit: scope.evidence(),
+            };
+            let content_operation = DocumentBlockOperation::UpdateBlock {
+                block_id: mention_host.block_id.clone(),
+                patch: DocumentBlockUpdatePatch {
+                    block_type: None,
+                    props: None,
+                    content: Some(replacement_content.clone()),
+                    unset_content: false,
+                },
+            };
+            let document_commits = if same_document {
+                let mut operations = super::canvas_mutation::page_shell_insertion_operations(
+                    destination_document,
+                    &destination.insertion,
+                    embedded_resource_block(page_id, "page"),
+                )?;
+                operations.push(content_operation);
+                let placement_ids = vec![page_id.to_owned()];
+                vec![persist_parent_operations_detailed_with_local_commit(
+                    connection,
+                    write,
+                    "create-page-mention",
+                    destination_document,
+                    &operations,
+                    ParentDocumentPlacement::Genesis(&placement_ids),
+                )?]
+            } else {
+                let destination_commit = persist_parent_insert_with_insertion(
+                    connection,
+                    write,
+                    destination_document,
+                    &destination.insertion,
+                    embedded_resource_block(page_id, "page"),
+                )?;
+                let host_document = resolved_host
+                    .as_ref()
+                    .and_then(|host| host.document.as_ref())
+                    .ok_or_else(|| corrupt("Page mention host lost its Document"))?;
+                let host_commit = persist_parent_operations_detailed_with_local_commit(
+                    connection,
+                    write,
+                    "create-page-mention-host",
+                    host_document,
+                    &[content_operation],
+                    ParentDocumentPlacement::Derived {
+                        attachment_advances: &[],
+                    },
+                )?;
+                vec![destination_commit, host_commit]
+            };
+            let prepared_history = super::structural_edit::prepare_page_mention_history(
+                connection,
+                library_id,
+                operation_id,
+                store_epoch,
+                &destination.page_id,
+                &destination.document_id,
+                page_id,
+                &mention_host.page_id,
+                &mention_host.document_id,
+                &mention_host.block_id,
+                expected_content.clone(),
+                replacement_content.clone(),
+                document_commits,
+            )?;
+            let mut effects = super::structural_edit::page_mention_history_effects(
+                &prepared_history,
+                &project_id,
+                &now,
+            );
+            effects.created_target = Some(LibraryResourceTarget::Page {
+                page_id: page_id.to_owned(),
+            });
+            effects.page_create = Some(page_create.clone());
+            effects.affected_parent_keys.extend([
+                format!("page:{}", mention_host.page_id),
+                format!("page:{}", destination.page_id),
+            ]);
+            effects
+                .affected_block_ids
+                .push(mention_host.block_id.clone());
+            effects.affected_page_ids.extend([
+                page_id.to_owned(),
+                mention_host.page_id.clone(),
+                destination.page_id.clone(),
+            ]);
+            effects.affected_document_ids.push(document_id.to_owned());
+            effects.committed_revisions.extend([
+                (format!("blockLocation:{page_id}"), 1),
+                (format!("blockMetadata:{page_id}"), 1),
+                (
+                    format!("documentHead:{document_id}"),
+                    page_create.document_head_seq,
+                ),
+            ]);
+            normalize_ids(&mut effects.affected_parent_keys);
+            normalize_ids(&mut effects.affected_block_ids);
+            normalize_ids(&mut effects.affected_page_ids);
+            normalize_ids(&mut effects.affected_document_ids);
+            let history_result =
+                super::structural_edit::page_mention_history_result(&prepared_history).clone();
+            effects.structural_edit = Some(history_result);
+            let request = json!({
+                "kind": "create_page_mention",
+                "page_id": page_id,
+                "document_id": document_id,
+                "title": title,
+                "mention_host": mention_host,
+                "destination": destination,
+            });
+            seal_mutation_with(
+                scope,
+                context,
+                operation_id,
+                effects,
+                |_, event_sequence| {
+                    super::structural_edit::persist_page_mention_history(
+                        connection,
+                        &prepared_history,
+                        operation_id,
+                        library_id,
+                        &project_id,
+                        store_epoch,
+                        request_hash,
+                        &request,
+                        event_sequence,
+                        &now,
+                    )
                 },
             )
         },
@@ -3649,6 +4145,7 @@ mod tests {
             "transfer_blocks",
             "agent_move_pages",
             "create_page",
+            "create_page_mention",
             "mutate_block_properties",
         ] {
             assert!(!requires_library_projection_reset(operation), "{operation}");
@@ -3687,6 +4184,154 @@ mod tests {
                 parent: LibraryWriteParent::Library { before: None },
             },
         }
+    }
+
+    fn create_mention_test_page(
+        module: &LibraryModule,
+        operation_id: &str,
+        page_id: &str,
+        document_id: &str,
+    ) -> LibraryPageCreateResult {
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: page_id.to_owned(),
+                        document_id: document_id.to_owned(),
+                        title: "Host".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create Page mention test Page")
+            .committed
+            .value
+            .page_create
+            .expect("Page creation result")
+    }
+
+    fn set_mention_test_content(
+        kernel: &SqliteStoreKernel,
+        page: &LibraryPageCreateResult,
+        content: serde_json::Value,
+        operation_id: &str,
+    ) -> i64 {
+        OwnedDocumentModule::new("profile-1", "library-1", kernel)
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: OWNED_DOCUMENT_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: page.document_id.clone(),
+                        generation: page.document_generation,
+                        expected_head_seq: page.document_head_seq,
+                        operations: vec![
+                            nodex_core_contracts::document::DocumentBlockOperation::UpdateBlock {
+                                block_id: page.block_ids[0].clone(),
+                                patch: nodex_core_contracts::document::DocumentBlockUpdatePatch {
+                                    block_type: None,
+                                    props: None,
+                                    content: nodex_core_contracts::document::DocumentOptionalValue::Value {
+                                        value: content,
+                                    },
+                                    unset_content: false,
+                                },
+                            },
+                        ],
+                        actor: json!({ "kind": "editor" }),
+                    },
+                },
+            )
+            .expect("seed typed Page mention content");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT head_seq FROM documents WHERE id = ?1",
+                        [&page.document_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("read typed Page mention head")
+    }
+
+    struct PageMentionRequestInput<'a> {
+        operation_id: &'a str,
+        new_page_id: &'a str,
+        new_document_id: &'a str,
+        host: &'a LibraryPageCreateResult,
+        host_head_seq: i64,
+        destination: &'a LibraryPageCreateResult,
+        destination_head_seq: i64,
+        expected_content: Vec<serde_json::Value>,
+    }
+
+    fn page_mention_request(
+        input: PageMentionRequestInput<'_>,
+    ) -> ModuleApplyRequest<LibraryIntent> {
+        ModuleApplyRequest {
+            contract_version: LIBRARY_CONTRACT_VERSION,
+            operation_id: input.operation_id.to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::CreatePageMention {
+                page_id: input.new_page_id.to_owned(),
+                document_id: input.new_document_id.to_owned(),
+                title: "Plan".to_owned(),
+                mention_host: LibraryPageMentionHost {
+                    page_id: input.host.page_id.clone(),
+                    document_id: input.host.document_id.clone(),
+                    expected_document_generation: input.host.document_generation,
+                    expected_document_head_seq: input.host_head_seq,
+                    block_id: input.host.block_ids[0].clone(),
+                    expected_content: input.expected_content,
+                    replacement_content: vec![
+                        json!({ "type": "pageMention", "targetPageId": input.new_page_id }),
+                        json!({ "type": "text", "text": " ", "styles": {} }),
+                    ],
+                },
+                destination: LibraryPageMentionDestination {
+                    page_id: input.destination.page_id.clone(),
+                    document_id: input.destination.document_id.clone(),
+                    expected_document_generation: input.destination.document_generation,
+                    expected_document_head_seq: input.destination_head_seq,
+                    insertion: LibraryPageInsertion::Append {
+                        parent_block_id: None,
+                    },
+                },
+            },
+        }
+    }
+
+    fn mention_test_block_rich_text(
+        kernel: &SqliteStoreKernel,
+        document_id: &str,
+        block_id: &str,
+    ) -> Vec<RichTextItem> {
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let parent = load_parent_document(connection, document_id)?;
+                let block =
+                    find_materialized_block(&parent.base_materialization.block_tree, block_id)
+                        .ok_or_else(|| corrupt("Page mention test Block is missing"))?;
+                rich_text_from_materialized_inline(
+                    block
+                        .content
+                        .as_ref()
+                        .ok_or_else(|| corrupt("Page mention test Block has no content"))?,
+                )
+                .map(|value| value.rich_text)
+                .map_err(|_| corrupt("Page mention test Block is not rich text"))
+            })
+            .expect("read Page mention test Block")
     }
 
     fn create_database_request(operation_id: &str) -> ModuleApplyRequest<LibraryIntent> {
@@ -6257,6 +6902,381 @@ mod tests {
         assert!(draft.meta_yaml.contains("title: \"Native **Page**\""));
         assert_eq!(draft.title_etag, created.title_etag);
         assert_eq!(draft.body_etag, created.body_etag);
+    }
+
+    #[test]
+    fn page_mention_creation_is_atomic_idempotent_and_reversible() {
+        const HOST_PAGE: &str = "018f0000-0000-7000-8000-000000000101";
+        const HOST_DOCUMENT: &str = "018f0000-0000-7000-8000-000000000102";
+        const CREATED_PAGE: &str = "018f0000-0000-7000-8000-000000000103";
+        const CREATED_DOCUMENT: &str = "018f0000-0000-7000-8000-000000000104";
+        let (_directory, kernel, module) = seeded_library();
+        let host =
+            create_mention_test_page(&module, "mention:create-host", HOST_PAGE, HOST_DOCUMENT);
+        let expected_content = vec![json!({
+            "type": "text",
+            "text": "+plan",
+            "styles": {},
+        })];
+        let host_head = set_mention_test_content(
+            &kernel,
+            &host,
+            json!([{ "type": "text", "text": "+plan", "styles": {} }]),
+            "mention:type-query",
+        );
+        let request = page_mention_request(PageMentionRequestInput {
+            operation_id: "mention:create",
+            new_page_id: CREATED_PAGE,
+            new_document_id: CREATED_DOCUMENT,
+            host: &host,
+            host_head_seq: host_head,
+            destination: &host,
+            destination_head_seq: host_head,
+            expected_content: expected_content.clone(),
+        });
+        let created = module
+            .apply(&context(), request.clone())
+            .expect("atomically create Page mention");
+        let structural = created
+            .committed
+            .value
+            .structural_edit
+            .clone()
+            .expect("Page mention structural result");
+        let undo_token = structural.history.clone().expect("Page mention undo token");
+        assert_eq!(structural.document_commits.len(), 1);
+        assert_eq!(
+            created.committed.receipt.created_target,
+            Some(LibraryResourceTarget::Page {
+                page_id: CREATED_PAGE.to_owned(),
+            })
+        );
+        assert_eq!(
+            mention_test_block_rich_text(&kernel, HOST_DOCUMENT, &host.block_ids[0]),
+            vec![
+                RichTextItem::PageMention {
+                    target_page_id: CREATED_PAGE.to_owned(),
+                },
+                RichTextItem::Text {
+                    text: " ".to_owned(),
+                    styles: RichTextStyles::default(),
+                },
+            ],
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT block.lifecycle, page.parent_kind, page.parent_id, \
+                       EXISTS(SELECT 1 FROM document_block_index \
+                         WHERE document_id = ?2 AND block_id = ?1), \
+                       EXISTS(SELECT 1 FROM document_page_references \
+                         WHERE document_id = ?2 AND source_block_id = ?3 AND target_page_id = ?1) \
+                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                     WHERE block.id = ?1",
+                    params![CREATED_PAGE, HOST_DOCUMENT, host.block_ids[0]],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    evidence,
+                    (
+                        "active".to_owned(),
+                        "page".to_owned(),
+                        HOST_PAGE.to_owned(),
+                        1,
+                        1,
+                    )
+                );
+                Ok(())
+            })
+            .expect("atomic Page mention evidence");
+
+        let replay = module
+            .apply(&context(), request)
+            .expect("replay Page mention creation");
+        assert!(replay.committed.receipt.mutation.duplicate);
+
+        let undone = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "mention:undo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: undo_token },
+                },
+            )
+            .expect("undo Page mention creation");
+        assert_eq!(
+            mention_test_block_rich_text(&kernel, HOST_DOCUMENT, &host.block_ids[0]),
+            vec![RichTextItem::Text {
+                text: "+plan".to_owned(),
+                styles: RichTextStyles::default(),
+            }],
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT lifecycle FROM blocks WHERE id = ?1",
+                        [CREATED_PAGE],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "deleted"
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM document_page_references WHERE target_page_id = ?1",
+                        [CREATED_PAGE],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                Ok(())
+            })
+            .expect("Page mention undo evidence");
+
+        let redo_token = undone
+            .committed
+            .value
+            .structural_edit
+            .expect("undo structural result")
+            .history
+            .expect("Page mention redo token");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "mention:redo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: redo_token },
+                },
+            )
+            .expect("redo Page mention creation");
+        assert!(matches!(
+            mention_test_block_rich_text(&kernel, HOST_DOCUMENT, &host.block_ids[0]).as_slice(),
+            [RichTextItem::PageMention { target_page_id }, RichTextItem::Text { text, .. }]
+                if target_page_id == CREATED_PAGE && text == " "
+        ));
+        kernel
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT lifecycle FROM blocks WHERE id = ?1",
+                        [CREATED_PAGE],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "active"
+                );
+                crate::infrastructure::store_validation::validate_store_semantics(connection)?;
+                Ok(())
+            })
+            .expect("Page mention redo evidence");
+    }
+
+    #[test]
+    fn page_mention_creation_supports_distinct_destination_and_rolls_back_conflicts() {
+        const HOST_PAGE: &str = "018f0000-0000-7000-8000-000000000111";
+        const HOST_DOCUMENT: &str = "018f0000-0000-7000-8000-000000000112";
+        const DESTINATION_PAGE: &str = "018f0000-0000-7000-8000-000000000113";
+        const DESTINATION_DOCUMENT: &str = "018f0000-0000-7000-8000-000000000114";
+        const CREATED_PAGE: &str = "018f0000-0000-7000-8000-000000000115";
+        const CREATED_DOCUMENT: &str = "018f0000-0000-7000-8000-000000000116";
+        let (_directory, kernel, module) = seeded_library();
+        let host =
+            create_mention_test_page(&module, "mention:distinct-host", HOST_PAGE, HOST_DOCUMENT);
+        let destination = create_mention_test_page(
+            &module,
+            "mention:distinct-destination",
+            DESTINATION_PAGE,
+            DESTINATION_DOCUMENT,
+        );
+        let host_head = set_mention_test_content(
+            &kernel,
+            &host,
+            json!([{ "type": "text", "text": "[[plan", "styles": {} }]),
+            "mention:distinct-query",
+        );
+        let request = page_mention_request(PageMentionRequestInput {
+            operation_id: "mention:distinct-create",
+            new_page_id: CREATED_PAGE,
+            new_document_id: CREATED_DOCUMENT,
+            host: &host,
+            host_head_seq: host_head,
+            destination: &destination,
+            destination_head_seq: destination.document_head_seq,
+            expected_content: vec![json!({ "type": "text", "text": "[[plan", "styles": {} })],
+        });
+        let created = module
+            .apply(&context(), request)
+            .expect("create mention in a distinct destination");
+        let distinct_structural = created
+            .committed
+            .value
+            .structural_edit
+            .as_ref()
+            .expect("distinct structural result");
+        assert_eq!(distinct_structural.document_commits.len(), 2);
+        let distinct_undo_token = distinct_structural
+            .history
+            .clone()
+            .expect("distinct Page mention undo token");
+        kernel
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT parent_id FROM pages WHERE block_id = ?1",
+                        [CREATED_PAGE],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    DESTINATION_PAGE
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM document_block_index \
+                         WHERE document_id = ?1 AND block_id = ?2",
+                        params![DESTINATION_DOCUMENT, CREATED_PAGE],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
+                Ok(())
+            })
+            .expect("distinct Page mention evidence");
+
+        const FAILED_PAGE: &str = "018f0000-0000-7000-8000-000000000117";
+        const FAILED_DOCUMENT: &str = "018f0000-0000-7000-8000-000000000118";
+        let failed = page_mention_request(PageMentionRequestInput {
+            operation_id: "mention:conflict",
+            new_page_id: FAILED_PAGE,
+            new_document_id: FAILED_DOCUMENT,
+            host: &host,
+            host_head_seq: host_head + 1,
+            destination: &destination,
+            destination_head_seq: destination.document_head_seq + 1,
+            expected_content: vec![json!({ "type": "text", "text": "+stale", "styles": {} })],
+        });
+        let error = module
+            .apply(&context(), failed)
+            .expect_err("mismatched expected content must fail");
+        assert_eq!(error.code, CoreErrorCode::HeadConflict);
+        kernel
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM blocks WHERE id = ?1",
+                        [FAILED_PAGE],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM documents WHERE id = ?1",
+                        [FAILED_DOCUMENT],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                Ok(())
+            })
+            .expect("conflicted Page mention leaves no orphan");
+
+        let undone = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "mention:distinct-undo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit {
+                        token: distinct_undo_token,
+                    },
+                },
+            )
+            .expect("undo distinct Page mention creation");
+        assert_eq!(
+            mention_test_block_rich_text(&kernel, HOST_DOCUMENT, &host.block_ids[0]),
+            vec![RichTextItem::Text {
+                text: "[[plan".to_owned(),
+                styles: RichTextStyles::default(),
+            }]
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT lifecycle FROM blocks WHERE id = ?1",
+                        [CREATED_PAGE],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "deleted"
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM document_block_index \
+                         WHERE document_id = ?1 AND block_id = ?2",
+                        params![DESTINATION_DOCUMENT, CREATED_PAGE],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                Ok(())
+            })
+            .expect("distinct Page mention undo evidence");
+
+        let redo_token = undone
+            .committed
+            .value
+            .structural_edit
+            .expect("distinct undo structural result")
+            .history
+            .expect("distinct Page mention redo token");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "mention:distinct-redo".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ReverseStructuralEdit { token: redo_token },
+                },
+            )
+            .expect("redo distinct Page mention creation");
+        assert!(matches!(
+            mention_test_block_rich_text(&kernel, HOST_DOCUMENT, &host.block_ids[0]).as_slice(),
+            [RichTextItem::PageMention { target_page_id }, RichTextItem::Text { text, .. }]
+                if target_page_id == CREATED_PAGE && text == " "
+        ));
+        kernel
+            .readers()
+            .read_default(|connection| {
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT lifecycle FROM blocks WHERE id = ?1",
+                        [CREATED_PAGE],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "active"
+                );
+                crate::infrastructure::store_validation::validate_store_semantics(connection)?;
+                Ok(())
+            })
+            .expect("distinct Page mention redo evidence");
     }
 
     #[test]

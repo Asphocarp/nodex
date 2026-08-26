@@ -26,6 +26,12 @@ import { serializeInlineContent } from "../nfm/serializer-inline";
 import { MAX_BLOCK_ID_LENGTH } from "./contracts";
 import { normalizeBlockChildrenForest } from "./block-children-policy";
 import { nfmBlockAcceptsChildren } from "../nfm/block-children";
+import {
+  canonicalizePortableRichText,
+  type PortableRichText,
+  type PortableRichTextItem,
+  type PortableRichTextStyles,
+} from "./portable-rich-text";
 
 // Portable BlockNote-shaped values keep the codec independent from one schema's
 // generated generic types while retaining strict validation-friendly fields.
@@ -787,6 +793,44 @@ function normalizeTableAlignment(value: unknown): NfmTableAlignment | undefined 
 
 export function blockNoteInlineToNfm(content: unknown): NfmInlineContent[] {
   return bnInlineToNfm(content);
+}
+
+/** Converts the title-safe inline subset used by atomic Page mention mutations. */
+export function blockNoteInlineToPortableRichText(content: unknown): PortableRichText {
+  if (!Array.isArray(content)) {
+    throw new TypeError("Page mention mutation content must be an inline content array");
+  }
+  const supportedTypes = new Set(["text", "link", "threadMention", "pageMention", "dateMention"]);
+  for (const item of content) {
+    const type = isRecord(item) && typeof item.type === "string" ? item.type : null;
+    if (type && supportedTypes.has(type)) continue;
+    throw new TypeError(
+      `Inline ${type ?? "content"} cannot participate in a Page mention mutation`,
+    );
+  }
+  const portableStyles = (styles: NfmStyleSet): PortableRichTextStyles => ({
+    ...(styles.bold ? { bold: true } : {}),
+    ...(styles.italic ? { italic: true } : {}),
+    ...(styles.underline ? { underline: true } : {}),
+    ...(styles.strikethrough ? { strikethrough: true } : {}),
+    ...(styles.code ? { code: true } : {}),
+    ...(styles.color ? { color: styles.color } : {}),
+  });
+  const items = bnInlineToNfm(content).map((item): PortableRichTextItem => {
+    if (item.type === "text" || item.type === "link") {
+      return { ...item, styles: portableStyles(item.styles) };
+    }
+    if (
+      item.type === "linebreak" ||
+      item.type === "threadMention" ||
+      item.type === "pageMention" ||
+      item.type === "dateMention"
+    ) {
+      return item;
+    }
+    throw new TypeError(`Inline ${item.type} cannot participate in a Page mention mutation`);
+  });
+  return canonicalizePortableRichText(items);
 }
 
 function bnInlineToNfm(content: unknown): NfmInlineContent[] {

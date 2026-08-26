@@ -2085,6 +2085,184 @@ describe("Core Library Module Adapter", () => {
     expect(client.applies).toHaveLength(1);
   });
 
+  test("maps atomic Page mention creation and its destination fence", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead({
+      contract_version: 34,
+      store_epoch: identity.storeEpoch,
+      commit_head: 8,
+      authorization: pageAuthorization(8),
+      value: {
+        kind: "page_mention_destination",
+        value: {
+          page_id: "page:destination",
+          document_id: "document:destination",
+          document_generation: 2,
+          document_head_seq: 7,
+        },
+      },
+    });
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: ["page:new", "page:host", "page:destination"],
+        structural_edit: {
+          operation_kind: "create_page_mention",
+          source_root_block_ids: ["block:host"],
+          result_root_block_ids: ["page:new"],
+          copied_block_ids: {},
+          copied_document_ids: {},
+          document_commits: [
+            {
+              document_id: "document:host",
+              generation: 1,
+              base_head_seq: 4,
+              head_seq: 5,
+              update_id: "update:host",
+              update: [],
+              state_vector: [],
+            },
+            {
+              document_id: "document:destination",
+              generation: 2,
+              base_head_seq: 7,
+              head_seq: 8,
+              update_id: "update:destination",
+              update: [],
+              state_vector: [],
+            },
+          ],
+          affected_page_ids: ["page:host", "page:destination", "page:new"],
+          affected_database_ids: [],
+          clipboard: null,
+          history: {
+            recipe_operation_id: "recipe:create-page-mention",
+            recipe_hash: structuralDigest,
+            store_epoch: identity.storeEpoch,
+          },
+          superseded_history_recipe_operation_ids: [],
+          resume: {
+            block_id: "block:host",
+            edge: "end",
+            fallback_before_block_id: null,
+            fallback_after_block_id: null,
+          },
+        },
+      },
+      receipt: {
+        operation_id: "operation:create-page-mention",
+        duplicate: false,
+        operation_kind: "create_page_mention",
+        did_mutate: true,
+        created_target: { kind: "page", page_id: "page:new" },
+        affected_parent_keys: ["page:page:destination"],
+        affected_page_ids: ["page:host", "page:destination", "page:new"],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: {},
+        commit_seq: 9,
+        committed_at: "2026-08-26T09:00:00.000Z",
+      },
+      event_sequence: 9,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(
+      adapter.read({
+        read: { mode: "page_mention_destination", pageId: "page:destination" },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "page_mention_destination",
+          value: {
+            pageId: "page:destination",
+            documentId: "document:destination",
+            documentGeneration: 2,
+            documentHeadSeq: 7,
+          },
+        },
+      },
+    });
+    const pageMentionResult = await adapter.apply({
+      operationId: "operation:create-page-mention",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "create_page_mention",
+        pageId: "page:new",
+        documentId: "document:new",
+        title: "Plan",
+        mentionHost: {
+          pageId: "page:host",
+          documentId: "document:host",
+          expectedDocumentGeneration: 1,
+          expectedDocumentHeadSeq: 4,
+          blockId: "block:host",
+          expectedContent: [{ type: "text", text: "+plan", styles: {} }],
+          replacementContent: [
+            { type: "pageMention", targetPageId: "page:new" },
+            { type: "text", text: " ", styles: {} },
+          ],
+        },
+        destination: {
+          pageId: "page:destination",
+          documentId: "document:destination",
+          expectedDocumentGeneration: 2,
+          expectedDocumentHeadSeq: 7,
+          insertion: { kind: "append" },
+        },
+      },
+    });
+    if (!pageMentionResult.ok) throw new Error(JSON.stringify(pageMentionResult.error));
+    expect(pageMentionResult).toMatchObject({
+      ok: true,
+      value: {
+        createdTarget: { kind: "page", pageId: "page:new" },
+        structuralEdit: {
+          history: { recipeOperationId: "recipe:create-page-mention" },
+          documentCommits: [
+            { documentId: "document:host", generation: 1, headSeq: 5 },
+            { documentId: "document:destination", generation: 2, headSeq: 8 },
+          ],
+        },
+      },
+    });
+    expect(client.reads).toEqual([
+      { kind: "page_mention_destination", page_id: "page:destination" },
+    ]);
+    expect(client.applies).toEqual([
+      {
+        operationId: "operation:create-page-mention",
+        intent: {
+          kind: "create_page_mention",
+          page_id: "page:new",
+          document_id: "document:new",
+          title: "Plan",
+          mention_host: {
+            page_id: "page:host",
+            document_id: "document:host",
+            expected_document_generation: 1,
+            expected_document_head_seq: 4,
+            block_id: "block:host",
+            expected_content: [{ type: "text", text: "+plan", styles: {} }],
+            replacement_content: [
+              { type: "pageMention", targetPageId: "page:new" },
+              { type: "text", text: " ", styles: {} },
+            ],
+          },
+          destination: {
+            page_id: "page:destination",
+            document_id: "document:destination",
+            expected_document_generation: 2,
+            expected_document_head_seq: 7,
+            insertion: { kind: "append", parent_block_id: null },
+          },
+        },
+      },
+    ]);
+  });
+
   test("maps structural edit commands and opaque reverse receipts", async () => {
     const client = new FakeCoreClient();
     client.enqueueApply({

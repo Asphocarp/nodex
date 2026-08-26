@@ -31,6 +31,74 @@ const readResult = (value: unknown) => ({
 });
 
 describe("Library Module transport", () => {
+  test("binds canonical atomic Page mention creation and rejects widened destinations", () => {
+    const existingDocumentId = `document:${uuidV7(5)}`;
+    const request = {
+      operationId: uuidV7(1),
+      storeEpoch: "epoch-1",
+      operation: {
+        kind: "create_page_mention",
+        pageId: uuidV7(2),
+        documentId: uuidV7(3),
+        title: "Plan",
+        mentionHost: {
+          pageId: uuidV7(4),
+          documentId: existingDocumentId,
+          expectedDocumentGeneration: 1,
+          expectedDocumentHeadSeq: 7,
+          blockId: uuidV7(6),
+          expectedContent: [
+            { type: "text", text: "+", styles: {} },
+            { type: "text", text: "plan", styles: {} },
+          ],
+          replacementContent: [
+            { type: "pageMention", targetPageId: uuidV7(2) },
+            { type: "text", text: " ", styles: {} },
+          ],
+        },
+        destination: {
+          pageId: uuidV7(4),
+          documentId: existingDocumentId,
+          expectedDocumentGeneration: 1,
+          expectedDocumentHeadSeq: 7,
+          insertion: { kind: "append" },
+        },
+      },
+    };
+
+    expect(bindLibraryModuleApply(request)).toMatchObject({
+      operation: {
+        kind: "create_page_mention",
+        mentionHost: {
+          expectedContent: [{ type: "text", text: "+plan", styles: {} }],
+        },
+        destination: { insertion: { kind: "append" } },
+      },
+    });
+
+    expect(() =>
+      bindLibraryModuleApply({
+        ...request,
+        operation: {
+          ...request.operation,
+          destination: {
+            ...request.operation.destination,
+            insertion: { kind: "before", anchorBlockId: uuidV7(7) },
+          },
+        },
+      }),
+    ).toThrow("insertion.kind must be append");
+    expect(() =>
+      bindLibraryModuleApply({
+        ...request,
+        operation: {
+          ...request.operation,
+          mentionHost: { ...request.operation.mentionHost, forged: true },
+        },
+      }),
+    ).toThrow("mentionHost.forged is not supported");
+  });
+
   test("binds bounded navigation requests without caller Library identity", () => {
     expect(
       bindLibraryModuleRead({
@@ -53,6 +121,44 @@ describe("Library Module transport", () => {
         read: { mode: "metadata" },
       }),
     ).toThrow("libraryId is not supported");
+  });
+
+  test("binds and parses the narrow Page mention destination head", () => {
+    const pageId = uuidV7(8);
+    const documentId = `document:${uuidV7(9)}`;
+    expect(
+      bindLibraryModuleRead({
+        read: { mode: "page_mention_destination", pageId },
+      }),
+    ).toEqual({
+      read: { mode: "page_mention_destination", pageId },
+    });
+    expect(
+      parseLibraryModuleReadResult(
+        readResult({
+          kind: "page_mention_destination",
+          value: {
+            pageId,
+            documentId,
+            documentGeneration: 2,
+            documentHeadSeq: 9,
+          },
+        }),
+      ),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "page_mention_destination",
+          value: {
+            pageId,
+            documentId,
+            documentGeneration: 2,
+            documentHeadSeq: 9,
+          },
+        },
+      },
+    });
   });
 
   test("binds contextual Page reference reads and preserves Core match provenance", () => {

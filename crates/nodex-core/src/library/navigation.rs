@@ -7,9 +7,10 @@ use nodex_core_contracts::library::{
     LibraryMoveDestinationScope, LibraryNavigationNode, LibraryNavigationParent,
     LibraryPageAccessContext, LibraryPageBacklink, LibraryPageDataSourceContext, LibraryPageDetail,
     LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty, LibraryPageKeyTarget,
-    LibraryPageLocation, LibraryPageMembership, LibraryPageOwnershipPath,
-    LibraryPageOwnershipPathAncestor, LibraryPageReferencePresentation, LibraryPageTarget,
-    LibraryRead, LibraryReadValue, LibraryResourceTarget, LibraryRouteTarget, LibraryViewLocation,
+    LibraryPageLocation, LibraryPageMembership, LibraryPageMentionDestinationHead,
+    LibraryPageOwnershipPath, LibraryPageOwnershipPathAncestor, LibraryPageReferencePresentation,
+    LibraryPageTarget, LibraryRead, LibraryReadValue, LibraryResourceTarget, LibraryRouteTarget,
+    LibraryViewLocation,
 };
 use nodex_core_contracts::{AdapterKind, BoundModuleContext};
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -24,6 +25,35 @@ use super::{cursor, page_search};
 
 const DEFAULT_LIMIT: usize = 20;
 const MAX_LIMIT: usize = 100;
+
+fn page_mention_destination(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<LibraryReadValue, StoreError> {
+    let value = connection
+        .query_row(
+            "SELECT page.document_id, document.generation, document.head_seq \
+             FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             JOIN documents document \
+               ON document.id = page.document_id AND document.library_id = page.library_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND block.lifecycle = 'active' AND document.readiness = 'ready'",
+            params![page_id, library_id],
+            |row| {
+                Ok(LibraryPageMentionDestinationHead {
+                    page_id: page_id.to_owned(),
+                    document_id: row.get(0)?,
+                    document_generation: row.get(1)?,
+                    document_head_seq: row.get(2)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Page mention destination is unavailable"))?;
+    Ok(LibraryReadValue::PageMentionDestination { value })
+}
 
 pub(super) fn read(
     connection: &Connection,
@@ -140,6 +170,20 @@ pub(super) fn read(
                 requested_cursor,
                 limit,
             )
+        }
+        LibraryRead::PageMentionDestination { page_id } => {
+            let Some(project_id) = requesting_project_id else {
+                if !trusted_root_adapter(requesting_adapter) {
+                    return Err(unauthorized(
+                        "Page mention destinations require a Project or trusted root Adapter",
+                    ));
+                }
+                return page_mention_destination(connection, library_id, &page_id);
+            };
+            super::history::require_page_write_access(
+                connection, library_id, project_id, &page_id,
+            )?;
+            page_mention_destination(connection, library_id, &page_id)
         }
         LibraryRead::PageDetail { page_id } => {
             require_bound_page_read_access(

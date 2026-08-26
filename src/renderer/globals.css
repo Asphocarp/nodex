@@ -183,6 +183,20 @@
 .nfm-editor {
   min-height: 120px;
   position: relative;
+  --nfm-temporary-input-tint: color-mix(in srgb, var(--color-token-foreground) 3%, transparent);
+}
+
+.nfm-editor .bn-suggestion-temporary-input {
+  border-radius: 0.5px;
+  background: var(--nfm-temporary-input-tint);
+  outline: 5.5px solid var(--nfm-temporary-input-tint);
+}
+
+.nfm-editor .bn-suggestion-temporary-input::after {
+  content: attr(data-suggestion-completion);
+  color: var(--color-token-description-foreground);
+  pointer-events: none;
+  white-space: pre;
 }
 
 [data-nodex-editor-selection-surface] {

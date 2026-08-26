@@ -1479,6 +1479,17 @@ function installStoryApi(readSessionsByProject: () => Record<string, ProjectSess
                 sourcePageCount: 0,
               };
             }
+            if (read.mode === "page_mention_destination") {
+              return {
+                kind: "page_mention_destination",
+                value: {
+                  pageId: read.pageId,
+                  documentId: `document:${read.pageId}`,
+                  documentGeneration: 1,
+                  documentHeadSeq: 0,
+                },
+              };
+            }
             return {
               kind: "children",
               parent: read.parent,

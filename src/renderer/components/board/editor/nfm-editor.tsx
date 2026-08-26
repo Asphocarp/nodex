@@ -39,7 +39,7 @@ import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { toast } from "@/components/ui/toast";
 import { createUuidV7 } from "../../../../shared/uuid-v7";
-import { applyLibraryModule } from "@/lib/api";
+import { applyLibraryModule, readLibraryModule } from "@/lib/api";
 import { resolveNfmLinkAction } from "@/lib/nfm-link-actions";
 import {
   projectIdFromContentAccessContext,
@@ -179,6 +179,7 @@ import type {
 import {
   registerBlockDocumentStructuralMutationParticipant,
   resolveBlockDocumentStructuralMutationParticipant,
+  resolveBlockDocumentStructuralMutationParticipantByDocumentId,
 } from "@/lib/block-document-mutation-registry";
 import {
   createCanvasInHostPage,
@@ -1433,6 +1434,7 @@ function NfmEditorInstance({
   const structuralMutationParticipant = useMemo(() => {
     if (!surfaceMutationBarrier) return undefined;
     return {
+      documentId: source.documentId,
       prepareAndFence: async () => {
         const container = containerRef.current;
         if (!container) {
@@ -1445,7 +1447,7 @@ function NfmEditorInstance({
         );
       },
     };
-  }, [editor, surfaceMutationBarrier]);
+  }, [editor, source.documentId, surfaceMutationBarrier]);
 
   useEffect(() => {
     if (!structuralMutationParticipant) return;
@@ -2308,6 +2310,123 @@ function NfmEditorInstance({
     ],
   );
 
+  const createPageMention = useCallback(
+    async ({
+      pageId,
+      title,
+      blockId,
+      expectedContent,
+      replacementContent,
+      destinationPageId,
+    }: Parameters<NonNullable<BlockReferenceHostRuntime["createPageMention"]>>[0]) => {
+      if (!sourcePageContext) {
+        throw new Error("A Page mention can only create a Page inside another Page.");
+      }
+      if (!structuralMutationParticipant) {
+        throw new Error("The Page Document is not ready to create a Page mention.");
+      }
+      const hostHead = await structuralMutationParticipant.prepareAndFence();
+      if (
+        hostHead.storeEpoch !== source.storeEpoch ||
+        hostHead.documentId !== source.documentId ||
+        hostHead.generation !== source.generation
+      ) {
+        throw new Error("The host Page changed; reopen it before creating the Page mention.");
+      }
+
+      const resolvedDestinationPageId = destinationPageId ?? sourcePageContext.pageId;
+      let destinationHead = hostHead;
+      if (resolvedDestinationPageId !== sourcePageContext.pageId) {
+        const destinationRead = await readLibraryModule(contentAccessContext, {
+          read: {
+            mode: "page_mention_destination",
+            pageId: resolvedDestinationPageId,
+          },
+        });
+        if (!destinationRead.ok) throw new Error(destinationRead.error.message);
+        if (
+          destinationRead.value.storeEpoch !== source.storeEpoch ||
+          destinationRead.value.value.kind !== "page_mention_destination"
+        ) {
+          throw new Error("The destination Page is no longer available.");
+        }
+        const destinationNode = destinationRead.value.value.value;
+        if (destinationNode.pageId !== resolvedDestinationPageId) {
+          throw new Error("The destination Page is no longer available.");
+        }
+        destinationHead = {
+          documentId: destinationNode.documentId,
+          generation: destinationNode.documentGeneration,
+          expectedHeadSeq: destinationNode.documentHeadSeq,
+          storeEpoch: destinationRead.value.storeEpoch,
+        };
+        const mountedDestination = resolveBlockDocumentStructuralMutationParticipantByDocumentId(
+          destinationHead.documentId,
+        );
+        if (mountedDestination) {
+          const mountedHead = await mountedDestination.prepareAndFence();
+          if (
+            mountedHead.storeEpoch !== source.storeEpoch ||
+            mountedHead.documentId !== destinationHead.documentId ||
+            mountedHead.generation !== destinationHead.generation
+          ) {
+            throw new Error("The destination Page changed; reopen it before creating the Page.");
+          }
+          destinationHead = mountedHead;
+        }
+      }
+
+      const result = await applyLibraryModule(contentAccessContext, {
+        operationId: createUuidV7(),
+        storeEpoch: source.storeEpoch,
+        operation: {
+          kind: "create_page_mention",
+          pageId,
+          documentId: createUuidV7(),
+          title: title.trim() || "Untitled",
+          mentionHost: {
+            pageId: sourcePageContext.pageId,
+            documentId: hostHead.documentId,
+            expectedDocumentGeneration: hostHead.generation,
+            expectedDocumentHeadSeq: hostHead.expectedHeadSeq,
+            blockId,
+            expectedContent,
+            replacementContent,
+          },
+          destination: {
+            pageId: resolvedDestinationPageId,
+            documentId: destinationHead.documentId,
+            expectedDocumentGeneration: destinationHead.generation,
+            expectedDocumentHeadSeq: destinationHead.expectedHeadSeq,
+            insertion: { kind: "append" },
+          },
+        },
+      });
+      if (!result.ok) throw new Error(result.error.message);
+      if (
+        result.value.createdTarget?.kind !== "page" ||
+        result.value.createdTarget.pageId !== pageId ||
+        !result.value.structuralEdit?.history
+      ) {
+        throw new Error("Core did not atomically create the Page mention.");
+      }
+      structuralEditingController.current?.adoptStructuralResult(
+        result.value.structuralEdit,
+        blockId,
+      );
+      return { pageId };
+    },
+    [
+      contentAccessContext,
+      source.documentId,
+      source.generation,
+      source.storeEpoch,
+      sourcePageContext,
+      structuralEditingController,
+      structuralMutationParticipant,
+    ],
+  );
+
   const handleEditorClickCapture = useCallback(
     (event: ReactMouseEvent) => {
       const target = event.target;
@@ -2463,7 +2582,9 @@ function NfmEditorInstance({
             renameCanvas,
           }
         : {}),
-      ...(sourcePageContext && surfaceMutationBarrier ? { createSubpageAtEmptyParagraph } : {}),
+      ...(sourcePageContext && surfaceMutationBarrier
+        ? { createPageMention, createSubpageAtEmptyParagraph }
+        : {}),
     };
   }, [
     contentAccessContext,
@@ -2480,6 +2601,7 @@ function NfmEditorInstance({
     source.clientSessionId,
     surfaceMutationBarrier,
     createCanvasAtEmptyParagraph,
+    createPageMention,
     createSubpageAtEmptyParagraph,
     deleteCanvas,
     duplicateCanvasAfter,

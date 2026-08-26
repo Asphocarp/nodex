@@ -2,6 +2,7 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   registerBlockDocumentStructuralMutationParticipant,
   resolveBlockDocumentStructuralMutationParticipant,
+  resolveBlockDocumentStructuralMutationParticipantByDocumentId,
 } from "./block-document-mutation-registry";
 
 describe("Block Document structural mutation participant registry", () => {
@@ -19,5 +20,23 @@ describe("Block Document structural mutation participant registry", () => {
     expect(resolveBlockDocumentStructuralMutationParticipant("surface-1")).toBe(second);
     unregisterSecond();
     expect(resolveBlockDocumentStructuralMutationParticipant("surface-1")).toBeNull();
+  });
+
+  test("finds the latest mounted participant by durable Document identity", () => {
+    const first = { documentId: "document-1", prepareAndFence: async () => undefined } as never;
+    const second = { documentId: "document-1", prepareAndFence: async () => undefined } as never;
+    const unregisterFirst = registerBlockDocumentStructuralMutationParticipant("surface-1", first);
+    const unregisterSecond = registerBlockDocumentStructuralMutationParticipant(
+      "surface-2",
+      second,
+    );
+
+    expect(resolveBlockDocumentStructuralMutationParticipantByDocumentId("document-1")).toBe(
+      second,
+    );
+    unregisterSecond();
+    expect(resolveBlockDocumentStructuralMutationParticipantByDocumentId("document-1")).toBe(first);
+    unregisterFirst();
+    expect(resolveBlockDocumentStructuralMutationParticipantByDocumentId("document-1")).toBeNull();
   });
 });

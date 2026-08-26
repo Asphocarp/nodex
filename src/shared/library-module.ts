@@ -8,6 +8,7 @@ import type { LocalCommitCommandSuccess } from "./local-commit-delivery";
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 import type { WorkflowStatus } from "./workflow-status";
 import type { PageSearchMatch, PageSearchTextPart } from "./types";
+import type { PortableRichText } from "./block-documents/portable-rich-text";
 
 export const DEFAULT_LIBRARY_READ_LIMIT = 20 as const;
 export const MAX_LIBRARY_READ_LIMIT = 100 as const;
@@ -179,6 +180,7 @@ export type LibraryRead =
       readonly cursor?: string;
       readonly limit?: number;
     }
+  | { readonly mode: "page_mention_destination"; readonly pageId: string }
   | {
       readonly mode: "page_reference_candidates";
       readonly query: string;
@@ -215,6 +217,13 @@ export interface LibraryCanvasSummary {
   readonly documentGeneration: number;
   readonly documentHeadSeq: number;
   readonly updatedAt: string;
+}
+
+export interface LibraryPageMentionDestinationHead {
+  readonly pageId: string;
+  readonly documentId: string;
+  readonly documentGeneration: number;
+  readonly documentHeadSeq: number;
 }
 
 export type LibraryCanvasTarget =
@@ -270,6 +279,10 @@ export type LibraryReadValue =
       readonly hasMore: boolean;
       readonly total: number;
       readonly rootIsCurrent: boolean;
+    }
+  | {
+      readonly kind: "page_mention_destination";
+      readonly value: LibraryPageMentionDestinationHead;
     }
   | {
       readonly kind: "page_reference_candidates";
@@ -347,6 +360,29 @@ export interface CreateLibraryPageOperation {
   readonly documentId: string;
   readonly title: string;
   readonly parent: LibraryWriteParent;
+}
+
+export interface CreateLibraryPageMentionOperation {
+  readonly kind: "create_page_mention";
+  readonly pageId: string;
+  readonly documentId: string;
+  readonly title: string;
+  readonly mentionHost: {
+    readonly pageId: string;
+    readonly documentId: string;
+    readonly expectedDocumentGeneration: number;
+    readonly expectedDocumentHeadSeq: number;
+    readonly blockId: string;
+    readonly expectedContent: PortableRichText;
+    readonly replacementContent: PortableRichText;
+  };
+  readonly destination: {
+    readonly pageId: string;
+    readonly documentId: string;
+    readonly expectedDocumentGeneration: number;
+    readonly expectedDocumentHeadSeq: number;
+    readonly insertion: Extract<LibraryPageInsertion, { readonly kind: "append" }>;
+  };
 }
 
 export interface CreateLibraryDatabaseOperation {
@@ -630,6 +666,7 @@ export interface ReverseLibraryStructuralEditOperation {
 
 export type LibraryApplyOperation =
   | CreateLibraryPageOperation
+  | CreateLibraryPageMentionOperation
   | CreateLibraryDatabaseOperation
   | CreateLibraryCanvasOperation
   | RenameLibraryCanvasOperation
