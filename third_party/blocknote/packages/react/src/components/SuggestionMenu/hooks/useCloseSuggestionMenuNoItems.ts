@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { SuggestionMenuCloseReason } from "@blocknote/core/extensions";
 
 // Hook which closes the suggestion after a certain number of consecutive
 // invalid queries are made. An invalid query is one which returns no items, and
@@ -6,16 +7,23 @@ import { useEffect, useRef } from "react";
 export function useCloseSuggestionMenuNoItems<Item>(
   items: Item[],
   usedQuery: string | undefined,
-  closeMenu: () => void,
+  closeMenu: (reason?: SuggestionMenuCloseReason) => void,
   invalidQueries = 3,
   itemsFresh: () => boolean = () => true,
   autoCloseWhenNoItems = true,
   settled = true,
+  isComposing = false,
 ) {
   const lastUsefulQueryLength = useRef(0);
 
   useEffect(() => {
-    if (!autoCloseWhenNoItems || !settled || usedQuery === undefined || !itemsFresh()) {
+    if (
+      isComposing ||
+      !autoCloseWhenNoItems ||
+      !settled ||
+      usedQuery === undefined ||
+      !itemsFresh()
+    ) {
       return;
     }
 
@@ -25,7 +33,7 @@ export function useCloseSuggestionMenuNoItems<Item>(
       usedQuery.length - lastUsefulQueryLength.current >
       invalidQueries
     ) {
-      closeMenu();
+      closeMenu("invalid-query");
     }
   }, [
     autoCloseWhenNoItems,
@@ -33,6 +41,7 @@ export function useCloseSuggestionMenuNoItems<Item>(
     invalidQueries,
     items.length,
     itemsFresh,
+    isComposing,
     settled,
     usedQuery,
   ]);

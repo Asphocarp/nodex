@@ -2717,6 +2717,7 @@ function NfmEditorInstance({
                     onChange={handleChange}
                     theme={themeMode}
                     formattingToolbar={false}
+                    emojiPicker={false}
                     linkToolbar={false}
                     slashMenu={false}
                     sideMenu={false}

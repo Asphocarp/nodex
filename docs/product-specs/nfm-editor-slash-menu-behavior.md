@@ -1,7 +1,7 @@
 # NFM Editor Slash Menu Behavior
 
 Status: Active
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 ## Purpose
 
@@ -9,6 +9,9 @@ The NFM slash menu is the editor's insertion catalog. It exposes only commands
 that Nodex has deliberately named, illustrated, ordered, and connected to a
 current NFM capability. The menu must not grow implicitly when an editor
 dependency adds another default command.
+
+Typed trigger boundaries and suggestion-session dismissal are owned by
+[NFM Editor Suggestion Menu Behavior](nfm-editor-suggestion-menu-behavior.md).
 
 ## Catalog
 

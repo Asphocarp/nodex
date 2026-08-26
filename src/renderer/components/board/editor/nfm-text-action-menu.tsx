@@ -13,7 +13,6 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
-  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -1306,6 +1305,7 @@ function TextActionAiPane({
   onActionPopoverOpenChange?: (open: boolean) => void;
 }) {
   const [activePopover, setActivePopover] = useState<TextActionActionPopoverKey | null>(null);
+  const activePopoverRef = useRef<TextActionActionPopoverKey | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const [hasContentBelow, setHasContentBelow] = useState(false);
 
@@ -1331,10 +1331,6 @@ function TextActionAiPane({
     return () => resizeObserver.disconnect();
   }, [nodexRows, showReferenceMocks, syncContentBelow]);
 
-  useEffect(() => {
-    onActionPopoverOpenChange?.(activePopover !== null);
-  }, [activePopover, onActionPopoverOpenChange]);
-
   useEffect(
     () => () => {
       onActionPopoverOpenChange?.(false);
@@ -1343,11 +1339,13 @@ function TextActionAiPane({
   );
 
   const setActionPopoverOpen = (popover: TextActionActionPopoverKey, nextOpen: boolean) => {
-    setActivePopover((currentPopover) => {
-      if (nextOpen) return popover;
-      if (currentPopover !== popover) return currentPopover;
-      return null;
-    });
+    const currentPopover = activePopoverRef.current;
+    const nextPopover = nextOpen ? popover : currentPopover === popover ? null : currentPopover;
+    if (nextPopover === currentPopover) return;
+
+    activePopoverRef.current = nextPopover;
+    onActionPopoverOpenChange?.(nextPopover !== null);
+    setActivePopover(nextPopover);
   };
 
   return (
@@ -1492,41 +1490,31 @@ export function NfmTextActionMenuSurface({
   renderSendToThreadMenu,
 }: NfmTextActionMenuSurfaceProps) {
   const showAiPane = showReferenceMocks || nodexRows.length > 0;
-  const [toolbarFocusWithin, setToolbarFocusWithin] = useState(false);
-  const [blockActionPopoverOpen, setBlockActionPopoverOpen] = useState(false);
-  const actionPopoverCloseFrameRef = useRef<number | null>(null);
-  const selectionPresentation: NfmRetainedSelectionPresentation = blockActionPopoverOpen
-    ? "blocks"
-    : toolbarFocusWithin
-      ? "inline"
-      : "none";
-  const reportSelectionPresentation = useEffectEvent(
+  const toolbarFocusWithinRef = useRef(false);
+  const blockActionPopoverOpenRef = useRef(false);
+  const surfaceMountedRef = useRef(true);
+  const selectionPresentationChangeRef = useRef(onSelectionPresentationChange);
+  useLayoutEffect(() => {
+    selectionPresentationChangeRef.current = onSelectionPresentationChange;
+  }, [onSelectionPresentationChange]);
+  const reportSelectionPresentation = useCallback(
     (presentation: NfmRetainedSelectionPresentation) => {
-      onSelectionPresentationChange?.(presentation);
-    },
-  );
-
-  useEffect(
-    () => () => {
-      if (actionPopoverCloseFrameRef.current === null) return;
-      cancelAnimationFrame(actionPopoverCloseFrameRef.current);
+      selectionPresentationChangeRef.current?.(presentation);
     },
     [],
   );
 
   useLayoutEffect(() => {
-    reportSelectionPresentation(selectionPresentation);
-  }, [selectionPresentation]);
-
-  useLayoutEffect(
-    () => () => {
+    surfaceMountedRef.current = true;
+    return () => {
+      surfaceMountedRef.current = false;
       reportSelectionPresentation("none");
-    },
-    [],
-  );
+    };
+  }, [reportSelectionPresentation]);
 
   const handleToolbarFocusCapture = () => {
-    setToolbarFocusWithin(true);
+    toolbarFocusWithinRef.current = true;
+    if (!blockActionPopoverOpenRef.current) reportSelectionPresentation("inline");
   };
 
   const handleToolbarBlurCapture = (event: FocusEvent<HTMLDivElement>) => {
@@ -1535,25 +1523,20 @@ export function NfmTextActionMenuSurface({
       return;
     }
 
-    setToolbarFocusWithin(false);
+    toolbarFocusWithinRef.current = false;
+    if (!blockActionPopoverOpenRef.current) reportSelectionPresentation("none");
   };
 
-  const handleActionPopoverOpenChange = useCallback((open: boolean) => {
-    if (actionPopoverCloseFrameRef.current !== null) {
-      cancelAnimationFrame(actionPopoverCloseFrameRef.current);
-      actionPopoverCloseFrameRef.current = null;
-    }
-
-    if (open) {
-      setBlockActionPopoverOpen(true);
-      return;
-    }
-
-    actionPopoverCloseFrameRef.current = requestAnimationFrame(() => {
-      actionPopoverCloseFrameRef.current = null;
-      setBlockActionPopoverOpen(false);
-    });
-  }, []);
+  const handleActionPopoverOpenChange = useCallback(
+    (open: boolean) => {
+      if (!surfaceMountedRef.current) return;
+      blockActionPopoverOpenRef.current = open;
+      reportSelectionPresentation(
+        open ? "blocks" : toolbarFocusWithinRef.current ? "inline" : "none",
+      );
+    },
+    [reportSelectionPresentation],
+  );
 
   return (
     <div className="pointer-events-none p-4" contentEditable={false}>

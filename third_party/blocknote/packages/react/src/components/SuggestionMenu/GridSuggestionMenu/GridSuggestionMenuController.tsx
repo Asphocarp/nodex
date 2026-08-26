@@ -2,9 +2,10 @@ import { BlockSchema, InlineContentSchema, StyleSchema } from "@blocknote/core";
 import {
   SuggestionMenu,
   SuggestionMenuOptions,
+  type SuggestionMenuCloseReason,
 } from "@blocknote/core/extensions";
 import { autoPlacement, offset, shift, size } from "@floating-ui/react";
-import { FC, useEffect, useMemo } from "react";
+import { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { useBlockNoteEditor } from "../../../hooks/useBlockNoteEditor.js";
 import { useEditorDOMElement } from "../../../hooks/useEditorDomElement.js";
@@ -104,10 +105,21 @@ export function GridSuggestionMenuController<
   }, [editor, getItems])!;
 
   const suggestionMenu = useExtension(SuggestionMenu);
+  const shouldOpenRef = useRef(shouldOpen);
+  useLayoutEffect(() => {
+    shouldOpenRef.current = shouldOpen;
+  }, [shouldOpen]);
+  const shouldOpenLatest = useCallback<NonNullable<SuggestionMenuOptions["shouldOpen"]>>(
+    (transaction) => shouldOpenRef.current?.(transaction) ?? true,
+    [],
+  );
 
   useEffect(() => {
-    suggestionMenu.addSuggestionMenu({ triggerCharacter, shouldOpen });
-  }, [suggestionMenu, triggerCharacter, shouldOpen]);
+    return suggestionMenu.addSuggestionMenu({
+      triggerCharacter,
+      shouldOpen: shouldOpenLatest,
+    });
+  }, [suggestionMenu, triggerCharacter, shouldOpenLatest]);
 
   const state = useExtensionState(SuggestionMenu);
   const reference = useExtensionState(SuggestionMenu, {
@@ -128,9 +140,11 @@ export function GridSuggestionMenuController<
       ...props.floatingUIOptions,
       useFloatingOptions: {
         open: state?.show && state?.triggerCharacter === triggerCharacter,
-        onOpenChange: (open) => {
+        onOpenChange: (open, _event, reason) => {
           if (!open) {
-            suggestionMenu.closeMenu();
+            const closeReason: SuggestionMenuCloseReason =
+              reason === "escape-key" ? "escape" : "outside";
+            suggestionMenu.closeMenu(closeReason);
           }
         },
         placement: "bottom-start",
@@ -155,6 +169,10 @@ export function GridSuggestionMenuController<
       focusManagerProps: {
         disabled: true,
         ...props.floatingUIOptions?.focusManagerProps,
+      },
+      useDismissProps: {
+        ...props.floatingUIOptions?.useDismissProps,
+        escapeKey: false,
       },
       elementProps: {
         // Prevents editor blurring when clicking the scroll bar.
@@ -202,6 +220,7 @@ export function GridSuggestionMenuController<
             GridSuggestionMenu<ItemType<GetItemsType>>
           }
           onItemClick={onItemClickOrDefault}
+          isComposing={state.isComposing}
         />
       )}
     </GenericPopover>

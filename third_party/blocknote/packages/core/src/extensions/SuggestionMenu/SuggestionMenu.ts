@@ -12,22 +12,46 @@ import { UiElementPosition } from "../../extensions-shared/UiElementPosition.js"
 
 const findBlock = findParentNode((node) => node.type.name === "blockContainer");
 
+function normalizeDOMRect(rect: DOMRect): DOMRect {
+  return typeof rect.toJSON === "function" ? (rect.toJSON() as DOMRect) : rect;
+}
+
 export type SuggestionMenuState = UiElementPosition & {
   query: string;
   ignoreQueryLength?: boolean;
+  isComposing?: boolean;
 };
 
 export type SuggestionMenuRuntimeState = {
   triggerCharacter: string;
   query: string;
   show: boolean;
+  isComposing: boolean;
 };
+
+export type SuggestionMenuCloseReason =
+  | "escape"
+  | "outside"
+  | "accepted"
+  | "backspace-before-trigger"
+  | "selection-expanded"
+  | "cross-block"
+  | "blur"
+  | "pointer"
+  | "code-block"
+  | "invalid-query"
+  | "controller-unmounted"
+  | "programmatic";
 
 class SuggestionMenuView {
   public state?: SuggestionMenuState;
+  public lastCloseReason?: SuggestionMenuCloseReason;
   public emitUpdate: (triggerCharacter: string) => void;
   private rootEl?: Document | ShadowRoot;
-  pluginState: SuggestionPluginState;
+  private compositionEl?: HTMLElement;
+  private compositionEndTimer?: ReturnType<typeof setTimeout>;
+  private isComposing = false;
+  pluginState?: ActiveSuggestionPluginState;
 
   constructor(
     private readonly editor: BlockNoteEditor<any, any, any>,
@@ -35,26 +59,43 @@ class SuggestionMenuView {
     view: EditorView,
     private readonly clearState: () => void,
   ) {
-    this.pluginState = undefined;
-
     this.emitUpdate = (menuName: string) => {
-      if (!this.state) {
-        throw new Error("Attempting to update uninitialized suggestions menu");
-      }
+      if (!this.state) return;
 
       emitUpdate(menuName, {
         ...this.state,
         ignoreQueryLength: this.pluginState?.ignoreQueryLength,
+        isComposing: this.isComposing,
       });
     };
 
     this.rootEl = view.root;
+    this.compositionEl = view.dom;
 
     // Setting capture=true ensures that any parent container of the editor that
     // gets scrolled will trigger the scroll event. Scroll events do not bubble
     // and so won't propagate to the document by default.
     this.rootEl?.addEventListener("scroll", this.handleScroll, true);
+    this.compositionEl.addEventListener("compositionstart", this.handleCompositionStart, true);
+    this.compositionEl.addEventListener("compositionend", this.handleCompositionEnd, true);
   }
+
+  handleCompositionStart = () => {
+    if (this.compositionEndTimer) clearTimeout(this.compositionEndTimer);
+    this.isComposing = true;
+    if (this.state) this.state.isComposing = true;
+    if (this.state?.show) this.emitUpdate(this.pluginState!.triggerCharacter!);
+  };
+
+  handleCompositionEnd = () => {
+    if (this.compositionEndTimer) clearTimeout(this.compositionEndTimer);
+    this.compositionEndTimer = setTimeout(() => {
+      this.compositionEndTimer = undefined;
+      this.isComposing = false;
+      if (this.state) this.state.isComposing = false;
+      if (this.state?.show) this.emitUpdate(this.pluginState!.triggerCharacter!);
+    }, 0);
+  };
 
   handleScroll = () => {
     if (this.state?.show) {
@@ -64,33 +105,31 @@ class SuggestionMenuView {
       if (!decorationNode) {
         return;
       }
-      this.state.referencePos = decorationNode
-        .getBoundingClientRect()
-        .toJSON() as DOMRect;
+      this.state.referencePos = normalizeDOMRect(decorationNode.getBoundingClientRect());
       this.emitUpdate(this.pluginState!.triggerCharacter!);
     }
   };
 
   update(view: EditorView, prevState: EditorState) {
-    const prev: SuggestionPluginState =
-      suggestionMenuPluginKey.getState(prevState);
-    const next: SuggestionPluginState = suggestionMenuPluginKey.getState(
-      view.state,
-    );
+    const prev = suggestionMenuPluginKey.getState(prevState)!;
+    const next = suggestionMenuPluginKey.getState(view.state)!;
+    const prevSession = getActiveSuggestionSession(prev);
+    const nextSession = getActiveSuggestionSession(next);
 
     // See how the state changed
-    const started = prev === undefined && next !== undefined;
-    const stopped = prev !== undefined && next === undefined;
-    const changed = prev !== undefined && next !== undefined;
+    const started = prevSession === undefined && nextSession !== undefined;
+    const stopped = prevSession !== undefined && nextSession === undefined;
+    const changed = prevSession !== undefined && nextSession !== undefined;
 
     // Cancel when suggestion isn't active
     if (!started && !changed && !stopped) {
       return;
     }
 
-    this.pluginState = stopped ? prev : next;
+    this.pluginState = stopped ? prevSession : nextSession;
 
     if (stopped || !this.editor.isEditable) {
+      if (stopped) this.lastCloseReason = next.lastCloseReason;
       if (this.state) {
         this.state.show = false;
       }
@@ -106,10 +145,9 @@ class SuggestionMenuView {
     if (this.editor.isEditable && decorationNode) {
       this.state = {
         show: true,
-        referencePos: decorationNode
-          .getBoundingClientRect()
-          .toJSON() as DOMRect,
+        referencePos: normalizeDOMRect(decorationNode.getBoundingClientRect()),
         query: this.pluginState!.query,
+        isComposing: this.isComposing,
       };
 
       this.emitUpdate(this.pluginState!.triggerCharacter!);
@@ -117,20 +155,39 @@ class SuggestionMenuView {
   }
 
   destroy() {
+    if (this.compositionEndTimer) clearTimeout(this.compositionEndTimer);
     this.rootEl?.removeEventListener("scroll", this.handleScroll, true);
+    this.compositionEl?.removeEventListener(
+      "compositionstart",
+      this.handleCompositionStart,
+      true,
+    );
+    this.compositionEl?.removeEventListener(
+      "compositionend",
+      this.handleCompositionEnd,
+      true,
+    );
     this.state = undefined;
     this.pluginState = undefined;
     this.clearState();
   }
 
-  closeMenu = () => {
-    this.editor.transact((tr) => tr.setMeta(suggestionMenuPluginKey, null));
+  closeMenu = (reason: SuggestionMenuCloseReason = "programmatic") => {
+    if (!getActiveSuggestionSession(suggestionMenuPluginKey.getState(this.editor.prosemirrorState))) {
+      return false;
+    }
+
+    this.editor.transact((tr) =>
+      tr.setMeta(suggestionMenuPluginKey, { type: "close", reason }),
+    );
+    return true;
   };
 
   clearQuery = () => {
-    if (this.pluginState === undefined) {
-      return;
-    }
+    const session = getActiveSuggestionSession(
+      suggestionMenuPluginKey.getState(this.editor.prosemirrorState),
+    );
+    if (!session) return;
 
     this.editor._tiptapEditor
       .chain()
@@ -138,9 +195,9 @@ class SuggestionMenuView {
       // TODO need to make an API for this
       .deleteRange({
         from:
-          this.pluginState.queryStartPos() -
-          (this.pluginState.deleteTriggerCharacter
-            ? this.pluginState.triggerCharacter!.length
+          session.queryStartPos() -
+          (session.deleteTriggerCharacter
+            ? session.triggerCharacter.length
             : 0),
         to: this.editor.transact((tr) => tr.selection.from),
       })
@@ -148,16 +205,40 @@ class SuggestionMenuView {
   };
 }
 
+type ActiveSuggestionPluginState = {
+  readonly status: "active";
+  triggerCharacter: string;
+  deleteTriggerCharacter: boolean;
+  queryStartPos: () => number;
+  query: string;
+  decorationId: string;
+  ignoreQueryLength?: boolean;
+};
+
 type SuggestionPluginState =
+  | ActiveSuggestionPluginState
   | {
-      triggerCharacter: string;
-      deleteTriggerCharacter: boolean;
-      queryStartPos: () => number;
-      query: string;
-      decorationId: string;
-      ignoreQueryLength?: boolean;
+      readonly status: "inactive";
+      readonly lastCloseReason?: SuggestionMenuCloseReason;
+    };
+
+type SuggestionMenuTransactionMeta =
+  | {
+      readonly type: "open";
+      readonly triggerCharacter: string;
+      readonly deleteTriggerCharacter?: boolean;
+      readonly ignoreQueryLength?: boolean;
     }
-  | undefined;
+  | {
+      readonly type: "close";
+      readonly reason: SuggestionMenuCloseReason;
+    };
+
+function getActiveSuggestionSession(
+  state: SuggestionPluginState | undefined,
+): ActiveSuggestionPluginState | undefined {
+  return state?.status === "active" ? state : undefined;
+}
 
 export type SuggestionMenuOptions = {
   triggerCharacter: string;
@@ -169,7 +250,13 @@ export type SuggestionMenuOptions = {
   shouldOpen?: (tr: Transaction) => boolean;
 };
 
-const suggestionMenuPluginKey = new PluginKey("SuggestionMenuPlugin");
+type RegisteredSuggestionMenu = {
+  readonly options: SuggestionMenuOptions;
+};
+
+const suggestionMenuPluginKey = new PluginKey<SuggestionPluginState>(
+  "SuggestionMenuPlugin",
+);
 
 /**
  * A ProseMirror plugin for suggestions, designed to make '/'-commands possible as well as mentions.
@@ -182,8 +269,10 @@ const suggestionMenuPluginKey = new PluginKey("SuggestionMenuPlugin");
  * - This version handles key events differently
  */
 export const SuggestionMenu = createExtension(({ editor }) => {
-  const suggestionMenus = new Map<string, SuggestionMenuOptions>();
+  const suggestionMenus = new Map<string, RegisteredSuggestionMenu>();
   let view: SuggestionMenuView | undefined = undefined;
+  const getCurrentSession = () =>
+    getActiveSuggestionSession(suggestionMenuPluginKey.getState(editor.prosemirrorState));
   const store = createStore<
     (SuggestionMenuState & { triggerCharacter: string }) | undefined
   >(undefined);
@@ -191,49 +280,70 @@ export const SuggestionMenu = createExtension(({ editor }) => {
     key: "suggestionMenu",
     store,
     addSuggestionMenu: (options: SuggestionMenuOptions) => {
-      suggestionMenus.set(options.triggerCharacter, options);
+      const registration = { options } satisfies RegisteredSuggestionMenu;
+      suggestionMenus.set(options.triggerCharacter, registration);
+      return () => {
+        if (suggestionMenus.get(options.triggerCharacter) !== registration) return;
+        suggestionMenus.delete(options.triggerCharacter);
+        if (getCurrentSession()?.triggerCharacter === options.triggerCharacter) {
+          view?.closeMenu("controller-unmounted");
+        }
+      };
     },
     removeSuggestionMenu: (triggerCharacter: string) => {
-      suggestionMenus.delete(triggerCharacter);
+      if (!suggestionMenus.delete(triggerCharacter)) return;
+      if (getCurrentSession()?.triggerCharacter === triggerCharacter) {
+        view?.closeMenu("controller-unmounted");
+      }
     },
-    closeMenu: () => {
-      view?.closeMenu();
+    closeMenu: (reason: SuggestionMenuCloseReason = "programmatic") => {
+      view?.closeMenu(reason);
     },
     clearQuery: () => {
       view?.clearQuery();
     },
     getMenuState: (): SuggestionMenuRuntimeState | undefined => {
-      if (!view?.state || !view.pluginState?.triggerCharacter) {
-        return undefined;
-      }
+      const session = getCurrentSession();
+      if (!view?.state || !session) return undefined;
 
       return {
-        triggerCharacter: view.pluginState.triggerCharacter,
-        query: view.pluginState.query,
+        triggerCharacter: session.triggerCharacter,
+        query: session.query,
         show: Boolean(view.state.show),
+        isComposing: view.state.isComposing ?? false,
       };
     },
+    getLastCloseReason: () => view?.lastCloseReason,
     shown: () => {
-      return view?.state?.show || false;
+      return Boolean(getCurrentSession() && view?.state?.show);
     },
     openSuggestionMenu: (
       triggerCharacter: string,
       pluginState?: {
         deleteTriggerCharacter?: boolean;
         ignoreQueryLength?: boolean;
+        ensureLeadingSpace?: boolean;
       },
     ) => {
       if (editor.headless) {
         return;
       }
+      if (editor._tiptapEditor.state.selection.$from.parent.type.spec.code) return;
 
       editor.focus();
 
       editor.transact((tr) => {
+        if (pluginState?.ensureLeadingSpace && tr.selection.empty) {
+          const { parent, parentOffset } = tr.selection.$from;
+          const textBefore = parent.textBetween(0, parentOffset, undefined, "\ufffc");
+          const previousCharacter = Array.from(textBefore).at(-1);
+          if (previousCharacter && !/\s/u.test(previousCharacter)) tr.insertText(" ");
+        }
         if (pluginState?.deleteTriggerCharacter) {
           tr.insertText(triggerCharacter);
         }
         tr.scrollIntoView().setMeta(suggestionMenuPluginKey, {
+          type: "open",
           triggerCharacter: triggerCharacter,
           deleteTriggerCharacter: pluginState?.deleteTriggerCharacter || false,
           ignoreQueryLength: pluginState?.ignoreQueryLength || false,
@@ -263,7 +373,7 @@ export const SuggestionMenu = createExtension(({ editor }) => {
         state: {
           // Initialize the plugin's internal state.
           init(): SuggestionPluginState {
-            return undefined;
+            return { status: "inactive" };
           },
 
           // Apply changes to the plugin state from an editor transaction.
@@ -273,82 +383,64 @@ export const SuggestionMenu = createExtension(({ editor }) => {
             _oldState,
             newState,
           ): SuggestionPluginState => {
-            // Ignore transactions in code blocks.
+            const closeSession = (reason: SuggestionMenuCloseReason): SuggestionPluginState => ({
+              status: "inactive",
+              lastCloseReason: reason,
+            });
+            const transactionMeta = transaction.getMeta(suggestionMenuPluginKey) as
+              | SuggestionMenuTransactionMeta
+              | undefined;
+            const activeSession = getActiveSuggestionSession(prev);
+
+            // Code blocks own text-entry shortcuts and never host suggestions.
             if (transaction.selection.$from.parent.type.spec.code) {
-              return prev;
+              return activeSession ? closeSession("code-block") : prev;
             }
 
-            // Either contains the trigger character if the menu should be shown,
-            // or null if it should be hidden.
-            const suggestionPluginTransactionMeta: {
-              triggerCharacter: string;
-              deleteTriggerCharacter?: boolean;
-              ignoreQueryLength?: boolean;
-            } | null = transaction.getMeta(suggestionMenuPluginKey);
-
-            if (
-              typeof suggestionPluginTransactionMeta === "object" &&
-              suggestionPluginTransactionMeta !== null
-            ) {
-              if (prev) {
-                // Close the previous menu if it exists
-                view?.closeMenu();
-              }
+            if (transactionMeta?.type === "open") {
               const trackedPosition = trackPosition(
                 editor,
                 newState.selection.from -
                   // Need to account for the trigger char that was inserted, so we offset the position by the length of the trigger character.
-                  suggestionPluginTransactionMeta.triggerCharacter.length,
+                  transactionMeta.triggerCharacter.length,
               );
               return {
-                triggerCharacter:
-                  suggestionPluginTransactionMeta.triggerCharacter,
-                deleteTriggerCharacter:
-                  suggestionPluginTransactionMeta.deleteTriggerCharacter !==
-                  false,
+                status: "active",
+                triggerCharacter: transactionMeta.triggerCharacter,
+                deleteTriggerCharacter: transactionMeta.deleteTriggerCharacter !== false,
                 // When reading the queryStartPos, we offset the result by the length of the trigger character, to make it easy on the caller
                 queryStartPos: () =>
-                  trackedPosition() +
-                  suggestionPluginTransactionMeta.triggerCharacter.length,
+                  trackedPosition() + transactionMeta.triggerCharacter.length,
                 query: "",
                 decorationId: `id_${Math.floor(Math.random() * 0xffffffff)}`,
-                ignoreQueryLength:
-                  suggestionPluginTransactionMeta?.ignoreQueryLength,
+                ignoreQueryLength: transactionMeta.ignoreQueryLength,
               };
             }
 
             // Checks if the menu is hidden, in which case it doesn't need to be hidden or updated.
-            if (prev === undefined) {
-              return prev;
-            }
+            if (!activeSession) return prev;
 
-            // Checks if the menu should be hidden.
+            if (!newState.selection.empty) return closeSession("selection-expanded");
+            if (transactionMeta?.type === "close") return closeSession(transactionMeta.reason);
+            if (transaction.getMeta("focus")) return closeSession("outside");
+            if (transaction.getMeta("blur")) return closeSession("blur");
+            if (transaction.getMeta("pointer")) return closeSession("pointer");
+            if (newState.selection.from < activeSession.queryStartPos()) {
+              return closeSession("backspace-before-trigger");
+            }
             if (
-              // Highlighting text should hide the menu.
-              newState.selection.from !== newState.selection.to ||
-              // Transactions with plugin metadata should hide the menu.
-              suggestionPluginTransactionMeta === null ||
-              // Certain mouse events should hide the menu.
-              // TODO: Change to global mousedown listener.
-              transaction.getMeta("focus") ||
-              transaction.getMeta("blur") ||
-              transaction.getMeta("pointer") ||
-              // Moving the caret before the character which triggered the menu should hide it.
-              (prev.triggerCharacter !== undefined &&
-                newState.selection.from < prev.queryStartPos()) ||
-              // Moving the caret to a new block should hide the menu.
               !newState.selection.$from.sameParent(
-                newState.doc.resolve(prev.queryStartPos()),
+                newState.doc.resolve(activeSession.queryStartPos()),
               )
             ) {
-              return undefined;
+              return closeSession("cross-block");
             }
 
-            const next = { ...prev };
+            const next = { ...activeSession };
 
             // Updates the current query.
             next.query = newState.doc.textBetween(
-              prev.queryStartPos(),
+              activeSession.queryStartPos(),
               newState.selection.from,
             );
 
@@ -360,11 +452,16 @@ export const SuggestionMenu = createExtension(({ editor }) => {
           handleTextInput(view, from, to, text) {
             // only on insert
             if (from === to) {
+              // Trigger characters typed inside a live query remain query text.
+              if (getActiveSuggestionSession(suggestionMenuPluginKey.getState(view.state))) {
+                return false;
+              }
               const doc = view.state.doc;
-              for (const [triggerChar, menuOptions] of suggestionMenus) {
+              for (const [triggerChar, registration] of suggestionMenus) {
+                const { options: menuOptions } = registration;
                 const snippet =
                   triggerChar.length > 1
-                    ? doc.textBetween(from - triggerChar.length, from) + text
+                    ? doc.textBetween(from - (triggerChar.length - 1), from) + text
                     : text;
 
                 if (triggerChar === snippet) {
@@ -379,6 +476,7 @@ export const SuggestionMenu = createExtension(({ editor }) => {
                   view.dispatch(
                     view.state.tr
                       .setMeta(suggestionMenuPluginKey, {
+                        type: "open",
                         triggerCharacter: snippet,
                       })
                       .scrollIntoView(),
@@ -392,13 +490,11 @@ export const SuggestionMenu = createExtension(({ editor }) => {
 
           // Setup decorator on the currently active suggestion.
           decorations(state) {
-            const suggestionPluginState: SuggestionPluginState = (
+            const suggestionPluginState = getActiveSuggestionSession((
               this as Plugin
-            ).getState(state);
+            ).getState(state));
 
-            if (suggestionPluginState === undefined) {
-              return null;
-            }
+            if (!suggestionPluginState) return null;
 
             // If the menu was opened programmatically by another extension, it may not use a trigger character. In this
             // case, the decoration is set on the whole block instead, as the decoration range would otherwise be empty.

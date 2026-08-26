@@ -12,8 +12,10 @@ import {
   SuggestionMenu,
   filterSuggestionItems,
   insertOrUpdateBlockForSlashMenu,
+  type SuggestionMenuOptions,
 } from "@blocknote/core/extensions";
 import {
+  GridSuggestionMenuController,
   SuggestionMenuController,
   getDefaultReactSlashMenuItems,
   useBlockNoteEditor,
@@ -90,10 +92,16 @@ import { WORKFLOW_STATUS_LABELS } from "../../../../shared/workflow-status";
 import { contentAccessContextKey } from "../../../../shared/content-access-context";
 import { NFM_TURN_INTO_DEFINITIONS } from "@/lib/nfm-turn-into-targets";
 import { NfmTurnIntoBlockIcon, type NfmTurnIntoBlockKey } from "./nfm-turn-into-block-icon";
+import {
+  evaluateNfmTypedSuggestionTrigger,
+  getNfmSlashTriggerCharacters,
+  type NfmTypedSuggestionKind,
+} from "@/lib/nfm/editor-trigger-policy";
 
 interface NfmSlashMenuProps {
   executionProjectId: string | null;
   allowPageReferences?: boolean;
+  locale?: string;
 }
 
 type UnsafeEditor = Parameters<typeof insertOrUpdateBlockForSlashMenu>[0];
@@ -118,6 +126,62 @@ type UnsafeInlineContentEditor = {
 
 const PAGE_EMBED_PICKER_TRIGGER = "\uE000";
 const SUBPAGE_NAME_TRIGGER = "\uE001";
+
+function getBrowserLocale(): string {
+  return typeof navigator === "undefined" ? "en-US" : navigator.language;
+}
+
+export function shouldCloseNfmSlashQuery(query: string): boolean {
+  return query.endsWith("  ");
+}
+
+export function createNfmTypedSuggestionShouldOpen(input: {
+  readonly kind: NfmTypedSuggestionKind;
+  readonly trigger: string;
+  readonly locale: string;
+}): NonNullable<SuggestionMenuOptions["shouldOpen"]> {
+  return (transaction) => {
+    if (!transaction.selection.empty) return false;
+    const { parent, parentOffset } = transaction.selection.$from;
+    if (parent.type.spec.code) return false;
+    if (input.kind === "slash" && parent.type.isInGroup("tableContent")) return false;
+
+    const textBeforeTrigger = parent.textBetween(0, parentOffset, undefined, "\ufffc");
+    return evaluateNfmTypedSuggestionTrigger({ ...input, textBeforeTrigger }).allowed;
+  };
+}
+
+export function createNfmTypedSuggestionControllerConfig(locale: string) {
+  return {
+    slash: getNfmSlashTriggerCharacters(locale).map((triggerCharacter) => ({
+      triggerCharacter,
+      shouldOpen: createNfmTypedSuggestionShouldOpen({
+        kind: "slash",
+        trigger: triggerCharacter,
+        locale,
+      }),
+    })),
+    mention: {
+      triggerCharacter: "@",
+      shouldOpen: createNfmTypedSuggestionShouldOpen({
+        kind: "mention",
+        trigger: "@",
+        locale,
+      }),
+      autoCloseWhenNoItems: false,
+    },
+    emoji: {
+      triggerCharacter: ":",
+      shouldOpen: createNfmTypedSuggestionShouldOpen({
+        kind: "emoji",
+        trigger: ":",
+        locale,
+      }),
+      columns: 10,
+      minQueryLength: 2,
+    },
+  } as const;
+}
 
 const SUGGESTION_SYNTAX_HINT_BY_KEY: Record<string, string> = {
   paragraph: "text",
@@ -265,6 +329,7 @@ type SuggestionMenuEditor = {
           options?: {
             deleteTriggerCharacter?: boolean;
             ignoreQueryLength?: boolean;
+            ensureLeadingSpace?: boolean;
           },
         ) => void;
       }
@@ -278,6 +343,7 @@ export function startNfmMentionAtCursor(editor: unknown) {
     // then removes the complete @query range only after an item is chosen.
     deleteTriggerCharacter: true,
     ignoreQueryLength: true,
+    ensureLeadingSpace: true,
   });
 }
 
@@ -748,8 +814,14 @@ export function getNfmSlashMenuCustomItems(
 export function NfmSlashMenu({
   executionProjectId,
   allowPageReferences = true,
+  locale: localeProp,
 }: NfmSlashMenuProps) {
   const editor = useBlockNoteEditor();
+  const locale = useMemo(() => localeProp ?? getBrowserLocale(), [localeProp]);
+  const typedSuggestionControllers = useMemo(
+    () => createNfmTypedSuggestionControllerConfig(locale),
+    [locale],
+  );
   const hostRuntime = useBlockReferenceHostRuntime();
   const embedPageBookmarkRef = useRef<PageReferenceInsertionBookmark | null>(null);
   const startMentionFlow = useCallback(() => {
@@ -802,13 +874,29 @@ export function NfmSlashMenu({
 
   return (
     <NodexFloatingLayerProvider zIndex={NFM_SUGGESTION_MENU_Z_INDEX}>
-      <SuggestionMenuController
-        triggerCharacter="/"
-        getItems={getItems}
-        {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
-        suggestionMenuComponent={NfmSuggestionMenuSurface}
+      {typedSuggestionControllers.slash.map(({ triggerCharacter, shouldOpen }) => (
+        <SuggestionMenuController
+          key={triggerCharacter}
+          triggerCharacter={triggerCharacter}
+          getItems={getItems}
+          shouldOpen={shouldOpen}
+          shouldCloseOnQuery={shouldCloseNfmSlashQuery}
+          {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
+          suggestionMenuComponent={NfmSuggestionMenuSurface}
+        />
+      ))}
+      <MentionMenu
+        activeProjectId={executionProjectId}
+        allowPageReferences={allowPageReferences}
+        controller={typedSuggestionControllers.mention}
       />
-      <MentionMenu activeProjectId={executionProjectId} allowPageReferences={allowPageReferences} />
+      <GridSuggestionMenuController
+        triggerCharacter={typedSuggestionControllers.emoji.triggerCharacter}
+        columns={typedSuggestionControllers.emoji.columns}
+        minQueryLength={typedSuggestionControllers.emoji.minQueryLength}
+        shouldOpen={typedSuggestionControllers.emoji.shouldOpen}
+        {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
+      />
       {allowPageReferences ? <EmbedPageMenu bookmarkRef={embedPageBookmarkRef} /> : null}
       {hostRuntime?.createSubpageAtEmptyParagraph ? <SubpageMenu /> : null}
     </NodexFloatingLayerProvider>
@@ -1527,9 +1615,11 @@ export function useNfmMentionGetItems({
 function MentionMenu({
   activeProjectId,
   allowPageReferences,
+  controller,
 }: {
   activeProjectId: string | null;
   allowPageReferences: boolean;
+  controller: ReturnType<typeof createNfmTypedSuggestionControllerConfig>["mention"];
 }) {
   const editor = useBlockNoteEditor();
   const getNonPageItems = useNfmMentionGetItems({
@@ -1580,12 +1670,13 @@ function MentionMenu({
 
   return (
     <SuggestionMenuController
-      triggerCharacter="@"
+      triggerCharacter={controller.triggerCharacter}
       getItems={getItems}
       getImmediateItems={getImmediateItems}
       requestScopeKey={pageItems.requestScopeKey}
+      shouldOpen={controller.shouldOpen}
       shouldCloseOnItemClick={shouldCloseOnItemClick}
-      autoCloseWhenNoItems={false}
+      autoCloseWhenNoItems={controller.autoCloseWhenNoItems}
       {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
       suggestionMenuComponent={NfmMentionSuggestionMenuSurface}
     />

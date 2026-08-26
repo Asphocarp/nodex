@@ -1,4 +1,5 @@
 import { BlockSchema, InlineContentSchema, StyleSchema } from "@blocknote/core";
+import type { SuggestionMenuCloseReason } from "@blocknote/core/extensions";
 import { FC, useCallback, useEffect } from "react";
 
 import { useBlockNoteContext } from "../../editor/BlockNoteContext.js";
@@ -12,7 +13,7 @@ import { SuggestionMenuProps } from "./types.js";
 export function SuggestionMenuWrapper<Item>(props: {
   triggerCharacter: string;
   query: string;
-  closeMenu: () => void;
+  closeMenu: (reason?: SuggestionMenuCloseReason) => void;
   clearQuery: () => void;
   getItems: (query: string) => Promise<Item[]>;
   getImmediateItems?: (query: string) => Item[];
@@ -20,6 +21,8 @@ export function SuggestionMenuWrapper<Item>(props: {
   onItemClick?: (item: Item) => void;
   shouldCloseOnItemClick?: (item: Item) => boolean;
   autoCloseWhenNoItems?: boolean;
+  shouldCloseOnQuery?: (query: string) => boolean;
+  isComposing?: boolean;
   suggestionMenuComponent: FC<SuggestionMenuProps<Item>>;
 }) {
   const ctx = useBlockNoteContext();
@@ -42,6 +45,8 @@ export function SuggestionMenuWrapper<Item>(props: {
     onItemClick,
     shouldCloseOnItemClick,
     autoCloseWhenNoItems,
+    shouldCloseOnQuery,
+    isComposing,
   } = props;
 
   const { items, usedQuery, usedRequestScopeKey, loadingState } = useLoadSuggestionMenuItems(
@@ -64,7 +69,7 @@ export function SuggestionMenuWrapper<Item>(props: {
       }
 
       if (shouldCloseOnItemClick?.(item) !== false) {
-        closeMenu();
+        closeMenu("accepted");
         clearQuery();
       }
       onItemClick?.(item);
@@ -80,7 +85,13 @@ export function SuggestionMenuWrapper<Item>(props: {
     itemsFresh,
     autoCloseWhenNoItems,
     loadingState === "loaded",
+    isComposing,
   );
+
+  useEffect(() => {
+    if (isComposing || !shouldCloseOnQuery?.(query)) return;
+    closeMenu("invalid-query");
+  }, [closeMenu, isComposing, query, shouldCloseOnQuery]);
 
   const { selectedIndex } = useSuggestionMenuKeyboardNavigation(
     editor,

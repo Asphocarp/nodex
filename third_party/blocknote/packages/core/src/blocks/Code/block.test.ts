@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { TextSelection } from "@tiptap/pm/state";
 import { BlockNoteEditor } from "../../editor/BlockNoteEditor.js";
 import type { PartialBlock } from "../defaultBlocks.js";
 import { getLanguageId, type CodeBlockOptions } from "./block.js";
@@ -34,10 +35,36 @@ function typeString(editor: BlockNoteEditor, str: string) {
  * Simulate a keyboard shortcut by invoking the view's handleKeyDown prop,
  * which is how ProseMirror routes keymap-based handlers like Enter.
  */
-function pressKey(editor: BlockNoteEditor, key: string) {
+function pressKey(editor: BlockNoteEditor, key: string, shiftKey = false) {
   const view = editor.prosemirrorView;
-  const event = new KeyboardEvent("keydown", { key });
-  view.someProp("handleKeyDown", (f) => f(view, event));
+  const event = new KeyboardEvent("keydown", { key, shiftKey });
+  return view.someProp("handleKeyDown", (f) => f(view, event));
+}
+
+function setCodeSelection(
+  editor: BlockNoteEditor,
+  text: string,
+  anchor: number,
+  head = anchor,
+) {
+  editor.replaceBlocks(editor.document, [
+    { id: "code-0", type: "codeBlock", content: text },
+  ]);
+  editor.setTextCursorPosition("code-0", "start");
+  editor.transact((tr) => {
+    const parentStart = tr.selection.$from.start();
+    tr.setSelection(TextSelection.create(tr.doc, parentStart + anchor, parentStart + head));
+  });
+}
+
+function getCodeState(editor: BlockNoteEditor) {
+  const { selection } = editor.prosemirrorState;
+  const parentStart = selection.$anchor.start();
+  return {
+    text: selection.$anchor.parent.textContent,
+    anchor: selection.anchor - parentStart,
+    head: selection.head - parentStart,
+  };
 }
 
 describe("Code block input rule", () => {
@@ -254,5 +281,80 @@ describe("getLanguageId", () => {
 
   it("returns undefined with no supportedLanguages", () => {
     expect(getLanguageId({}, "ts")).toBeUndefined();
+  });
+});
+
+describe("Code block line indentation", () => {
+  let editor: BlockNoteEditor;
+
+  beforeAll(() => {
+    editor = BlockNoteEditor.create();
+    editor.mount(document.createElement("div"));
+  });
+
+  afterAll(() => {
+    editor?._tiptapEditor.destroy();
+  });
+
+  it("inserts a literal tab at the current line start", () => {
+    setCodeSelection(editor, "alpha\nbeta", 8);
+
+    expect(pressKey(editor, "Tab")).toBe(true);
+
+    expect(getCodeState(editor)).toEqual({
+      text: "alpha\n\tbeta",
+      anchor: 9,
+      head: 9,
+    });
+  });
+
+  it("indents every selected line while preserving a backward selection", () => {
+    setCodeSelection(editor, "one\ntwo\nthree", 11, 5);
+
+    expect(pressKey(editor, "Tab")).toBe(true);
+
+    expect(getCodeState(editor)).toEqual({
+      text: "one\n\ttwo\n\tthree",
+      anchor: 13,
+      head: 6,
+    });
+  });
+
+  it("outdents mixed leading whitespace one level per selected line", () => {
+    setCodeSelection(editor, "\tone\n  two\n three\nfour", 0, 22);
+
+    expect(pressKey(editor, "Tab", true)).toBe(true);
+
+    expect(getCodeState(editor)).toEqual({
+      text: "one\ntwo\nthree\nfour",
+      anchor: 0,
+      head: 18,
+    });
+  });
+
+  it("consumes Shift-Tab with no indentation instead of unnesting the code block", () => {
+    setCodeSelection(editor, "plain", 2);
+
+    expect(pressKey(editor, "Tab", true)).toBe(true);
+
+    expect(getCodeState(editor)).toEqual({ text: "plain", anchor: 2, head: 2 });
+    expect(editor.document).toHaveLength(1);
+    expect(editor.document[0].type).toBe("codeBlock");
+  });
+
+  it("records one indentation transaction for undo and redo", () => {
+    setCodeSelection(editor, "one\ntwo", 1, 6);
+    expect(pressKey(editor, "Tab")).toBe(true);
+    expect(getCodeState(editor).text).toBe("\tone\n\ttwo");
+
+    expect(editor.undo()).toBe(true);
+    expect(getCodeState(editor)).toEqual({ text: "one\ntwo", anchor: 1, head: 6 });
+
+    expect(editor.redo()).toBe(true);
+    expect(getCodeState(editor)).toEqual({
+      text: "\tone\n\ttwo",
+      anchor: 2,
+      head: 8,
+    });
   });
 });

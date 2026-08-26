@@ -48,76 +48,114 @@ export const FormattingToolbarExtension = createExtension(({ editor }) => {
     key: "formattingToolbar",
     store,
     mount({ dom, root, signal }) {
-      /**
-       * We want to mimic the Notion behavior of not showing the toolbar while the user is holding down the mouse button (to create a selection)
-       */
-      let preventShowWhileMouseDown = false;
-      let preventShowWhileDragging = false;
+      const ownerDocument =
+        root.nodeType === 9 ? (root as Document) : root.ownerDocument;
+      // Selection presentation becomes eligible only after its pointer or drag
+      // gesture settles.
+      let gesturePhase: "idle" | "selecting" | "dragging" = "idle";
+
+      const settleGesture = () => {
+        gesturePhase = "idle";
+        store.setState(editor.isFocused() ? shouldShow() : false);
+      };
 
       const unsubscribeOnChange = editor.onChange(() => {
-        if (preventShowWhileMouseDown || preventShowWhileDragging) {
-          return;
-        }
+        if (gesturePhase !== "idle") return;
         // re-evaluate whether the toolbar should be shown
         store.setState(shouldShow());
       });
       const unsubscribeOnSelectionChange = editor.onSelectionChange(() => {
-        if (preventShowWhileMouseDown || preventShowWhileDragging) {
-          return;
-        }
+        if (gesturePhase !== "idle") return;
         // re-evaluate whether the toolbar should be shown
         store.setState(shouldShow());
       });
 
-      // To mimic Notion's behavior, we listen to the mouse down event to set the `preventShowWhileMouseDown` flag
       dom.addEventListener(
         "pointerdown",
-        () => {
-          preventShowWhileMouseDown = true;
+        (event) => {
+          if (editor.getInteractionOwnership(event) === "other") {
+            gesturePhase = "idle";
+            store.setState(false);
+            return;
+          }
+          gesturePhase = "selecting";
           store.setState(false);
         },
         { signal },
       );
-      // To mimic Notion's behavior, we listen to the mouse up event to reset the `preventShowWhileMouseDown` flag and show the toolbar (if it should)
-      root.addEventListener(
+      ownerDocument.addEventListener(
         "pointerup",
-        () => {
-          preventShowWhileMouseDown = false;
-
-          // We only want to re-show the toolbar if the mouse made the selection
-          if (editor.isFocused()) {
-            store.setState(shouldShow());
+        (event) => {
+          if (gesturePhase !== "selecting") return;
+          if (editor.getInteractionOwnership(event) === "other") {
+            gesturePhase = "idle";
+            store.setState(false);
+            return;
           }
+          settleGesture();
         },
         { signal, capture: true },
       );
-      // If the pointer gets cancelled, we don't want to be stuck in the `preventShowWhileMouseDown` state
-      dom.addEventListener(
+      ownerDocument.addEventListener(
         "pointercancel",
-        () => {
-          preventShowWhileMouseDown = true;
+        (event) => {
+          if (gesturePhase !== "selecting") return;
+          if (editor.getInteractionOwnership(event) === "other") {
+            gesturePhase = "idle";
+            store.setState(false);
+            return;
+          }
+          settleGesture();
         },
         { signal, capture: true },
       );
 
       root.addEventListener(
         "dragstart",
-        () => {
-          preventShowWhileDragging = true;
+        (event) => {
+          if (editor.getInteractionOwnership(event) === "other") {
+            gesturePhase = "idle";
+            store.setState(false);
+            return;
+          }
+          if (!event.target || !dom.contains(event.target as Node)) return;
+          gesturePhase = "dragging";
           store.setState(false);
         },
         { signal },
       );
 
-      root.addEventListener(
+      ownerDocument.addEventListener(
         "dragend",
         () => {
-          preventShowWhileDragging = false;
+          if (gesturePhase !== "dragging") return;
+          settleGesture();
+        },
+        { signal },
+      );
+
+      root.addEventListener(
+        "focusin",
+        (event) => {
+          if (editor.getInteractionOwnership(event) !== "other") return;
+          gesturePhase = "idle";
+          store.setState(false);
+        },
+        { signal, capture: true },
+      );
+
+      const editorWindow = ownerDocument.defaultView;
+      editorWindow?.addEventListener(
+        "blur",
+        () => {
+          gesturePhase = "idle";
+          store.setState(false);
         },
         { signal },
       );
 
       signal.addEventListener("abort", () => {
+        gesturePhase = "idle";
         unsubscribeOnChange();
         unsubscribeOnSelectionChange();
         store.setState(false);

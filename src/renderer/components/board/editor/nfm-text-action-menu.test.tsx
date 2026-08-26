@@ -911,6 +911,9 @@ describe("nfm text action menu surface", () => {
 
       await act(async () => {
         fireEvent.click(sendToChatRow);
+        expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+          "blocks",
+        );
         await settleAsyncRender();
       });
 

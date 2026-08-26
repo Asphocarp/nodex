@@ -11,6 +11,8 @@ import {
   buildNfmSlashMenuItems,
   buildNfmThreadMentionInlineContent,
   buildNfmThreadMentionSuggestionItems,
+  createNfmTypedSuggestionShouldOpen,
+  createNfmTypedSuggestionControllerConfig,
   getNfmSlashMenuCustomItems,
   isPageReferenceInsertionBookmarkValid,
   NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS,
@@ -20,6 +22,7 @@ import {
   resolveNfmSuggestionHint,
   selectNfmMentionSuggestionItems,
   scrollElementIntoContainerView,
+  shouldCloseNfmSlashQuery,
   startNfmMentionAtCursor,
 } from "./nfm-slash-menu";
 
@@ -57,6 +60,77 @@ describe("Page reference insertion bookmark", () => {
     };
 
     expect(isPageReferenceInsertionBookmarkValid(editor, { blockId: "source" })).toBe(false);
+  });
+});
+
+describe("NFM suggestion transaction adapter", () => {
+  function transactionWithPrefix(
+    textBeforeTrigger: string,
+    options: { code?: boolean; tableContent?: boolean; empty?: boolean } = {},
+  ) {
+    return {
+      selection: {
+        empty: options.empty ?? true,
+        $from: {
+          parentOffset: textBeforeTrigger.length,
+          parent: {
+            type: {
+              spec: { code: options.code ?? false },
+              isInGroup: (group: string) =>
+                group === "tableContent" && options.tableContent === true,
+            },
+            textBetween: () => textBeforeTrigger,
+          },
+        },
+      },
+    };
+  }
+
+  test("treats an inline atom before the caret as a non-boundary", () => {
+    const shouldOpen = createNfmTypedSuggestionShouldOpen({
+      kind: "mention",
+      trigger: "@",
+      locale: "en-US",
+    });
+
+    expect(shouldOpen(transactionWithPrefix("\ufffc") as never)).toBe(false);
+  });
+
+  test("rejects expanded selections, Code Blocks, and slash input in table content", () => {
+    const shouldOpen = createNfmTypedSuggestionShouldOpen({
+      kind: "slash",
+      trigger: "/",
+      locale: "en-US",
+    });
+
+    expect(shouldOpen(transactionWithPrefix("", { empty: false }) as never)).toBe(false);
+    expect(shouldOpen(transactionWithPrefix("", { code: true }) as never)).toBe(false);
+    expect(shouldOpen(transactionWithPrefix("", { tableContent: true }) as never)).toBe(false);
+  });
+
+  test("terminates only a slash query with consecutive spaces", () => {
+    expect(shouldCloseNfmSlashQuery(" ")).toBe(false);
+    expect(shouldCloseNfmSlashQuery("query ")).toBe(false);
+    expect(shouldCloseNfmSlashQuery("query  ")).toBe(true);
+  });
+
+  test("wires locale aliases, mentions, and emoji through one typed-controller contract", () => {
+    const controllers = createNfmTypedSuggestionControllerConfig("ja-JP");
+
+    expect(controllers.slash.map(({ triggerCharacter }) => triggerCharacter)).toEqual([
+      "/",
+      "／",
+      "；",
+    ]);
+    expect(controllers.mention.triggerCharacter).toBe("@");
+    expect(controllers.mention.autoCloseWhenNoItems).toBe(false);
+    expect(controllers.emoji).toMatchObject({
+      triggerCharacter: ":",
+      columns: 10,
+      minQueryLength: 2,
+    });
+    expect(controllers.emoji.shouldOpen(transactionWithPrefix("abc") as never)).toBe(false);
+    expect(controllers.emoji.shouldOpen(transactionWithPrefix("abc ") as never)).toBe(true);
   });
 });
 
@@ -287,6 +361,7 @@ describe("NfmSlashMenu", () => {
 
     expect(openSuggestionMenu).toHaveBeenCalledWith("@", {
       deleteTriggerCharacter: true,
+      ensureLeadingSpace: true,
       ignoreQueryLength: true,
     });
   });
