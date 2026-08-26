@@ -1,6 +1,10 @@
 import { ChevronRightIcon, ProjectActionsIcon } from "@/components/shared/icons";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
-import * as CollapsiblePrimitive from "@radix-ui/react-collapsible";
+import {
+  NodexCollapsiblePanel,
+  NodexCollapsibleRoot,
+  NodexCollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownFlyoutSubmenuItem,
@@ -133,7 +137,7 @@ function SidebarSectionMoreActionsMenu({
           <ProjectActionsIcon className="size-4" />
         </NodexDropdownButtonTrigger>
       }
-      onCloseAutoFocus={(event) => event.preventDefault()}
+      finalFocus={false}
     >
       <NodexDropdownFlyoutSubmenuItem
         label="Show"
@@ -398,91 +402,92 @@ export function LeftSidebar({
             return (
               <div key={section.id} className="flex min-h-0 flex-col gap-px overflow-hidden">
                 {section.collapsible ? (
-                  <CollapsiblePrimitive.Root
+                  <NodexCollapsibleRoot
                     open={sectionExpanded}
                     onOpenChange={(open) => {
                       onSetSectionExpanded(section.id, open);
                     }}
                   >
-                    <CollapsiblePrimitive.Trigger asChild>
-                      <button
-                        type="button"
-                        className={cn(
-                          "group/status inline-flex min-h-7.5 w-full items-center gap-1 rounded-lg px-(--sidebar-row-padding-x) py-(--sidebar-row-padding-tight-y) text-left hover:bg-(--sidebar-accent)",
-                          sectionExpanded
-                            ? "text-(--sidebar-foreground)"
-                            : "text-(--sidebar-foreground-secondary) hover:text-(--sidebar-foreground)",
-                        )}
-                      >
-                        <span className="relative size-4 shrink-0">
-                          {SectionIcon ? (
-                            <SectionIcon
-                              className={cn(
-                                "absolute inset-0 my-auto ml-[-0.1rem] size-4.5 transition-opacity duration-150",
-                                "opacity-100 group-hover/status:opacity-0 group-focus-visible:opacity-0",
-                              )}
-                            />
-                          ) : null}
-                          <ChevronDown
+                    <NodexCollapsibleTrigger
+                      render={
+                        <button
+                          type="button"
+                          className={cn(
+                            "group/status inline-flex min-h-7.5 w-full items-center gap-1 rounded-lg px-(--sidebar-row-padding-x) py-(--sidebar-row-padding-tight-y) text-left hover:bg-(--sidebar-accent)",
+                            sectionExpanded
+                              ? "text-(--sidebar-foreground)"
+                              : "text-(--sidebar-foreground-secondary) hover:text-(--sidebar-foreground)",
+                          )}
+                        />
+                      }
+                    >
+                      <span className="relative size-4 shrink-0">
+                        {SectionIcon ? (
+                          <SectionIcon
                             className={cn(
-                              "absolute inset-0 m-auto size-3 transition-all duration-150",
-                              SectionIcon
-                                ? "opacity-0 group-hover/status:opacity-100 group-focus-visible:opacity-100"
-                                : "opacity-100",
-                              !sectionExpanded && "-rotate-90",
+                              "absolute inset-0 my-auto ml-[-0.1rem] size-4.5 transition-opacity duration-150",
+                              "opacity-100 group-hover/status:opacity-0 group-focus-visible:opacity-0",
                             )}
                           />
-                        </span>
-                        <span className="mr-auto inline-flex min-w-0 items-baseline gap-2.5 text-(--sidebar-foreground)">
-                          <span className="truncate">{section.label}</span>
-                          {typeof section.count === "number" ? (
-                            <span className="shrink-0 text-[calc(var(--text-sm)-1px)]/5 text-(--sidebar-foreground-tertiary)">
-                              {section.count}
-                            </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    </CollapsiblePrimitive.Trigger>
-                    <CollapsiblePrimitive.Content
-                      className={cn("overflow-hidden", "data-[state=closed]:hidden")}
-                    >
+                        ) : null}
+                        <ChevronDown
+                          className={cn(
+                            "absolute inset-0 m-auto size-3 transition-all duration-150",
+                            SectionIcon
+                              ? "opacity-0 group-hover/status:opacity-100 group-focus-visible:opacity-100"
+                              : "opacity-100",
+                            !sectionExpanded && "-rotate-90",
+                          )}
+                        />
+                      </span>
+                      <span className="mr-auto inline-flex min-w-0 items-baseline gap-2.5 text-(--sidebar-foreground)">
+                        <span className="truncate">{section.label}</span>
+                        {typeof section.count === "number" ? (
+                          <span className="shrink-0 text-[calc(var(--text-sm)-1px)]/5 text-(--sidebar-foreground-tertiary)">
+                            {section.count}
+                          </span>
+                        ) : null}
+                      </span>
+                    </NodexCollapsibleTrigger>
+                    <NodexCollapsiblePanel className="overflow-hidden data-[closed]:hidden">
                       <div className="mt-px flex flex-col gap-px">
                         {visibleItems.map((item) => (
                           <div key={item.id}>{renderStageItem(item)}</div>
                         ))}
                         {hasOverflow && (
-                          <CollapsiblePrimitive.Root
+                          <NodexCollapsibleRoot
                             open={showAllItems}
                             onOpenChange={(open) => {
                               onSetSectionShowAll(section.id, open);
                             }}
                           >
-                            <CollapsiblePrimitive.Content
-                              className={cn("overflow-hidden", "data-[state=closed]:hidden")}
-                            >
+                            <NodexCollapsiblePanel className="overflow-hidden data-[closed]:hidden">
                               <div className="flex flex-col gap-px">
                                 {overflowItems.map((item) => (
                                   <div key={item.id}>{renderStageItem(item)}</div>
                                 ))}
                               </div>
-                            </CollapsiblePrimitive.Content>
-                            <CollapsiblePrimitive.Trigger asChild>
-                              <button
-                                tabIndex={groupExpanded ? 0 : -1}
-                                className={cn(
-                                  "group inline-flex min-h-7.5 w-full items-center py-(--sidebar-row-padding-y) text-left",
-                                  groupItemPaddingClass,
-                                )}
-                              >
-                                <span className="-mx-(--sidebar-row-padding-x) rounded-full px-(--sidebar-row-padding-x) py-0.5 text-sm text-(--sidebar-foreground-tertiary) group-hover:bg-(--sidebar-accent) group-hover:text-(--sidebar-foreground-secondary)">
-                                  {showAllItems ? "Show less" : "Show more"}
-                                </span>
-                              </button>
-                            </CollapsiblePrimitive.Trigger>
-                          </CollapsiblePrimitive.Root>
+                            </NodexCollapsiblePanel>
+                            <NodexCollapsibleTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  tabIndex={groupExpanded ? 0 : -1}
+                                  className={cn(
+                                    "group inline-flex min-h-7.5 w-full items-center py-(--sidebar-row-padding-y) text-left",
+                                    groupItemPaddingClass,
+                                  )}
+                                />
+                              }
+                            >
+                              <span className="-mx-(--sidebar-row-padding-x) rounded-full px-(--sidebar-row-padding-x) py-0.5 text-sm text-(--sidebar-foreground-tertiary) group-hover:bg-(--sidebar-accent) group-hover:text-(--sidebar-foreground-secondary)">
+                                {showAllItems ? "Show less" : "Show more"}
+                              </span>
+                            </NodexCollapsibleTrigger>
+                          </NodexCollapsibleRoot>
                         )}
                       </div>
-                    </CollapsiblePrimitive.Content>
+                    </NodexCollapsiblePanel>
                     {pinnedItems.length > 0 ? (
                       <div className="mt-px flex flex-col gap-px">
                         {pinnedItems.map((item) => (
@@ -490,7 +495,7 @@ export function LeftSidebar({
                         ))}
                       </div>
                     ) : null}
-                  </CollapsiblePrimitive.Root>
+                  </NodexCollapsibleRoot>
                 ) : (
                   <>
                     {section.label && (
@@ -514,35 +519,36 @@ export function LeftSidebar({
                       <div key={item.id}>{renderStageItem(item)}</div>
                     ))}
                     {hasOverflow && (
-                      <CollapsiblePrimitive.Root
+                      <NodexCollapsibleRoot
                         open={showAllItems}
                         onOpenChange={(open) => {
                           onSetSectionShowAll(section.id, open);
                         }}
                       >
-                        <CollapsiblePrimitive.Content
-                          className={cn("overflow-hidden", "data-[state=closed]:hidden")}
-                        >
+                        <NodexCollapsiblePanel className="overflow-hidden data-[closed]:hidden">
                           <div className="flex flex-col gap-px">
                             {overflowItems.map((item) => (
                               <div key={item.id}>{renderStageItem(item)}</div>
                             ))}
                           </div>
-                        </CollapsiblePrimitive.Content>
-                        <CollapsiblePrimitive.Trigger asChild>
-                          <button
-                            tabIndex={groupExpanded ? 0 : -1}
-                            className={cn(
-                              "group inline-flex min-h-7.5 w-full items-center py-(--sidebar-row-padding-y) text-left",
-                              groupItemPaddingClass,
-                            )}
-                          >
-                            <span className="-mx-(--sidebar-row-padding-x) rounded-full px-(--sidebar-row-padding-x) py-0.5 text-sm text-(--sidebar-foreground-tertiary) group-hover:bg-(--sidebar-accent) group-hover:text-(--sidebar-foreground-secondary)">
-                              {showAllItems ? "Show less" : "Show more"}
-                            </span>
-                          </button>
-                        </CollapsiblePrimitive.Trigger>
-                      </CollapsiblePrimitive.Root>
+                        </NodexCollapsiblePanel>
+                        <NodexCollapsibleTrigger
+                          render={
+                            <button
+                              type="button"
+                              tabIndex={groupExpanded ? 0 : -1}
+                              className={cn(
+                                "group inline-flex min-h-7.5 w-full items-center py-(--sidebar-row-padding-y) text-left",
+                                groupItemPaddingClass,
+                              )}
+                            />
+                          }
+                        >
+                          <span className="-mx-(--sidebar-row-padding-x) rounded-full px-(--sidebar-row-padding-x) py-0.5 text-sm text-(--sidebar-foreground-tertiary) group-hover:bg-(--sidebar-accent) group-hover:text-(--sidebar-foreground-secondary)">
+                            {showAllItems ? "Show less" : "Show more"}
+                          </span>
+                        </NodexCollapsibleTrigger>
+                      </NodexCollapsibleRoot>
                     )}
                   </>
                 )}
@@ -589,11 +595,11 @@ export function LeftSidebar({
                 </div>
               )}
 
-              <CollapsiblePrimitive.Root open={groupExpanded}>
-                <CollapsiblePrimitive.Content
+              <NodexCollapsibleRoot open={groupExpanded}>
+                <NodexCollapsiblePanel
                   className={cn(
                     group.hideHeader ? "overflow-hidden" : "mt-px overflow-hidden",
-                    "data-[state=closed]:hidden",
+                    "data-[closed]:hidden",
                   )}
                 >
                   <div className="flex min-h-0 flex-col gap-px overflow-hidden">
@@ -609,8 +615,8 @@ export function LeftSidebar({
                     )}
                     {sections.map((section) => renderSection(section))}
                   </div>
-                </CollapsiblePrimitive.Content>
-              </CollapsiblePrimitive.Root>
+                </NodexCollapsiblePanel>
+              </NodexCollapsibleRoot>
             </section>
           );
         })}

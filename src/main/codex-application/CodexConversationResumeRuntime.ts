@@ -171,7 +171,7 @@ export const make: Effect.Effect<
     if (!threadId) return yield* invalidIdentity("Thread");
     const aggregate = conversations.entity(threadId);
     const hydrateQueue = queuedFollowUps
-      .read(threadId)
+      .read(threadId, { projectionTarget: "replica" })
       .pipe(Effect.mapError((cause) => new CodexConversationResumeError({ cause })));
     const current = aggregate.readSnapshot();
     if (current && (aggregate.readResumeState() !== "needs_resume" || aggregate.isStreaming())) {

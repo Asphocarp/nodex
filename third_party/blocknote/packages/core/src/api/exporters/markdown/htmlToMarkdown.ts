@@ -78,6 +78,8 @@ function serializeNode(node: Node, ctx: SerializeContext): string {
       return serializeTable(el, ctx);
     case "hr":
       return ctx.indent + "***\n\n";
+    case "math":
+      return serializeMathBlock(el, ctx);
     case "img":
       return serializeImage(el, ctx);
     case "video":
@@ -154,7 +156,9 @@ function serializeBlockquote(el: HTMLElement, ctx: SerializeContext): string {
 
 function serializeCodeBlock(el: HTMLElement, ctx: SerializeContext): string {
   const codeEl = el.querySelector("code");
-  if (!codeEl) {return "";}
+  if (!codeEl) {
+    return "";
+  }
 
   const language =
     codeEl.getAttribute("data-language") ||
@@ -167,24 +171,47 @@ function serializeCodeBlock(el: HTMLElement, ctx: SerializeContext): string {
   // Use a fence longer than the longest backtick run in the code
   const longestRun = Math.max(
     0,
-    ...((code.match(/`+/g) ?? []).map((run) => run.length))
+    ...(code.match(/`+/g) ?? []).map((run) => run.length),
   );
   const fence = "`".repeat(Math.max(3, longestRun + 1));
 
   // For empty code blocks, don't add a newline between the fences
   if (!code) {
-    return ctx.indent + fence + language + "\n" + fence + "\n\n";
+    return ctx.indent + fence + language + "\n" + ctx.indent + fence + "\n\n";
   }
 
+  // Every (non-blank) line carries the indent - inside a list item or
+  // blockquote, an unindented line would end the parent container. Blank
+  // lines stay blank: they don't terminate an indented fence, and indenting
+  // them would add trailing whitespace.
+  const lines = [
+    fence + language,
+    ...(code.endsWith("\n") ? code.slice(0, -1) : code).split("\n"),
+    fence,
+  ];
   return (
-    ctx.indent +
-    fence +
-    language +
-    "\n" +
-    code +
-    (code.endsWith("\n") ? "" : "\n") +
-    fence +
-    "\n\n"
+    lines.map((line) => (line ? ctx.indent + line : line)).join("\n") + "\n\n"
+  );
+}
+
+// The LaTeX source of a MathML element, taken from the annotation KaTeX
+// embeds in its output (also what external HTML parsing reads). Falls back to
+// the element's text content for MathML from other sources.
+function extractMathLatexSource(el: Element): string {
+  const annotation = el.querySelector(
+    'annotation[encoding="application/x-tex"]',
+  );
+  return (annotation?.textContent ?? el.textContent ?? "").trim();
+}
+
+function serializeMathBlock(el: HTMLElement, ctx: SerializeContext): string {
+  const latex = extractMathLatexSource(el);
+  // Every (non-blank) line carries the indent - inside a list item or
+  // blockquote, an unindented line would end the parent container.
+  return (
+    ["$$", ...latex.split("\n"), "$$"]
+      .map((line) => (line ? ctx.indent + line : line))
+      .join("\n") + "\n\n"
   );
 }
 
@@ -212,11 +239,11 @@ function extractLanguageFromClass(className: string): string {
 
 function serializeUnorderedList(
   el: HTMLElement,
-  ctx: SerializeContext
+  ctx: SerializeContext,
 ): string {
   let result = "";
   const items = Array.from(el.children).filter(
-    (child) => child.tagName.toLowerCase() === "li"
+    (child) => child.tagName.toLowerCase() === "li",
   );
 
   for (const item of items) {
@@ -235,7 +262,7 @@ function serializeUnorderedList(
 function serializeOrderedList(el: HTMLElement, ctx: SerializeContext): string {
   let result = "";
   const items = Array.from(el.children).filter(
-    (child) => child.tagName.toLowerCase() === "li"
+    (child) => child.tagName.toLowerCase() === "li",
   );
   const startNum = parseInt(el.getAttribute("start") || "1", 10);
 
@@ -254,7 +281,7 @@ function serializeListItem(
   el: HTMLElement,
   listType: "bullet" | "ordered",
   ctx: SerializeContext,
-  num?: number
+  num?: number,
 ): string {
   // Check for checkbox (task list) - direct children only
   let checkbox: HTMLInputElement | null = null;
@@ -298,7 +325,9 @@ function serializeListItem(
     inlineContent = summaryP ? serializeInlineContent(summaryP) : "";
   } else {
     firstContentEl = getFirstContentElement(el, checkbox);
-    inlineContent = firstContentEl ? serializeInlineContent(firstContentEl) : "";
+    inlineContent = firstContentEl
+      ? serializeInlineContent(firstContentEl)
+      : "";
   }
 
   // The marker line ends with a single `\n` so that consecutive list items
@@ -315,7 +344,9 @@ function serializeListItem(
   if (details) {
     const summary = details.querySelector("summary");
     for (const child of Array.from(details.children)) {
-      if (child === summary) {continue;}
+      if (child === summary) {
+        continue;
+      }
       const childTag = child.tagName.toLowerCase();
       if (childTag === "p") {
         const content = serializeInlineContent(child as HTMLElement);
@@ -334,8 +365,12 @@ function serializeListItem(
     const childTag = child.tagName.toLowerCase();
 
     // Skip the first content element and checkbox
-    if (child === firstContentEl || (child as HTMLElement) === checkbox) {continue;}
-    if (childTag === "input") {continue;}
+    if (child === firstContentEl || (child as HTMLElement) === checkbox) {
+      continue;
+    }
+    if (childTag === "input") {
+      continue;
+    }
 
     // Nested lists and other block content
     if (childTag === "ul" || childTag === "ol") {
@@ -359,13 +394,19 @@ function serializeListItem(
 
 function getFirstContentElement(
   li: HTMLElement,
-  checkbox: HTMLInputElement | null
+  checkbox: HTMLInputElement | null,
 ): HTMLElement | null {
   for (const child of Array.from(li.children)) {
-    if (child === checkbox) {continue;}
-    if (child.tagName.toLowerCase() === "input") {continue;}
+    if (child === checkbox) {
+      continue;
+    }
+    if (child.tagName.toLowerCase() === "input") {
+      continue;
+    }
     const tag = child.tagName.toLowerCase();
-    if (tag === "p" || tag === "span") {return child as HTMLElement;}
+    if (tag === "p" || tag === "span") {
+      return child as HTMLElement;
+    }
   }
   return null;
 }
@@ -390,20 +431,24 @@ function serializeTable(el: HTMLElement, ctx: SerializeContext): string {
   const grid: (string | null)[][] = [];
 
   trElements.forEach((tr, rowIdx) => {
-    if (!grid[rowIdx]) {grid[rowIdx] = [];}
+    if (!grid[rowIdx]) {
+      grid[rowIdx] = [];
+    }
     const cellElements = tr.querySelectorAll("th, td");
     let gridCol = 0;
 
     cellElements.forEach((cell) => {
       // Find next empty column in this row
-      while (grid[rowIdx][gridCol] !== undefined) {gridCol++;}
+      while (grid[rowIdx][gridCol] !== undefined) {
+        gridCol++;
+      }
 
       if (rowIdx === 0 && cell.tagName.toLowerCase() === "th") {
         hasHeader = true;
       }
 
       const content = escapeTableCell(
-        serializeInlineContent(cell as HTMLElement).trim()
+        serializeInlineContent(cell as HTMLElement).trim(),
       );
       const colspan = parseInt(cell.getAttribute("colspan") || "1", 10);
       const rowspan = parseInt(cell.getAttribute("rowspan") || "1", 10);
@@ -412,7 +457,9 @@ function serializeTable(el: HTMLElement, ctx: SerializeContext): string {
       for (let r = 0; r < rowspan; r++) {
         for (let c = 0; c < colspan; c++) {
           const ri = rowIdx + r;
-          if (!grid[ri]) {grid[ri] = [];}
+          if (!grid[ri]) {
+            grid[ri] = [];
+          }
           grid[ri][gridCol + c] = r === 0 && c === 0 ? content : "";
         }
       }
@@ -435,7 +482,9 @@ function serializeTable(el: HTMLElement, ctx: SerializeContext): string {
     rows.push(row);
   }
 
-  if (rows.length === 0) {return "";}
+  if (rows.length === 0) {
+    return "";
+  }
 
   // Determine column widths
   const colWidths: number[] = [];
@@ -464,8 +513,7 @@ function serializeTable(el: HTMLElement, ctx: SerializeContext): string {
     result += ctx.indent + formatTableRow(emptyRow, colWidths, colCount) + "\n";
     result += ctx.indent + formatSeparatorRow(colWidths, colCount) + "\n";
     for (const row of rows) {
-      result +=
-        ctx.indent + formatTableRow(row, colWidths, colCount) + "\n";
+      result += ctx.indent + formatTableRow(row, colWidths, colCount) + "\n";
     }
   }
 
@@ -480,7 +528,7 @@ function escapeTableCell(text: string): string {
 function formatTableRow(
   cells: string[],
   colWidths: number[],
-  colCount: number
+  colCount: number,
 ): string {
   const parts: string[] = [];
   for (let c = 0; c < colCount; c++) {
@@ -505,30 +553,39 @@ function serializeImage(el: HTMLElement, ctx: SerializeContext): string {
   const alt = el.getAttribute("alt") || "";
   // Empty placeholder — preserve the block-level break, matching how
   // serializeParagraph/serializeHeading emit `\n\n` for empty content.
-  if (!src) {return "\n\n";}
+  if (!src) {
+    return "\n\n";
+  }
   return ctx.indent + `![${alt}](${src})\n\n`;
 }
 
 function serializeVideo(el: HTMLElement, ctx: SerializeContext): string {
-  const src =
-    el.getAttribute("src") || el.getAttribute("data-url") || "";
+  const src = el.getAttribute("src") || el.getAttribute("data-url") || "";
   const name = el.getAttribute("data-name") || el.getAttribute("title") || "";
-  if (!src) {return "\n\n";}
+  if (!src) {
+    return "\n\n";
+  }
   return ctx.indent + `![${name}](${src})\n\n`;
 }
 
 function serializeAudio(el: HTMLElement, ctx: SerializeContext): string {
   const src = el.getAttribute("src") || "";
-  if (!src) {return "\n\n";}
+  if (!src) {
+    return "\n\n";
+  }
   // Audio has no markdown syntax, so emit raw HTML. The markdown parser
   // passes <audio> blocks through verbatim and BlockNote's audio block parser
   // recognizes them, giving a clean round-trip.
-  return ctx.indent + `<audio src="${escapeHtmlAttr(src)}" controls></audio>\n\n`;
+  return (
+    ctx.indent + `<audio src="${escapeHtmlAttr(src)}" controls></audio>\n\n`
+  );
 }
 
 function serializeEmbed(el: HTMLElement, ctx: SerializeContext): string {
   const src = el.getAttribute("src") || "";
-  if (!src) {return "\n\n";}
+  if (!src) {
+    return "\n\n";
+  }
   return ctx.indent + `[](${src})\n\n`;
 }
 
@@ -579,7 +636,9 @@ function serializeMediaFigure(
   captionText: string,
   ctx: SerializeContext,
 ): string {
-  if (!src) {return "";}
+  if (!src) {
+    return "";
+  }
 
   // No caption + has a markdown shorthand → use it.
   if (!captionText && kind !== "audio") {
@@ -591,14 +650,13 @@ function serializeMediaFigure(
   // get set to the same string (BlockNote's HTML exporter writes alt =
   // name || caption, so a caption-only image has alt === figcaption text).
   const showDescriptor = descriptor && descriptor !== captionText;
-  const descAttr =
-    !showDescriptor
-      ? ""
-      : kind === "img"
-        ? ` alt="${escapeHtmlAttr(descriptor)}"`
-        : kind === "video"
-          ? ` data-name="${escapeHtmlAttr(descriptor)}"`
-          : "";
+  const descAttr = !showDescriptor
+    ? ""
+    : kind === "img"
+      ? ` alt="${escapeHtmlAttr(descriptor)}"`
+      : kind === "video"
+        ? ` data-name="${escapeHtmlAttr(descriptor)}"`
+        : "";
 
   const tag =
     kind === "img"
@@ -629,7 +687,9 @@ function escapeHtmlText(value: string): string {
 function serializeBlockLink(el: HTMLElement, ctx: SerializeContext): string {
   const href = el.getAttribute("href") || "";
   const text = el.textContent?.trim() || "";
-  if (!href) {return ctx.indent + text + "\n\n";}
+  if (!href) {
+    return ctx.indent + text + "\n\n";
+  }
   return ctx.indent + formatLink(text, href) + "\n\n";
 }
 
@@ -655,7 +715,9 @@ function escapeLinkDestination(url: string): string {
 function serializeDetails(el: HTMLElement, ctx: SerializeContext): string {
   // Toggle heading or toggle list item
   const summary = el.querySelector("summary");
-  if (!summary) {return serializeChildren(el, ctx);}
+  if (!summary) {
+    return serializeChildren(el, ctx);
+  }
 
   // Check if summary contains a heading
   const heading = summary.querySelector("h1, h2, h3, h4, h5, h6");
@@ -718,11 +780,10 @@ function serializeInlineContent(el: Element): string {
           const text = childEl.textContent || "";
           const longestRun = Math.max(
             0,
-            ...((text.match(/`+/g) ?? []).map((run) => run.length))
+            ...(text.match(/`+/g) ?? []).map((run) => run.length),
           );
           const fence = "`".repeat(longestRun + 1);
-          const needsPadding =
-            text.startsWith("`") || text.endsWith("`");
+          const needsPadding = text.startsWith("`") || text.endsWith("`");
           result += fence + (needsPadding ? ` ${text} ` : text) + fence;
           break;
         }
@@ -739,6 +800,16 @@ function serializeInlineContent(el: Element): string {
         case "br":
           result += "\\\n";
           break;
+        case "math": {
+          // Inline math — emit its LaTeX source as a math span. Collapsed to
+          // a single line, as $...$ spans cannot contain newlines.
+          const latex = extractMathLatexSource(childEl)
+            .split("\n")
+            .map((line) => line.trim())
+            .join(" ");
+          result += `$${latex}$`;
+          break;
+        }
         case "span":
           // Color spans, etc. — strip the tag, keep content
           result += serializeInlineContent(childEl);

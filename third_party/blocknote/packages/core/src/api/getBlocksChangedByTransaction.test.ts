@@ -1,8 +1,12 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { type Node, Schema } from "prosemirror-model";
+import { EditorState } from "prosemirror-state";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { setupTestEnv } from "./blockManipulation/setupTestEnv.js";
+import { splitBlockTr } from "./blockManipulation/commands/splitBlock/splitBlock.js";
 import { getBlocksChangedByTransaction } from "./getBlocksChangedByTransaction.js";
 import { BlockNoteEditor } from "../editor/BlockNoteEditor.js";
+import { YAttributionMarksExtension } from "../y/extensions/YAttributionMarks.js";
 
 const getEditor = setupTestEnv();
 
@@ -29,6 +33,44 @@ describe("getBlocksChangedByTransaction", () => {
     await expect(blocksChanged).toMatchFileSnapshot(
       "__snapshots__/blocks-inserted.json",
     );
+  });
+
+  it("reports a split before UniqueID assigns the new block ID", () => {
+    editor.setTextCursorPosition("paragraph-0", "end");
+
+    const blocksChanged = editor.transact((tr) => {
+      expect(splitBlockTr(tr, tr.selection.from)).toBe(true);
+      return getBlocksChangedByTransaction(tr);
+    });
+
+    expect(blocksChanged).toMatchObject([
+      {
+        type: "insert",
+        block: { type: "paragraph", content: [] },
+        source: { type: "local" },
+      },
+    ]);
+  });
+
+  it("reports a pasted ID-less subtree with coherent transient ownership", () => {
+    const schema = editor.pmSchema;
+    const child = makeBlockContainer(schema, null, "Child");
+    const parent = makeBlockContainer(schema, null, "Parent", [child]);
+    const state = EditorState.create({ doc: editor._tiptapEditor.state.doc });
+    const tr = state.tr.insert(state.doc.content.size - 1, parent);
+    tr.setMeta("paste", true);
+
+    const blocksChanged = getBlocksChangedByTransaction(tr);
+    const inserts = blocksChanged.filter((change) => change.type === "insert");
+
+    expect(inserts).toHaveLength(2);
+    expect(inserts.map(({ block }) => block.type)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
+    expect(inserts.every(({ source }) => source.type === "paste")).toBe(true);
+    expect(inserts[1].currentParent?.id).toBe(inserts[0].block.id);
+    expect(new Set(inserts.map(({ block }) => block.id))).toHaveLength(2);
   });
 
   it("should return nested blocks inserted by a transaction", async () => {
@@ -285,6 +327,7 @@ describe("getBlocksChangedByTransaction", () => {
     // This test is different from the other tests because it uses the onChange hook to get the blocks changed
     // This is because unnesting a block is not allowed within a transaction
     let blocksChanged: any = null;
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- getChanges is destructured from callback parameter, not a class
     const unsubscribe = editor.onChange((_e, { getChanges }) => {
       blocksChanged = getChanges();
     });
@@ -567,5 +610,53 @@ describe("getBlocksChangedByTransaction", () => {
     await expect(blocksChanged).toMatchFileSnapshot(
       "__snapshots__/blocks-moved-insert-changes-sibling-order.json",
     );
+  });
+});
+
+function makeBlockContainer(
+  schema: Schema,
+  id: string | null,
+  text: string,
+  children: readonly Node[] = [],
+) {
+  const paragraph = schema.nodes["paragraph"].createChecked(
+    {},
+    schema.text(text),
+  );
+  const blockGroup =
+    children.length > 0
+      ? schema.nodes["blockGroup"].createChecked({}, children)
+      : undefined;
+  return schema.nodes["blockContainer"].createChecked(
+    { id },
+    blockGroup ? [paragraph, blockGroup] : paragraph,
+  );
+}
+
+describe("getBlocksChangedByTransaction on attribution documents", () => {
+  it("ignores suggested-deletion copies when their positional identity shifts", () => {
+    const suggestionEditor = BlockNoteEditor.create({
+      extensions: [YAttributionMarksExtension()],
+    });
+    const schema = suggestionEditor.pmSchema;
+    const live = makeBlockContainer(schema, "live", "Live");
+    const other = makeBlockContainer(schema, "other", "Other");
+    const deleted = makeBlockContainer(schema, "live", "Deleted").mark([
+      schema.marks["y-attributed-delete"].create({ userIds: ["author"] }),
+    ]);
+    const doc = schema.nodes["doc"].createChecked(
+      {},
+      schema.nodes["blockGroup"].createChecked({}, [live, other, deleted]),
+    );
+    const tr = EditorState.create({ doc }).tr.delete(1, 1 + live.nodeSize);
+
+    expect(
+      getBlocksChangedByTransaction(tr).map((change) => [
+        change.type,
+        change.block.id,
+      ]),
+    ).toEqual([["delete", "live"]]);
+
+    suggestionEditor._tiptapEditor.destroy();
   });
 });

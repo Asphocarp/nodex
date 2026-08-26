@@ -59,12 +59,23 @@ const entry = (
     snapshot,
   }) as CodexThreadDirectoryEntry;
 
+const emptyQueueProjection = () => ({
+  status: "ready" as const,
+  ledgerRevision: 0,
+  projectionRevision: 0,
+  entries: [],
+  inFlightFollowUpId: null,
+  editingFollowUpId: null,
+  error: null,
+});
+
 const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
   scope: Scope.Scope,
   resolve: CodexThreadDirectory["Service"]["resolve"],
   relationships: CodexConversationRelationships["Service"] = CodexConversationRelationships.of({
     refresh: () => Effect.succeed([]),
   }),
+  readQueue: CodexQueuedFollowUps["Service"]["read"] = () => Effect.succeed(emptyQueueProjection()),
 ) {
   const context = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
   const conversations = Context.get(context, ConversationEntityMap);
@@ -123,16 +134,7 @@ const build = Effect.fn("CodexConversationResumeRuntimeTest.build")(function* (
     reconcileOwnership: () => undefined,
   } as unknown as CodexRendererConversationCoordinator["Service"]);
   const queuedFollowUps = CodexQueuedFollowUps.of({
-    read: () =>
-      Effect.succeed({
-        status: "ready",
-        ledgerRevision: 0,
-        projectionRevision: 0,
-        entries: [],
-        inFlightFollowUpId: null,
-        editingFollowUpId: null,
-        error: null,
-      }),
+    read: readQueue,
     list: () => [],
     enqueue: () => Effect.die("unused"),
     remove: () => Effect.die("unused"),
@@ -241,6 +243,33 @@ it.effect("serializes renderer adoption so a racing client becomes a follower", 
     assert.strictEqual(owner?.role, "owner");
     assert.strictEqual(follower?.role, "follower");
     if (follower?.role === "follower") assert.strictEqual(follower.ownerClientId, "owner-a");
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("hydrates queued follow-ups into the recovery replica before renderer adoption", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const targets: Array<string | undefined> = [];
+    const snapshot = conversation();
+    const harness = yield* build(
+      scope,
+      ({ fidelity }) => Effect.succeed(entry(snapshot, fidelity)),
+      undefined,
+      (_threadId, options) =>
+        Effect.sync(() => {
+          targets.push(options?.projectionTarget);
+          return emptyQueueProjection();
+        }),
+    );
+    harness.conversations
+      .entity(threadId)
+      .acceptReplica({ conversation: snapshot, revision: 1, ownerEpoch: 0 });
+
+    const resumed = yield* harness.runtime.resumeForRenderer(threadId, "owner-a");
+
+    assert.strictEqual(resumed?.role, "owner");
+    assert.deepEqual(targets, ["replica"]);
     yield* Scope.close(scope, Exit.void);
   }),
 );

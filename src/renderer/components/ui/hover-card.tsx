@@ -85,6 +85,7 @@ export interface NodexHoverCardProps {
   open?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  delay?: Delay;
   placement?: Placement;
   sideOffset?: number;
   collisionPadding?: number;
@@ -101,6 +102,7 @@ export function NodexHoverCard({
   open,
   defaultOpen = false,
   onOpenChange,
+  delay: localDelay,
   placement = "right-start",
   sideOffset = 2,
   collisionPadding = 8,
@@ -188,9 +190,9 @@ export function NodexHoverCard({
     ],
     whileElementsMounted: autoUpdate,
   });
-  const { delay } = useDelayGroup(context);
+  const { delay: groupDelay } = useDelayGroup(context);
   const hover = useHover(context, {
-    delay,
+    delay: localDelay ?? groupDelay,
     enabled: !disabled,
     handleClose: safePolygon({
       buffer: NODEX_HOVER_CARD_SAFE_POLYGON_BUFFER,

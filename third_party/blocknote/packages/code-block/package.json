@@ -9,7 +9,7 @@
     "directory": "packages/code-block"
   },
   "license": "MPL-2.0",
-  "version": "0.51.4",
+  "version": "0.54.0",
   "files": [
     "dist",
     "types",
@@ -42,22 +42,21 @@
     }
   },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "lint": "eslint src --max-warnings 0",
-    "test": "vitest --run",
-    "test-watch": "vitest watch"
+    "dev": "vp dev",
+    "lint": "vp lint src",
+    "test": "vp test --run",
+    "test-watch": "vp test watch"
   },
   "dependencies": {
     "@blocknote/core": "workspace:*",
-    "@shikijs/core": "^4",
-    "@shikijs/engine-javascript": "^4",
-    "@shikijs/langs-precompiled": "^4",
-    "@shikijs/themes": "^4",
-    "@shikijs/types": "^4"
+    "@shikijs/core": "^4.4.3",
+    "@shikijs/engine-javascript": "^4.4.3",
+    "@shikijs/langs-precompiled": "^4.4.3",
+    "@shikijs/themes": "^4.4.3",
+    "@shikijs/types": "^4.4.3"
   },
   "peerDependencies": {
-    "@blocknote/core": "0.51.4"
+    "@blocknote/core": "0.54.0"
   },
   "eslintConfig": {
     "extends": [

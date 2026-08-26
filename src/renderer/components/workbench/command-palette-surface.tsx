@@ -1154,10 +1154,7 @@ export const CommandPaletteSurface = forwardRef<
           <CommandPalettePageFilterPopover
             open={filterOpen}
             onOpenChange={setFilterOpen}
-            onCloseAutoFocus={(event) => {
-              event.preventDefault();
-              inputRef.current?.focus();
-            }}
+            finalFocus={inputRef}
             filters={pageFilters}
             availableTags={availableTags}
             availableAssignees={availableAssignees}

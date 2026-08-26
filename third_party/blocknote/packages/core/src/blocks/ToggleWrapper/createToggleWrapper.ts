@@ -80,20 +80,25 @@ export const createToggleWrapper = (
   const toggleButtonOnClick = () => {
     // Toggles visibility of child blocks. Also adds/removes the "add block"
     // button if there are no child blocks.
+    const currentBlock = editor.getBlock(block);
+    if (!currentBlock) {
+      return;
+    }
+
     if (toggleWrapper.getAttribute("data-show-children") === "true") {
       toggleWrapper.setAttribute("data-show-children", "false");
-      toggledState.set(editor.getBlock(block)!, false);
+      toggledState.set(currentBlock, false);
 
       if (dom.contains(toggleAddBlockButton)) {
         dom.removeChild(toggleAddBlockButton);
       }
     } else {
       toggleWrapper.setAttribute("data-show-children", "true");
-      toggledState.set(editor.getBlock(block)!, true);
+      toggledState.set(currentBlock, true);
 
       if (
         editor.isEditable &&
-        editor.getBlock(block)?.children.length === 0 &&
+        currentBlock.children.length === 0 &&
         !dom.contains(toggleAddBlockButton)
       ) {
         dom.appendChild(toggleAddBlockButton);
@@ -148,7 +153,10 @@ export const createToggleWrapper = (
       // children.
       if (toggleWrapper.getAttribute("data-show-children") === "true") {
         toggleWrapper.setAttribute("data-show-children", "false");
-        toggledState.set(editor.getBlock(block)!, false);
+        const currentBlock = editor.getBlock(block);
+        if (currentBlock) {
+          toggledState.set(currentBlock, false);
+        }
       }
 
       // Remove the "add block" button as we want to hide child blocks,

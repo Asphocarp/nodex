@@ -46,7 +46,7 @@ function DenseContextMenuStory() {
   return (
     <div className="flex min-h-[420px] items-center justify-center bg-token-main-surface-primary p-10">
       <NodexContextMenuRoot>
-        <NodexContextMenuTrigger asChild>
+        <NodexContextMenuTrigger>
           <button
             type="button"
             className="rounded-lg bg-token-main-surface-secondary px-5 py-4 text-sm text-token-foreground ring-[0.5px] ring-token-border"

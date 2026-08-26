@@ -9,6 +9,7 @@ import {
 } from "./workbench-testkit/workbench-shell-fixtures";
 import {
   invokeCalls,
+  openPanelMenu,
   renderWorkbench,
   startThreadForSessionCalls,
 } from "./workbench-testkit/workbench-shell-harness";
@@ -59,13 +60,7 @@ describe("workbench session shell / Project Agent Dock", () => {
 
     expect(screen.queryByRole("button", { name: "Ask agent" })).toBeNull();
 
-    await act(async () => {
-      fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), {
-        button: 0,
-      });
-      await Promise.resolve();
-    });
-    const menu = await screen.findByRole("menu");
+    const menu = await openPanelMenu(screen, "Open side panel tab");
     expect(within(menu).queryByText("Side chat")).toBeNull();
 
     await act(async () => {

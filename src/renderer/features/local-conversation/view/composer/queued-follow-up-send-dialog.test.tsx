@@ -84,7 +84,7 @@ describe("QueuedFollowUpSendDialog", () => {
       await Promise.resolve();
     });
     await settleAsyncRender();
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledWith(false, expect.objectContaining({ reason: "escape" }));
     expect(onClearQueue).not.toHaveBeenCalled();
     expect(onSendMessage).not.toHaveBeenCalled();
 
@@ -99,7 +99,10 @@ describe("QueuedFollowUpSendDialog", () => {
       await Promise.resolve();
     });
     await settleAsyncRender();
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledWith(
+      false,
+      expect.objectContaining({ reason: "outside" }),
+    );
     expect(onClearQueue).not.toHaveBeenCalled();
     expect(onSendMessage).not.toHaveBeenCalled();
 
@@ -107,7 +110,7 @@ describe("QueuedFollowUpSendDialog", () => {
     onOpenChange.mockClear();
     const third = await renderDialog({ onOpenChange, onClearQueue, onSendMessage });
     await click(third.view.getByRole("button", { name: "Close" }));
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledWith(false, expect.objectContaining({ reason: "close" }));
     expect(onClearQueue).not.toHaveBeenCalled();
     expect(onSendMessage).not.toHaveBeenCalled();
   });

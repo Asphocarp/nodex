@@ -6,6 +6,7 @@ import { codeBlockViewState } from "@/lib/nfm/code-block-view-state";
 import { blockNoteToNfm } from "../../../../shared/block-documents/nfm-blocknote-adapter";
 import { serializeNfm } from "../../../../shared/nfm";
 import { nfmSchema } from "./nfm-schema";
+import { createNfmEditorExtensions } from "./nfm-editor-extensions";
 import { NfmCodeBlockController } from "./nfm-code-block-controller";
 import { NfmSideMenuOpenProvider } from "./nfm-side-menu";
 import "../../../globals.css";
@@ -51,23 +52,21 @@ function getPaintedBackground(element: HTMLElement): RgbaColor {
   for (let current: HTMLElement | null = element; current; current = current.parentElement) {
     layers.unshift(parseComputedColor(getComputedStyle(current).backgroundColor));
   }
-  return layers.reduce(
-    (background, layer) => compositeColor(layer, background),
-    { red: 255, green: 255, blue: 255, alpha: 1 },
-  );
+  return layers.reduce((background, layer) => compositeColor(layer, background), {
+    red: 255,
+    green: 255,
+    blue: 255,
+    alpha: 1,
+  });
 }
 
 function relativeLuminance(color: RgbaColor): number {
   const linearize = (channel: number) => {
     const normalized = channel / 255;
-    return normalized <= 0.04045
-      ? normalized / 12.92
-      : ((normalized + 0.055) / 1.055) ** 2.4;
+    return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
   };
   return (
-    linearize(color.red) * 0.2126 +
-    linearize(color.green) * 0.7152 +
-    linearize(color.blue) * 0.0722
+    linearize(color.red) * 0.2126 + linearize(color.green) * 0.7152 + linearize(color.blue) * 0.0722
   );
 }
 
@@ -92,6 +91,7 @@ async function mountCodeBlock(
 ) {
   const editor = BlockNoteEditor.create({
     schema: nfmSchema,
+    extensions: createNfmEditorExtensions(),
     initialContent: [
       {
         id: blockId,

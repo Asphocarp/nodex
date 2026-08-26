@@ -311,8 +311,13 @@ function PageCreateDialogContent({
   return (
     <NodexDialog
       open
-      onOpenChange={(open) => {
-        if (open || pendingRef.current) return;
+      disablePointerDismissal={pendingRef.current}
+      onOpenChange={(open, details) => {
+        if (open) return;
+        if (pendingRef.current || (details.reason === "escape" && nestedSurfaceOpen)) {
+          details.cancel();
+          return;
+        }
         closeWithRecovery();
       }}
     >
@@ -326,19 +331,11 @@ function PageCreateDialogContent({
           height: layout.fillsAvailableHeight ? "calc(100vh - 36px - 12vh)" : undefined,
         }}
         className="left-1/2 -translate-x-1/2 translate-y-0 max-w-[calc(100vw-24px)] rounded-[22px] transition-[top,width] duration-150 ease-out motion-reduce:transition-none"
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
+        initialFocus={() => {
           requestAnimationFrame(() => titleInputRef.current?.focus());
+          return false;
         }}
-        onCloseAutoFocus={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => {
-          if (!pendingRef.current && !nestedSurfaceOpen) return;
-          event.preventDefault();
-        }}
-        onPointerDownOutside={(event) => {
-          if (!pendingRef.current) return;
-          event.preventDefault();
-        }}
+        finalFocus={false}
         onPointerDown={(event) => event.stopPropagation()}
       >
         <NodexDialogForm
@@ -380,7 +377,7 @@ function PageCreateDialogContent({
                   <RestorePanelIcon className="icon-xs" />
                 )}
               </button>
-              <NodexDialogClose asChild>
+              <NodexDialogClose>
                 <button
                   type="button"
                   disabled={saving}

@@ -69,7 +69,7 @@ export function ThreadActionIconButton({
   if (!tooltip) return button;
 
   return (
-    <NodexTooltip tooltipContent={tooltip} side="top" delayDuration={0}>
+    <NodexTooltip tooltipContent={tooltip} side="top" delay={0}>
       {button}
     </NodexTooltip>
   );
@@ -257,7 +257,7 @@ export function AssistantRatingButton({
   const label = rating === "thumbs_up" ? "Good response" : "Bad response";
 
   return (
-    <NodexTooltip tooltipContent={label} side="top" delayDuration={0}>
+    <NodexTooltip tooltipContent={label} side="top" delay={0}>
       <ThreadActionIconButton
         label={label}
         active={selected}

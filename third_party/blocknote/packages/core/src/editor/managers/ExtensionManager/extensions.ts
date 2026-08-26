@@ -4,11 +4,10 @@ import {
   Node,
   Extension as TiptapExtension,
 } from "@tiptap/core";
-import { Gapcursor } from "@tiptap/extensions/gap-cursor";
 import { Plugin, type Transaction } from "prosemirror-state";
 import { ySyncPluginKey } from "y-prosemirror";
-import { LinkExtension } from "../../../extensions/tiptap-extensions/Link/link.js";
 import { Text } from "@tiptap/extension-text";
+import { Gapcursor } from "@tiptap/extensions/gap-cursor";
 import { createDropFileExtension } from "../../../api/clipboard/fromClipboard/fileDropExtension.js";
 import { createPasteFromClipboardExtension } from "../../../api/clipboard/fromClipboard/pasteExtension.js";
 import { createCopyToClipboardExtension } from "../../../api/clipboard/toClipboard/copyExtension.js";
@@ -18,12 +17,16 @@ import {
   FilePanelExtension,
   FormattingToolbarExtension,
   HistoryExtension,
+  InlineContentBoundaryEditExtension,
   LinkToolbarExtension,
   NodeSelectionKeyboardExtension,
   PlaceholderExtension,
+  PositionMappingExtension,
   PreviousBlockTypeExtension,
   ShowSelectionExtension,
   SideMenuExtension,
+  SourceBlockWithPreviewExtension,
+  SourceInlineContentWithPreviewExtension,
   SuggestionMenu,
   TableHandlesExtension,
   TrailingNodeExtension,
@@ -32,25 +35,46 @@ import {
   BackgroundColorExtension,
   HardBreak,
   KeyboardShortcutsExtension,
-  SuggestionAddMark,
-  SuggestionDeleteMark,
-  SuggestionModificationMark,
+  LinkExtension,
   TextAlignmentExtension,
   TextColorExtension,
   UniqueID,
 } from "../../../extensions/tiptap-extensions/index.js";
 import { BlockContainer, BlockGroup, Doc } from "../../../pm-nodes/index.js";
-import {
+import type {
   BlockNoteEditor,
   BlockNoteEditorOptions,
 } from "../../BlockNoteEditor.js";
-import { ExtensionFactoryInstance } from "../../BlockNoteExtension.js";
-import { CollaborationExtension } from "../../../extensions/Collaboration/Collaboration.js";
+import type { ExtensionFactoryInstance } from "../../BlockNoteExtension.js";
 
 const isCollaborationChangeOrigin = (transaction: Transaction): boolean => {
   const metadata = transaction.getMeta(ySyncPluginKey);
   if (!metadata || typeof metadata !== "object") return false;
   return "isChangeOrigin" in metadata && metadata.isChangeOrigin === true;
+};
+
+const shouldAssignBlockIds = (transaction: Transaction): boolean => {
+  if (!isCollaborationChangeOrigin(transaction)) return true;
+
+  // The only authoritative Yjs replacement that UniqueID may complete is the
+  // first hydration over BlockNote's synthetic initial block. Established Yjs
+  // documents own their IDs; rewriting a later authoritative render can feed
+  // generated IDs back into Yjs and create a render/update loop.
+  let replacesSyntheticInitialBlock = false;
+  transaction.before.descendants((node) => {
+    if (!node.type.isInGroup("bnBlock")) return true;
+    replacesSyntheticInitialBlock = node.attrs.id === "initialBlockId";
+    return false;
+  });
+  if (!replacesSyntheticInitialBlock) return false;
+
+  let hasMissingBlockId = false;
+  transaction.doc.descendants((node) => {
+    if (!node.type.isInGroup("bnBlock") || node.attrs.id !== null) return true;
+    hasMissingBlockId = true;
+    return false;
+  });
+  return hasMissingBlockId;
 };
 
 const blockContainerAcceptsChildren = (
@@ -71,7 +95,9 @@ const transactionPreservesBlockChildrenContract = (
   transaction: Transaction,
   editor: BlockNoteEditor<any, any, any>,
 ): boolean => {
-  if (!transaction.docChanged || isCollaborationChangeOrigin(transaction)) return true;
+  if (!transaction.docChanged || isCollaborationChangeOrigin(transaction)) {
+    return true;
+  }
 
   let valid = true;
   const validatePosition = (position: number) => {
@@ -135,8 +161,7 @@ export function getDefaultTiptapExtensions(
       // as locally inserted Blocks or it can feed generated IDs/content back
       // into Yjs repeatedly. Local paste/drop transactions still pass through
       // and receive fresh IDs before collaboration persists them.
-      filterTransaction: (transaction) =>
-        !isCollaborationChangeOrigin(transaction),
+      filterTransaction: shouldAssignBlockIds,
     }),
     TiptapExtension.create({
       name: "BlockChildrenContract",
@@ -153,9 +178,6 @@ export function getDefaultTiptapExtensions(
     Text,
 
     // marks:
-    SuggestionAddMark,
-    SuggestionDeleteMark,
-    SuggestionModificationMark,
     ...(Object.values(editor.schema.styleSpecs).map((styleSpec) => {
       return styleSpec.implementation.mark.configure({
         editor: editor,
@@ -257,16 +279,14 @@ export function getDefaultExtensions(
     PlaceholderExtension(options),
     ShowSelectionExtension(options),
     SideMenuExtension(options),
+    SourceBlockWithPreviewExtension(),
+    SourceInlineContentWithPreviewExtension(),
     SuggestionMenu(options),
+    HistoryExtension(),
+    InlineContentBoundaryEditExtension(),
+    PositionMappingExtension(),
     ...(options.trailingBlock !== false ? [TrailingNodeExtension()] : []),
   ] as ExtensionFactoryInstance[];
-
-  if (options.collaboration) {
-    extensions.push(CollaborationExtension(options.collaboration));
-  } else {
-    // YUndo is not compatible with ProseMirror's history plugin
-    extensions.push(HistoryExtension());
-  }
 
   if ("table" in editor.schema.blockSpecs) {
     extensions.push(TableHandlesExtension(options));

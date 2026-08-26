@@ -274,14 +274,14 @@ function ImageViewToggle({
           if (!open) onDismissCoachmark();
         }}
       >
-        <NodexPopoverAnchor asChild>{control}</NodexPopoverAnchor>
+        <NodexPopoverAnchor>{control}</NodexPopoverAnchor>
         <NodexPopoverContent
           align="start"
           aria-label={coachmarkLabel}
           className="w-60 gap-0 p-3 text-sm"
           side="right"
           sideOffset={12}
-          onOpenAutoFocus={(event) => event.preventDefault()}
+          initialFocus={false}
         >
           <div className="font-medium text-token-foreground">{coachmarkLabel}</div>
           <p className="mt-1 text-token-text-secondary">

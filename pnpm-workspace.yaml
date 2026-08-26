@@ -3,6 +3,7 @@ packages:
   - "third_party/blocknote/packages/*"
 
 patchedDependencies:
+  "@y/prosemirror@2.0.0-6": patches/@y__prosemirror@2.0.0-6.patch
   y-prosemirror@1.3.7: patches/y-prosemirror@1.3.7.patch
 
 supportedArchitectures:
@@ -27,9 +28,11 @@ overrides:
   node-abi: ^4.31.0
   picomatch: 4.0.4
   postcss: 8.5.15
-  prosemirror-model: 1.25.9
+  prosemirror-model: 1.25.11
   prosemirror-transform: 1.12.0
-  prosemirror-view: 1.41.9
+  prosemirror-view: 1.42.2
+  "@tiptap/extension-bubble-menu": 3.29.2
+  "@tiptap/extension-floating-menu": 3.29.2
   rollup: 4.62.0
   sass: 1.101.0
   tar: 7.5.16

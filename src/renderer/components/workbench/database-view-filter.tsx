@@ -96,7 +96,7 @@ export function DatabaseViewFilter({
 
   return (
     <NodexPopover open={open} onOpenChange={setOpen}>
-      <NodexPopoverTrigger asChild>
+      <NodexPopoverTrigger>
         <NodexIconButton
           icon={ListFilter}
           size="sm"

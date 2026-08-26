@@ -1,4 +1,4 @@
-import * as SliderPrimitive from "@radix-ui/react-slider";
+import { Slider as SliderPrimitive } from "@base-ui/react/slider";
 import { forwardRef, type ComponentPropsWithoutRef, type ComponentRef } from "react";
 import { cn } from "@/lib/utils";
 
@@ -12,12 +12,21 @@ export const NodexSlider = forwardRef<
       data-slot="slider"
       orientation={orientation}
       className={cn(
-        "relative flex touch-none items-center select-none data-[disabled]:opacity-40",
+        "relative select-none data-[disabled]:opacity-40",
         orientation === "horizontal" ? "h-5 w-full" : "h-full w-5 flex-col",
         className,
       )}
       {...props}
-    />
+    >
+      <SliderPrimitive.Control
+        className={cn(
+          "flex size-full touch-none items-center select-none",
+          orientation === "vertical" && "flex-col",
+        )}
+      >
+        {props.children}
+      </SliderPrimitive.Control>
+    </SliderPrimitive.Root>
   );
 });
 
@@ -41,11 +50,11 @@ export const NodexSliderTrack = forwardRef<
 });
 
 export const NodexSliderRange = forwardRef<
-  ComponentRef<typeof SliderPrimitive.Range>,
-  ComponentPropsWithoutRef<typeof SliderPrimitive.Range>
+  ComponentRef<typeof SliderPrimitive.Indicator>,
+  ComponentPropsWithoutRef<typeof SliderPrimitive.Indicator>
 >(function NodexSliderRange({ className, ...props }, ref) {
   return (
-    <SliderPrimitive.Range
+    <SliderPrimitive.Indicator
       ref={ref}
       data-slot="slider-range"
       className={cn(

@@ -137,15 +137,14 @@ export function LibraryResourceActions({
           setMenuOpen(open);
           if (!open) setMoveSubmenuOpen(false);
         }}
-        onCloseAutoFocus={(event) => {
+        finalFocus={() => {
           const pendingDialog = pendingDialogRef.current;
-          if (!pendingDialog) return;
+          if (!pendingDialog) return true;
           pendingDialogRef.current = null;
-          event.preventDefault();
 
           if (pendingDialog === "manage_access") {
             openModal(appHandle, LibraryResourceAccessModal, { target, title });
-            return;
+            return false;
           }
           if (pendingDialog === "open_project" && onOpenInProject) {
             openModal(appHandle, LibraryOpenInProjectModal, {
@@ -154,9 +153,10 @@ export function LibraryResourceActions({
               projects,
               onOpenInProject,
             });
-            return;
+            return false;
           }
           setArchiveOpen(true);
+          return false;
         }}
       >
         <NodexDropdownFlyoutSubmenuItem
@@ -171,7 +171,10 @@ export function LibraryResourceActions({
             target={target}
             title={title}
             expectedLocationRevision={expectedLocationRevision}
-            onClose={() => setMoveSubmenuOpen(false)}
+            onClose={() => {
+              setMoveSubmenuOpen(false);
+              setMenuOpen(false);
+            }}
             onMoved={() => {
               setMoveSubmenuOpen(false);
               setMenuOpen(false);

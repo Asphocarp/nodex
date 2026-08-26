@@ -409,7 +409,7 @@ function PopoverDemo() {
   return (
     <StorySurface>
       <NodexPopover open={true}>
-        <NodexPopoverTrigger asChild>
+        <NodexPopoverTrigger>
           <button
             type="button"
             className="inline-flex h-8 items-center rounded-full bg-token-main-surface-secondary px-3 text-sm text-token-foreground ring-1 ring-token-border"

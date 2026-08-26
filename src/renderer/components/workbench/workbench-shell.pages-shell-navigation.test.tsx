@@ -22,6 +22,7 @@ import {
   installReducedMotionMatchMediaForTest,
   invokeCalls,
   moveSidebarPointer,
+  openPanelMenu,
   pointerActivate,
   pointerDownAndSettle,
   renderWorkbench,
@@ -175,13 +176,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    await act(async () => {
-      fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), {
-        button: 0,
-      });
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
+    await openPanelMenu(screen, "Open side panel tab");
 
     await act(async () => {
       fireEvent.click(screen.getByText("Browser"));
@@ -944,10 +939,13 @@ describe("workbench session shell / pages-shell-navigation", () => {
     const renamedTitle = screen.container.querySelector('[data-app-shell-tab-title="card-tab"]');
     expect(renamedTitle?.textContent).toBe("Renamed card");
     if (!(renamedTitle instanceof HTMLElement)) throw new Error("Expected renamed card tab title");
+    if (!(renamedTitle.parentElement instanceof HTMLElement)) {
+      throw new Error("Expected renamed card tooltip trigger");
+    }
     vi.useFakeTimers();
     try {
-      fireEvent.pointerMove(renamedTitle);
-      fireEvent.mouseEnter(renamedTitle);
+      fireEvent.pointerMove(renamedTitle.parentElement, { pointerType: "mouse" });
+      fireEvent.mouseEnter(renamedTitle.parentElement);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(300);
       });
@@ -1147,10 +1145,13 @@ describe("workbench session shell / pages-shell-navigation", () => {
 
     const tabTitle = screen.container.querySelector('[data-app-shell-tab-title="card-tab"]');
     if (!(tabTitle instanceof HTMLElement)) throw new Error("Expected card tab title");
+    if (!(tabTitle.parentElement instanceof HTMLElement)) {
+      throw new Error("Expected card tooltip trigger");
+    }
     vi.useFakeTimers();
     try {
-      fireEvent.pointerMove(tabTitle);
-      fireEvent.mouseEnter(tabTitle);
+      fireEvent.pointerMove(tabTitle.parentElement, { pointerType: "mouse" });
+      fireEvent.mouseEnter(tabTitle.parentElement);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(300);
       });

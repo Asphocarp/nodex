@@ -52,10 +52,6 @@ const nonProjectSources = [
 
 const rendererRestrictedImportPaths = [
   {
-    name: "@radix-ui/react-context-menu",
-    message: "Use the app-owned deep context menu module from @/components/ui/context-menu.",
-  },
-  {
     name: "lucide-react",
     message:
       "Use app-owned icons from @/components/shared/icons or normalized generic glyphs from @/components/shared/icons/generic-icons.",

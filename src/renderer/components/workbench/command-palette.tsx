@@ -122,16 +122,21 @@ export function CommandPalette({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen, details) => {
+        if (!nextOpen && details.reason === "escape" && surfaceRef.current?.consumeEscape()) {
+          details.cancel();
+          return;
+        }
+        onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent
         unstyledContent
         showCloseButton={false}
         overlayClassName="bg-transparent"
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => {
-          if (!surfaceRef.current?.consumeEscape()) return;
-          event.preventDefault();
-        }}
+        initialFocus={false}
         className="command-menu-dialog global-command-menu-dialog w-[min(520px,92vw)] max-w-none border-none bg-transparent p-0 shadow-none"
       >
         <DialogTitle className="sr-only">Command palette</DialogTitle>

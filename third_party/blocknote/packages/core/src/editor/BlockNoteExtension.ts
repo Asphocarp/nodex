@@ -1,8 +1,8 @@
-import { Store, StoreOptions } from "@tanstack/store";
 import { type AnyExtension } from "@tiptap/core";
 import type { Plugin as ProsemirrorPlugin } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import type { PartialBlockNoDefaults } from "../schema/index.js";
+import { Store, StoreOptions } from "../util/Store.js";
 import type { BlockNoteEditor } from "./BlockNoteEditor.js";
 import { originalFactorySymbol } from "./managers/ExtensionManager/symbol.js";
 

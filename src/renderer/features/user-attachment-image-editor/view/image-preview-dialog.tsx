@@ -43,7 +43,7 @@ export interface ImagePreviewDialogProps {
   allowLocalPath?: boolean;
   showZoomControls?: boolean;
   closeOnSpace?: boolean;
-  onCloseAutoFocus?: React.ComponentProps<typeof NodexDialogContent>["onCloseAutoFocus"];
+  finalFocus?: React.ComponentProps<typeof NodexDialogContent>["finalFocus"];
 }
 
 function nextZoom(currentZoom: number, direction: "in" | "out"): number {
@@ -76,7 +76,7 @@ export function ImagePreviewDialog({
   allowLocalPath = false,
   showZoomControls = true,
   closeOnSpace = false,
-  onCloseAutoFocus,
+  finalFocus,
 }: ImagePreviewDialogProps) {
   const previewAsset = useResolvedImageAsset(src, { allowLocalPath });
   const downloadAsset = useResolvedImageAsset(downloadSrc, { allowLocalPath });
@@ -283,7 +283,7 @@ export function ImagePreviewDialog({
         aria-describedby={undefined}
         overlayClassName="!bg-black/90"
         className="pointer-events-none inset-0 top-0 left-0 h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 overflow-visible rounded-none bg-transparent p-0 shadow-none ring-0 backdrop-blur-none"
-        onCloseAutoFocus={onCloseAutoFocus}
+        finalFocus={finalFocus}
       >
         <NodexDialogTitle className="sr-only">Image preview</NodexDialogTitle>
         <NodexDialogDescription className="sr-only">

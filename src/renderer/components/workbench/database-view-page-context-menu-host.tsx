@@ -15,7 +15,7 @@ export interface DatabaseViewPageContextMenuHostProps {
 
 /**
  * Owns one Page context-menu session for an entire Board or List surface.
- * Rows only expose a stable data attribute; they do not mount Radix roots or
+ * Rows only expose a stable data attribute; they do not mount menu roots or
  * Property editor trees.
  */
 export function DatabaseViewPageContextMenuHost({
@@ -49,7 +49,7 @@ export function DatabaseViewPageContextMenuHost({
 
   return (
     <NodexContextMenuRoot open={menuOpen} onOpenChange={handleMenuOpenChange}>
-      <NodexContextMenuTrigger asChild>
+      <NodexContextMenuTrigger>
         <span className="contents" data-database-view-page-menu-region="true">
           <span className="contents" onContextMenu={handleContextMenu}>
             {children}

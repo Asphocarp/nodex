@@ -88,19 +88,18 @@ export function ProjectRemoveDialog({
   };
 
   return (
-    <NodexDialog open={open} onOpenChange={setOpen}>
-      <NodexDialogContent
-        size="compact"
-        onEscapeKeyDown={(event) => {
-          if (pending) event.preventDefault();
-        }}
-        onPointerDownOutside={(event) => {
-          if (pending) event.preventDefault();
-        }}
-        onInteractOutside={(event) => {
-          if (pending) event.preventDefault();
-        }}
-      >
+    <NodexDialog
+      open={open}
+      disablePointerDismissal={pending}
+      onOpenChange={(nextOpen, details) => {
+        if (!nextOpen && pending) {
+          details.cancel();
+          return;
+        }
+        setOpen(nextOpen);
+      }}
+    >
+      <NodexDialogContent size="compact">
         <NodexDialogForm onSubmit={(event) => void submit(event)}>
           <NodexDialogHeader>
             <NodexDialogTitle>Remove {project.name}?</NodexDialogTitle>

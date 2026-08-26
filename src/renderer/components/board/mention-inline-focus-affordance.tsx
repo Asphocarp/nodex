@@ -46,7 +46,7 @@ export function MentionInlineFocusAffordance({
     <NodexPopover open={selected} modal={false}>
       <span ref={containerRef} className="inline align-baseline">
         {children}
-        <NodexPopoverAnchor asChild>
+        <NodexPopoverAnchor>
           <span
             aria-hidden="true"
             className="inline-block w-0 overflow-visible align-baseline"
@@ -64,8 +64,8 @@ export function MentionInlineFocusAffordance({
         sideOffset={6}
         collisionPadding={4}
         className="pointer-events-none w-fit min-w-0 max-w-[calc(100vw-8px)] overflow-visible whitespace-nowrap rounded-[4px] border-0 bg-token-dropdown-background px-2 py-1 text-xs leading-[1.4] font-medium text-token-foreground shadow-[0_1px_4px_rgba(0,0,0,0.3)] ring-0 backdrop-blur-none"
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onCloseAutoFocus={(event) => event.preventDefault()}
+        initialFocus={false}
+        finalFocus={false}
       >
         <div>
           <div>{label}</div>

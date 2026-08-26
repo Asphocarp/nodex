@@ -43,9 +43,9 @@ function ImagePreviewStory() {
         onPreviousImage={index > 0 ? () => setIndex(index - 1) : undefined}
         onNextImage={index < FIXTURES.length - 1 ? () => setIndex(index + 1) : undefined}
         onEditImage={() => setLastAction(`Edit requested for attachment ${index + 1}`)}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
+        finalFocus={() => {
           triggerRef.current?.focus();
+          return false;
         }}
       />
     </div>

@@ -34,7 +34,7 @@ function ContextMenuProbe() {
 
   return (
     <NodexContextMenuRoot>
-      <NodexContextMenuTrigger asChild>
+      <NodexContextMenuTrigger>
         <button type="button">Page row</button>
       </NodexContextMenuTrigger>
       <NodexContextMenuPortal>

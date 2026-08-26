@@ -437,7 +437,7 @@ export function AgentConfigInlineContentView({
     <NodexPopover open={open} onOpenChange={setOpen}>
       <span className="inline align-baseline">
         <NodexTooltip tooltipContent={title}>
-          <NodexPopoverTrigger asChild>
+          <NodexPopoverTrigger>
             <button
               type="button"
               contentEditable={false}
@@ -469,12 +469,7 @@ export function AgentConfigInlineContentView({
         </NodexTooltip>
       </span>
 
-      <NodexPopoverContent
-        side="top"
-        align="start"
-        className="w-full"
-        onOpenAutoFocus={(event) => event.preventDefault()}
-      >
+      <NodexPopoverContent side="top" align="start" className="w-full" initialFocus={false}>
         <AgentConfigPopoverBody
           props={props}
           chip={chip}

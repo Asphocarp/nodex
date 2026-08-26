@@ -101,7 +101,7 @@ describe("workbench session shell / automations-conversation", () => {
 
       expect(screen.getByRole("button", { name: "Create via chat" }) !== null).toBe(true);
       await act(async () => {
-        fireEvent.pointerDown(screen.getByLabelText("New scheduled task options"), {
+        fireEvent.mouseDown(screen.getByLabelText("New scheduled task options"), {
           button: 0,
           ctrlKey: false,
         });
@@ -125,7 +125,7 @@ describe("workbench session shell / automations-conversation", () => {
         await Promise.resolve();
       });
       await act(async () => {
-        fireEvent.pointerDown(screen.getByLabelText("Project"), { button: 0, ctrlKey: false });
+        fireEvent.mouseDown(screen.getByLabelText("Project"), { button: 0, ctrlKey: false });
         await Promise.resolve();
       });
       const projectItem = await screen.findByRole("menuitem", { name: /Alpha/u });
@@ -136,7 +136,7 @@ describe("workbench session shell / automations-conversation", () => {
       await settleAsyncRender();
       const environmentTrigger = await screen.findByLabelText("Environment");
       await act(async () => {
-        fireEvent.pointerDown(environmentTrigger, { button: 0, ctrlKey: false });
+        fireEvent.mouseDown(environmentTrigger, { button: 0, ctrlKey: false });
         await Promise.resolve();
       });
       const environmentItem = await screen.findByRole("menuitem", { name: /CI setup/u });
@@ -155,7 +155,7 @@ describe("workbench session shell / automations-conversation", () => {
       });
       const scheduleTypeTrigger = await screen.findByLabelText("Schedule type");
       await act(async () => {
-        fireEvent.pointerDown(scheduleTypeTrigger, { button: 0, ctrlKey: false });
+        fireEvent.mouseDown(scheduleTypeTrigger, { button: 0, ctrlKey: false });
         await Promise.resolve();
       });
       const weeklyItem = await screen.findByRole("menuitem", { name: "Weekly" });
@@ -176,7 +176,7 @@ describe("workbench session shell / automations-conversation", () => {
         expect((modelTrigger as HTMLButtonElement).disabled).toBe(false);
       });
       await act(async () => {
-        fireEvent.pointerDown(modelTrigger, { button: 0, ctrlKey: false });
+        fireEvent.mouseDown(modelTrigger, { button: 0, ctrlKey: false });
         await Promise.resolve();
       });
       const highModelItem = await screen.findByRole("menuitem", { name: "GPT-5.5 High" });
@@ -395,7 +395,7 @@ describe("workbench session shell / automations-conversation", () => {
       expect((modelTrigger as HTMLButtonElement).disabled).toBe(false);
     });
     await act(async () => {
-      fireEvent.pointerDown(modelTrigger, { button: 0, ctrlKey: false });
+      fireEvent.mouseDown(modelTrigger, { button: 0, ctrlKey: false });
       await Promise.resolve();
     });
     const highModelItem = await screen.findByRole("menuitem", { name: "GPT-5.5 High" });
@@ -482,7 +482,7 @@ describe("workbench session shell / automations-conversation", () => {
       expect((modelTrigger as HTMLButtonElement).disabled).toBe(false);
     });
     await act(async () => {
-      fireEvent.pointerDown(modelTrigger, { button: 0, ctrlKey: false });
+      fireEvent.mouseDown(modelTrigger, { button: 0, ctrlKey: false });
       await Promise.resolve();
     });
     const highModelItem = await screen.findByRole("menuitem", { name: "GPT-5.5 High" });
@@ -551,7 +551,7 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("New scheduled task options"), {
+      fireEvent.mouseDown(screen.getByLabelText("New scheduled task options"), {
         button: 0,
         ctrlKey: false,
       });
@@ -596,7 +596,7 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("New scheduled task options"), {
+      fireEvent.mouseDown(screen.getByLabelText("New scheduled task options"), {
         button: 0,
         ctrlKey: false,
       });
@@ -1283,7 +1283,7 @@ describe("workbench session shell / automations-conversation", () => {
     });
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("Previous runs actions"), {
+      fireEvent.mouseDown(screen.getByLabelText("Previous runs actions"), {
         button: 0,
         ctrlKey: false,
       });
@@ -1348,7 +1348,7 @@ describe("workbench session shell / automations-conversation", () => {
     });
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("Previous runs actions"), {
+      fireEvent.mouseDown(screen.getByLabelText("Previous runs actions"), {
         button: 0,
         ctrlKey: false,
       });

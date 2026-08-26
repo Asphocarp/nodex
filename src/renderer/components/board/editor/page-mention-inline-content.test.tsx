@@ -180,6 +180,7 @@ describe("Page mention inline content", () => {
     expect(mention.querySelector("svg")?.getAttribute("style")).toContain("status-build-dot");
 
     fireEvent.pointerMove(mention, { pointerType: "mouse" });
+    fireEvent.mouseEnter(mention);
     await settleAsyncRender();
     await waitFor(() => {
       const tooltip = document.body.querySelector('[role="tooltip"]');

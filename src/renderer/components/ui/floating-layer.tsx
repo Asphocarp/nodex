@@ -28,11 +28,14 @@ export function NodexFloatingLayerProvider({
 }
 
 /** Resolves the layer for a shared floating surface and its descendants. */
-export function useNodexFloatingLayerIndex(explicitZIndex?: CSSProperties["zIndex"]): number {
+export function useNodexFloatingLayerIndex(
+  explicitZIndex?: CSSProperties["zIndex"],
+  minimumLayerIndex = APP_SHELL_FLOATING_UI_LAYER_INDEX,
+): number {
   const ownerZIndex = useContext(NodexFloatingLayerContext);
   const explicitLayerIndex = parseLayerIndex(explicitZIndex);
   if (explicitLayerIndex !== null) return explicitLayerIndex;
 
-  if (ownerZIndex === null) return APP_SHELL_FLOATING_UI_LAYER_INDEX;
-  return Math.max(APP_SHELL_FLOATING_UI_LAYER_INDEX, ownerZIndex + 1);
+  if (ownerZIndex === null) return minimumLayerIndex;
+  return Math.max(minimumLayerIndex, ownerZIndex + 1);
 }

@@ -190,7 +190,7 @@ function DatabaseListAssigneeEditor({
       }}
     >
       <NodexTooltip tooltipContent={value}>
-        <NodexPopoverTrigger asChild disabled={disabled || pending}>
+        <NodexPopoverTrigger disabled={disabled || pending}>
           <button
             type="button"
             aria-label={`Edit ${label}: ${value}`}

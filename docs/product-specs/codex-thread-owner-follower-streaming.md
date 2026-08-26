@@ -74,6 +74,7 @@ Main process must:
 - host app-server transport and durable/recovery cache state
 - keep no-owner hydration and command execution out of the visible stream plane
 - compare-and-set renderer ownership after successful resume hydration and before returning the owner result
+- hydrate the durable follow-up queue into the recovery replica during resume, even when the registry still names the initiating renderer as the prior owner; pre-adoption hydration never calls that transitioning renderer
 - return an accepted owner document/revision to a competing renderer so it attaches as follower instead of starting a second resume implementation
 
 ## Stream State
@@ -186,6 +187,8 @@ Steer enters Main as one complete typed intent containing the expected turn, pre
 ### Queued Follow-ups
 
 Core owns one exact-revision ordered ledger per Thread. Main's scoped `CodexQueuedFollowUps` Module hydrates that ledger, freezes and verifies payload manifests, serializes mutations through the Thread lane, and owns one bounded per-Thread delivery fiber. The renderer never runs a queue reducer or drain loop.
+
+Dispatch wake-ups are level-triggered per Thread: while a delivery fiber is running, any additional wake-up coalesces into one replay after that fiber settles. A wake-up can never disappear merely because it arrived during transport completion, durable row removal, or fiber cleanup.
 
 Main projects a complete queue snapshot with `threadGeneration`, `ownerEpoch`, `ledgerRevision`, and process-local `projectionRevision`. The active renderer owner accepts only newer coordinates, applies the snapshot atomically to its conversation document, and publishes the resulting owner revision. Followers therefore see queue state from the same visible writer as the transcript without gaining ledger or transport authority. Owner loss interrupts the scoped attempt but retains the durable row; a replacement owner receives the current projection before another attempt.
 

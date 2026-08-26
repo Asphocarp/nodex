@@ -191,7 +191,7 @@ export function PageMentionInlineContentView({
       side="top"
       align="start"
       sideOffset={4}
-      delayDuration={0}
+      delay={0}
       tooltipClassName="px-2 py-1.5"
     >
       {children}

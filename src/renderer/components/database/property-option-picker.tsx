@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type ReactElement,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { CheckmarkIcon, CloseIcon, PlusIcon, SearchIcon } from "@/components/shared/icons";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
@@ -214,6 +215,7 @@ function PropertyOptionPickerFrame({
   trigger,
   triggerTooltipContent,
   contentClassName,
+  contentInitialFocus,
   onOpenChange,
   children,
 }: {
@@ -223,6 +225,7 @@ function PropertyOptionPickerFrame({
   readonly trigger: ReactElement;
   readonly triggerTooltipContent?: ReactNode;
   readonly contentClassName?: string;
+  readonly contentInitialFocus: RefObject<HTMLInputElement | null>;
   readonly onOpenChange: (open: boolean) => void;
   readonly children: ReactNode;
 }) {
@@ -231,15 +234,12 @@ function PropertyOptionPickerFrame({
   return (
     <NodexPopover open={open} onOpenChange={onOpenChange}>
       <NodexTooltip tooltipContent={triggerTooltipContent}>
-        <NodexPopoverTrigger asChild disabled={disabled}>
-          {trigger}
-        </NodexPopoverTrigger>
+        <NodexPopoverTrigger disabled={disabled}>{trigger}</NodexPopoverTrigger>
       </NodexTooltip>
       <NodexPopoverContent
         align="start"
         className={cn("w-[min(320px,calc(100vw-16px))] overflow-hidden p-0", contentClassName)}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => event.stopPropagation()}
+        initialFocus={contentInitialFocus}
         onKeyDown={(event) => {
           if (event.key !== "Escape") return;
           event.preventDefault();
@@ -332,9 +332,10 @@ export function PropertyOptionPicker({
       setError(null);
       return;
     }
+    if (host === "popover") return;
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [host, open]);
 
   useEffect(() => {
     if (!disabled || !open) return;
@@ -508,6 +509,7 @@ export function PropertyOptionPicker({
       trigger={triggerButton ?? defaultTrigger}
       triggerTooltipContent={presentation === "board" ? closedTriggerLabel : undefined}
       contentClassName={contentClassName}
+      contentInitialFocus={inputRef}
       onOpenChange={changeHostOpen}
     >
       {mode === "multiple" && presentedSelected.length > 0 ? (

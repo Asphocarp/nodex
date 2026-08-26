@@ -44,23 +44,21 @@ export interface CommandPaletteTagFilterOption {
   label: string;
 }
 
-type PopoverCloseAutoFocusHandler = ComponentPropsWithoutRef<
-  typeof NodexPopoverContent
->["onCloseAutoFocus"];
+type PopoverFinalFocus = ComponentPropsWithoutRef<typeof NodexPopoverContent>["finalFocus"];
 
 function ToolbarPopoverContent({
   children,
-  onCloseAutoFocus,
+  finalFocus,
 }: {
   children: React.ReactNode;
-  onCloseAutoFocus?: PopoverCloseAutoFocusHandler;
+  finalFocus?: PopoverFinalFocus;
 }) {
   return (
     <NodexPopoverContent
       side="bottom"
       align="end"
       className={PANEL_CLASS_NAME}
-      onCloseAutoFocus={onCloseAutoFocus}
+      finalFocus={finalFocus}
     >
       <div className="flex flex-col gap-3 p-2">{children}</div>
     </NodexPopoverContent>
@@ -116,7 +114,7 @@ function FilterValueRow({ label, children }: { label: string; children: React.Re
 export function CommandPalettePageFilterPopover({
   open,
   onOpenChange,
-  onCloseAutoFocus,
+  finalFocus,
   filters,
   availableTags,
   availableAssignees,
@@ -127,7 +125,7 @@ export function CommandPalettePageFilterPopover({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCloseAutoFocus?: PopoverCloseAutoFocusHandler;
+  finalFocus?: PopoverFinalFocus;
   filters: CommandPalettePageFilters;
   availableTags: CommandPaletteTagFilterOption[];
   availableAssignees: string[];
@@ -140,8 +138,8 @@ export function CommandPalettePageFilterPopover({
 
   return (
     <NodexPopover open={open && !disabled} onOpenChange={onOpenChange}>
-      <NodexPopoverTrigger asChild>{children}</NodexPopoverTrigger>
-      <ToolbarPopoverContent onCloseAutoFocus={onCloseAutoFocus}>
+      <NodexPopoverTrigger>{children}</NodexPopoverTrigger>
+      <ToolbarPopoverContent finalFocus={finalFocus}>
         <div className="flex items-center justify-between">
           <span className={SECTION_LABEL}>Filters</span>
           <button

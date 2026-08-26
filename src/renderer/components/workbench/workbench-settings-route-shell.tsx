@@ -1915,7 +1915,7 @@ function isEditableEscapeElement(element: Element | null): boolean {
         "[data-slot='dialog-content']",
         "[data-slot='dropdown-content']",
         "[data-slot='popover-content']",
-        "[data-radix-popper-content-wrapper]",
+        "[data-slot='tooltip-positioner']",
       ].join(","),
     ),
   );

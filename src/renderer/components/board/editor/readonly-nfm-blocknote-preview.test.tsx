@@ -146,7 +146,7 @@ describe("readonly NFM BlockNote preview", () => {
     expect(textContent(view.container).includes("Plan mode")).toBe(true);
     expect(textContent(view.container).includes("019-thread")).toBe(true);
     expect(document.body.querySelector('[role="dialog"]') === null).toBe(true);
-    expect(document.body.querySelector("[data-radix-popper-content-wrapper]") === null).toBe(true);
+    expect(document.body.querySelector('[data-slot="popover-content"]') === null).toBe(true);
   });
 
   test("refreshes readonly date mention labels while mounted", async () => {

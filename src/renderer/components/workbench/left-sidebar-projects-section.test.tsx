@@ -4,7 +4,7 @@ import type { Project } from "../../lib/types";
 import { NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { NodexModalHost } from "@/lib/modal-registry";
-import { renderWithMaitai, textContent } from "../../test/dom";
+import { openNodexMenu, renderWithMaitai, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 
 let SidebarProjectsSection: (typeof import("./left-sidebar-projects-section"))["SidebarProjectsSection"];
@@ -310,13 +310,7 @@ describe("SidebarProjectsSection", () => {
       />,
     );
 
-    await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Project sidebar options"), {
-        button: 0,
-        ctrlKey: false,
-      });
-      await Promise.resolve();
-    });
+    await openNodexMenu(getByLabelText("Project sidebar options"));
 
     await waitFor(() => {
       expect(textContent(document.body).includes("Archive all chats")).toBe(true);
@@ -393,13 +387,7 @@ describe("SidebarProjectsSection", () => {
         />,
       );
 
-    await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), {
-        button: 0,
-        ctrlKey: false,
-      });
-      await Promise.resolve();
-    });
+    await openNodexMenu(getByLabelText("Project actions for Beta"));
 
     expect(getByText("Edit project").textContent).toBe("Edit project");
     expect(getByText("Archive chats").textContent).toBe("Archive chats");
@@ -465,13 +453,7 @@ describe("SidebarProjectsSection", () => {
     expect(onActivate).toHaveBeenCalledTimes(1);
     onActivate.mockClear();
 
-    await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), {
-        button: 0,
-        ctrlKey: false,
-      });
-      await Promise.resolve();
-    });
+    await openNodexMenu(getByLabelText("Project actions for Beta"));
 
     await act(async () => {
       fireEvent.click(getByText("Edit project"));
@@ -581,13 +563,7 @@ describe("SidebarProjectsSection", () => {
       />,
     );
 
-    await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), {
-        button: 0,
-        ctrlKey: false,
-      });
-      await Promise.resolve();
-    });
+    await openNodexMenu(getByLabelText("Project actions for Beta"));
     await act(async () => {
       fireEvent.click(getByText("Remove"));
       await Promise.resolve();
@@ -628,13 +604,7 @@ describe("SidebarProjectsSection", () => {
       />,
     );
 
-    await act(async () => {
-      fireEvent.pointerDown(getByLabelText("Project actions for Beta"), {
-        button: 0,
-        ctrlKey: false,
-      });
-      await Promise.resolve();
-    });
+    await openNodexMenu(getByLabelText("Project actions for Beta"));
 
     expect(getByText("Edit project").textContent).toBe("Edit project");
     expect(queryByText(/Reveal in Finder|Open in Explorer|Open in File Manager/)).toBe(null);

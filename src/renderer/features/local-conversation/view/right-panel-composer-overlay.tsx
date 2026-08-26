@@ -122,8 +122,8 @@ function isOpenComposerMenuTarget(
   composer: HTMLElement | null,
 ): boolean {
   if (!(target instanceof Element)) return false;
-  if (!target.closest("[data-radix-popper-content-wrapper]")) return false;
-  return composer?.querySelector('[aria-haspopup="menu"][data-state="open"]') != null;
+  if (!target.closest('[data-slot="dropdown-content"]')) return false;
+  return composer?.querySelector('[aria-haspopup="menu"][aria-expanded="true"]') != null;
 }
 
 function hasFocusedComposerDraft(composer: HTMLElement | null): boolean {

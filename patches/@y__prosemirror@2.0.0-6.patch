@@ -1,0 +1,24 @@
+diff --git a/src/index.js b/src/index.js
+index 1acb6aa..4026a0e 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -1,7 +1,7 @@
+ export * from './sync-plugin.js'
+ export * from './keys.js'
+ export * from './positions.js'
+-export { docToDelta, $prosemirrorDelta, defaultMapAttributionToMark, defaultAttributionConf, attributionMapperToConf, yattr2markname, pmToFragment, fragmentToPm } from './sync-utils.js'
++export { docToDelta, nodeToDelta, deltaAttributionToFormat, deltaToPNode, deltaToPSteps, $prosemirrorDelta, defaultMapAttributionToMark, defaultAttributionConf, attributionMapperToConf, yattr2markname, pmToFragment, fragmentToPm } from './sync-utils.js'
+ export * from './commands.js'
+ export * from './undo-plugin.js'
+ export * from './cursor-plugin.js'
+diff --git a/dist/src/index.d.ts b/dist/src/index.d.ts
+index 44dc1dd..ddcaa4c 100644
+--- a/dist/src/index.d.ts
++++ b/dist/src/index.d.ts
+@@ -6,5 +6,5 @@ export * from "./undo-plugin.js";
+ export * from "./cursor-plugin.js";
+ export { YSyncRdt } from "./rdt/y-sync.js";
+ export { ProsemirrorRdt } from "./rdt/prosemirror.js";
+-export { docToDelta, $prosemirrorDelta, defaultMapAttributionToMark, defaultAttributionConf, attributionMapperToConf, yattr2markname, pmToFragment, fragmentToPm } from "./sync-utils.js";
++export { docToDelta, nodeToDelta, deltaAttributionToFormat, deltaToPNode, deltaToPSteps, $prosemirrorDelta, defaultMapAttributionToMark, defaultAttributionConf, attributionMapperToConf, yattr2markname, pmToFragment, fragmentToPm } from "./sync-utils.js";
+ //# sourceMappingURL=index.d.ts.map

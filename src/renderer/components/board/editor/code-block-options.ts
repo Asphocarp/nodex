@@ -1,5 +1,4 @@
 import type { CodeBlockOptions } from "@blocknote/core";
-import { preloadBlockNoteDualThemeParser } from "@/lib/syntax-highlighting";
 import { CODE_LANGUAGE_CATALOG } from "../../../../shared/nfm/code-language-catalog";
 import { codeLanguagePreference } from "@/lib/nfm/code-language-preference";
 
@@ -15,5 +14,4 @@ export const editorCodeBlockOptions: CodeBlockOptions = {
       },
     ]),
   ),
-  createHighlighter: preloadBlockNoteDualThemeParser,
 };

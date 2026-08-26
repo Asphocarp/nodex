@@ -8,6 +8,7 @@ import {
 } from "../../../../shared/block-documents/block-document-codec";
 import { scanBlockDocument } from "../../../../shared/block-documents/block-structure";
 import {
+  createNfmEditorCollaborationOptions,
   createNfmEditorModeOptions,
   getNfmEditorInstanceKey,
   resolveNfmEditorBlockActionCapabilities,
@@ -33,25 +34,25 @@ function createCollaborativeSource(
 }
 
 describe("NfmEditor source boundary", () => {
-  test("builds collaboration options with no initialContent field", () => {
+  test("builds extension-backed collaboration options with stable surface identity", () => {
     const document = new Y.Doc({ guid: "document-1" });
     const fragment = document.getXmlFragment("body");
     const source = createCollaborativeSource(fragment);
-    const options = createNfmEditorModeOptions(source);
-    const collaboration = options.collaboration;
+    const collaboration = createNfmEditorCollaborationOptions(source);
+    const modeOptions = createNfmEditorModeOptions(source);
 
-    expect(Object.prototype.hasOwnProperty.call(options, "initialContent")).toBe(false);
-    expect(collaboration !== undefined).toBe(true);
-    expect(collaboration?.fragment ?? null).toBe(fragment);
-    expect(collaboration?.user.name ?? "").toBe("Local editor");
-    expect(createNfmEditorModeOptions(source).collaboration.transactionOrigin).toBe(
+    expect(collaboration.fragment).toBe(fragment);
+    expect(collaboration.user.name).toBe("Local editor");
+    expect(modeOptions.disableExtensions).toContain("history");
+    expect(modeOptions.initialContent).toEqual([{ type: "paragraph", id: "initialBlockId" }]);
+    expect(createNfmEditorCollaborationOptions(source).transactionOrigin).toBe(
       collaboration.transactionOrigin,
     );
     expect(
-      createNfmEditorModeOptions({
+      createNfmEditorCollaborationOptions({
         ...source,
         clientSessionId: "surface-2",
-      }).collaboration.transactionOrigin,
+      }).transactionOrigin,
     ).not.toBe(collaboration.transactionOrigin);
 
     document.destroy();

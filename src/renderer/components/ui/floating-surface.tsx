@@ -13,15 +13,42 @@ export const NODEX_FLOATING_SURFACE_DISMISS_EVENT = "codex:dismiss-tooltips";
 
 export const NODEX_FLOATING_SURFACE_AVAILABLE_WIDTH = "--nodex-floating-surface-available-width";
 export const NODEX_FLOATING_SURFACE_AVAILABLE_HEIGHT = "--nodex-floating-surface-available-height";
+export const NODEX_FLOATING_SURFACE_ANCHOR_WIDTH = "--nodex-floating-surface-anchor-width";
+export const NODEX_FLOATING_SURFACE_ANCHOR_HEIGHT = "--nodex-floating-surface-anchor-height";
+
+const OPEN_FLOATING_ESCAPE_LAYER_SELECTOR = [
+  '[data-slot="popover-content"][data-open]',
+  '[data-slot="dropdown-content"][data-open]',
+  '[data-slot="dropdown-submenu-content"][data-open]',
+  '[data-slot="context-menu-content"][data-open]',
+  '[data-slot="context-menu-subcontent"][data-open]',
+  '[data-slot="hover-card-content"][data-state="open"]',
+  '[data-slot="tooltip-content"][data-open]',
+].join(",");
 
 type FloatingSurfaceBoundaryStyle = CSSProperties & {
   [NODEX_FLOATING_SURFACE_AVAILABLE_WIDTH]?: string;
   [NODEX_FLOATING_SURFACE_AVAILABLE_HEIGHT]?: string;
+  [NODEX_FLOATING_SURFACE_ANCHOR_WIDTH]?: string;
+  [NODEX_FLOATING_SURFACE_ANCHOR_HEIGHT]?: string;
 };
 
 export function dismissNodexFloatingSurfaces(): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(NODEX_FLOATING_SURFACE_DISMISS_EVENT));
+}
+
+/**
+ * Reports whether a non-dialog floating layer currently owns Escape.
+ *
+ * Base UI normally stops Escape at the innermost popup. If its focused control
+ * becomes disabled or disappears, however, the event starts at `document` and
+ * independently registered Dialog and popup listeners can both dismiss. The
+ * Dialog boundary uses this live DOM contract to defer to the higher layer;
+ * the popup's own listener still performs its normal close and focus return.
+ */
+export function hasOpenNodexFloatingEscapeLayer(ownerDocument: Document): boolean {
+  return ownerDocument.querySelector(OPEN_FLOATING_ESCAPE_LAYER_SELECTOR) !== null;
 }
 
 let globalDismissalLeaseCount = 0;
@@ -66,10 +93,14 @@ export function useNodexFloatingSurfaceGlobalDismissal(): void {
 export function makeNodexFloatingSurfaceBoundaryStyle(
   availableWidth: string,
   availableHeight: string,
+  anchorWidth?: string,
+  anchorHeight?: string,
 ): FloatingSurfaceBoundaryStyle {
   return {
     [NODEX_FLOATING_SURFACE_AVAILABLE_WIDTH]: availableWidth,
     [NODEX_FLOATING_SURFACE_AVAILABLE_HEIGHT]: availableHeight,
+    [NODEX_FLOATING_SURFACE_ANCHOR_WIDTH]: anchorWidth,
+    [NODEX_FLOATING_SURFACE_ANCHOR_HEIGHT]: anchorHeight,
   };
 }
 

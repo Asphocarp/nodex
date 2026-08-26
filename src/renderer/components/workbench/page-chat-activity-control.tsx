@@ -156,7 +156,7 @@ export function PageChatActivityControl({
   };
   const handleTriggerClick = (event: MouseEvent<HTMLButtonElement>): void => {
     event.stopPropagation();
-    // Tooltip and Popover both compose this button through `asChild`. Own the
+    // Tooltip and Popover both compose this button. Own the
     // primary action here so production event composition cannot lose it.
     event.preventDefault();
     if (summary.soleSessionId) {
@@ -182,7 +182,7 @@ export function PageChatActivityControl({
       }}
     >
       <NodexTooltip tooltipContent={activity.accessibleLabel} side="top" delayOpen>
-        <NodexPopoverTrigger asChild>
+        <NodexPopoverTrigger>
           <button
             type="button"
             aria-label={activity.accessibleLabel}

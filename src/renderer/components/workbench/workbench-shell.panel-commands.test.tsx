@@ -67,12 +67,7 @@ describe("workbench session shell / panel-commands", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), {
-      button: 0,
-    });
-    await settleAsyncRender();
-
-    const menu = screen.getByRole("menu");
+    const menu = await openPanelMenu(screen, "Open side panel tab");
     expect(within(menu).getByText("DB View") !== null).toBe(true);
     expect(within(menu).getByText("Page") !== null).toBe(true);
     expect(within(menu).getByText("Canvas") !== null).toBe(true);
@@ -153,11 +148,8 @@ describe("workbench session shell / panel-commands", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), {
-      button: 0,
-    });
-    await settleAsyncRender();
-    fireEvent.click(screen.getByText("Review"));
+    const menu = await openPanelMenu(screen, "Open side panel tab");
+    fireEvent.click(within(menu).getByText("Review"));
     await settleAsyncRender();
     await settleAsyncRender();
 

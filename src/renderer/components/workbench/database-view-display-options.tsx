@@ -192,7 +192,7 @@ export function DatabaseViewDisplayOptions({
 
   return (
     <NodexPopover open={open} onOpenChange={handleOpenChange}>
-      <NodexPopoverTrigger asChild>
+      <NodexPopoverTrigger>
         <NodexIconButton
           icon={SlidersHorizontal}
           size="sm"

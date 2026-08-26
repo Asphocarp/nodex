@@ -1,6 +1,10 @@
+import { BlockNoteEditor, collectHighlightNodeTypes } from "@blocknote/core";
 import { describe, expect, test } from "vite-plus/test";
-import { editorCodeBlockOptions } from "./code-block-options";
+import { preloadBlockNoteDualThemeParser } from "@/lib/syntax-highlighting";
 import { codeLanguagePreference } from "@/lib/nfm/code-language-preference";
+import { editorCodeBlockOptions } from "./code-block-options";
+import { createNfmEditorExtensions } from "./nfm-editor-extensions";
+import { nfmSchema } from "./nfm-schema";
 
 const shikiParserSymbol = Symbol.for("blocknote.shikiParser");
 const shikiHighlighterPromiseSymbol = Symbol.for("blocknote.shikiHighlighterPromise");
@@ -39,20 +43,26 @@ describe("editorCodeBlockOptions", () => {
     }
   });
 
+  test("enables BlockNote's editor-wide syntax highlighter", () => {
+    const editor = BlockNoteEditor.create({
+      schema: nfmSchema,
+      extensions: createNfmEditorExtensions(),
+    });
+
+    expect(editor.extensions.has("syntaxHighlighting")).toBe(true);
+    expect(collectHighlightNodeTypes(nfmSchema)).toContain("codeBlock");
+    editor.unmount();
+  });
+
   test("seeds a dual-theme BlockNote parser for light and dark code blocks", async () => {
     clearBlockNoteShikiState();
     try {
-      const createHighlighter = editorCodeBlockOptions.createHighlighter;
-      if (!createHighlighter) {
-        throw new Error("Expected editor code block options to provide a highlighter.");
-      }
-
-      const highlighter = await createHighlighter();
+      const highlighter = await preloadBlockNoteDualThemeParser();
       await highlighter.loadLanguage("typescript");
 
       const parser = (globalThis as GlobalThisWithBlockNoteShiki)[shikiParserSymbol];
 
-      expect(typeof parser === "function").toBe(true);
+      expect(typeof parser).toBe("function");
       if (typeof parser !== "function") return;
 
       const content = "const answer = 42";

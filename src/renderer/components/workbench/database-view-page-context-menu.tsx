@@ -176,7 +176,7 @@ function ChatPicker({
         if (!open) onClose();
       }}
     >
-      <NodexPopoverAnchor asChild>
+      <NodexPopoverAnchor>
         <span
           aria-hidden="true"
           className="pointer-events-none fixed size-px"
@@ -194,7 +194,7 @@ function ChatPicker({
           className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-1"
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
-          onCloseAutoFocus={(event) => event.preventDefault()}
+          finalFocus={false}
         >
           <NfmSendToThreadMenu
             projectId={projectId}
@@ -282,6 +282,12 @@ export function DatabaseViewPageContextMenuOverlay({
   }, [chatPicker, menuOpen]);
 
   const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      handleMenuOpenChange(false);
+      return;
+    }
     if (event.key !== "ArrowDown") return;
     const firstItem = contentRef.current?.querySelector<HTMLElement>(
       '[role="menuitem"]:not([data-disabled])',

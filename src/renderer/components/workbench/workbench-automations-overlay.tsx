@@ -469,7 +469,7 @@ function AutomationSchedulePopover({
         if (!open) setTimePickerOpen(false);
       }}
     >
-      <NodexPopoverTrigger asChild>
+      <NodexPopoverTrigger>
         <button
           type="button"
           aria-label="Schedule"
@@ -610,7 +610,7 @@ function AutomationSchedulePopover({
                     className="overflow-y-scroll overscroll-contain rounded-lg border border-token-border bg-token-input-background/70 p-1"
                     style={{
                       maxHeight:
-                        "min(14rem, max(3.5rem, calc(var(--radix-popover-content-available-height) - 9rem)))",
+                        "min(14rem, max(3.5rem, calc(var(--nodex-floating-surface-available-height) - 9rem)))",
                     }}
                     onWheel={(event) => event.stopPropagation()}
                   >
@@ -1481,7 +1481,7 @@ function AutomationPreviousRunsContextMenu({
 
   return (
     <NodexContextMenuRoot open={menuOpen} onOpenChange={handleMenuOpenChange}>
-      <NodexContextMenuTrigger asChild>
+      <NodexContextMenuTrigger>
         <span className="contents" data-automation-previous-run-menu-region="true">
           <span className="contents" onContextMenu={handleContextMenu}>
             {children}

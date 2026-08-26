@@ -223,7 +223,7 @@ export function FileLinkAnchor({
       <NodexTooltip
         tooltipContent={tooltipLabel}
         side="top"
-        delayDuration={0}
+        delay={0}
         tooltipBodyClassName="font-mono text-xs leading-4"
       >
         {link}
@@ -321,7 +321,7 @@ export function FileLinkAnchor({
     <NodexTooltip
       tooltipContent={tooltipLabel}
       side="top"
-      delayDuration={0}
+      delay={0}
       tooltipBodyClassName="font-mono text-xs leading-4"
     >
       {fileReference}

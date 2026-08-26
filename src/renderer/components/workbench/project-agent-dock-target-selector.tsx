@@ -140,7 +140,7 @@ export function ProjectAgentDockTargetSelector({
         if (!nextOpen) onQueryChange("");
       }}
     >
-      <NodexPopoverTrigger asChild>
+      <NodexPopoverTrigger>
         <NodexDropdownButtonTrigger
           ref={triggerRef}
           aria-label={`Connected chat: ${model.trigger.label}${
@@ -168,8 +168,8 @@ export function ProjectAgentDockTargetSelector({
         side="top"
         sideOffset={6}
         className="w-[320px] max-w-[calc(100vw-24px)] overflow-hidden p-1"
-        onOpenAutoFocus={(event) => event.preventDefault()}
-        onCloseAutoFocus={(event) => event.preventDefault()}
+        initialFocus={false}
+        finalFocus={false}
       >
         <div className="flex h-8 items-center gap-1.5 px-1.5">
           <SearchIcon

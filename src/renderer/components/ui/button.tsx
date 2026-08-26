@@ -1,5 +1,5 @@
 import * as React from "react";
-import * as Slot from "@radix-ui/react-slot";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 import { NodexTooltip } from "./tooltip";
@@ -46,29 +46,25 @@ const nodexButtonVariants = cva(
 );
 
 export interface NodexButtonProps
-  extends Omit<React.ComponentProps<"button">, "title">, VariantProps<typeof nodexButtonVariants> {
-  asChild?: boolean;
+  extends
+    Omit<ButtonPrimitive.Props, "className" | "title">,
+    VariantProps<typeof nodexButtonVariants> {
+  className?: string;
 }
 
-export function NodexButton({
-  className,
-  variant,
-  size,
-  asChild = false,
-  type,
-  ...props
-}: NodexButtonProps) {
-  const Comp = asChild ? Slot.Root : "button";
-
-  return (
-    <Comp
-      data-slot="codex-button"
-      type={asChild ? undefined : (type ?? "button")}
-      className={cn(nodexButtonVariants({ variant, size, className }))}
-      {...props}
-    />
-  );
-}
+export const NodexButton = React.forwardRef<HTMLButtonElement, NodexButtonProps>(
+  function NodexButton({ className, variant, size, type, ...props }, ref) {
+    return (
+      <ButtonPrimitive
+        ref={ref}
+        data-slot="codex-button"
+        type={type ?? (props.render ? undefined : "button")}
+        className={cn(nodexButtonVariants({ variant, size, className }))}
+        {...props}
+      />
+    );
+  },
+);
 
 export interface NodexIconButtonProps extends React.ComponentProps<"button"> {
   icon: React.ComponentType<{ className?: string }>;

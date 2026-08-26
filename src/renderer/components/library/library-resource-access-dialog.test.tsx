@@ -94,7 +94,7 @@ describe("Library Project access drafts", () => {
     );
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByRole("button", { name: "Access for Product" }), {
+      fireEvent.mouseDown(screen.getByRole("button", { name: "Access for Product" }), {
         button: 0,
         ctrlKey: false,
       });

@@ -408,7 +408,7 @@ function PatchPathLink({
     <NodexTooltip
       tooltipContent={<span className="font-mono">{displayPath}</span>}
       side="top"
-      delayDuration={0}
+      delay={0}
       tooltipBodyClassName="font-mono text-xs leading-4"
     >
       <span

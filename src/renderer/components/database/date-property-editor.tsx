@@ -218,7 +218,7 @@ export function DatePropertyEditor({
       }}
     >
       {host === "popover" ? (
-        <NodexPopoverTrigger asChild disabled={disabled}>
+        <NodexPopoverTrigger disabled={disabled}>
           <button
             type="button"
             aria-label={`Edit ${label}`}

@@ -387,12 +387,12 @@ export function NfmEditorContextMenu({
 
   return (
     <NodexContextMenuRoot onOpenChange={handleOpenChange}>
-      <NodexContextMenuTrigger asChild>
+      <NodexContextMenuTrigger>
         <div className="contents">{children}</div>
       </NodexContextMenuTrigger>
       <NodexContextMenuPortal>
         <NodexContextMenuContent
-          onCloseAutoFocus={(event) => event.preventDefault()}
+          finalFocus={false}
           className="z-50 no-drag min-w-36 outline-hidden"
         >
           {content}

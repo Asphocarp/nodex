@@ -98,6 +98,7 @@ interface ShellRecord {
   revealed: boolean;
   readonly session: WindowSessionRecord;
   showWatchdogPending: boolean;
+  readonly webContentsId: number;
   readonly window: BrowserWindow;
 }
 
@@ -198,12 +199,12 @@ export const live = (
           const clearActivationWatchdog = (record: ShellRecord): void => {
             if (!record.activationWatchdogPending) return;
             record.activationWatchdogPending = false;
-            runWatchdog(watchdogKey("activation", record.window.webContents.id), Effect.void);
+            runWatchdog(watchdogKey("activation", record.webContentsId), Effect.void);
           };
           const clearShowWatchdog = (record: ShellRecord): void => {
             if (!record.showWatchdogPending) return;
             record.showWatchdogPending = false;
-            runWatchdog(watchdogKey("show", record.window.webContents.id), Effect.void);
+            runWatchdog(watchdogKey("show", record.webContentsId), Effect.void);
           };
           const reveal = (
             record: ShellRecord,
@@ -220,7 +221,7 @@ export const live = (
             logger.info("Canonical application window revealed", {
               reason,
               sessionId: record.session.id,
-              webContentsId: record.window.webContents.id,
+              webContentsId: record.webContentsId,
             });
           };
 
@@ -262,7 +263,7 @@ export const live = (
 
           const failRendererDocumentLoad = (record: ShellRecord, cause: unknown): void => {
             if (record.phase !== "loading") return;
-            const webContentsId = record.window.webContents.id;
+            const webContentsId = record.webContentsId;
             record.phase = "failed";
             clearActivationWatchdog(record);
             clearShowWatchdog(record);
@@ -337,6 +338,7 @@ export const live = (
                 backgroundThrottling: false,
               },
             });
+            const webContentsId = window.webContents.id;
             const record: ShellRecord = {
               activationWatchdogPending: false,
               gate: makeActivationGate(),
@@ -346,9 +348,9 @@ export const live = (
               revealed: false,
               session,
               showWatchdogPending: false,
+              webContentsId,
               window,
             };
-            const webContentsId = window.webContents.id;
             records.set(webContentsId, record);
             activationOrder.push(webContentsId);
 

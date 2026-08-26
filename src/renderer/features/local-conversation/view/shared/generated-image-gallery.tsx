@@ -197,7 +197,7 @@ function GeneratedImagePreview({
   imageNumber,
   onNextImage,
   onOpenChange,
-  onCloseAutoFocus,
+  finalFocus,
   onPreviousImage,
   onEditImage,
 }: {
@@ -206,7 +206,7 @@ function GeneratedImagePreview({
   imageNumber: number;
   onNextImage?: () => void;
   onOpenChange: (open: boolean) => void;
-  onCloseAutoFocus?: ComponentProps<typeof ImagePreviewDialog>["onCloseAutoFocus"];
+  finalFocus?: ComponentProps<typeof ImagePreviewDialog>["finalFocus"];
   onPreviousImage?: () => void;
   onEditImage?: () => void;
 }) {
@@ -227,7 +227,7 @@ function GeneratedImagePreview({
         entrypoint: "image_click",
         imageSource: "generated",
       }}
-      onCloseAutoFocus={onCloseAutoFocus}
+      finalFocus={finalFocus}
       onPreviousImage={onPreviousImage}
       onNextImage={onNextImage}
       onEditImage={onEditImage}
@@ -510,9 +510,9 @@ export function GeneratedImageGallery({
           availableImageCount={images.length}
           image={activePreviewImage}
           imageNumber={(previewIndex ?? 0) + 1}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
+          finalFocus={() => {
             previewTriggerRef.current?.focus();
+            return false;
           }}
           onOpenChange={handlePreviewOpenChange}
           onPreviousImage={

@@ -252,10 +252,13 @@ describe("DatabaseManagementSurface", () => {
     );
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("New View default layout"), {
+      const trigger = screen.getByLabelText("New View default layout");
+      fireEvent.pointerDown(trigger, {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await Promise.resolve();
     });
     expect(screen.getAllByRole("menuitem").map((option) => option.textContent)).toEqual([

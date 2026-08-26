@@ -14,7 +14,10 @@ import {
   RiMoreFill,
 } from "react-icons/ri";
 
-import { Components, useComponentsContext } from "../../editor/ComponentsContext.js";
+import {
+  Components,
+  useComponentsContext,
+} from "../../editor/ComponentsContext.js";
 import { useCreateBlockNote } from "../../hooks/useCreateBlockNote.js";
 import { useExtension } from "../../hooks/useExtension.js";
 import { useDictionary } from "../../i18n/dictionary.js";
@@ -22,7 +25,7 @@ import { CommentEditor } from "./CommentEditor.js";
 import { EmojiPicker } from "./EmojiPicker.js";
 import { ReactionBadge } from "./ReactionBadge.js";
 import { defaultCommentEditorSchema } from "./defaultCommentEditorSchema.js";
-import { useUser } from "./useUsers.js";
+import { useCommentUser } from "./useCommentUsers.js";
 
 type CommentEditorActionsProps = {
   isFocused: boolean;
@@ -226,7 +229,7 @@ export const Comment = ({
     });
   }, [thread.id, threadStore]);
 
-  const user = useUser(comment.userId);
+  const user = useCommentUser(comment.userId);
 
   if (!comment.body) {
     return null;

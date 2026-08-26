@@ -6,9 +6,7 @@ import { render, settleAsyncRender } from "@/test/dom";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 
 describe("nfm editor popover content", () => {
-  test("prevents open autofocus while still calling provided handlers", async () => {
-    let openAutoFocusCalls = 0;
-    let closeAutoFocusCalls = 0;
+  test("keeps editor selection focus stable while opening and closing", async () => {
     const focusProbe = document.createElement("button");
     focusProbe.type = "button";
     document.body.appendChild(focusProbe);
@@ -17,17 +15,10 @@ describe("nfm editor popover content", () => {
     try {
       const view = render(
         <NodexPopover>
-          <NodexPopoverTrigger asChild>
+          <NodexPopoverTrigger>
             <button type="button">Open editor popover</button>
           </NodexPopoverTrigger>
-          <NfmEditorPopoverContent
-            onOpenAutoFocus={() => {
-              openAutoFocusCalls += 1;
-            }}
-            onCloseAutoFocus={() => {
-              closeAutoFocusCalls += 1;
-            }}
-          >
+          <NfmEditorPopoverContent>
             <input aria-label="Picker search" />
           </NfmEditorPopoverContent>
         </NodexPopover>,
@@ -39,7 +30,6 @@ describe("nfm editor popover content", () => {
       });
 
       const input = view.getByRole("textbox", { name: "Picker search" });
-      expect(openAutoFocusCalls).toBe(1);
       expect(document.activeElement === input).toBe(false);
 
       await act(async () => {
@@ -47,7 +37,6 @@ describe("nfm editor popover content", () => {
         await settleAsyncRender();
       });
 
-      expect(closeAutoFocusCalls).toBe(1);
       expect(view.queryByRole("textbox", { name: "Picker search" }) === null).toBe(true);
     } finally {
       focusProbe.remove();

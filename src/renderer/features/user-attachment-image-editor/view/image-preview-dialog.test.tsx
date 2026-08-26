@@ -19,9 +19,9 @@ function FocusRestorePreview() {
         open={open}
         onOpenChange={setOpen}
         src={IMAGE_DATA_URL}
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
+        finalFocus={() => {
           triggerRef.current?.focus();
+          return false;
         }}
       />
     </TestQueryProvider>

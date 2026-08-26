@@ -67,7 +67,7 @@ vi.mock("@/lib/use-library-navigation", () => ({
 
 const openActions = async (): Promise<void> => {
   await act(async () => {
-    fireEvent.pointerDown(
+    fireEvent.mouseDown(
       screen.getByRole("button", {
         name: "Actions for Research",
       }),
@@ -153,7 +153,7 @@ describe("Library resource actions", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Manage access" }));
     const accessButton = await screen.findByRole("button", { name: "Access for Product" });
     await act(async () => {
-      fireEvent.pointerDown(accessButton, { button: 0, ctrlKey: false });
+      fireEvent.mouseDown(accessButton, { button: 0, ctrlKey: false });
       await Promise.resolve();
     });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Read & write" }));

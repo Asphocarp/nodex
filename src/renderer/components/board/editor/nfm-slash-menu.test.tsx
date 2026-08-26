@@ -1125,9 +1125,7 @@ describe("NfmSlashMenu", () => {
     expect(tooltip).not.toBeNull();
     expect(tooltip?.textContent).toBe("Plain text block");
     expect(tooltip?.textContent?.includes("Paragraph")).toBe(false);
-    const tooltipLayer = tooltip?.closest(
-      "[data-radix-popper-content-wrapper]",
-    ) as HTMLElement | null;
+    const tooltipLayer = tooltip?.closest('[data-slot="tooltip-positioner"]') as HTMLElement | null;
     expect(tooltipLayer?.style.zIndex).toBe(String(NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX));
   });
 

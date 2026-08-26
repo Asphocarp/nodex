@@ -10,11 +10,16 @@ import {
 import { BlockNoteViewRaw, TableHandlesController } from "@blocknote/react";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vite-plus/test";
 import "../../../globals.css";
-import { NodexDropdownContent, NodexDropdownItem } from "@/components/ui/dropdown";
+import {
+  NodexDropdownContent,
+  NodexDropdownItem,
+  NodexDropdownPortal,
+  NodexDropdownRoot,
+  NodexDropdownTrigger,
+} from "@/components/ui/dropdown";
 import { NodexPopover, NodexPopoverAnchor, NodexPopoverContent } from "@/components/ui/popover";
 import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-controller";
 import { NfmSideMenuOpenProvider } from "./nfm-side-menu";
@@ -30,6 +35,21 @@ const requireMountedEditorView = (editor: {
   const view = editor.prosemirrorView;
   if (!view) throw new Error("Expected a mounted editor view");
   return view;
+};
+
+const selectBlockText = (
+  editor: BlockNoteEditor,
+  view: EditorView,
+  blockId: string,
+  length: number,
+): void => {
+  editor.setTextCursorPosition(blockId, "start");
+  const from = editor.prosemirrorState.selection.from;
+  view.dispatch(
+    editor.prosemirrorState.tr.setSelection(
+      TextSelection.create(editor.prosemirrorState.doc, from, from + length),
+    ),
+  );
 };
 
 describe("BlockNote view lifecycle in Chromium", () => {
@@ -296,21 +316,23 @@ describe("BlockNote view lifecycle in Chromium", () => {
             formattingToolbar={() => (
               <div data-testid="formatting-toolbar-portal-probe">
                 <NodexPopover open>
-                  <NodexPopoverAnchor asChild>
+                  <NodexPopoverAnchor>
                     <button type="button">Nested action</button>
                   </NodexPopoverAnchor>
                   <NodexPopoverContent data-testid="formatting-toolbar-nested-popover">
                     Nested floating content
                   </NodexPopoverContent>
                 </NodexPopover>
-                <DropdownMenuPrimitive.Root open>
-                  <DropdownMenuPrimitive.Trigger>Nested menu</DropdownMenuPrimitive.Trigger>
-                  <DropdownMenuPrimitive.Portal>
+                <NodexDropdownRoot open>
+                  <NodexDropdownTrigger>
+                    <button type="button">Nested menu</button>
+                  </NodexDropdownTrigger>
+                  <NodexDropdownPortal>
                     <NodexDropdownContent data-testid="formatting-toolbar-nested-dropdown">
                       <NodexDropdownItem>Nested menu content</NodexDropdownItem>
                     </NodexDropdownContent>
-                  </DropdownMenuPrimitive.Portal>
-                </DropdownMenuPrimitive.Root>
+                  </NodexDropdownPortal>
+                </NodexDropdownRoot>
               </div>
             )}
           />
@@ -322,10 +344,7 @@ describe("BlockNote view lifecycle in Chromium", () => {
       await act(settleEditor);
       const mountedView = requireMountedEditorView(editor);
       await act(async () => {
-        const transaction = editor.prosemirrorState.tr.setSelection(
-          TextSelection.create(editor.prosemirrorState.doc, 2, 8),
-        );
-        mountedView.dispatch(transaction);
+        selectBlockText(editor, mountedView, "block-1", "Select".length);
         editor.focus();
         await settleEditor();
       });
@@ -384,11 +403,7 @@ describe("BlockNote view lifecycle in Chromium", () => {
       await act(settleEditor);
       const mountedView = requireMountedEditorView(editor);
       await act(async () => {
-        mountedView.dispatch(
-          editor.prosemirrorState.tr.setSelection(
-            TextSelection.create(editor.prosemirrorState.doc, 3, 8),
-          ),
-        );
+        selectBlockText(editor, mountedView, "block-1", "12345".length);
         editor.focus();
         await settleEditor();
       });

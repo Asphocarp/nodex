@@ -1,7 +1,8 @@
-import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
+import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
 import {
   createContext,
   forwardRef,
+  isValidElement,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -12,19 +13,28 @@ import {
   type PointerEventHandler,
   type ReactElement,
   type ReactNode,
+  type RefObject,
 } from "react";
 
+import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 import { NodexFloatingLayerProvider, useNodexFloatingLayerIndex } from "./floating-layer";
+import { makeNodexFloatingSurfaceBoundaryStyle } from "./floating-surface";
+import { handleNodexMenuItemClick, type NodexMenuSelectHandler } from "./menu-selection";
 import { nodexMenuSurfaceClassName } from "./menu-surface";
 
 const CONTEXT_MENU_BOUNDARY_STYLE: CSSProperties = {
-  maxWidth: "min(var(--radix-context-menu-content-available-width), calc(100vw - 16px))",
-  maxHeight: "min(var(--radix-context-menu-content-available-height), calc(100vh - 16px))",
+  ...makeNodexFloatingSurfaceBoundaryStyle(
+    "var(--available-width)",
+    "var(--available-height)",
+    "var(--anchor-width)",
+    "var(--anchor-height)",
+  ),
+  maxWidth: "min(var(--nodex-floating-surface-available-width), calc(100vw - 16px))",
+  maxHeight: "min(var(--nodex-floating-surface-available-height), calc(100vh - 16px))",
 };
 
-const CONTEXT_SUBMENU_MOTION_CLASS_NAME =
-  "data-[state=closed]:invisible data-[state=closed]:pointer-events-none";
+const CONTEXT_SUBMENU_MOTION_CLASS_NAME = "data-closed:invisible data-closed:pointer-events-none";
 
 const CONTEXT_MENU_ITEM_CLASS_NAME = cn(
   "no-drag group flex w-full items-center gap-1.5 rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden",
@@ -77,13 +87,55 @@ function ContextMenuSubmenuCoordinatorProvider({ children }: { readonly children
   );
 }
 
-export const NodexContextMenuRoot = ContextMenuPrimitive.Root;
-export const NodexContextMenuTrigger = ContextMenuPrimitive.Trigger;
-export const NodexContextMenuPortal = ContextMenuPrimitive.Portal;
-export const NodexContextMenuCheckboxItem = ContextMenuPrimitive.CheckboxItem;
-export const NodexContextMenuItemIndicator = ContextMenuPrimitive.ItemIndicator;
-export const NodexContextMenuRadioGroup = ContextMenuPrimitive.RadioGroup;
-export const NodexContextMenuRadioItem = ContextMenuPrimitive.RadioItem;
+export interface NodexContextMenuRootProps {
+  readonly children?: ReactNode;
+  readonly open?: boolean;
+  readonly defaultOpen?: boolean;
+  readonly disabled?: boolean;
+  readonly loopFocus?: boolean;
+  readonly onOpenChange?: (open: boolean) => void;
+}
+
+export function NodexContextMenuRoot({ onOpenChange, ...props }: NodexContextMenuRootProps) {
+  return (
+    <ContextMenuPrimitive.Root
+      {...props}
+      onOpenChange={onOpenChange ? (open) => onOpenChange(open) : undefined}
+    />
+  );
+}
+
+export interface NodexContextMenuTriggerProps {
+  readonly children: ReactElement;
+  readonly className?: string;
+  readonly disabled?: boolean;
+}
+
+export const NodexContextMenuTrigger = forwardRef<HTMLDivElement, NodexContextMenuTriggerProps>(
+  function NodexContextMenuTrigger({ children, ...props }, ref) {
+    if (!isValidElement(children)) {
+      throw new Error("NodexContextMenuTrigger requires one concrete child");
+    }
+    return (
+      <ContextMenuPrimitive.Trigger
+        ref={ref}
+        data-slot="context-menu-trigger"
+        render={children}
+        {...props}
+      />
+    );
+  },
+);
+
+export interface NodexContextMenuPortalProps {
+  readonly children?: ReactNode;
+  readonly container?: HTMLElement | ShadowRoot | RefObject<HTMLElement | ShadowRoot | null> | null;
+  readonly keepMounted?: boolean;
+}
+
+export function NodexContextMenuPortal(props: NodexContextMenuPortalProps) {
+  return <ContextMenuPrimitive.Portal data-slot="context-menu-portal" {...props} />;
+}
 
 function NodexContextMenuRowContent({
   children,
@@ -118,9 +170,13 @@ function NodexContextMenuRowContent({
   );
 }
 
-export interface NodexContextMenuItemProps extends ComponentPropsWithoutRef<
-  typeof ContextMenuPrimitive.Item
+export interface NodexContextMenuItemProps extends Omit<
+  ComponentPropsWithoutRef<"div">,
+  "onSelect"
 > {
+  readonly disabled?: boolean;
+  readonly closeOnClick?: boolean;
+  readonly onSelect?: NodexMenuSelectHandler;
   readonly leftSlot?: ReactNode;
   readonly rightSlot?: ReactNode;
   readonly tone?: "default" | "danger";
@@ -134,6 +190,9 @@ export const NodexContextMenuItem = forwardRef<HTMLDivElement, NodexContextMenuI
       leftSlot,
       rightSlot,
       tone = "default",
+      disabled = false,
+      onClick,
+      onSelect,
       onPointerEnter,
       onPointerMove,
       ...props
@@ -155,6 +214,10 @@ export const NodexContextMenuItem = forwardRef<HTMLDivElement, NodexContextMenuI
     return (
       <ContextMenuPrimitive.Item
         ref={ref}
+        disabled={disabled}
+        onClick={
+          disabled ? undefined : (event) => handleNodexMenuItemClick(event, onClick, onSelect)
+        }
         className={cn(
           CONTEXT_MENU_ITEM_CLASS_NAME,
           tone === "danger" && "text-token-error-foreground",
@@ -177,7 +240,7 @@ export interface NodexContextMenuSubmenuTriggerProps extends ComponentPropsWitho
   readonly rightSlot?: ReactNode;
 }
 
-/** A styled row for `NodexContextMenuSubmenu.trigger`, without another Radix trigger. */
+/** A styled, concrete row composed by `NodexContextMenuSubmenu`. */
 export const NodexContextMenuSubmenuTrigger = forwardRef<
   HTMLDivElement,
   NodexContextMenuSubmenuTriggerProps
@@ -200,9 +263,7 @@ export interface NodexContextMenuSubmenuProps {
   readonly renderContent: () => ReactNode;
   readonly contentClassName?: string;
   readonly alignOffset?: number;
-  readonly onContentFocusOutside?: ComponentPropsWithoutRef<
-    typeof ContextMenuPrimitive.SubContent
-  >["onFocusOutside"];
+  readonly onContentFocusOutside?: (event: Event) => void;
   readonly onOpenChange?: (open: boolean) => void;
 }
 
@@ -254,78 +315,148 @@ export function NodexContextMenuSubmenu({
     onOpenChangeRef.current?.(nextOpen);
   };
 
+  const handleOpenChange = (
+    nextOpen: boolean,
+    details: { readonly reason: string; readonly event: Event; cancel(): void },
+  ): void => {
+    if (!nextOpen && details.reason === "focus-out" && onContentFocusOutside) {
+      onContentFocusOutside(details.event);
+      if (details.event.defaultPrevented) {
+        details.cancel();
+        return;
+      }
+    }
+    commitOpen(nextOpen);
+  };
+
   const handlePointerActivation: PointerEventHandler<HTMLDivElement> = (event) => {
     if (event.defaultPrevented || event.pointerType === "touch" || disabled) return;
     commitOpen(true);
   };
 
   return (
-    <ContextMenuPrimitive.Sub open={open} onOpenChange={commitOpen}>
-      <ContextMenuPrimitive.SubTrigger
-        asChild
+    <ContextMenuPrimitive.SubmenuRoot open={open} onOpenChange={handleOpenChange}>
+      <ContextMenuPrimitive.SubmenuTrigger
+        render={trigger}
         disabled={disabled}
         data-nodex-context-menu-subtrigger="true"
         onPointerEnter={handlePointerActivation}
         onPointerMove={handlePointerActivation}
-      >
-        {trigger}
-      </ContextMenuPrimitive.SubTrigger>
+      />
       <ContextMenuPrimitive.Portal>
-        <NodexContextMenuSubContent
-          alignOffset={alignOffset}
-          onFocusOutside={onContentFocusOutside}
-          className={contentClassName}
-        >
+        <NodexContextMenuSubContent alignOffset={alignOffset} className={contentClassName}>
           {open ? renderContent() : null}
         </NodexContextMenuSubContent>
       </ContextMenuPrimitive.Portal>
-    </ContextMenuPrimitive.Sub>
+    </ContextMenuPrimitive.SubmenuRoot>
   );
 }
 
-export const NodexContextMenuContent = forwardRef<
-  HTMLDivElement,
-  ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
->(function NodexContextMenuContent({ children, className, style, ...props }, ref) {
-  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+export interface NodexContextMenuContentProps extends ComponentPropsWithoutRef<"div"> {
+  readonly align?: "start" | "center" | "end";
+  readonly alignOffset?: number;
+  readonly sideOffset?: number;
+  readonly collisionPadding?: number;
+  readonly finalFocus?:
+    | boolean
+    | RefObject<HTMLElement | null>
+    | (() => boolean | HTMLElement | null | void);
+}
 
-  return (
-    <ContextMenuPrimitive.Content
-      ref={ref}
-      data-slot="context-menu-content"
-      collisionPadding={8}
-      className={cn(nodexMenuSurfaceClassName, className)}
-      style={{ ...CONTEXT_MENU_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
-      {...props}
-      data-nodex-keyboard-scope="local"
-    >
-      <NodexFloatingLayerProvider zIndex={layerIndex}>
-        <ContextMenuSubmenuCoordinatorProvider>{children}</ContextMenuSubmenuCoordinatorProvider>
-      </NodexFloatingLayerProvider>
-    </ContextMenuPrimitive.Content>
-  );
-});
+export const NodexContextMenuContent = forwardRef<HTMLDivElement, NodexContextMenuContentProps>(
+  function NodexContextMenuContent(
+    {
+      children,
+      className,
+      style,
+      align,
+      alignOffset,
+      sideOffset,
+      collisionPadding = 8,
+      finalFocus,
+      ...props
+    },
+    ref,
+  ) {
+    const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+
+    return (
+      <ContextMenuPrimitive.Positioner
+        data-slot="context-menu-positioner"
+        align={align}
+        alignOffset={alignOffset}
+        sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
+        className={APP_SHELL_FLOATING_UI_LAYER_CLASS}
+        style={{ zIndex: layerIndex }}
+      >
+        <ContextMenuPrimitive.Popup
+          ref={ref}
+          finalFocus={finalFocus}
+          data-slot="context-menu-content"
+          className={cn(nodexMenuSurfaceClassName, className)}
+          style={{ ...CONTEXT_MENU_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
+          {...props}
+          data-nodex-keyboard-scope="local"
+        >
+          <NodexFloatingLayerProvider zIndex={layerIndex}>
+            <ContextMenuSubmenuCoordinatorProvider>
+              {children}
+            </ContextMenuSubmenuCoordinatorProvider>
+          </NodexFloatingLayerProvider>
+        </ContextMenuPrimitive.Popup>
+      </ContextMenuPrimitive.Positioner>
+    );
+  },
+);
+
+export interface NodexContextMenuSubContentProps extends ComponentPropsWithoutRef<"div"> {
+  readonly align?: "start" | "center" | "end";
+  readonly alignOffset?: number;
+  readonly sideOffset?: number;
+  readonly collisionPadding?: number;
+}
 
 export const NodexContextMenuSubContent = forwardRef<
   HTMLDivElement,
-  ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
->(function NodexContextMenuSubContent({ children, className, style, ...props }, ref) {
+  NodexContextMenuSubContentProps
+>(function NodexContextMenuSubContent(
+  {
+    children,
+    className,
+    style,
+    align,
+    alignOffset,
+    sideOffset = 0,
+    collisionPadding = 8,
+    ...props
+  },
+  ref,
+) {
   const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
 
   return (
-    <ContextMenuPrimitive.SubContent
-      ref={ref}
-      data-slot="context-menu-subcontent"
-      sideOffset={0}
-      collisionPadding={8}
-      className={cn(nodexMenuSurfaceClassName, CONTEXT_SUBMENU_MOTION_CLASS_NAME, className)}
-      style={{ ...CONTEXT_MENU_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
-      {...props}
-      data-nodex-keyboard-scope="local"
+    <ContextMenuPrimitive.Positioner
+      data-slot="context-menu-subpositioner"
+      align={align}
+      alignOffset={alignOffset}
+      sideOffset={sideOffset}
+      collisionPadding={collisionPadding}
+      className={APP_SHELL_FLOATING_UI_LAYER_CLASS}
+      style={{ zIndex: layerIndex }}
     >
-      <NodexFloatingLayerProvider zIndex={layerIndex}>
-        <ContextMenuSubmenuCoordinatorProvider>{children}</ContextMenuSubmenuCoordinatorProvider>
-      </NodexFloatingLayerProvider>
-    </ContextMenuPrimitive.SubContent>
+      <ContextMenuPrimitive.Popup
+        ref={ref}
+        data-slot="context-menu-subcontent"
+        className={cn(nodexMenuSurfaceClassName, CONTEXT_SUBMENU_MOTION_CLASS_NAME, className)}
+        style={{ ...CONTEXT_MENU_BOUNDARY_STYLE, zIndex: layerIndex, ...style }}
+        {...props}
+        data-nodex-keyboard-scope="local"
+      >
+        <NodexFloatingLayerProvider zIndex={layerIndex}>
+          <ContextMenuSubmenuCoordinatorProvider>{children}</ContextMenuSubmenuCoordinatorProvider>
+        </NodexFloatingLayerProvider>
+      </ContextMenuPrimitive.Popup>
+    </ContextMenuPrimitive.Positioner>
   );
 });

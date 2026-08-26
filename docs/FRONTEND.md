@@ -209,11 +209,11 @@ uses local state and a submit-time guard.
   recursively nested surfaces. Feature callers do not assign child-menu
   z-indexes or move them into clipping ancestors.
 - Context menus are constructed only through the deep module in
-  `src/renderer/components/ui/context-menu.tsx`; feature code does not import
-  Radix ContextMenu directly. That module owns immediate pointer activation,
-  same-level submenu coordination, pointer grace, lazy content mounting,
-  collision geometry, and the sole visual surface. Feature bodies supply
-  lightweight semantic rows and `renderContent` thunks, not eager editor trees.
+  `src/renderer/components/ui/context-menu.tsx`; feature code does not compose
+  third-party context-menu parts directly. That module owns immediate pointer
+  activation, same-level submenu coordination, pointer grace, lazy content
+  mounting, collision geometry, and the sole visual surface. Feature bodies
+  supply lightweight semantic rows and `renderContent` thunks, not eager editor trees.
   Repeated data surfaces mount one menu host around the surface and resolve the
   target from the context-menu event; they do not mount a complete Root and
   binding tree per row or card. Content or SubContent owns overflow, ring,
@@ -221,6 +221,18 @@ uses local state and a submit-time guard.
   dropdown Surface inside it.
 - Use the named layer constants in `src/renderer/lib/app-shell-layers.ts` and
   shared portal primitives. Exact layer values are executable code, not prose.
+- Base UI is the interaction engine behind Nodex-owned buttons, menus, dialogs,
+  popovers, tooltips, tabs, collapsibles, scroll areas, and sliders. Feature code
+  imports the app-owned modules under `src/renderer/components/ui/`, not
+  `@base-ui/react`; those modules translate library events and state into stable
+  Nodex props, `data-slot` hooks, CSS variables, focus rules, and layer ownership.
+- Floating UI is a geometry dependency, not a second component system. Direct
+  imports are limited to the small set of editor positioning controllers and UI
+  adapters audited by `verify:renderer-ui-boundaries`. A feature that only needs
+  a menu, popover, tooltip, or hover surface uses the Nodex primitive instead.
+- First-party and vendored editor source must not depend on Radix or its DOM/CSS
+  implementation tokens. The remaining Radix lockfile graph is an explicit
+  Excalidraw transitive exception and is not an app UI seam.
 
 ## Editors and collaborative surfaces
 

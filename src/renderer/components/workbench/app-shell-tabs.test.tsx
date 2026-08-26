@@ -96,11 +96,13 @@ function renderAppShellTabs(props: {
 }
 
 async function hoverTabThroughTooltipDelay(element: HTMLElement): Promise<void> {
+  const tooltipTrigger = element.parentElement;
+  if (!tooltipTrigger) throw new Error("Expected tab title tooltip trigger");
   vi.useFakeTimers();
   try {
     await act(async () => {
-      fireEvent.pointerMove(element);
-      fireEvent.mouseEnter(element);
+      fireEvent.pointerMove(tooltipTrigger, { pointerType: "mouse" });
+      fireEvent.mouseEnter(tooltipTrigger);
       await vi.advanceTimersByTimeAsync(300);
     });
   } finally {

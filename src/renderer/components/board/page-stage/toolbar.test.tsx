@@ -51,6 +51,8 @@ describe("page stage toolbar", () => {
       fireEvent.pointerDown(historyButton);
       fireEvent.click(historyButton);
       fireEvent.pointerDown(pageActionsButton, { button: 0, ctrlKey: false });
+      fireEvent.mouseDown(pageActionsButton, { button: 0, ctrlKey: false });
+      fireEvent.click(pageActionsButton);
       await Promise.resolve();
     });
     await act(async () => {
@@ -88,10 +90,13 @@ describe("page stage toolbar", () => {
       .join(",");
     expect(labels).toBe("Show raw,Full width,History,Page actions");
 
-    fireEvent.pointerDown(view.getByRole("button", { name: "Page actions" }), {
+    const trigger = view.getByRole("button", { name: "Page actions" });
+    fireEvent.pointerDown(trigger, {
       button: 0,
       ctrlKey: false,
     });
+    fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
     await settleAsyncRender();
 
     expect(view.getByRole("menuitem", { name: "Copy deeplink" })).toBeTruthy();
@@ -167,10 +172,13 @@ describe("page stage toolbar", () => {
     );
 
     await act(async () => {
-      fireEvent.pointerDown(view.getByRole("button", { name: "More ancestor pages" }), {
+      const trigger = view.getByRole("button", { name: "More ancestor pages" });
+      fireEvent.pointerDown(trigger, {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await Promise.resolve();
     });
     await act(async () => {

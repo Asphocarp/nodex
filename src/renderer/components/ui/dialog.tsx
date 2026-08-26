@@ -1,7 +1,8 @@
 import * as React from "react";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { CloseIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
+import { hasOpenNodexFloatingEscapeLayer } from "./floating-surface";
 
 export type NodexDialogSize = "narrow" | "compact" | "default" | "wide" | "large";
 
@@ -30,28 +31,104 @@ const NODEX_DIALOG_ACTION_STYLES = {
   ],
 } as const;
 
-export function NodexDialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="codex-dialog" {...props} />;
+export type NodexDialogDismissReason =
+  | "trigger"
+  | "outside"
+  | "escape"
+  | "close"
+  | "focus-out"
+  | "imperative"
+  | "none";
+
+export interface NodexDialogOpenChangeDetails {
+  reason: NodexDialogDismissReason;
+  cancel: () => void;
 }
 
-export function NodexDialogTrigger(props: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
-  return <DialogPrimitive.Trigger data-slot="codex-dialog-trigger" {...props} />;
+export interface NodexDialogProps {
+  children?: React.ReactNode;
+  open?: boolean;
+  defaultOpen?: boolean;
+  modal?: boolean | "trap-focus";
+  disablePointerDismissal?: boolean;
+  onOpenChange?: (open: boolean, details: NodexDialogOpenChangeDetails) => void;
+  onOpenChangeComplete?: (open: boolean) => void;
 }
 
-export function NodexDialogPortal(props: React.ComponentProps<typeof DialogPrimitive.Portal>) {
+function toNodexDialogDismissReason(
+  reason: DialogPrimitive.Root.ChangeEventReason,
+): NodexDialogDismissReason {
+  switch (reason) {
+    case "trigger-press":
+      return "trigger";
+    case "outside-press":
+      return "outside";
+    case "escape-key":
+      return "escape";
+    case "close-press":
+      return "close";
+    case "focus-out":
+      return "focus-out";
+    case "imperative-action":
+      return "imperative";
+    case "none":
+      return "none";
+  }
+}
+
+export function NodexDialog({ onOpenChange, ...props }: NodexDialogProps) {
+  return (
+    <DialogPrimitive.Root
+      {...props}
+      onOpenChange={(open, details) => {
+        if (
+          !open &&
+          details.reason === "escape-key" &&
+          hasOpenNodexFloatingEscapeLayer(details.event.view?.document ?? document)
+        ) {
+          details.cancel();
+          return;
+        }
+        onOpenChange?.(open, {
+          reason: toNodexDialogDismissReason(details.reason),
+          cancel: details.cancel,
+        });
+      }}
+    />
+  );
+}
+
+export function NodexDialogTrigger({
+  children,
+  ...props
+}: Omit<DialogPrimitive.Trigger.Props, "render" | "children"> & {
+  children: React.ReactNode;
+}) {
+  if (!React.isValidElement(children)) {
+    throw new Error("NodexDialogTrigger requires one concrete interactive child");
+  }
+  return <DialogPrimitive.Trigger data-slot="codex-dialog-trigger" render={children} {...props} />;
+}
+
+export function NodexDialogPortal(props: DialogPrimitive.Portal.Props) {
   return <DialogPrimitive.Portal data-slot="codex-dialog-portal" {...props} />;
 }
 
-export function NodexDialogClose(props: React.ComponentProps<typeof DialogPrimitive.Close>) {
-  return <DialogPrimitive.Close data-slot="codex-dialog-close" {...props} />;
+export function NodexDialogClose({
+  children,
+  ...props
+}: Omit<DialogPrimitive.Close.Props, "render" | "children"> & {
+  children: React.ReactNode;
+}) {
+  if (!React.isValidElement(children)) {
+    throw new Error("NodexDialogClose requires one concrete interactive child");
+  }
+  return <DialogPrimitive.Close data-slot="codex-dialog-close" render={children} {...props} />;
 }
 
-export function NodexDialogOverlay({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+export function NodexDialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
   return (
-    <DialogPrimitive.Overlay
+    <DialogPrimitive.Backdrop
       data-slot="codex-dialog-overlay"
       className={cn("codex-dialog-overlay fixed inset-0 z-50 bg-[#00000022]", className)}
       {...props}
@@ -70,7 +147,7 @@ export function NodexDialogContent({
   size = "default",
   unstyledContent = false,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+}: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
   overlayClassName?: string;
   closeButtonAriaLabel?: string;
@@ -82,7 +159,7 @@ export function NodexDialogContent({
   return (
     <NodexDialogPortal>
       <NodexDialogOverlay className={overlayClassName} />
-      <DialogPrimitive.Content
+      <DialogPrimitive.Popup
         data-slot="codex-dialog-content"
         className={cn(
           "codex-dialog fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 outline-none",
@@ -109,7 +186,7 @@ export function NodexDialogContent({
             <CloseIcon className={closeIconClassName ?? "icon-xs"} />
           </DialogPrimitive.Close>
         ) : null}
-      </DialogPrimitive.Content>
+      </DialogPrimitive.Popup>
     </NodexDialogPortal>
   );
 }
@@ -179,10 +256,7 @@ export function NodexDialogFooter({
   );
 }
 
-export function NodexDialogTitle({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Title>) {
+export function NodexDialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="codex-dialog-title"
@@ -192,10 +266,7 @@ export function NodexDialogTitle({
   );
 }
 
-export function NodexDialogDescription({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Description>) {
+export function NodexDialogDescription({ className, ...props }: DialogPrimitive.Description.Props) {
   return (
     <DialogPrimitive.Description
       data-slot="codex-dialog-description"

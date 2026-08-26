@@ -35,9 +35,11 @@ describe("toolbar dropdown menu", () => {
       await Promise.resolve();
     });
 
-    const content = view.container.ownerDocument.body.querySelector("[data-radix-menu-content]");
+    const content = view.container.ownerDocument.body.querySelector(
+      '[data-slot="dropdown-content"]',
+    );
     const selectedItem = view.container.ownerDocument.body.querySelector(
-      '[data-radix-collection-item][data-reasoning-selected="true"]',
+      '[data-slot="dropdown-item"][data-reasoning-selected="true"]',
     );
 
     expect(content).not.toBeNull();

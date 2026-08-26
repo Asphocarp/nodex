@@ -340,16 +340,14 @@ export function ImageRemoveEditor({
         </div>
         <div className="absolute top-1/2 left-4 flex -translate-y-1/2 items-center">
           <NodexSlider
-            aria-label="Brush size"
             className="relative flex h-40 w-5 touch-none items-center justify-center select-none"
-            inverted
             max={IMAGE_REMOVE_BRUSH_MAX}
             min={IMAGE_REMOVE_BRUSH_MIN}
             orientation="vertical"
             step={IMAGE_REMOVE_BRUSH_STEP}
             value={[brushSize]}
             onValueChange={(value) => {
-              const nextBrushSize = value[0];
+              const nextBrushSize = typeof value === "number" ? value : value[0];
               if (nextBrushSize === undefined) return;
               hideCursor();
               setBrushSize(nextBrushSize);
@@ -357,8 +355,11 @@ export function ImageRemoveEditor({
           >
             <NodexSliderTrack className="relative h-full w-3 overflow-visible bg-transparent text-token-foreground/30">
               <ImageRemoveBrushTrackShape className="absolute inset-0 h-full w-full" />
+              <NodexSliderThumb
+                aria-label="Brush size"
+                className="block h-4 w-4 cursor-interaction rounded-full border border-token-border bg-token-editor-background shadow-md focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border"
+              />
             </NodexSliderTrack>
-            <NodexSliderThumb className="block h-4 w-4 cursor-interaction rounded-full border border-token-border bg-token-editor-background shadow-md focus:outline-none focus-visible:ring-1 focus-visible:ring-token-focus-border" />
           </NodexSlider>
         </div>
       </div>

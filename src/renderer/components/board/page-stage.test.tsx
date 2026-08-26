@@ -267,10 +267,13 @@ describe("page stage", () => {
     expect(getByText("Mock collaborative editor")).toBeTruthy();
     expect(queryByText("Inline property strip")).toBeNull();
 
-    fireEvent.pointerDown(getByRole("button", { name: "Page actions" }), {
+    const trigger = getByRole("button", { name: "Page actions" });
+    fireEvent.pointerDown(trigger, {
       button: 0,
       ctrlKey: false,
     });
+    fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
     await settleAsyncRender();
 
     expect(queryByRole("menuitem", { name: "Copy deeplink" })).toBeTruthy();
@@ -288,10 +291,13 @@ describe("page stage", () => {
     try {
       const { getByRole } = renderStage();
 
-      fireEvent.pointerDown(getByRole("button", { name: "Page actions" }), {
+      const trigger = getByRole("button", { name: "Page actions" });
+      fireEvent.pointerDown(trigger, {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await settleAsyncRender();
 
       fireEvent.click(getByRole("menuitem", { name: "Copy deeplink" }));

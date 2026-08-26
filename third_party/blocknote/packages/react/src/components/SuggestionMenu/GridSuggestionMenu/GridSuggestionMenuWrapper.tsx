@@ -4,6 +4,7 @@ import { FC, useCallback, useEffect } from "react";
 
 import { useBlockNoteContext } from "../../../editor/BlockNoteContext.js";
 import { useBlockNoteEditor } from "../../../hooks/useBlockNoteEditor.js";
+import { getSuggestionMenuItemId } from "../getSuggestionMenuItemId.js";
 import { useCloseSuggestionMenuNoItems } from "../hooks/useCloseSuggestionMenuNoItems.js";
 import { useLoadSuggestionMenuItems } from "../hooks/useLoadSuggestionMenuItems.js";
 import { useSuggestionMenuFreshness } from "../hooks/useSuggestionMenuFreshness.js";
@@ -103,9 +104,7 @@ export function GridSuggestionMenuWrapper<Item>(props: {
   useEffect(() => {
     setContentEditableProps((p) => ({
       ...p,
-      "aria-activedescendant": selectedIndex
-        ? "bn-suggestion-menu-item-" + selectedIndex
-        : undefined,
+      "aria-activedescendant": getSuggestionMenuItemId(selectedIndex),
     }));
     return () => {
       setContentEditableProps((p) => ({

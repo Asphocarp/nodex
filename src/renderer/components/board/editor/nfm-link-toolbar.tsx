@@ -280,9 +280,9 @@ function NfmCreateLinkPopover({
           dict.generic.ctrl_shortcut,
         )}
         side="top"
-        delayDuration={0}
+        delay={0}
       >
-        <NodexPopoverTrigger asChild>
+        <NodexPopoverTrigger nativeButton={!renderTrigger}>
           {renderTrigger ? (
             renderTrigger(triggerProps)
           ) : (

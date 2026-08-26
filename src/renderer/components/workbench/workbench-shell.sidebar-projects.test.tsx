@@ -904,10 +904,13 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("Project actions for Beta"), {
+      const trigger = screen.getByLabelText("Project actions for Beta");
+      fireEvent.pointerDown(trigger, {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await Promise.resolve();
     });
 
@@ -1266,10 +1269,13 @@ describe("workbench session shell / sidebar-projects", () => {
     const projectsSection = getSidebarSection(screen.container, "Projects");
 
     await act(async () => {
-      fireEvent.pointerDown(within(projectsSection).getByLabelText("Project sidebar options"), {
+      const trigger = within(projectsSection).getByLabelText("Project sidebar options");
+      fireEvent.pointerDown(trigger, {
         button: 0,
         ctrlKey: false,
       });
+      fireEvent.mouseDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
       await Promise.resolve();
     });
 
