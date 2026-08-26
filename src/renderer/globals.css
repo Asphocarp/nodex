@@ -427,14 +427,54 @@
 }
 
 .nfm-editor .bn-block[data-content-type="quote"] {
-  border-left: 2px solid rgb(125, 121, 122);
-  padding-left: 1em;
-  color: rgb(125, 121, 122);
+  --nfm-quote-outer-inset: 8px;
+  --nfm-quote-rule-width: 3px;
+  --nfm-quote-content-gap: 22px;
+
+  position: relative;
+  padding-block: var(--nfm-quote-outer-inset);
+  padding-inline-start: calc(
+    var(--nfm-quote-outer-inset) + var(--nfm-quote-rule-width) + var(--nfm-quote-content-gap)
+  );
+  padding-inline-end: calc(var(--nfm-quote-outer-inset) + var(--nfm-quote-content-gap));
+}
+
+/* The rule belongs to the semantic container so direct children remain inside the same quote. */
+.nfm-editor .bn-block[data-content-type="quote"]::before {
+  content: "";
+  position: absolute;
+  inset-block: var(--nfm-quote-outer-inset);
+  inset-inline-start: var(--nfm-quote-outer-inset);
+  width: var(--nfm-quote-rule-width);
+  background-color: currentColor;
+  pointer-events: none;
+}
+
+.nfm-editor .bn-block[data-content-type="quote"] > .bn-block-content[data-content-type="quote"] {
+  position: relative;
+  padding: 0;
+}
+
+.nfm-editor
+  .bn-block-content[data-content-type="quote"]:has(.ProseMirror-trailingBreak:only-child)::after {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  overflow: hidden;
+  margin-inline: 0;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nfm-editor .bn-block[data-content-type="quote"] blockquote {
-  border-left: 0;
-  padding-left: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  fill: inherit;
+  font-size: 1em;
 }
 /* ===== NFM Toggle Styling ===== */
 

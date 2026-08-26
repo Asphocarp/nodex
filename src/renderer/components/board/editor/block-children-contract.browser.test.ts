@@ -3,6 +3,7 @@ import type { PartialBlock } from "@blocknote/core";
 import { afterEach, describe, expect, test } from "vite-plus/test";
 
 import { nfmSchema } from "./nfm-schema";
+import { createNfmEditorPlaceholders } from "./nfm-editor-placeholders";
 import "../../../globals.css";
 
 const mountedEditors: BlockNoteEditor<any, any, any>[] = [];
@@ -12,8 +13,11 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const mountEditor = (initialContent: PartialBlock<any, any, any>[]) => {
-  const editor = BlockNoteEditor.create({ schema: nfmSchema, initialContent });
+const mountEditor = (
+  initialContent: PartialBlock<any, any, any>[],
+  placeholders?: Record<string, string | undefined>,
+) => {
+  const editor = BlockNoteEditor.create({ schema: nfmSchema, initialContent, placeholders });
   const host = document.createElement("div");
   host.className = "nfm-editor";
   document.body.append(host);
@@ -81,7 +85,7 @@ describe("Block children contract in Chromium", () => {
     const quotedChild = host.querySelector<HTMLElement>('.bn-block[data-id="quoted"]');
     expect(quote?.dataset.childrenLayout).toBe("enclosed");
     expect(quote?.contains(quotedChild ?? null)).toBe(true);
-    expect(getComputedStyle(quote!).borderLeftWidth).toBe("2px");
+    expect(getComputedStyle(quote!, "::before").width).toBe("3px");
 
     editor.replaceBlocks(
       ["atomic"],
@@ -95,5 +99,69 @@ describe("Block children contract in Chromium", () => {
     );
     expect(editor.getBlock("forbidden")).toBeUndefined();
     expect(editor.getBlock("atomic")?.children).toHaveLength(0);
+  });
+
+  test("matches the quote rhythm while keeping its rule coupled to text color", () => {
+    const { host } = mountEditor([
+      {
+        id: "quote",
+        type: "quote",
+        props: { textColor: "red" },
+        content: "quote-line1\nquote-line2",
+      },
+    ]);
+
+    const quote = host.querySelector<HTMLElement>('.bn-block[data-id="quote"]')!;
+    const quoteContent = quote.querySelector<HTMLElement>(
+      ':scope > .bn-block-content[data-content-type="quote"]',
+    )!;
+    const blockquote = quoteContent.querySelector<HTMLElement>("blockquote")!;
+    const quoteStyle = getComputedStyle(quote);
+    const quoteRuleStyle = getComputedStyle(quote, "::before");
+    const quoteContentStyle = getComputedStyle(quoteContent);
+    const blockquoteStyle = getComputedStyle(blockquote);
+
+    expect(quoteStyle.paddingBlockStart).toBe("8px");
+    expect(quoteStyle.paddingBlockEnd).toBe("8px");
+    expect(quoteStyle.paddingInlineStart).toBe("33px");
+    expect(quoteStyle.paddingInlineEnd).toBe("30px");
+    expect(quoteRuleStyle.insetBlockStart).toBe("8px");
+    expect(quoteRuleStyle.insetBlockEnd).toBe("8px");
+    expect(quoteRuleStyle.insetInlineStart).toBe("8px");
+    expect(quoteRuleStyle.width).toBe("3px");
+    expect(quoteRuleStyle.backgroundColor).toBe(quoteStyle.color);
+    expect(quoteContentStyle.paddingBlockStart).toBe("0px");
+    expect(quoteContentStyle.paddingInlineStart).toBe("0px");
+    expect(blockquoteStyle.color).toBe(quoteStyle.color);
+    expect(blockquoteStyle.fontSize).toBe("16px");
+    expect(blockquoteStyle.lineHeight).toBe("24px");
+    expect(quote.getBoundingClientRect().height).toBe(64);
+    expect(blockquote.getBoundingClientRect().height).toBe(48);
+  });
+
+  test("keeps an empty focused quote on one line with a local placeholder", () => {
+    const { editor, host } = mountEditor(
+      [{ id: "quote", type: "quote", content: "" }],
+      createNfmEditorPlaceholders("Add description…"),
+    );
+    editor.setTextCursorPosition("quote", "start");
+
+    const quote = host.querySelector<HTMLElement>('.bn-block[data-id="quote"]')!;
+    const quoteContent = quote.querySelector<HTMLElement>(
+      ':scope > .bn-block-content[data-content-type="quote"]',
+    )!;
+    const blockquote = quoteContent.querySelector<HTMLElement>("blockquote")!;
+    const placeholderStyle = getComputedStyle(quoteContent, "::after");
+
+    expect(quoteContent.dataset.isEmptyAndFocused).toBe("true");
+    expect(placeholderStyle.content).toBe('"Empty quote"');
+    expect(placeholderStyle.position).toBe("absolute");
+    expect(placeholderStyle.insetInlineStart).toBe("0px");
+    expect(placeholderStyle.insetInlineEnd).toBe("0px");
+    expect(placeholderStyle.fontStyle).toBe("normal");
+    expect(placeholderStyle.whiteSpace).toBe("nowrap");
+    expect(quoteContent.scrollWidth).toBe(quoteContent.clientWidth);
+    expect(quote.getBoundingClientRect().height).toBe(40);
+    expect(blockquote.getBoundingClientRect().height).toBe(24);
   });
 });

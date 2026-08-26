@@ -235,7 +235,7 @@ function BlockComponent({
       return (
         <blockquote
           className={cn(
-            "my-2 border-l-[calc(var(--spacing)*0.75)] border-(--border) pl-4 text-(--foreground-secondary)",
+            "m-2 border-s-[3px] border-current px-[22px] text-[1em] leading-[1.5]",
             colorClass,
           )}
         >
