@@ -33,6 +33,7 @@ import {
   codexSidebarProjectThreadContainerId,
   isCodexSidebarPinnedThreadContainerId,
 } from "../../../shared/codex-sidebar-thread-move";
+import { createUuidV7 } from "../../../shared/uuid-v7";
 import { SidebarDropIndicator } from "./sidebar-drop-indicator";
 import {
   PINNED_PROJECT_CONTAINER_ID,
@@ -195,11 +196,8 @@ const SidebarThreadReorderContext = createContext<SidebarThreadReorderContextVal
   reportError: DEFAULT_REPORT_ERROR,
 });
 
-let nextSidebarThreadDropOperationId = 0;
-
 function createSidebarThreadDropOperationId(): string {
-  nextSidebarThreadDropOperationId += 1;
-  return `sidebar-thread-drop:${nextSidebarThreadDropOperationId}`;
+  return `sidebar-thread-drop:${createUuidV7()}`;
 }
 
 export function readSidebarThreadDndPayload(value: unknown): SidebarThreadDndPayload | null {

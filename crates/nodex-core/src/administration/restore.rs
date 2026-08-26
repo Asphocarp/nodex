@@ -11,8 +11,9 @@ use crate::domain::derived_records::parse_asset_source;
 use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadRepository, DocumentReadiness, DocumentSyncEngine,
 };
+use crate::infrastructure::migration::validate_profile_clone_source;
 use crate::infrastructure::sqlite::{
-    StoreError, StoreErrorCode, open_immutable_reader, open_writer, validate_store,
+    StoreError, StoreErrorCode, open_immutable_reader, open_reader, open_writer, validate_store,
     with_immediate_transaction,
 };
 use crate::infrastructure::store::STORE_FILE_NAME;
@@ -51,7 +52,7 @@ pub(super) fn install_restore(
     request: InstallRestoreRequest<'_>,
 ) -> Result<RestoreInstallation, StoreError> {
     let database_path = request.profile_home.join(STORE_FILE_NAME);
-    let source = open_writer(&database_path)?;
+    let source = open_reader(&database_path)?;
     validate_identity(&source, request.profile_id, request.library_id)?;
     let source_store_epoch = read_store_epoch(&source)?;
     if source_store_epoch != request.requested_store_epoch {
@@ -122,7 +123,7 @@ pub(super) fn install_restore(
     };
 
     if request.create_safety_backup && journal.safety_backup_id.is_none() {
-        let source = open_writer(&database_path)?;
+        let source = open_reader(&database_path)?;
         let safety = backup::create_safety_backup(
             &source,
             request.profile_home,
@@ -326,6 +327,10 @@ pub(super) fn rotate_installed_store_epoch(
                    END;",
             )?;
             crate::infrastructure::local_commit::rebase_store_epoch(transaction, installed_epoch)?;
+            // Detached receipts describe delivery evidence that intentionally
+            // is no longer present. A Store replacement rotates the authority
+            // epoch, so those old-epoch retry identities must not cross it.
+            transaction.execute("DELETE FROM detached_module_receipts", [])?;
             transaction.execute(
                 "UPDATE core_module_receipts \
                  SET store_epoch = ?1, \
@@ -365,6 +370,7 @@ pub(super) fn validate_candidate(
         profile_id,
         library_id,
         MissingAssetPolicy::Reject,
+        true,
     )?
     .store_epoch)
 }
@@ -384,13 +390,21 @@ pub(super) fn validate_profile_snapshot_candidate(
     library_id: &str,
 ) -> Result<ProfileSnapshotCandidateValidation, StoreError> {
     let connection = open_immutable_reader(database_path)?;
-    validate_candidate_semantics(
+    let store_schema_version = validate_profile_clone_source(&connection)?;
+    let validation = validate_candidate_semantics(
         &connection,
         assets_root,
         profile_id,
         library_id,
         MissingAssetPolicy::Preserve,
-    )
+        false,
+    )?;
+    if i64::from(validation.store_schema_version) != store_schema_version {
+        return Err(corrupt(
+            "Profile clone validation observed inconsistent Store revisions",
+        ));
+    }
+    Ok(validation)
 }
 
 fn validate_candidate_semantics(
@@ -399,9 +413,12 @@ fn validate_candidate_semantics(
     profile_id: &str,
     library_id: &str,
     missing_asset_policy: MissingAssetPolicy,
+    validate_documents: bool,
 ) -> Result<ProfileSnapshotCandidateValidation, StoreError> {
     validate_codex_thread_timestamp_invariants(connection)?;
-    validate_restore_documents(connection)?;
+    if validate_documents {
+        validate_restore_documents(connection)?;
+    }
     validate_identity(connection, profile_id, library_id)?;
     validate_document_authorities(connection)?;
     let store_schema_version =
@@ -457,14 +474,77 @@ fn validate_document_authorities(connection: &Connection) -> Result<(), StoreErr
                 head.id
             )));
         }
-        let authority = read_document_authority(connection, &head.id)?
-            .ok_or_else(|| corrupt("Restore candidate Document has no owning Block"))?;
+        let authority = match read_document_authority(connection, &head.id) {
+            Ok(Some(authority)) => authority,
+            Ok(None) => {
+                return Err(corrupt(
+                    "Restore candidate Document has no durable authority",
+                ));
+            }
+            Err(_) if is_retained_unowned_document(connection, &head)? => continue,
+            Err(error) => return Err(error),
+        };
         match head.sync_engine {
             DocumentSyncEngine::Yjs => {}
             DocumentSyncEngine::CanvasScene => validate_canvas_projection(connection, &authority)?,
         }
     }
     Ok(())
+}
+
+/// An unowned Document is valid only while an exact durable retention authority
+/// keeps its closure alive: either a deleted Block tombstone, or an active
+/// structural clipboard/Undo lease. These Documents must survive backup and
+/// restore even though ordinary editing authority has intentionally ended.
+fn is_retained_unowned_document(
+    connection: &Connection,
+    head: &crate::infrastructure::document_repository::DocumentHeadRow,
+) -> Result<bool, StoreError> {
+    connection
+        .query_row(
+            "SELECT \
+               EXISTS(\
+                 SELECT 1 FROM document_block_tombstones tombstone \
+                 JOIN blocks block ON block.id = tombstone.block_id \
+                   AND block.library_id = tombstone.library_id \
+                 WHERE tombstone.document_id = ?1 \
+                   AND tombstone.library_id = ?2 \
+                   AND tombstone.document_generation = ?3 \
+                   AND tombstone.deletion_head_seq <= ?4 \
+                   AND block.lifecycle = 'deleted' \
+                   AND block.placement_revision = tombstone.placement_revision \
+                   AND NOT EXISTS (\
+                     SELECT 1 FROM block_documents ownership \
+                     WHERE ownership.document_id = tombstone.document_id\
+                   )\
+               ) \
+               OR EXISTS(\
+                 SELECT 1 FROM structural_retention_members member \
+                 WHERE member.library_id = ?2 \
+                   AND member.member_kind = 'document' \
+                   AND member.member_id = ?1 \
+                   AND NOT EXISTS (\
+                     SELECT 1 FROM block_documents ownership \
+                     WHERE ownership.document_id = member.member_id\
+                   ) \
+                   AND (\
+                     (member.authority_kind = 'clipboard_bundle' AND EXISTS (\
+                       SELECT 1 FROM structural_clipboard_leases lease \
+                       WHERE lease.bundle_id = member.authority_id \
+                         AND lease.state = 'active'\
+                     )) \
+                     OR (member.authority_kind = 'history_recipe' AND EXISTS (\
+                       SELECT 1 FROM structural_history_recipes recipe \
+                       WHERE recipe.recipe_operation_id = member.authority_id \
+                         AND recipe.library_id = member.library_id \
+                         AND recipe.state = 'available'\
+                     ))\
+                   )\
+               )",
+            params![head.id, head.library_id, head.generation, head.head_seq],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(StoreError::from)
 }
 
 fn validate_canvas_projection(
@@ -779,7 +859,53 @@ fn io_error(error: std::io::Error) -> StoreError {
 mod tests {
     use tempfile::tempdir;
 
+    use crate::infrastructure::store::SqliteStoreKernel;
+
     use super::*;
+
+    #[test]
+    fn retained_tombstoned_documents_are_part_of_the_restore_closure() {
+        let home = tempdir().expect("Profile");
+        let kernel = SqliteStoreKernel::open_test(home.path()).expect("current Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute_batch(
+                    "INSERT INTO profiles(id, created_at, updated_at) \
+                       VALUES ('profile:restore', '2026-08-26T00:00:00.000Z', \
+                         '2026-08-26T00:00:00.000Z'); \
+                     INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                       VALUES ('library:restore', 'profile:restore', \
+                         '2026-08-26T00:00:00.000Z', '2026-08-26T00:00:00.000Z'); \
+                     INSERT INTO blocks(\
+                       id, library_id, type, lifecycle, placement_revision, \
+                       metadata_revision, created_at, updated_at\
+                     ) VALUES (\
+                       'block:deleted-owner', 'library:restore', 'paragraph', 'deleted', 2, 1, \
+                       '2026-08-26T00:00:00.000Z', '2026-08-26T00:00:00.000Z'\
+                     ); \
+                     INSERT INTO documents(\
+                       id, library_id, generation, head_seq, schema_key, schema_version, \
+                       state_vector, state_hash, readiness, authority, created_at, updated_at, \
+                       sync_engine\
+                     ) VALUES (\
+                       'document:retained', 'library:restore', 1, 4, 'nodex.page', 3, X'', '', \
+                       'ready', 'ydoc_primary', '2026-08-26T00:00:00.000Z', \
+                       '2026-08-26T00:00:00.000Z', 'yjs'\
+                     ); \
+                     INSERT INTO document_block_tombstones(\
+                       block_id, library_id, document_id, document_generation, \
+                       deletion_head_seq, placement_revision, deleted_at\
+                     ) VALUES (\
+                       'block:deleted-owner', 'library:restore', 'document:retained', 1, 5, 2, \
+                       '2026-08-26T00:00:00.000Z'\
+                     ); \
+                     UPDATE documents SET head_seq = 5 WHERE id = 'document:retained';",
+                )?;
+                validate_document_authorities(connection)
+            })
+            .expect("retained tombstone authority");
+    }
 
     #[test]
     fn snapshot_asset_validation_preserves_missing_evidence_that_restore_rejects() {

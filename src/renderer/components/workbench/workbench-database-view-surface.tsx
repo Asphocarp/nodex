@@ -3,6 +3,7 @@ import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { ContentAccessContext } from "../../../shared/content-access-context";
 import type { WorkbenchDbViewSurfaceConfig } from "../../../shared/workbench-scene";
+import { createUuidV7 } from "../../../shared/uuid-v7";
 import type {
   DatabaseViewGroupScopeInput,
   DatabaseViewGroupsSnapshot,
@@ -462,7 +463,7 @@ export function WorkbenchDatabaseViewSurface({
             kind: "delete",
             projectId: accessProjectId,
             pageId,
-            operationId: crypto.randomUUID(),
+            operationId: createUuidV7(),
           });
           if (committed.receipt.lifecycle !== "deleted") {
             throw new Error(`Page ${pageId} delete did not commit`);

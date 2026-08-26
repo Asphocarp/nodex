@@ -5871,6 +5871,8 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::PatchOverlap => CoreErrorCode::PatchOverlap,
         StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
+        StoreErrorCode::IdempotencyWindowExpired => CoreErrorCode::IdempotencyWindowExpired,
+        StoreErrorCode::LegacyIdempotencyUnavailable => CoreErrorCode::LegacyIdempotencyUnavailable,
         StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::InvalidDocumentSchema,

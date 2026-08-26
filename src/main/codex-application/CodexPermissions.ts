@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -15,6 +14,7 @@ import type {
 } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import {
   buildPermissionModeConfigEdits,
   resolveCodexPermissionState,
@@ -261,7 +261,7 @@ export const live = (options: {
         yield* core.workspace
           .apply(
             {
-              operationId: randomUUID(),
+              operationId: createOperationId("permissions.update"),
               intent:
                 projectId === null
                   ? { kind: "set_projectless_permission_mode", mode }

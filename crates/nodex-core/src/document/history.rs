@@ -51,12 +51,12 @@ pub(crate) struct InsertedDocumentCheckpoint {
     pub(crate) duplicate: bool,
 }
 
-#[derive(Debug)]
-pub(super) struct DocumentVersionRetentionEvidence {
-    pub(super) document_id: String,
-    pub(super) block_ids: BTreeSet<String>,
-    pub(super) referenced_block_ids: BTreeSet<String>,
-    pub(super) database_view_ids: BTreeSet<String>,
+#[derive(Clone, Debug)]
+pub(super) struct DocumentVersionRetentionBackfillPlan {
+    version_id: String,
+    checkpoint_hash: String,
+    indexed_at: String,
+    members: BTreeSet<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,6 +201,13 @@ pub(crate) fn insert_document_checkpoint(
         ));
     }
     let version = decode_document_version(stored)?;
+    ensure_document_version_retention_index(
+        connection,
+        &version_id,
+        &checkpoint_hash,
+        input.now,
+        &version,
+    )?;
     prune_document_history(connection, &authority.head.id, input.now)?;
     Ok(InsertedDocumentCheckpoint {
         version,
@@ -306,6 +313,13 @@ pub(crate) fn insert_canvas_checkpoint(
         ));
     }
     let version = decode_document_version(stored)?;
+    ensure_document_version_retention_index(
+        connection,
+        &version_id,
+        &checkpoint_hash,
+        input.now,
+        &version,
+    )?;
     prune_document_history(connection, &authority.head.id, input.now)?;
     Ok(InsertedDocumentCheckpoint {
         version,
@@ -789,69 +803,196 @@ fn decode_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredVersionRow> {
     })
 }
 
-pub(super) fn read_document_version_retention_evidence(
+pub(super) fn has_unindexed_document_version_retention_work(
     connection: &Connection,
-    maximum_versions: usize,
-) -> Result<Vec<DocumentVersionRetentionEvidence>, StoreError> {
-    let version_count =
-        connection.query_row("SELECT count(*) FROM document_versions", [], |row| {
-            row.get::<_, i64>(0)
+) -> Result<bool, StoreError> {
+    connection
+        .query_row(
+            "SELECT EXISTS( \
+               SELECT 1 FROM document_versions version \
+               WHERE NOT EXISTS ( \
+                 SELECT 1 FROM document_version_retention_index retention \
+                 WHERE retention.version_id = version.version_id \
+               ) LIMIT 1 \
+             )",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(StoreError::from)
+}
+
+/// Decodes at most one immutable checkpoint on a WAL reader. The resulting
+/// value plan lets the writer install a queryable retention index without ever
+/// loading all retained history into one maintenance request.
+pub(super) fn plan_document_version_retention_backfill(
+    connection: &Connection,
+) -> Result<Option<DocumentVersionRetentionBackfillPlan>, StoreError> {
+    let row = connection
+        .query_row(
+            "SELECT version.version_id, version.document_id, version.project_id, \
+                    version.generation, version.base_head_seq, version.schema_key, \
+                    version.schema_version, version.cause, version.label, version.actor_json, \
+                    version.revision_kind, version.source_mutation_id, \
+                    version.source_change_seq, version.pinned, version.checkpoint_format, \
+                    version.full_update_blob, version.state_vector, version.checkpoint_hash, \
+                    version.byte_length, version.created_at \
+             FROM document_versions version \
+             WHERE NOT EXISTS ( \
+               SELECT 1 FROM document_version_retention_index retention \
+               WHERE retention.version_id = version.version_id \
+             ) \
+             ORDER BY version.version_id LIMIT 1",
+            [],
+            decode_row,
+        )
+        .optional()
+        .map_err(|_| corrupt("Document history row has invalid column types"))?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    check_request_interruption()?;
+    let version_id = row.version_id.clone();
+    let checkpoint_hash = row.checkpoint_hash.clone();
+    let indexed_at =
+        connection.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
+            row.get::<_, String>(0)
         })?;
-    if version_count < 0 || usize::try_from(version_count).unwrap_or(usize::MAX) > maximum_versions
-    {
+    let version = decode_document_version(row)?;
+    Ok(Some(DocumentVersionRetentionBackfillPlan {
+        version_id,
+        checkpoint_hash,
+        indexed_at,
+        members: document_version_retention_members(&version),
+    }))
+}
+
+pub(super) fn apply_document_version_retention_backfill(
+    connection: &Connection,
+    plan: &DocumentVersionRetentionBackfillPlan,
+) -> Result<bool, StoreError> {
+    let stored_hash = connection
+        .query_row(
+            "SELECT checkpoint_hash FROM document_versions WHERE version_id = ?1",
+            [&plan.version_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(stored_hash) = stored_hash else {
+        return Ok(false);
+    };
+    if stored_hash != plan.checkpoint_hash {
         return Err(corrupt(
-            "Retained Document history exceeds the bounded Block retention scan",
+            "Document version changed while its retention index was planned",
         ));
     }
-    let rows = connection
-        .prepare(
-            "SELECT version_id, document_id, project_id, generation, base_head_seq, schema_key, \
-                    schema_version, cause, label, actor_json, revision_kind, source_mutation_id, \
-                    source_change_seq, pinned, checkpoint_format, full_update_blob, state_vector, \
-                    checkpoint_hash, byte_length, created_at \
-             FROM document_versions ORDER BY version_id",
-        )?
-        .query_map([], decode_row)?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|_| corrupt("Document history row has invalid column types"))?;
-    rows.into_iter()
-        .enumerate()
-        .map(|(index, row)| {
-            if index % 64 == 0 {
-                check_request_interruption()?;
+    ensure_document_version_retention_index_from_members(
+        connection,
+        &plan.version_id,
+        &plan.checkpoint_hash,
+        &plan.indexed_at,
+        &plan.members,
+    )?;
+    Ok(true)
+}
+
+fn ensure_document_version_retention_index(
+    connection: &Connection,
+    version_id: &str,
+    checkpoint_hash: &str,
+    indexed_at: &str,
+    version: &StoredDocumentVersion,
+) -> Result<(), StoreError> {
+    ensure_document_version_retention_index_from_members(
+        connection,
+        version_id,
+        checkpoint_hash,
+        indexed_at,
+        &document_version_retention_members(version),
+    )
+}
+
+fn ensure_document_version_retention_index_from_members(
+    connection: &Connection,
+    version_id: &str,
+    checkpoint_hash: &str,
+    indexed_at: &str,
+    members: &BTreeSet<(String, String)>,
+) -> Result<(), StoreError> {
+    let expected_count = i64::try_from(members.len())
+        .map_err(|_| internal("Document version retention member count overflowed"))?;
+    let existing = connection
+        .query_row(
+            "SELECT checkpoint_hash, member_count \
+             FROM document_version_retention_index WHERE version_id = ?1",
+            [version_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    if let Some((stored_hash, stored_count)) = existing {
+        if stored_hash != checkpoint_hash || stored_count != expected_count {
+            return Err(corrupt("Document version retention index diverges"));
+        }
+        let stored_members = connection
+            .prepare(
+                "SELECT member_kind, member_id \
+                 FROM document_version_retention_members \
+                 WHERE version_id = ?1 ORDER BY member_kind, member_id",
+            )?
+            .query_map([version_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+        if stored_members != *members {
+            return Err(corrupt("Document version retention members diverge"));
+        }
+        return Ok(());
+    }
+    connection.execute(
+        "INSERT INTO document_version_retention_index( \
+           version_id, checkpoint_hash, member_count, indexed_at \
+         ) VALUES (?1, ?2, ?3, ?4)",
+        params![version_id, checkpoint_hash, expected_count, indexed_at],
+    )?;
+    let mut insert = connection.prepare_cached(
+        "INSERT INTO document_version_retention_members(version_id, member_kind, member_id) \
+         VALUES (?1, ?2, ?3)",
+    )?;
+    for (member_kind, member_id) in members {
+        insert.execute(params![version_id, member_kind, member_id])?;
+    }
+    Ok(())
+}
+
+fn document_version_retention_members(
+    version: &StoredDocumentVersion,
+) -> BTreeSet<(String, String)> {
+    let mut members = BTreeSet::new();
+    if let Some(materialization) = &version.block_materialization {
+        let mut block_ids = BTreeSet::new();
+        collect_materialized_block_ids(&materialization.block_tree, &mut block_ids);
+        members.extend(
+            block_ids
+                .into_iter()
+                .map(|block_id| ("block".to_owned(), block_id)),
+        );
+        for reference in &materialization.references {
+            if let Some(block_id) = reference.target_block_id() {
+                members.insert(("block".to_owned(), block_id.to_owned()));
             }
-            let document_id = row.document_id.clone();
-            let decoded = decode_document_version(row)?;
-            let mut block_ids = BTreeSet::new();
-            let mut referenced_block_ids = BTreeSet::new();
-            let mut database_view_ids = BTreeSet::new();
-            if let Some(materialization) = decoded.block_materialization {
-                collect_materialized_block_ids(&materialization.block_tree, &mut block_ids);
-                for reference in &materialization.references {
-                    if let Some(block_id) = reference.target_block_id() {
-                        referenced_block_ids.insert(block_id.to_owned());
-                    }
-                    if let Some(view_id) = reference.database_view_id() {
-                        database_view_ids.insert(view_id.to_owned());
-                    }
-                }
+            if let Some(view_id) = reference.database_view_id() {
+                members.insert(("database_view".to_owned(), view_id.to_owned()));
             }
-            if let Some(scene) = decoded.canvas_scene {
-                referenced_block_ids.extend(
-                    scene
-                        .page_references
-                        .into_iter()
-                        .map(|reference| reference.target_block_id),
-                );
-            }
-            Ok(DocumentVersionRetentionEvidence {
-                document_id,
-                block_ids,
-                referenced_block_ids,
-                database_view_ids,
-            })
-        })
-        .collect()
+        }
+    }
+    if let Some(scene) = &version.canvas_scene {
+        members.extend(
+            scene
+                .page_references
+                .iter()
+                .map(|reference| ("block".to_owned(), reference.target_block_id.clone())),
+        );
+    }
+    members
 }
 
 fn collect_materialized_block_ids(blocks: &[MaterializedBlockNode], output: &mut BTreeSet<String>) {
@@ -1140,6 +1281,25 @@ pub(super) fn prune_document_history(
     document_id: &str,
     now: &str,
 ) -> Result<usize, StoreError> {
+    let version_ids = plan_document_history_prune(connection, document_id, now)?;
+    let mut deleted = 0usize;
+    for version_id in version_ids {
+        deleted = deleted
+            .checked_add(connection.execute(
+                "DELETE FROM document_versions \
+                 WHERE version_id = ?1 AND document_id = ?2 AND pinned = 0",
+                params![version_id, document_id],
+            )?)
+            .ok_or_else(|| corrupt("Document revision deletion count overflowed"))?;
+    }
+    Ok(deleted)
+}
+
+pub(super) fn plan_document_history_prune(
+    connection: &Connection,
+    document_id: &str,
+    now: &str,
+) -> Result<Vec<String>, StoreError> {
     const DAY_MS: i64 = 24 * 60 * 60 * 1_000;
     const KEEP_ALL_MS: i64 = 7 * DAY_MS;
     const KEEP_HOURLY_MS: i64 = 30 * DAY_MS;
@@ -1165,7 +1325,7 @@ pub(super) fn prune_document_history(
     let mut hourly = std::collections::HashSet::new();
     let mut daily = std::collections::HashSet::new();
     let mut retained_unpinned = 0usize;
-    let mut deleted = 0usize;
+    let mut deletions = Vec::new();
     for (version_id, created_at, pinned, age) in rows {
         if pinned == 1 {
             continue;
@@ -1188,15 +1348,9 @@ pub(super) fn prune_document_history(
             retained_unpinned += 1;
             continue;
         }
-        deleted = deleted
-            .checked_add(connection.execute(
-                "DELETE FROM document_versions \
-             WHERE version_id = ?1 AND document_id = ?2 AND pinned = 0",
-                params![version_id, document_id],
-            )?)
-            .ok_or_else(|| corrupt("Document revision deletion count overflowed"))?;
+        deletions.push(version_id);
     }
-    Ok(deleted)
+    Ok(deletions)
 }
 
 fn validate_identity(value: &str, field: &str) -> Result<(), StoreError> {

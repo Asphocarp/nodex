@@ -32,6 +32,8 @@ pub enum StoreErrorCode {
     PatchAmbiguous,
     PatchOverlap,
     IdempotencyKeyReused,
+    IdempotencyWindowExpired,
+    LegacyIdempotencyUnavailable,
     ProtectedOwnerDeletion,
     InvalidInput,
     InvalidProfile,
@@ -155,8 +157,28 @@ pub fn open_writer(path: &std::path::Path) -> Result<Connection, StoreError> {
         | OpenFlags::SQLITE_OPEN_CREATE
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let connection = Connection::open_with_flags(path, flags)?;
+    configure_empty_store_storage(&connection)?;
     configure_writer(&connection)?;
     Ok(connection)
+}
+
+fn configure_empty_store_storage(connection: &Connection) -> Result<(), StoreError> {
+    // SQLite can switch from NONE only before the first table is created
+    // without a full VACUUM. FULL and INCREMENTAL can switch in place, so do
+    // not issue this PRAGMA after an existing Store has installed its schema.
+    let has_application_schema = connection.query_row(
+        "SELECT EXISTS( \
+           SELECT 1 FROM sqlite_schema \
+           WHERE type = 'table' AND name NOT LIKE 'sqlite_%' \
+         )",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if has_application_schema {
+        return Ok(());
+    }
+    connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL")?;
+    Ok(())
 }
 
 pub fn open_reader(path: &std::path::Path) -> Result<Connection, StoreError> {
@@ -572,6 +594,57 @@ mod tests {
             .query_row("SELECT value FROM values_table", [], |row| row.get(0))
             .expect("read value");
         assert_eq!(value, "committed");
+    }
+
+    #[test]
+    fn new_writers_enable_incremental_vacuum_without_rewriting_existing_stores() {
+        let directory = tempdir().expect("store directory");
+        let current_path = directory.path().join("current.db");
+        let current = open_writer(&current_path).expect("current writer");
+        assert_eq!(
+            current
+                .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+                .expect("current auto vacuum"),
+            2,
+        );
+        current
+            .execute_batch("CREATE TABLE current_value(value INTEGER NOT NULL);")
+            .expect("current schema");
+        drop(current);
+
+        let legacy_path = directory.path().join("legacy.db");
+        let legacy = Connection::open(&legacy_path).expect("legacy writer");
+        legacy
+            .execute_batch(
+                "PRAGMA auto_vacuum=NONE; \
+                 CREATE TABLE legacy_value(value INTEGER NOT NULL);",
+            )
+            .expect("legacy schema");
+        drop(legacy);
+
+        let legacy = open_writer(&legacy_path).expect("reopened legacy writer");
+        assert_eq!(
+            legacy
+                .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+                .expect("legacy auto vacuum"),
+            0,
+        );
+
+        let full_path = directory.path().join("full.db");
+        let full = Connection::open(&full_path).expect("full writer");
+        full.execute_batch(
+            "PRAGMA auto_vacuum=FULL; \
+             CREATE TABLE full_value(value INTEGER NOT NULL);",
+        )
+        .expect("full schema");
+        drop(full);
+
+        let full = open_writer(&full_path).expect("reopened full writer");
+        assert_eq!(
+            full.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+                .expect("full auto vacuum"),
+            1,
+        );
     }
 
     #[test]

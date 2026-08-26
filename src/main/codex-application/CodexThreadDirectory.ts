@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { Thread, ThreadForkResponse, Turn } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
@@ -29,6 +28,7 @@ import {
   projectCodexGatewayThreadResumeResponse,
 } from "../codex-runtime/CodexGatewayProtocolProjection";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexConversationProjection } from "./CodexConversationProjection";
@@ -341,7 +341,7 @@ export const make: Effect.Effect<
       };
       yield* core.workspace
         .apply({
-          operationId: `electron:thread-directory:${threadId}:${randomUUID()}`,
+          operationId: createOperationId("thread-directory.upsert"),
           intent: {
             kind: "upsert_thread",
             thread_id: threadId,
@@ -750,7 +750,7 @@ export const make: Effect.Effect<
     });
     yield* core.workspace
       .apply({
-        operationId: `electron:thread-directory-fork-catalogs:${childThreadId}:${randomUUID()}`,
+        operationId: createOperationId("thread-directory.fork-catalogs"),
         intent: {
           kind: "replace_thread_dynamic_tool_catalogs",
           thread_id: childThreadId,
@@ -760,7 +760,7 @@ export const make: Effect.Effect<
       .pipe(Effect.mapError((cause) => error("materialize", childThreadId, cause)));
     yield* core.workspace
       .apply({
-        operationId: `electron:thread-directory-fork-roots:${childThreadId}:${randomUUID()}`,
+        operationId: createOperationId("thread-directory.fork-roots"),
         intent: {
           kind: "replace_thread_writable_roots",
           thread_id: childThreadId,
@@ -842,7 +842,7 @@ export const make: Effect.Effect<
       const cwd = input.response.cwd || thread.cwd || input.fallbackCwd;
       yield* core.workspace
         .apply({
-          operationId: `electron:session-thread-start:${input.sessionId}:${threadId}`,
+          operationId: createOperationId("thread-directory.session-thread-start"),
           intent: {
             kind: "mutate_session",
             session_id: input.sessionId,
@@ -921,7 +921,7 @@ export const make: Effect.Effect<
       });
       yield* core.workspace
         .apply({
-          operationId: `electron:standalone-thread-roots:${threadId}:${randomUUID()}`,
+          operationId: createOperationId("thread-directory.standalone-roots"),
           intent: {
             kind: "replace_thread_writable_roots",
             thread_id: threadId,

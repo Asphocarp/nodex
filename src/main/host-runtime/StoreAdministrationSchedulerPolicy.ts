@@ -1,9 +1,10 @@
 import type { StoreMaintenanceInput } from "../core-runtime/StoreAdministration";
 
 export const STORE_MAINTENANCE_SCHEDULES = {
-  revision: { initial: 15_000, interval: 30_000 },
-  document: { initial: 30_000, interval: 15 * 60_000 },
-  block: { initial: 45_000, interval: 15 * 60_000 },
+  revision: { initial: 15_000, interval: 30_000, idleInterval: 30_000 },
+  operational: { initial: 5_000, interval: 250, idleInterval: 15 * 60_000 },
+  document: { initial: 30_000, interval: 15 * 60_000, idleInterval: 15 * 60_000 },
+  block: { initial: 45_000, interval: 250, idleInterval: 15 * 60_000 },
 } as const;
 
 export type StoreMaintenanceLane = keyof typeof STORE_MAINTENANCE_SCHEDULES;
@@ -18,6 +19,7 @@ export const maintenanceInput = (
   blockRetentionCount: number,
 ): StoreMaintenanceInput => {
   if (lane === "revision") return { tasks: ["document_revision_finalize"] };
+  if (lane === "operational") return { tasks: ["operational_journal"] };
   if (lane === "document") return { tasks: ["document_compaction", "history_retention"] };
   return {
     tasks: ["block_retention"],

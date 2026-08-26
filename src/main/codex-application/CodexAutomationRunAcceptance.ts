@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 
 export class CodexAutomationRunAcceptanceError extends Schema.TaggedError<CodexAutomationRunAcceptanceError>()(
@@ -43,7 +43,7 @@ export const make: Effect.Effect<
         const run = snapshot.value.item;
         if (!run) return false;
         yield* core.automation.apply({
-          operationId: `electron:automation-run-accept:${threadId}:${randomUUID()}`,
+          operationId: createOperationId("automation-run.accept"),
           intent: {
             kind: "accept_run",
             thread_id: threadId,

@@ -12,7 +12,7 @@ use nodex_core_contracts::events::{
     CommitManifest, DeliveryAuthorizationScope, RevokedResourceKind,
 };
 use nodex_core_contracts::{ApplyResponse, BoundModuleContext, ModuleName, StoreObservation};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -387,10 +387,21 @@ where
     }
     let outcome = serde_json::from_value(stored.result)
         .map_err(|_| corrupt("Stored durable mutation outcome is invalid"))?;
-    let manifest = stored
-        .local_commit_seq
-        .map(|commit_seq| local_commit::read_manifest(connection, commit_seq))
-        .transpose()?;
+    let manifest = match stored.local_commit_seq {
+        Some(commit_seq)
+            if connection
+                .query_row(
+                    "SELECT 1 FROM local_commits WHERE store_epoch = ?1 AND commit_seq = ?2",
+                    rusqlite::params![identity.store_epoch, commit_seq],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some() =>
+        {
+            Some(local_commit::read_manifest(connection, commit_seq)?)
+        }
+        _ => None,
+    };
     Ok(CommitResult::IdempotentReplay { outcome, manifest })
 }
 

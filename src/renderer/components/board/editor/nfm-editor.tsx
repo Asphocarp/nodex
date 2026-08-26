@@ -1994,7 +1994,7 @@ function NfmEditorInstance({
           }
           return await participant.prepareAndFence();
         },
-        createOperationId: () => crypto.randomUUID(),
+        createOperationId: createUuidV7,
         transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
           transferBlocks(executionProjectId, intent),
         structuralTransfer: async ({

@@ -62,8 +62,9 @@ use nodex_core_contracts::document::{
 use nodex_core_contracts::events::DeliveryAuthorizationScope;
 use nodex_core_contracts::{
     AdapterKind, ApplyResponse, AuthorizedDeliveryPacket, AuthorizedRecipientLease,
-    BoundModuleContext, CoreError, CoreErrorCode, CoreErrorRecovery, DeliveryAddress, LibraryId,
-    ModuleName, ProfileId, ProjectId, StoreEpoch, StoreObservation, StreamCheckpoint,
+    BoundModuleContext, CommitIdentity, CoreError, CoreErrorCode, CoreErrorRecovery,
+    DeliveryAddress, LibraryId, ModuleName, ProfileId, ProjectId, StoreEpoch, StoreObservation,
+    StreamCheckpoint,
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
@@ -907,10 +908,21 @@ fn build_authorized_apply_response<T, R>(
         record_apply_response(&response, duplicate);
         return Ok(response);
     };
-    let commit = state
-        .event_log
-        .commit_identity(commit_seq)
-        .map_err(apply_response_store_error)?;
+    let commit_retained = !stored.detached;
+    let commit = if commit_retained {
+        state
+            .event_log
+            .commit_identity(commit_seq)
+            .map_err(apply_response_store_error)?
+    } else {
+        CommitIdentity {
+            store_epoch: StoreEpoch(stored.store_epoch.clone()),
+            commit_seq,
+            manifest_hash: stored.commit_manifest_hash.clone().ok_or_else(|| {
+                apply_response_corrupt("Detached command receipt has no manifest identity")
+            })?,
+        }
+    };
     if commit.commit_seq != observed_commit_seq || commit.store_epoch != store_epoch {
         return Err(apply_response_corrupt(
             "Committed command result diverges from its manifest identity",
@@ -922,9 +934,12 @@ fn build_authorized_apply_response<T, R>(
     // delivery. Republish exact retries as well: scanners and resource
     // dispatchers deduplicate by commit/resource identity, while a retry may
     // be the first observable wake after a post-commit response failure.
-    publish_local_commit(state, commit_seq, commit.store_epoch.0.clone());
-    let delivery =
-        authorized_apply_packet(state, commit_seq, context).map_err(apply_response_store_error)?;
+    let delivery = if commit_retained {
+        publish_local_commit(state, commit_seq, commit.store_epoch.0.clone());
+        authorized_apply_packet(state, commit_seq, context).map_err(apply_response_store_error)?
+    } else {
+        None
+    };
     let response = ApplyResponse::Committed {
         outcome,
         receipt,
@@ -1297,6 +1312,20 @@ async fn administration_apply(
             let outcome = request_state.administration.apply(&context, request)?;
             let committed = outcome.committed;
             let duplicate = committed.receipt.mutation.duplicate;
+            if outcome.durability
+                == nodex_core::administration::StoreAdministrationOutcomeDurability::Transient
+            {
+                let response = ApplyResponse::NoOp {
+                    outcome: committed.value,
+                    receipt: committed.receipt,
+                    observed: StoreObservation {
+                        store_epoch: committed.store_epoch,
+                        commit_head: committed.commit_seq,
+                    },
+                };
+                record_apply_response(&response, duplicate);
+                return Ok(response);
+            }
             build_authorized_apply_response(
                 &request_state,
                 ModuleName::StoreAdministration,
@@ -2683,6 +2712,8 @@ fn record_core_error(error: CoreError) -> CoreError {
         CoreErrorCode::PatchAmbiguous => "patch_ambiguous",
         CoreErrorCode::PatchOverlap => "patch_overlap",
         CoreErrorCode::IdempotencyKeyReused => "idempotency_key_reused",
+        CoreErrorCode::IdempotencyWindowExpired => "idempotency_window_expired",
+        CoreErrorCode::LegacyIdempotencyUnavailable => "legacy_idempotency_unavailable",
         CoreErrorCode::ProtectedOwnerDeletion => "protected_owner_deletion",
         CoreErrorCode::DocumentUpdateMissingDependencies => "document_update_missing_dependencies",
         CoreErrorCode::InvalidDocumentSchema => "invalid_document_schema",

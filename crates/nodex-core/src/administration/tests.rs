@@ -247,6 +247,15 @@ impl Fixture {
         operation_id: &str,
         retain_count: u32,
     ) -> super::StoreAdministrationApplyOutcome {
+        self.prune_backups_with_budget(operation_id, retain_count, u64::MAX)
+    }
+
+    fn prune_backups_with_budget(
+        &self,
+        operation_id: &str,
+        retain_count: u32,
+        retain_bytes: u64,
+    ) -> super::StoreAdministrationApplyOutcome {
         self.module
             .apply(
                 &self.context(),
@@ -254,10 +263,31 @@ impl Fixture {
                     contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
                     operation_id: operation_id.to_owned(),
                     store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                    intent: StoreAdministrationIntent::PruneBackups { retain_count },
+                    intent: StoreAdministrationIntent::PruneBackups {
+                        retain_count,
+                        retain_bytes,
+                    },
                 },
             )
             .expect("prune backups")
+    }
+
+    fn cancel_backup(
+        &self,
+        operation_id: &str,
+        job_id: &str,
+    ) -> Result<super::StoreAdministrationApplyOutcome, nodex_core_contracts::CoreError> {
+        self.module.apply(
+            &self.context(),
+            ModuleApplyRequest {
+                contract_version: STORE_ADMINISTRATION_CONTRACT_VERSION,
+                operation_id: operation_id.to_owned(),
+                store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                intent: StoreAdministrationIntent::CancelBackup {
+                    job_id: job_id.to_owned(),
+                },
+            },
+        )
     }
 
     fn run_maintenance(
@@ -274,6 +304,16 @@ impl Fixture {
         tasks: Vec<MaintenanceTask>,
         block_retention_count: Option<u64>,
     ) -> Result<super::StoreAdministrationApplyOutcome, nodex_core_contracts::CoreError> {
+        self.run_maintenance_with_token(operation_id, tasks, block_retention_count, None)
+    }
+
+    fn run_maintenance_with_token(
+        &self,
+        operation_id: &str,
+        tasks: Vec<MaintenanceTask>,
+        block_retention_count: Option<u64>,
+        work_token: Option<String>,
+    ) -> Result<super::StoreAdministrationApplyOutcome, nodex_core_contracts::CoreError> {
         self.module.apply(
             &self.context(),
             ModuleApplyRequest {
@@ -283,10 +323,51 @@ impl Fixture {
                 intent: StoreAdministrationIntent::RunMaintenance {
                     tasks,
                     block_retention_count,
+                    work_token,
                 },
             },
         )
     }
+}
+
+#[test]
+fn cancels_an_admitted_backup_before_publication_and_rejects_ready_artifacts() {
+    let fixture = Fixture::new();
+    let job_id = "administration:create-backup:cancelled";
+    let backup_id = super::backup::backup_id(PROFILE_ID, job_id);
+    super::backup::begin_backup_job(
+        fixture.home(),
+        PROFILE_ID,
+        job_id,
+        &"a".repeat(64),
+        Some("Cancelled"),
+        true,
+        "manual",
+        &backup_id,
+    )
+    .expect("admit Backup job");
+
+    let cancelled = fixture
+        .cancel_backup("administration:cancel-backup:1", job_id)
+        .expect("cancel admitted Backup");
+    assert_eq!(
+        cancelled.committed.value.cancelled_backup_job_id.as_deref(),
+        Some(job_id)
+    );
+    let StoreAdministrationReadValue::BackupJobs { jobs } =
+        fixture.read(StoreAdministrationRead::BackupJobs)
+    else {
+        panic!("Backup jobs")
+    };
+    assert_eq!(jobs[0].state, "cancelled");
+
+    let ready = fixture.create_backup("administration:create-backup:ready-cancel", None, false);
+    let ready_job = "administration:create-backup:ready-cancel";
+    assert!(ready.committed.value.backup_id.is_some());
+    let error = fixture
+        .cancel_backup("administration:cancel-backup:ready", ready_job)
+        .expect_err("ready Backup cannot be cancelled");
+    assert_eq!(error.code, CoreErrorCode::Conflict);
 }
 
 #[test]
@@ -340,7 +421,7 @@ fn completes_the_backup_lifecycle_without_a_project() {
         }]
     );
 
-    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
+    let StoreAdministrationReadValue::Backups { backups, .. } = fixture.read(backups_read()) else {
         panic!("backup list")
     };
     assert_eq!(backups.items.len(), 3);
@@ -482,7 +563,8 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
     assert!(second.event.is_none());
 
     fs::create_dir(fixture.home().join("backups/not-a-backup")).expect("invalid backup dir");
-    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
+    let StoreAdministrationReadValue::Backups { backups, capacity } = fixture.read(backups_read())
+    else {
         panic!("backup list")
     };
     assert_eq!(backups.items.len(), 1);
@@ -494,6 +576,23 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
     assert!(backups.items[0].db_bytes > 0);
     assert_eq!(backups.items[0].assets_bytes, b"managed asset".len() as u64);
     assert_eq!(backups.items[0].total_bytes, backups.items[0].byte_length);
+    assert!(capacity.can_create);
+    assert!(capacity.available_bytes > capacity.estimated_next_backup_bytes);
+    assert_eq!(capacity.total_ready_bytes, backups.items[0].total_bytes);
+    assert_eq!(capacity.manual_ready_bytes, backups.items[0].total_bytes);
+    assert_eq!(capacity.automatic_ready_bytes, 0);
+    let StoreAdministrationReadValue::BackupJobs { jobs } =
+        fixture.read(StoreAdministrationRead::BackupJobs)
+    else {
+        panic!("backup jobs")
+    };
+    let job = jobs
+        .iter()
+        .find(|job| job.operation_id == "administration:create-backup:1")
+        .expect("durable backup job");
+    assert_eq!(job.state, "ready");
+    assert_eq!(job.phase, "ready");
+    assert_eq!(job.backup_id, backup_id);
 
     assert_eq!(
         fixture.read(StoreAdministrationRead::Status),
@@ -617,6 +716,8 @@ fn reuses_a_staged_backup_after_a_pre_receipt_crash_boundary() {
                 label.as_deref(),
                 false,
                 BackupTrigger::Manual,
+                &|_| Ok(()),
+                &|| Ok(false),
             )
         })
         .expect("staged backup");
@@ -624,14 +725,14 @@ fn reuses_a_staged_backup_after_a_pre_receipt_crash_boundary() {
         fixture
             .home()
             .join("backups")
-            .join(format!(".{}.tmp", staged.backup_id))
+            .join(format!(".{}.tmp", staged.record().backup_id))
             .exists()
     );
     assert!(
         !fixture
             .home()
             .join("backups")
-            .join(&staged.backup_id)
+            .join(&staged.record().backup_id)
             .exists()
     );
 
@@ -654,7 +755,7 @@ fn reuses_a_staged_backup_after_a_pre_receipt_crash_boundary() {
     let adopted = fixture.create_backup(operation_id, Some("published before receipt"), false);
     assert_eq!(
         adopted.committed.value.backup_id.as_deref(),
-        Some(staged.backup_id.as_str())
+        Some(staged.record().backup_id.as_str())
     );
     assert!(!adopted.committed.receipt.mutation.duplicate);
     assert!(adopted.event.is_none());
@@ -690,7 +791,7 @@ fn exact_create_retry_publishes_after_the_store_receipt_commit() {
         .kernel
         .writer()
         .call(move |connection| {
-            let record = super::operation_journal::stage_backup(
+            let staged = super::operation_journal::stage_backup(
                 connection,
                 &home,
                 PROFILE_ID,
@@ -699,7 +800,10 @@ fn exact_create_retry_publishes_after_the_store_receipt_commit() {
                 label.as_deref(),
                 false,
                 BackupTrigger::Manual,
+                &|_| Ok(()),
+                &|| Ok(false),
             )?;
+            let record = staged.record().clone();
             super::finish_backup_creation(
                 connection,
                 LIBRARY_ID,
@@ -814,11 +918,10 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
             let queue_manifest_hash = queue_manifest_hash.clone();
             let queue_ledger_hash = queue_ledger_hash.clone();
             move |connection| {
-                connection.execute_batch(
-                    "CREATE TABLE administration_restore_probe(\
-                   id INTEGER PRIMARY KEY CHECK (id = 1), marker TEXT NOT NULL\
-                 ) STRICT; \
-                 INSERT INTO administration_restore_probe(id, marker) VALUES (1, 'backup');",
+                connection.execute(
+                    "UPDATE projects SET description = 'backup' \
+                     WHERE id = 'project:administration-test'",
+                    [],
                 )?;
                 connection.execute(
                     "INSERT INTO codex_threads( \
@@ -889,7 +992,8 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
         .writer()
         .call(|connection| {
             connection.execute(
-                "UPDATE administration_restore_probe SET marker = 'current' WHERE id = 1",
+                "UPDATE projects SET description = 'current' \
+                 WHERE id = 'project:administration-test'",
                 [],
             )?;
             Ok(())
@@ -927,7 +1031,8 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
         .read_default(|connection| {
             Ok((
                 connection.query_row(
-                    "SELECT marker FROM administration_restore_probe WHERE id = 1",
+                    "SELECT description FROM projects \
+                     WHERE id = 'project:administration-test'",
                     [],
                     |row| row.get::<_, String>(0),
                 )?,
@@ -1047,11 +1152,10 @@ fn replacement_hook_failure_rolls_back_the_complete_source_store() {
         .kernel
         .writer()
         .call(|connection| {
-            connection.execute_batch(
-                "CREATE TABLE administration_restore_probe(\
-                   id INTEGER PRIMARY KEY CHECK (id = 1), marker TEXT NOT NULL\
-                 ) STRICT; \
-                 INSERT INTO administration_restore_probe(id, marker) VALUES (1, 'backup');",
+            connection.execute(
+                "UPDATE projects SET description = 'backup' \
+                 WHERE id = 'project:administration-test'",
+                [],
             )?;
             Ok(())
         })
@@ -1063,7 +1167,8 @@ fn replacement_hook_failure_rolls_back_the_complete_source_store() {
         .writer()
         .call(|connection| {
             connection.execute(
-                "UPDATE administration_restore_probe SET marker = 'current' WHERE id = 1",
+                "UPDATE projects SET description = 'current' \
+                 WHERE id = 'project:administration-test'",
                 [],
             )?;
             Ok(())
@@ -1093,7 +1198,8 @@ fn replacement_hook_failure_rolls_back_the_complete_source_store() {
         .read_default(|connection| {
             Ok((
                 connection.query_row(
-                    "SELECT marker FROM administration_restore_probe WHERE id = 1",
+                    "SELECT description FROM projects \
+                     WHERE id = 'project:administration-test'",
                     [],
                     |row| row.get::<_, String>(0),
                 )?,
@@ -1124,11 +1230,10 @@ fn adopts_a_committed_restore_after_the_pre_receipt_crash_boundary() {
         .kernel
         .writer()
         .call(|connection| {
-            connection.execute_batch(
-                "CREATE TABLE administration_restore_adoption(\
-                   id INTEGER PRIMARY KEY CHECK (id = 1), marker TEXT NOT NULL\
-                 ) STRICT; \
-                 INSERT INTO administration_restore_adoption(id, marker) VALUES (1, 'backup');",
+            connection.execute(
+                "UPDATE projects SET description = 'backup' \
+                 WHERE id = 'project:administration-test'",
+                [],
             )?;
             Ok(())
         })
@@ -1141,7 +1246,8 @@ fn adopts_a_committed_restore_after_the_pre_receipt_crash_boundary() {
         .writer()
         .call(|connection| {
             connection.execute(
-                "UPDATE administration_restore_adoption SET marker = 'current' WHERE id = 1",
+                "UPDATE projects SET description = 'current' \
+                 WHERE id = 'project:administration-test'",
                 [],
             )?;
             Ok(())
@@ -1228,7 +1334,8 @@ fn adopts_a_committed_restore_after_the_pre_receipt_crash_boundary() {
         .read_default(|connection| {
             connection
                 .query_row(
-                    "SELECT marker FROM administration_restore_adoption WHERE id = 1",
+                    "SELECT description FROM projects \
+                     WHERE id = 'project:administration-test'",
                     [],
                     |row| row.get::<_, String>(0),
                 )
@@ -1247,11 +1354,10 @@ fn rejects_a_corrupt_restore_candidate_without_touching_the_live_store() {
         .kernel
         .writer()
         .call(|connection| {
-            connection.execute_batch(
-                "CREATE TABLE administration_restore_corruption(\
-                   id INTEGER PRIMARY KEY CHECK (id = 1), marker TEXT NOT NULL\
-                 ) STRICT; \
-                 INSERT INTO administration_restore_corruption(id, marker) VALUES (1, 'backup');",
+            connection.execute(
+                "UPDATE projects SET description = 'backup' \
+                 WHERE id = 'project:administration-test'",
+                [],
             )?;
             Ok(())
         })
@@ -1263,7 +1369,8 @@ fn rejects_a_corrupt_restore_candidate_without_touching_the_live_store() {
         .writer()
         .call(|connection| {
             connection.execute(
-                "UPDATE administration_restore_corruption SET marker = 'current' WHERE id = 1",
+                "UPDATE projects SET description = 'current' \
+                 WHERE id = 'project:administration-test'",
                 [],
             )?;
             Ok(())
@@ -1302,7 +1409,8 @@ fn rejects_a_corrupt_restore_candidate_without_touching_the_live_store() {
         .read_default(|connection| {
             Ok((
                 connection.query_row(
-                    "SELECT marker FROM administration_restore_corruption WHERE id = 1",
+                    "SELECT description FROM projects \
+                     WHERE id = 'project:administration-test'",
                     [],
                     |row| row.get::<_, String>(0),
                 )?,
@@ -1349,7 +1457,7 @@ fn deletes_one_backup_with_exact_replay_and_rejects_later_restore() {
         std::slice::from_ref(&backup_id)
     );
     assert!(!fixture.home().join("backups").join(&backup_id).exists());
-    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
+    let StoreAdministrationReadValue::Backups { backups, .. } = fixture.read(backups_read()) else {
         panic!("backup list")
     };
     assert!(backups.items.is_empty());
@@ -1414,7 +1522,7 @@ fn exact_delete_retry_finishes_physical_cleanup_after_receipt_commit() {
         })
         .expect("durable delete receipt");
     assert!(fixture.home().join("backups").join(&backup_id).exists());
-    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
+    let StoreAdministrationReadValue::Backups { backups, .. } = fixture.read(backups_read()) else {
         panic!("backup list")
     };
     assert!(backups.items.is_empty());
@@ -1479,7 +1587,7 @@ fn prunes_only_automatic_backups_beyond_the_retention_count() {
     for backup_id in &expected_removed {
         assert!(!fixture.home().join("backups").join(backup_id).exists());
     }
-    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
+    let StoreAdministrationReadValue::Backups { backups, .. } = fixture.read(backups_read()) else {
         panic!("backup list")
     };
     assert_eq!(backups.items.len(), 2);
@@ -1495,6 +1603,57 @@ fn prunes_only_automatic_backups_beyond_the_retention_count() {
     assert!(retry.committed.receipt.mutation.duplicate);
     assert!(retry.event.is_none());
     assert_eq!(automatic_ids.len(), 3);
+}
+
+#[test]
+fn prunes_automatic_backups_by_count_and_byte_budget_without_touching_manual_snapshots() {
+    let fixture = Fixture::new();
+    for index in 0..3 {
+        fixture.create_backup_with_trigger(
+            &format!("administration:create-backup:byte-budget-{index}"),
+            None,
+            false,
+            BackupTrigger::Auto,
+        );
+    }
+    let manual = fixture.create_backup(
+        "administration:create-backup:manual-byte-budget",
+        Some("manual"),
+        false,
+    );
+    let manual_id = manual.committed.value.backup_id.expect("manual backup");
+    let automatic = super::backup::list_backup_inventory(fixture.home())
+        .expect("backup inventory")
+        .into_iter()
+        .filter(|item| item.trigger == "auto")
+        .collect::<Vec<_>>();
+    let newest = automatic.first().expect("automatic backup");
+
+    fixture.prune_backups_with_budget(
+        "administration:prune-backups:byte-budget",
+        10,
+        newest.record.total_bytes,
+    );
+
+    let retained =
+        super::backup::list_backup_inventory(fixture.home()).expect("retained inventory");
+    assert_eq!(
+        retained
+            .iter()
+            .filter(|item| item.trigger == "auto")
+            .count(),
+        1
+    );
+    assert!(
+        retained
+            .iter()
+            .any(|item| item.record.backup_id == newest.record.backup_id)
+    );
+    assert!(
+        retained
+            .iter()
+            .any(|item| item.record.backup_id == manual_id)
+    );
 }
 
 #[test]
@@ -1563,7 +1722,7 @@ fn reads_and_replays_cleanup_receipts_from_before_the_durable_outcome_envelope()
         })
         .expect("legacy durable outcome fixture");
 
-    let StoreAdministrationReadValue::Backups { backups } = fixture.read(backups_read()) else {
+    let StoreAdministrationReadValue::Backups { backups, .. } = fixture.read(backups_read()) else {
         panic!("backup list")
     };
     assert_eq!(backups.items.len(), 1);
@@ -1575,8 +1734,13 @@ fn reads_and_replays_cleanup_receipts_from_before_the_durable_outcome_envelope()
 }
 
 #[test]
-fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
+fn runs_supported_read_only_maintenance_without_journaling_idle_work() {
     let fixture = Fixture::new();
+    let commit_head_before = fixture
+        .kernel
+        .readers()
+        .read_default(crate::infrastructure::local_commit::head)
+        .expect("maintenance baseline");
     let tasks = vec![
         MaintenanceTask::BlockRetention,
         MaintenanceTask::HistoryRetention,
@@ -1602,9 +1766,11 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
     assert!(maintained.event.is_none());
     assert_eq!(
         fixture
-            .administration_event(maintained.committed.commit_seq)
-            .operation,
-        "run_maintenance"
+            .kernel
+            .readers()
+            .read_default(crate::infrastructure::local_commit::head)
+            .expect("maintenance result"),
+        commit_head_before
     );
     assert_eq!(
         fixture.read(StoreAdministrationRead::Status),
@@ -1628,9 +1794,22 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
                 MaintenanceTask::BlockRetention,
             ],
         )
-        .expect("exact maintenance retry");
-    assert!(retry.committed.receipt.mutation.duplicate);
+        .expect("repeat read-only maintenance");
+    assert!(!retry.committed.receipt.mutation.duplicate);
     assert!(retry.event.is_none());
+    let receipt_exists = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            Ok(connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM core_module_receipts \
+                 WHERE module_name = 'store_administration' AND operation_id = ?1)",
+                ["administration:maintenance:1"],
+                |row| row.get::<_, i64>(0),
+            )?)
+        })
+        .expect("read-only maintenance receipt existence");
+    assert_eq!(receipt_exists, 0);
 
     let duplicate = fixture
         .run_maintenance(
@@ -1660,14 +1839,104 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
         )
         .expect("configured Block retention");
     assert!(!policy.committed.receipt.mutation.duplicate);
-    let policy_collision = fixture
+    let revised_policy = fixture
         .run_maintenance_with_policy(
             "administration:maintenance:policy",
             vec![MaintenanceTask::BlockRetention],
             Some(1),
         )
-        .expect_err("Block retention policy collision");
-    assert_eq!(policy_collision.code, CoreErrorCode::IdempotencyKeyReused);
+        .expect("read-only maintenance identity may be reused without a durable outcome");
+    assert!(!revised_policy.committed.receipt.mutation.duplicate);
+}
+
+#[test]
+fn maintenance_due_work_token_is_stable_for_one_bounded_operational_pass() {
+    let fixture = Fixture::new();
+    fixture.create_backup(
+        "administration:create-backup:retention-candidate",
+        None,
+        false,
+    );
+    fixture.create_backup("administration:create-backup:retention-head", None, false);
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute(
+                "UPDATE local_commit_retention_metadata SET sealed_at_ms = 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("age Operational Journal candidate");
+    let StoreAdministrationReadValue::MaintenancePlan { plan } =
+        fixture.read(StoreAdministrationRead::MaintenancePlan {
+            tasks: vec![MaintenanceTask::OperationalJournal],
+            block_retention_count: None,
+        })
+    else {
+        panic!("maintenance plan")
+    };
+    let work_token = plan.work_token.expect("due work token");
+    assert_eq!(plan.due_tasks, [MaintenanceTask::OperationalJournal]);
+    let receipt_count_before = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            Ok(connection.query_row(
+                "SELECT (SELECT count(*) FROM core_module_receipts) \
+                          + (SELECT count(*) FROM detached_module_receipts)",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?)
+        })
+        .expect("receipt count before Operational Journal pass");
+
+    fixture
+        .run_maintenance_with_token(
+            "administration:maintenance:operational",
+            vec![MaintenanceTask::OperationalJournal],
+            None,
+            Some(work_token.clone()),
+        )
+        .expect("run planned Operational Journal pass");
+    let receipt_count = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            Ok(connection.query_row(
+                "SELECT (SELECT count(*) FROM core_module_receipts) \
+                          + (SELECT count(*) FROM detached_module_receipts)",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?)
+        })
+        .expect("receipt count");
+    assert_eq!(receipt_count, receipt_count_before);
+    let stale = fixture
+        .run_maintenance_with_token(
+            "administration:maintenance:stale-operational",
+            vec![MaintenanceTask::OperationalJournal],
+            None,
+            Some(work_token),
+        )
+        .expect_err("consumed work token is stale");
+    assert_eq!(stale.code, CoreErrorCode::Conflict);
+    assert_eq!(
+        fixture
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                Ok(connection.query_row(
+                    "SELECT (SELECT count(*) FROM core_module_receipts) \
+                          + (SELECT count(*) FROM detached_module_receipts)",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?)
+            })
+            .expect("stable receipt count"),
+        receipt_count
+    );
 }
 
 #[test]

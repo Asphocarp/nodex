@@ -23,6 +23,7 @@ const authority: FrozenNodexAgentTurnAuthority = {
   actorProjectId: "project-1",
   libraryId: "library-1",
   storeEpoch: "store-1",
+  frozenAtMs: 1_785_491_085_000,
   scope: "project",
   source: "project_turn",
 };
@@ -181,7 +182,7 @@ it.effect("persists only Project-approved persistable roots", () =>
     });
     assert.match(
       Reflect.get(persisted[0] ?? {}, "operationId"),
-      /^nodex-agent-grants:[a-f0-9]{64}$/u,
+      /^nodexop:v1:\d{13}:\d{13}:nodex-agent\.persist-grants:[0-9a-f-]{36}$/u,
     );
     yield* Scope.close(scope, Exit.void);
   }),

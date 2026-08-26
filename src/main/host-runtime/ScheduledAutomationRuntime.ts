@@ -186,7 +186,10 @@ export const live = (
             const tickNow = yield* Clock.currentTimeMillis;
             yield* initialize;
             if (!(yield* authorityReady)) return;
+            const due = yield* automation.definitions.planDue;
+            if (!due.dueNow || due.workToken === null) return;
             const claims = yield* automation.definitions.claimDue(
+              due.workToken,
               maxPerTick,
               SCHEDULED_AUTOMATION_LEASE_DURATION_MS,
             );

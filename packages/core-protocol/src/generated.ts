@@ -779,6 +779,18 @@ export interface components {
         readonly AutomationDefinitionKind: "cron" | "heartbeat";
         /** @enum {string} */
         readonly AutomationDefinitionStatus: "ACTIVE" | "PAUSED" | "DELETED";
+        /** @enum {string} */
+        readonly AutomationDueWorkLane: "definitions" | "reminders";
+        /**
+         * @description A Core-authored scheduling decision. Main owns sleeping and wake sources,
+         *     while the Automation Module remains the authority for durable due state.
+         */
+        readonly AutomationDueWorkPlan: {
+            readonly due_now: boolean;
+            /** Format: int64 */
+            readonly next_wake_at_ms?: number | null;
+            readonly work_token?: string | null;
+        };
         readonly AutomationEvent: {
             readonly automation_ids: readonly string[];
             readonly database_ids: readonly string[];
@@ -850,6 +862,63 @@ export interface components {
         readonly AutomationRunUnreadCounts: {
             /** Format: int32 */
             readonly total: number;
+        };
+        readonly BackupCapacity: {
+            /** Format: int64 */
+            readonly automatic_ready_bytes: number;
+            /** Format: int64 */
+            readonly available_bytes: number;
+            readonly can_create: boolean;
+            /** Format: int64 */
+            readonly estimated_next_backup_bytes: number;
+            /** Format: int64 */
+            readonly manual_ready_bytes: number;
+            /** Format: int64 */
+            readonly safety_margin_bytes: number;
+            /** Format: int64 */
+            readonly total_ready_bytes: number;
+        };
+        readonly BackupJobProgress: {
+            /** Format: int64 */
+            readonly asset_bytes_copied: number;
+            /** Format: int64 */
+            readonly asset_copy_ms: number;
+            /** Format: int64 */
+            readonly database_busy_retries: number;
+            /** Format: int64 */
+            readonly database_copied_pages: number;
+            /** Format: int64 */
+            readonly database_copy_ms: number;
+            /** Format: int64 */
+            readonly database_total_pages: number;
+            /** Format: int64 */
+            readonly digest_ms: number;
+            /** Format: int64 */
+            readonly publish_ms: number;
+            /** Format: int64 */
+            readonly validation_ms: number;
+            /** Format: int64 */
+            readonly writer_held_ms: number;
+        };
+        readonly BackupJobRecord: {
+            readonly backup_id: string;
+            /** Format: int64 */
+            readonly completed_units: number;
+            readonly error?: string | null;
+            readonly include_assets: boolean;
+            readonly job_id: string;
+            readonly label?: string | null;
+            readonly operation_id: string;
+            readonly phase: string;
+            readonly progress: components["schemas"]["BackupJobProgress"];
+            /** Format: int64 */
+            readonly started_at_ms: number;
+            readonly state: string;
+            /** Format: int64 */
+            readonly total_units: number;
+            readonly trigger: components["schemas"]["BackupTrigger"];
+            /** Format: int64 */
+            readonly updated_at_ms: number;
         };
         /** @enum {string} */
         readonly BackupTrigger: "manual" | "auto" | "pre-restore";
@@ -1493,7 +1562,7 @@ export interface components {
             readonly retryable: boolean;
         };
         /** @enum {string} */
-        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "conflict" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "patch_not_found" | "patch_ambiguous" | "patch_overlap" | "idempotency_key_reused" | "protected_owner_deletion" | "document_update_missing_dependencies" | "invalid_document_schema" | "materialization_stale" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "deadline_exceeded" | "cancelled" | "overloaded" | "resource_exhausted" | "core_unavailable";
+        readonly CoreErrorCode: "invalid_input" | "unauthorized" | "not_found" | "ambiguous" | "conflict" | "stale_store_epoch" | "revision_conflict" | "generation_conflict" | "head_conflict" | "patch_not_found" | "patch_ambiguous" | "patch_overlap" | "idempotency_key_reused" | "idempotency_window_expired" | "legacy_idempotency_unavailable" | "protected_owner_deletion" | "document_update_missing_dependencies" | "invalid_document_schema" | "materialization_stale" | "maintenance_in_progress" | "schema_unsupported" | "store_corrupt" | "protocol_incompatible" | "event_replay_unavailable" | "deadline_exceeded" | "cancelled" | "overloaded" | "resource_exhausted" | "core_unavailable";
         readonly CoreErrorRecovery: {
             /** @enum {string} */
             readonly kind: "none";
@@ -4913,8 +4982,14 @@ export interface components {
             readonly page_id: string;
             readonly project_id: string;
         };
+        readonly MaintenanceDueWorkPlan: {
+            readonly due_tasks: readonly components["schemas"]["MaintenanceTask"][];
+            /** Format: int64 */
+            readonly next_wake_at_ms?: number | null;
+            readonly work_token?: string | null;
+        };
         /** @enum {string} */
-        readonly MaintenanceTask: "integrity_check" | "foreign_key_check" | "document_revision_finalize" | "document_compaction" | "history_retention" | "block_retention";
+        readonly MaintenanceTask: "integrity_check" | "foreign_key_check" | "document_revision_finalize" | "document_compaction" | "history_retention" | "block_retention" | "operational_journal";
         readonly ModuleApplyRequest_AutomationIntent: {
             /** Format: int32 */
             readonly contract_version: number;
@@ -4958,6 +5033,7 @@ export interface components {
                 readonly lease_duration_ms: number;
                 /** Format: int32 */
                 readonly limit: number;
+                readonly work_token: string;
             } | {
                 /** @enum {string} */
                 readonly kind: "complete_lease";
@@ -5061,6 +5137,7 @@ export interface components {
                 readonly lease_duration_ms: number;
                 /** Format: int32 */
                 readonly limit: number;
+                readonly work_token: string;
             } | {
                 /** @enum {string} */
                 readonly kind: "complete_reminder_lease";
@@ -5588,6 +5665,10 @@ export interface components {
                 readonly label?: string | null;
                 readonly trigger: components["schemas"]["BackupTrigger"];
             } | {
+                readonly job_id: string;
+                /** @enum {string} */
+                readonly kind: "cancel_backup";
+            } | {
                 readonly backup_id: string;
                 readonly create_safety_backup: boolean;
                 /** @enum {string} */
@@ -5599,6 +5680,8 @@ export interface components {
             } | {
                 /** @enum {string} */
                 readonly kind: "prune_backups";
+                /** Format: int64 */
+                readonly retain_bytes: number;
                 /** Format: int32 */
                 readonly retain_count: number;
             } | {
@@ -5607,6 +5690,7 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "run_maintenance";
                 readonly tasks: readonly components["schemas"]["MaintenanceTask"][];
+                readonly work_token?: string | null;
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -5763,6 +5847,10 @@ export interface components {
             /** Format: int32 */
             readonly contract_version: number;
             readonly read: {
+                /** @enum {string} */
+                readonly kind: "due_work";
+                readonly lane: components["schemas"]["AutomationDueWorkLane"];
+            } | {
                 readonly include_deleted?: boolean | null;
                 /** @enum {string} */
                 readonly kind: "definitions";
@@ -6296,8 +6384,46 @@ export interface components {
                 readonly window: components["schemas"]["CollectionWindowRequest"];
             } | {
                 /** @enum {string} */
+                readonly kind: "backup_jobs";
+            } | {
+                /** @enum {string} */
+                readonly kind: "operational_journal_status";
+            } | {
+                /** @enum {string} */
                 readonly kind: "maintenance_status";
+            } | {
+                /** Format: int64 */
+                readonly block_retention_count?: number | null;
+                /** @enum {string} */
+                readonly kind: "maintenance_plan";
+                readonly tasks: readonly components["schemas"]["MaintenanceTask"][];
             };
+        };
+        readonly OperationalJournalStatus: {
+            /** Format: int64 */
+            readonly commit_head_seq: number;
+            /** Format: int64 */
+            readonly freelist_pages: number;
+            /** Format: int64 */
+            readonly last_pruned_commit_seq: number;
+            readonly optimizing: boolean;
+            /** Format: int64 */
+            readonly pending_commit_metadata: number;
+            /** Format: int64 */
+            readonly pending_receipt_metadata: number;
+            readonly receipt_floor_at?: string | null;
+            /** Format: int64 */
+            readonly reclaimable_bytes: number;
+            /** Format: int64 */
+            readonly replay_floor_seq: number;
+            /** Format: int64 */
+            readonly retained_commit_count: number;
+            /** Format: int64 */
+            readonly retained_delivery_bytes: number;
+            /** Format: int64 */
+            readonly retained_receipt_bytes: number;
+            /** Format: int64 */
+            readonly retained_receipt_count: number;
         };
         readonly OwnedDocumentAccessContext: {
             /** @enum {string} */
@@ -7009,6 +7135,11 @@ export interface components {
         };
         readonly ProjectWorkspaceTurnAuthorityResolution: {
             readonly authority?: null | components["schemas"]["ProjectWorkspaceTurnAuthority"];
+            /**
+             * Format: int64
+             * @description Present only for persisted authority and stable across process restarts.
+             */
+            readonly frozen_at_ms?: number | null;
             readonly persisted: boolean;
         };
         /** @enum {string} */
@@ -7439,6 +7570,7 @@ export interface components {
                 readonly delivery?: null | components["schemas"]["AuthorizedDeliveryPacket"];
                 readonly outcome: {
                     readonly backup_id?: string | null;
+                    readonly cancelled_backup_job_id?: string | null;
                     readonly completed_tasks: readonly components["schemas"]["MaintenanceTask"][];
                     readonly safety_backup_id?: string | null;
                 };
@@ -7452,6 +7584,7 @@ export interface components {
                 readonly observed: components["schemas"]["StoreObservation"];
                 readonly outcome: {
                     readonly backup_id?: string | null;
+                    readonly cancelled_backup_job_id?: string | null;
                     readonly completed_tasks: readonly components["schemas"]["MaintenanceTask"][];
                     readonly safety_backup_id?: string | null;
                 };
@@ -7478,6 +7611,10 @@ export interface components {
                 readonly contract_version: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
+                    /** @enum {string} */
+                    readonly kind: "due_work";
+                    readonly plan: components["schemas"]["AutomationDueWorkPlan"];
+                } | {
                     /** @enum {string} */
                     readonly kind: "definitions";
                     readonly window: components["schemas"]["CollectionWindow_AutomationDefinition"];
@@ -7988,14 +8125,27 @@ export interface components {
                     readonly schema_version: number;
                 } | {
                     readonly backups: components["schemas"]["CollectionWindow_BackupRecord"];
+                    readonly capacity: components["schemas"]["BackupCapacity"];
                     /** @enum {string} */
                     readonly kind: "backups";
+                } | {
+                    readonly jobs: readonly components["schemas"]["BackupJobRecord"][];
+                    /** @enum {string} */
+                    readonly kind: "backup_jobs";
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "operational_journal_status";
+                    readonly status: components["schemas"]["OperationalJournalStatus"];
                 } | {
                     readonly active: boolean;
                     /** @enum {string} */
                     readonly kind: "maintenance_status";
                     readonly operation_id?: string | null;
                     readonly phase?: string | null;
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "maintenance_plan";
+                    readonly plan: components["schemas"]["MaintenanceDueWorkPlan"];
                 };
             };
             /** @enum {string} */

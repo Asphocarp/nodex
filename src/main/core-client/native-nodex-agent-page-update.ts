@@ -137,8 +137,9 @@ export const mapNativeNodexAgentCoreError = (error: unknown): ToolError => {
 };
 
 export const nativeNodexAgentPageUpdateOperationId = (
-  request: Pick<PrepareNodexAgentPageUpdateRequest, "threadId" | "callId" | "tool">,
+  request: Pick<PrepareNodexAgentPageUpdateRequest, "threadId" | "callId" | "operationId" | "tool">,
 ): string =>
+  request.operationId ??
   `nodex-agent-edit:${createHash("sha256")
     .update(JSON.stringify([request.threadId, request.callId, request.tool]))
     .digest("hex")}`;

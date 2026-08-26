@@ -37,17 +37,10 @@ use super::writer::StoreReaders;
 const DEFAULT_REPLAY_LIMIT: u32 = 256;
 const MAX_REPLAY_LIMIT: u32 = 1_024;
 const AUTHORIZED_STREAM_BOUNDS_SQL: &str = "SELECT metadata.store_epoch,
-            COALESCE((
-              SELECT ledger.commit_seq FROM local_commits ledger
-              WHERE ledger.store_epoch = metadata.store_epoch
-              ORDER BY ledger.commit_seq ASC LIMIT 1
-            ), 0),
-            COALESCE((
-              SELECT ledger.commit_seq FROM local_commits ledger
-              WHERE ledger.store_epoch = metadata.store_epoch
-              ORDER BY ledger.commit_seq DESC LIMIT 1
-            ), 0)
-     FROM block_store_metadata metadata WHERE metadata.id = 1";
+            journal.replay_floor_seq, journal.commit_head_seq
+     FROM block_store_metadata metadata
+     JOIN operational_journal_state journal ON journal.id = 1
+     WHERE metadata.id = 1";
 const AUTHORIZED_STREAM_PAGE_SQL: &str = "SELECT commit_seq FROM local_commits
      WHERE store_epoch = ?1 AND finalized = 1 AND commit_seq > ?2
      ORDER BY commit_seq ASC LIMIT ?3";
@@ -664,13 +657,8 @@ fn replay_core_events(
     let limit = limit
         .unwrap_or(DEFAULT_REPLAY_LIMIT)
         .clamp(1, MAX_REPLAY_LIMIT);
-    let (oldest_commit, commit_head) = connection.query_row(
-        "SELECT COALESCE(min(commit_seq), 0), COALESCE(max(commit_seq), 0) \
-         FROM local_commits",
-        [],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-    )?;
-    if oldest_commit < 0 || commit_head < oldest_commit {
+    let (_, oldest_commit, commit_head) = authorized_stream_bounds(connection)?;
+    if oldest_commit < 0 || oldest_commit > commit_head.saturating_add(1) {
         return Err(corrupt("LocalCommit retention boundary is invalid"));
     }
     if oldest_commit > 0 && after < oldest_commit - 1 {
@@ -754,7 +742,7 @@ fn scan_authorized_events_with(
         return Err(corrupt("Authorized commit stream limit is invalid"));
     }
     let (store_epoch, oldest_commit, commit_head) = authorized_stream_bounds(connection)?;
-    if oldest_commit < 0 || commit_head < oldest_commit {
+    if oldest_commit < 0 || oldest_commit > commit_head.saturating_add(1) {
         return Err(corrupt("Authorized commit retention boundary is invalid"));
     }
     if oldest_commit > 0 && after < oldest_commit - 1 {
@@ -882,7 +870,7 @@ fn authorized_stream_bounds(connection: &Connection) -> Result<(String, i64, i64
             row.get::<_, i64>(2)?,
         ))
     })?;
-    if bounds.1 < 0 || bounds.2 < bounds.1 {
+    if bounds.1 < 0 || bounds.2 < 0 || bounds.1 > bounds.2.saturating_add(1) {
         return Err(corrupt("Authorized commit retention boundary is invalid"));
     }
     Ok(bounds)
@@ -899,23 +887,13 @@ pub(crate) fn validate_local_commit_index(connection: &Connection) -> Result<(),
             "Durable LocalCommit history contains unfinished transactions",
         ));
     }
-    let physical_count: i64 =
-        connection.query_row("SELECT count(*) FROM change_log", [], |row| row.get(0))?;
-    let indexed_count: i64 =
-        connection.query_row("SELECT count(*) FROM local_commit_effects", [], |row| {
-            row.get(0)
-        })?;
-    if indexed_count != physical_count {
-        return Err(corrupt(
-            "LocalCommit index does not cover the durable change log exactly",
-        ));
-    }
     let orphaned_effects: i64 = connection.query_row(
         "SELECT count(*) FROM local_commit_effects effect
          LEFT JOIN local_commits parent
            ON parent.store_epoch = effect.store_epoch
           AND parent.commit_seq = effect.commit_seq
-         WHERE parent.commit_seq IS NULL",
+         LEFT JOIN change_log change ON change.seq = effect.change_log_seq
+         WHERE parent.commit_seq IS NULL OR change.seq IS NULL",
         [],
         |row| row.get(0),
     )?;
@@ -980,6 +958,99 @@ pub(crate) fn validate_local_commit_index(connection: &Connection) -> Result<(),
         return Err(corrupt(
             "LocalCommit receipts are not addressable by their complete parent coordinate",
         ));
+    }
+    let (commit_head, replay_floor, retained_min, retained_max) = connection.query_row(
+        "SELECT journal.commit_head_seq, journal.replay_floor_seq, \
+                COALESCE(min(commit_row.commit_seq), \
+                  CASE WHEN journal.commit_head_seq = 0 THEN 0 ELSE journal.commit_head_seq + 1 END), \
+                COALESCE(max(commit_row.commit_seq), 0) \
+         FROM operational_journal_state journal \
+         LEFT JOIN local_commits commit_row ON commit_row.finalized = 1 \
+         WHERE journal.id = 1 \
+         GROUP BY journal.commit_head_seq, journal.replay_floor_seq",
+        [],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        },
+    )?;
+    if commit_head < 0
+        || replay_floor < 0
+        || replay_floor > commit_head.saturating_add(1)
+        || retained_min != replay_floor
+        || retained_max > commit_head
+    {
+        return Err(corrupt("Operational Journal boundaries are invalid"));
+    }
+    let accounting = connection.query_row(
+        "SELECT journal.retained_commit_count, journal.retained_delivery_bytes, \
+                journal.pending_metadata_count, \
+                (SELECT count(*) FROM local_commits WHERE finalized = 1), \
+                (SELECT count(*) FROM local_commit_retention_metadata), \
+                COALESCE((SELECT sum(delivery_bytes) \
+                            FROM local_commit_retention_metadata), 0), \
+                (SELECT count(*) FROM detached_module_receipts receipt \
+                  JOIN local_commits commit_row \
+                    ON commit_row.store_epoch = receipt.store_epoch \
+                   AND commit_row.commit_seq = receipt.local_commit_seq), \
+                (SELECT count(*) FROM core_module_receipts active \
+                  JOIN detached_module_receipts detached \
+                    ON detached.module_name = active.module_name \
+                   AND detached.operation_id = active.operation_id), \
+                journal.retained_receipt_count, journal.retained_receipt_bytes, \
+                journal.pending_receipt_metadata_count, \
+                (SELECT count(*) FROM core_module_receipts) \
+                  + (SELECT count(*) FROM detached_module_receipts), \
+                (SELECT count(*) FROM module_receipt_retention_metadata), \
+                COALESCE((SELECT sum(receipt_bytes) \
+                            FROM module_receipt_retention_metadata), 0), \
+                (SELECT count(*) FROM module_receipt_retention_metadata retention \
+                  WHERE NOT EXISTS( \
+                    SELECT 1 FROM core_module_receipts active \
+                    WHERE active.module_name = retention.module_name \
+                      AND active.operation_id = retention.operation_id \
+                  ) AND NOT EXISTS( \
+                    SELECT 1 FROM detached_module_receipts detached \
+                    WHERE detached.module_name = retention.module_name \
+                      AND detached.operation_id = retention.operation_id \
+                  )) \
+         FROM operational_journal_state journal WHERE journal.id = 1",
+        [],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, i64>(7)?,
+                row.get::<_, i64>(8)?,
+                row.get::<_, i64>(9)?,
+                row.get::<_, i64>(10)?,
+                row.get::<_, i64>(11)?,
+                row.get::<_, i64>(12)?,
+                row.get::<_, i64>(13)?,
+                row.get::<_, i64>(14)?,
+            ))
+        },
+    )?;
+    if accounting.0 != accounting.3
+        || accounting.1 != accounting.5
+        || accounting.2 != accounting.3.saturating_sub(accounting.4)
+        || accounting.6 != 0
+        || accounting.7 != 0
+        || accounting.8 != accounting.11
+        || accounting.9 != accounting.13
+        || accounting.10 != accounting.11.saturating_sub(accounting.12)
+        || accounting.14 != 0
+    {
+        return Err(corrupt("Operational Journal accounting is inconsistent"));
     }
     Ok(())
 }
@@ -1567,14 +1638,19 @@ mod tests {
             .unwrap_or_else(|| "epoch:events".to_owned());
         connection.execute(
             "INSERT OR IGNORE INTO block_store_metadata(id, store_epoch, created_at, updated_at)
-             VALUES (1, ?1, '2026-08-07', '2026-08-07')",
+             VALUES (1, ?1, '2026-08-07T00:00:00.000Z', '2026-08-07T00:00:00.000Z')",
             [&store_epoch],
         )?;
         connection.execute_batch(
             "INSERT OR IGNORE INTO profiles(id, created_at, updated_at)
-             VALUES ('profile:events', '2026-08-07', '2026-08-07');
+             VALUES ( \
+               'profile:events', '2026-08-07T00:00:00.000Z', '2026-08-07T00:00:00.000Z' \
+             );
              INSERT OR IGNORE INTO libraries(id, profile_id, created_at, updated_at)
-             VALUES ('library:events', 'profile:events', '2026-08-07', '2026-08-07');",
+             VALUES ( \
+               'library:events', 'profile:events', \
+               '2026-08-07T00:00:00.000Z', '2026-08-07T00:00:00.000Z' \
+             );",
         )?;
         let library_id = "library:events".to_owned();
         Ok((store_epoch, library_id))
@@ -1708,7 +1784,7 @@ mod tests {
                             database_block_ids: &[],
                             payload_json: "{}",
                             projection_impact: &ProjectionImpact::None,
-                            committed_at: "2026-01-01",
+                            committed_at: "2026-01-01T00:00:00.000Z",
                         },
                         NewChangeLogEntry {
                             project_id: "project:events",
@@ -1720,7 +1796,7 @@ mod tests {
                             database_block_ids: &[],
                             payload_json: "{}",
                             projection_impact: &ProjectionImpact::None,
-                            committed_at: "2026-01-01",
+                            committed_at: "2026-01-01T00:00:00.000Z",
                         },
                     ],
                 )
@@ -1909,12 +1985,10 @@ mod tests {
                     .query_map([], |row| row.get::<_, String>(3))?
                     .collect::<rusqlite::Result<Vec<_>>>()?
                     .join("\n");
-                assert_eq!(
-                    bounds
-                        .matches("idx_local_commits_epoch_seq (store_epoch=?)")
-                        .count(),
-                    2,
-                    "stream boundaries lost their epoch point lookups:\n{bounds}",
+                assert!(
+                    bounds.contains("SEARCH journal USING PRIMARY KEY (id=?)")
+                        && bounds.contains("SEARCH metadata USING INTEGER PRIMARY KEY (rowid=?)",),
+                    "stream boundaries lost their constant-time authority lookups:\n{bounds}",
                 );
 
                 let page = connection
@@ -1992,7 +2066,7 @@ mod tests {
                             database_block_ids: &[],
                             payload_json: &payload,
                             projection_impact: &ProjectionImpact::None,
-                            committed_at: "2026-01-01",
+                            committed_at: "2026-01-01T00:00:00.000Z",
                         },
                     )?;
                 }
@@ -2069,7 +2143,7 @@ mod tests {
                             database_block_ids: &[],
                             payload_json: &source_payload,
                             projection_impact: &ProjectionImpact::None,
-                            committed_at: "2026-01-01",
+                            committed_at: "2026-01-01T00:00:00.000Z",
                         },
                         NewChangeLogEntry {
                             project_id: "project:events",
@@ -2081,7 +2155,7 @@ mod tests {
                             database_block_ids: &[],
                             payload_json: &target_payload,
                             projection_impact: &ProjectionImpact::None,
-                            committed_at: "2026-01-01",
+                            committed_at: "2026-01-01T00:00:00.000Z",
                         },
                     ],
                 )?;
@@ -2134,7 +2208,7 @@ mod tests {
                           "affectedParentKeys":["library:events"]
                         }"#,
                         projection_impact: &ProjectionImpact::None,
-                        committed_at: "2026-01-01",
+                        committed_at: "2026-01-01T00:00:00.000Z",
                     },
                 )?;
                 Ok(())
@@ -2187,10 +2261,13 @@ mod tests {
                           "affectedParentKeys":["library:events"]
                         }"#,
                         projection_impact: &ProjectionImpact::None,
-                        committed_at: "2026-01-01",
+                        committed_at: "2026-01-01T00:00:00.000Z",
                     },
                 )?;
-                connection.execute("DROP TRIGGER change_log_is_immutable", [])?;
+                connection.execute_batch(
+                    "DROP TRIGGER change_log_is_immutable;
+                     DROP TRIGGER prevent_change_log_projection_impact_update;",
+                )?;
                 connection.execute(
                     "UPDATE change_log SET payload_json = ?1 WHERE operation_id = ?2",
                     params![
@@ -2239,7 +2316,7 @@ mod tests {
                           "affectedParentKeys":["library:events"]
                         }"#,
                         projection_impact: &ProjectionImpact::None,
-                        committed_at: "2026-01-01",
+                        committed_at: "2026-01-01T00:00:00.000Z",
                     },
                 )?;
                 connection.execute(
@@ -2288,7 +2365,7 @@ mod tests {
                         database_block_ids: &[],
                         payload_json: &payload,
                         projection_impact: &ProjectionImpact::None,
-                        committed_at: "2026-01-01",
+                        committed_at: "2026-01-01T00:00:00.000Z",
                     },
                 )?;
                 connection.execute(
@@ -2335,7 +2412,7 @@ mod tests {
                             database_block_ids: &[],
                             payload_json: &payload,
                             projection_impact: &ProjectionImpact::None,
-                            committed_at: "2026-01-01",
+                            committed_at: "2026-01-01T00:00:00.000Z",
                         },
                     )?;
                 }
@@ -2362,21 +2439,38 @@ mod tests {
                      VALUES ('project:events', 'Events', '2026-01-01', '2026-01-01')",
                     [],
                 )?;
+                append_finalized_test_event(
+                    connection,
+                    "project_workspace",
+                    NewChangeLogEntry {
+                        project_id: "project:events",
+                        store_epoch: "epoch:events",
+                        kind: "project_workspace.changed",
+                        operation_id: Some("workspace:corrupt-impact"),
+                        block_ids: &[],
+                        document_ids: &[],
+                        database_block_ids: &[],
+                        payload_json: r#"{
+                          "module":"project_workspace",
+                          "kind":"workspace_changed",
+                          "projectIds":[],
+                          "sessionIds":[],
+                          "threadIds":[],
+                          "sessionSummaryScopes":[],
+                          "sessionDetailIds":[]
+                        }"#,
+                        projection_impact: &ProjectionImpact::None,
+                        committed_at: "2026-07-22T00:00:00.000Z",
+                    },
+                )?;
+                connection.execute_batch(
+                    "DROP TRIGGER change_log_is_immutable;
+                     DROP TRIGGER prevent_change_log_projection_impact_update;",
+                )?;
                 connection.execute(
-                    "INSERT INTO change_log( \
-                       project_id, store_epoch, kind, operation_id, payload_json, \
-                       projection_impact_json, committed_at \
-                     ) VALUES ( \
-                       'project:events', 'epoch:events', 'project_workspace.changed', \
-                       'workspace:corrupt-impact', \
-                       '{\"module\":\"project_workspace\",\"kind\":\"workspace_changed\",\
-                         \"projectIds\":[],\"sessionIds\":[],\"threadIds\":[],\
-                         \"sessionSummaryScopes\":[],\"sessionDetailIds\":[]}', \
-                       '{\"kind\":\"resources\",\"page_ids\":[\"b\",\"a\"],\
-                         \"database_ids\":[],\"data_source_ids\":[],\"view_ids\":[],\
-                         \"document_heads\":[]}', \
-                       '2026-07-22T00:00:00Z')",
-                    [],
+                    "UPDATE change_log SET projection_impact_json = ?1 \
+                     WHERE operation_id = 'workspace:corrupt-impact'",
+                    [r#"{"kind":"resources","page_ids":["b","a"],"database_ids":[],"data_source_ids":[],"view_ids":[],"document_heads":[]}"#],
                 )?;
                 Ok(())
             })
@@ -2423,7 +2517,7 @@ mod tests {
                         database_block_ids: &[],
                         payload_json: &payload,
                         projection_impact: &ProjectionImpact::None,
-                        committed_at: "2026-01-01",
+                        committed_at: "2026-01-01T00:00:00.000Z",
                     },
                 )?;
                 Ok(())
@@ -2773,6 +2867,15 @@ mod tests {
                 connection.execute(
                     "DELETE FROM local_commits WHERE commit_seq = ?1",
                     [removed_commit],
+                )?;
+                connection.execute(
+                    "UPDATE operational_journal_state \
+                     SET replay_floor_seq = (SELECT min(commit_seq) FROM local_commits), \
+                         retained_commit_count = 1, \
+                         retained_delivery_bytes = COALESCE(( \
+                           SELECT sum(delivery_bytes) FROM local_commit_retention_metadata \
+                         ), 0)",
+                    [],
                 )?;
                 Ok((library_id, local_commit::head(connection)?))
             })

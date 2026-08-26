@@ -404,6 +404,10 @@ pub(super) fn sweep_manifest_gc(
     connection: &Connection,
     assets_root: &Path,
 ) -> Result<(), StoreError> {
+    let Some(_gc_lease) = crate::infrastructure::managed_asset_snapshot::try_acquire_gc_lease()?
+    else {
+        return Ok(());
+    };
     let tombstones = connection
         .prepare(
             "SELECT asset_uri, sha256 FROM codex_queued_follow_up_manifest_gc \

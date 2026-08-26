@@ -31,7 +31,9 @@ const InitialProjectJournalSchema = z
   .object({
     schemaVersion: z.literal(2),
     attemptId: z.string().uuid(),
-    operationId: z.string().uuid(),
+    // v2 journals may contain an older UUID identity. Recovery reconciles Core
+    // state before renewing an uncommitted attempt with the bounded form.
+    operationId: z.string().min(1).max(1_024),
     payload: InitialProjectPayloadSchema,
   })
   .strict();

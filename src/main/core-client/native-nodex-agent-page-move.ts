@@ -55,8 +55,9 @@ const envelope = <Result>(
 });
 
 export const nativeNodexAgentPageMoveOperationId = (
-  request: Pick<PrepareNodexAgentMovePagesRequest, "threadId" | "callId">,
+  request: Pick<PrepareNodexAgentMovePagesRequest, "threadId" | "callId" | "operationId">,
 ): string =>
+  request.operationId ??
   `nodex-agent-move-pages:${createHash("sha256")
     .update(JSON.stringify([request.threadId, request.callId, "move_pages"]))
     .digest("hex")}`;

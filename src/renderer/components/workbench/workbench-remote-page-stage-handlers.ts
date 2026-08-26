@@ -37,7 +37,7 @@ export function makeRemotePageStageHandlers(
       return await commitPageMetadataPatchForBoard({
         projectId,
         pageId: pageId,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
         patch: updates,
       });
     },
@@ -46,7 +46,7 @@ export function makeRemotePageStageHandlers(
         store: getBoardProjectStore(projectId, databaseViewId),
         projectId,
         columnId,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
         pageId,
       });
       if (!deleted) throw new Error("Failed to delete Page");
@@ -58,14 +58,14 @@ export function makeRemotePageStageHandlers(
       const moved = await moveBoardPage({
         store: getBoardProjectStore(projectId, databaseViewId),
         projectId,
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
         move: { pageId: pageId, fromStatus, toStatus },
       });
       if (!moved) throw new Error("Failed to move Page");
     },
     onCompleteOccurrence: async (pageId: string, occurrenceStart: Date) => {
       await invoke("page:occurrence:complete", projectId, {
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
         createdPageId: createUuidV7(),
         pageId: pageId,
         occurrenceStart,
@@ -74,7 +74,7 @@ export function makeRemotePageStageHandlers(
     },
     onSkipOccurrence: async (pageId: string, occurrenceStart: Date) => {
       await invoke("page:occurrence:skip", projectId, {
-        operationId: crypto.randomUUID(),
+        operationId: createUuidV7(),
         pageId: pageId,
         occurrenceStart,
         source: "page-detail",

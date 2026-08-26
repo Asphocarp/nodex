@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -28,6 +28,7 @@ import type {
 } from "../core-client/types";
 import { AutomationRoutingIndex } from "../core-runtime/AutomationRoutingIndex";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createDueWorkOperationId, createOperationId } from "../core-runtime/operation-identity";
 import {
   finiteDateMilliseconds,
   projectAutomationDefinition,
@@ -60,6 +61,12 @@ export interface AutomationDefinitionClaim {
   readonly attempt: number;
   readonly expiresAt: number;
   readonly definition: CodexScheduledAutomation;
+}
+
+export interface AutomationDueWork {
+  readonly dueNow: boolean;
+  readonly nextWakeAt: number | null;
+  readonly workToken: string | null;
 }
 
 export interface AutomationRunMutationInput {
@@ -115,7 +122,9 @@ export interface AutomationDefinitions {
     expectedRevision: number,
     policy: { readonly notBefore?: number; readonly retryWithinMs?: number },
   ) => AutomationEffect<CodexScheduledAutomation>;
+  readonly planDue: AutomationEffect<AutomationDueWork>;
   readonly claimDue: (
+    workToken: string,
     limit: number,
     leaseDurationMs: number,
   ) => AutomationEffect<readonly AutomationDefinitionClaim[]>;
@@ -198,7 +207,9 @@ export interface AutomationReminders {
     readonly occurrenceStart: string;
     readonly snoozeMinutes: number;
   }) => AutomationEffect<void>;
+  readonly planDue: AutomationEffect<AutomationDueWork>;
   readonly claimDue: (
+    workToken: string,
     limit: number,
     leaseDurationMs: number,
   ) => AutomationEffect<readonly AutomationReminderClaim[]>;
@@ -224,12 +235,7 @@ export class AutomationApplication extends Context.Service<
 const requestOptions = (requestClass: AutomationReadClass): CoreRequestOptions | undefined =>
   requestClass === "background" ? BACKGROUND_CORE_REQUEST : undefined;
 
-const operationId = (kind: string): string => `electron:automation:${kind}:${randomUUID()}`;
-
-const stableOperationId = (kind: string, payload: unknown): string => {
-  const hash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
-  return `electron:automation:${kind}:${hash}`;
-};
+const operationId = (kind: string): string => createOperationId(`automation.${kind}`);
 
 export const make: Effect.Effect<
   AutomationApplication["Service"],
@@ -322,6 +328,27 @@ export const make: Effect.Effect<
       );
     }
     return snapshot.value.item ?? null;
+  });
+
+  const readDueWork = Effect.fn("AutomationApplication.readDueWork")(function* (
+    lane: "definitions" | "reminders",
+  ) {
+    const snapshot = yield* read(
+      `${lane}.planDue`,
+      { kind: "due_work", lane },
+      BACKGROUND_CORE_REQUEST,
+    );
+    if (snapshot.value.kind !== "due_work") {
+      return yield* error(
+        `${lane}.planDue`,
+        new Error("Core returned a non-DueWork Automation read"),
+      );
+    }
+    return {
+      dueNow: snapshot.value.plan.due_now,
+      nextWakeAt: snapshot.value.plan.next_wake_at_ms ?? null,
+      workToken: snapshot.value.plan.work_token ?? null,
+    };
   });
 
   const readRun = Effect.fn("AutomationApplication.readRun")(function* (
@@ -499,10 +526,7 @@ export const make: Effect.Effect<
     const committed = yield* apply(
       "definitions.reschedule",
       {
-        operationId: stableOperationId(`reschedule:${automationId}`, {
-          expectedRevision,
-          ...policy,
-        }),
+        operationId: operationId(`reschedule:${automationId}`),
         intent: {
           kind: "reschedule_definition",
           automation_id: automationId,
@@ -519,14 +543,23 @@ export const make: Effect.Effect<
   });
 
   const claimDueDefinitions = Effect.fn("AutomationApplication.definitions.claimDue")(function* (
+    workToken: string,
     limit: number,
     leaseDurationMs: number,
   ) {
     const committed = yield* apply(
       "definitions.claimDue",
       {
-        operationId: operationId("claim-due"),
-        intent: { kind: "claim_due", limit, lease_duration_ms: leaseDurationMs },
+        operationId: createDueWorkOperationId("automation.claim-due", workToken, {
+          limit,
+          leaseDurationMs,
+        }),
+        intent: {
+          kind: "claim_due",
+          work_token: workToken,
+          limit,
+          lease_duration_ms: leaseDurationMs,
+        },
       },
       BACKGROUND_CORE_REQUEST,
     );
@@ -562,7 +595,7 @@ export const make: Effect.Effect<
     const committed = yield* apply(
       operation,
       {
-        operationId: stableOperationId(`run:${threadId}`, requestedIntent),
+        operationId: operationId(`run:${threadId}`),
         intent: requestedIntent,
       },
       options,
@@ -810,6 +843,7 @@ export const make: Effect.Effect<
       delete: deleteDefinition,
       dispatchNow: dispatchDefinitionNow,
       reschedule: rescheduleDefinition,
+      planDue: readDueWork("definitions"),
       claimDue: claimDueDefinitions,
       completeLease: (leaseId) =>
         apply(
@@ -1013,13 +1047,18 @@ export const make: Effect.Effect<
     },
     reminders: {
       snooze: snoozeReminder,
-      claimDue: (limit, leaseDurationMs) =>
+      planDue: readDueWork("reminders"),
+      claimDue: (workToken, limit, leaseDurationMs) =>
         apply(
           "reminders.claimDue",
           {
-            operationId: operationId("claim-due-reminders"),
+            operationId: createDueWorkOperationId("automation.claim-due-reminders", workToken, {
+              limit,
+              leaseDurationMs,
+            }),
             intent: {
               kind: "claim_due_reminders",
+              work_token: workToken,
               limit,
               lease_duration_ms: leaseDurationMs,
             },

@@ -13,14 +13,18 @@ use crate::infrastructure::request_execution::check_request_interruption;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::canvas_scene::{CANVAS_OWNER_TYPE, CANVAS_SCHEMA_KEY, CANVAS_SCHEMA_VERSION};
-use super::history::{prune_document_history, read_document_version_retention_evidence};
+use super::history::{
+    DocumentVersionRetentionBackfillPlan, apply_document_version_retention_backfill,
+    has_unindexed_document_version_retention_work, plan_document_version_retention_backfill,
+    prune_document_history,
+};
 use super::{
     BlockDocumentSchema, CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION,
     read_document_authority, schema_metadata,
 };
 
 const MAX_CANDIDATES_PER_PASS: usize = 100;
-const MAX_RETAINED_DOCUMENT_VERSIONS_TO_INSPECT: usize = 10_000;
+const RETAINED_CANDIDATE_RETRY_MS: i64 = 15 * 60 * 1_000;
 
 const DOCUMENT_BEARING_BLOCK_TYPES: [&str; 4] = [
     "page",
@@ -29,10 +33,11 @@ const DOCUMENT_BEARING_BLOCK_TYPES: [&str; 4] = [
     CANVAS_OWNER_TYPE,
 ];
 
-const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 32] = [
+const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 33] = [
     "block_asset_refs",
     "block_documents",
     "block_properties",
+    "block_retention_deferrals",
     "block_relocation_members",
     "block_relocations",
     "block_search_units",
@@ -83,14 +88,25 @@ pub(crate) struct BlockRetentionCandidate {
 
 #[derive(Debug)]
 pub(crate) struct BlockRetentionPlan {
-    candidates: Vec<BlockRetentionCandidate>,
-    evidence: Arc<RetentionEvidenceIndex>,
+    work: BlockRetentionPlanWork,
     commit_head: i64,
+}
+
+#[derive(Debug)]
+enum BlockRetentionPlanWork {
+    IndexDocumentVersion(DocumentVersionRetentionBackfillPlan),
+    Collect {
+        candidates: Vec<BlockRetentionCandidate>,
+        evidence: Arc<RetentionEvidenceIndex>,
+    },
 }
 
 impl BlockRetentionPlan {
     pub(crate) fn len(&self) -> usize {
-        self.candidates.len()
+        match &self.work {
+            BlockRetentionPlanWork::IndexDocumentVersion(_) => 1,
+            BlockRetentionPlanWork::Collect { candidates, .. } => candidates.len(),
+        }
     }
 
     pub(crate) fn slice_from(
@@ -98,15 +114,31 @@ impl BlockRetentionPlan {
         cursor: usize,
         maximum_candidates: usize,
     ) -> Result<BlockRetentionSlice, StoreError> {
-        if maximum_candidates == 0 || cursor > self.candidates.len() {
+        if maximum_candidates == 0 || cursor > self.len() {
             return Err(internal("Block retention slice cursor is invalid"));
         }
-        let end = cursor
-            .saturating_add(maximum_candidates)
-            .min(self.candidates.len());
+        let work = match &self.work {
+            BlockRetentionPlanWork::IndexDocumentVersion(plan) => {
+                if cursor != 0 {
+                    return Err(internal("Document retention index slice cursor is invalid"));
+                }
+                BlockRetentionSliceWork::IndexDocumentVersion(plan.clone())
+            }
+            BlockRetentionPlanWork::Collect {
+                candidates,
+                evidence,
+            } => {
+                let end = cursor
+                    .saturating_add(maximum_candidates)
+                    .min(candidates.len());
+                BlockRetentionSliceWork::Collect {
+                    candidates: candidates[cursor..end].to_vec(),
+                    evidence: Arc::clone(evidence),
+                }
+            }
+        };
         Ok(BlockRetentionSlice {
-            candidates: self.candidates[cursor..end].to_vec(),
-            evidence: Arc::clone(&self.evidence),
+            work,
             commit_head: self.commit_head,
         })
     }
@@ -114,9 +146,17 @@ impl BlockRetentionPlan {
 
 #[derive(Debug)]
 pub(crate) struct BlockRetentionSlice {
-    candidates: Vec<BlockRetentionCandidate>,
-    evidence: Arc<RetentionEvidenceIndex>,
+    work: BlockRetentionSliceWork,
     commit_head: i64,
+}
+
+#[derive(Debug)]
+enum BlockRetentionSliceWork {
+    IndexDocumentVersion(DocumentVersionRetentionBackfillPlan),
+    Collect {
+        candidates: Vec<BlockRetentionCandidate>,
+        evidence: Arc<RetentionEvidenceIndex>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -211,22 +251,27 @@ impl CurrentDocumentEvidence {
 
 /// Pass-local, fail-closed evidence for physical Block collection.
 ///
-/// Current projections and retained versions are decoded once. Candidate
-/// analysis only intersects identity sets, so its cost does not multiply Yjs
-/// reconstruction or history decoding by the number of tombstones.
+/// Current projections are decoded once and immutable audit evidence is scoped
+/// away from the candidate Library when possible. Retained Document versions
+/// use their durable identity projection, so candidate analysis never rebuilds
+/// every historical checkpoint.
 #[derive(Debug, Default)]
 struct RetentionEvidenceIndex {
     current_documents: Vec<CurrentDocumentEvidence>,
-    historical_versions: Vec<super::history::DocumentVersionRetentionEvidence>,
     immutable_rows: Vec<ImmutableRetentionEvidence>,
     relocations: Vec<RelocationRetentionEvidence>,
     recovery_artifacts: Vec<RecoveryRetentionEvidence>,
     structural_members: Vec<StructuralRetentionEvidence>,
     unknown_inbound_foreign_keys: Vec<UnknownInboundForeignKey>,
+    newest_deleted_blocks: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl RetentionEvidenceIndex {
-    fn load(connection: &Connection) -> Result<Self, StoreError> {
+    fn load(
+        connection: &Connection,
+        candidates: &[BlockRetentionCandidate],
+        retain_newest_deleted_blocks: usize,
+    ) -> Result<Self, StoreError> {
         let document_ids = connection
             .prepare("SELECT id FROM documents ORDER BY id")?
             .query_map([], |row| row.get::<_, String>(0))?
@@ -238,24 +283,40 @@ impl RetentionEvidenceIndex {
             }
             current_documents.push(load_current_document_evidence(connection, document_id));
         }
-        let historical_versions = read_document_version_retention_evidence(
-            connection,
-            MAX_RETAINED_DOCUMENT_VERSIONS_TO_INSPECT,
-        )?;
-        let immutable_rows = load_immutable_retention_evidence(connection)?;
+        let candidate_libraries = candidates
+            .iter()
+            .map(|candidate| candidate.library_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let excluded_library = (candidate_libraries.len() == 1).then(|| {
+            *candidate_libraries
+                .first()
+                .expect("single candidate Library")
+        });
+        let immutable_rows = load_immutable_retention_evidence(connection, excluded_library)?;
         let relocations = load_relocation_retention_evidence(connection)?;
         let recovery_artifacts = load_recovery_retention_evidence(connection)?;
         let structural_members = load_structural_retention_evidence(connection)?;
         let unknown_inbound_foreign_keys = load_unknown_inbound_foreign_keys(connection)?;
+        let newest_deleted_blocks = load_newest_deleted_blocks(
+            connection,
+            &candidate_libraries,
+            retain_newest_deleted_blocks,
+        )?;
         Ok(Self {
             current_documents,
-            historical_versions,
             immutable_rows,
             relocations,
             recovery_artifacts,
             structural_members,
             unknown_inbound_foreign_keys,
+            newest_deleted_blocks,
         })
+    }
+
+    fn intersects_newest_deleted_blocks(&self, closure: &CandidateClosure) -> bool {
+        self.newest_deleted_blocks
+            .get(&closure.library_id)
+            .is_some_and(|newest| sets_intersect(newest, &closure.block_ids))
     }
 
     fn has_current_authority_reference(
@@ -278,24 +339,6 @@ impl RetentionEvidenceIndex {
                         || sets_intersect(referenced_database_view_ids, database_view_ids)
                 }
             }
-        })
-    }
-
-    fn has_historical_reference(
-        &self,
-        closure: &CandidateClosure,
-        database_view_ids: &BTreeSet<String>,
-    ) -> bool {
-        self.historical_versions.iter().any(|version| {
-            if closure.document_ids.contains(&version.document_id) {
-                // History owned by the candidate is pruned in its transaction.
-                // Any pinned/unprunable remainder is caught by the exact
-                // retained-version count before collection.
-                return false;
-            }
-            sets_intersect(&version.block_ids, &closure.block_ids)
-                || sets_intersect(&version.referenced_block_ids, &closure.block_ids)
-                || sets_intersect(&version.database_view_ids, database_view_ids)
         })
     }
 
@@ -525,21 +568,32 @@ fn load_current_document_evidence(
 
 fn load_immutable_retention_evidence(
     connection: &Connection,
+    excluded_library: Option<&str>,
 ) -> Result<Vec<ImmutableRetentionEvidence>, StoreError> {
     let rows = connection
         .prepare(
             "SELECT project.library_id, mutation.target_block_ids_json, \
                     mutation.affected_document_ids_json, \
                     mutation.affected_database_block_ids_json \
-             FROM block_mutations mutation \
-             JOIN projects project ON project.id = mutation.project_id \
+             FROM projects project \
+             CROSS JOIN block_mutations mutation INDEXED BY idx_block_mutations_project_recorded \
+               ON mutation.project_id = project.id \
+             WHERE (?1 IS NULL OR project.library_id <> ?1) \
+               AND (json_array_length(mutation.target_block_ids_json) > 0 \
+                 OR json_array_length(mutation.affected_document_ids_json) > 0 \
+                 OR json_array_length(mutation.affected_database_block_ids_json) > 0) \
              UNION ALL \
              SELECT project.library_id, change.block_ids_json, change.document_ids_json, \
                     change.database_block_ids_json \
-             FROM change_log change \
-             JOIN projects project ON project.id = change.project_id",
+             FROM projects project \
+             CROSS JOIN change_log change INDEXED BY idx_change_log_project_seq \
+               ON change.project_id = project.id \
+             WHERE (?1 IS NULL OR project.library_id <> ?1) \
+               AND (json_array_length(change.block_ids_json) > 0 \
+                 OR json_array_length(change.document_ids_json) > 0 \
+                 OR json_array_length(change.database_block_ids_json) > 0)",
         )?
-        .query_map([], |row| {
+        .query_map([excluded_library], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -562,6 +616,32 @@ fn load_immutable_retention_evidence(
             })
         })
         .collect()
+}
+
+fn load_newest_deleted_blocks(
+    connection: &Connection,
+    libraries: &BTreeSet<&str>,
+    retain_newest_deleted_blocks: usize,
+) -> Result<BTreeMap<String, BTreeSet<String>>, StoreError> {
+    let limit = i64::try_from(retain_newest_deleted_blocks)
+        .map_err(|_| invalid("Block retention count exceeds SQLite bounds"))?;
+    let mut by_library = BTreeMap::new();
+    for library_id in libraries {
+        let newest = if limit == 0 {
+            BTreeSet::new()
+        } else {
+            connection
+                .prepare(
+                    "SELECT id FROM blocks INDEXED BY idx_blocks_library_lifecycle_updated \
+                     WHERE library_id = ?1 AND lifecycle = 'deleted' \
+                     ORDER BY updated_at DESC, id DESC LIMIT ?2",
+                )?
+                .query_map(params![library_id, limit], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<BTreeSet<_>>>()?
+        };
+        by_library.insert((*library_id).to_owned(), newest);
+    }
+    Ok(by_library)
 }
 
 fn load_relocation_retention_evidence(
@@ -739,60 +819,83 @@ pub(crate) fn run_block_retention_pass(
 ) -> Result<BlockRetentionSummary, StoreError> {
     let plan = plan_block_retention_pass(connection, retain_newest_deleted_blocks)?;
     let slice = plan.slice_from(0, plan.len().max(1))?;
-    Ok(run_block_retention_slice_with_target(
-        connection,
-        &slice,
-        retain_newest_deleted_blocks,
-        None,
-    )?
-    .summary)
+    Ok(run_block_retention_slice_with_target(connection, &slice, None)?.summary)
 }
 
 pub(crate) fn plan_block_retention_pass(
     connection: &Connection,
     retain_newest_deleted_blocks: usize,
 ) -> Result<BlockRetentionPlan, StoreError> {
-    let foreign_key_violations =
-        connection.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
-            row.get::<_, i64>(0)
-        })?;
-    if foreign_key_violations != 0 {
-        return Err(corrupt(format!(
-            "Block retention found {foreign_key_violations} foreign-key violations"
-        )));
-    }
-    let planned = read_candidate_roots(connection, retain_newest_deleted_blocks)?;
-    let evidence = if planned.is_empty() {
-        Arc::new(RetentionEvidenceIndex::default())
-    } else {
-        Arc::new(RetentionEvidenceIndex::load(connection)?)
-    };
+    // Store open/migration and backup boundaries own whole-Store FK scans;
+    // every maintenance write still runs with SQLite FK enforcement enabled.
+    // Repeating a global scan here would make Block retention scale with
+    // unrelated Operational Journal history before it has found a candidate.
     let commit_head = crate::infrastructure::local_commit::head(connection)?;
-    Ok(BlockRetentionPlan {
-        candidates: planned,
-        evidence,
-        commit_head,
-    })
+    let work = if let Some(backfill) = plan_document_version_retention_backfill(connection)? {
+        BlockRetentionPlanWork::IndexDocumentVersion(backfill)
+    } else {
+        let candidates = read_candidate_roots(connection, retain_newest_deleted_blocks)?;
+        let evidence = if candidates.is_empty() {
+            Arc::new(RetentionEvidenceIndex::default())
+        } else {
+            Arc::new(RetentionEvidenceIndex::load(
+                connection,
+                &candidates,
+                retain_newest_deleted_blocks,
+            )?)
+        };
+        BlockRetentionPlanWork::Collect {
+            candidates,
+            evidence,
+        }
+    };
+    Ok(BlockRetentionPlan { work, commit_head })
+}
+
+/// Cheap due-work probe for the scheduler. Candidates that were proven unsafe
+/// to collect are durably deferred, allowing the scan to advance instead of
+/// continuously re-reading the same oldest tombstones.
+pub(crate) fn plan_block_retention_due_work(
+    connection: &Connection,
+    retain_newest_deleted_blocks: usize,
+) -> Result<(bool, Option<i64>), StoreError> {
+    if has_unindexed_document_version_retention_work(connection)? {
+        return Ok((true, None));
+    }
+    if !read_candidate_roots(connection, retain_newest_deleted_blocks)?.is_empty() {
+        return Ok((true, None));
+    }
+    let now_ms = sqlite_now_ms(connection)?;
+    let next_wake_at_ms = connection.query_row(
+        "SELECT min(retry_after_ms) FROM block_retention_deferrals \
+         WHERE retry_after_ms > ?1",
+        [now_ms],
+        |row| row.get::<_, Option<i64>>(0),
+    )?;
+    Ok((false, next_wake_at_ms))
+}
+
+pub(crate) fn block_retention_work_revision(connection: &Connection) -> Result<i64, StoreError> {
+    connection
+        .query_row(
+            "SELECT maintenance_revision FROM block_retention_state WHERE id = 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(StoreError::from)
 }
 
 pub(crate) fn run_bounded_block_retention_slice(
     connection: &mut Connection,
     slice: &BlockRetentionSlice,
-    retain_newest_deleted_blocks: usize,
     target_duration: Duration,
 ) -> Result<BlockRetentionSliceResult, StoreError> {
-    run_block_retention_slice_with_target(
-        connection,
-        slice,
-        retain_newest_deleted_blocks,
-        Some(target_duration),
-    )
+    run_block_retention_slice_with_target(connection, slice, Some(target_duration))
 }
 
 fn run_block_retention_slice_with_target(
     connection: &mut Connection,
     slice: &BlockRetentionSlice,
-    retain_newest_deleted_blocks: usize,
     target_duration: Option<Duration>,
 ) -> Result<BlockRetentionSliceResult, StoreError> {
     let current_commit_head = crate::infrastructure::local_commit::head(connection)?;
@@ -803,11 +906,34 @@ fn run_block_retention_slice_with_target(
             true,
         ));
     }
+    if let BlockRetentionSliceWork::IndexDocumentVersion(plan) = &slice.work {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let indexed = apply_document_version_retention_backfill(&transaction, plan)?;
+        transaction.commit()?;
+        return Ok(BlockRetentionSliceResult {
+            summary: BlockRetentionSummary::default(),
+            processed_candidates: usize::from(indexed),
+        });
+    }
+    if has_unindexed_document_version_retention_work(connection)? {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Block retention requires the Document history index to catch up",
+            true,
+        ));
+    }
+    let BlockRetentionSliceWork::Collect {
+        candidates,
+        evidence,
+    } = &slice.work
+    else {
+        unreachable!("Document history indexing returned above")
+    };
     let started_at = Instant::now();
     let mut summary = BlockRetentionSummary::default();
     let mut first_failure = None;
     let mut retained_roots = BTreeSet::new();
-    for (index, candidate) in slice.candidates.iter().enumerate() {
+    for (index, candidate) in candidates.iter().enumerate() {
         if index % 8 == 0 {
             check_request_interruption()?;
         }
@@ -815,18 +941,19 @@ fn run_block_retention_slice_with_target(
         let outcome = if let Some(document_id) = candidate.dormant_document_id.as_deref() {
             maintain_dormant_document_candidate(
                 connection,
-                &slice.evidence,
+                evidence,
                 &candidate.library_id,
                 &candidate.root_block_id,
                 document_id,
+                slice.commit_head,
             )
         } else {
             maintain_candidate(
                 connection,
-                &slice.evidence,
+                evidence,
                 &candidate.library_id,
                 &candidate.root_block_id,
-                retain_newest_deleted_blocks,
+                slice.commit_head,
             )
         };
         match outcome {
@@ -883,10 +1010,17 @@ fn read_candidate_roots(
                       row_number() OVER ( \
                         PARTITION BY library_id ORDER BY updated_at DESC, id DESC \
                       ) AS recency_rank \
-               FROM blocks WHERE lifecycle = 'deleted' \
+               FROM blocks INDEXED BY idx_blocks_library_lifecycle_updated \
+               WHERE lifecycle = 'deleted' \
              ) \
-             SELECT library_id, id FROM ranked_deleted \
-             WHERE recency_rank > ?1 \
+             SELECT ranked.library_id, ranked.id FROM ranked_deleted ranked \
+             WHERE ranked.recency_rank > ?1 \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM block_retention_deferrals deferral \
+                 WHERE deferral.root_block_id = ranked.id \
+                   AND deferral.retry_after_ms > \
+                     CAST(unixepoch('subsec') * 1000 AS INTEGER) \
+               ) \
              ORDER BY updated_at, library_id, id LIMIT ?2",
         )?
         .query_map(params![retain_count, candidate_count], |row| {
@@ -943,6 +1077,12 @@ fn read_dormant_document_candidates(
              WHERE recipe.state <> 'available' \
                AND json_extract(recipe.recipe_json, '$.action.kind') = 'restore_turned_selection' \
                AND NOT EXISTS ( \
+                 SELECT 1 FROM block_retention_deferrals deferral \
+                 WHERE deferral.root_block_id = placeholder.id \
+                   AND deferral.retry_after_ms > \
+                     CAST(unixepoch('subsec') * 1000 AS INTEGER) \
+               ) \
+               AND NOT EXISTS ( \
                  SELECT 1 FROM block_documents ownership \
                  WHERE ownership.document_id = document.id \
                ) \
@@ -970,50 +1110,60 @@ fn maintain_dormant_document_candidate(
     library_id: &str,
     placeholder_block_id: &str,
     document_id: &str,
+    commit_head: i64,
 ) -> Result<CandidateOutcome, StoreError> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let Some(closure) = build_dormant_document_closure(
-        &transaction,
-        library_id,
-        placeholder_block_id,
-        document_id,
-    )?
-    else {
-        return Ok(CandidateOutcome::Covered);
-    };
-    let now = sqlite_now(&transaction)?;
-    prune_document_history(&transaction, document_id, &now)?;
-    let analysis = analyze_candidate(&transaction, evidence, &closure, &BTreeSet::new())?;
-    if !analysis.collectible {
-        return Ok(CandidateOutcome::Retained);
+    let outcome = (|| -> Result<CandidateOutcome, StoreError> {
+        let Some(closure) = build_dormant_document_closure(
+            &transaction,
+            library_id,
+            placeholder_block_id,
+            document_id,
+        )?
+        else {
+            return Ok(CandidateOutcome::Covered);
+        };
+        let now = sqlite_now(&transaction)?;
+        prune_document_history(&transaction, document_id, &now)?;
+        let analysis = analyze_candidate(&transaction, evidence, &closure, &BTreeSet::new())?;
+        if !analysis.collectible {
+            return Ok(CandidateOutcome::Retained);
+        }
+        delete_exact_recovery_artifacts(&transaction, &analysis.prunable_recovery_artifact_ids)?;
+        let Some(replanned) = build_dormant_document_closure(
+            &transaction,
+            library_id,
+            placeholder_block_id,
+            document_id,
+        )?
+        else {
+            return Ok(CandidateOutcome::Covered);
+        };
+        let deleted_recovery_artifact_ids = analysis
+            .prunable_recovery_artifact_ids
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let post_prune = analyze_candidate(
+            &transaction,
+            evidence,
+            &replanned,
+            &deleted_recovery_artifact_ids,
+        )?;
+        if !post_prune.collectible || !post_prune.prunable_recovery_artifact_ids.is_empty() {
+            return Ok(CandidateOutcome::Retained);
+        }
+        collect_dormant_document_closure(&transaction, &replanned, &now)?;
+        Ok(CandidateOutcome::Collected(replanned.block_ids))
+    })()?;
+    if matches!(outcome, CandidateOutcome::Covered) {
+        return Ok(outcome);
     }
-    delete_exact_recovery_artifacts(&transaction, &analysis.prunable_recovery_artifact_ids)?;
-    let Some(replanned) = build_dormant_document_closure(
-        &transaction,
-        library_id,
-        placeholder_block_id,
-        document_id,
-    )?
-    else {
-        return Ok(CandidateOutcome::Covered);
-    };
-    let deleted_recovery_artifact_ids = analysis
-        .prunable_recovery_artifact_ids
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let post_prune = analyze_candidate(
-        &transaction,
-        evidence,
-        &replanned,
-        &deleted_recovery_artifact_ids,
-    )?;
-    if !post_prune.collectible || !post_prune.prunable_recovery_artifact_ids.is_empty() {
-        return Ok(CandidateOutcome::Retained);
+    if matches!(outcome, CandidateOutcome::Retained) {
+        record_retained_candidate_deferral(&transaction, placeholder_block_id, commit_head)?;
     }
-    collect_dormant_document_closure(&transaction, &replanned, &now)?;
     transaction.commit()?;
-    Ok(CandidateOutcome::Collected(replanned.block_ids))
+    Ok(outcome)
 }
 
 fn build_dormant_document_closure(
@@ -1145,50 +1295,91 @@ fn maintain_candidate(
     evidence: &RetentionEvidenceIndex,
     library_id: &str,
     root_block_id: &str,
-    retain_newest_deleted_blocks: usize,
+    commit_head: i64,
 ) -> Result<CandidateOutcome, StoreError> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let Some(root) = read_block(&transaction, root_block_id)? else {
-        return Ok(CandidateOutcome::Covered);
-    };
-    if root.library_id != library_id || root.lifecycle != "deleted" {
-        return Ok(CandidateOutcome::Covered);
+    let outcome = (|| -> Result<CandidateOutcome, StoreError> {
+        let Some(root) = read_block(&transaction, root_block_id)? else {
+            return Ok(CandidateOutcome::Covered);
+        };
+        if root.library_id != library_id || root.lifecycle != "deleted" {
+            return Ok(CandidateOutcome::Covered);
+        }
+        let Some(closure) = build_candidate_closure(&transaction, library_id, root_block_id)?
+        else {
+            return Ok(CandidateOutcome::Retained);
+        };
+        if evidence.intersects_newest_deleted_blocks(&closure) {
+            return Ok(CandidateOutcome::Retained);
+        }
+        let now = sqlite_now(&transaction)?;
+        for document_id in &closure.document_ids {
+            prune_document_history(&transaction, document_id, &now)?;
+        }
+        let analysis = analyze_candidate(&transaction, evidence, &closure, &BTreeSet::new())?;
+        if !analysis.collectible {
+            return Ok(CandidateOutcome::Retained);
+        }
+        delete_exact_recovery_artifacts(&transaction, &analysis.prunable_recovery_artifact_ids)?;
+        let Some(replanned) = build_candidate_closure(&transaction, library_id, root_block_id)?
+        else {
+            return Ok(CandidateOutcome::Retained);
+        };
+        let deleted_recovery_artifact_ids = analysis
+            .prunable_recovery_artifact_ids
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let post_prune = analyze_candidate(
+            &transaction,
+            evidence,
+            &replanned,
+            &deleted_recovery_artifact_ids,
+        )?;
+        if !post_prune.collectible || !post_prune.prunable_recovery_artifact_ids.is_empty() {
+            return Ok(CandidateOutcome::Retained);
+        }
+        let collected = collect_candidate_closure(&transaction, &replanned, &now)?;
+        Ok(CandidateOutcome::Collected(collected))
+    })()?;
+    if matches!(outcome, CandidateOutcome::Covered) {
+        return Ok(outcome);
     }
-    let Some(closure) = build_candidate_closure(&transaction, library_id, root_block_id)? else {
-        return Ok(CandidateOutcome::Retained);
-    };
-    if closure_intersects_newest_tombstones(&transaction, &closure, retain_newest_deleted_blocks)? {
-        return Ok(CandidateOutcome::Retained);
+    if matches!(outcome, CandidateOutcome::Retained) {
+        record_retained_candidate_deferral(&transaction, root_block_id, commit_head)?;
     }
-    let now = sqlite_now(&transaction)?;
-    for document_id in &closure.document_ids {
-        prune_document_history(&transaction, document_id, &now)?;
-    }
-    let analysis = analyze_candidate(&transaction, evidence, &closure, &BTreeSet::new())?;
-    if !analysis.collectible {
-        return Ok(CandidateOutcome::Retained);
-    }
-    delete_exact_recovery_artifacts(&transaction, &analysis.prunable_recovery_artifact_ids)?;
-    let Some(replanned) = build_candidate_closure(&transaction, library_id, root_block_id)? else {
-        return Ok(CandidateOutcome::Retained);
-    };
-    let deleted_recovery_artifact_ids = analysis
-        .prunable_recovery_artifact_ids
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let post_prune = analyze_candidate(
-        &transaction,
-        evidence,
-        &replanned,
-        &deleted_recovery_artifact_ids,
-    )?;
-    if !post_prune.collectible || !post_prune.prunable_recovery_artifact_ids.is_empty() {
-        return Ok(CandidateOutcome::Retained);
-    }
-    let collected = collect_candidate_closure(&transaction, &replanned, &now)?;
     transaction.commit()?;
-    Ok(CandidateOutcome::Collected(collected))
+    Ok(outcome)
+}
+
+fn record_retained_candidate_deferral(
+    connection: &Connection,
+    root_block_id: &str,
+    commit_head: i64,
+) -> Result<(), StoreError> {
+    let now_ms = sqlite_now_ms(connection)?;
+    let retry_after_ms = now_ms
+        .checked_add(RETAINED_CANDIDATE_RETRY_MS)
+        .ok_or_else(|| corrupt("Block retention retry time overflowed"))?;
+    connection.execute(
+        "INSERT INTO block_retention_deferrals( \
+           root_block_id, evaluated_commit_seq, retry_after_ms \
+         ) VALUES (?1, ?2, ?3) \
+         ON CONFLICT(root_block_id) DO UPDATE SET \
+           evaluated_commit_seq = excluded.evaluated_commit_seq, \
+           retry_after_ms = excluded.retry_after_ms",
+        params![root_block_id, commit_head, retry_after_ms],
+    )?;
+    let changed = connection.execute(
+        "UPDATE block_retention_state SET \
+           maintenance_revision = maintenance_revision + 1, updated_at_ms = ?1 \
+         WHERE id = 1 AND maintenance_revision < ?2",
+        params![now_ms, i64::MAX],
+    )?;
+    if changed != 1 {
+        return Err(corrupt("Block retention state is missing or exhausted"));
+    }
+    Ok(())
 }
 
 fn build_candidate_closure(
@@ -1318,30 +1509,6 @@ fn registered_owner_schema(
     schema_metadata(schema).owner_type == owner_type && sync_engine == "yjs"
 }
 
-fn closure_intersects_newest_tombstones(
-    connection: &Connection,
-    closure: &CandidateClosure,
-    retain_newest_deleted_blocks: usize,
-) -> Result<bool, StoreError> {
-    if retain_newest_deleted_blocks == 0 {
-        return Ok(false);
-    }
-    let limit = i64::try_from(retain_newest_deleted_blocks)
-        .map_err(|_| invalid("Block retention count exceeds SQLite bounds"))?;
-    let retained = connection
-        .prepare(
-            "SELECT id FROM blocks WHERE library_id = ?1 AND lifecycle = 'deleted' \
-             ORDER BY updated_at DESC, id DESC LIMIT ?2",
-        )?
-        .query_map(params![closure.library_id, limit], |row| {
-            row.get::<_, String>(0)
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(retained
-        .iter()
-        .any(|block_id| closure.block_ids.contains(block_id)))
-}
-
 fn analyze_candidate(
     connection: &Connection,
     evidence: &RetentionEvidenceIndex,
@@ -1355,7 +1522,7 @@ fn analyze_candidate(
     if evidence.has_unknown_inbound_reference(connection, closure)?
         || evidence.has_current_authority_reference(closure, &database_view_ids)
         || has_current_projection_reference(connection, closure)?
-        || evidence.has_historical_reference(closure, &database_view_ids)
+        || has_historical_reference(connection, closure, &database_view_ids)?
         || evidence.has_cross_library_immutable_reference(closure)
         || evidence.has_relocation_reference(closure)
         || evidence.has_structural_reference(closure)
@@ -1391,6 +1558,37 @@ fn analyze_candidate(
         collectible: retained_owned_versions == 0,
         prunable_recovery_artifact_ids,
     })
+}
+
+fn has_historical_reference(
+    connection: &Connection,
+    closure: &CandidateClosure,
+    database_view_ids: &BTreeSet<String>,
+) -> Result<bool, StoreError> {
+    let referenced = connection.query_row(
+        "SELECT EXISTS( \
+           SELECT 1 \
+           FROM document_version_retention_members member \
+           JOIN document_version_retention_index retention \
+             ON retention.version_id = member.version_id \
+           JOIN document_versions version ON version.version_id = retention.version_id \
+           WHERE version.document_id NOT IN (SELECT value FROM json_each(?1)) \
+             AND ( \
+               (member.member_kind = 'block' \
+                 AND member.member_id IN (SELECT value FROM json_each(?2))) \
+               OR (member.member_kind = 'database_view' \
+                 AND member.member_id IN (SELECT value FROM json_each(?3))) \
+             ) \
+           LIMIT 1 \
+         )",
+        params![
+            identities_json(&closure.document_ids)?,
+            identities_json(&closure.block_ids)?,
+            identities_json(database_view_ids)?,
+        ],
+        |row| row.get::<_, bool>(0),
+    )?;
+    Ok(referenced)
 }
 
 fn has_current_projection_reference(
@@ -1742,6 +1940,16 @@ fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
         .map_err(StoreError::from)
 }
 
+fn sqlite_now_ms(connection: &Connection) -> Result<i64, StoreError> {
+    connection
+        .query_row(
+            "SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER)",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(StoreError::from)
+}
+
 fn invalid(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
@@ -2011,6 +2219,57 @@ mod tests {
     }
 
     #[test]
+    fn document_history_retention_index_backfills_one_checkpoint_per_pass() {
+        let fixture = Fixture::new();
+        fixture.insert_active_page_documents(1);
+        fixture
+            .kernel
+            .writer()
+            .call(|connection| {
+                let checkpoint = super::super::history::canonical_json_bytes(serde_json::json!({
+                    "formatVersion": 2,
+                    "kind": "page",
+                    "blockTree": [],
+                    "richTitle": [],
+                }))?;
+                let checkpoint_hash = super::super::persistence::sha256(&checkpoint);
+                connection.execute(
+                    "INSERT INTO document_versions( \
+                       version_id, document_id, project_id, generation, base_head_seq, \
+                       schema_key, schema_version, cause, actor_json, revision_kind, pinned, \
+                       checkpoint_format, full_update_blob, state_vector, checkpoint_hash, \
+                       byte_length, created_at \
+                     ) VALUES ('version:retention-backfill', \
+                       'document:retention-pressure:0000', ?1, 1, 1, 'nodex.page', 3, \
+                       'manual', '{}', 'manual', 1, 'block_tree_snapshot_v2', ?2, X'', ?3, \
+                       ?4, '2026-01-01T00:00:00.000Z')",
+                    params![
+                        PROJECT_ID,
+                        checkpoint,
+                        checkpoint_hash,
+                        i64::try_from(checkpoint.len()).expect("checkpoint length"),
+                    ],
+                )?;
+                assert!(has_unindexed_document_version_retention_work(connection)?);
+
+                let summary = run_block_retention_pass(connection, 0)?;
+                assert_eq!(summary, BlockRetentionSummary::default());
+                assert!(!has_unindexed_document_version_retention_work(connection)?);
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT member_count FROM document_version_retention_index \
+                         WHERE version_id = 'version:retention-backfill'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                Ok(())
+            })
+            .expect("bounded Document history retention indexing");
+    }
+
+    #[test]
     fn retention_plan_is_globally_bounded_across_libraries() {
         let fixture = Fixture::new();
         fixture
@@ -2066,8 +2325,11 @@ mod tests {
             .expect("global retention plan");
 
         assert_eq!(plan.len(), MAX_CANDIDATES_PER_PASS);
+        let BlockRetentionPlanWork::Collect { candidates, .. } = &plan.work else {
+            panic!("fresh fixture has no Document history backfill");
+        };
         assert!(
-            plan.candidates
+            candidates
                 .iter()
                 .all(|candidate| { candidate.library_id == "library:block-retention:other" })
         );
@@ -2118,7 +2380,6 @@ mod tests {
                                 run_bounded_block_retention_slice(
                                     connection,
                                     &slice,
-                                    0,
                                     Duration::from_millis(100),
                                 )
                             })?;
@@ -2232,8 +2493,7 @@ mod tests {
             .call(|connection| {
                 let plan = plan_block_retention_pass(connection, 0)?;
                 let slice = plan.slice_from(0, plan.len())?;
-                let result =
-                    run_bounded_block_retention_slice(connection, &slice, 0, Duration::ZERO)?;
+                let result = run_bounded_block_retention_slice(connection, &slice, Duration::ZERO)?;
 
                 assert_eq!(result.processed_candidates, 1);
                 assert_eq!(result.summary.selected_candidates, 1);
@@ -2273,7 +2533,7 @@ mod tests {
             .kernel
             .writer()
             .call(move |connection| {
-                run_bounded_block_retention_slice(connection, &slice, 0, Duration::from_millis(100))
+                run_bounded_block_retention_slice(connection, &slice, Duration::from_millis(100))
             })
             .expect_err("stale evidence must fail closed");
         assert_eq!(error.code, StoreErrorCode::RevisionConflict);
@@ -2314,6 +2574,24 @@ mod tests {
                 assert_eq!(summary.retained_candidates, 1);
                 assert_eq!(summary.collected_candidates, 0);
                 assert_eq!(after, before);
+                let (due, next_wake_at_ms) = plan_block_retention_due_work(connection, 0)?;
+                assert!(!due);
+                assert!(next_wake_at_ms.is_some());
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM block_retention_deferrals \
+                         WHERE root_block_id = 'block:projection-target'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    1
+                );
+                connection.execute(
+                    "UPDATE block_retention_deferrals SET retry_after_ms = 0 \
+                     WHERE root_block_id = 'block:projection-target'",
+                    [],
+                )?;
+                assert!(plan_block_retention_due_work(connection, 0)?.0);
                 Ok(())
             })
             .expect("projection reference retention");
@@ -2470,7 +2748,7 @@ mod tests {
                 );
 
                 let summary = run_block_retention_pass(connection, 0)?;
-                assert_eq!(summary.collected_candidates, 1);
+                assert_eq!(summary.collected_candidates, 1, "{summary:?}");
                 assert_eq!(summary.collected_blocks, 2);
                 assert_eq!(
                     connection.query_row(
@@ -2789,7 +3067,7 @@ mod tests {
                     ],
                 )?;
                 let summary = run_block_retention_pass(connection, 0)?;
-                assert_eq!(summary.collected_candidates, 1);
+                assert_eq!(summary.collected_candidates, 1, "{summary:?}");
                 assert_eq!(summary.collected_blocks, 2);
                 assert_eq!(
                     connection.query_row(

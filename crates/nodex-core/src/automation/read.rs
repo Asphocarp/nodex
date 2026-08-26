@@ -1,8 +1,8 @@
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::automation::{
     AutomationDefinition, AutomationDefinitionKind, AutomationDefinitionStatus,
-    AutomationExecutionEnvironment, AutomationLease, AutomationLeaseStatus, AutomationRead,
-    AutomationReadValue,
+    AutomationDueWorkLane, AutomationExecutionEnvironment, AutomationLease, AutomationLeaseStatus,
+    AutomationRead, AutomationReadValue,
 };
 use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
@@ -25,6 +25,16 @@ pub(super) fn read(
     request: AutomationRead,
 ) -> Result<AutomationReadValue, StoreError> {
     match request {
+        AutomationRead::DueWork { lane } => Ok(AutomationReadValue::DueWork {
+            plan: match lane {
+                AutomationDueWorkLane::Definitions => {
+                    super::mutation::plan_definition_due_work(connection)?
+                }
+                AutomationDueWorkLane::Reminders => {
+                    super::reminder::plan_due_work(connection, library_id)?
+                }
+            },
+        }),
         AutomationRead::Definitions {
             include_deleted,
             window,

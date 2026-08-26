@@ -823,10 +823,14 @@ fn io_error(error: std::io::Error) -> StoreError {
 mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
+    use nodex_core_contracts::{AdapterKind, BoundModuleContext, LibraryId, ProfileId};
     use rusqlite::params;
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::*;
+    use crate::infrastructure::module_receipts::{NewModuleReceipt, insert_module_receipt};
+    use crate::infrastructure::sqlite::with_immediate_transaction;
     use crate::infrastructure::store::SqliteStoreKernel;
 
     const SOURCE_EPOCH: &str = "epoch:store-replacement-source";
@@ -1150,18 +1154,31 @@ mod tests {
         kernel
             .writer()
             .call(|connection| {
-                connection.execute(
-                    "INSERT INTO core_module_receipts(\
-                       module_name, operation_id, profile_id, project_id, adapter_kind, \
-                       operation_kind, store_epoch, request_hash, result_json, event_sequence, \
-                       committed_at\
-                     ) VALUES (\
-                       'store_administration', ?1, 'profile:test', NULL, 'test', \
-                       'create_backup', ?2, ?3, '{}', NULL, ?4\
-                     )",
-                    params![OPERATION_ID, INSTALLED_EPOCH, REQUEST_HASH, NOW],
-                )?;
-                Ok(())
+                with_immediate_transaction(connection, |transaction| {
+                    let context = BoundModuleContext {
+                        profile_id: ProfileId("profile:test".to_owned()),
+                        library_id: LibraryId("library:test".to_owned()),
+                        project_id: None,
+                        connection_id: "connection:test".to_owned(),
+                        adapter: AdapterKind::Test,
+                    };
+                    let result = json!({});
+                    insert_module_receipt(
+                        transaction,
+                        NewModuleReceipt {
+                            module_name: "store_administration",
+                            operation_id: OPERATION_ID,
+                            context: &context,
+                            operation_kind: "create_backup",
+                            store_epoch: INSTALLED_EPOCH,
+                            request_hash: REQUEST_HASH,
+                            result: &result,
+                            event_sequence: None,
+                            local_commit: None,
+                            committed_at: NOW,
+                        },
+                    )
+                })
             })
             .expect("restore receipt");
         drop(kernel);

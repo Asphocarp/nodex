@@ -348,6 +348,36 @@ function ensureStorybookElectronBridge({
           return [];
         case "backup:list":
           return backups;
+        case "backup:capacity:get":
+          return {
+            availableBytes: 256 * 1024 * 1024 * 1024,
+            estimatedNextBackupBytes: 1.2 * 1024 * 1024 * 1024,
+            safetyMarginBytes: 512 * 1024 * 1024,
+            totalReadyBytes: backups.reduce((total, backup) => total + backup.totalBytes, 0),
+            manualReadyBytes: backups
+              .filter((backup) => backup.trigger !== "auto")
+              .reduce((total, backup) => total + backup.totalBytes, 0),
+            automaticReadyBytes: backups
+              .filter((backup) => backup.trigger === "auto")
+              .reduce((total, backup) => total + backup.totalBytes, 0),
+            canCreate: true,
+          };
+        case "backup:storage-optimization:get":
+          return {
+            optimizing: true,
+            commitHead: 344_647,
+            replayFloor: 82_000,
+            pendingCommitMetadata: 12_400,
+            pendingReceiptMetadata: 12_876,
+            retainedCommitCount: 344_647,
+            retainedDeliveryBytes: 2.7 * 1024 * 1024 * 1024,
+            retainedReceiptCount: 345_123,
+            retainedReceiptBytes: 360 * 1024 * 1024,
+            receiptFloorAt: null,
+            lastPrunedCommit: 81_999,
+            freelistPages: 256,
+            reclaimableBytes: 256 * 1024 * 1024,
+          };
         case "backup:delete": {
           const backupId = typeof args[0] === "string" ? args[0] : "";
           onDeleteBackup(backupId);
@@ -356,8 +386,8 @@ function ensureStorybookElectronBridge({
             deletedBackupId: backupId,
           };
         }
-        case "backup:create":
-          return onCreateBackup(
+        case "backup:create": {
+          const created = onCreateBackup(
             typeof args[0] === "object" &&
               args[0] &&
               "label" in (args[0] as Record<string, unknown>)
@@ -366,15 +396,43 @@ function ensureStorybookElectronBridge({
                 : null
               : null,
           );
+          return {
+            jobId: `storybook-job-${created.id}`,
+            state: "completed",
+            phase: "ready",
+            completedUnits: 7,
+            totalUnits: 7,
+            startedAt: Date.now(),
+            updatedAt: Date.now(),
+            backup: created,
+            error: null,
+            progress: {
+              databaseCopiedPages: 0,
+              databaseTotalPages: 0,
+              databaseBusyRetries: 0,
+              assetBytesCopied: 0,
+              databaseCopyMs: 0,
+              assetCopyMs: 0,
+              validationMs: 0,
+              digestMs: 0,
+              publishMs: 0,
+              writerHeldMs: 0,
+            },
+          };
+        }
+        case "backup:job:get":
+          return null;
         case "settings:backup:get":
           return {
             autoEnabled: false,
             intervalHours: 24,
             retentionCount: 25,
+            retentionGiB: 32,
             envOverrides: {
               autoEnabled: false,
               intervalHours: false,
               retentionCount: false,
+              retentionGiB: false,
             },
           };
         case "settings:history:get":

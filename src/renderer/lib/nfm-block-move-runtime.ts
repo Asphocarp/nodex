@@ -10,6 +10,7 @@ import type {
   BlockTransferCommandResult,
   BlockTransferDocumentHead,
 } from "../../shared/block-transfer";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import type { PublicBlockTransferIntent } from "../../shared/block-transfer-transport";
 import type { DocumentSyncCommandError } from "../../shared/block-documents/document-sync";
 import type { ProjectAccessedDocumentDescriptor } from "../../shared/block-documents/contracts";
@@ -86,7 +87,7 @@ const defaultDependencies: NfmBlockMoveRuntimeDependencies = {
   preparePage: prepareOwnedBlockDocument,
   readDatabase: readDatabaseModule,
   transfer: transferBlocks,
-  createOperationId: () => crypto.randomUUID(),
+  createOperationId: createUuidV7,
 };
 
 const commandError = (error: BlockTransferCommandError): NfmBlockMoveError =>

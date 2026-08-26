@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -108,6 +106,7 @@ import type {
 } from "./types";
 import { CoreAuthority, CoreSessionAccess } from "../core-runtime/CoreAuthority";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import {
   DocumentLiveRuntime,
   documentLiveRuntimeError,
@@ -337,16 +336,12 @@ const bindingKey = (request: Pick<DocumentSyncSubscribeRequest, "clientSessionId
 
 const ownerCommandIdentity = (
   scope: DesktopDocumentSyncScope,
-  ownerBlockId: string,
-  storeEpoch: string,
-  connectionBinding: string,
 ): { readonly clientSessionId: string; readonly operationId: string } => {
-  const fingerprint = createHash("sha256")
-    .update(JSON.stringify([scopeKey(scope), ownerBlockId, storeEpoch, connectionBinding]))
-    .digest("hex");
   return {
     clientSessionId: "electron:owned-document:prepare",
-    operationId: `electron:prepare-owner:${fingerprint}`,
+    // One IPC request is one retry episode. Core preparation is state-idempotent,
+    // so a later request (including after a restart) may safely use a fresh window.
+    operationId: createOperationId(`document.prepare-${scope.kind}-owner`),
   };
 };
 
@@ -1431,20 +1426,14 @@ const makeDesktopDocumentSessionState = (
     prepareOwnedBlockDocument: (projectId, ownerBlockId) =>
       Effect.gen(function* () {
         const scope = { kind: "project", projectId } as const;
+        const identity = ownerCommandIdentity(scope);
         const prepared = yield* input.coreSession.use(
           "document.prepare-owner",
-          (client) => {
-            const identity = ownerCommandIdentity(
-              scope,
-              ownerBlockId,
-              input.coreAuthority.identity.storeEpoch,
-              client.handshake.connection_binding,
-            );
-            return createCoreDocumentSyncAdapter(client).prepareOwner({
+          (client) =>
+            createCoreDocumentSyncAdapter(client).prepareOwner({
               ownerBlockId,
               ...identity,
-            });
-          },
+            }),
           { projectId },
         );
         if (!prepared.ok) return prepared;
@@ -1460,20 +1449,12 @@ const makeDesktopDocumentSessionState = (
     prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
       Effect.gen(function* () {
         const scope = { kind: "library" } as const;
-        const prepared = yield* input.coreSession.use(
-          "document.prepare-library-owner",
-          (client) => {
-            const identity = ownerCommandIdentity(
-              scope,
-              ownerBlockId,
-              input.coreAuthority.identity.storeEpoch,
-              client.handshake.connection_binding,
-            );
-            return createCoreDocumentSyncAdapter(client).prepareOwner({
-              ownerBlockId,
-              ...identity,
-            });
-          },
+        const identity = ownerCommandIdentity(scope);
+        const prepared = yield* input.coreSession.use("document.prepare-library-owner", (client) =>
+          createCoreDocumentSyncAdapter(client).prepareOwner({
+            ownerBlockId,
+            ...identity,
+          }),
         );
         if (!prepared.ok) return prepared;
         return {

@@ -23,6 +23,7 @@ import {
   type NodexAgentResourceAccessError,
 } from "../nodex-agent-application/NodexAgentResourceAccess";
 import { CoreAuthority } from "../core-runtime/CoreAuthority";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 
 export type NodexAgentAuthorizationOutcome =
@@ -347,11 +348,7 @@ const make = (options: NodexAgentAuthorizationTestOptions) =>
         if (persistable.length > 0) {
           const persisted = yield* options
             .persistProjectGrants({
-              operationId: `nodex-agent-grants:${hashParts([
-                input.authority.threadId,
-                input.authority.turnId,
-                input.callId,
-              ])}`,
+              operationId: createOperationId("nodex-agent.persist-grants"),
               authority: input.authority,
               grants: persistable,
             })

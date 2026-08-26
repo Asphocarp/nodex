@@ -21,6 +21,7 @@ import { NodexButton } from "@/components/ui/button";
 import { NodexDialog, NodexDialogContent, NodexDialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
+import { createUuidV7 } from "../../../shared/uuid-v7";
 import {
   DEFAULT_PAGE_HISTORY_PAGE_SIZE,
   type PageHistoryCursor,
@@ -310,7 +311,7 @@ export function HistoryPanel({
         pendingRestore = {
           entryId: selectedEntry.id,
           request: {
-            mutationId: crypto.randomUUID(),
+            mutationId: createUuidV7(),
             projectId,
             storeEpoch: descriptor.storeEpoch,
             documentId: descriptor.documentId,

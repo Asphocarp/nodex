@@ -30,7 +30,9 @@ pub use block_document::{
 };
 pub use compaction::DocumentCompactionResult;
 pub(crate) use maintenance::{
-    compact_eligible_documents, finalize_idle_document_revisions, prune_document_history_pass,
+    compact_eligible_documents, finalize_idle_document_revisions, has_document_compaction_work,
+    has_document_history_retention_work, next_revision_maintenance_at_ms,
+    prune_document_history_pass,
 };
 pub(crate) use materialization::CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION;
 pub use materialization::{
@@ -60,7 +62,10 @@ pub use realtime::{
 };
 #[cfg(test)]
 pub(crate) use retention::run_block_retention_pass;
-pub(crate) use retention::{plan_block_retention_pass, run_bounded_block_retention_slice};
+pub(crate) use retention::{
+    block_retention_work_revision, plan_block_retention_due_work, plan_block_retention_pass,
+    run_bounded_block_retention_slice,
+};
 pub(crate) use runtime::DocumentRuntimeCache;
 pub use yrs_engine::{
     AwarenessChange, CandidateCommit, DocumentAwareness, MAX_AWARENESS_UPDATE_BYTES,

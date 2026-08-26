@@ -4,6 +4,7 @@ import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { CodexConnectionState } from "../../shared/types";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import { createOperationId } from "../core-runtime/operation-identity";
 import { CodexConnection } from "./CodexConnection";
 import { CodexApplicationEventHub } from "./CodexApplicationEventHub";
 import { CodexPendingServerRequestRuntime } from "./CodexPendingServerRequestRuntime";
@@ -65,7 +66,7 @@ export const make: Effect.Effect<
                 method: "serverRequest/resolved",
                 params: { threadId, requestId },
               },
-              occurrenceId: `synthetic:connection:${threadId}:${String(requestId)}`,
+              occurrenceId: createOperationId("connection.resolve-request"),
               occurrenceToken: 0,
             })
             .pipe(

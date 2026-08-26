@@ -237,6 +237,34 @@ it.effect("admits a Document mutation only behind the exact live session", () =>
   }),
 );
 
+it.effect("starts a fresh bounded retry episode when preparing a legacy owner", () =>
+  Effect.gen(function* () {
+    const client = new FakeCoreClient();
+    const { scope, session } = yield* acquireSession(client);
+
+    const result = yield* session.prepareOwnedBlockDocument("project:one", "legacy-canvas-owner");
+
+    assert.isFalse(result.ok);
+    assert.strictEqual(client.documentApplies.length, 1);
+    const applied = client.documentApplies[0];
+    assert.deepStrictEqual(applied?.intent, {
+      kind: "prepare_owner",
+      owner_block_id: "legacy-canvas-owner",
+    });
+    const [namespace, version, issued, expires, scopeName, entropy] =
+      applied?.operationId.split(":") ?? [];
+    assert.strictEqual(namespace, "nodexop");
+    assert.strictEqual(version, "v1");
+    assert.strictEqual(scopeName, "document.prepare-project-owner");
+    assert.isAbove(Number(issued), 0);
+    assert.strictEqual(Number(expires) - Number(issued), 7 * 24 * 60 * 60 * 1_000);
+    assert.isNotEmpty(entropy);
+    assert.notInclude(applied?.operationId ?? "", "legacy-canvas-owner");
+
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
 it.effect("settles a pending reservation and its waiter when the owning Scope closes", () =>
   Effect.gen(function* () {
     const client = new ControlledOpeningDocumentStreamClient();

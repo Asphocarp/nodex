@@ -358,7 +358,7 @@ it.effect("keeps Inbox and Reminder scheduler traffic on the root background lan
       unreadRuns: [{ automationId: "daily-report", threadId: "thread:run" }],
     });
 
-    const reminders = yield* application.reminders.claimDue(12, 120_000);
+    const reminders = yield* application.reminders.claimDue("reminders:due", 12, 120_000);
     assert.deepInclude(reminders[0]!, {
       leaseId: "reminder:1",
       projectId: "project:one",

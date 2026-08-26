@@ -20,9 +20,12 @@ import {
   AutomationExecutionError,
 } from "../automation-application/AutomationExecution";
 import { CodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
+import { CoreModuleResponseError } from "../core-client/core-client";
 import { CoreAuthority, type CoreAuthorityState } from "../core-runtime/CoreAuthority";
+import { coreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import {
   StoreAdministration,
+  StoreAdministrationError,
   type StoreMaintenanceInput,
 } from "../core-runtime/StoreAdministration";
 import {
@@ -107,6 +110,11 @@ const defaultAutomation = (input?: {
       delete: () => Effect.die("unused"),
       dispatchNow: () => Effect.die("unused"),
       reschedule: () => Effect.die("unused"),
+      planDue: Effect.succeed({
+        dueNow: true,
+        nextWakeAt: 100,
+        workToken: "definitions:due",
+      }),
       claimDue: () => Effect.succeed([]),
       completeLease: () => Effect.void,
       failLease: () => Effect.void,
@@ -130,6 +138,7 @@ const defaultAutomation = (input?: {
     occurrences: {} as AutomationApplication["Service"]["occurrences"],
     reminders: {
       snooze: () => Effect.void,
+      planDue: Effect.succeed({ dueNow: true, nextWakeAt: 100, workToken: "reminders:due" }),
       claimDue: () => Effect.succeed([]),
       completeLease: () => Effect.void,
       failLease: () => Effect.void,
@@ -140,6 +149,30 @@ const defaultAutomation = (input?: {
 const defaultAdministration = (): StoreAdministration["Service"] =>
   StoreAdministration.of({
     listBackups: Effect.succeed([]),
+    backupCapacity: Effect.succeed({
+      availableBytes: 1_000_000,
+      estimatedNextBackupBytes: 120,
+      safetyMarginBytes: 512,
+      totalReadyBytes: 0,
+      manualReadyBytes: 0,
+      automaticReadyBytes: 0,
+      canCreate: true,
+    }),
+    snapshotStorageOptimization: Effect.succeed({
+      optimizing: false,
+      commitHead: 0,
+      replayFloor: 0,
+      pendingCommitMetadata: 0,
+      pendingReceiptMetadata: 0,
+      retainedCommitCount: 0,
+      retainedDeliveryBytes: 0,
+      retainedReceiptCount: 0,
+      retainedReceiptBytes: 0,
+      receiptFloorAt: null,
+      lastPrunedCommit: 0,
+      freelistPages: 0,
+      reclaimableBytes: 0,
+    }),
     createBackup: () =>
       Effect.succeed({
         version: 2,
@@ -152,9 +185,18 @@ const defaultAdministration = (): StoreAdministration["Service"] =>
         assetsBytes: 20,
         totalBytes: 120,
       }),
+    startBackup: () => Effect.die("unused"),
+    backupJob: () => Effect.succeed(null),
+    cancelBackup: () => Effect.die("unused"),
     deleteBackup: () => Effect.die("unused"),
     restoreBackup: () => Effect.die("unused"),
     pruneBackups: () => Effect.void,
+    planMaintenance: (input) =>
+      Effect.succeed({
+        dueTasks: input.tasks,
+        nextWakeAt: null,
+        workToken: `maintenance:${input.tasks.join(",")}`,
+      }),
     runMaintenance: () => Effect.void,
   });
 
@@ -188,6 +230,7 @@ const buildHarness = (input: {
     readonly autoEnabled: boolean;
     readonly intervalHours: number;
     readonly retentionCount: number;
+    readonly retentionGiB: number;
   };
   readonly showNotification?: (notification: ElectronNotificationInput) => Effect.Effect<boolean>;
 }) =>
@@ -278,6 +321,7 @@ const buildHarness = (input: {
             autoEnabled: false,
             intervalHours: 24,
             retentionCount: 5,
+            retentionGiB: 32,
           },
         readBlockRetentionCount: input.readBlockRetentionCount ?? (() => 100),
         timing: input.storeTiming,
@@ -343,6 +387,40 @@ it.effect("delivers reminder leases and routes notification actions through scop
     yield* waitUntil("resume reminder", () => harness.notifications.length === 2);
     yield* Scope.close(harness.scope, Exit.void);
     assert.isNull(harness.powerResume());
+  }),
+);
+
+it.effect("keeps idle scheduler probes read-only", () =>
+  Effect.gen(function* () {
+    let definitionPlans = 0;
+    let reminderPlans = 0;
+    let claims = 0;
+    const automation = defaultAutomation({
+      definitions: {
+        planDue: Effect.sync(() => {
+          definitionPlans += 1;
+          return { dueNow: false, nextWakeAt: null, workToken: null };
+        }),
+        claimDue: () => Effect.sync(() => void (claims += 1)).pipe(Effect.as([])),
+      },
+      reminders: {
+        planDue: Effect.sync(() => {
+          reminderPlans += 1;
+          return { dueNow: false, nextWakeAt: null, workToken: null };
+        }),
+        claimDue: () => Effect.sync(() => void (claims += 1)).pipe(Effect.as([])),
+      },
+    });
+    const harness = yield* buildHarness({
+      automation,
+      reminder: { intervalMs: 1 },
+      scheduled: { intervalMs: 1 },
+    });
+    yield* harness.reminders.activate({ openReminder: () => undefined });
+    yield* harness.scheduled.activate;
+    yield* waitUntil("idle due-work probes", () => definitionPlans >= 1 && reminderPlans >= 1);
+    assert.strictEqual(claims, 0);
+    yield* Scope.close(harness.scope, Exit.void);
   }),
 );
 
@@ -612,7 +690,7 @@ it.effect("projects heartbeat state with a TestClock-owned freshness deadline", 
 it.effect("replaces backup schedules and runs semantic maintenance lanes", () =>
   Effect.gen(function* () {
     const backups: string[] = [];
-    const prunes: number[] = [];
+    const prunes: Array<readonly [number, number]> = [];
     const maintenance: unknown[] = [];
     let retentionCount = 17;
     const administration = {
@@ -621,7 +699,8 @@ it.effect("replaces backup schedules and runs semantic maintenance lanes", () =>
         Effect.sync(() => backups.push("auto")).pipe(
           Effect.andThen(defaultAdministration().createBackup(input)),
         ),
-      pruneBackups: (count: number) => Effect.sync(() => prunes.push(count)),
+      pruneBackups: (count: number, bytes: number) =>
+        Effect.sync(() => prunes.push([count, bytes])),
       runMaintenance: (input: StoreMaintenanceInput) => Effect.sync(() => maintenance.push(input)),
     } satisfies StoreAdministration["Service"];
     const harness = yield* buildHarness({
@@ -629,6 +708,7 @@ it.effect("replaces backup schedules and runs semantic maintenance lanes", () =>
       readBlockRetentionCount: () => retentionCount,
       storeTiming: {
         maintenance: {
+          operational: { initial: 40, interval: 10 * 60_000 },
           revision: { initial: 10, interval: 10 * 60_000 },
           document: { initial: 20, interval: 10 * 60_000 },
           block: { initial: 30, interval: 10 * 60_000 },
@@ -640,6 +720,7 @@ it.effect("replaces backup schedules and runs semantic maintenance lanes", () =>
       autoEnabled: true,
       intervalHours: 1,
       retentionCount: 4,
+      retentionGiB: 12,
     });
 
     yield* TestClock.adjust(10);
@@ -650,20 +731,31 @@ it.effect("replaces backup schedules and runs semantic maintenance lanes", () =>
     yield* TestClock.adjust(10);
     yield* Effect.yieldNow;
     assert.deepEqual(maintenance.slice(0, 3), [
-      { tasks: ["document_revision_finalize"] },
-      { tasks: ["document_compaction", "history_retention"] },
-      { tasks: ["block_retention"], blockRetentionCount: 3 },
+      {
+        tasks: ["document_revision_finalize"],
+        workToken: "maintenance:document_revision_finalize",
+      },
+      {
+        tasks: ["document_compaction", "history_retention"],
+        workToken: "maintenance:document_compaction,history_retention",
+      },
+      {
+        tasks: ["block_retention"],
+        blockRetentionCount: 3,
+        workToken: "maintenance:block_retention",
+      },
     ]);
 
     yield* TestClock.adjust("1 hour");
     yield* Effect.yieldNow;
     assert.deepEqual(backups, ["auto"]);
-    assert.deepEqual(prunes, [4]);
+    assert.deepEqual(prunes, [[4, 12 * 1024 * 1024 * 1024]]);
 
     yield* harness.store.configureBackup({
       autoEnabled: false,
       intervalHours: 1,
       retentionCount: 4,
+      retentionGiB: 12,
     });
     yield* TestClock.adjust("2 hours");
     assert.deepEqual(backups, ["auto"]);
@@ -701,5 +793,108 @@ it.effect("serializes maintenance lanes and interrupts every schedule on Scope c
     yield* Scope.close(harness.scope, Exit.void);
     yield* TestClock.adjust("1 day");
     assert.strictEqual(runs, 1);
+  }),
+);
+
+it.effect("queues contending maintenance lanes fairly without dropping a due pass", () =>
+  Effect.gen(function* () {
+    const releaseDocument = yield* Deferred.make<void>();
+    let documentRuns = 0;
+    let operationalRuns = 0;
+    const administration = {
+      ...defaultAdministration(),
+      runMaintenance: (input: StoreMaintenanceInput) => {
+        if (input.tasks.includes("document_compaction")) {
+          return Effect.sync(() => {
+            documentRuns += 1;
+          }).pipe(Effect.andThen(Deferred.await(releaseDocument)));
+        }
+        if (input.tasks.includes("operational_journal")) {
+          return Effect.sync(() => {
+            operationalRuns += 1;
+          });
+        }
+        return Effect.void;
+      },
+    } satisfies StoreAdministration["Service"];
+    const harness = yield* buildHarness({
+      administration,
+      storeTiming: {
+        maintenance: {
+          document: { initial: 1, interval: 10_000 },
+          operational: { initial: 2, interval: 250, idleInterval: 1_000 },
+          revision: { initial: 10_000, interval: 10_000 },
+          block: { initial: 10_000, interval: 10_000 },
+        },
+      },
+    });
+    yield* harness.store.activate;
+    yield* TestClock.adjust(1);
+    yield* waitUntil("document maintenance lock", () => documentRuns === 1);
+    yield* TestClock.adjust(1);
+    yield* Effect.yieldNow;
+    assert.strictEqual(operationalRuns, 0);
+
+    yield* Deferred.succeed(releaseDocument, undefined);
+    yield* waitUntil("queued operational maintenance", () => operationalRuns === 1);
+
+    yield* Scope.close(harness.scope, Exit.void);
+  }),
+);
+
+it.effect("replans maintenance at its active cadence after stale Core evidence", () =>
+  Effect.gen(function* () {
+    let operationalRuns = 0;
+    const administration = {
+      ...defaultAdministration(),
+      runMaintenance: (input: StoreMaintenanceInput) => {
+        if (!input.tasks.includes("operational_journal")) return Effect.void;
+        operationalRuns += 1;
+        if (operationalRuns > 2) return Effect.void;
+        const responseError = new CoreModuleResponseError({
+          code: operationalRuns === 1 ? "conflict" : "revision_conflict",
+          message: "Store maintenance evidence is stale; plan maintenance again",
+          retryable: true,
+          recovery: { kind: "none" },
+        });
+        return Effect.fail(
+          new StoreAdministrationError({
+            operation: "run-maintenance",
+            cause:
+              operationalRuns === 1
+                ? coreRuntimeError({
+                    operation: "administration.apply",
+                    reason: "operation",
+                    retryable: false,
+                    cause: responseError,
+                  })
+                : responseError,
+          }),
+        );
+      },
+    } satisfies StoreAdministration["Service"];
+    const harness = yield* buildHarness({
+      administration,
+      storeTiming: {
+        maintenance: {
+          operational: { initial: 1, interval: 250, idleInterval: 1_000 },
+          revision: { initial: 10_000, interval: 10_000 },
+          document: { initial: 10_000, interval: 10_000 },
+          block: { initial: 10_000, interval: 10_000 },
+        },
+      },
+    });
+    yield* harness.store.activate;
+    yield* TestClock.adjust(1);
+    yield* waitUntil("stale maintenance attempt", () => operationalRuns === 1);
+    yield* TestClock.adjust(249);
+    yield* Effect.yieldNow;
+    assert.strictEqual(operationalRuns, 1);
+    yield* TestClock.adjust(1);
+    yield* waitUntil("maintenance replan", () => operationalRuns === 2);
+    yield* TestClock.adjust(250);
+    yield* waitUntil("maintenance evidence replan", () => operationalRuns === 3);
+
+    yield* Scope.close(harness.scope, Exit.void);
   }),
 );

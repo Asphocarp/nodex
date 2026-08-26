@@ -85,6 +85,7 @@ import {
   type ProjectWorkspaceReadSnapshot,
 } from "../core-client/types";
 import { CoreModules } from "../core-runtime/CoreModules";
+import { createOperationId } from "../core-runtime/operation-identity";
 import type { CoreRuntimeError } from "../core-runtime/CoreRuntimeError";
 
 export type {
@@ -359,7 +360,7 @@ export const make: Effect.Effect<ProjectWorkspaceService, never, CoreModules | S
         .pipe(Effect.mapError((cause) => projectWorkspaceError(operation, cause)));
 
     const apply = (operation: string, intent: ProjectWorkspaceApplyInput["intent"]) =>
-      applyWithId(operation, randomUUID(), intent);
+      applyWithId(operation, createOperationId(`workspace.${operation}`), intent);
 
     const runOwned = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
       Effect.acquireUseRelease(
@@ -1224,7 +1225,7 @@ export const make: Effect.Effect<ProjectWorkspaceService, never, CoreModules | S
         },
       ),
       moveThread: Effect.fn("ProjectWorkspace.moveThread")(function* (input) {
-        const operationId = randomUUID();
+        const operationId = createOperationId("workspace.move-thread");
         const intent = yield* evaluate("thread.move", () => ({
           kind: "move_thread" as const,
           thread_id: input.threadId,

@@ -1,7 +1,9 @@
 -- Generated current Nodex Store schema baseline.
 -- Regenerate only when publishing a new Store revision.
 -- The installer owns the transaction so fresh Profile rows can commit atomically
--- with this physical schema.
+-- with this physical schema. The writer configures incremental auto-vacuum
+-- before opening this transaction because SQLite fixes that header mode before
+-- the first table is created.
 CREATE TABLE projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -428,6 +430,33 @@ CREATE TABLE document_versions (
       ),
       CHECK (length(created_at) > 0)
     ) WITHOUT ROWID;
+CREATE TABLE document_version_retention_index (
+      version_id TEXT PRIMARY KEY
+        REFERENCES document_versions(version_id) ON DELETE CASCADE,
+      checkpoint_hash TEXT NOT NULL,
+      member_count INTEGER NOT NULL CHECK (member_count >= 0),
+      indexed_at TEXT NOT NULL,
+      CHECK (length(checkpoint_hash) = 64 AND checkpoint_hash NOT GLOB '*[^0-9a-f]*'),
+      CHECK (length(indexed_at) > 0)
+    ) WITHOUT ROWID, STRICT;
+CREATE TABLE document_version_retention_members (
+      version_id TEXT NOT NULL
+        REFERENCES document_version_retention_index(version_id) ON DELETE CASCADE,
+      member_kind TEXT NOT NULL CHECK (member_kind IN ('block', 'database_view')),
+      member_id TEXT NOT NULL,
+      PRIMARY KEY (version_id, member_kind, member_id),
+      CHECK (length(member_id) BETWEEN 1 AND 1024)
+    ) WITHOUT ROWID, STRICT;
+CREATE TABLE block_retention_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      maintenance_revision INTEGER NOT NULL DEFAULT 0 CHECK (maintenance_revision >= 0),
+      updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0)
+    ) WITHOUT ROWID, STRICT;
+CREATE TABLE block_retention_deferrals (
+      root_block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+      evaluated_commit_seq INTEGER NOT NULL CHECK (evaluated_commit_seq >= 0),
+      retry_after_ms INTEGER NOT NULL CHECK (retry_after_ms >= 0)
+    ) WITHOUT ROWID, STRICT;
 CREATE TABLE document_revision_sessions (
       document_id TEXT PRIMARY KEY,
       generation INTEGER NOT NULL CHECK (generation >= 1),
@@ -920,6 +949,16 @@ CREATE TABLE "local_commits" (
   CHECK (json_valid(projection_impact_json) AND json_type(projection_impact_json) = 'object'),
   CHECK (length(canonical_hash) = 64 AND canonical_hash NOT GLOB '*[^0-9a-f]*')
 ) STRICT;
+CREATE TABLE local_commit_retention_metadata (
+  store_epoch TEXT NOT NULL,
+  commit_seq INTEGER NOT NULL,
+  sealed_at_ms INTEGER NOT NULL CHECK (sealed_at_ms >= 0),
+  delivery_bytes INTEGER NOT NULL CHECK (delivery_bytes >= 0),
+  PRIMARY KEY (store_epoch, commit_seq),
+  FOREIGN KEY (store_epoch, commit_seq)
+    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE CASCADE,
+  CHECK (length(store_epoch) BETWEEN 1 AND 512)
+) WITHOUT ROWID, STRICT;
 CREATE TABLE "local_commit_effects" (
   store_epoch TEXT NOT NULL,
   commit_seq INTEGER NOT NULL,
@@ -992,6 +1031,57 @@ CREATE TABLE "core_module_receipts" (
   CHECK (length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'),
   CHECK (json_valid(result_json) AND json_type(result_json) = 'object'),
   CHECK (length(committed_at) > 0)
+) WITHOUT ROWID, STRICT;
+-- Receipts are detached before their replay-only LocalCommit is pruned. This
+-- preserves exact idempotent responses without retaining the full delivery
+-- graph or weakening the authoritative receipt table's foreign keys.
+CREATE TABLE detached_module_receipts (
+  module_name TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  project_id TEXT,
+  adapter_kind TEXT NOT NULL,
+  operation_kind TEXT NOT NULL,
+  store_epoch TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  event_sequence INTEGER,
+  local_commit_seq INTEGER NOT NULL CHECK (local_commit_seq >= 1),
+  commit_manifest_hash TEXT NOT NULL,
+  committed_at TEXT NOT NULL,
+  detached_at_ms INTEGER NOT NULL CHECK (detached_at_ms >= 0),
+  PRIMARY KEY (module_name, operation_id),
+  CHECK (module_name IN (
+    'library', 'database', 'owned_document', 'project_workspace',
+    'automation', 'store_administration'
+  )),
+  CHECK (length(operation_id) BETWEEN 1 AND 512),
+  CHECK (length(profile_id) BETWEEN 1 AND 512),
+  CHECK (project_id IS NULL OR length(project_id) BETWEEN 1 AND 512),
+  CHECK (adapter_kind IN ('electron_host', 'loopback_http', 'native_cli', 'agent', 'test')),
+  CHECK (length(operation_kind) BETWEEN 1 AND 128),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (json_valid(result_json) AND json_type(result_json) = 'object'),
+  CHECK (event_sequence IS NULL OR event_sequence >= 1),
+  CHECK (length(commit_manifest_hash) = 64 AND commit_manifest_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (length(committed_at) > 0)
+) WITHOUT ROWID, STRICT;
+-- Receipt lifetime is independent from which physical receipt table currently
+-- owns the exact result. Keeping retention metadata in one companion table
+-- lets detachment stay a value move and lets legacy rows backfill in slices.
+CREATE TABLE module_receipt_retention_metadata (
+  module_name TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  issued_at_ms INTEGER NOT NULL CHECK (issued_at_ms >= 0),
+  expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms >= issued_at_ms),
+  receipt_bytes INTEGER NOT NULL CHECK (receipt_bytes >= 0),
+  PRIMARY KEY (module_name, operation_id),
+  CHECK (module_name IN (
+    'library', 'database', 'owned_document', 'project_workspace',
+    'automation', 'store_administration'
+  )),
+  CHECK (length(operation_id) BETWEEN 1 AND 512)
 ) WITHOUT ROWID, STRICT;
 CREATE TABLE local_commit_revocations (
   store_epoch TEXT NOT NULL,
@@ -1219,8 +1309,6 @@ CREATE TABLE projection_scope_heads (
   covered_commit_seq INTEGER NOT NULL CHECK (covered_commit_seq >= 1),
   effect_hash TEXT NOT NULL,
   PRIMARY KEY (store_epoch, scope_key),
-  FOREIGN KEY (store_epoch, covered_commit_seq)
-    REFERENCES local_commits(store_epoch, commit_seq) ON DELETE RESTRICT,
   CHECK (length(store_epoch) BETWEEN 1 AND 512),
   CHECK (length(scope_key) BETWEEN 1 AND 128),
   CHECK (json_valid(scope_json) AND json_type(scope_json) = 'object'),
@@ -1949,6 +2037,8 @@ CREATE INDEX idx_document_versions_source_mutation
       WHERE source_mutation_id IS NOT NULL;
 CREATE INDEX idx_document_versions_retention
       ON document_versions(document_id, pinned, created_at DESC, version_id);
+CREATE INDEX idx_document_version_retention_members_identity
+      ON document_version_retention_members(member_kind, member_id, version_id);
 CREATE INDEX idx_document_revision_sessions_due
       ON document_revision_sessions(last_edit_at, document_id);
 CREATE INDEX idx_block_mutations_project_recorded
@@ -2011,12 +2101,35 @@ CREATE INDEX idx_project_session_pages_page
   ON project_session_pages(page_id, session_id);
 CREATE INDEX idx_local_commits_epoch_seq
   ON local_commits(store_epoch, commit_seq);
+CREATE INDEX idx_local_commits_retention
+  ON local_commits(store_epoch, committed_at, commit_seq);
+CREATE INDEX idx_local_commit_retention_metadata_age
+  ON local_commit_retention_metadata(store_epoch, sealed_at_ms, commit_seq);
 CREATE INDEX idx_local_commit_effects_change_log
   ON local_commit_effects(change_log_seq);
+CREATE INDEX idx_document_versions_source_change
+  ON document_versions(source_change_seq)
+  WHERE source_change_seq IS NOT NULL;
+CREATE INDEX idx_database_module_receipts_change_log
+  ON database_module_receipts(change_log_seq)
+  WHERE change_log_seq IS NOT NULL;
 CREATE INDEX idx_local_commit_documents_document
   ON local_commit_documents(document_id, generation, head_seq);
 CREATE INDEX idx_core_module_receipts_local_commit
   ON core_module_receipts(store_epoch, local_commit_seq);
+CREATE INDEX idx_core_module_receipts_event_sequence
+  ON core_module_receipts(event_sequence)
+  WHERE event_sequence IS NOT NULL;
+CREATE INDEX idx_core_module_receipts_retention
+  ON core_module_receipts(committed_at, module_name, operation_id);
+CREATE INDEX idx_detached_module_receipts_retention
+  ON detached_module_receipts(detached_at_ms, local_commit_seq);
+CREATE INDEX idx_detached_module_receipts_expiry
+  ON detached_module_receipts(operation_kind, committed_at, module_name, operation_id);
+CREATE INDEX idx_module_receipt_retention_expiry
+  ON module_receipt_retention_metadata(expires_at_ms, issued_at_ms, module_name, operation_id);
+CREATE INDEX idx_module_receipt_retention_prune
+  ON module_receipt_retention_metadata(issued_at_ms, module_name, operation_id);
 CREATE INDEX idx_local_commit_delivery_atoms_id
   ON local_commit_delivery_atoms(atom_id);
 CREATE INDEX idx_data_source_properties_order
@@ -2071,6 +2184,10 @@ CREATE INDEX idx_database_view_collapsed_occurrences_age
           );
 CREATE INDEX idx_blocks_library_lifecycle_type
   ON blocks(library_id, lifecycle, type);
+CREATE INDEX idx_blocks_library_lifecycle_updated
+  ON blocks(library_id, lifecycle, updated_at DESC, id DESC);
+CREATE INDEX idx_block_retention_deferrals_retry
+  ON block_retention_deferrals(retry_after_ms, root_block_id);
 CREATE INDEX idx_documents_library_readiness
   ON documents(library_id, readiness, authority);
 CREATE INDEX idx_pages_library_parent
@@ -4142,4 +4259,51 @@ CREATE TABLE codex_queued_follow_up_manifest_gc (
   last_attempt_at TEXT CHECK (last_attempt_at IS NULL OR length(last_attempt_at) > 0),
   last_error TEXT CHECK (last_error IS NULL OR length(last_error) BETWEEN 1 AND 4096)
 ) WITHOUT ROWID, STRICT;
-PRAGMA user_version = 135;
+CREATE TABLE operational_journal_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  commit_head_seq INTEGER NOT NULL DEFAULT 0 CHECK (commit_head_seq >= 0),
+  replay_floor_seq INTEGER NOT NULL DEFAULT 0 CHECK (replay_floor_seq >= 0),
+  maintenance_revision INTEGER NOT NULL DEFAULT 0 CHECK (maintenance_revision >= 0),
+  retained_commit_count INTEGER NOT NULL DEFAULT 0 CHECK (retained_commit_count >= 0),
+  retained_delivery_bytes INTEGER NOT NULL DEFAULT 0 CHECK (retained_delivery_bytes >= 0),
+  delivery_pressure_active INTEGER NOT NULL DEFAULT 0
+    CHECK (delivery_pressure_active IN (0, 1)),
+  pending_metadata_count INTEGER NOT NULL DEFAULT 0 CHECK (pending_metadata_count >= 0),
+  metadata_backfill_cursor_seq INTEGER NOT NULL DEFAULT 0
+    CHECK (metadata_backfill_cursor_seq >= 0),
+  retained_receipt_count INTEGER NOT NULL DEFAULT 0 CHECK (retained_receipt_count >= 0),
+  retained_receipt_bytes INTEGER NOT NULL DEFAULT 0 CHECK (retained_receipt_bytes >= 0),
+  receipt_pressure_active INTEGER NOT NULL DEFAULT 0
+    CHECK (receipt_pressure_active IN (0, 1)),
+  pending_receipt_metadata_count INTEGER NOT NULL DEFAULT 0
+    CHECK (pending_receipt_metadata_count >= 0),
+  receipt_backfill_cursor_module TEXT,
+  receipt_backfill_cursor_operation_id TEXT,
+  receipt_floor_at TEXT,
+  receipt_floor_module TEXT,
+  receipt_floor_operation_id TEXT,
+  operation_identity_cutover_at TEXT NOT NULL,
+  last_pruned_commit_seq INTEGER NOT NULL DEFAULT 0 CHECK (last_pruned_commit_seq >= 0),
+  policy_version INTEGER NOT NULL DEFAULT 1 CHECK (policy_version >= 1),
+  updated_at TEXT NOT NULL,
+  CHECK (receipt_floor_at IS NULL OR length(receipt_floor_at) > 0),
+  CHECK (
+    (receipt_backfill_cursor_module IS NULL AND receipt_backfill_cursor_operation_id IS NULL)
+    OR (receipt_backfill_cursor_module IN (
+        'library', 'database', 'owned_document', 'project_workspace',
+        'automation', 'store_administration'
+      )
+      AND length(receipt_backfill_cursor_operation_id) BETWEEN 1 AND 512)
+  ),
+  CHECK (
+    (receipt_floor_at IS NULL AND receipt_floor_module IS NULL AND receipt_floor_operation_id IS NULL)
+    OR (receipt_floor_at IS NOT NULL
+      AND receipt_floor_module IN (
+        'library', 'database', 'owned_document', 'project_workspace',
+        'automation', 'store_administration'
+      )
+      AND length(receipt_floor_operation_id) BETWEEN 1 AND 512)
+  ),
+  CHECK (length(operation_identity_cutover_at) > 0)
+) WITHOUT ROWID, STRICT;
+PRAGMA user_version = 136;

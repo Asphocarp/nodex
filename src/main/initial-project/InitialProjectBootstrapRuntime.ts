@@ -32,6 +32,7 @@ import {
   type InitialProjectJournal,
   InitialProjectRecoveryJournal,
 } from "./initial-project-journal-store";
+import { createOperationId } from "../core-runtime/operation-identity";
 
 export class InitialProjectBootstrapError extends Schema.TaggedError<InitialProjectBootstrapError>()(
   "InitialProjectBootstrapError",
@@ -104,7 +105,7 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
           return {
             schemaVersion: 2,
             attemptId: createId(),
-            operationId: createId(),
+            operationId: createOperationId("initial-project.bootstrap"),
             payload: {
               projectId: createId(),
               name: INITIAL_PROJECT_NAME,
@@ -144,6 +145,11 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
         },
       };
     };
+
+    const renewAttemptOperation = (attempt: InitialProjectJournal): InitialProjectJournal => ({
+      ...attempt,
+      operationId: createOperationId("initial-project.bootstrap"),
+    });
 
     const cleanupAttempt = Effect.fn("InitialProjectBootstrapRuntime.cleanupAttempt")(function* (
       attempt: InitialProjectJournal,
@@ -285,8 +291,7 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
         return;
       }
 
-      const created = yield* createInitialProject(attempt);
-      yield* persistPresentation(attempt, created, onProvisioned);
+      yield* persistPresentation(attempt, { project: ownProject }, onProvisioned);
       yield* cleanupAttempt(attempt);
     });
 
@@ -353,6 +358,12 @@ const make = (options: InitialProjectBootstrapRuntimeOptions) =>
         attempt = yield* createAttempt(
           join(options.projectsDirectory, INITIAL_PROJECT_FOLDER_BASENAME),
         );
+        yield* saveJournal(attempt);
+      } else {
+        // An empty authoritative catalog proves the previous episode did not
+        // commit. Renewing here keeps arbitrarily old recovery journals safe
+        // without retaining their receipts forever.
+        attempt = renewAttemptOperation(attempt);
         yield* saveJournal(attempt);
       }
       const prepared = yield* prepareAttemptDirectory(attempt);

@@ -323,6 +323,8 @@ pub struct ProjectWorkspaceTurnAuthority {
 pub struct ProjectWorkspaceTurnAuthorityResolution {
     pub authority: Option<ProjectWorkspaceTurnAuthority>,
     pub persisted: bool,
+    /// Present only for persisted authority and stable across process restarts.
+    pub frozen_at_ms: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

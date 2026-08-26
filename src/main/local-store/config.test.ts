@@ -10,6 +10,7 @@ const ORIGINAL_BACKUP_ENV = {
   autoEnabled: process.env.NODEX_BACKUP_AUTO_ENABLED,
   intervalHours: process.env.NODEX_BACKUP_INTERVAL_HOURS,
   retention: process.env.NODEX_BACKUP_RETENTION,
+  retentionGiB: process.env.NODEX_BACKUP_RETENTION_GIB,
   historyRetention: process.env.NODEX_HISTORY_RETENTION,
   sentryEnabled: process.env.NODEX_SENTRY_ENABLED,
   sentryDsn: process.env.SENTRY_DSN,
@@ -35,6 +36,7 @@ function clearBackupEnv(): void {
   delete process.env.NODEX_BACKUP_AUTO_ENABLED;
   delete process.env.NODEX_BACKUP_INTERVAL_HOURS;
   delete process.env.NODEX_BACKUP_RETENTION;
+  delete process.env.NODEX_BACKUP_RETENTION_GIB;
   delete process.env.NODEX_HISTORY_RETENTION;
   delete process.env.NODEX_SENTRY_ENABLED;
   delete process.env.SENTRY_DSN;
@@ -79,6 +81,11 @@ function restoreProcessState(): void {
     delete process.env.NODEX_BACKUP_RETENTION;
   } else {
     process.env.NODEX_BACKUP_RETENTION = ORIGINAL_BACKUP_ENV.retention;
+  }
+  if (ORIGINAL_BACKUP_ENV.retentionGiB === undefined) {
+    delete process.env.NODEX_BACKUP_RETENTION_GIB;
+  } else {
+    process.env.NODEX_BACKUP_RETENTION_GIB = ORIGINAL_BACKUP_ENV.retentionGiB;
   }
   if (ORIGINAL_BACKUP_ENV.historyRetention === undefined) {
     delete process.env.NODEX_HISTORY_RETENTION;
@@ -227,11 +234,11 @@ describe("backup settings config", () => {
 
     try {
       config.updateBackupSettings(
-        { autoEnabled: true, intervalHours: 2, retentionCount: 7 },
+        { autoEnabled: true, intervalHours: 2, retentionCount: 7, retentionGiB: 16 },
         firstSource,
       );
       config.updateBackupSettings(
-        { autoEnabled: false, intervalHours: 8, retentionCount: 21 },
+        { autoEnabled: false, intervalHours: 8, retentionCount: 21, retentionGiB: 48 },
         secondSource,
       );
 
@@ -260,26 +267,31 @@ describe("backup settings config", () => {
         autoEnabled: true,
         intervalHours: 4,
         retentionCount: 12,
+        retentionGiB: 64,
       });
 
       expect(updated.autoEnabled).toBe(true);
       expect(updated.intervalHours).toBe(4);
       expect(updated.retentionCount).toBe(12);
+      expect(updated.retentionGiB).toBe(64);
       expect(updated.envOverrides.autoEnabled).toBe(false);
       expect(updated.envOverrides.intervalHours).toBe(false);
       expect(updated.envOverrides.retentionCount).toBe(false);
+      expect(updated.envOverrides.retentionGiB).toBe(false);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
       expect(written.includes("backup_auto_enabled = true")).toBe(true);
       expect(written.includes("backup_interval_hours = 4")).toBe(true);
       expect(written.includes("backup_retention = 12")).toBe(true);
+      expect(written.includes("backup_retention_gib = 64")).toBe(true);
 
       const reloaded = await importConfigModule();
       const persisted = reloaded.getBackupSettings();
       expect(persisted.autoEnabled).toBe(true);
       expect(persisted.intervalHours).toBe(4);
       expect(persisted.retentionCount).toBe(12);
+      expect(persisted.retentionGiB).toBe(64);
     });
   });
 
@@ -288,26 +300,31 @@ describe("backup settings config", () => {
       process.env.NODEX_BACKUP_AUTO_ENABLED = "false";
       process.env.NODEX_BACKUP_INTERVAL_HOURS = "24";
       process.env.NODEX_BACKUP_RETENTION = "2";
+      process.env.NODEX_BACKUP_RETENTION_GIB = "8";
 
       const config = await importConfigModule();
       const updated = config.updateBackupSettings({
         autoEnabled: true,
         intervalHours: 6,
         retentionCount: 10,
+        retentionGiB: 24,
       });
 
       expect(updated.autoEnabled).toBe(false);
       expect(updated.intervalHours).toBe(24);
       expect(updated.retentionCount).toBe(2);
+      expect(updated.retentionGiB).toBe(8);
       expect(updated.envOverrides.autoEnabled).toBe(true);
       expect(updated.envOverrides.intervalHours).toBe(true);
       expect(updated.envOverrides.retentionCount).toBe(true);
+      expect(updated.envOverrides.retentionGiB).toBe(true);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
       expect(written.includes("backup_auto_enabled = true")).toBe(true);
       expect(written.includes("backup_interval_hours = 6")).toBe(true);
       expect(written.includes("backup_retention = 10")).toBe(true);
+      expect(written.includes("backup_retention_gib = 24")).toBe(true);
     });
   });
 });

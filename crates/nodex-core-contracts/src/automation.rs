@@ -5,7 +5,23 @@ use utoipa::ToSchema;
 use crate::collection::{CollectionWindow, CollectionWindowRequest};
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const AUTOMATION_CONTRACT_VERSION: u32 = 3;
+pub const AUTOMATION_CONTRACT_VERSION: u32 = 4;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AutomationDueWorkLane {
+    Definitions,
+    Reminders,
+}
+
+/// A Core-authored scheduling decision. Main owns sleeping and wake sources,
+/// while the Automation Module remains the authority for durable due state.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct AutomationDueWorkPlan {
+    pub due_now: bool,
+    pub next_wake_at_ms: Option<i64>,
+    pub work_token: Option<String>,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -324,6 +340,9 @@ pub struct PageOccurrenceMutationResult {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AutomationRead {
+    DueWork {
+        lane: AutomationDueWorkLane,
+    },
     Definitions {
         include_deleted: Option<bool>,
         window: CollectionWindowRequest,
@@ -366,6 +385,9 @@ pub enum AutomationRead {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AutomationReadValue {
+    DueWork {
+        plan: AutomationDueWorkPlan,
+    },
     Definitions {
         window: CollectionWindow<AutomationDefinition>,
     },
@@ -423,6 +445,7 @@ pub enum AutomationIntent {
         retry_within_ms: Option<u64>,
     },
     ClaimDue {
+        work_token: String,
         limit: u32,
         lease_duration_ms: u64,
     },
@@ -494,6 +517,7 @@ pub enum AutomationIntent {
         snooze_minutes: u32,
     },
     ClaimDueReminders {
+        work_token: String,
         limit: u32,
         lease_duration_ms: u64,
     },
@@ -597,6 +621,7 @@ mod tests {
     #[test]
     fn host_clock_fields_are_not_caller_authored() {
         let claim = serde_json::to_value(AutomationIntent::ClaimDue {
+            work_token: "automation-due:1".to_owned(),
             limit: 3,
             lease_duration_ms: 60_000,
         })
@@ -628,6 +653,7 @@ mod tests {
         assert!(snooze.get("created_at_ms").is_none());
 
         let reminder_claim = serde_json::to_value(AutomationIntent::ClaimDueReminders {
+            work_token: "reminder-due:1".to_owned(),
             limit: 3,
             lease_duration_ms: 60_000,
         })

@@ -22,6 +22,8 @@ export interface FrozenNodexAgentTurnAuthority {
   readonly actorProjectId: string;
   readonly libraryId: string;
   readonly storeEpoch: string;
+  /** Core-owned durable issue coordinate for identities derived from this Turn. */
+  readonly frozenAtMs: number;
   readonly scope: NodexAgentAuthorityScope;
   readonly source: NodexAgentAuthoritySource;
 }

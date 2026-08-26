@@ -11,6 +11,7 @@ describe("workbench settings form schemas", () => {
       autoEnabled: true,
       intervalHours: "12",
       retentionCount: "30",
+      retentionGiB: "64",
     });
 
     expect(JSON.stringify(parsed)).toBe(
@@ -18,6 +19,7 @@ describe("workbench settings form schemas", () => {
         autoEnabled: true,
         intervalHours: 12,
         retentionCount: 30,
+        retentionGiB: 64,
       }),
     );
   });
@@ -27,6 +29,7 @@ describe("workbench settings form schemas", () => {
       autoEnabled: true,
       intervalHours: "0",
       retentionCount: "30",
+      retentionGiB: "64",
     });
 
     expect(parsed.success).toBe(false);

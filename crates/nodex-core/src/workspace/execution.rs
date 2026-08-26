@@ -56,6 +56,7 @@ struct AuthorityRow {
     permission_profile_id: Option<String>,
     authority_fingerprint: String,
     provenance_version: i64,
+    created_at: String,
 }
 
 pub(super) fn read_writable_roots(
@@ -107,6 +108,7 @@ pub(super) fn resolve_turn_authority(
                 source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
             }),
             persisted: false,
+            frozen_at_ms: None,
         });
     };
     let authority = validate_authority_row(&row)?;
@@ -118,6 +120,9 @@ pub(super) fn resolve_turn_authority(
     Ok(ProjectWorkspaceTurnAuthorityResolution {
         authority: matches_current_coordinates.then_some(authority),
         persisted: true,
+        frozen_at_ms: matches_current_coordinates
+            .then(|| timestamp_millis(&row.created_at))
+            .transpose()?,
     })
 }
 
@@ -387,6 +392,11 @@ pub(super) fn freeze_turn_authority(
             )
         }
     };
+    let existing = read_authority_row(connection, thread_id, turn_id)?;
+    let created_at = existing
+        .as_ref()
+        .map(|row| row.created_at.clone())
+        .unwrap_or(sqlite_now(connection)?);
     let authority = ProjectWorkspaceTurnAuthority {
         thread_id: thread_id.to_owned(),
         turn_id: turn_id.to_owned(),
@@ -411,8 +421,9 @@ pub(super) fn freeze_turn_authority(
         permission_profile_id: permission_profile_id.map(str::to_owned),
         authority_fingerprint: fingerprint,
         provenance_version: AUTHORITY_PROVENANCE_VERSION,
+        created_at,
     };
-    if let Some(existing) = read_authority_row(connection, thread_id, turn_id)? {
+    if let Some(existing) = existing {
         if !authority_rows_match(&existing, &proposed) {
             return Err(conflict(
                 "Codex Turn is already frozen with different authority provenance",
@@ -438,7 +449,7 @@ pub(super) fn freeze_turn_authority(
                 proposed.permission_profile_id,
                 proposed.authority_fingerprint,
                 proposed.provenance_version,
-                sqlite_now(connection)?,
+                proposed.created_at,
             ],
         )?;
     }
@@ -709,7 +720,7 @@ fn read_authority_row(
         .query_row(
             "SELECT thread_id, turn_id, root_thread_id, actor_project_id, library_id, \
                profile_id, store_epoch, scope, source, permission_profile_id, \
-               authority_fingerprint, provenance_version \
+               authority_fingerprint, provenance_version, created_at \
              FROM nodex_agent_turn_authorities \
              WHERE thread_id = ?1 AND turn_id = ?2",
             params![thread_id, turn_id],
@@ -727,6 +738,7 @@ fn read_authority_row(
                     permission_profile_id: row.get(9)?,
                     authority_fingerprint: row.get(10)?,
                     provenance_version: row.get(11)?,
+                    created_at: row.get(12)?,
                 })
             },
         )
@@ -1047,6 +1059,12 @@ fn unix_time_millis() -> Result<i64, StoreError> {
         .map_err(|_| internal("System clock precedes the Unix epoch"))?
         .as_millis();
     i64::try_from(millis).map_err(|_| internal("System time exceeds SQLite integer range"))
+}
+
+fn timestamp_millis(value: &str) -> Result<i64, StoreError> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|timestamp| timestamp.timestamp_millis())
+        .map_err(|_| corrupt("Turn authority creation time is invalid"))
 }
 
 fn invalid(message: impl Into<String>) -> StoreError {

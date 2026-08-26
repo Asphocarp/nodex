@@ -25,7 +25,9 @@ pub(super) fn stage_backup(
     label: Option<&str>,
     include_assets: bool,
     trigger: BackupTrigger,
-) -> Result<BackupRecord, StoreError> {
+    progress: &dyn Fn(&'static str) -> Result<(), StoreError>,
+    cancellation_requested: &dyn Fn() -> Result<bool, StoreError>,
+) -> Result<backup::VerifiedStagedBackup, StoreError> {
     backup::create_backup(
         connection,
         profile_home,
@@ -35,7 +37,21 @@ pub(super) fn stage_backup(
         label,
         include_assets,
         trigger,
+        progress,
+        cancellation_requested,
     )
+}
+
+pub(super) fn publish_verified_backup(
+    staged: backup::VerifiedStagedBackup,
+) -> Result<BackupRecord, StoreError> {
+    backup::publish_verified_backup(staged)
+}
+
+pub(super) fn discard_verified_backup(
+    staged: backup::VerifiedStagedBackup,
+) -> Result<(), StoreError> {
+    backup::discard_verified_backup(staged)
 }
 
 pub(super) fn publish_backup(

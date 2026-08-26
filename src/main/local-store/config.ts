@@ -58,6 +58,7 @@ interface ServerTomlConfig {
   backup_auto_enabled?: boolean;
   backup_interval_hours?: number;
   backup_retention?: number;
+  backup_retention_gib?: number;
   thread_notifications_turn_mode?: ThreadNotificationTurnMode;
   thread_notifications_permissions_enabled?: boolean;
   thread_notifications_questions_enabled?: boolean;
@@ -109,6 +110,8 @@ const BACKUP_AUTO_DEFAULT = false;
 const DATABASE_FILE_NAME = "nodex.db";
 const BACKUP_INTERVAL_DEFAULT = 6;
 const BACKUP_RETENTION_DEFAULT = 28;
+const BACKUP_RETENTION_GIB_DEFAULT = 32;
+const BACKUP_RETENTION_GIB_MAX = 8_192;
 const THREAD_NOTIFICATIONS_TURN_MODE_DEFAULT: ThreadNotificationTurnMode = "unfocused";
 const THREAD_NOTIFICATIONS_PERMISSIONS_ENABLED_DEFAULT = true;
 const THREAD_NOTIFICATIONS_QUESTIONS_ENABLED_DEFAULT = true;
@@ -327,11 +330,16 @@ function backupSettingsFromConfig(config: ServerTomlConfig): Omit<BackupSettings
     typeof config.backup_retention === "number"
       ? Math.max(0, config.backup_retention)
       : BACKUP_RETENTION_DEFAULT;
+  const retentionGiB =
+    typeof config.backup_retention_gib === "number"
+      ? Math.min(BACKUP_RETENTION_GIB_MAX, Math.max(0, config.backup_retention_gib))
+      : BACKUP_RETENTION_GIB_DEFAULT;
 
   return {
     autoEnabled,
     intervalHours,
     retentionCount,
+    retentionGiB,
   };
 }
 
@@ -457,6 +465,7 @@ export function getBackupSettings(source = currentProcessSettingsSource()): Back
     autoEnabled: environment.NODEX_BACKUP_AUTO_ENABLED !== undefined,
     intervalHours: environment.NODEX_BACKUP_INTERVAL_HOURS !== undefined,
     retentionCount: environment.NODEX_BACKUP_RETENTION !== undefined,
+    retentionGiB: environment.NODEX_BACKUP_RETENTION_GIB !== undefined,
   };
 
   return {
@@ -469,6 +478,12 @@ export function getBackupSettings(source = currentProcessSettingsSource()): Back
     retentionCount: envOverrides.retentionCount
       ? parseIntegerEnv(environment.NODEX_BACKUP_RETENTION, fromToml.retentionCount, 0)
       : fromToml.retentionCount,
+    retentionGiB: envOverrides.retentionGiB
+      ? Math.min(
+          BACKUP_RETENTION_GIB_MAX,
+          parseIntegerEnv(environment.NODEX_BACKUP_RETENTION_GIB, fromToml.retentionGiB, 0),
+        )
+      : fromToml.retentionGiB,
     envOverrides,
   };
 }
@@ -485,6 +500,10 @@ export function updateBackupSettings(
     autoEnabled: input.autoEnabled,
     intervalHours: normalizeIntegerInput(input.intervalHours, 1, "intervalHours"),
     retentionCount: normalizeIntegerInput(input.retentionCount, 0, "retentionCount"),
+    retentionGiB: Math.min(
+      BACKUP_RETENTION_GIB_MAX,
+      normalizeIntegerInput(input.retentionGiB, 0, "retentionGiB"),
+    ),
   };
 
   const userConfigPath = getUserConfigPath(source);
@@ -494,6 +513,7 @@ export function updateBackupSettings(
     backup_auto_enabled: nextSettings.autoEnabled,
     backup_interval_hours: nextSettings.intervalHours,
     backup_retention: nextSettings.retentionCount,
+    backup_retention_gib: nextSettings.retentionGiB,
   };
 
   nextToml.server = nextServer;

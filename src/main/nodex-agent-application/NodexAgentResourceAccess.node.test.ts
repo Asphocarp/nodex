@@ -20,6 +20,7 @@ const authority = {
   actorProjectId: "project:one",
   libraryId: identity.libraryId,
   storeEpoch: identity.storeEpoch,
+  frozenAtMs: 1_785_491_085_000,
   scope: "project" as const,
   source: "project_turn" as const,
 };

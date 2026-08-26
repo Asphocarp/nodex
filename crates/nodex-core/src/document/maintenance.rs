@@ -8,7 +8,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use super::compaction::compact_yjs_document;
 use super::history::{
     NewDocumentCheckpoint, insert_canvas_checkpoint, insert_document_checkpoint,
-    prune_document_history,
+    plan_document_history_prune, prune_document_history,
 };
 use super::persistence::read_document_authority;
 use super::runtime::reconstruct_yjs_engine;
@@ -31,6 +31,68 @@ struct CompactionCandidate {
     generation: i64,
     head_seq: i64,
     update_bytes: i64,
+}
+
+pub(crate) fn next_revision_maintenance_at_ms(
+    connection: &Connection,
+) -> Result<Option<i64>, StoreError> {
+    connection
+        .query_row(
+            "SELECT MIN(CAST(unixepoch(last_edit_at, 'subsec') * 1000 AS INTEGER) + ?1) \
+             FROM document_revision_sessions",
+            [REVISION_IDLE_MILLISECONDS],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .map_err(Into::into)
+}
+
+pub(crate) fn has_document_compaction_work(connection: &Connection) -> Result<bool, StoreError> {
+    connection
+        .query_row(
+            "SELECT EXISTS(\
+               SELECT 1 FROM documents document \
+               JOIN block_documents ownership ON ownership.document_id = document.id \
+                 AND ownership.library_id = document.library_id \
+               JOIN blocks owner ON owner.id = ownership.block_id \
+                 AND owner.library_id = document.library_id \
+               JOIN document_updates update_row ON update_row.document_id = document.id \
+                 AND update_row.generation = document.generation \
+               WHERE document.readiness = 'ready' AND document.sync_engine = 'yjs' \
+               GROUP BY document.id, document.generation, document.head_seq \
+               HAVING count(update_row.seq) >= ?1 \
+                   OR COALESCE(SUM(length(update_row.update_blob)), 0) >= ?2 \
+               LIMIT 1\
+             )",
+            params![MINIMUM_UPDATE_COUNT, MINIMUM_UPDATE_BYTES],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(Into::into)
+}
+
+pub(crate) fn has_document_history_retention_work(
+    connection: &Connection,
+) -> Result<bool, StoreError> {
+    let now = connection.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
+        row.get::<_, String>(0)
+    })?;
+    let document_ids = connection
+        .prepare(
+            "SELECT DISTINCT document_id FROM document_versions \
+             ORDER BY document_id LIMIT 10001",
+        )?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if document_ids.len() > MAXIMUM_HISTORY_DOCUMENTS {
+        return Err(corrupt(
+            "Document history maintenance exceeds its Document bound",
+        ));
+    }
+    for document_id in document_ids {
+        if !plan_document_history_prune(connection, &document_id, &now)?.is_empty() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(crate) fn finalize_idle_document_revisions(

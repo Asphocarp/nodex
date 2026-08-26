@@ -1518,6 +1518,46 @@ pub(crate) fn persist_materialization(
     replace_page_reference_projection(connection, document_id, &materialization.references, now)
 }
 
+/// Rebuilds a schema-derived materialization without turning retained, unowned
+/// recovery Documents back into visible reference sources. Their full
+/// materialization remains durable for Undo/restore; only owner-scoped reverse
+/// reference projection is absent until ownership is restored.
+pub(crate) fn persist_materialization_for_schema_migration(
+    connection: &Connection,
+    document_id: &str,
+    generation: i64,
+    projected_seq: i64,
+    materialization: &DocumentMaterialization,
+    now: &str,
+) -> Result<(), StoreError> {
+    persist_materialization_row(
+        connection,
+        document_id,
+        generation,
+        projected_seq,
+        materialization,
+        now,
+    )?;
+    let has_owner = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM block_documents WHERE document_id = ?1)",
+        [document_id],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if has_owner {
+        return replace_page_reference_projection(
+            connection,
+            document_id,
+            &materialization.references,
+            now,
+        );
+    }
+    connection.execute(
+        "DELETE FROM document_page_references WHERE document_id = ?1",
+        [document_id],
+    )?;
+    Ok(())
+}
+
 pub(crate) fn replace_document_block_index_for_schema_migration(
     connection: &Connection,
     document_id: &str,

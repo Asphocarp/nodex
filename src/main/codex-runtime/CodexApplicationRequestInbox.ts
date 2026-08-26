@@ -4,7 +4,6 @@ import type {
   CodexAppServerRequest,
 } from "@nodex/effect-codex-app-server/client";
 import type { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
-import { randomUUID } from "node:crypto";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -16,6 +15,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
+import { createUuidV7 } from "../../shared/uuid-v7";
 
 export interface CodexApplicationRequestOccurrence {
   readonly kind: "request";
@@ -212,7 +212,7 @@ export const makeWithCapacities = (
     const settlementCapacity = Math.max(1, Math.floor(capacities.settlements));
     const occurrences =
       yield* Queue.dropping<CodexApplicationProtocolOccurrence>(occurrenceCapacity);
-    const inboxId = randomUUID();
+    const inboxId = createUuidV7();
     const state = yield* SynchronizedRef.make<InboxState>({
       closed: false,
       nextOccurrenceToken: 1,

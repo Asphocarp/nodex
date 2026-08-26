@@ -158,7 +158,13 @@ export const live = (
           .withPermitsIfAvailable(1)(
             Effect.gen(function* () {
               if (!(yield* authorityReady)) return;
-              const claims = yield* automation.reminders.claimDue(maxPerTick, leaseDurationMs);
+              const due = yield* automation.reminders.planDue;
+              if (!due.dueNow || due.workToken === null) return;
+              const claims = yield* automation.reminders.claimDue(
+                due.workToken,
+                maxPerTick,
+                leaseDurationMs,
+              );
               if (!(yield* authorityReady)) {
                 yield* Effect.forEach(
                   claims,

@@ -5,6 +5,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -68,10 +69,13 @@ import { isDiagnosticsSettings } from "../../../shared/diagnostics/diagnostics-s
 import { isTelemetrySettings } from "../../../shared/diagnostics/telemetry-settings";
 import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
+  BackupCapacity,
   BackupRecord,
+  BackupJobStatus,
   BackupSettings,
   DiagnosticsSettings,
   HistorySettings,
+  SnapshotStorageOptimization,
   Project,
   UpdateDiagnosticsSettingsInput,
   TelemetrySettings,
@@ -124,6 +128,22 @@ const BACKUP_TRIGGER_LABELS: Record<BackupRecord["trigger"], string> = {
   manual: "Manual",
   auto: "Auto",
   "pre-restore": "Safety",
+};
+
+const formatBackupJobPhase = (phase: string): string => {
+  const labels: Record<string, string> = {
+    queued: "Queued",
+    preparing: "Preparing snapshot",
+    online_backup: "Copying database",
+    database_snapshot: "Copying database",
+    asset_copy: "Copying assets",
+    validation: "Checking database integrity",
+    digest: "Sealing integrity evidence",
+    commit: "Recording snapshot",
+    publishing: "Publishing snapshot",
+    ready: "Snapshot ready",
+  };
+  return labels[phase] ?? phase.replaceAll("_", " ");
 };
 
 const DEFAULT_DIAGNOSTICS_SETTINGS: DiagnosticsSettings = {
@@ -1292,11 +1312,15 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<BackupSettings | null>(null);
   const [historySettings, setHistorySettings] = useState<HistorySettings | null>(null);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
+  const [backupCapacity, setBackupCapacity] = useState<BackupCapacity | null>(null);
+  const [storageOptimization, setStorageOptimization] =
+    useState<SnapshotStorageOptimization | null>(null);
+  const [backupJob, setBackupJob] = useState<BackupJobStatus | null>(null);
   const [createSafetyBackup, setCreateSafetyBackup] = useState(true);
   const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<
-    "refresh" | "save" | "create" | "restore" | "delete" | null
+    "refresh" | "save" | "create" | "cancel" | "restore" | "delete" | null
   >(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1329,12 +1353,16 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
           retentionCount: settings.envOverrides.retentionCount
             ? settings.retentionCount
             : parsed.retentionCount,
+          retentionGiB: settings.envOverrides.retentionGiB
+            ? settings.retentionGiB
+            : parsed.retentionGiB,
         })) as BackupSettings;
         setSettings(updated);
         scheduleForm.reset({
           autoEnabled: updated.autoEnabled,
           intervalHours: String(updated.intervalHours),
           retentionCount: String(updated.retentionCount),
+          retentionGiB: String(updated.retentionGiB),
         });
         setStatus("Backup schedule saved.");
       } catch (err) {
@@ -1392,10 +1420,13 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
       setStatus(null);
 
       try {
-        await invoke("backup:create", parsed.label ? { label: parsed.label } : {});
-        await loadBackups();
+        const job = (await invoke(
+          "backup:create",
+          parsed.label ? { label: parsed.label } : {},
+        )) as BackupJobStatus;
+        setBackupJob(job);
         formApi.reset();
-        setStatus("Manual backup created.");
+        setStatus("Snapshot started in the background.");
       } catch (err) {
         setError(resolveFormErrorMessage(err) ?? "Could not create backup.");
       } finally {
@@ -1414,6 +1445,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
       autoEnabled: data.autoEnabled,
       intervalHours: String(data.intervalHours),
       retentionCount: String(data.retentionCount),
+      retentionGiB: String(data.retentionGiB),
     });
   }, [scheduleForm]);
 
@@ -1424,6 +1456,23 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
       return;
     }
     setBackups(list);
+  }, []);
+
+  const loadBackupCapacity = useCallback(async () => {
+    const capacity = (await invoke("backup:capacity:get")) as BackupCapacity;
+    setBackupCapacity(capacity);
+  }, []);
+
+  const loadStorageOptimization = useCallback(async () => {
+    const optimization = (await invoke(
+      "backup:storage-optimization:get",
+    )) as SnapshotStorageOptimization;
+    setStorageOptimization(optimization);
+  }, []);
+
+  const loadBackupJob = useCallback(async () => {
+    const job = (await invoke("backup:job:get")) as BackupJobStatus | null;
+    setBackupJob(job);
   }, []);
 
   const loadHistorySettings = useCallback(async () => {
@@ -1440,7 +1489,14 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
     setStatus(null);
 
     try {
-      await Promise.all([loadBackupSettings(), loadHistorySettings(), loadBackups()]);
+      await Promise.all([
+        loadBackupSettings(),
+        loadHistorySettings(),
+        loadBackups(),
+        loadBackupCapacity(),
+        loadStorageOptimization(),
+        loadBackupJob(),
+      ]);
       setConfirmRestoreId(null);
       setConfirmDeleteId(null);
     } catch (err) {
@@ -1448,7 +1504,89 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
     } finally {
       setBusyAction(null);
     }
-  }, [loadBackupSettings, loadBackups, loadHistorySettings]);
+  }, [
+    loadBackupCapacity,
+    loadBackupSettings,
+    loadBackups,
+    loadBackupJob,
+    loadHistorySettings,
+    loadStorageOptimization,
+  ]);
+
+  const settleBackupJob = useEffectEvent(async (job: BackupJobStatus) => {
+    if (job.state === "completed") {
+      await Promise.all([loadBackups(), loadBackupCapacity()]);
+      setStatus("Manual snapshot created.");
+      setError(null);
+      return;
+    }
+    if (job.state === "failed") {
+      setStatus(null);
+      setError(job.error ?? "Could not create snapshot.");
+      return;
+    }
+    if (job.state === "cancelled") {
+      setStatus("Snapshot cancelled before publication.");
+      setError(null);
+    }
+  });
+
+  const cancelBackupJob = async () => {
+    if (!backupJob || (backupJob.state !== "queued" && backupJob.state !== "running")) return;
+    setBusyAction("cancel");
+    setError(null);
+    try {
+      const cancelled = (await invoke("backup:cancel", backupJob.jobId)) as BackupJobStatus;
+      setBackupJob(cancelled);
+      if (cancelled.state === "cancelled") {
+        setStatus("Snapshot cancelled before publication.");
+      }
+    } catch (cause) {
+      setError(resolveFormErrorMessage(cause) ?? "Could not cancel snapshot.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const activeBackupJobId =
+    backupJob?.state === "queued" || backupJob?.state === "running" ? backupJob.jobId : null;
+  useEffect(() => {
+    if (!open || !activeBackupJobId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const next = (await invoke("backup:job:get", activeBackupJobId)) as BackupJobStatus | null;
+        if (cancelled) return;
+        if (!next) {
+          timer = setTimeout(poll, 250);
+          return;
+        }
+        setError(null);
+        setBackupJob(next);
+        if (next.state === "queued" || next.state === "running") {
+          timer = setTimeout(poll, 250);
+          return;
+        }
+        await settleBackupJob(next);
+      } catch (cause) {
+        if (cancelled) return;
+        setError(resolveFormErrorMessage(cause) ?? "Could not read snapshot progress.");
+        timer = setTimeout(poll, 1_000);
+      }
+    };
+    timer = setTimeout(poll, 250);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [activeBackupJobId, open]);
+
+  useEffect(() => {
+    if (!open || !storageOptimization?.optimizing) return;
+    const timer = setInterval(() => void loadStorageOptimization(), 2_000);
+    return () => clearInterval(timer);
+  }, [loadStorageOptimization, open, storageOptimization?.optimizing]);
 
   useEffect(() => {
     if (!open) return;
@@ -1526,8 +1664,15 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
   const hasBackupEnvOverrides =
     settings?.envOverrides.autoEnabled ||
     settings?.envOverrides.intervalHours ||
-    settings?.envOverrides.retentionCount;
+    settings?.envOverrides.retentionCount ||
+    settings?.envOverrides.retentionGiB;
   const hasHistoryEnvOverride = historySettings?.envOverrides.retentionCount;
+  const backupProgressUnits =
+    backupJob?.phase === "database_snapshot" && backupJob.progress.databaseTotalPages > 0
+      ? backupJob.completedUnits +
+        backupJob.progress.databaseCopiedPages / backupJob.progress.databaseTotalPages
+      : (backupJob?.completedUnits ?? 0);
+  const backupProgressTotal = Math.max(1, backupJob?.totalUnits ?? 1);
 
   return (
     <div className="flex flex-col gap-[var(--padding-panel)]">
@@ -1565,6 +1710,22 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
               onChange={(event) => scheduleForm.setFieldValue("retentionCount", event.target.value)}
             />
             <span className="text-sm text-token-text-secondary">max</span>
+          </div>
+        </SettingRow>
+        <SettingRow
+          label="Storage budget"
+          description="Automatic snapshots share this limit; manual snapshots are never removed."
+        >
+          <div className="flex items-center gap-2">
+            <NodexSettingsNumberInput
+              className="w-20"
+              min={0}
+              max={8192}
+              value={scheduleValues.retentionGiB}
+              disabled={Boolean(settings?.envOverrides.retentionGiB)}
+              onChange={(event) => scheduleForm.setFieldValue("retentionGiB", event.target.value)}
+            />
+            <span className="text-sm text-token-text-secondary">GiB</span>
           </div>
         </SettingRow>
         <div className="flex items-center justify-between gap-3 p-3">
@@ -1626,6 +1787,47 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
       </SectionBlock>
 
       <SectionBlock title="Snapshots">
+        {storageOptimization ? (
+          <div className="flex items-start justify-between gap-3 px-3 pt-3 text-xs text-token-text-secondary">
+            <div>
+              <div className="text-token-text-primary">
+                {storageOptimization.optimizing
+                  ? "Optimizing snapshot storage"
+                  : "Snapshot storage is optimized"}
+              </div>
+              <div className="mt-0.5">
+                {storageOptimization.optimizing
+                  ? storageOptimization.pendingCommitMetadata +
+                      storageOptimization.pendingReceiptMetadata >
+                    0
+                    ? `${(
+                        storageOptimization.pendingCommitMetadata +
+                        storageOptimization.pendingReceiptMetadata
+                      ).toLocaleString()} historical records remain to be measured before safe trimming.`
+                    : "Old delivery history is being trimmed in short background slices."
+                  : "Operational history stays inside a bounded retention window."}
+              </div>
+            </div>
+            <span className="shrink-0 tabular-nums">
+              {formatBackupSize(
+                storageOptimization.retainedDeliveryBytes +
+                  storageOptimization.retainedReceiptBytes,
+              )}
+            </span>
+          </div>
+        ) : null}
+        {backupCapacity ? (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pt-3 text-xs text-token-text-secondary">
+            <span>{formatBackupSize(backupCapacity.totalReadyBytes)} stored</span>
+            <span aria-hidden="true">·</span>
+            <span>{formatBackupSize(backupCapacity.availableBytes)} available</span>
+            <span aria-hidden="true">·</span>
+            <span>Next snapshot ≈ {formatBackupSize(backupCapacity.estimatedNextBackupBytes)}</span>
+            {!backupCapacity.canCreate ? (
+              <span className="text-danger">More free space is required for a safe snapshot.</span>
+            ) : null}
+          </div>
+        ) : null}
         <form
           className="flex items-center gap-2 p-3"
           onSubmit={(event) => handleFormSubmit(event, snapshotForm.handleSubmit)}
@@ -1636,10 +1838,71 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
             onChange={(event) => snapshotForm.setFieldValue("label", event.target.value)}
             className="min-w-0 flex-1"
           />
-          <NodexButton type="submit" variant="secondary" size="sm" disabled={busyAction !== null}>
-            Create snapshot
+          <NodexButton
+            type="submit"
+            variant="secondary"
+            size="sm"
+            disabled={
+              busyAction !== null ||
+              backupJob?.state === "queued" ||
+              backupJob?.state === "running" ||
+              backupCapacity?.canCreate === false
+            }
+          >
+            {backupJob?.state === "queued" || backupJob?.state === "running"
+              ? "Creating…"
+              : "Create snapshot"}
           </NodexButton>
         </form>
+        {backupJob && (backupJob.state === "queued" || backupJob.state === "running") ? (
+          <div
+            className="semantic-text-secondary flex flex-col gap-1.5 px-3 pb-3 text-xs"
+            aria-live="polite"
+          >
+            <div className="flex items-center gap-2">
+              <span className="size-1.5 shrink-0 rounded-full bg-text-info" aria-hidden="true" />
+              <span className="text-info">{formatBackupJobPhase(backupJob.phase)}</span>
+              <span aria-hidden="true">·</span>
+              <span>The app remains available while the snapshot is verified.</span>
+              <button
+                type="button"
+                className="ms-auto cursor-interaction text-foreground underline-offset-2 hover:underline disabled:cursor-default disabled:opacity-50"
+                disabled={
+                  busyAction === "cancel" ||
+                  backupJob.phase === "commit" ||
+                  backupJob.phase === "publishing"
+                }
+                onClick={() => void cancelBackupJob()}
+              >
+                {busyAction === "cancel" ? "Cancelling…" : "Cancel"}
+              </button>
+            </div>
+            <div
+              className="h-1 overflow-hidden rounded-full bg-text/10"
+              role="progressbar"
+              aria-label="Snapshot progress"
+              aria-valuemin={0}
+              aria-valuemax={backupProgressTotal}
+              aria-valuenow={backupProgressUnits}
+            >
+              <div
+                className="h-full rounded-full bg-text-info transition-[width] duration-300"
+                style={{
+                  width: `${Math.min(100, (backupProgressUnits / backupProgressTotal) * 100)}%`,
+                }}
+              />
+            </div>
+            {backupJob.progress.databaseTotalPages > 0 ? (
+              <div>
+                {backupJob.progress.databaseCopiedPages.toLocaleString()} of{" "}
+                {backupJob.progress.databaseTotalPages.toLocaleString()} database pages copied
+                {backupJob.progress.databaseBusyRetries > 0
+                  ? ` · ${backupJob.progress.databaseBusyRetries.toLocaleString()} transient retries`
+                  : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <SettingRow
           label="Safety backup"
           description="Create a fresh snapshot before restoring an older one."

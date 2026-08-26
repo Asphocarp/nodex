@@ -22,8 +22,26 @@ and result are receipt-backed; retention starts only while the same Core
 authority remains active. Restore still performs its own strict
 installed-candidate validation.
 
+Creating a backup starts a durable background job and returns its identity
+without waiting for the snapshot to become ready. The coordinator records each
+phase under the Profile control directory, resumes or adopts interrupted jobs on
+startup, and exposes database-page, asset-byte, validation, digest, publish, and
+writer-held progress. Cancellation is accepted before publication begins; once
+publication is the only remaining safe transition, the job finishes atomically.
+
+Database capture uses SQLite's online-backup API on a dedicated connection in
+bounded steps with transient-busy retry. A managed-asset snapshot lease holds
+the immutable closure derived from the captured database while files are
+copied. The staged artifact is fully validated once and represented by an
+in-process verified capability; the normal publish path consumes that
+capability instead of rereading and rehashing the artifact. Recovery and restore
+never trust the process-local capability and therefore fully revalidate anything
+adopted from disk.
+
 Manual and scheduled backups use the same operation. Automatic interval and
 retention are Profile settings described in [Configuration](../CONFIGURATION.md).
+Automatic snapshots obey both a count limit and a total-byte budget. Manual and
+pre-restore snapshots are never silently removed by that policy.
 The UI reports environment-managed values without pretending to overwrite them.
 
 ## Restore preflight
@@ -95,22 +113,60 @@ compaction, revision retention, deleted-Block collection, and incremental
 vacuum through one maintenance coordinator. Callers request intent, not an
 arbitrary sequence of storage operations.
 
+Scheduler due-work reads are bounded candidate probes. They may inspect the
+owning subsystem's indexed eligibility state, but they do not perform a full
+Store integrity scan, foreign-key scan, or evidence-closure plan merely to
+decide whether work is due. Complete Store validation belongs to explicit
+open, migration, backup, restore, and replacement boundaries; each maintenance
+mutation still relies on enforced foreign keys and its own fail-closed local
+evidence checks.
+
 Maintenance is idempotent where possible and reports typed partial/deferred
-outcomes. It never rewrites immutable receipts or mutation history and never
-removes pinned revisions. A risky migration or large maintenance operation
+outcomes. Operational delivery and receipt retention runs as self-silent short
+transactions with durable counters and floors; product maintenance writes a
+receipt only when it actually changes semantic state. Maintenance never removes
+pinned revisions. A risky migration or large maintenance operation
 should begin from a labeled manual backup.
+
+Operational pruning is driven by bounded commit/receipt identity sets. Every
+foreign-key check, detach, and semantic-reference guard on that deletion path
+has an index whose leading columns match the lookup; a bounded result is not a
+bounded maintenance pass if SQLite must scan an unbounded child ledger to
+prove deletion safety. Logical evidence deletion converges before physical
+page reclamation begins. Profiles created by current Nodex use incremental
+auto-vacuum; once no logical slice made progress, Core reclaims individual
+freelist pages in chunks of at most 64, checks the same time budget between
+chunks, and yields after at most 256 pages per pass. A successful physical pass
+advances only the existing maintenance scheduling revision, so the next pass
+receives a fresh due-work identity without manufacturing a LocalCommit,
+receipt, replay event, or history row.
+An existing Profile whose database header uses another auto-vacuum mode is not
+silently rewritten or subjected to a full `VACUUM` during ordinary maintenance.
 
 Online maintenance does not hold the serialized writer for a complete pass.
 Block collection first plans a globally bounded set of the oldest eligible
-tombstones and loads its fail-closed evidence once through a consistent WAL
-reader snapshot, then processes short
-candidate slices through separate writer commands. Each writer slice checks the
+tombstones through a consistent WAL reader snapshot. Retained Document
+versions project their Block and Database-view identities when the checkpoint
+is created; upgraded Stores backfill at most one immutable checkpoint per
+reader plan before collection begins. Candidate analysis queries that bounded
+identity projection instead of rebuilding every retained checkpoint. A
+tombstone that is still retained records the commit fence it was evaluated
+against and a bounded retry time, so later candidate probes advance past it
+instead of repeatedly rescanning the same uncollectible prefix. A product commit
+or retry expiry makes the candidate eligible for reevaluation. Collection then
+processes short candidate slices through separate writer commands. Each writer slice checks the
 snapshot's LocalCommit fence, and each candidate still commits atomically;
 interruption or an intervening product commit may leave earlier candidates
 collected, and replaying the same receipt-backed operation safely converges from
 a fresh plan before the final receipt is written. Request-class scheduling can
 run queued interactive work between those slices, while aging guarantees
 maintenance eventually receives another slice.
+
+Main serializes maintenance lanes through a FIFO permit. Each lane can queue at
+most its one scheduler fiber, so a high-frequency migration or retention lane
+cannot repeatedly win a try-lock and starve another due responsibility. Only a
+Core due-work plan may move a lane to its idle cadence; contention and stale
+evidence remain active work and are replanned without warning noise.
 
 ## Recovery evidence
 

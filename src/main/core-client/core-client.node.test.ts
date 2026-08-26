@@ -522,15 +522,18 @@ describe("CoreClient over a Unix socket", () => {
           next_cursor: null,
         },
       });
-      const noDueWork = await client.automationApply({
-        operationId: "node-automation-claim-1",
-        intent: {
-          kind: "claim_due",
-          limit: 3,
-          lease_duration_ms: 60_000,
+      const noDueWork = await client.automationRead({
+        kind: "due_work",
+        lane: "definitions",
+      });
+      expect(noDueWork.value).toEqual({
+        kind: "due_work",
+        plan: {
+          due_now: false,
+          next_wake_at_ms: expect.any(Number),
+          work_token: null,
         },
       });
-      expect(noDueWork.outcome.claimed_leases).toEqual([]);
       const noScheduledOccurrences = await client.automationRead({
         kind: "occurrences",
         window_start_ms: Date.now() - 60_000,
@@ -542,15 +545,18 @@ describe("CoreClient over a Unix socket", () => {
         kind: "occurrences",
         window: { items: [], next_cursor: null },
       });
-      const noDueReminders = await client.automationApply({
-        operationId: "node-reminder-claim-1",
-        intent: {
-          kind: "claim_due_reminders",
-          limit: 3,
-          lease_duration_ms: 60_000,
+      const noDueReminders = await client.automationRead({
+        kind: "due_work",
+        lane: "reminders",
+      });
+      expect(noDueReminders.value).toEqual({
+        kind: "due_work",
+        plan: {
+          due_now: false,
+          next_wake_at_ms: null,
+          work_token: null,
         },
       });
-      expect(noDueReminders.outcome.reminder_leases).toEqual([]);
       const reminderLeases = await client.automationRead({
         kind: "reminder_leases",
         include_settled: true,
@@ -678,6 +684,7 @@ describe("CoreClient over a Unix socket", () => {
         operationId: "node-native-cli-automation-claim-1",
         intent: {
           kind: "claim_due",
+          work_token: "automation-due:test",
           limit: 1,
           lease_duration_ms: 60_000,
         },
@@ -690,6 +697,7 @@ describe("CoreClient over a Unix socket", () => {
         operationId: "node-native-cli-reminder-claim-1",
         intent: {
           kind: "claim_due_reminders",
+          work_token: "reminder-due:test",
           limit: 1,
           lease_duration_ms: 60_000,
         },
@@ -845,6 +853,17 @@ describe("CoreClient over a Unix socket", () => {
           project_id: "project:node-integration",
         }),
       ).rejects.toMatchObject({ coreError: { code: "not_found" } });
+      const postRestoreInput = {
+        operationId: "node-post-restore-replay-1",
+        intent: {
+          kind: "create_page" as const,
+          page_id: "page:post-restore-replay",
+          document_id: "document:post-restore-replay",
+          title: "Post-restore replay",
+          parent: { kind: "library" as const, before: null },
+        },
+      };
+      const postRestoreCommitted = await reconnected.libraryApply(postRestoreInput);
 
       await expect(client.shutdown()).resolves.toEqual({ status: "draining" });
       const exitCodes = await Promise.all(children.map(waitForExit));
@@ -868,9 +887,9 @@ describe("CoreClient over a Unix socket", () => {
         resolveReplayedEvent = resolve;
       });
       restartedSubscription = await restartedClient.openEventStream(
-        0,
+        applyResultCursor(postRestoreCommitted) - 1,
         (candidate) => {
-          if (candidate.packet.manifest.operation_id !== applyInput.operationId) return;
+          if (candidate.packet.manifest.operation_id !== postRestoreInput.operationId) return;
           resolveReplayedEvent?.(candidate);
         },
         () => undefined,
@@ -882,8 +901,8 @@ describe("CoreClient over a Unix socket", () => {
       expect(replayed).toMatchObject({
         packet: {
           manifest: {
-            identity: { commit_seq: applyResultCursor(committed) },
-            operation_id: applyInput.operationId,
+            identity: { commit_seq: applyResultCursor(postRestoreCommitted) },
+            operation_id: postRestoreInput.operationId,
           },
         },
       });
@@ -895,7 +914,7 @@ describe("CoreClient over a Unix socket", () => {
       );
       expect(event.packet.manifest.event_version).toBe(8);
       expect(replayed.packet.manifest.event_version).toBe(8);
-      expect(replayed.packet.projection_effects).toEqual(event.packet.projection_effects);
+      expect(replayed.packet.projection_effects.length).toBeGreaterThan(0);
       restartedSubscription.close();
       await restartedSubscription.done;
       restartedSubscription = undefined;

@@ -894,6 +894,8 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
         StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
+        StoreErrorCode::IdempotencyWindowExpired => CoreErrorCode::IdempotencyWindowExpired,
+        StoreErrorCode::LegacyIdempotencyUnavailable => CoreErrorCode::LegacyIdempotencyUnavailable,
         StoreErrorCode::ProtectedOwnerDeletion => CoreErrorCode::ProtectedOwnerDeletion,
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::SchemaUnsupported,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,

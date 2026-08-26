@@ -1545,7 +1545,7 @@ fn backup_list(client: &CoreClient) -> Result<CommandOutput, CliError> {
                 },
             },
         ))?;
-        let StoreAdministrationReadValue::Backups { backups } = snapshot.value else {
+        let StoreAdministrationReadValue::Backups { backups, .. } = snapshot.value else {
             return Err(CliError::new(
                 CliErrorCode::Internal,
                 "Core returned the wrong backup window",
@@ -1599,6 +1599,7 @@ fn doctor(
                         MaintenanceTask::ForeignKeyCheck,
                     ],
                     block_retention_count: None,
+                    work_token: None,
                 },
             },
         ))?)
