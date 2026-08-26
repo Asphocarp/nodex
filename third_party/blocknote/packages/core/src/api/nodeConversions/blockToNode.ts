@@ -16,7 +16,11 @@ import {
   isPartialLinkInlineContent,
   isStyledTextInlineContent,
 } from "../../schema/inlineContent/types.js";
-import { getColspan, isPartialTableCell } from "../../util/table.js";
+import {
+  assertTableHeaderCount,
+  getColspan,
+  isPartialTableCell,
+} from "../../util/table.js";
 import { UnreachableCaseError } from "../../util/typescript.js";
 import { getAbsoluteTableCells } from "../blockManipulation/tables/tables.js";
 import { getBlockIdGenerator, getStyleSchema } from "../pmUtil.js";
@@ -185,19 +189,19 @@ export function tableContentToNodes<
   const rowNodes: Node[] = [];
   // Header rows and columns are used to determine the type of the cell
   // If headerRows is 1, then the first row is a header row
-  const headerRows = new Array(tableContent.headerRows ?? 0).fill(true);
+  const headerRows = assertTableHeaderCount(tableContent.headerRows, "rows");
   // If headerCols is 1, then the first column is a header column
-  const headerCols = new Array(tableContent.headerCols ?? 0).fill(true);
+  const headerCols = assertTableHeaderCount(tableContent.headerCols, "columns");
 
   const columnWidths: (number | undefined)[] = tableContent.columnWidths ?? [];
 
   for (let rowIndex = 0; rowIndex < tableContent.rows.length; rowIndex++) {
     const row = tableContent.rows[rowIndex];
     const columnNodes: Node[] = [];
-    const isHeaderRow = headerRows[rowIndex];
+    const isHeaderRow = rowIndex < headerRows;
     for (let cellIndex = 0; cellIndex < row.cells.length; cellIndex++) {
       const cell = row.cells[cellIndex];
-      const isHeaderCol = headerCols[cellIndex];
+      const isHeaderCol = cellIndex < headerCols;
       /**
        * The attributes of the cell to apply to the node
        */
@@ -240,10 +244,13 @@ export function tableContentToNodes<
 
         if (colspan > 1) {
           // If the cell has a > 1 colspan, we need to get the column width for each cell in the span
-          colwidth = new Array(colspan).fill(false).map((_, i) => {
+          colwidth = [];
+          for (let i = 0; i < colspan; i++) {
             // Starting from the absolute column index, get the column width for each cell in the span
-            return columnWidths[absoluteCellIndex.col + i] ?? undefined;
-          });
+            colwidth.push(
+              columnWidths[absoluteCellIndex.col + i] ?? undefined,
+            );
+          }
         }
       } else {
         content = inlineContentToNodes(

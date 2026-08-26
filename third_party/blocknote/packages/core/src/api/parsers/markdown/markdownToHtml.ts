@@ -604,6 +604,30 @@ function isHtmlBlockStart(line: string): boolean {
   return HTML_BLOCK_TAGS.has(m[1].toLowerCase());
 }
 
+function isClosingCodeFence(
+  line: string,
+  fenceCharacter: "`" | "~",
+  minimumFenceLength: number,
+): boolean {
+  let index = 0;
+  while (index < line.length && line[index] === " " && index < 4) {
+    index++;
+  }
+  if (index > 3) {
+    return false;
+  }
+
+  let fenceLength = 0;
+  while (line[index + fenceLength] === fenceCharacter) {
+    fenceLength++;
+  }
+  if (fenceLength < minimumFenceLength) {
+    return false;
+  }
+
+  return line.slice(index + fenceLength).trim() === "";
+}
+
 // ─── Block-Level Tokenizer ──────────────────────────────────────────────────
 
 function tokenize(markdown: string): Token[] {
@@ -626,16 +650,13 @@ function tokenize(markdown: string): Token[] {
     const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fenceMatch) {
       const fence = fenceMatch[1];
-      const fenceChar = fence[0];
+      const fenceChar = fence[0] as "`" | "~";
       const fenceLen = fence.length;
       const language = fenceMatch[2].trim();
       const codeLines: string[] = [];
       i++;
       while (i < lines.length) {
-        const closingMatch = lines[i].match(
-          new RegExp(`^ {0,3}${fenceChar}{${fenceLen},}\\s*$`)
-        );
-        if (closingMatch) {
+        if (isClosingCodeFence(lines[i], fenceChar, fenceLen)) {
           i++;
           break;
         }

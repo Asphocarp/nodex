@@ -33,6 +33,10 @@ All notable changes to this project will be documented in this file.
 - Fixed Core-backed views intermittently timing out during larger searches or maintenance; interactive work keeps reserved capacity, Full Page search avoids pathological SQLite query plans and preserves multi-term evidence, stale searches cancel silently end to end, and slow requests return typed Core outcomes instead of arbitrary transport failures.
 - Fixed background retention and automation work making the sidebar or Pages fail with Core deadlines on slower Macs; maintenance now yields in bounded slices, background work cannot starve interactive requests, the sidebar preserves its last known state during transient failures, and Page opens retry brief Core contention before asking the user to retry.
 
+### Security
+
+- Hardened imported and pasted rich documents against resource exhaustion by bounding table dimensions and eliminating document-derived regular expressions from Markdown fence parsing.
+
 ## [0.2.2] - 2026-08-18
 
 ### Added
