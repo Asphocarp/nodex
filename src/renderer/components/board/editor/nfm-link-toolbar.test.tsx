@@ -6,7 +6,7 @@ import { render, settleAsyncRender } from "../../../test/dom";
 
 const deleteLink = vi.fn();
 const editLink = () => {};
-const showSelection = () => {};
+const retainedSelectionPresentations: string[] = [];
 const formattingToolbarStore = {
   setState: () => {},
 };
@@ -68,7 +68,6 @@ vi.mock("./nfm-link-toolbar-deps", () => ({
   useExtension: () => ({
     deleteLink,
     editLink,
-    showSelection,
     store: formattingToolbarStore,
   }),
   NfmCompactLinkToolbar: ({
@@ -91,6 +90,12 @@ vi.mock("./nfm-link-toolbar-deps", () => ({
   ),
   NfmCreateLinkDialogSurface: () => <div data-testid="nfm-create-link-dialog" />,
   NfmLinkEditToolbarSurface: () => <div data-testid="nfm-link-edit-toolbar" />,
+}));
+
+vi.mock("./nfm-retained-selection-presentation", () => ({
+  useNfmRetainedSelectionPresentation: (presentation: string) => {
+    retainedSelectionPresentations.push(presentation);
+  },
 }));
 
 describe("NfmLinkToolbar", () => {
@@ -126,6 +131,7 @@ describe("NfmLinkToolbar", () => {
   });
 
   test("opens the create-link dialog from a custom render trigger", async () => {
+    retainedSelectionPresentations.length = 0;
     createLinkButtonState = {
       text: "Example",
       range: { from: 1, to: 8 },
@@ -156,6 +162,9 @@ describe("NfmLinkToolbar", () => {
     });
 
     expect(Boolean(view.getByTestId("nfm-create-link-dialog"))).toBe(true);
+    expect(retainedSelectionPresentations[retainedSelectionPresentations.length - 1]).toBe(
+      "inline",
+    );
   });
 
   test("keeps the edit toolbar open for the current link after clicking edit", async () => {

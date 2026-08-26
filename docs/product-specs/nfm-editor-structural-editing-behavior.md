@@ -19,7 +19,7 @@ While the Block actions menu owns DOM focus, Copy and Cut continue to target the
 
 Ordinary text ranges use the editor's semantic translucent-blue selection paint in both light and dark appearances. The source color remains alpha-based so it composes with the active surface instead of assuming a light background.
 
-An open character-scoped picker, such as Link or Color, retains that inline paint. An open Block-scoped picker, such as Send to chat or Move to, instead projects the retained target through the same whole-Block fill used by the side menu and suppresses both native and retained inline paint. The underlying text range is left intact so the formatting toolbar remains mounted, while the command and its presentation share one frozen Block-ID target until the picker closes.
+An open character-scoped picker, such as Link or Color, retains that inline paint. Native and retained inline selection paint never stack: exactly one translucent-blue layer is visible. An open Block-scoped picker, such as Change block type, Send to chat, or Move to, instead projects the retained target through the same whole-Block fill used by the side menu and suppresses both native and retained inline paint. The underlying text range is left intact so the formatting toolbar remains mounted, while the command and its presentation share one frozen Block-ID target until the picker closes.
 
 An inline Page context has a separate quiet boundary halo. The halo is visible while the Page itself is selected or while the active caret or Block selection is inside its title or body; nested Page contexts show the halo on every containing Page. Moving the active selection outside the context hides the halo. Context halos never imply that their descendant Blocks are selected.
 
