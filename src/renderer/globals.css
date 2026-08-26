@@ -377,7 +377,7 @@
 /* ===== Code Block Theme Overrides ===== */
 /* BlockNote core hardcodes dark bg (#161616) on code blocks. Override it with our shared code-block surface. */
 :is(
-  .bn-root .bn-block-content[data-content-type="codeBlock"],
+  .bn-root .bn-block-content[data-content-type="codeBlock"] [data-nfm-code-block-surface],
   .codex-markdown [data-streamdown="code-block"],
   .codex-markdown-plan [data-streamdown="code-block"],
   .nfm-code-block [data-streamdown="code-block"]
@@ -393,26 +393,33 @@
 
 .bn-root .bn-block-content[data-content-type="codeBlock"] {
   position: relative;
+  /* The product surface owns the backdrop; clear the vendored host default so its
+     translucent token composites against the editor's matching color scheme. */
+  background: transparent;
+}
+
+.bn-root .bn-block-content[data-content-type="codeBlock"] [data-nfm-code-block-surface] {
+  position: relative;
 }
 
 /* Ensure Shiki pre elements inside code blocks inherit our background */
-.bn-block-content[data-content-type="codeBlock"] pre {
+.bn-block-content[data-content-type="codeBlock"] [data-nfm-code-block-surface] pre {
   background-color: transparent !important;
-  font-size: 85%;
-  padding: var(--nfm-code-block-padding);
+  padding: 12px 22px;
 }
 
-/* Code block language selector: adapt text color per theme */
-.bn-root .bn-block-content[data-content-type="codeBlock"] > div > select {
-  transition: none;
-  transition-delay: 0s;
+.bn-block-content[data-content-type="codeBlock"]
+  [data-nfm-code-block-surface][data-wrapped="false"]
+  code {
+  white-space: pre;
 }
 
-.bn-root[data-color-scheme="light"]
-  .bn-block-content[data-content-type="codeBlock"]
-  > div
-  > select {
-  color: var(--foreground);
+.bn-block-content[data-content-type="codeBlock"]
+  [data-nfm-code-block-surface][data-wrapped="true"]
+  code {
+  min-width: 0;
+  white-space: break-spaces;
+  word-break: break-all;
 }
 
 .bn-root[data-color-scheme="dark"] .bn-block-content[data-content-type="codeBlock"] .shiki {
@@ -1468,6 +1475,10 @@
   border-radius: 0;
   background: transparent;
   font-size: 85%;
+}
+
+.nfm-code-block [data-streamdown="code-block-body"] {
+  padding: 36px 22px 24px;
 }
 
 .codex-markdown [data-streamdown="code-block"] pre,

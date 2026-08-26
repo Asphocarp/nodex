@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Code Blocks now offer a compact hover Action Bar, an exact searchable language catalog, plain-code copy, local line wrapping, and on-demand formatting, with matching read-only previews and no document changes from presentation state.
 - Pages can now keep durable relationships to one or more chats, show working and unread activity directly in Board and List, and manage those chats from Page Stage across restarts.
 - Added reliable Composer and macOS global dictation with microphone selection, streaming-to-buffered recovery, recoverable recent recordings, inline Voice shortcut capture with validated global chords, dictionary-aware cleanup, app-level recovery notifications, and clipboard-safe cross-application paste.
 - Added atomic mixed selection editing for Page, Canvas, and Database owners, including complete copy/cut/paste across consecutive commands and nested editors, race-safe native clipboard handoff, identity-preserving first cut paste, structural Duplicate/Move/drag, semantic Backspace merges across atomic Blocks, and chronological Undo/Redo with ordinary text edits.

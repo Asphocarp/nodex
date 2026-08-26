@@ -37,7 +37,7 @@ export type NodexDropdownContentWidth =
   | "workspace"
   | "panel"
   | "panelWide";
-export type NodexDropdownContentMaxHeight = "list" | "tall";
+export type NodexDropdownContentMaxHeight = "list" | "tall" | "halfViewport";
 
 const CONTENT_BOUNDARY_STYLE: CSSProperties = {
   maxWidth: "min(var(--radix-dropdown-menu-content-available-width), calc(100vw - 16px))",
@@ -192,6 +192,7 @@ function resolveDropdownMaxHeightClass(
 ): string | undefined {
   if (maxHeight === "list") return "max-h-[250px]";
   if (maxHeight === "tall") return "max-h-[350px]";
+  if (maxHeight === "halfViewport") return "max-h-[50vh]";
   return undefined;
 }
 
@@ -932,7 +933,11 @@ function NodexFilterOptionPicker({
             aria-label={typeof title === "string" ? title : "Options"}
             className={cn(
               "flex flex-col overflow-y-auto",
-              contentMaxHeight === "tall" ? "max-h-[350px]" : "max-h-[250px]",
+              contentMaxHeight === "halfViewport"
+                ? "max-h-[50vh]"
+                : contentMaxHeight === "tall"
+                  ? "max-h-[350px]"
+                  : "max-h-[250px]",
             )}
           >
             {options.length === 0 ? (

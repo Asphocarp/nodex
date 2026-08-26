@@ -1,0 +1,808 @@
+{
+  "contractVersion": 1,
+  "languages": [
+    {
+      "id": "abap",
+      "label": "ABAP",
+      "aliases": ["abap"],
+      "extensions": ["abap"],
+      "searchTerms": [],
+      "shikiLanguage": "abap",
+      "formatterKind": null
+    },
+    {
+      "id": "agda",
+      "label": "Agda",
+      "aliases": ["agda"],
+      "extensions": ["agda", "lagda"],
+      "searchTerms": [],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "arduino",
+      "label": "Arduino",
+      "aliases": ["arduino"],
+      "extensions": ["arduino", "ino"],
+      "searchTerms": [],
+      "shikiLanguage": "cpp",
+      "formatterKind": null
+    },
+    {
+      "id": "ascii-art",
+      "label": "ASCII Art",
+      "aliases": ["ascii", "ascii-art"],
+      "extensions": [],
+      "searchTerms": ["text art"],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "assembly",
+      "label": "Assembly",
+      "aliases": ["assembly", "asm", "nasm"],
+      "extensions": ["asm", "nasm", "s", "x86"],
+      "searchTerms": [],
+      "shikiLanguage": "asm",
+      "formatterKind": null
+    },
+    {
+      "id": "bash",
+      "label": "Bash",
+      "aliases": ["bash"],
+      "extensions": ["bash", "sh"],
+      "searchTerms": [],
+      "shikiLanguage": "bash",
+      "formatterKind": null
+    },
+    {
+      "id": "basic",
+      "label": "BASIC",
+      "aliases": ["basic"],
+      "extensions": ["basic"],
+      "searchTerms": [],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "bnf",
+      "label": "BNF",
+      "aliases": ["bnf"],
+      "extensions": ["bnf"],
+      "searchTerms": ["backus naur form"],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "c",
+      "label": "C",
+      "aliases": ["c"],
+      "extensions": ["c", "h"],
+      "searchTerms": [],
+      "shikiLanguage": "c",
+      "formatterKind": null
+    },
+    {
+      "id": "csharp",
+      "label": "C#",
+      "aliases": ["c#", "csharp"],
+      "extensions": ["cs", "csharp"],
+      "searchTerms": [],
+      "shikiLanguage": "csharp",
+      "formatterKind": null
+    },
+    {
+      "id": "cpp",
+      "label": "C++",
+      "aliases": ["c++", "cpp"],
+      "extensions": ["c++", "cpp", "cxx", "hpp", "hxx"],
+      "searchTerms": [],
+      "shikiLanguage": "cpp",
+      "formatterKind": null
+    },
+    {
+      "id": "clojure",
+      "label": "Clojure",
+      "aliases": ["clojure"],
+      "extensions": ["clojure", "clojurescript", "clj", "cljs"],
+      "searchTerms": [],
+      "shikiLanguage": "clojure",
+      "formatterKind": null
+    },
+    {
+      "id": "coffeescript",
+      "label": "CoffeeScript",
+      "aliases": ["coffee", "coffeescript"],
+      "extensions": ["coffee", "coffeescript"],
+      "searchTerms": [],
+      "shikiLanguage": "coffeescript",
+      "formatterKind": null
+    },
+    {
+      "id": "css",
+      "label": "CSS",
+      "aliases": ["css"],
+      "extensions": ["css"],
+      "searchTerms": [],
+      "shikiLanguage": "css",
+      "formatterKind": "css"
+    },
+    {
+      "id": "dart",
+      "label": "Dart",
+      "aliases": ["dart"],
+      "extensions": ["dart"],
+      "searchTerms": [],
+      "shikiLanguage": "dart",
+      "formatterKind": null
+    },
+    {
+      "id": "dhall",
+      "label": "Dhall",
+      "aliases": ["dhall"],
+      "extensions": ["dhall"],
+      "searchTerms": [],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "diff",
+      "label": "Diff",
+      "aliases": ["diff", "patch"],
+      "extensions": ["diff"],
+      "searchTerms": [],
+      "shikiLanguage": "diff",
+      "formatterKind": null
+    },
+    {
+      "id": "docker",
+      "label": "Docker",
+      "aliases": ["docker", "dockerfile"],
+      "extensions": ["docker", "dockerfile"],
+      "searchTerms": [],
+      "shikiLanguage": "docker",
+      "formatterKind": null
+    },
+    {
+      "id": "ebnf",
+      "label": "EBNF",
+      "aliases": ["ebnf"],
+      "extensions": ["ebnf"],
+      "searchTerms": ["extended backus naur form"],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "elixir",
+      "label": "Elixir",
+      "aliases": ["elixir"],
+      "extensions": ["elixir", "ex", "exs"],
+      "searchTerms": [],
+      "shikiLanguage": "elixir",
+      "formatterKind": null
+    },
+    {
+      "id": "elm",
+      "label": "Elm",
+      "aliases": ["elm"],
+      "extensions": ["elm"],
+      "searchTerms": [],
+      "shikiLanguage": "elm",
+      "formatterKind": null
+    },
+    {
+      "id": "erlang",
+      "label": "Erlang",
+      "aliases": ["erlang"],
+      "extensions": ["erlang", "erl"],
+      "searchTerms": [],
+      "shikiLanguage": "erlang",
+      "formatterKind": null
+    },
+    {
+      "id": "fsharp",
+      "label": "F#",
+      "aliases": ["f#", "fsharp"],
+      "extensions": ["fs", "fsharp"],
+      "searchTerms": [],
+      "shikiLanguage": "fsharp",
+      "formatterKind": null
+    },
+    {
+      "id": "flow",
+      "label": "Flow",
+      "aliases": ["flow"],
+      "extensions": ["flow", "flow.js"],
+      "searchTerms": ["javascript"],
+      "shikiLanguage": "javascript",
+      "formatterKind": null
+    },
+    {
+      "id": "fortran",
+      "label": "Fortran",
+      "aliases": ["fortran"],
+      "extensions": ["f03", "f08", "f77", "f90", "f95", "for", "fortran"],
+      "searchTerms": [],
+      "shikiLanguage": "fortran-free-form",
+      "formatterKind": null
+    },
+    {
+      "id": "gherkin",
+      "label": "Gherkin",
+      "aliases": ["gherkin"],
+      "extensions": ["feature", "gherkin"],
+      "searchTerms": ["cucumber"],
+      "shikiLanguage": "gherkin",
+      "formatterKind": null
+    },
+    {
+      "id": "glsl",
+      "label": "GLSL",
+      "aliases": ["glsl"],
+      "extensions": ["glsl"],
+      "searchTerms": ["shader"],
+      "shikiLanguage": "glsl",
+      "formatterKind": null
+    },
+    {
+      "id": "go",
+      "label": "Go",
+      "aliases": ["go", "golang"],
+      "extensions": ["go"],
+      "searchTerms": [],
+      "shikiLanguage": "go",
+      "formatterKind": null
+    },
+    {
+      "id": "graphql",
+      "label": "GraphQL",
+      "aliases": ["graphql", "gql"],
+      "extensions": ["graphql", "gql"],
+      "searchTerms": [],
+      "shikiLanguage": "graphql",
+      "formatterKind": "graphql"
+    },
+    {
+      "id": "groovy",
+      "label": "Groovy",
+      "aliases": ["groovy"],
+      "extensions": ["groovy"],
+      "searchTerms": [],
+      "shikiLanguage": "groovy",
+      "formatterKind": null
+    },
+    {
+      "id": "haskell",
+      "label": "Haskell",
+      "aliases": ["haskell"],
+      "extensions": ["haskell", "hs", "lhs"],
+      "searchTerms": [],
+      "shikiLanguage": "haskell",
+      "formatterKind": null
+    },
+    {
+      "id": "hcl",
+      "label": "HCL",
+      "aliases": ["hcl"],
+      "extensions": ["hcl"],
+      "searchTerms": ["hashicorp"],
+      "shikiLanguage": "hcl",
+      "formatterKind": null
+    },
+    {
+      "id": "html",
+      "label": "HTML",
+      "aliases": ["html"],
+      "extensions": ["html", "xhtml", "mhtml"],
+      "searchTerms": [],
+      "shikiLanguage": "html",
+      "formatterKind": "html"
+    },
+    {
+      "id": "idris",
+      "label": "Idris",
+      "aliases": ["idris"],
+      "extensions": ["idr", "idris", "lidr"],
+      "searchTerms": [],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "java",
+      "label": "Java",
+      "aliases": ["java"],
+      "extensions": ["java"],
+      "searchTerms": [],
+      "shikiLanguage": "java",
+      "formatterKind": null
+    },
+    {
+      "id": "javascript",
+      "label": "JavaScript",
+      "aliases": ["javascript", "js", "jsx"],
+      "extensions": ["javascript", "js", "jsx", "webpack"],
+      "searchTerms": ["ecmascript"],
+      "shikiLanguage": "jsx",
+      "formatterKind": "javascript"
+    },
+    {
+      "id": "json",
+      "label": "JSON",
+      "aliases": ["json", "jsonc"],
+      "extensions": ["json", "jsonc", "eslintrc", "prettierrc", "stylelintrc", "babelrc"],
+      "searchTerms": [],
+      "shikiLanguage": "json",
+      "formatterKind": "json"
+    },
+    {
+      "id": "julia",
+      "label": "Julia",
+      "aliases": ["julia"],
+      "extensions": ["jl", "julia"],
+      "searchTerms": [],
+      "shikiLanguage": "julia",
+      "formatterKind": null
+    },
+    {
+      "id": "kotlin",
+      "label": "Kotlin",
+      "aliases": ["kotlin"],
+      "extensions": ["kotlin", "kt"],
+      "searchTerms": [],
+      "shikiLanguage": "kotlin",
+      "formatterKind": null
+    },
+    {
+      "id": "latex",
+      "label": "LaTeX",
+      "aliases": ["latex", "tex"],
+      "extensions": ["latex", "tex"],
+      "searchTerms": [],
+      "shikiLanguage": "latex",
+      "formatterKind": null
+    },
+    {
+      "id": "less",
+      "label": "Less",
+      "aliases": ["less"],
+      "extensions": ["less"],
+      "searchTerms": [],
+      "shikiLanguage": "less",
+      "formatterKind": null
+    },
+    {
+      "id": "lisp",
+      "label": "Lisp",
+      "aliases": ["lisp", "common-lisp"],
+      "extensions": ["cl", "lisp", "lsp"],
+      "searchTerms": [],
+      "shikiLanguage": "common-lisp",
+      "formatterKind": null
+    },
+    {
+      "id": "livescript",
+      "label": "LiveScript",
+      "aliases": ["livescript"],
+      "extensions": ["livescript", "ls"],
+      "searchTerms": [],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "llvm",
+      "label": "LLVM IR",
+      "aliases": ["llvm", "llvm-ir"],
+      "extensions": ["llvm"],
+      "searchTerms": ["intermediate representation"],
+      "shikiLanguage": "llvm",
+      "formatterKind": null
+    },
+    {
+      "id": "lua",
+      "label": "Lua",
+      "aliases": ["lua"],
+      "extensions": ["lua"],
+      "searchTerms": [],
+      "shikiLanguage": "lua",
+      "formatterKind": null
+    },
+    {
+      "id": "makefile",
+      "label": "Makefile",
+      "aliases": ["make", "makefile"],
+      "extensions": ["mk", "makefile"],
+      "searchTerms": [],
+      "shikiLanguage": "makefile",
+      "formatterKind": null
+    },
+    {
+      "id": "markdown",
+      "label": "Markdown",
+      "aliases": ["markdown", "md"],
+      "extensions": ["markdown", "md", "mdown"],
+      "searchTerms": [],
+      "shikiLanguage": "markdown",
+      "formatterKind": null
+    },
+    {
+      "id": "markup",
+      "label": "Markup",
+      "aliases": ["markup"],
+      "extensions": ["markup"],
+      "searchTerms": ["html xml"],
+      "shikiLanguage": "html",
+      "formatterKind": null
+    },
+    {
+      "id": "mathematica",
+      "label": "Mathematica",
+      "aliases": ["mathematica", "wolfram"],
+      "extensions": ["mathematica", "nb", "wl", "wls"],
+      "searchTerms": [],
+      "shikiLanguage": "wolfram",
+      "formatterKind": null
+    },
+    {
+      "id": "matlab",
+      "label": "MATLAB",
+      "aliases": ["matlab"],
+      "extensions": ["matlab"],
+      "searchTerms": [],
+      "shikiLanguage": "matlab",
+      "formatterKind": null
+    },
+    {
+      "id": "mermaid",
+      "label": "Mermaid",
+      "aliases": ["mermaid", "mmd"],
+      "extensions": ["mermaid"],
+      "searchTerms": ["diagram"],
+      "shikiLanguage": "mermaid",
+      "formatterKind": null
+    },
+    {
+      "id": "nix",
+      "label": "Nix",
+      "aliases": ["nix"],
+      "extensions": ["nix"],
+      "searchTerms": [],
+      "shikiLanguage": "nix",
+      "formatterKind": null
+    },
+    {
+      "id": "notion-formula",
+      "label": "Notion Formula",
+      "aliases": ["notion", "notion-formula"],
+      "extensions": ["notion"],
+      "searchTerms": ["formula"],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "objective-c",
+      "label": "Objective-C",
+      "aliases": ["objective-c", "objectivec", "objc"],
+      "extensions": ["m", "objc", "objectivec"],
+      "searchTerms": [],
+      "shikiLanguage": "objective-c",
+      "formatterKind": null
+    },
+    {
+      "id": "ocaml",
+      "label": "OCaml",
+      "aliases": ["ocaml"],
+      "extensions": ["mli", "ml", "ocaml"],
+      "searchTerms": [],
+      "shikiLanguage": "ocaml",
+      "formatterKind": null
+    },
+    {
+      "id": "pascal",
+      "label": "Pascal",
+      "aliases": ["pascal"],
+      "extensions": ["pascal"],
+      "searchTerms": [],
+      "shikiLanguage": "pascal",
+      "formatterKind": null
+    },
+    {
+      "id": "perl",
+      "label": "Perl",
+      "aliases": ["perl"],
+      "extensions": ["perl", "pl"],
+      "searchTerms": [],
+      "shikiLanguage": "perl",
+      "formatterKind": null
+    },
+    {
+      "id": "php",
+      "label": "PHP",
+      "aliases": ["php"],
+      "extensions": ["php"],
+      "searchTerms": [],
+      "shikiLanguage": "php",
+      "formatterKind": null
+    },
+    {
+      "id": "text",
+      "label": "Plain Text",
+      "aliases": ["text", "plain", "plaintext", "txt"],
+      "extensions": [
+        "txt",
+        "log",
+        "cfg",
+        "ini",
+        "conf",
+        "gitignore",
+        "gitattributes",
+        "npmrc",
+        "yarnrc",
+        "editorconfig"
+      ],
+      "searchTerms": ["plain text"],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "powershell",
+      "label": "PowerShell",
+      "aliases": ["powershell"],
+      "extensions": ["powershell", "ps1", "psm1"],
+      "searchTerms": [],
+      "shikiLanguage": "powershell",
+      "formatterKind": null
+    },
+    {
+      "id": "prolog",
+      "label": "Prolog",
+      "aliases": ["prolog"],
+      "extensions": ["pro", "prolog"],
+      "searchTerms": [],
+      "shikiLanguage": "prolog",
+      "formatterKind": null
+    },
+    {
+      "id": "protobuf",
+      "label": "Protobuf",
+      "aliases": ["protobuf", "proto"],
+      "extensions": ["proto", "protobuf"],
+      "searchTerms": ["protocol buffers"],
+      "shikiLanguage": "protobuf",
+      "formatterKind": null
+    },
+    {
+      "id": "purescript",
+      "label": "PureScript",
+      "aliases": ["purescript"],
+      "extensions": ["purescript", "purs"],
+      "searchTerms": [],
+      "shikiLanguage": "purescript",
+      "formatterKind": null
+    },
+    {
+      "id": "python",
+      "label": "Python",
+      "aliases": ["python", "py"],
+      "extensions": ["py", "python"],
+      "searchTerms": [],
+      "shikiLanguage": "python",
+      "formatterKind": null
+    },
+    {
+      "id": "r",
+      "label": "R",
+      "aliases": ["r"],
+      "extensions": ["r"],
+      "searchTerms": [],
+      "shikiLanguage": "r",
+      "formatterKind": null
+    },
+    {
+      "id": "racket",
+      "label": "Racket",
+      "aliases": ["racket"],
+      "extensions": ["racket", "rkt", "scrbl"],
+      "searchTerms": [],
+      "shikiLanguage": "racket",
+      "formatterKind": null
+    },
+    {
+      "id": "reason",
+      "label": "Reason",
+      "aliases": ["reason"],
+      "extensions": ["re", "reason", "rei"],
+      "searchTerms": ["reasonml"],
+      "shikiLanguage": null,
+      "formatterKind": null
+    },
+    {
+      "id": "rocq",
+      "label": "Rocq",
+      "aliases": ["rocq", "coq"],
+      "extensions": ["coq", "rocq", "v"],
+      "searchTerms": ["Coq Rocq"],
+      "shikiLanguage": "coq",
+      "formatterKind": null
+    },
+    {
+      "id": "ruby",
+      "label": "Ruby",
+      "aliases": ["ruby", "rb"],
+      "extensions": ["rb", "ruby"],
+      "searchTerms": [],
+      "shikiLanguage": "ruby",
+      "formatterKind": null
+    },
+    {
+      "id": "rust",
+      "label": "Rust",
+      "aliases": ["rust", "rs"],
+      "extensions": ["rs", "rust"],
+      "searchTerms": [],
+      "shikiLanguage": "rust",
+      "formatterKind": null
+    },
+    {
+      "id": "sass",
+      "label": "Sass",
+      "aliases": ["sass"],
+      "extensions": ["sass"],
+      "searchTerms": [],
+      "shikiLanguage": "sass",
+      "formatterKind": null
+    },
+    {
+      "id": "scala",
+      "label": "Scala",
+      "aliases": ["scala"],
+      "extensions": ["scala"],
+      "searchTerms": [],
+      "shikiLanguage": "scala",
+      "formatterKind": null
+    },
+    {
+      "id": "scheme",
+      "label": "Scheme",
+      "aliases": ["scheme"],
+      "extensions": ["scheme", "scm"],
+      "searchTerms": [],
+      "shikiLanguage": "scheme",
+      "formatterKind": null
+    },
+    {
+      "id": "scss",
+      "label": "SCSS",
+      "aliases": ["scss"],
+      "extensions": ["scss"],
+      "searchTerms": [],
+      "shikiLanguage": "scss",
+      "formatterKind": "scss"
+    },
+    {
+      "id": "shell",
+      "label": "Shell",
+      "aliases": ["shell"],
+      "extensions": ["shen", "shell", "bat", "cmd", "ps", "bashrc", "bash_profile"],
+      "searchTerms": ["command line"],
+      "shikiLanguage": "shellscript",
+      "formatterKind": null
+    },
+    {
+      "id": "smalltalk",
+      "label": "Smalltalk",
+      "aliases": ["smalltalk"],
+      "extensions": ["smalltalk", "st"],
+      "searchTerms": [],
+      "shikiLanguage": "smalltalk",
+      "formatterKind": null
+    },
+    {
+      "id": "solidity",
+      "label": "Solidity",
+      "aliases": ["solidity"],
+      "extensions": ["solidity", "sol"],
+      "searchTerms": [],
+      "shikiLanguage": "solidity",
+      "formatterKind": null
+    },
+    {
+      "id": "sql",
+      "label": "SQL",
+      "aliases": ["sql"],
+      "extensions": ["sql"],
+      "searchTerms": [],
+      "shikiLanguage": "sql",
+      "formatterKind": null
+    },
+    {
+      "id": "swift",
+      "label": "Swift",
+      "aliases": ["swift"],
+      "extensions": ["swift"],
+      "searchTerms": [],
+      "shikiLanguage": "swift",
+      "formatterKind": null
+    },
+    {
+      "id": "toml",
+      "label": "TOML",
+      "aliases": ["toml"],
+      "extensions": ["toml"],
+      "searchTerms": [],
+      "shikiLanguage": "toml",
+      "formatterKind": null
+    },
+    {
+      "id": "typescript",
+      "label": "TypeScript",
+      "aliases": ["typescript", "ts", "tsx"],
+      "extensions": ["ts", "tsx", "typescript"],
+      "searchTerms": [],
+      "shikiLanguage": "tsx",
+      "formatterKind": "typescript"
+    },
+    {
+      "id": "vbnet",
+      "label": "VB.Net",
+      "aliases": ["vb.net", "vbnet"],
+      "extensions": ["vb", "vbs"],
+      "searchTerms": ["visual basic net"],
+      "shikiLanguage": "vb",
+      "formatterKind": null
+    },
+    {
+      "id": "verilog",
+      "label": "Verilog",
+      "aliases": ["verilog"],
+      "extensions": ["verilog"],
+      "searchTerms": [],
+      "shikiLanguage": "verilog",
+      "formatterKind": null
+    },
+    {
+      "id": "vhdl",
+      "label": "VHDL",
+      "aliases": ["vhdl"],
+      "extensions": ["vhdl"],
+      "searchTerms": [],
+      "shikiLanguage": "vhdl",
+      "formatterKind": null
+    },
+    {
+      "id": "visual-basic",
+      "label": "Visual Basic",
+      "aliases": ["visual-basic", "visual basic"],
+      "extensions": ["visual-basic", "vbnet"],
+      "searchTerms": ["vb"],
+      "shikiLanguage": "vb",
+      "formatterKind": null
+    },
+    {
+      "id": "wasm",
+      "label": "WebAssembly",
+      "aliases": ["webassembly", "wasm", "wat"],
+      "extensions": ["wasm", "wat"],
+      "searchTerms": [],
+      "shikiLanguage": "wasm",
+      "formatterKind": null
+    },
+    {
+      "id": "xml",
+      "label": "XML",
+      "aliases": ["xml"],
+      "extensions": ["xml"],
+      "searchTerms": [],
+      "shikiLanguage": "xml",
+      "formatterKind": "xml"
+    },
+    {
+      "id": "yaml",
+      "label": "YAML",
+      "aliases": ["yaml", "yml"],
+      "extensions": ["yaml", "yml"],
+      "searchTerms": [],
+      "shikiLanguage": "yaml",
+      "formatterKind": null
+    }
+  ]
+}

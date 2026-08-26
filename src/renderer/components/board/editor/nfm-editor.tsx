@@ -83,6 +83,7 @@ import {
   NfmSideMenuOpenProvider,
   NfmSideMenuShortcutController,
 } from "./nfm-side-menu";
+import { NfmCodeBlockController } from "./nfm-code-block-controller";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import { buildCodexPromptInputFromBlockNoteBlocks } from "./nfm-codex-prompt-input";
 import { createSendToThreadToggleBlock } from "./nfm-send-to-thread-block";
@@ -2832,6 +2833,7 @@ function NfmEditorInstance({
                     data-theming-css-variables-demo
                   >
                     <NfmSideMenuOpenProvider>
+                      <NfmCodeBlockController />
                       <NfmSideMenuShortcutController />
                       <SideMenuController
                         sideMenu={customSideMenu}

@@ -340,6 +340,7 @@ function TextActionMoreHandoffStorySurface() {
             sourcePageId="source-card"
             textColor="default"
             backgroundColor="default"
+            codeLanguageId="typescript"
             footerPrimary="Selected text spans two blocks"
             footerSecondary="More opens block actions"
             onQueryChange={(nextQuery) => {
@@ -367,6 +368,7 @@ function TextActionMoreHandoffStorySurface() {
             onSubmenuChange={setActiveSubmenu}
             onTurnInto={() => setShowFocusedBlockSelection(false)}
             onColor={() => setShowFocusedBlockSelection(false)}
+            onCodeLanguageChange={() => setShowFocusedBlockSelection(false)}
             onMoveBlocksToDestination={() => {
               setShowFocusedBlockSelection(false);
             }}

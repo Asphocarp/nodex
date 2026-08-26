@@ -1,11 +1,11 @@
 import {
   BlockNoteSchema,
-  createCodeBlockSpec,
   defaultBlockSpecs,
   defaultInlineContentSpecs,
   defaultStyleSpecs,
 } from "@blocknote/core";
 import { editorCodeBlockOptions } from "./code-block-options";
+import { createNfmCodeBlockSpec } from "./nfm-code-block-spec";
 import { createAgentConfigInlineContentSpec } from "./agent-config-chip";
 import { createAttachmentInlineContentSpec } from "./attachment-chip";
 import { createCalloutBlock } from "./callout-block";
@@ -31,7 +31,7 @@ export const nfmSchema = BlockNoteSchema.create({
     numberedListItem: defaultBlockSpecs.numberedListItem,
     checkListItem: defaultBlockSpecs.checkListItem,
     toggleListItem: defaultBlockSpecs.toggleListItem,
-    codeBlock: createCodeBlockSpec(editorCodeBlockOptions),
+    codeBlock: createNfmCodeBlockSpec(editorCodeBlockOptions),
     table: defaultBlockSpecs.table,
     quote: defaultBlockSpecs.quote,
     divider: defaultBlockSpecs.divider,

@@ -39,6 +39,52 @@ describe("nfm side menu model", () => {
     expect(rows[3]?.row.submenu).toBe("move-to");
   });
 
+  test("prepends the complete single-Code action group without caption support", () => {
+    const sections = buildNfmSideMenuSections({
+      currentBlockId: "code-1",
+      currentBlockType: "codeBlock",
+      selectionTitle: "Code",
+      selectedTopLevelBlockCount: 1,
+      isEditable: true,
+      canUseColor: true,
+      canSendBlocks: true,
+      hasConvertDividerToThreadSection: false,
+      isTableBlock: false,
+      canUseTableHeaders: false,
+      showMockActions: false,
+      codeBlock: { wrapped: true, canFormat: true },
+    });
+    const rows = flattenNfmSideMenuRows(sections);
+
+    expect(rows.map(({ row }) => row.label).join(",")).toBe(
+      "Copy code,Wrap code,Language,Format code,Turn into,Color,Duplicate,Move to,Delete",
+    );
+    expect(rows.find(({ row }) => row.key === "wrap-code")?.row.checked).toBe(true);
+    expect(rows.find(({ row }) => row.key === "code-language")?.row.submenu).toBe("language");
+    expect(rows.some(({ row }) => /caption/iu.test(row.label))).toBe(false);
+  });
+
+  test("omits Format code when the current language has no formatter", () => {
+    const rows = flattenNfmSideMenuRows(
+      buildNfmSideMenuSections({
+        currentBlockId: "code-1",
+        currentBlockType: "codeBlock",
+        selectionTitle: "Code",
+        selectedTopLevelBlockCount: 1,
+        isEditable: true,
+        canUseColor: true,
+        canSendBlocks: true,
+        hasConvertDividerToThreadSection: false,
+        isTableBlock: false,
+        canUseTableHeaders: false,
+        showMockActions: false,
+        codeBlock: { wrapped: false, canFormat: false },
+      }),
+    );
+
+    expect(rows.some(({ row }) => row.key === "format-code")).toBe(false);
+  });
+
   test("copies the production action grouping boundaries without copy links", () => {
     const rows = flattenNfmSideMenuRows(buildDefaultSections());
     const separatorKeys = getNfmSideMenuSeparatorBeforeKeys(rows);

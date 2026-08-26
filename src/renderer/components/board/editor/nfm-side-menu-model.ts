@@ -1,5 +1,6 @@
 export type NfmSideMenuActionKind = "action" | "submenu";
 export type NfmSideMenuVisualGroup =
+  | "code"
   | "block-shape"
   | "block-move"
   | "collaboration"
@@ -9,6 +10,10 @@ export type NfmSideMenuVisualGroup =
   | "table";
 
 export type NfmSideMenuActionKey =
+  | "copy-code"
+  | "wrap-code"
+  | "code-language"
+  | "format-code"
   | "turn-into"
   | "color"
   | "copy-link-to-block"
@@ -27,7 +32,7 @@ export type NfmSideMenuActionKey =
   | "table-column-color"
   | "table-create-cards-from-rows";
 
-export type NfmSideMenuSubmenuKey = "turn-into" | "color" | "move-to";
+export type NfmSideMenuSubmenuKey = "language" | "turn-into" | "color" | "move-to";
 
 export interface NfmSideMenuAction {
   key: NfmSideMenuActionKey;
@@ -40,6 +45,7 @@ export interface NfmSideMenuAction {
   shortcut?: string;
   badge?: string;
   submenu?: NfmSideMenuSubmenuKey;
+  checked?: boolean;
   keywords?: readonly string[];
 }
 
@@ -67,6 +73,10 @@ export interface NfmSideMenuModelInput {
   isTableBlock: boolean;
   canUseTableHeaders: boolean;
   showMockActions: boolean;
+  codeBlock?: {
+    wrapped: boolean;
+    canFormat: boolean;
+  };
 }
 
 export interface NfmSideMenuFlatRow {
@@ -226,6 +236,56 @@ function enabledForReferenceAction(
 }
 
 export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideMenuSection[] {
+  const codeRows: NfmSideMenuAction[] =
+    input.currentBlockId &&
+    input.currentBlockType === "codeBlock" &&
+    input.selectedTopLevelBlockCount === 1 &&
+    input.codeBlock
+      ? [
+          {
+            key: "copy-code",
+            label: "Copy code",
+            kind: "action",
+            section: "selection",
+            visualGroup: "code",
+            enabled: true,
+            keywords: ["clipboard"],
+          },
+          {
+            key: "wrap-code",
+            label: "Wrap code",
+            kind: "action",
+            section: "selection",
+            visualGroup: "code",
+            enabled: true,
+            checked: input.codeBlock.wrapped,
+            keywords: ["word wrap", "lines"],
+          },
+          {
+            key: "code-language",
+            label: "Language",
+            kind: "submenu",
+            section: "selection",
+            visualGroup: "code",
+            enabled: input.isEditable,
+            submenu: "language",
+            keywords: ["syntax", "highlighting"],
+          },
+          ...(input.codeBlock.canFormat
+            ? ([
+                {
+                  key: "format-code",
+                  label: "Format code",
+                  kind: "action",
+                  section: "selection",
+                  visualGroup: "code",
+                  enabled: input.isEditable,
+                  keywords: ["prettier", "beautify"],
+                },
+              ] satisfies NfmSideMenuAction[])
+            : []),
+        ]
+      : [];
   const referenceRows = REFERENCE_ACTIONS.flatMap((action) => {
     const isMockAction = REFERENCE_MOCK_ACTION_KEYS.has(action.key);
     if (isMockAction && !input.showMockActions) return [];
@@ -337,7 +397,7 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
       : [];
 
   const sections: NfmSideMenuSection[] = [
-    { key: "selection", label: input.selectionTitle, rows: referenceRows },
+    { key: "selection", label: input.selectionTitle, rows: [...codeRows, ...referenceRows] },
     { key: "nodex", label: "Nodex", rows: nodexRows },
     { key: "table", label: "Table", rows: tableRows },
   ];

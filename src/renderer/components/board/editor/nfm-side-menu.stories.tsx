@@ -237,6 +237,7 @@ function SideMenuStorySurface({
           sourcePageId="source-card"
           textColor="blue"
           backgroundColor="yellow"
+          codeLanguageId="typescript"
           footerPrimary={footerPrimary}
           footerSecondary={footerSecondary}
           onQueryChange={(nextQuery) => {
@@ -257,6 +258,7 @@ function SideMenuStorySurface({
           onSubmenuChange={setActiveSubmenu}
           onTurnInto={() => undefined}
           onColor={() => undefined}
+          onCodeLanguageChange={() => undefined}
           onMoveBlocksToDestination={() => undefined}
           renderMoveToMenu={(props) => (
             <NfmMoveToMenuSurface

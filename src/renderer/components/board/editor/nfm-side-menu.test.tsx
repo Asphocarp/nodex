@@ -203,6 +203,7 @@ function renderSideMenuSurface({
         sourcePageId="source-card"
         textColor="default"
         backgroundColor="default"
+        codeLanguageId="typescript"
         footerPrimary={footerPrimary}
         footerSecondary={footerSecondary}
         onQueryChange={(nextQuery) => {
@@ -232,6 +233,7 @@ function renderSideMenuSurface({
         }}
         onTurnInto={() => undefined}
         onColor={() => undefined}
+        onCodeLanguageChange={() => undefined}
         onClipboardCommand={(command) => {
           calls.clipboardCommands.push(command);
           return true;
@@ -305,6 +307,7 @@ function StatefulSideMenuSurface({
       sourcePageId="source-card"
       textColor="default"
       backgroundColor="default"
+      codeLanguageId="typescript"
       footerPrimary="Last edited locally"
       footerSecondary="Now"
       onQueryChange={(nextQuery) => {
@@ -330,6 +333,7 @@ function StatefulSideMenuSurface({
       onSubmenuChange={setActiveSubmenu}
       onTurnInto={() => undefined}
       onColor={() => undefined}
+      onCodeLanguageChange={() => undefined}
       onMoveBlocksToDestination={onMoveBlocksToDestination}
       renderMoveToMenu={(props) => (
         <NfmMoveToMenuSurface
