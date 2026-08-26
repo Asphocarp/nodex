@@ -186,25 +186,29 @@
 }
 
 [data-nodex-editor-selection-surface] {
-  --nfm-owned-selection-background: var(--color-background-editor-text-selection);
-  --nfm-owned-selection-padding: 2px 0;
+  --nfm-native-selection-background: var(--color-background-editor-text-selection);
+  --nfm-retained-inline-selection-background: var(--color-background-editor-text-selection);
+  --nfm-retained-inline-selection-padding: 2px 0;
 }
 
-[data-nodex-editor-selection-surface]:is(
-  .ProseMirror-hideselection,
-  [data-nodex-block-action-selection]
-) {
-  --nfm-owned-selection-background: transparent;
-  --nfm-owned-selection-padding: 0;
+[data-nodex-editor-selection-surface]:has([data-show-selection]),
+[data-nodex-editor-selection-surface].ProseMirror-hideselection {
+  --nfm-native-selection-background: transparent;
 }
 
-[data-nodex-editor-selection-surface] ::selection,
+[data-nodex-editor-selection-surface][data-nodex-block-action-selection] {
+  --nfm-native-selection-background: transparent;
+  --nfm-retained-inline-selection-background: transparent;
+  --nfm-retained-inline-selection-padding: 0;
+}
+
+[data-nodex-editor-selection-surface] ::selection {
+  background-color: var(--nfm-native-selection-background);
+}
+
 [data-nodex-editor-selection-surface] [data-show-selection] {
-  background-color: var(--nfm-owned-selection-background);
-}
-
-[data-nodex-editor-selection-surface] [data-show-selection] {
-  padding: var(--nfm-owned-selection-padding);
+  background-color: var(--nfm-retained-inline-selection-background);
+  padding: var(--nfm-retained-inline-selection-padding);
 }
 
 /* Interactive editor links use the same compact link treatment as message links. */

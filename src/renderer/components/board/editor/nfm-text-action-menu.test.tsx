@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vite-plus/test";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { act } from "react";
+import { act, useState } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CommandPaletteThread } from "@/lib/command-palette";
 import type { BoardSummary, DatabasePageSummary, CodexThreadSummary, Project } from "@/lib/types";
@@ -173,91 +173,101 @@ function renderTextActionMenu(props?: Partial<NfmTextActionMenuSurfaceProps>) {
     selectionPresentations: [] as string[],
   };
 
+  function StatefulTextActionMenuSurface() {
+    const [, setRenderedSelectionPresentation] = useState("none");
+
+    return (
+      <NfmTextActionMenuSurface
+        currentBlockTypeLabel="Normal Text"
+        blockTypeItems={[
+          {
+            key: "paragraph",
+            label: "Normal Text",
+            type: "paragraph",
+            isSelected: true,
+          },
+          {
+            key: "heading-1",
+            label: "Heading 1",
+            type: "heading",
+            props: { level: 1, isToggleable: false },
+            isSelected: false,
+          },
+        ]}
+        activeStyles={{
+          bold: true,
+          italic: false,
+          underline: false,
+          strike: false,
+          code: false,
+        }}
+        textColor="default"
+        backgroundColor="default"
+        canUseTextColor={true}
+        canUseBackgroundColor={true}
+        canClearFormat={true}
+        linkControl={
+          <button type="button" aria-label="Link">
+            Link
+          </button>
+        }
+        nodexRows={[
+          {
+            key: "send-to-thread",
+            label: "Send to chat",
+            enabled: true,
+          },
+          {
+            key: "move-to",
+            label: "Move to",
+            enabled: true,
+          },
+        ]}
+        showReferenceMocks={true}
+        sourceProjectId="default"
+        sourcePageId="source-card"
+        sendToThreadProjectNameById={{ default: "Default" }}
+        onSelectBlockType={(item) => {
+          actions.blockTypes.push(item.key);
+        }}
+        onToggleStyle={(style) => {
+          actions.styles.push(style);
+        }}
+        onSetTextColor={(color) => {
+          actions.textColors.push(color);
+        }}
+        onSetBackgroundColor={(color) => {
+          actions.backgroundColors.push(color);
+        }}
+        onClearFormat={() => {
+          actions.clearFormat += 1;
+        }}
+        onOpenBlockActions={() => {
+          actions.blockActions += 1;
+        }}
+        onNodexRow={(row) => {
+          actions.nodexRows.push(row.key);
+        }}
+        onMoveBlocksToDestination={(destination) => {
+          actions.moveDestinations.push(destination);
+        }}
+        onSendBlocksToThread={(request) => {
+          actions.sendRequests.push(request);
+        }}
+        {...props}
+        onSelectionPresentationChange={(presentation) => {
+          actions.selectionPresentations.push(presentation);
+          setRenderedSelectionPresentation(presentation);
+          props?.onSelectionPresentationChange?.(presentation);
+        }}
+      />
+    );
+  }
+
   const view = render(
     <TestQueryProvider>
       <NodexTooltipProvider>
-        <NfmTextActionMenuSurface
-          currentBlockTypeLabel="Normal Text"
-          blockTypeItems={[
-            {
-              key: "paragraph",
-              label: "Normal Text",
-              type: "paragraph",
-              isSelected: true,
-            },
-            {
-              key: "heading-1",
-              label: "Heading 1",
-              type: "heading",
-              props: { level: 1, isToggleable: false },
-              isSelected: false,
-            },
-          ]}
-          activeStyles={{
-            bold: true,
-            italic: false,
-            underline: false,
-            strike: false,
-            code: false,
-          }}
-          textColor="default"
-          backgroundColor="default"
-          canUseTextColor={true}
-          canUseBackgroundColor={true}
-          canClearFormat={true}
-          linkControl={
-            <button type="button" aria-label="Link">
-              Link
-            </button>
-          }
-          nodexRows={[
-            {
-              key: "send-to-thread",
-              label: "Send to chat",
-              enabled: true,
-            },
-            {
-              key: "move-to",
-              label: "Move to",
-              enabled: true,
-            },
-          ]}
-          showReferenceMocks={true}
-          sourceProjectId="default"
-          sourcePageId="source-card"
-          sendToThreadProjectNameById={{ default: "Default" }}
-          onSelectBlockType={(item) => {
-            actions.blockTypes.push(item.key);
-          }}
-          onToggleStyle={(style) => {
-            actions.styles.push(style);
-          }}
-          onSetTextColor={(color) => {
-            actions.textColors.push(color);
-          }}
-          onSetBackgroundColor={(color) => {
-            actions.backgroundColors.push(color);
-          }}
-          onClearFormat={() => {
-            actions.clearFormat += 1;
-          }}
-          onOpenBlockActions={() => {
-            actions.blockActions += 1;
-          }}
-          onNodexRow={(row) => {
-            actions.nodexRows.push(row.key);
-          }}
-          onMoveBlocksToDestination={(destination) => {
-            actions.moveDestinations.push(destination);
-          }}
-          onSendBlocksToThread={(request) => {
-            actions.sendRequests.push(request);
-          }}
-          onSelectionPresentationChange={(presentation) => {
-            actions.selectionPresentations.push(presentation);
-          }}
-          {...props}
-        />
+        <StatefulTextActionMenuSurface />
       </NodexTooltipProvider>
     </TestQueryProvider>,
   );
@@ -307,6 +317,58 @@ describe("nfm text action menu surface", () => {
     });
 
     expect(actions.blockTypes.join(",")).toBe("heading-1");
+  });
+
+  test("reports Block presentation while the block type picker is active", async () => {
+    const { actions, view } = renderTextActionMenu();
+    const trigger = view.getByRole("button", { name: "Normal Text" });
+
+    await act(async () => {
+      trigger.focus();
+      fireEvent.focus(trigger);
+      await settleAsyncRender();
+    });
+    expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+      "inline",
+    );
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      await settleAsyncRender();
+    });
+
+    const headingItem = view.getByRole("menuitem", { name: "Heading 1" });
+    expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+      "blocks",
+    );
+
+    await act(async () => {
+      headingItem.focus();
+      fireEvent.focus(headingItem);
+      await settleAsyncRender();
+    });
+    expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+      "blocks",
+    );
+  });
+
+  test("keeps inline presentation while the Color picker owns focus", async () => {
+    const { actions, view } = renderTextActionMenu();
+
+    await openColorMenu(view);
+    expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+      "inline",
+    );
+
+    const colorOptions = view.getByRole("menu", { name: "Color options" });
+    await act(async () => {
+      colorOptions.focus();
+      fireEvent.focus(colorOptions);
+      await settleAsyncRender();
+    });
+    expect(actions.selectionPresentations[actions.selectionPresentations.length - 1]).toBe(
+      "inline",
+    );
   });
 
   test("invokes supported annotation and Nodex actions", async () => {

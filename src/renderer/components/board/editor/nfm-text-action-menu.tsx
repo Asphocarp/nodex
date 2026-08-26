@@ -117,6 +117,21 @@ interface TextActionMenuSnapshot {
 }
 
 type TextActionActionPopoverKey = "send-to-thread" | "move-to";
+type TextActionSelectionPresentationOwner =
+  | "toolbar-focus"
+  | "color"
+  | "block-type"
+  | "nodex-action";
+
+const TEXT_ACTION_SELECTION_PRESENTATION_BY_OWNER = {
+  "toolbar-focus": "inline",
+  color: "inline",
+  "block-type": "blocks",
+  "nodex-action": "blocks",
+} as const satisfies Record<
+  TextActionSelectionPresentationOwner,
+  Exclude<NfmRetainedSelectionPresentation, "none">
+>;
 
 const NFM_TEXT_ACTION_MENU_SELECTION_KEY = "nfmTextActionMenuActionPopover";
 
@@ -707,6 +722,7 @@ function TextActionColorMenu({
   backgroundColor,
   onSetTextColor,
   onSetBackgroundColor,
+  onOpenChange,
 }: Pick<
   NfmTextActionMenuSurfaceProps,
   | "canUseTextColor"
@@ -715,7 +731,9 @@ function TextActionColorMenu({
   | "backgroundColor"
   | "onSetTextColor"
   | "onSetBackgroundColor"
->) {
+> & {
+  onOpenChange: (open: boolean) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [recentColors, setRecentColors] = useState<TextActionRecentColor[]>(() =>
     readTextActionRecentColors(),
@@ -753,7 +771,14 @@ function TextActionColorMenu({
   }
 
   return (
-    <DropdownMenuPrimitive.Root modal={false} open={open} onOpenChange={setOpen}>
+    <DropdownMenuPrimitive.Root
+      modal={false}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        onOpenChange(nextOpen);
+      }}
+    >
       <TextActionButtonTooltip label="Color">
         <DropdownMenuPrimitive.Trigger asChild>
           <TextActionButton label="Color" hasPopup="dialog" expanded={open}>
@@ -850,24 +875,25 @@ function TextActionBlockTypeMenu({
   currentBlockTypeLabel,
   blockTypeItems,
   onSelectBlockType,
+  onOpenChange,
 }: Pick<
   NfmTextActionMenuSurfaceProps,
   "currentBlockTypeLabel" | "blockTypeItems" | "onSelectBlockType"
->) {
+> & {
+  onOpenChange: (open: boolean) => void;
+}) {
   const currentBlockTypeItem =
     blockTypeItems.find((item) => item.isSelected) ??
     blockTypeItems.find((item) => item.label === currentBlockTypeLabel) ??
     null;
 
   return (
-    <DropdownMenuPrimitive.Root modal={false}>
+    <DropdownMenuPrimitive.Root modal={false} onOpenChange={onOpenChange}>
       <TextActionButtonTooltip label="Change block type">
         <DropdownMenuPrimitive.Trigger asChild>
           <div
             role="button"
             tabIndex={0}
-            aria-haspopup="dialog"
-            aria-expanded={false}
             data-popup-origin="true"
             contentEditable={false}
             className="flex h-7 select-none items-center gap-2 rounded-[6px] px-1.5 text-token-foreground outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background focus-visible:ring-1 focus-visible:ring-token-focus-border"
@@ -1306,8 +1332,13 @@ function TextActionAiPane({
 }) {
   const [activePopover, setActivePopover] = useState<TextActionActionPopoverKey | null>(null);
   const activePopoverRef = useRef<TextActionActionPopoverKey | null>(null);
+  const onActionPopoverOpenChangeRef = useRef(onActionPopoverOpenChange);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const [hasContentBelow, setHasContentBelow] = useState(false);
+
+  useLayoutEffect(() => {
+    onActionPopoverOpenChangeRef.current = onActionPopoverOpenChange;
+  }, [onActionPopoverOpenChange]);
 
   const syncContentBelow = useCallback(() => {
     const viewport = scrollViewportRef.current;
@@ -1331,11 +1362,13 @@ function TextActionAiPane({
     return () => resizeObserver.disconnect();
   }, [nodexRows, showReferenceMocks, syncContentBelow]);
 
+  // Selection presentation updates rerender the parent and may replace its
+  // callback. Only the pane's actual unmount closes its active popover.
   useEffect(
     () => () => {
-      onActionPopoverOpenChange?.(false);
+      onActionPopoverOpenChangeRef.current?.(false);
     },
-    [onActionPopoverOpenChange],
+    [],
   );
 
   const setActionPopoverOpen = (popover: TextActionActionPopoverKey, nextOpen: boolean) => {
@@ -1490,8 +1523,7 @@ export function NfmTextActionMenuSurface({
   renderSendToThreadMenu,
 }: NfmTextActionMenuSurfaceProps) {
   const showAiPane = showReferenceMocks || nodexRows.length > 0;
-  const toolbarFocusWithinRef = useRef(false);
-  const blockActionPopoverOpenRef = useRef(false);
+  const selectionPresentationOwnersRef = useRef(new Set<TextActionSelectionPresentationOwner>());
   const surfaceMountedRef = useRef(true);
   const selectionPresentationChangeRef = useRef(onSelectionPresentationChange);
   useLayoutEffect(() => {
@@ -1512,9 +1544,31 @@ export function NfmTextActionMenuSurface({
     };
   }, [reportSelectionPresentation]);
 
+  const handleSelectionPresentationOwnerChange = useCallback(
+    (owner: TextActionSelectionPresentationOwner, active: boolean) => {
+      if (!surfaceMountedRef.current) return;
+
+      if (active) {
+        selectionPresentationOwnersRef.current.add(owner);
+      } else {
+        selectionPresentationOwnersRef.current.delete(owner);
+      }
+      const activePresentations = Array.from(selectionPresentationOwnersRef.current).map(
+        (activeOwner) => TEXT_ACTION_SELECTION_PRESENTATION_BY_OWNER[activeOwner],
+      );
+      reportSelectionPresentation(
+        activePresentations.includes("blocks")
+          ? "blocks"
+          : activePresentations.includes("inline")
+            ? "inline"
+            : "none",
+      );
+    },
+    [reportSelectionPresentation],
+  );
+
   const handleToolbarFocusCapture = () => {
-    toolbarFocusWithinRef.current = true;
-    if (!blockActionPopoverOpenRef.current) reportSelectionPresentation("inline");
+    handleSelectionPresentationOwnerChange("toolbar-focus", true);
   };
 
   const handleToolbarBlurCapture = (event: FocusEvent<HTMLDivElement>) => {
@@ -1523,19 +1577,20 @@ export function NfmTextActionMenuSurface({
       return;
     }
 
-    toolbarFocusWithinRef.current = false;
-    if (!blockActionPopoverOpenRef.current) reportSelectionPresentation("none");
+    handleSelectionPresentationOwnerChange("toolbar-focus", false);
   };
 
-  const handleActionPopoverOpenChange = useCallback(
-    (open: boolean) => {
-      if (!surfaceMountedRef.current) return;
-      blockActionPopoverOpenRef.current = open;
-      reportSelectionPresentation(
-        open ? "blocks" : toolbarFocusWithinRef.current ? "inline" : "none",
-      );
-    },
-    [reportSelectionPresentation],
+  const handleBlockTypeOpenChange = useCallback(
+    (open: boolean) => handleSelectionPresentationOwnerChange("block-type", open),
+    [handleSelectionPresentationOwnerChange],
+  );
+  const handleColorOpenChange = useCallback(
+    (open: boolean) => handleSelectionPresentationOwnerChange("color", open),
+    [handleSelectionPresentationOwnerChange],
+  );
+  const handleNodexActionPopoverOpenChange = useCallback(
+    (open: boolean) => handleSelectionPresentationOwnerChange("nodex-action", open),
+    [handleSelectionPresentationOwnerChange],
   );
 
   return (
@@ -1551,6 +1606,7 @@ export function NfmTextActionMenuSurface({
           currentBlockTypeLabel={currentBlockTypeLabel}
           blockTypeItems={blockTypeItems}
           onSelectBlockType={onSelectBlockType}
+          onOpenChange={handleBlockTypeOpenChange}
         />
         <TextActionDivider />
 
@@ -1563,6 +1619,7 @@ export function NfmTextActionMenuSurface({
               backgroundColor={backgroundColor}
               onSetTextColor={onSetTextColor}
               onSetBackgroundColor={onSetBackgroundColor}
+              onOpenChange={handleColorOpenChange}
             />
             <TextActionButtonTooltip label={TEXT_ACTION_STYLE_LABELS.bold}>
               <TextActionButton
@@ -1672,7 +1729,7 @@ export function NfmTextActionMenuSurface({
             onNodexRow={onNodexRow}
             onMoveBlocksToDestination={onMoveBlocksToDestination}
             onSendBlocksToThread={onSendBlocksToThread}
-            onActionPopoverOpenChange={handleActionPopoverOpenChange}
+            onActionPopoverOpenChange={handleNodexActionPopoverOpenChange}
             renderMoveToMenu={renderMoveToMenu}
             renderSendToThreadMenu={renderSendToThreadMenu}
           />

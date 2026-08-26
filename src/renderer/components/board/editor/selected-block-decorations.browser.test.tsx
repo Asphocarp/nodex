@@ -11,11 +11,13 @@ import type { Node } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, test } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import "../../../globals.css";
 import { PageOutlinerFrame } from "@/components/block-documents/page-outliner-surface";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { ACTIVE_EDITOR_SELECTION_SURFACE_ATTRIBUTE } from "@/lib/editor-selection-presentation";
 import {
   applySideMenuSelectionIntent,
@@ -25,6 +27,11 @@ import {
 } from "./nfm-side-menu-selection";
 import { NfmStructuredClipboardExtension } from "./nfm-editor-extensions";
 import { NfmSideMenuOpenProvider, useNfmSideMenuOpenController } from "./nfm-side-menu";
+import { NfmTextActionMenu, NfmTextActionMenuSurface } from "./nfm-text-action-menu";
+import {
+  useNfmRetainedSelectionPresentation,
+  type NfmRetainedSelectionPresentation,
+} from "./nfm-retained-selection-presentation";
 import {
   BLOCK_ACTION_SELECTION_PRESENTATION_ATTRIBUTE,
   SelectedBlockDecorationsExtension,
@@ -73,6 +80,53 @@ function PointerSideMenuOpenHarness() {
     >
       Open pointer Block actions
     </button>
+  );
+}
+
+function BlockActionSelectionHarness() {
+  const [presentation, setPresentation] = useState<NfmRetainedSelectionPresentation>("none");
+  useNfmRetainedSelectionPresentation(presentation, "block-action-browser-test", [
+    "first",
+    "second",
+  ]);
+
+  return (
+    <NfmTextActionMenuSurface
+      currentBlockTypeLabel="Normal Text"
+      blockTypeItems={[
+        {
+          key: "paragraph",
+          label: "Normal Text",
+          type: "paragraph",
+          isSelected: true,
+        },
+      ]}
+      activeStyles={{}}
+      textColor="default"
+      backgroundColor="default"
+      canUseTextColor
+      canUseBackgroundColor
+      canClearFormat
+      linkControl={<button type="button">Link</button>}
+      nodexRows={[
+        { key: "send-to-thread", label: "Send to chat", enabled: true },
+        { key: "move-to", label: "Move to", enabled: true },
+      ]}
+      sourceProjectId="project"
+      sourcePageId="page"
+      onSelectBlockType={() => undefined}
+      onToggleStyle={() => undefined}
+      onSetTextColor={() => undefined}
+      onSetBackgroundColor={() => undefined}
+      onClearFormat={() => undefined}
+      onOpenBlockActions={() => undefined}
+      onNodexRow={() => undefined}
+      onMoveBlocksToDestination={() => undefined}
+      onSendBlocksToThread={() => undefined}
+      onSelectionPresentationChange={setPresentation}
+      renderMoveToMenu={() => <div>Move destination picker</div>}
+      renderSendToThreadMenu={() => <div>Chat picker</div>}
+    />
   );
 }
 
@@ -182,8 +236,14 @@ describe("selected Block presentation in Chromium", () => {
         getComputedStyle(view.container.querySelector<HTMLElement>("[data-show-selection]")!)
           .backgroundColor,
       ).toBe("rgba(35, 131, 226, 0.28)");
+      expect(getComputedStyle(beforeInlineContent, "::selection").backgroundColor).toBe(
+        "rgba(0, 0, 0, 0)",
+      );
       showSelection?.showSelection(false, "inline-selection-test");
       await act(settleEditor);
+      expect(getComputedStyle(beforeInlineContent, "::selection").backgroundColor).toBe(
+        "rgba(35, 131, 226, 0.28)",
+      );
 
       pageNodeView.classList.add("ProseMirror-selectednode");
       expect(getComputedStyle(pageTitle).outlineStyle).toBe("none");
@@ -319,9 +379,7 @@ describe("selected Block presentation in Chromium", () => {
       expect(getComputedStyle(retainedInlineDecoration).backgroundColor).toBe(
         "rgba(35, 131, 226, 0.28)",
       );
-      expect(getComputedStyle(firstInline, "::selection").backgroundColor).toBe(
-        "rgba(35, 131, 226, 0.28)",
-      );
+      expect(getComputedStyle(firstInline, "::selection").backgroundColor).toBe("rgba(0, 0, 0, 0)");
 
       showSelection.showSelection(false, "competing-inline-owner");
     } finally {
@@ -329,6 +387,162 @@ describe("selected Block presentation in Chromium", () => {
       editor._tiptapEditor.destroy();
     }
   });
+
+  test("presents Change block type as Blocks without an inline selection decoration", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: testSchema,
+      initialContent: [
+        { id: "first", type: "paragraph", content: "first block" },
+        { id: "second", type: "paragraph", content: "second block" },
+        { id: "outside", type: "paragraph", content: "outside" },
+      ],
+      extensions: [NfmStructuredClipboardExtension(), selectedBlockDecorationsExtension()],
+    });
+    const view = render(
+      <NodexTooltipProvider>
+        <BlockNoteView
+          editor={editor}
+          className="nfm-editor"
+          formattingToolbar={false}
+          linkToolbar={false}
+          slashMenu={false}
+          sideMenu={false}
+          tableHandles={false}
+        >
+          <NfmSideMenuOpenProvider>
+            <NfmTextActionMenu />
+          </NfmSideMenuOpenProvider>
+        </BlockNoteView>
+      </NodexTooltipProvider>,
+    );
+
+    try {
+      await act(settleEditor);
+      const mountedView = requireMountedEditorView(editor);
+      await act(async () => {
+        editor.focus();
+        const doc = editor.prosemirrorState.doc;
+        mountedView.dispatch(
+          editor.prosemirrorState.tr.setSelection(
+            TextSelection.create(
+              doc,
+              inlinePosition(doc, "first", 2),
+              inlinePosition(doc, "second", 2),
+            ),
+          ),
+        );
+        await settleEditor();
+      });
+
+      const trigger = await view.findByRole("button", { name: "Normal Text" });
+      await act(async () => {
+        await userEvent.click(trigger);
+        await settleEditor();
+      });
+      await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "true"));
+      await act(settleEditor);
+
+      const firstOuter = view.container.querySelector<HTMLElement>(
+        '.bn-block-outer[data-id="first"]',
+      );
+      const secondOuter = view.container.querySelector<HTMLElement>(
+        '.bn-block-outer[data-id="second"]',
+      );
+      const outsideOuter = view.container.querySelector<HTMLElement>(
+        '.bn-block-outer[data-id="outside"]',
+      );
+      if (!firstOuter || !secondOuter || !outsideOuter) {
+        throw new Error("Expected Change block type selection fixture");
+      }
+
+      expect(firstOuter.dataset.nodexSelectionKind).toBe("block-action");
+      expect(secondOuter.dataset.nodexSelectionKind).toBe("block-action");
+      expect(outsideOuter.classList.contains("nodex-selected-block")).toBe(false);
+      expect(view.container.querySelector("[data-show-selection]")).toBeNull();
+    } finally {
+      view.unmount();
+      editor._tiptapEditor.destroy();
+    }
+  });
+
+  test.each(["Send to chat", "Move to"] as const)(
+    "keeps the %s target presented as Blocks across the menu rerender",
+    async (actionLabel) => {
+      const editor = BlockNoteEditor.create({
+        schema: testSchema,
+        initialContent: [
+          { id: "first", type: "paragraph", content: "first block" },
+          { id: "second", type: "paragraph", content: "second block" },
+          { id: "outside", type: "paragraph", content: "outside" },
+        ],
+        extensions: [NfmStructuredClipboardExtension(), selectedBlockDecorationsExtension()],
+      });
+      const view = render(
+        <NodexTooltipProvider>
+          <BlockNoteView
+            editor={editor}
+            className="nfm-editor"
+            formattingToolbar={false}
+            linkToolbar={false}
+            slashMenu={false}
+            sideMenu={false}
+            tableHandles={false}
+          >
+            <BlockActionSelectionHarness />
+          </BlockNoteView>
+        </NodexTooltipProvider>,
+      );
+
+      try {
+        await act(settleEditor);
+        const mountedView = requireMountedEditorView(editor);
+        await act(async () => {
+          editor.focus();
+          const doc = editor.prosemirrorState.doc;
+          mountedView.dispatch(
+            editor.prosemirrorState.tr.setSelection(
+              TextSelection.create(
+                doc,
+                inlinePosition(doc, "first", 2),
+                inlinePosition(doc, "second", 2),
+              ),
+            ),
+          );
+          await settleEditor();
+        });
+
+        await act(async () => {
+          await userEvent.click(await view.findByRole("button", { name: actionLabel }));
+          await settleEditor();
+        });
+        await view.findByText(
+          actionLabel === "Send to chat" ? "Chat picker" : "Move destination picker",
+        );
+        await act(settleEditor);
+
+        const firstOuter = view.container.querySelector<HTMLElement>(
+          '.bn-block-outer[data-id="first"]',
+        );
+        const secondOuter = view.container.querySelector<HTMLElement>(
+          '.bn-block-outer[data-id="second"]',
+        );
+        const outsideOuter = view.container.querySelector<HTMLElement>(
+          '.bn-block-outer[data-id="outside"]',
+        );
+        if (!firstOuter || !secondOuter || !outsideOuter) {
+          throw new Error(`Expected ${actionLabel} selection fixture`);
+        }
+
+        expect(firstOuter.dataset.nodexSelectionKind).toBe("block-action");
+        expect(secondOuter.dataset.nodexSelectionKind).toBe("block-action");
+        expect(outsideOuter.classList.contains("nodex-selected-block")).toBe(false);
+        expect(view.container.querySelector("[data-show-selection]")).toBeNull();
+      } finally {
+        view.unmount();
+        editor._tiptapEditor.destroy();
+      }
+    },
+  );
 
   test("keeps the Image overlay in sync with the same authoritative selection", async () => {
     const editor = BlockNoteEditor.create({

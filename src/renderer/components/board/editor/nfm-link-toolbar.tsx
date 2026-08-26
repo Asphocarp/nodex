@@ -1,9 +1,5 @@
 import { formatKeyboardShortcut, isTableCellSelection } from "@blocknote/core";
-import {
-  FormattingToolbarExtension,
-  LinkToolbarExtension,
-  ShowSelectionExtension,
-} from "@blocknote/core/extensions";
+import { FormattingToolbarExtension, LinkToolbarExtension } from "@blocknote/core/extensions";
 import {
   useCallback,
   useEffect,
@@ -36,6 +32,7 @@ import { useFileReferenceRouter } from "@/lib/file-reference-router";
 import { useNfmLinkEditorState } from "./nfm-edit-link-menu-items";
 import { applyNfmLinkEditAtRange } from "./nfm-link-editing";
 import { normalizeNfmEditorLinkUrl } from "./nfm-link-url";
+import { useNfmRetainedSelectionPresentation } from "./nfm-retained-selection-presentation";
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
 import { pageSearchResultsToReferenceCandidates } from "@/lib/page-reference-picker/search-controller";
 import type { PageReferenceCandidate } from "@/lib/page-reference-picker/types";
@@ -345,13 +342,9 @@ function NfmCreateLinkButton({ renderTrigger }: NfmCreateLinkButtonProps) {
   const editor = useBlockNoteEditor();
   const dict = useDictionary();
   const formattingToolbar = useExtension(FormattingToolbarExtension);
-  const { showSelection } = useExtension(ShowSelectionExtension);
   const [showPopover, setShowPopover] = useState(false);
 
-  useEffect(() => {
-    showSelection(showPopover, "createLinkButton");
-    return () => showSelection(false, "createLinkButton");
-  }, [showPopover, showSelection]);
+  useNfmRetainedSelectionPresentation(showPopover ? "inline" : "none", "createLinkButton", []);
 
   const state = useEditorState<NfmCreateLinkSelectionState | undefined>({
     editor,
