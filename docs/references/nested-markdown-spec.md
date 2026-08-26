@@ -8,26 +8,19 @@ Block types:
 Markdown blocks use a {color="Color"} attribute list to set a block color.
 Text:
 Rich text {color="Color"}
-Children
+	Children
 Headings:
-
 # Rich text {color="Color"}
-
 ## Rich text {color="Color"}
-
 ### Rich text {color="Color"}
-
 #### Rich text {color="Color"}
-
 (Headings 5 and 6 are not supported in Notion and will be converted to heading 4.)
 Bulleted list:
-
 - Rich text {color="Color"}
-  Children
-  Numbered list:
-
+	Children
+Numbered list:
 1. Rich text {color="Color"}
-   Children
+	Children
 
 Bulleted and numbered list items should contain inline rich text -- otherwise they will render as empty list items, which look awkward in the Notion UI. (The inline text should be rich text -- any other block type will not be rendered inline, but as a child to an empty list item.)
 Empty line:
@@ -40,7 +33,7 @@ Rich text types:
 Bold:
 **Rich text**
 Italic:
-_Rich text_
+*Rich text*
 Strikethrough:
 ~~Rich text~~
 Underline:
@@ -106,69 +99,61 @@ gray, brown, orange, yellow, green, blue, purple, pink, red
 Background colors (colored background with contrasting text):
 gray_bg, brown_bg, orange_bg, yellow_bg, green_bg, blue_bg, purple_bg, pink_bg, red_bg
 Usage:
-
 - Block colors: Add color="Color" to the first line of any block
 - Rich text colors (text colors and background colors are both supported): Use <span color="Color">Rich text</span>
 
 #### Advanced Block types for Page content
-
 The following block types may only be used in page content.
 <advanced-blocks>
 Quote:
-
 > Rich text {color="Color"}
-> Children
-> Multi-line quote:
+	Children
+Multi-line quote:
 > Line 1<br>Line 2<br>Line 3 {color="Color"}
-> Use of a single > on a line without any other text should be avoided -- this will render as an empty blockquote, which is not visually appealing.
-> Unlike in standard markdown, multiple > lines will render as multiple separate quote blocks, not a single multi-line quote:
+Use of a single > on a line without any other text should be avoided -- this will render as an empty blockquote, which is not visually appealing.
+Unlike in standard markdown, multiple > lines will render as multiple separate quote blocks, not a single multi-line quote:
 > Quote 1
 > Quote 2
 > Quote 3
-> To-do:
-
+To-do:
 - [ ] Rich text {color="Color"}
-      Children
+	Children
 - [x] Rich text {color="Color"}
-      Children
-      Toggle (collapsed):
-      ▶ Rich text {color="Color"}
-      Children
-      Toggle (expanded):
-      ▼ Rich text {color="Color"}
-      Children
-      Toggle heading 1 (collapsed/expanded):
-      ▶# Rich text {color="Color"}
-      ▼# Rich text {color="Color"}
-      Children
-      Toggle heading 2:
-      ▶## Rich text {color="Color"}
-      ▼## Rich text {color="Color"}
-      Children
-      Toggle heading 3:
-      ▶### Rich text {color="Color"}
-      ▼### Rich text {color="Color"}
-      Children
-      Toggle heading 4:
-      ▶#### Rich text {color="Color"}
-      ▼#### Rich text {color="Color"}
-      Children
-      The ▶ marker denotes a collapsed toggle; ▼ denotes an expanded toggle. Both markers are interchangeable for parsing; the marker controls the initial open/closed state when rendered.
-      For toggles and toggle headings, the children must be indented in order for them to be toggleable. If you do not indent the children, they will not be contained within the toggle or toggle heading.
-      Divider:
-
+	Children
+Toggle (collapsed):
+▶ Rich text {color="Color"}
+	Children
+Toggle (expanded):
+▼ Rich text {color="Color"}
+	Children
+Toggle heading 1 (collapsed/expanded):
+▶# Rich text {color="Color"}
+▼# Rich text {color="Color"}
+	Children
+Toggle heading 2:
+▶## Rich text {color="Color"}
+▼## Rich text {color="Color"}
+	Children
+Toggle heading 3:
+▶### Rich text {color="Color"}
+▼### Rich text {color="Color"}
+	Children
+Toggle heading 4:
+▶#### Rich text {color="Color"}
+▼#### Rich text {color="Color"}
+	Children
+The ▶ marker denotes a collapsed toggle; ▼ denotes an expanded toggle. Both markers are interchangeable for parsing; the marker controls the initial open/closed state when rendered.
+For toggles and toggle headings, the children must be indented in order for them to be toggleable. If you do not indent the children, they will not be contained within the toggle or toggle heading.
+Divider:
 ---
-
 Table:
 Nodex supports GitHub-Flavored Markdown pipe table syntax for ordinary editable tables:
-
-| Name  |  Status   | Score |
-| :---- | :-------: | ----: |
-| Alpha | **Ready** |    10 |
-| Beta  |  Blocked  |     2 |
+| Name | Status | Score |
+| :--- | :---: | ---: |
+| Alpha | **Ready** | 10 |
+| Beta | Blocked | 2 |
 
 Pipe table rules:
-
 - The delimiter row is required and must have the same number of cells as the header row.
 - `:---`, `:---:`, and `---:` set left, center, and right column alignment.
 - Body rows with too few cells are padded with empty cells; extra body cells are ignored by the editor model.

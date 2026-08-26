@@ -32,6 +32,14 @@ const generatedOrExternalPaths = [
   "third_party/**",
 ];
 
+// Whitespace and delimiters are protocol data in these syntax references.
+// Formatting them can silently change the Nested Markdown examples they define.
+const rawMarkdownReferencePaths = [
+  "agent-skills/nodex/references/nested-markdown.md",
+  "docs/references/nested-markdown-spec.md",
+  "docs/references/notion-flavored-markdown-syntax-sample.md",
+];
+
 // These files remain runnable artifacts, but they were deliberately outside the
 // previous `tsc -b` project graph. Keep the TS7 migration scoped to that graph.
 const nonProjectSources = [
@@ -334,7 +342,7 @@ export default defineConfig({
     ],
   },
   fmt: {
-    ignorePatterns: generatedOrExternalPaths,
+    ignorePatterns: [...generatedOrExternalPaths, ...rawMarkdownReferencePaths],
     sortPackageJson: {},
   },
   // Static validation is deterministic and produces no restorable artifacts,

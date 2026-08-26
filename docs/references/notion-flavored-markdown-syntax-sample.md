@@ -3,22 +3,19 @@ This page demonstrates every Notion-flavored Markdown syntax available through t
 ---
 
 # Heading 1
-
 ## Heading 2
-
 ### Heading 3
-
 #### Heading 4
 
 ---
 
 # Inline Text Formatting {color="blue"}
 
-This is **bold text**, _italic text_, ~~strikethrough text~~, and `inline code`.
+This is **bold text**, *italic text*, ~~strikethrough text~~, and `inline code`.
 
 This has <span underline="true">underlined text</span> using the underline span.
 
-You can combine them: _**bold italic**_, **~~bold strikethrough~~**, _~~italic strikethrough~~_.
+You can combine them: ***bold italic***, **~~bold strikethrough~~**, *~~italic strikethrough~~*.
 
 ---
 
@@ -57,43 +54,43 @@ This sentence has a citation at the end.[^https://en.wikipedia.org/wiki/Markdown
 ## Bulleted List
 
 - First bullet item
-  Nested content under first item
+	Nested content under first item
 - Second bullet item
 - Third bullet item
-  - Nested bullet
-    - Deeply nested bullet
+	- Nested bullet
+		- Deeply nested bullet
 
 ## Numbered List
 
 1. First numbered item
 1. Second numbered item
 1. Third numbered item
-   1. Nested numbered item
-   1. Another nested item
+	1. Nested numbered item
+	1. Another nested item
 
 ## To-Do List
 
 - [ ] Unchecked task
 - [x] Completed task
 - [ ] Another unchecked task
-  - [x] Nested completed subtask
+	- [x] Nested completed subtask
 
 ---
 
 # Toggles
 
 ▶ Click to expand this toggle
-This content is hidden inside the toggle.
-You can put **any** content here.
+	This content is hidden inside the toggle.
+	You can put **any** content here.
 
 ▶# Toggle Heading 1
-Content inside a toggle heading 1.
+	Content inside a toggle heading 1.
 
 ▶## Toggle Heading 2
-Content inside a toggle heading 2.
+	Content inside a toggle heading 2.
 
 ▶### Toggle Heading 3
-Content inside a toggle heading 3.
+	Content inside a toggle heading 3.
 
 ---
 
@@ -264,8 +261,8 @@ Content below the divider.
 # Synced Block
 
 <synced_block>
-This content can be synced across multiple pages.
-Once created, you can reference it elsewhere.
+	This content can be synced across multiple pages.
+	Once created, you can reference it elsewhere.
 </synced_block>
 
 ---
