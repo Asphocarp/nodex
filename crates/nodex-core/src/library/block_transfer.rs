@@ -5395,7 +5395,7 @@ fn read_block_transfer_undo_recipe(
     if sha256(row.4.as_bytes()) != token.recipe_hash {
         return Err(corrupt("Stored Block transfer Undo recipe hash changed"));
     }
-    let recipe = serde_json::from_str::<BlockTransferUndoRecipeV1>(&row.4)
+    let mut recipe = serde_json::from_str::<BlockTransferUndoRecipeV1>(&row.4)
         .map_err(|_| corrupt("Stored Block transfer Undo recipe is invalid"))?;
     if recipe.version != BLOCK_TRANSFER_UNDO_RECIPE_VERSION
         || recipe.project_id != row.0
@@ -5405,6 +5405,17 @@ fn read_block_transfer_undo_recipe(
         return Err(corrupt(
             "Stored Block transfer Undo recipe identity changed",
         ));
+    }
+    if let Some(stored) = &recipe.source_pre_materialization {
+        let authority = read_document_authority(connection, &recipe.source_document_id)?
+            .ok_or_else(|| conflict("Source Document is no longer available for Undo"))?;
+        let schema = require_schema(&authority)?;
+        recipe.source_pre_materialization =
+            Some(crate::document::normalize_stored_document_materialization(
+                &recipe.source_document_id,
+                schema,
+                stored,
+            )?);
     }
     Ok(recipe)
 }
@@ -5814,23 +5825,50 @@ fn source_restore_operations(
     source_before_transfer: &DocumentMaterialization,
     roots: &[BlockTransferUndoRootV1],
 ) -> Result<Vec<DocumentBlockOperation>, StoreError> {
-    let wanted = roots
+    let moved = roots
+        .iter()
+        .flat_map(|root| root.source_block_ids.iter().map(String::as_str))
+        .collect::<BTreeSet<_>>();
+    let expected_roots = roots
         .iter()
         .map(|root| root.source_root_id.as_str())
         .collect::<BTreeSet<_>>();
-    let mut found = BTreeSet::new();
-    let mut operations = Vec::with_capacity(wanted.len());
+    let mut found_blocks = BTreeSet::new();
+    let mut found_original_roots = BTreeSet::new();
+    let mut operations = Vec::with_capacity(expected_roots.len());
+
+    fn collect_moved<'a>(
+        block: &'a MaterializedBlockNode,
+        moved: &BTreeSet<&str>,
+        found: &mut BTreeSet<&'a str>,
+    ) {
+        if moved.contains(block.id.as_str()) {
+            found.insert(block.id.as_str());
+        }
+        for child in &block.children {
+            collect_moved(child, moved, found);
+        }
+    }
 
     fn visit_siblings<'a>(
         siblings: &'a [MaterializedBlockNode],
         parent_block_id: Option<&'a str>,
-        wanted: &BTreeSet<&str>,
-        found: &mut BTreeSet<&'a str>,
+        parent_is_moved: bool,
+        moved: &BTreeSet<&str>,
+        expected_roots: &BTreeSet<&str>,
+        found_blocks: &mut BTreeSet<&'a str>,
+        found_original_roots: &mut BTreeSet<&'a str>,
         operations: &mut Vec<DocumentBlockOperation>,
     ) {
         for (index, block) in siblings.iter().enumerate() {
-            if wanted.contains(block.id.as_str()) {
-                found.insert(block.id.as_str());
+            let is_moved = moved.contains(block.id.as_str());
+            if is_moved {
+                collect_moved(block, moved, found_blocks);
+                if expected_roots.contains(block.id.as_str()) {
+                    found_original_roots.insert(block.id.as_str());
+                }
+            }
+            if is_moved && !parent_is_moved {
                 operations.push(DocumentBlockOperation::InsertBlock {
                     block: block.clone(),
                     parent_block_id: parent_block_id.map(str::to_owned),
@@ -5841,8 +5879,11 @@ fn source_restore_operations(
             visit_siblings(
                 &block.children,
                 Some(block.id.as_str()),
-                wanted,
-                found,
+                parent_is_moved || is_moved,
+                moved,
+                expected_roots,
+                found_blocks,
+                found_original_roots,
                 operations,
             );
         }
@@ -5851,13 +5892,16 @@ fn source_restore_operations(
     visit_siblings(
         &source_before_transfer.block_tree,
         None,
-        &wanted,
-        &mut found,
+        false,
+        &moved,
+        &expected_roots,
+        &mut found_blocks,
+        &mut found_original_roots,
         &mut operations,
     );
-    if found.len() != wanted.len() {
+    if found_blocks.len() != moved.len() || found_original_roots != expected_roots {
         return Err(corrupt(
-            "Block transfer Undo source snapshot is missing a moved root",
+            "Block transfer Undo source snapshot is missing moved Block evidence",
         ));
     }
 
@@ -5909,6 +5953,7 @@ fn internal(message: impl Into<String>) -> StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::{BlockDocumentKind, DocumentSearchMarkerKind, schema_metadata};
     use crate::domain::rich_text::RichTextStyles;
     use rusqlite::Connection;
     use serde_json::json;
@@ -5925,6 +5970,77 @@ mod tests {
             consumed_props: BTreeMap::new(),
             placeholder_block_id: None,
         }
+    }
+
+    fn materialized_block(
+        id: &str,
+        block_type: &str,
+        children: Vec<MaterializedBlockNode>,
+    ) -> MaterializedBlockNode {
+        MaterializedBlockNode {
+            id: id.to_owned(),
+            block_type: block_type.to_owned(),
+            props: BTreeMap::new(),
+            content: Some(json!([])),
+            children,
+        }
+    }
+
+    #[test]
+    fn undo_restore_reinserts_every_top_level_component_lifted_from_a_moved_root() {
+        let schema = schema_metadata(BlockDocumentSchema::PageV3);
+        let source_before_transfer = DocumentMaterialization {
+            kind: BlockDocumentKind::Page,
+            schema_version: schema.schema_version,
+            schema,
+            title: String::new(),
+            rich_title: Vec::new(),
+            block_tree: vec![
+                materialized_block("code", "codeBlock", Vec::new()),
+                materialized_block("lifted", "paragraph", Vec::new()),
+                materialized_block("after", "paragraph", Vec::new()),
+            ],
+            nfm: String::new(),
+            plain_text: String::new(),
+            preview: String::new(),
+            references: Vec::new(),
+            asset_refs: Vec::new(),
+            search_marker_kind: DocumentSearchMarkerKind::DocumentTitle,
+            search_units: Vec::new(),
+        };
+        let roots = vec![BlockTransferUndoRootV1 {
+            source_root_id: "code".to_owned(),
+            result_page_id: "page:result".to_owned(),
+            result_document_id: "document:result".to_owned(),
+            source_block_ids: vec!["code".to_owned(), "lifted".to_owned()],
+            source_root_type: "codeBlock".to_owned(),
+            source_root_properties: Vec::new(),
+        }];
+
+        let operations = source_restore_operations(&source_before_transfer, &roots)
+            .expect("restore normalized source components");
+        let restored = operations
+            .iter()
+            .map(|operation| match operation {
+                DocumentBlockOperation::InsertBlock {
+                    block,
+                    parent_block_id,
+                    before_block_id,
+                } => (
+                    block.id.as_str(),
+                    parent_block_id.as_deref(),
+                    before_block_id.as_deref(),
+                ),
+                _ => panic!("restore operation must insert a Block"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            restored,
+            vec![
+                ("lifted", None, Some("after")),
+                ("code", None, Some("lifted")),
+            ]
+        );
     }
 
     #[test]

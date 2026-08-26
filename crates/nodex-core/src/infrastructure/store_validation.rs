@@ -23,11 +23,229 @@ pub(crate) fn validate_current_store(connection: &Connection) -> Result<(), Stor
     validate_schema_identity(connection, CURRENT_STORE_REVISION)?;
     validate_core_metadata(connection)?;
     validate_store_semantics(connection)?;
+    validate_current_document_projections(connection)?;
     tracing::info!(
         durationMs = duration_millis(started_at.elapsed()),
         "Deep current Store validation completed"
     );
     Ok(())
+}
+
+/// Validates source coordinates and payload fields that exist only in the
+/// current schema. Migration sources intentionally skip this check so a
+/// corrective migration can repair a previously published incomplete state.
+fn validate_current_document_projections(connection: &Connection) -> Result<(), StoreError> {
+    let invalid_materializations: i64 = connection.query_row(
+        "SELECT \
+           (SELECT count(*) FROM documents document \
+            LEFT JOIN document_materializations materialization \
+              ON materialization.document_id = document.id \
+            WHERE document.readiness = 'ready' AND document.authority = 'ydoc_primary' \
+              AND document.sync_engine = 'yjs' AND ( \
+                materialization.document_id IS NULL \
+                OR materialization.generation <> document.generation \
+                OR materialization.projected_seq <> document.head_seq \
+                OR materialization.schema_version <> document.schema_version \
+              )) + \
+           (SELECT count(*) FROM document_materializations materialization \
+            LEFT JOIN documents document ON document.id = materialization.document_id \
+            WHERE document.id IS NULL OR document.readiness <> 'ready' \
+              OR document.authority <> 'ydoc_primary' OR document.sync_engine <> 'yjs' \
+              OR materialization.generation <> document.generation \
+              OR materialization.projected_seq <> document.head_seq \
+              OR materialization.schema_version <> document.schema_version) + \
+           (SELECT count(*) FROM document_block_index block_index \
+            LEFT JOIN documents document ON document.id = block_index.document_id \
+            WHERE document.id IS NULL OR document.readiness <> 'ready' \
+              OR document.authority <> 'ydoc_primary' OR document.sync_engine <> 'yjs' \
+              OR block_index.projected_seq <> document.head_seq)",
+        [],
+        |row| row.get(0),
+    )?;
+    expect_zero(
+        invalid_materializations,
+        "stale Document materialization or Block-index projections",
+    )?;
+
+    let invalid_page_coordinates: i64 = connection.query_row(
+        "SELECT \
+           (SELECT count(*) FROM pages page \
+            JOIN blocks block ON block.id = page.block_id \
+            LEFT JOIN block_documents ownership \
+              ON ownership.block_id = page.block_id \
+             AND ownership.document_id = page.document_id \
+             AND ownership.library_id = page.library_id \
+            LEFT JOIN page_read_model projection ON projection.page_block_id = page.block_id \
+            WHERE block.type <> 'page' OR block.library_id <> page.library_id \
+              OR ownership.block_id IS NULL OR projection.page_block_id IS NULL) + \
+           (SELECT count(*) FROM page_read_model projection \
+            LEFT JOIN blocks block ON block.id = projection.page_block_id \
+            LEFT JOIN pages page \
+              ON page.block_id = projection.page_block_id \
+             AND page.library_id = projection.library_id \
+             AND page.document_id = projection.document_id \
+            LEFT JOIN block_documents ownership \
+              ON ownership.block_id = projection.page_block_id \
+             AND ownership.document_id = projection.document_id \
+             AND ownership.library_id = projection.library_id \
+            LEFT JOIN documents document ON document.id = projection.document_id \
+            LEFT JOIN library_block_placements placement \
+              ON placement.block_id = projection.page_block_id \
+             AND projection.parent_kind = 'library' \
+            WHERE block.id IS NULL OR block.library_id <> projection.library_id \
+              OR block.type <> 'page' OR page.block_id IS NULL OR ownership.block_id IS NULL \
+              OR page.parent_kind <> projection.parent_kind \
+              OR page.parent_id <> projection.parent_id \
+              OR document.id IS NULL OR document.library_id <> projection.library_id \
+              OR document.readiness <> 'ready' OR document.sync_engine <> 'yjs' \
+              OR document.authority <> 'ydoc_primary' \
+              OR document.generation <> projection.document_generation \
+              OR document.head_seq <> projection.document_projected_seq \
+              OR document.schema_version <> projection.document_schema_version \
+              OR document.authority <> projection.document_authority \
+              OR block.lifecycle <> projection.lifecycle \
+              OR block.placement_revision <> projection.placement_revision \
+              OR block.metadata_revision <> projection.metadata_revision \
+              OR (projection.parent_kind = 'library' AND projection.lifecycle <> 'deleted' \
+                  AND placement.rank_key IS NOT projection.library_rank_key) \
+              OR ((projection.parent_kind <> 'library' OR projection.lifecycle = 'deleted') \
+                  AND projection.library_rank_key IS NOT NULL) \
+              OR (projection.membership_id IS NOT NULL AND NOT EXISTS ( \
+                SELECT 1 FROM data_source_page_memberships membership \
+                JOIN data_sources source ON source.id = membership.data_source_id \
+                WHERE membership.id = projection.membership_id \
+                  AND membership.page_block_id = projection.page_block_id \
+                  AND membership.removed_at IS NULL \
+                  AND source.home_database_block_id = projection.database_block_id \
+              )) \
+              OR (projection.view_id IS NOT NULL AND NOT EXISTS ( \
+                SELECT 1 FROM database_views view \
+                JOIN data_source_page_memberships membership \
+                  ON membership.id = projection.membership_id \
+                 AND membership.data_source_id = view.data_source_id \
+                WHERE view.id = projection.view_id \
+                  AND view.database_block_id = projection.database_block_id \
+              )))",
+        [],
+        |row| row.get(0),
+    )?;
+    expect_zero(
+        invalid_page_coordinates,
+        "stale Page read-model source coordinates",
+    )?;
+
+    let mut statement = connection.prepare(
+        "SELECT projection.page_block_id, projection.title, projection.description_preview, \
+                projection.description_length, projection.has_description, \
+                materialization.title, materialization.preview, materialization.nfm \
+         FROM page_read_model projection \
+         JOIN document_materializations materialization \
+           ON materialization.document_id = projection.document_id \
+         ORDER BY projection.page_block_id",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, bool>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, String>(6)?,
+            row.get::<_, String>(7)?,
+        ))
+    })?;
+    for row in rows {
+        let (
+            page_id,
+            title,
+            preview,
+            description_length,
+            has_description,
+            source_title,
+            source_preview,
+            nfm,
+        ) = row?;
+        let source_length = i64::try_from(nfm.len())
+            .map_err(|_| corrupt("Page materialization description length overflowed"))?;
+        if title == source_title
+            && preview == source_preview
+            && description_length == source_length
+            && has_description == !nfm.trim().is_empty()
+        {
+            continue;
+        }
+        return Err(corrupt(format!(
+            "Page {page_id} read-model payload is stale"
+        )));
+    }
+
+    let invalid_secondary_sources: i64 = connection.query_row(
+        "SELECT \
+           (SELECT count(*) FROM block_asset_refs projection \
+            LEFT JOIN documents document ON document.id = projection.document_id \
+            LEFT JOIN block_documents ownership \
+              ON ownership.document_id = projection.document_id \
+             AND ownership.block_id = projection.owner_block_id \
+             AND ownership.library_id = projection.library_id \
+            LEFT JOIN document_block_index block_index \
+              ON block_index.document_id = projection.document_id \
+             AND block_index.block_id = projection.block_id \
+            WHERE document.id IS NULL OR ownership.block_id IS NULL OR block_index.block_id IS NULL \
+              OR document.library_id <> projection.library_id \
+              OR document.generation <> projection.document_generation \
+              OR document.head_seq <> projection.projected_seq \
+              OR block_index.projected_seq <> projection.projected_seq) + \
+           (SELECT count(*) FROM block_search_units projection \
+            LEFT JOIN documents document ON document.id = projection.document_id \
+            LEFT JOIN block_documents ownership \
+              ON ownership.document_id = projection.document_id \
+             AND ownership.block_id = projection.owner_block_id \
+             AND ownership.library_id = projection.library_id \
+            LEFT JOIN document_block_index block_index \
+              ON block_index.document_id = projection.document_id \
+             AND block_index.block_id = projection.block_id \
+            WHERE projection.document_id IS NOT NULL AND ( \
+              document.id IS NULL OR ownership.block_id IS NULL \
+              OR document.library_id <> projection.library_id \
+              OR document.generation <> projection.document_generation \
+              OR document.head_seq <> projection.projected_seq \
+              OR (projection.block_id <> projection.owner_block_id \
+                  AND block_index.block_id IS NULL) \
+            )) + \
+           (SELECT count(*) FROM canvas_page_references projection \
+            LEFT JOIN documents document ON document.id = projection.document_id \
+            LEFT JOIN block_documents ownership \
+              ON ownership.document_id = projection.document_id \
+             AND ownership.block_id = projection.owner_block_id \
+             AND ownership.library_id = projection.library_id \
+            LEFT JOIN blocks target ON target.id = projection.target_block_id \
+            WHERE document.id IS NULL OR ownership.block_id IS NULL OR target.id IS NULL \
+              OR document.library_id <> projection.library_id \
+              OR document.generation <> projection.document_generation \
+              OR document.head_seq <> projection.projected_seq \
+              OR target.library_id <> projection.library_id) + \
+           (SELECT count(*) FROM scheduled_page_index projection \
+            LEFT JOIN blocks block \
+              ON block.id = projection.page_block_id \
+             AND block.library_id = projection.library_id \
+            LEFT JOIN pages page \
+              ON page.block_id = projection.page_block_id \
+             AND page.library_id = projection.library_id \
+            LEFT JOIN block_documents ownership \
+              ON ownership.block_id = page.block_id \
+             AND ownership.document_id = page.document_id \
+             AND ownership.library_id = page.library_id \
+            WHERE block.id IS NULL OR block.type <> 'page' OR page.block_id IS NULL \
+              OR ownership.block_id IS NULL OR block.lifecycle <> projection.lifecycle \
+              OR block.metadata_revision <> projection.source_metadata_revision)",
+        [],
+        |row| row.get(0),
+    )?;
+    expect_zero(
+        invalid_secondary_sources,
+        "stale Document secondary or scheduled Page projections",
+    )
 }
 
 /// Validates revision-independent semantic authority shared by the current
@@ -793,6 +1011,7 @@ fn corrupt(message: impl Into<String>) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::params;
     use tempfile::tempdir;
 
     use crate::infrastructure::store::SqliteStoreKernel;
@@ -807,5 +1026,127 @@ mod tests {
             .readers()
             .read_default(validate_current_store)
             .expect("current Store invariants");
+    }
+
+    #[test]
+    fn current_validation_rejects_an_existing_stale_page_projection() {
+        const NOW: &str = "2026-08-26T00:00:00.000Z";
+        let home = tempdir().expect("Profile");
+        let kernel = SqliteStoreKernel::open_test(home.path()).expect("fresh Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile:p', ?1, ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                     VALUES ('library:p', 'profile:p', ?1, ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO blocks(id, library_id, type, created_at, updated_at) \
+                     VALUES ('page:p', 'library:p', 'page', ?1, ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO documents( \
+                       id, library_id, generation, head_seq, schema_key, schema_version, \
+                       state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine \
+                     ) VALUES ('document:p', 'library:p', 1, 0, 'nodex.page', 3, X'', '', \
+                       'ready', 'ydoc_primary', ?1, ?1, 'yjs')",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO block_documents(block_id, document_id, library_id, created_at) \
+                     VALUES ('page:p', 'document:p', 'library:p', ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO pages( \
+                       block_id, library_id, document_id, parent_kind, parent_id, created_at, updated_at \
+                     ) VALUES ('page:p', 'library:p', 'document:p', 'library', 'library:p', ?1, ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO library_block_placements(library_id, block_id, rank_key, created_at, updated_at) \
+                     VALUES ('library:p', 'page:p', 'a0', ?1, ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO document_materializations( \
+                       document_id, generation, projected_seq, schema_version, nfm, plain_text, \
+                       preview, block_tree_json, updated_at \
+                     ) VALUES ('document:p', 1, 0, 3, '', '', '', '[]', ?1)",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO page_read_model( \
+                       page_block_id, library_id, lifecycle, parent_kind, parent_id, library_rank_key, \
+                       placement_revision, metadata_revision, document_id, document_generation, \
+                       document_projected_seq, document_schema_version, document_authority, title, \
+                       description_preview, description_length, has_description, created_at, updated_at \
+                     ) VALUES ('page:p', 'library:p', 'active', 'library', 'library:p', 'a0', \
+                       1, 1, 'document:p', 1, 0, 3, 'ydoc_primary', '', '', 0, 0, ?1, ?1)",
+                    [NOW],
+                )?;
+                validate_current_store(connection)?;
+
+                let trigger_sql = connection.query_row(
+                    "SELECT sql FROM sqlite_schema \
+                     WHERE type = 'trigger' AND name = 'page_read_model_validate_update'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?;
+                connection.execute_batch("DROP TRIGGER page_read_model_validate_update;")?;
+                connection.execute(
+                    "UPDATE page_read_model SET document_schema_version = ?1 \
+                     WHERE page_block_id = 'page:p'",
+                    params![2],
+                )?;
+                connection.execute_batch(&trigger_sql)?;
+
+                let error = validate_current_store(connection)
+                    .expect_err("stale existing projection must fail readiness");
+                assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+                assert!(error.message.contains("Page read-model source coordinates"));
+
+                connection.execute(
+                    "UPDATE page_read_model SET document_schema_version = 3 \
+                     WHERE page_block_id = 'page:p'",
+                    [],
+                )?;
+                connection.execute(
+                    "INSERT INTO scheduled_page_index( \
+                       page_block_id, library_id, lifecycle, recurrence_json, reminders_json, \
+                       source_metadata_revision, updated_at \
+                     ) VALUES ('page:p', 'library:p', 'active', 'null', '[]', 1, ?1)",
+                    [NOW],
+                )?;
+                validate_current_store(connection)?;
+
+                let schedule_trigger_sql = connection.query_row(
+                    "SELECT sql FROM sqlite_schema \
+                     WHERE type = 'trigger' AND name = 'scheduled_page_index_require_page_update'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?;
+                connection.execute_batch(
+                    "DROP TRIGGER scheduled_page_index_require_page_update;",
+                )?;
+                connection.execute(
+                    "UPDATE scheduled_page_index SET source_metadata_revision = 2 \
+                     WHERE page_block_id = 'page:p'",
+                    [],
+                )?;
+                connection.execute_batch(&schedule_trigger_sql)?;
+                let error = validate_current_store(connection)
+                    .expect_err("stale scheduled Page projection must fail readiness");
+                assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
+                assert!(error.message.contains("scheduled Page projections"));
+                Ok(())
+            })
+            .expect("projection validation fixture");
     }
 }

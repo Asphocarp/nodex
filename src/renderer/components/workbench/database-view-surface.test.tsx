@@ -1697,6 +1697,37 @@ describe("DatabaseViewSurface", () => {
     );
   });
 
+  test("keeps a failed delegated Board drop on the owning card", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onMoveBoardPages = vi.fn(async () => {
+      throw new Error("injected Board failure");
+    });
+    const screen = render(
+      <DatabaseViewSurface
+        model={prioritySortedBoardModel()}
+        searchQuery=""
+        onOpenPage={() => undefined}
+        onMoveBoardPages={onMoveBoardPages}
+      />,
+    );
+    const dataTransfer = databaseViewPageDataTransfer();
+    const source = screen.container.querySelector<HTMLElement>(
+      '[data-board-uuid-v7="page-focused"]',
+    );
+    const column = source?.closest<HTMLElement>("[data-board-column-root]");
+    if (!source || !column) throw new Error("Failed Board drag fixture is incomplete");
+
+    await act(async () => {
+      fireEvent.dragStart(source, { dataTransfer });
+      fireEvent.drop(column, { dataTransfer, clientY: 1 });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText("Couldn’t move this page. Try again.")).toBeTruthy();
+    expect(consoleError).toHaveBeenCalledOnce();
+    consoleError.mockRestore();
+  });
+
   test("commits a Board boundary move through the global shortcut route", async () => {
     const commitOperations = vi.fn<typeof commitDatabaseViewOperations>(async () => null);
     render(

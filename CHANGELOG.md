@@ -13,7 +13,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Nodex now upgrades supported Profiles through Store v136 with a verified backup, current-only Block Document schemas, and bounded operational history.
+- Nodex now upgrades supported Profiles through Store v137 with a verified backup, current-only Block Document schemas and projections, and bounded operational history.
 
 ### Fixed
 
@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Fixed creating a snapshot blocking Settings and Store writes for tens of seconds on large Profiles; snapshots now run as cancellable background jobs with live progress, preserve full restore-grade validation, and keep automatic backups inside both count and storage budgets.
 - Fixed idle automation, reminder, and maintenance polling growing Profiles indefinitely; Core now plans due work without writes and trims replay and idempotency evidence within explicit safe windows while preserving semantic history.
 - Fixed special Blocks displaying or retaining children inconsistently: callouts and quotes now enclose their complete subtree, leaf/resource Blocks reject nesting at every write boundary, and existing invalid parent edges are migrated without losing IDs or reading order.
+- Fixed Page Status and other Database Property edits reverting after some Profile upgrades; Store migration now rebuilds the complete Document and scheduled-Page projection bundle, validates it before readiness, and keeps pre-upgrade clipboard and Undo capabilities usable.
 - Fixed macOS launches appearing blank or unresponsive while a Profile opens or upgrades; the restored Nodex window now shows its branded, native-material startup state immediately and remains the same window through Workbench readiness or recoverable failure.
 - Fixed queued follow-ups disappearing or running after interruption: queues now survive restarts, pause atomically when a turn is stopped, preserve in-flight and failed rows for retry, resume in strict order, and keep fresh steers independent from the existing queue.
 - Fixed chats and Side chats sometimes remaining on a loading screen after restoration completed or failed; renderer attachment now updates atomically, failures are explicit and retryable, and cached transcript content remains visible during recovery.

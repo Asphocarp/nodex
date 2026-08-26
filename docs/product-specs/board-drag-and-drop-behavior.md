@@ -218,6 +218,7 @@ This post-removal contract must stay identical across:
 - `moveCard` and `moveCards` must interpret `newOrder` the same way.
 - Renderer optimistic transforms and backend persistence must produce the same column order for identical inputs.
 - After drop, the Page run stays continuously visible at the intended slot while the command acknowledgement, exact row effect, and canonical repair converge. A successful acknowledgement ends pending UI but does not expose an older Board snapshot.
+- A failed delegated drop rolls back to canonical authority and keeps one readable error on every owning card in the attempted run; a rejected or false mutation result is never treated as a successful drop.
 - Mouse-up freezes the inferred grouping and sorted-Property values as part of
   the drop intent. The renderer applies those values in the first post-drop
   frame, and receipt-fenced LocalCommit rebases preserve them until canonical

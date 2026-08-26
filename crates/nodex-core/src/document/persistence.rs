@@ -1685,6 +1685,51 @@ pub(crate) fn replace_page_reference_projection(
     Ok(())
 }
 
+/// Rebuilds every owner-scoped projection derived from one migrated Document.
+///
+/// Schema migration deliberately skips placement and lifecycle reconciliation:
+/// those authorities did not change. Everything derived from the Document
+/// body, however, must go through the same projection writer as an ordinary
+/// commit. Retained unowned Documents keep their materialization and Block
+/// index for exact restore but must not remain visible through owner-scoped
+/// search or asset projections.
+pub(crate) fn replace_secondary_projections_for_schema_migration(
+    connection: &Connection,
+    document_id: &str,
+    materialization: &DocumentMaterialization,
+    projected_seq: i64,
+    now: &str,
+) -> Result<bool, StoreError> {
+    let has_owner = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM block_documents WHERE document_id = ?1)",
+        [document_id],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if !has_owner {
+        connection.execute(
+            "DELETE FROM block_asset_refs WHERE document_id = ?1",
+            [document_id],
+        )?;
+        connection.execute(
+            "DELETE FROM block_search_units WHERE document_id = ?1 AND source_revision IS NULL",
+            [document_id],
+        )?;
+        return Ok(false);
+    }
+
+    let authority = read_document_authority(connection, document_id)?
+        .ok_or_else(|| corrupt("Migrated Document ownership is incomplete"))?;
+    replace_secondary_projections(
+        connection,
+        &authority,
+        materialization,
+        projected_seq,
+        now,
+        authority.owner_type == "page",
+    )?;
+    Ok(true)
+}
+
 fn page_reference_target_impact(reference_sets: &[&[BlockDocumentReference]]) -> ProjectionImpact {
     let mut page_ids = reference_sets
         .iter()

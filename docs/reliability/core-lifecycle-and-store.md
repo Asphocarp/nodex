@@ -141,14 +141,18 @@ and reconstructible Yrs Documents before a migration write begins or a backup
 is published.
 
 Deep Store validation checks SQLite integrity and foreign keys, exact schema
-and Core metadata, durable semantic invariants, and LocalCommit coverage and
-parentage. It is required before fresh Stores, migrations, restores and other
-replacement recovery, and whenever opening cannot prove that the immediately
-previous Core generation closed cleanly. A clean Core shutdown publishes one
-private, atomic validation receipt after graceful drain. The next generation
-consumes that receipt before opening SQLite and may take the trusted path only
-when its current schema revision, Store epoch, and LocalCommit head exactly
-match, after rechecking schema and Core metadata. Receipt consumption is
+and Core metadata, durable semantic invariants, current Document materialization,
+Block-index, owner-scoped projection coordinates, scheduled-Page source
+coordinates, and LocalCommit coverage and parentage. Migration-source validation
+intentionally uses only invariants owned by that source revision; the target's
+current-only projection checks run after its corrective steps and before the
+revision commits. Validation is required before fresh Stores, migrations,
+restores and other replacement recovery, and whenever opening cannot prove that
+the immediately previous Core generation closed cleanly. A clean Core shutdown
+publishes one private, atomic validation receipt after graceful drain. The next
+generation consumes that receipt before opening SQLite and may take the trusted
+path only when its current schema revision, Store epoch, and LocalCommit head
+exactly match, after rechecking schema and Core metadata. Receipt consumption is
 single-use: crash, interrupted startup, missing/invalid/stale receipt, or any
 changed Store identity forces deep validation. An unsafe receipt filesystem
 entry is rejected as an invalid Profile rather than trusted. Failure to publish
@@ -181,8 +185,13 @@ enter the Store-replacement journal.
 Yrs is the authority for Document content during migration. If a migration
 changes the interpretation of derived materialization records, Core validates
 the Yrs update chain and state vector before the transaction, rebuilds the
-current materialization and normalized Page-reference projection inside that
-transaction, then performs the exact materialization check afterward. The
+current materialization, Block index, Page references, Page read model, search,
+and asset projections through the ordinary Document projection writer inside
+that transaction, repairs scheduled-Page lifecycle and metadata coordinates
+through the ordinary Database projection writer, then performs the exact current
+projection checks afterward.
+Retained unowned Documents keep restore-grade materialization and index state
+without leaking through owner-scoped projections. The
 materialization derivation version is independent from the Document schema
 version so future derived-record changes can add an explicit rebuild step.
 

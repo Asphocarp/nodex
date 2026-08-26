@@ -806,6 +806,12 @@ function BoardDatabaseViewSurface({
       // The store publishes the optimistic projection synchronously before
       // this Promise reaches its first await. Start that handoff before
       // clearing gesture-only state so the old layout is never exposed.
+      const mutationKeys = pageIds.map((pageId) => `page:${pageId}`);
+      setMutationErrors((current) => {
+        const next = new Map(current);
+        for (const key of mutationKeys) next.delete(key);
+        return next;
+      });
       const move = onMoveBoardPages({
         pageIds,
         presentation: effectivePresentation,
@@ -813,7 +819,24 @@ function BoardDatabaseViewSurface({
         propertyValues,
       });
       endPageDrag();
-      void move;
+      void move
+        .then((committed) => {
+          if (committed) return;
+          setMutationErrors((current) => {
+            const next = new Map(current);
+            for (const key of mutationKeys) next.set(key, "Couldn’t move this Page. Try again.");
+            return next;
+          });
+        })
+        .catch((error: unknown) => {
+          console.error("[database-view:mutation]", error);
+          const message = databaseViewMutationErrorMessage(error, true);
+          setMutationErrors((current) => {
+            const next = new Map(current);
+            for (const key of mutationKeys) next.set(key, message);
+            return next;
+          });
+        });
       return;
     }
     const optimistic: DatabaseViewBoardOptimisticDrop = {

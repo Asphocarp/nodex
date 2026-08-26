@@ -14,8 +14,12 @@ use rusqlite::{Connection, MAIN_DB, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::database::repair_scheduled_page_indexes;
 use crate::document::integrity::validate_restore_documents;
-use crate::document::{migrate_block_children_contract, validate_block_children_migration_source};
+use crate::document::{
+    migrate_block_children_contract, repair_document_schema_projections,
+    validate_block_children_migration_source,
+};
 
 use super::migration_progress::report_bounded_progress;
 #[cfg(test)]
@@ -109,6 +113,11 @@ const MIGRATION_STEPS: &[MigrationStep] = &[
         from_revision: 135,
         to_revision: 136,
         apply: migrate_v135_to_v136,
+    },
+    MigrationStep {
+        from_revision: 136,
+        to_revision: 137,
+        apply: migrate_v136_to_v137,
     },
 ];
 
@@ -949,6 +958,174 @@ fn migrate_v135_to_v136(
     Ok(())
 }
 
+fn migrate_v136_to_v137(
+    connection: &Connection,
+    context: &MigrationContext,
+) -> Result<(), StoreError> {
+    connection.execute_batch(
+        "DROP TRIGGER page_read_model_validate_insert;
+         DROP TRIGGER page_read_model_validate_update;
+         CREATE TRIGGER page_read_model_validate_insert BEFORE INSERT ON page_read_model
+         WHEN NOT EXISTS (
+           SELECT 1 FROM blocks block
+           JOIN pages page ON page.block_id = block.id
+           JOIN block_documents ownership
+             ON ownership.block_id = page.block_id
+            AND ownership.document_id = page.document_id
+            AND ownership.library_id = page.library_id
+           JOIN documents document ON document.id = page.document_id
+           LEFT JOIN library_block_placements placement
+             ON placement.block_id = page.block_id AND page.parent_kind = 'library'
+           WHERE block.id = NEW.page_block_id AND block.library_id = NEW.library_id
+             AND block.type = 'page' AND page.parent_kind = NEW.parent_kind
+             AND page.parent_id = NEW.parent_id
+             AND page.document_id = NEW.document_id
+             AND document.library_id = NEW.library_id
+             AND document.generation = NEW.document_generation
+             AND document.head_seq = NEW.document_projected_seq
+             AND document.schema_version = NEW.document_schema_version
+             AND document.authority = NEW.document_authority
+             AND block.lifecycle = NEW.lifecycle
+             AND block.placement_revision = NEW.placement_revision
+             AND block.metadata_revision = NEW.metadata_revision
+             AND (
+               (page.parent_kind = 'library' AND block.lifecycle <> 'deleted'
+                 AND placement.rank_key = NEW.library_rank_key)
+               OR ((page.parent_kind <> 'library' OR block.lifecycle = 'deleted')
+                 AND NEW.library_rank_key IS NULL)
+             )
+         ) OR (
+           NEW.membership_id IS NOT NULL AND NOT EXISTS (
+             SELECT 1 FROM data_source_page_memberships membership
+             JOIN data_sources source ON source.id = membership.data_source_id
+             WHERE membership.id = NEW.membership_id
+               AND membership.page_block_id = NEW.page_block_id
+               AND membership.removed_at IS NULL
+               AND source.home_database_block_id = NEW.database_block_id
+           )
+         ) OR (
+           NEW.view_id IS NOT NULL AND NOT EXISTS (
+             SELECT 1 FROM database_views view
+             JOIN data_source_page_memberships membership
+               ON membership.id = NEW.membership_id
+              AND membership.data_source_id = view.data_source_id
+             WHERE view.id = NEW.view_id AND view.database_block_id = NEW.database_block_id
+           )
+         ) BEGIN
+           SELECT RAISE(ABORT, 'Page read model source coordinates are invalid or stale');
+         END;
+         CREATE TRIGGER page_read_model_validate_update BEFORE UPDATE ON page_read_model
+         WHEN NOT EXISTS (
+           SELECT 1 FROM blocks block
+           JOIN pages page ON page.block_id = block.id
+           JOIN block_documents ownership
+             ON ownership.block_id = page.block_id
+            AND ownership.document_id = page.document_id
+            AND ownership.library_id = page.library_id
+           JOIN documents document ON document.id = page.document_id
+           LEFT JOIN library_block_placements placement
+             ON placement.block_id = page.block_id AND page.parent_kind = 'library'
+           WHERE block.id = NEW.page_block_id AND block.library_id = NEW.library_id
+             AND block.type = 'page' AND page.parent_kind = NEW.parent_kind
+             AND page.parent_id = NEW.parent_id
+             AND page.document_id = NEW.document_id
+             AND document.library_id = NEW.library_id
+             AND document.generation = NEW.document_generation
+             AND document.head_seq = NEW.document_projected_seq
+             AND document.schema_version = NEW.document_schema_version
+             AND document.authority = NEW.document_authority
+             AND block.lifecycle = NEW.lifecycle
+             AND block.placement_revision = NEW.placement_revision
+             AND block.metadata_revision = NEW.metadata_revision
+             AND (
+               (page.parent_kind = 'library' AND block.lifecycle <> 'deleted'
+                 AND placement.rank_key = NEW.library_rank_key)
+               OR ((page.parent_kind <> 'library' OR block.lifecycle = 'deleted')
+                 AND NEW.library_rank_key IS NULL)
+             )
+         ) OR (
+           NEW.membership_id IS NOT NULL AND NOT EXISTS (
+             SELECT 1 FROM data_source_page_memberships membership
+             JOIN data_sources source ON source.id = membership.data_source_id
+             WHERE membership.id = NEW.membership_id
+               AND membership.page_block_id = NEW.page_block_id
+               AND membership.removed_at IS NULL
+               AND source.home_database_block_id = NEW.database_block_id
+           )
+         ) OR (
+           NEW.view_id IS NOT NULL AND NOT EXISTS (
+             SELECT 1 FROM database_views view
+             JOIN data_source_page_memberships membership
+               ON membership.id = NEW.membership_id
+              AND membership.data_source_id = view.data_source_id
+             WHERE view.id = NEW.view_id AND view.database_block_id = NEW.database_block_id
+           )
+         ) BEGIN
+           SELECT RAISE(ABORT, 'Page read model source coordinates are invalid or stale');
+         END;
+         DROP TRIGGER scheduled_page_index_require_page_insert;
+         DROP TRIGGER scheduled_page_index_require_page_update;
+         CREATE TRIGGER scheduled_page_index_require_page_insert BEFORE INSERT ON scheduled_page_index
+         WHEN NOT EXISTS (
+           SELECT 1 FROM blocks block
+           JOIN pages page ON page.block_id = block.id AND page.library_id = block.library_id
+           JOIN block_documents ownership
+             ON ownership.block_id = page.block_id
+            AND ownership.document_id = page.document_id
+            AND ownership.library_id = page.library_id
+           WHERE block.id = NEW.page_block_id AND block.library_id = NEW.library_id
+             AND block.type = 'page'
+             AND block.lifecycle = NEW.lifecycle
+             AND block.metadata_revision = NEW.source_metadata_revision
+         ) BEGIN
+           SELECT RAISE(ABORT, 'Scheduled Page index owner must be a Page in the Library');
+         END;
+         CREATE TRIGGER scheduled_page_index_require_page_update
+         BEFORE UPDATE OF page_block_id, library_id, lifecycle, source_metadata_revision
+         ON scheduled_page_index
+         WHEN NOT EXISTS (
+           SELECT 1 FROM blocks block
+           JOIN pages page ON page.block_id = block.id AND page.library_id = block.library_id
+           JOIN block_documents ownership
+             ON ownership.block_id = page.block_id
+            AND ownership.document_id = page.document_id
+            AND ownership.library_id = page.library_id
+           WHERE block.id = NEW.page_block_id AND block.library_id = NEW.library_id
+             AND block.type = 'page'
+             AND block.lifecycle = NEW.lifecycle
+             AND block.metadata_revision = NEW.source_metadata_revision
+         ) BEGIN
+           SELECT RAISE(ABORT, 'Scheduled Page index owner must be a Page in the Library');
+         END;",
+    )?;
+    let document = repair_document_schema_projections(connection, context.completed_at_unix_ms)?;
+    let completed_at = timestamp_from_unix_ms(context.completed_at_unix_ms)?;
+    let refreshed_scheduled_pages = repair_scheduled_page_indexes(connection, &completed_at)?;
+    let evidence = serde_json::json!({
+        "document": document,
+        "refreshedScheduledPages": refreshed_scheduled_pages,
+    });
+    connection.execute(
+        "INSERT INTO core_store_migration_history( \
+           source_revision, target_revision, source_schema_fingerprint, \
+           target_schema_fingerprint, backup_name, completed_at_unix_ms, evidence_json \
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            context.source_revision,
+            context.target_revision,
+            context.source_schema_fingerprint,
+            context.target_schema_fingerprint,
+            context.backup_name,
+            context.completed_at_unix_ms,
+            serde_json::to_string(&evidence).map_err(|_| internal(
+                "Document projection repair evidence could not be encoded"
+            ))?,
+        ],
+    )?;
+    connection.pragma_update(None, "user_version", context.target_revision)?;
+    Ok(())
+}
+
 fn install_fresh_profile(connection: &mut Connection, now: u64) -> Result<(), StoreError> {
     install_fresh_profile_with(connection, |transaction| {
         initialize_fresh_profile(transaction, now)
@@ -1532,29 +1709,37 @@ mod tests {
                     from_version: 135,
                     to_version: 136,
                 },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 136,
+                    to_version: 137,
+                },
                 StorePreparationEvent::MigrationProgress {
                     completed: 1,
-                    total: 6,
+                    total: 7,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 2,
-                    total: 6,
+                    total: 7,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 3,
-                    total: 6,
+                    total: 7,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 4,
-                    total: 6,
+                    total: 7,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 5,
-                    total: 6,
+                    total: 7,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 6,
-                    total: 6,
+                    total: 7,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 7,
+                    total: 7,
                 },
             ]
         );
@@ -1578,13 +1763,14 @@ mod tests {
             .expect("migration history")
             .collect::<rusqlite::Result<Vec<_>>>()
             .expect("migration history rows");
-        assert_eq!(history.len(), 6);
+        assert_eq!(history.len(), 7);
         assert_eq!((history[0].0, history[0].1), (130, 131));
         assert_eq!((history[1].0, history[1].1), (131, 132));
         assert_eq!((history[2].0, history[2].1), (132, 133));
         assert_eq!((history[3].0, history[3].1), (133, 134));
         assert_eq!((history[4].0, history[4].1), (134, 135));
         assert_eq!((history[5].0, history[5].1), (135, 136));
+        assert_eq!((history[6].0, history[6].1), (136, 137));
         assert_eq!(
             history[0].2,
             published_format(130)
@@ -1645,8 +1831,14 @@ mod tests {
                 .expect("v136 format")
                 .schema_fingerprint
         );
+        assert_eq!(
+            history[6].3,
+            published_format(137)
+                .expect("v137 format")
+                .schema_fingerprint
+        );
         assert!(history.iter().all(|row| row.4 == history[0].4));
-        assert!(history[0].4.starts_with("v130-to-v136-"));
+        assert!(history[0].4.starts_with("v130-to-v137-"));
         assert!(history[0].4.ends_with(".db"));
         assert!(history.iter().all(|row| row.5 > 0));
         let backup_path = directory
@@ -1678,7 +1870,7 @@ mod tests {
                     |row| { row.get::<_, i64>(0) }
                 )
                 .expect("stable history"),
-            6
+            7
         );
         assert_eq!(
             fs::read_dir(directory.path().join("backups/core-migrations"))
@@ -1702,7 +1894,7 @@ mod tests {
             .expect("migrate v131");
 
         assert_eq!(preparation.migrated_from_version, Some(131));
-        assert_eq!(preparation.schema_version, 136);
+        assert_eq!(preparation.schema_version, 137);
         assert_eq!(
             events,
             vec![
@@ -1725,6 +1917,88 @@ mod tests {
                 StorePreparationEvent::MigrationStarted {
                     from_version: 135,
                     to_version: 136,
+                },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 136,
+                    to_version: 137,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 1,
+                    total: 6,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 2,
+                    total: 6,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 3,
+                    total: 6,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 4,
+                    total: 6,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 5,
+                    total: 6,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 6,
+                    total: 6,
+                },
+            ]
+        );
+        validate_current_store(&connection).expect("current Store");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM core_store_migration_history",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("migration history"),
+            7
+        );
+    }
+
+    #[test]
+    fn frozen_v132_store_migrates_directly_to_current_once() {
+        let directory = tempdir().expect("Profile");
+        install_v132_fixture(directory.path());
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        validate_schema_identity(&connection, 132).expect("exact frozen v132 Store");
+        let mut events = Vec::new();
+
+        let preparation =
+            prepare_profile_store_with_observer(&mut connection, directory.path(), &mut |event| {
+                events.push(event)
+            })
+            .expect("migrate v132");
+
+        assert_eq!(preparation.migrated_from_version, Some(132));
+        assert_eq!(preparation.schema_version, 137);
+        assert_eq!(
+            events,
+            vec![
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 132,
+                    to_version: 133,
+                },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 133,
+                    to_version: 134,
+                },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 134,
+                    to_version: 135,
+                },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 135,
+                    to_version: 136,
+                },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 136,
+                    to_version: 137,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 1,
@@ -1757,73 +2031,7 @@ mod tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .expect("migration history"),
-            6
-        );
-    }
-
-    #[test]
-    fn frozen_v132_store_migrates_directly_to_current_once() {
-        let directory = tempdir().expect("Profile");
-        install_v132_fixture(directory.path());
-        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
-        validate_schema_identity(&connection, 132).expect("exact frozen v132 Store");
-        let mut events = Vec::new();
-
-        let preparation =
-            prepare_profile_store_with_observer(&mut connection, directory.path(), &mut |event| {
-                events.push(event)
-            })
-            .expect("migrate v132");
-
-        assert_eq!(preparation.migrated_from_version, Some(132));
-        assert_eq!(preparation.schema_version, 136);
-        assert_eq!(
-            events,
-            vec![
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 132,
-                    to_version: 133,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 133,
-                    to_version: 134,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 134,
-                    to_version: 135,
-                },
-                StorePreparationEvent::MigrationStarted {
-                    from_version: 135,
-                    to_version: 136,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 1,
-                    total: 4,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 2,
-                    total: 4,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 3,
-                    total: 4,
-                },
-                StorePreparationEvent::MigrationProgress {
-                    completed: 4,
-                    total: 4,
-                },
-            ]
-        );
-        validate_current_store(&connection).expect("current Store");
-        assert_eq!(
-            connection
-                .query_row(
-                    "SELECT count(*) FROM core_store_migration_history",
-                    [],
-                    |row| row.get::<_, i64>(0)
-                )
-                .expect("migration history"),
-            4
+            5
         );
         assert_eq!(
             connection
@@ -1863,7 +2071,7 @@ mod tests {
             .expect("migrate v133");
 
         assert_eq!(preparation.migrated_from_version, Some(133));
-        assert_eq!(preparation.schema_version, 136);
+        assert_eq!(preparation.schema_version, 137);
         assert_eq!(
             events,
             vec![
@@ -1879,17 +2087,25 @@ mod tests {
                     from_version: 135,
                     to_version: 136,
                 },
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 136,
+                    to_version: 137,
+                },
                 StorePreparationEvent::MigrationProgress {
                     completed: 1,
-                    total: 3,
+                    total: 4,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 2,
-                    total: 3,
+                    total: 4,
                 },
                 StorePreparationEvent::MigrationProgress {
                     completed: 3,
-                    total: 3,
+                    total: 4,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 4,
+                    total: 4,
                 },
             ]
         );
@@ -2149,7 +2365,7 @@ mod tests {
         install_baseline_fixture(non_file.path());
         let backup_directory = non_file.path().join("backups/core-migrations");
         fs::create_dir_all(&backup_directory).expect("backup directory");
-        fs::create_dir(backup_directory.join(".v130-to-v136.pending.db"))
+        fs::create_dir(backup_directory.join(".v130-to-v137.pending.db"))
             .expect("non-file pending candidate");
         let mut connection = open_writer(&non_file.path().join("nodex.db")).expect("writer");
         let error = prepare_profile_store(&mut connection, non_file.path())
@@ -2159,7 +2375,7 @@ mod tests {
 
     #[test]
     fn migration_registry_is_contiguous_and_forward_only() {
-        assert_eq!(MIGRATION_STEPS.len(), 6);
+        assert_eq!(MIGRATION_STEPS.len(), 7);
         for (index, step) in MIGRATION_STEPS.iter().enumerate() {
             assert!(step.from_revision < step.to_revision);
             if let Some(next) = MIGRATION_STEPS.get(index + 1) {
