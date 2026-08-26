@@ -280,6 +280,12 @@ Actions acquire the package.json-pinned version through the shared
 `setup-vite-plus` action and likewise execute `vp install`, `vp run`, and
 `vp exec` directly.
 
+Owned package scripts compose other scripts through `vp run` and invoke
+workspace-local binaries through `vp exec`; they never call `pnpm` directly.
+This keeps nested work visible to the same Vite Task graph without changing the
+deliberately uncached policy for side-effectful package scripts. `vp run
+tooling:verify` enforces that manifest boundary.
+
 The test commands follow production boundaries:
 
 - `vp run test` runs the ordinary deterministic test tier across the Node, main,
