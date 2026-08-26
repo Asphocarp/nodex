@@ -3,7 +3,7 @@ import { addIsoDateDays, todayIsoDate } from "@/lib/nfm/date-mention";
 import { NfmRenderer } from "./nfm-renderer";
 
 const meta = {
-  title: "Board/NFM Inline Code",
+  title: "Board/NFM Renderer",
   component: NfmRenderer,
   parameters: {
     layout: "padded",
@@ -34,6 +34,12 @@ export const MixedFormatting: Story = {
   args: {
     content:
       "List item with `inline code`, *emphasis*, and ~~strikethrough~~.\n- Another `code sample` here.",
+  },
+};
+
+export const QuoteBlock: Story = {
+  args: {
+    content: "> quote-line1<br>quote-line2 (created via shift-enter)",
   },
 };
 

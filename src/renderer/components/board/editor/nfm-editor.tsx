@@ -195,6 +195,7 @@ import {
 import type { ModifyShortcutEditor } from "./modify-block-shortcut";
 import { handleNfmEditorModEnterShortcut } from "./nfm-editor-mod-enter-shortcut";
 import { PAGE_DESCRIPTION_PLACEHOLDER } from "@/lib/page-description-placeholder";
+import { createNfmEditorPlaceholders } from "./nfm-editor-placeholders";
 import {
   createNfmEditorModeOptions,
   getNfmEditorInstanceKey,
@@ -633,9 +634,7 @@ function NfmEditorInstance({
     ...editorModeOptions,
     generateBlockId: createUuidV7,
     tabBehavior: "prefer-indent" as const,
-    placeholders: {
-      default: placeholder,
-    },
+    placeholders: createNfmEditorPlaceholders(placeholder),
     uploadFile,
     resolveFileUrl,
     pasteHandler,
