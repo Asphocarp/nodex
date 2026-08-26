@@ -26,3 +26,48 @@ describe("markdown code fence parsing", () => {
     );
   });
 });
+
+describe("linear-time block tokenization", () => {
+  it.each([
+    ["# Heading ###", "<h1>Heading</h1>"],
+    ["## heading###", "<h2>heading###</h2>"],
+    ["Heading\n===", "<h1>Heading</h1>"],
+    ["Paragraph\n---", "<h2>Paragraph</h2>"],
+    ["* * *", "<hr>"],
+    [
+      "> quote\ncontinued",
+      "<blockquote><p>quote<br>\ncontinued</p></blockquote>",
+    ],
+    [
+      "- item\n  - nested",
+      "<ul><li><p>item</p><ul><li><p>nested</p></li></ul></li></ul>",
+    ],
+    [
+      "1. ordered\n   continuation",
+      "<ol><li><p>ordered</p><p>continuation</p></li></ol>",
+    ],
+    [
+      "- [x] done",
+      '<ul><li><input type="checkbox" disabled checked><p>done</p></li></ul>',
+    ],
+    [
+      "| A | B |\n| :--- | ---: |\n| 1 | 2 |",
+      '<table><thead><tr><th align="left">A</th><th align="right">B</th></tr></thead><tbody><tr><td align="left">1</td><td align="right">2</td></tr></tbody></table>',
+    ],
+    ["Paragraph\nnext line   ", "<p>Paragraph<br>\nnext line</p>"],
+  ])("preserves block parsing for %j", (markdown, expectedHtml) => {
+    expect(markdownToHtml(markdown)).toBe(expectedHtml);
+  });
+
+  it("handles adversarial delimiter repetitions without backtracking", () => {
+    const repeatedTableCells = `|${"a|".repeat(10_000)}`;
+    const repeatedListWhitespace = `*${"\t".repeat(10_000)}value`;
+    const repeatedSeparatorWhitespace = `${"-\t".repeat(10_000)}|`;
+
+    expect(markdownToHtml(repeatedTableCells)).toContain("<p>");
+    expect(markdownToHtml(repeatedListWhitespace)).toContain("<ul>");
+    expect(markdownToHtml(`header\n${repeatedSeparatorWhitespace}`)).toContain(
+      "<p>",
+    );
+  });
+});
