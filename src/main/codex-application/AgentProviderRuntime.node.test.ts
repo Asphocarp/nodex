@@ -32,7 +32,7 @@ it.effect("owns provider discovery, profile resolution, and deferred credential 
     let active = true;
     let restarts = 0;
     let stored = false;
-    const requestLocal = ((method: string, params: unknown) => {
+    const requestRawOnHost = ((_hostId: string, method: string, params: unknown) => {
       if (method === "interpreter/provider/list") {
         return Effect.succeed({
           data: [
@@ -54,6 +54,9 @@ it.effect("owns provider discovery, profile resolution, and deferred credential 
           data: [{ id: null, label: "Native", description: "", isRecommended: true }],
         });
       }
+      throw new Error(`Unexpected raw request: ${method} ${JSON.stringify(params)}`);
+    }) as CodexGateway["Service"]["requestRawOnHost"];
+    const requestLocal = ((method: string, params: unknown) => {
       if (method === "thread/list") {
         return Effect.succeed({
           data: active
@@ -71,7 +74,7 @@ it.effect("owns provider discovery, profile resolution, and deferred credential 
     }) as CodexGateway["Service"]["requestLocal"];
     const gateway = CodexGateway.of({
       localHostId: "local",
-      requestRawOnHost: () => Effect.die(new Error("Unsupported raw host request")),
+      requestRawOnHost,
       requestRawForThread: () => Effect.die(new Error("Unsupported raw request")),
       events: Stream.empty,
       requestLocal,

@@ -53,6 +53,7 @@ describe("mcp-tool-call-resource-utils", () => {
       data: [
         {
           name: "docs",
+          pluginId: null,
           serverInfo: null,
           tools: {
             search: {
@@ -85,6 +86,7 @@ describe("mcp-tool-call-resource-utils", () => {
       data: [
         {
           name: "docs",
+          pluginId: null,
           serverInfo: null,
           tools: {
             aliased: {

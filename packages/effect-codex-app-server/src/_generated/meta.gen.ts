@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema";
 
 export const CLIENT_REQUEST_METHODS = {
   initialize: "initialize",
+  "server/diagnostics": "server/diagnostics",
   "thread/start": "thread/start",
   "thread/resume": "thread/resume",
   "thread/fork": "thread/fork",
@@ -17,6 +18,12 @@ export const CLIENT_REQUEST_METHODS = {
   "thread/goal/set": "thread/goal/set",
   "thread/goal/get": "thread/goal/get",
   "thread/goal/clear": "thread/goal/clear",
+  "thread/queue/add": "thread/queue/add",
+  "thread/queue/list": "thread/queue/list",
+  "thread/queue/update": "thread/queue/update",
+  "thread/queue/delete": "thread/queue/delete",
+  "thread/queue/reorder": "thread/queue/reorder",
+  "thread/queue/start": "thread/queue/start",
   "thread/metadata/update": "thread/metadata/update",
   "thread/section/move": "thread/section/move",
   "thread/settings/update": "thread/settings/update",
@@ -30,6 +37,7 @@ export const CLIENT_REQUEST_METHODS = {
   "thread/backgroundTerminals/list": "thread/backgroundTerminals/list",
   "thread/backgroundTerminals/terminate": "thread/backgroundTerminals/terminate",
   "thread/rollback": "thread/rollback",
+  "thread/revert": "thread/revert",
   "thread/list": "thread/list",
   "threadSection/list": "threadSection/list",
   "threadSection/create": "threadSection/create",
@@ -85,12 +93,6 @@ export const CLIENT_REQUEST_METHODS = {
   "review/start": "review/start",
   "model/list": "model/list",
   "modelProvider/capabilities/read": "modelProvider/capabilities/read",
-  "interpreter/provider/list": "interpreter/provider/list",
-  "interpreter/provider/set": "interpreter/provider/set",
-  "interpreter/model/list": "interpreter/model/list",
-  "interpreter/model/set": "interpreter/model/set",
-  "interpreter/harness/list": "interpreter/harness/list",
-  "interpreter/harness/set": "interpreter/harness/set",
   "experimentalFeature/list": "experimentalFeature/list",
   "permissionProfile/list": "permissionProfile/list",
   "experimentalFeature/enablement/set": "experimentalFeature/enablement/set",
@@ -174,10 +176,12 @@ export const SERVER_NOTIFICATION_METHODS = {
   "thread/deleted": "thread/deleted",
   "thread/unarchived": "thread/unarchived",
   "thread/closed": "thread/closed",
+  "thread/reverted": "thread/reverted",
   "skills/changed": "skills/changed",
   "thread/name/updated": "thread/name/updated",
   "thread/goal/updated": "thread/goal/updated",
   "thread/goal/cleared": "thread/goal/cleared",
+  "thread/queue/changed": "thread/queue/changed",
   "thread/environment/connected": "thread/environment/connected",
   "thread/environment/disconnected": "thread/environment/disconnected",
   "thread/settings/updated": "thread/settings/updated",
@@ -248,6 +252,7 @@ export type ServerNotificationMethod = keyof typeof SERVER_NOTIFICATION_METHODS;
 
 export interface ClientRequestParamsByMethod {
   readonly initialize: CodexSchema.V1InitializeParams;
+  readonly "server/diagnostics": CodexSchema.V2ServerDiagnosticsParams;
   readonly "thread/start": CodexSchema.V2ThreadStartParams;
   readonly "thread/resume": CodexSchema.V2ThreadResumeParams;
   readonly "thread/fork": CodexSchema.V2ThreadForkParams;
@@ -260,6 +265,12 @@ export interface ClientRequestParamsByMethod {
   readonly "thread/goal/set": CodexSchema.V2ThreadGoalSetParams;
   readonly "thread/goal/get": CodexSchema.V2ThreadGoalGetParams;
   readonly "thread/goal/clear": CodexSchema.V2ThreadGoalClearParams;
+  readonly "thread/queue/add": CodexSchema.V2ThreadQueueAddParams;
+  readonly "thread/queue/list": CodexSchema.V2ThreadQueueListParams;
+  readonly "thread/queue/update": CodexSchema.V2ThreadQueueUpdateParams;
+  readonly "thread/queue/delete": CodexSchema.V2ThreadQueueDeleteParams;
+  readonly "thread/queue/reorder": CodexSchema.V2ThreadQueueReorderParams;
+  readonly "thread/queue/start": CodexSchema.V2ThreadQueueStartParams;
   readonly "thread/metadata/update": CodexSchema.V2ThreadMetadataUpdateParams;
   readonly "thread/section/move": CodexSchema.V2ThreadSectionMoveParams;
   readonly "thread/settings/update": CodexSchema.V2ThreadSettingsUpdateParams;
@@ -273,6 +284,7 @@ export interface ClientRequestParamsByMethod {
   readonly "thread/backgroundTerminals/list": CodexSchema.V2ThreadBackgroundTerminalsListParams;
   readonly "thread/backgroundTerminals/terminate": CodexSchema.V2ThreadBackgroundTerminalsTerminateParams;
   readonly "thread/rollback": CodexSchema.V2ThreadRollbackParams;
+  readonly "thread/revert": CodexSchema.V2ThreadRevertParams;
   readonly "thread/list": CodexSchema.V2ThreadListParams;
   readonly "threadSection/list": CodexSchema.V2ThreadSectionListParams;
   readonly "threadSection/create": CodexSchema.V2ThreadSectionCreateParams;
@@ -328,12 +340,6 @@ export interface ClientRequestParamsByMethod {
   readonly "review/start": CodexSchema.V2ReviewStartParams;
   readonly "model/list": CodexSchema.V2ModelListParams;
   readonly "modelProvider/capabilities/read": CodexSchema.V2ModelProviderCapabilitiesReadParams;
-  readonly "interpreter/provider/list": CodexSchema.V2InterpreterProviderListParams;
-  readonly "interpreter/provider/set": CodexSchema.V2InterpreterProviderSetParams;
-  readonly "interpreter/model/list": CodexSchema.V2InterpreterModelListParams;
-  readonly "interpreter/model/set": CodexSchema.V2InterpreterModelSetParams;
-  readonly "interpreter/harness/list": CodexSchema.V2InterpreterHarnessListParams;
-  readonly "interpreter/harness/set": CodexSchema.V2InterpreterHarnessSetParams;
   readonly "experimentalFeature/list": CodexSchema.V2ExperimentalFeatureListParams;
   readonly "permissionProfile/list": CodexSchema.V2PermissionProfileListParams;
   readonly "experimentalFeature/enablement/set": CodexSchema.V2ExperimentalFeatureEnablementSetParams;
@@ -361,7 +367,9 @@ export interface ClientRequestParamsByMethod {
   readonly "account/logout": undefined;
   readonly "account/rateLimits/read": undefined;
   readonly "account/rateLimitResetCredit/consume": CodexSchema.V2ConsumeAccountRateLimitResetCreditParams;
-  readonly "account/usage/read": undefined;
+  readonly "account/usage/read":
+    | CodexSchema.V2NullableGetAccountTokenUsageParams__GetAccountTokenUsageParams
+    | undefined;
   readonly "account/workspaceMessages/read": undefined;
   readonly "account/sendAddCreditsNudgeEmail": CodexSchema.V2SendAddCreditsNudgeEmailParams;
   readonly "feedback/upload": CodexSchema.V2FeedbackUploadParams;
@@ -393,6 +401,7 @@ export interface ClientRequestParamsByMethod {
 
 export interface ClientRequestResponsesByMethod {
   readonly initialize: CodexSchema.V1InitializeResponse;
+  readonly "server/diagnostics": CodexSchema.V2ServerDiagnosticsResponse;
   readonly "thread/start": CodexSchema.V2ThreadStartResponse;
   readonly "thread/resume": CodexSchema.V2ThreadResumeResponse;
   readonly "thread/fork": CodexSchema.V2ThreadForkResponse;
@@ -405,6 +414,12 @@ export interface ClientRequestResponsesByMethod {
   readonly "thread/goal/set": CodexSchema.V2ThreadGoalSetResponse;
   readonly "thread/goal/get": CodexSchema.V2ThreadGoalGetResponse;
   readonly "thread/goal/clear": CodexSchema.V2ThreadGoalClearResponse;
+  readonly "thread/queue/add": CodexSchema.V2ThreadQueueAddResponse;
+  readonly "thread/queue/list": CodexSchema.V2ThreadQueueListResponse;
+  readonly "thread/queue/update": CodexSchema.V2ThreadQueueUpdateResponse;
+  readonly "thread/queue/delete": CodexSchema.V2ThreadQueueDeleteResponse;
+  readonly "thread/queue/reorder": CodexSchema.V2ThreadQueueReorderResponse;
+  readonly "thread/queue/start": CodexSchema.V2ThreadQueueStartResponse;
   readonly "thread/metadata/update": CodexSchema.V2ThreadMetadataUpdateResponse;
   readonly "thread/section/move": CodexSchema.V2ThreadSectionMoveResponse;
   readonly "thread/settings/update": CodexSchema.V2ThreadSettingsUpdateResponse;
@@ -418,6 +433,7 @@ export interface ClientRequestResponsesByMethod {
   readonly "thread/backgroundTerminals/list": CodexSchema.V2ThreadBackgroundTerminalsListResponse;
   readonly "thread/backgroundTerminals/terminate": CodexSchema.V2ThreadBackgroundTerminalsTerminateResponse;
   readonly "thread/rollback": CodexSchema.V2ThreadRollbackResponse;
+  readonly "thread/revert": CodexSchema.V2ThreadRevertResponse;
   readonly "thread/list": CodexSchema.V2ThreadListResponse;
   readonly "threadSection/list": CodexSchema.V2ThreadSectionListResponse;
   readonly "threadSection/create": CodexSchema.V2ThreadSectionCreateResponse;
@@ -473,12 +489,6 @@ export interface ClientRequestResponsesByMethod {
   readonly "review/start": CodexSchema.V2ReviewStartResponse;
   readonly "model/list": CodexSchema.V2ModelListResponse;
   readonly "modelProvider/capabilities/read": CodexSchema.V2ModelProviderCapabilitiesReadResponse;
-  readonly "interpreter/provider/list": CodexSchema.V2InterpreterProviderListResponse;
-  readonly "interpreter/provider/set": CodexSchema.V2InterpreterProviderSetResponse;
-  readonly "interpreter/model/list": CodexSchema.V2InterpreterModelListResponse;
-  readonly "interpreter/model/set": CodexSchema.V2InterpreterModelSetResponse;
-  readonly "interpreter/harness/list": CodexSchema.V2InterpreterHarnessListResponse;
-  readonly "interpreter/harness/set": CodexSchema.V2InterpreterHarnessSetResponse;
   readonly "experimentalFeature/list": CodexSchema.V2ExperimentalFeatureListResponse;
   readonly "permissionProfile/list": CodexSchema.V2PermissionProfileListResponse;
   readonly "experimentalFeature/enablement/set": CodexSchema.V2ExperimentalFeatureEnablementSetResponse;
@@ -576,10 +586,12 @@ export interface ServerNotificationParamsByMethod {
   readonly "thread/deleted": CodexSchema.V2ThreadDeletedNotification;
   readonly "thread/unarchived": CodexSchema.V2ThreadUnarchivedNotification;
   readonly "thread/closed": CodexSchema.V2ThreadClosedNotification;
+  readonly "thread/reverted": CodexSchema.V2ThreadRevertedNotification;
   readonly "skills/changed": CodexSchema.V2SkillsChangedNotification;
   readonly "thread/name/updated": CodexSchema.V2ThreadNameUpdatedNotification;
   readonly "thread/goal/updated": CodexSchema.V2ThreadGoalUpdatedNotification;
   readonly "thread/goal/cleared": CodexSchema.V2ThreadGoalClearedNotification;
+  readonly "thread/queue/changed": CodexSchema.V2ThreadQueueChangedNotification;
   readonly "thread/environment/connected": CodexSchema.V2EnvironmentConnectionNotification;
   readonly "thread/environment/disconnected": CodexSchema.V2EnvironmentConnectionNotification;
   readonly "thread/settings/updated": CodexSchema.V2ThreadSettingsUpdatedNotification;
@@ -645,6 +657,7 @@ export interface ServerNotificationParamsByMethod {
 
 export const CLIENT_REQUEST_PARAMS = {
   initialize: CodexSchema.V1InitializeParams,
+  "server/diagnostics": CodexSchema.V2ServerDiagnosticsParams,
   "thread/start": CodexSchema.V2ThreadStartParams,
   "thread/resume": CodexSchema.V2ThreadResumeParams,
   "thread/fork": CodexSchema.V2ThreadForkParams,
@@ -657,6 +670,12 @@ export const CLIENT_REQUEST_PARAMS = {
   "thread/goal/set": CodexSchema.V2ThreadGoalSetParams,
   "thread/goal/get": CodexSchema.V2ThreadGoalGetParams,
   "thread/goal/clear": CodexSchema.V2ThreadGoalClearParams,
+  "thread/queue/add": CodexSchema.V2ThreadQueueAddParams,
+  "thread/queue/list": CodexSchema.V2ThreadQueueListParams,
+  "thread/queue/update": CodexSchema.V2ThreadQueueUpdateParams,
+  "thread/queue/delete": CodexSchema.V2ThreadQueueDeleteParams,
+  "thread/queue/reorder": CodexSchema.V2ThreadQueueReorderParams,
+  "thread/queue/start": CodexSchema.V2ThreadQueueStartParams,
   "thread/metadata/update": CodexSchema.V2ThreadMetadataUpdateParams,
   "thread/section/move": CodexSchema.V2ThreadSectionMoveParams,
   "thread/settings/update": CodexSchema.V2ThreadSettingsUpdateParams,
@@ -670,6 +689,7 @@ export const CLIENT_REQUEST_PARAMS = {
   "thread/backgroundTerminals/list": CodexSchema.V2ThreadBackgroundTerminalsListParams,
   "thread/backgroundTerminals/terminate": CodexSchema.V2ThreadBackgroundTerminalsTerminateParams,
   "thread/rollback": CodexSchema.V2ThreadRollbackParams,
+  "thread/revert": CodexSchema.V2ThreadRevertParams,
   "thread/list": CodexSchema.V2ThreadListParams,
   "threadSection/list": CodexSchema.V2ThreadSectionListParams,
   "threadSection/create": CodexSchema.V2ThreadSectionCreateParams,
@@ -725,12 +745,6 @@ export const CLIENT_REQUEST_PARAMS = {
   "review/start": CodexSchema.V2ReviewStartParams,
   "model/list": CodexSchema.V2ModelListParams,
   "modelProvider/capabilities/read": CodexSchema.V2ModelProviderCapabilitiesReadParams,
-  "interpreter/provider/list": CodexSchema.V2InterpreterProviderListParams,
-  "interpreter/provider/set": CodexSchema.V2InterpreterProviderSetParams,
-  "interpreter/model/list": CodexSchema.V2InterpreterModelListParams,
-  "interpreter/model/set": CodexSchema.V2InterpreterModelSetParams,
-  "interpreter/harness/list": CodexSchema.V2InterpreterHarnessListParams,
-  "interpreter/harness/set": CodexSchema.V2InterpreterHarnessSetParams,
   "experimentalFeature/list": CodexSchema.V2ExperimentalFeatureListParams,
   "permissionProfile/list": CodexSchema.V2PermissionProfileListParams,
   "experimentalFeature/enablement/set": CodexSchema.V2ExperimentalFeatureEnablementSetParams,
@@ -762,7 +776,9 @@ export const CLIENT_REQUEST_PARAMS = {
   "account/logout": undefined,
   "account/rateLimits/read": undefined,
   "account/rateLimitResetCredit/consume": CodexSchema.V2ConsumeAccountRateLimitResetCreditParams,
-  "account/usage/read": undefined,
+  "account/usage/read": Schema.UndefinedOr(
+    CodexSchema.V2NullableGetAccountTokenUsageParams__GetAccountTokenUsageParams,
+  ),
   "account/workspaceMessages/read": undefined,
   "account/sendAddCreditsNudgeEmail": CodexSchema.V2SendAddCreditsNudgeEmailParams,
   "feedback/upload": CodexSchema.V2FeedbackUploadParams,
@@ -795,6 +811,7 @@ export const CLIENT_REQUEST_PARAMS = {
 
 export const CLIENT_REQUEST_RESPONSES = {
   initialize: CodexSchema.V1InitializeResponse,
+  "server/diagnostics": CodexSchema.V2ServerDiagnosticsResponse,
   "thread/start": CodexSchema.V2ThreadStartResponse,
   "thread/resume": CodexSchema.V2ThreadResumeResponse,
   "thread/fork": CodexSchema.V2ThreadForkResponse,
@@ -807,6 +824,12 @@ export const CLIENT_REQUEST_RESPONSES = {
   "thread/goal/set": CodexSchema.V2ThreadGoalSetResponse,
   "thread/goal/get": CodexSchema.V2ThreadGoalGetResponse,
   "thread/goal/clear": CodexSchema.V2ThreadGoalClearResponse,
+  "thread/queue/add": CodexSchema.V2ThreadQueueAddResponse,
+  "thread/queue/list": CodexSchema.V2ThreadQueueListResponse,
+  "thread/queue/update": CodexSchema.V2ThreadQueueUpdateResponse,
+  "thread/queue/delete": CodexSchema.V2ThreadQueueDeleteResponse,
+  "thread/queue/reorder": CodexSchema.V2ThreadQueueReorderResponse,
+  "thread/queue/start": CodexSchema.V2ThreadQueueStartResponse,
   "thread/metadata/update": CodexSchema.V2ThreadMetadataUpdateResponse,
   "thread/section/move": CodexSchema.V2ThreadSectionMoveResponse,
   "thread/settings/update": CodexSchema.V2ThreadSettingsUpdateResponse,
@@ -820,6 +843,7 @@ export const CLIENT_REQUEST_RESPONSES = {
   "thread/backgroundTerminals/list": CodexSchema.V2ThreadBackgroundTerminalsListResponse,
   "thread/backgroundTerminals/terminate": CodexSchema.V2ThreadBackgroundTerminalsTerminateResponse,
   "thread/rollback": CodexSchema.V2ThreadRollbackResponse,
+  "thread/revert": CodexSchema.V2ThreadRevertResponse,
   "thread/list": CodexSchema.V2ThreadListResponse,
   "threadSection/list": CodexSchema.V2ThreadSectionListResponse,
   "threadSection/create": CodexSchema.V2ThreadSectionCreateResponse,
@@ -875,12 +899,6 @@ export const CLIENT_REQUEST_RESPONSES = {
   "review/start": CodexSchema.V2ReviewStartResponse,
   "model/list": CodexSchema.V2ModelListResponse,
   "modelProvider/capabilities/read": CodexSchema.V2ModelProviderCapabilitiesReadResponse,
-  "interpreter/provider/list": CodexSchema.V2InterpreterProviderListResponse,
-  "interpreter/provider/set": CodexSchema.V2InterpreterProviderSetResponse,
-  "interpreter/model/list": CodexSchema.V2InterpreterModelListResponse,
-  "interpreter/model/set": CodexSchema.V2InterpreterModelSetResponse,
-  "interpreter/harness/list": CodexSchema.V2InterpreterHarnessListResponse,
-  "interpreter/harness/set": CodexSchema.V2InterpreterHarnessSetResponse,
   "experimentalFeature/list": CodexSchema.V2ExperimentalFeatureListResponse,
   "permissionProfile/list": CodexSchema.V2PermissionProfileListResponse,
   "experimentalFeature/enablement/set": CodexSchema.V2ExperimentalFeatureEnablementSetResponse,
@@ -980,10 +998,12 @@ export const SERVER_NOTIFICATION_PARAMS = {
   "thread/deleted": CodexSchema.V2ThreadDeletedNotification,
   "thread/unarchived": CodexSchema.V2ThreadUnarchivedNotification,
   "thread/closed": CodexSchema.V2ThreadClosedNotification,
+  "thread/reverted": CodexSchema.V2ThreadRevertedNotification,
   "skills/changed": CodexSchema.V2SkillsChangedNotification,
   "thread/name/updated": CodexSchema.V2ThreadNameUpdatedNotification,
   "thread/goal/updated": CodexSchema.V2ThreadGoalUpdatedNotification,
   "thread/goal/cleared": CodexSchema.V2ThreadGoalClearedNotification,
+  "thread/queue/changed": CodexSchema.V2ThreadQueueChangedNotification,
   "thread/environment/connected": CodexSchema.V2EnvironmentConnectionNotification,
   "thread/environment/disconnected": CodexSchema.V2EnvironmentConnectionNotification,
   "thread/settings/updated": CodexSchema.V2ThreadSettingsUpdatedNotification,

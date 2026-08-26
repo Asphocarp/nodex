@@ -111,6 +111,7 @@ function generatedItems(): readonly CodexCanonicalItem[] {
       status: "completed",
       revisedPrompt: null,
       result: "aW1hZ2U=",
+      failure: null,
     },
     { type: "enteredReviewMode", id: "review-enter", review: "Review" },
     { type: "exitedReviewMode", id: "review-exit", review: "Review" },

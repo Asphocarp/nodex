@@ -7,14 +7,17 @@ import {
   type CodexHooksSettingsViewProps,
 } from "./workbench-hooks-settings-page";
 
+type CommandHookMetadata = Extract<HookMetadata, { handlerType: "command" }>;
+
 function hook(
-  overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "source">,
-): HookMetadata {
+  overrides: Partial<CommandHookMetadata> & Pick<CommandHookMetadata, "key" | "source">,
+): CommandHookMetadata {
   return {
     eventName: "stop",
     handlerType: "command",
     matcher: null,
     command: "pnpm test",
+    async: false,
     timeoutSec: 30n,
     statusMessage: "Checking the workspace",
     sourcePath: "/Users/asc/repo/nodex/.codex/hooks.json",

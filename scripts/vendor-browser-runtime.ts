@@ -471,6 +471,7 @@ export function vendorBrowserRuntime(options: VendorBrowserRuntimeOptions): Brow
         marketplaceRoot: "marketplace",
         nodeModuleDirs: browserPluginNodeModuleDirs(),
         root: "marketplace/plugins/browser",
+        service: "marketplace/plugins/browser/scripts/browser-service.mjs",
         version: pluginVersion,
       },
       buildFlavor: "production",
@@ -499,6 +500,8 @@ export function vendorBrowserRuntime(options: VendorBrowserRuntimeOptions): Brow
                   "Computer Use plugin version",
                 ),
               },
+              rpcService:
+                "runtime/lib/node_modules/@oai/sky/dist/project/cua/sky_js/src/service.js",
               serviceExecutable:
                 "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
               signingTeamId: readSigningTeamId(computerUseServicePath),

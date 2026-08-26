@@ -128,6 +128,7 @@ function buildMcpStatuses(resourceUri: string): ProtocolListMcpServerStatusRespo
     data: [
       {
         name: "docs",
+        pluginId: null,
         serverInfo: null,
         tools: {
           search: {

@@ -11,6 +11,12 @@ when stable). This bounded window avoids repackaging identical Browser payloads
 for every compatible Agent patch while still failing closed outside versions
 represented by the sealed closure.
 
+The sealed closure includes unprivileged Browser and Computer Use clients plus
+their trusted Node REPL RPC services. Nodex enables only the named services for
+capabilities available to a thread, resolves them from the verified closure,
+and keeps service code inside the trusted runtime roots. Adding another trusted
+service requires a new manifest contract and runtime review.
+
 Normal development, CI, and packaging must use
 `vp run materialize:browser-runtime:mac`. They must not inspect an installed
 desktop application.

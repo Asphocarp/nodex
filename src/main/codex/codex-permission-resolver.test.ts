@@ -42,6 +42,7 @@ function buildConfig(
 
 function buildRequirements(overrides?: Partial<ConfigRequirements>): ConfigRequirements {
   return {
+    autoReview: null,
     allowedApprovalPolicies: null,
     allowedApprovalsReviewers: null,
     allowedSandboxModes: null,
