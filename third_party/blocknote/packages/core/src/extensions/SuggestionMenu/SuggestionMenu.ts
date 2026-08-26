@@ -183,25 +183,26 @@ class SuggestionMenuView {
     return true;
   };
 
-  clearQuery = () => {
+  acceptMenu = () => {
     const session = getActiveSuggestionSession(
       suggestionMenuPluginKey.getState(this.editor.prosemirrorState),
     );
-    if (!session) return;
+    if (!session) return false;
+    const queryStart = session.queryStartPos();
+    const from =
+      queryStart -
+      (session.deleteTriggerCharacter ? session.triggerCharacter.length : 0);
 
-    this.editor._tiptapEditor
-      .chain()
-      .focus()
-      // TODO need to make an API for this
-      .deleteRange({
-        from:
-          session.queryStartPos() -
-          (session.deleteTriggerCharacter
-            ? session.triggerCharacter.length
-            : 0),
-        to: this.editor.transact((tr) => tr.selection.from),
-      })
-      .run();
+    return this.editor.transact((transaction) => {
+      const to = transaction.selection.from;
+      if (from > to) return false;
+
+      transaction
+        .delete(from, to)
+        .setMeta(suggestionMenuPluginKey, { type: "close", reason: "accepted" })
+        .scrollIntoView();
+      return true;
+    });
   };
 }
 
@@ -299,9 +300,8 @@ export const SuggestionMenu = createExtension(({ editor }) => {
     closeMenu: (reason: SuggestionMenuCloseReason = "programmatic") => {
       view?.closeMenu(reason);
     },
-    clearQuery: () => {
-      view?.clearQuery();
-    },
+    /** Consumes the tracked query and closes its session as one accepted action. */
+    acceptMenu: () => view?.acceptMenu() ?? false,
     getMenuState: (): SuggestionMenuRuntimeState | undefined => {
       const session = getCurrentSession();
       if (!view?.state || !session) return undefined;

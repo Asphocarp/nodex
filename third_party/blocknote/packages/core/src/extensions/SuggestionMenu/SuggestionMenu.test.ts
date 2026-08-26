@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { TextSelection } from "prosemirror-state";
+import * as Y from "yjs";
 
 import { BlockNoteEditor } from "../../editor/BlockNoteEditor.js";
 import { SuggestionMenu } from "./SuggestionMenu.js";
@@ -202,6 +203,68 @@ describe("SuggestionMenu", () => {
 
     expect(simulateTextInput(editor, "@")).toBe(false);
     expect(getSuggestionPluginState(editor)?.triggerCharacter).toBe("/");
+
+    editor._tiptapEditor.destroy();
+  });
+
+  it("atomically consumes the active query when a suggestion is accepted", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: ":" });
+
+    expect(simulateTextInput(editor, ":")).toBe(true);
+    editor.insertInlineContent("sm");
+    expect(editor.prosemirrorState.doc.textContent).toBe(":sm");
+    const transactionListener = vi.fn();
+    editor._tiptapEditor.on("transaction", transactionListener);
+
+    expect(suggestionMenu.acceptMenu()).toBe(true);
+
+    expect(transactionListener).toHaveBeenCalledTimes(1);
+    expect(editor.prosemirrorState.doc.textContent).toBe("");
+    expect(getSuggestionPluginState(editor)).toBeUndefined();
+    expect(suggestionMenu.getLastCloseReason()).toBe("accepted");
+    editor._tiptapEditor.destroy();
+  });
+
+  it("accepts a tracked query in a collaborative editor", () => {
+    const doc = new Y.Doc();
+    const editor = BlockNoteEditor.create({
+      collaboration: {
+        fragment: doc.getXmlFragment("doc"),
+        user: { name: "Suggestion Test", color: "#ffffff" },
+      },
+    });
+    editor.mount(document.createElement("div"));
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: ":" });
+
+    expect(simulateTextInput(editor, ":")).toBe(true);
+    editor.insertInlineContent("sm");
+
+    expect(suggestionMenu.acceptMenu()).toBe(true);
+    expect(editor.prosemirrorState.doc.textContent).toBe("");
+    expect(suggestionMenu.getLastCloseReason()).toBe("accepted");
+
+    editor._tiptapEditor.destroy();
+    doc.destroy();
+  });
+
+  it("preserves preceding text when accepting a programmatic query", () => {
+    const editor = createEditor();
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    suggestionMenu.addSuggestionMenu({ triggerCharacter: "@" });
+    editor.replaceBlocks(editor.document, [
+      { id: "paragraph-0", type: "paragraph", content: "prefix " },
+    ]);
+    editor.setTextCursorPosition("paragraph-0", "end");
+
+    suggestionMenu.openSuggestionMenu("@", { deleteTriggerCharacter: false });
+    editor.insertInlineContent("query");
+
+    expect(suggestionMenu.acceptMenu()).toBe(true);
+    expect(editor.prosemirrorState.doc.textContent).toBe("prefix ");
+    expect(suggestionMenu.getLastCloseReason()).toBe("accepted");
 
     editor._tiptapEditor.destroy();
   });

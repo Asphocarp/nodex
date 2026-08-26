@@ -14,7 +14,7 @@ export function GridSuggestionMenuWrapper<Item>(props: {
   triggerCharacter: string;
   query: string;
   closeMenu: (reason?: SuggestionMenuCloseReason) => void;
-  clearQuery: () => void;
+  acceptMenu: () => boolean;
   getItems: (query: string) => Promise<Item[]>;
   columns: number;
   onItemClick?: (item: Item) => void;
@@ -34,7 +34,7 @@ export function GridSuggestionMenuWrapper<Item>(props: {
     gridSuggestionMenuComponent,
     triggerCharacter,
     query,
-    clearQuery,
+    acceptMenu,
     closeMenu,
     onItemClick,
     columns,
@@ -56,11 +56,10 @@ export function GridSuggestionMenuWrapper<Item>(props: {
         return;
       }
 
-      closeMenu("accepted");
-      clearQuery();
+      if (!acceptMenu()) return;
       onItemClick?.(item);
     },
-    [onItemClick, closeMenu, clearQuery, itemsFresh],
+    [acceptMenu, itemsFresh, onItemClick],
   );
 
   useCloseSuggestionMenuNoItems(

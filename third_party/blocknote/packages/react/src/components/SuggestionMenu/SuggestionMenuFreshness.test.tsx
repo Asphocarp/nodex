@@ -363,13 +363,14 @@ describe("suggestion menu freshness", () => {
 
   test("ignores stale mouse clicks in the wrapper without closing the menu", async () => {
     let closeMenuCalls = 0;
-    let clearQueryCalls = 0;
+    let acceptMenuCalls = 0;
     let itemClickCalls = 0;
     const closeMenu = () => {
       closeMenuCalls += 1;
     };
-    const clearQuery = () => {
-      clearQueryCalls += 1;
+    const acceptMenu = () => {
+      acceptMenuCalls += 1;
+      return true;
     };
     const onItemClick = () => {
       itemClickCalls += 1;
@@ -408,7 +409,7 @@ describe("suggestion menu freshness", () => {
           triggerCharacter="@"
           query="no"
           closeMenu={closeMenu}
-          clearQuery={clearQuery}
+          acceptMenu={acceptMenu}
           getItems={async () => ["no item"]}
           onItemClick={onItemClick}
           suggestionMenuComponent={MenuComponent}
@@ -424,12 +425,12 @@ describe("suggestion menu freshness", () => {
 
     expect(itemClickCalls).toBe(0);
     expect(closeMenuCalls).toBe(0);
-    expect(clearQueryCalls).toBe(0);
+    expect(acceptMenuCalls).toBe(0);
   });
 
   test("can activate a fresh utility item without closing or clearing the menu", async () => {
     let closeMenuCalls = 0;
-    let clearQueryCalls = 0;
+    let acceptMenuCalls = 0;
     const clickedItems: string[] = [];
     const fakeSuggestionMenu = {
       getMenuState: () => ({
@@ -462,7 +463,10 @@ describe("suggestion menu freshness", () => {
           triggerCharacter="@"
           query="now"
           closeMenu={() => { closeMenuCalls += 1; }}
-          clearQuery={() => { clearQueryCalls += 1; }}
+          acceptMenu={() => {
+            acceptMenuCalls += 1;
+            return true;
+          }}
           getItems={async () => ["more"]}
           onItemClick={(item) => { clickedItems.push(item); }}
           shouldCloseOnItemClick={() => false}
@@ -478,7 +482,7 @@ describe("suggestion menu freshness", () => {
 
     expect(clickedItems).toEqual(["more"]);
     expect(closeMenuCalls).toBe(0);
-    expect(clearQueryCalls).toBe(0);
+    expect(acceptMenuCalls).toBe(0);
 
     editor.domElement.dispatchEvent(new KeyboardEvent("keydown", {
       key: "Enter",
@@ -487,7 +491,7 @@ describe("suggestion menu freshness", () => {
     }));
     expect(clickedItems).toEqual(["more", "more"]);
     expect(closeMenuCalls).toBe(0);
-    expect(clearQueryCalls).toBe(0);
+    expect(acceptMenuCalls).toBe(0);
   });
 
   test("applies the same stale Enter guard to grid suggestion menus", async () => {

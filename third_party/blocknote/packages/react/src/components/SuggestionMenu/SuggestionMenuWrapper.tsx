@@ -14,7 +14,7 @@ export function SuggestionMenuWrapper<Item>(props: {
   triggerCharacter: string;
   query: string;
   closeMenu: (reason?: SuggestionMenuCloseReason) => void;
-  clearQuery: () => void;
+  acceptMenu: () => boolean;
   getItems: (query: string) => Promise<Item[]>;
   getImmediateItems?: (query: string) => Item[];
   requestScopeKey?: string;
@@ -40,7 +40,7 @@ export function SuggestionMenuWrapper<Item>(props: {
     suggestionMenuComponent,
     triggerCharacter,
     query,
-    clearQuery,
+    acceptMenu,
     closeMenu,
     onItemClick,
     shouldCloseOnItemClick,
@@ -69,12 +69,11 @@ export function SuggestionMenuWrapper<Item>(props: {
       }
 
       if (shouldCloseOnItemClick?.(item) !== false) {
-        closeMenu("accepted");
-        clearQuery();
+        if (!acceptMenu()) return;
       }
       onItemClick?.(item);
     },
-    [onItemClick, closeMenu, clearQuery, itemsFresh, shouldCloseOnItemClick],
+    [acceptMenu, itemsFresh, onItemClick, shouldCloseOnItemClick],
   );
 
   useCloseSuggestionMenuNoItems(

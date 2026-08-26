@@ -951,7 +951,8 @@ export const KeyboardShortcutsExtension = Extension.create<{
           // don't handle tabs if a toolbar is shown, so we can tab into / out of it
           return false;
         }
-        return nestBlock(this.options.editor);
+        const nested = nestBlock(this.options.editor);
+        return nested || this.options.tabBehavior === "prefer-indent";
       },
       "Shift-Tab": () => {
         if (
@@ -966,7 +967,8 @@ export const KeyboardShortcutsExtension = Extension.create<{
           // don't handle tabs if a toolbar is shown, so we can tab into / out of it
           return false;
         }
-        return unnestBlock(this.options.editor);
+        const unnested = unnestBlock(this.options.editor);
+        return unnested || this.options.tabBehavior === "prefer-indent";
       },
       "Shift-Mod-ArrowUp": () => {
         this.options.editor.moveBlocksUp();

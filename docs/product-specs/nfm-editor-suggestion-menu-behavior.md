@@ -44,6 +44,10 @@ characters typed inside its query remain query text; they do not start a
 second session. A deliberate programmatic handoff may replace the current
 session atomically.
 
+Accepting an item atomically consumes the tracked query and, when the session
+owns it, the visible trigger; it closes that same session before inserting the
+result. Dismissal does not consume the user's typed text.
+
 The session and popup close together when the user accepts or dismisses it,
 presses Escape, clicks outside, expands the selection, moves the caret before
 the trigger, moves to another Block, enters a Code Block, blurs or pointer-
