@@ -20,6 +20,7 @@ const testFiles = selectTieredTestFiles({
     "third_party/blocknote/packages/core/src/api/parsers/markdown/markdownToHtml.security.test.ts",
     "third_party/blocknote/packages/core/src/blocks/Code/block.test.ts",
     "third_party/blocknote/packages/core/src/blocks/Code/indentation.test.ts",
+    "third_party/blocknote/packages/core/src/extensions/tiptap-extensions/Link/link.test.ts",
     "third_party/blocknote/packages/core/src/extensions/SuggestionMenu/SuggestionMenu.test.ts",
     "third_party/blocknote/packages/react/src/components/SuggestionMenu/SuggestionMenuFreshness.test.tsx",
     "third_party/blocknote/packages/react/src/components/SuggestionMenu/hooks/useCloseSuggestionMenuNoItems.test.tsx",

@@ -354,7 +354,10 @@ export interface BlockNoteEditorOptions<
 }
 
 const blockNoteTipTapOptions = {
-  enableInputRules: true,
+  // Typing rules are owned by BlockNote's raw-first automatic-transform
+  // engine. Tiptap rules use a virtual pending character and cannot expose the
+  // complete literal input as its own undoable history entry.
+  enableInputRules: false,
   enablePasteRules: true,
   enableCoreExtensions: false,
 };

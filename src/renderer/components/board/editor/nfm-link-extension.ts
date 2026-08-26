@@ -1,7 +1,8 @@
+import { createAutomaticAutolinkPlugin, type AutolinkToken } from "@blocknote/core";
 import type { PasteRuleMatch } from "@tiptap/core";
 import { markPasteRule } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { find } from "linkifyjs";
+import { find, tokenize } from "linkifyjs";
 import { Link, isAllowedUri, type LinkOptions } from "@tiptap/extension-link";
 import {
   readNfmAutolinkSettings,
@@ -91,10 +92,26 @@ export function createNfmLinkExtension() {
     },
 
     addProseMirrorPlugins() {
-      const parentPlugins = this.parent?.() ?? [];
+      const parentPlugins = (this.parent?.() ?? []).filter(
+        (plugin) => !(plugin as unknown as { readonly key: string }).key.startsWith("autolink$"),
+      );
+      const { protocols, defaultProtocol } = this.options;
 
       return [
         ...parentPlugins,
+        createAutomaticAutolinkPlugin({
+          type: this.type,
+          defaultProtocol,
+          validate: (url) =>
+            this.options.isAllowedUri(url, {
+              defaultValidate: (href) => !!isAllowedUri(href, protocols),
+              protocols,
+              defaultProtocol,
+            }),
+          shouldAutoLink: shouldAutoLinkWhileTyping,
+          tokenize: (text, protocol) =>
+            tokenize(text).map((token) => token.toObject(protocol) as AutolinkToken),
+        }),
         new Plugin({
           key: new PluginKey("handlePasteLinkNfm"),
           props: {

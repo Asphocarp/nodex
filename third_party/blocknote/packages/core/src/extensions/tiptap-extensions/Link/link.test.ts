@@ -1,10 +1,25 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { TextSelection } from "@tiptap/pm/state";
 import { Slice, Fragment } from "@tiptap/pm/model";
 
 import { BlockNoteEditor } from "../../../editor/BlockNoteEditor.js";
 import { findLinks, tokenizeLink } from "./helpers/linkDetector.js";
 import { isAllowedUri } from "./link.js";
+
+const nativeClipboardEvent = globalThis.ClipboardEvent;
+
+beforeAll(() => {
+  if (nativeClipboardEvent) return;
+  Object.defineProperty(globalThis, "ClipboardEvent", {
+    configurable: true,
+    value: class ClipboardEvent extends Event {},
+  });
+});
+
+afterAll(() => {
+  if (nativeClipboardEvent) return;
+  delete (globalThis as { ClipboardEvent?: typeof ClipboardEvent }).ClipboardEvent;
+});
 
 /**
  * @vitest-environment jsdom
@@ -60,9 +75,14 @@ function typeTextThenSpace(
   // Insert the text
   view.dispatch(view.state.tr.insertText(text, from));
 
-  // Now insert a space to trigger autolink
-  const afterInsert = view.state.selection.from;
-  view.dispatch(view.state.tr.insertText(" ", afterInsert));
+  // Now deliver a real typing input so the automatic-transform engine can
+  // preserve the raw text as its own history event.
+  const { from: afterInsert, to } = view.state.selection;
+  const defaultTransaction = () => view.state.tr.insertText(" ", afterInsert, to);
+  const handled = view.someProp("handleTextInput", (handler) =>
+    handler(view, afterInsert, to, " ", defaultTransaction),
+  );
+  if (!handled) view.dispatch(defaultTransaction());
 
   return getLinksInDocument(editor);
 }

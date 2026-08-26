@@ -29,12 +29,174 @@ const requireMountedEditorView = (editor: {
   return view;
 };
 
+function simulateTextInput(editor: BlockNoteEditor, text: string): void {
+  const view = requireMountedEditorView(editor);
+  const { from, to } = view.state.selection;
+  const defaultTransaction = () => view.state.tr.insertText(text, from, to);
+  const handled = view.someProp("handleTextInput", (handler) =>
+    handler(view, from, to, text, defaultTransaction),
+  );
+  if (!handled) view.dispatch(defaultTransaction());
+}
+
+function typeString(editor: BlockNoteEditor, text: string): void {
+  for (const character of text) simulateTextInput(editor, character);
+}
+
+function pressEditorShortcut(
+  editor: BlockNoteEditor,
+  options: { readonly key: string; readonly metaKey?: boolean; readonly shiftKey?: boolean },
+): boolean {
+  const view = requireMountedEditorView(editor);
+  const event = new KeyboardEvent("keydown", options);
+  return !!view.someProp("handleKeyDown", (handler) => handler(view, event));
+}
+
 function ExternalEditorHookOwner({ editor }: { readonly editor: BlockNoteEditor }) {
   useCreateBlockNote({}, [], editor);
   return null;
 }
 
 describe("collaborative NFM undo in Chromium", () => {
+  test("undoes automatic inline formatting separately from its literal input", async () => {
+    const genesis = createPageDocumentGenesis({
+      documentId: "document:automatic-format-history",
+      title: "Automatic format history",
+      nfm: "",
+      allocateBlockId: () => "block-automatic-format",
+    });
+    const document = genesis.document;
+    const editor = BlockNoteEditor.create(
+      createNfmEditorModeOptions({
+        kind: "collaborative-document",
+        documentId: document.guid,
+        storeEpoch: "epoch:automatic-format-history",
+        generation: 1,
+        clientSessionId: "surface:automatic-format-history",
+        fragment: document.getXmlFragment("body"),
+        user: { name: "Formatting", color: "#2563eb" },
+      }),
+    );
+    const host = globalThis.document.createElement("div");
+    globalThis.document.body.append(host);
+    editor.mount(host);
+
+    try {
+      await act(settleEditor);
+      const blockId = editor.document[0]?.id;
+      if (!blockId) throw new Error("Expected an initial paragraph");
+      editor.setTextCursorPosition(blockId, "start");
+
+      await act(async () => {
+        typeString(editor, "**ABC**");
+        await settleEditor();
+      });
+      expect(editor.document[0].content).toEqual([
+        { type: "text", text: "ABC", styles: { bold: true } },
+      ]);
+
+      await act(async () => {
+        expect(pressEditorShortcut(editor, { key: "z", metaKey: true })).toBe(true);
+        await settleEditor();
+      });
+      expect(editor.document[0].content).toEqual([{ type: "text", text: "**ABC**", styles: {} }]);
+
+      await act(async () => {
+        expect(pressEditorShortcut(editor, { key: "z", metaKey: true })).toBe(true);
+        await settleEditor();
+      });
+      expect(editor.document[0].content).toEqual([]);
+
+      await act(async () => {
+        expect(pressEditorShortcut(editor, { key: "z", metaKey: true, shiftKey: true })).toBe(true);
+        await settleEditor();
+      });
+      expect(editor.document[0].content).toEqual([{ type: "text", text: "**ABC**", styles: {} }]);
+
+      await act(async () => {
+        expect(pressEditorShortcut(editor, { key: "z", metaKey: true, shiftKey: true })).toBe(true);
+        await settleEditor();
+      });
+      expect(editor.document[0].content).toEqual([
+        { type: "text", text: "ABC", styles: { bold: true } },
+      ]);
+    } finally {
+      editor.unmount();
+      host.remove();
+      editor._tiptapEditor.destroy();
+      document.destroy();
+    }
+  });
+
+  test("keeps another surface's edit outside automatic-format history", async () => {
+    const genesis = createPageDocumentGenesis({
+      documentId: "document:automatic-format-surface-isolation",
+      title: "Automatic format surface isolation",
+      nfm: "",
+      allocateBlockId: () => "block-automatic-format-isolation",
+    });
+    const document = genesis.document;
+    const createSurfaceEditor = (clientSessionId: string, name: string) =>
+      BlockNoteEditor.create(
+        createNfmEditorModeOptions({
+          kind: "collaborative-document",
+          documentId: document.guid,
+          storeEpoch: "epoch:automatic-format-surface-isolation",
+          generation: 1,
+          clientSessionId,
+          fragment: document.getXmlFragment("body"),
+          user: { name, color: name === "Left" ? "#2563eb" : "#16a34a" },
+        }),
+      );
+    const left = createSurfaceEditor("surface:automatic-format-left", "Left");
+    const right = createSurfaceEditor("surface:automatic-format-right", "Right");
+    const leftHost = globalThis.document.createElement("div");
+    const rightHost = globalThis.document.createElement("div");
+    globalThis.document.body.append(leftHost, rightHost);
+    left.mount(leftHost);
+    right.mount(rightHost);
+
+    try {
+      await act(settleEditor);
+      const blockId = left.document[0]?.id;
+      if (!blockId) throw new Error("Expected a shared initial paragraph");
+      left.setTextCursorPosition(blockId, "start");
+
+      await act(async () => {
+        typeString(left, "**ABC**");
+        await settleEditor();
+      });
+      right.setTextCursorPosition(blockId, "end");
+      await act(async () => {
+        typeString(right, "R");
+        await settleEditor();
+      });
+      expect(left.prosemirrorState.doc.textContent).toBe("ABCR");
+
+      await act(async () => {
+        expect(pressEditorShortcut(left, { key: "z", metaKey: true })).toBe(true);
+        await settleEditor();
+      });
+      expect(left.prosemirrorState.doc.textContent).toBe("**ABC**R");
+      expect(right.prosemirrorState.doc.textContent).toBe("**ABC**R");
+
+      await act(async () => {
+        expect(pressEditorShortcut(left, { key: "z", metaKey: true })).toBe(true);
+        await settleEditor();
+      });
+      expect(left.prosemirrorState.doc.textContent).toBe("R");
+      expect(right.prosemirrorState.doc.textContent).toBe("R");
+    } finally {
+      left.unmount();
+      right.unmount();
+      leftHost.remove();
+      rightHost.remove();
+      left._tiptapEditor.destroy();
+      right._tiptapEditor.destroy();
+      document.destroy();
+    }
+  });
+
   test("merges a paragraph across an atomic Block and restores the caret at the join", async () => {
     const genesis = createPageDocumentGenesis({
       documentId: "document:backward-merge",
