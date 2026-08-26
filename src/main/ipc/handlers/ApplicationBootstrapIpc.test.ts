@@ -4,8 +4,8 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
+import { layer as mainShutdownLayer } from "../../app/MainShutdown";
 import { ApplicationInitializationRuntime } from "../../host-runtime/ApplicationInitializationRuntime";
-import { ElectronApp } from "../../platform/electron/ElectronApp";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ApplicationWindowShellRuntime } from "../../window-runtime/ApplicationWindowShellRuntime";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
@@ -34,10 +34,6 @@ it.effect("owns only the trusted bootstrap handlers before Core is ready", () =>
       awaitActivation: () => Effect.void,
       reportRenderer: () => undefined,
     } as unknown as ApplicationWindowShellRuntime["Service"]);
-    const electron = ElectronApp.of({
-      quit: Effect.void,
-      relaunch: Effect.void,
-    } as unknown as ElectronApp["Service"]);
     const windows = WindowRuntime.of({
       acknowledgeClose: () => undefined,
       has: () => true,
@@ -49,8 +45,8 @@ it.effect("owns only the trusted bootstrap handlers before Core is ready", () =>
           Layer.mergeAll(
             Layer.succeed(ApplicationInitializationRuntime, initialization),
             Layer.succeed(ApplicationWindowShellRuntime, shell),
-            Layer.succeed(ElectronApp, electron),
             Layer.succeed(ElectronIpc, ipc),
+            mainShutdownLayer,
             mainConfigLayer(),
             Layer.succeed(WindowRuntime, windows),
           ),

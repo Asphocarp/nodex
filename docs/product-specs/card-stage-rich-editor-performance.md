@@ -1,15 +1,15 @@
-# Card Stage Rich Editor Performance
+# Page Stage Rich Editor Performance
 
-This document defines the performance and durability contract for Card Stage after the Block-first cutover. A Card is the product name for a document-bearing Block. Its title and body are edited directly in one collaborative Y.Doc; NFM and Card detail payloads are projections, never editor state authority.
+This document defines the performance and durability contract for Page Stage. A Page's title and body are edited directly in one collaborative Y.Doc; NFM and Page detail payloads are projections, never editor state authority.
 
 ## Authority Boundary
 
-Every Card owns one registered `nodex.card@2` Document with exactly:
+Every Page owns one registered `nodex.page@3` Document with exactly:
 
 - `Y.Text("title")` for the canonical rich title, using the validated portable-rich Delta subset.
 - `Y.XmlFragment("body")` for the BlockNote-compatible body tree.
 
-`CardStage` prepares the exact `(projectId, cardBlockId)` owned descriptor and mounts `BlockDocumentSurface` only when the descriptor is ready, schema-compatible, and `ydoc_primary`. `NfmEditor` receives the live body fragment; `CollaborativeCardTitle` receives the live title. Neither component receives a serialized body callback for persistence.
+`PageStage` prepares the exact owned descriptor and mounts `BlockDocumentSurface` only when the descriptor is ready, schema-compatible, and `ydoc_primary`. `NfmEditor` receives the live body fragment; the collaborative Page title receives the live title. Neither component receives a serialized body callback for persistence.
 
 Each mounted writable surface creates a fresh Y.Doc/client session, including two windows opened by the same user. Local transactions appear immediately, remote transactions merge through Yjs, and only the local surface's tracked origins enter its undo manager.
 
@@ -62,16 +62,16 @@ Fast successful updates are visually quiet. `BlockDocumentSyncStatus` surfaces o
 
 “Saved” means the newest submitted update has a durable SQLite acknowledgement. Awareness/presence is advisory and memory-only; it is not a write lock or durability signal.
 
-## Card and Board Read Models
+## Page and Board Read Models
 
-High-frequency Board state uses `BoardSummary`. Each Card summary contains bounded title/preview/property data assembled from:
+High-frequency Board state uses `BoardSummary`. Each Page summary contains bounded title/preview/property data assembled from:
 
 - the exact current Document materialization for title/body preview;
 - Block lifecycle and revisions;
 - Database membership, typed property values, and View position;
 - intrinsic Block properties.
 
-Full bodies never enter the shared Board snapshot. Card detail, reference summaries, notification summaries, Calendar, and search are separate read projections and must reject stale Document/property coordinates. A committed Document event can patch summary caches, but no summary or detail payload may seed or refresh an already mounted editor.
+Full bodies never enter the shared Board snapshot. Page detail, reference summaries, notification summaries, Calendar, and search are separate read projections and must reject stale Document/property coordinates. A committed Document event can patch summary caches, but no summary or detail payload may seed or refresh an already mounted editor.
 
 When a Document effect has no complete projection patch, each affected renderer
 consumer collapses the burst into one latest canonical repair after 300 ms of
@@ -105,7 +105,7 @@ Explicit replacement parses NFM and compiles stable-ID operations against the cu
 
 ## Lifecycle and Close
 
-Card Stage panel tabs may retain their mounted editor while their panel leaf remains mounted. Tab switching should preserve the ProseMirror instance, selection, local undo stack, plugin state, and native scroll position. An inactive retained surface may remain a content subscriber but must clear Awareness, stay ref-passive for shell-owned close/persist handles, and remain excluded from document-wide editor hover and drag/drop routing even though layout-preserving parking keeps its DOM geometry measurable.
+Page Stage panel tabs may retain their mounted editor while their panel leaf remains mounted. Tab switching should preserve the ProseMirror instance, selection, local undo stack, plugin state, and native scroll position. An inactive retained surface may remain a content subscriber but must clear Awareness, stay ref-passive for shell-owned close/persist handles, and remain excluded from document-wide editor hover and drag/drop routing even though layout-preserving parking keeps its DOM geometry measurable.
 
 Within retained cache capacity and one Store/access epoch, a durable title or body edit advances only the changed Page and affected Database View projections. It must not evict already hydrated sibling Page Details or send their Page Stage tabs back through skeleton loading.
 
@@ -162,7 +162,7 @@ Meaningful regression coverage belongs at behavior boundaries:
 
 - `nodex-y-provider.node.test.ts`: convergence, duplicate/out-of-order updates, durable ACK ordering, retry, delta-only checkpoint recovery, epoch reset, and bounded commit/cache-write amplification under sustained edits.
 - `block-document-surface.test.tsx` and runtime tests: descriptor validation, subscribe/sync before mount, bounded persist/close, reload, and inactive Awareness.
-- collaborative title and Card Stage component tests: direct Y.Text/body binding, local undo ownership, retained-tab identity, and fail-closed descriptor errors.
+- collaborative title and Page Stage component tests: direct Y.Text/body binding, local undo ownership, retained-tab identity, and fail-closed descriptor errors.
 - Rust Document Module tests: snapshot+tail reconstruction, schema/identity validation, atomic materialization/index commit, cache eviction, and post-commit recovery.
 - relocation/Document operation tests: leases, exact-head conflicts, fault injection, stale update recovery, and all-old/all-new outcomes.
 - causal projection, invalidation, List-window, and Board-store tests: exact-head
@@ -170,11 +170,11 @@ Meaningful regression coverage belongs at behavior boundaries:
   first windows, bounded grouped reads, and rejection of stale projections.
 - LocalCommit ingress tests: bounded inline Document validation concurrency
   without weakening atomic packet admission or integrity checks.
-- reference surface tests: idle collapsed rows create no provider; explicit Card-title engagement or expanded visibility mounts only the target Document within the provider cap; cycles remain navigation-only.
+- reference surface tests: idle collapsed rows create no provider; explicit Page-title engagement or expanded visibility mounts only the target Document within the provider cap; cycles remain navigation-only.
 
 Use Storybook and manual multi-window review for sync/error chrome and retained editor UX. Do not add tests that merely assert styling strings.
 
-## When Extending Card Stage
+## When Extending Page Stage
 
 Ask which owner the feature belongs to:
 
@@ -185,4 +185,4 @@ Ask which owner the feature belongs to:
 - selection/search/open state -> window-local UI;
 - history -> immutable checkpoint/evidence plus forward restore.
 
-If a proposed path needs `Card.description` to refresh a mounted editor or needs to submit the complete body after a keystroke, it violates this contract.
+If a proposed path needs a Page detail projection to refresh a mounted editor or needs to submit the complete body after a keystroke, it violates this contract.

@@ -12,10 +12,10 @@ use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant};
 
 use nodex_core_contracts::administration::{
-    BackupRecord, MaintenanceDueWorkPlan, MaintenanceTask, SchemaOwner,
-    StoreAdministrationCommitValue, StoreAdministrationEvent, StoreAdministrationEventKind,
-    StoreAdministrationIntent, StoreAdministrationRead, StoreAdministrationReadValue,
-    StoreAdministrationReceipt, StoreIntegrity, StoreReadiness,
+    BackupJobPhase, BackupJobState, BackupRecord, MaintenanceDueWorkPlan, MaintenanceTask,
+    SchemaOwner, StoreAdministrationCommitValue, StoreAdministrationEvent,
+    StoreAdministrationEventKind, StoreAdministrationIntent, StoreAdministrationRead,
+    StoreAdministrationReadValue, StoreAdministrationReceipt, StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::collection::{
     CollectionWindow, CollectionWindowAuthority, CollectionWindowRequest,
@@ -706,8 +706,14 @@ impl StoreAdministrationModule {
                 backup_id,
             )
             .map_err(core_error)?;
-            backup::update_backup_job_phase(&profile_home, &operation_id, "ready", "ready", None)
-                .map_err(core_error)?;
+            backup::update_backup_job_phase(
+                &profile_home,
+                &operation_id,
+                BackupJobState::Ready,
+                BackupJobPhase::Ready,
+                None,
+            )
+            .map_err(core_error)?;
             return Ok(outcome);
         }
 
@@ -760,8 +766,8 @@ impl StoreAdministrationModule {
             backup::update_backup_job_phase(
                 &profile_home,
                 &operation_id,
-                "failed",
-                "failed",
+                BackupJobState::Failed,
+                BackupJobPhase::Failed,
                 Some(if inventory.len() >= MAX_BACKUPS {
                     "Snapshot limit reached. Delete an older snapshot first."
                 } else {
@@ -820,11 +826,11 @@ impl StoreAdministrationModule {
         let cancellation_operation_id = operation_id.clone();
         let progress_profile_home = profile_home.clone();
         let progress_operation_id = operation_id.clone();
-        let progress = move |phase: &'static str| {
+        let progress = move |phase: BackupJobPhase| {
             backup::update_backup_job_phase(
                 &progress_profile_home,
                 &progress_operation_id,
-                "running",
+                BackupJobState::Running,
                 phase,
                 None,
             )?;
@@ -836,7 +842,7 @@ impl StoreAdministrationModule {
                 .as_mut()
                 .filter(|active| active.operation_id == progress_operation_id)
                 .ok_or_else(|| internal("Backup operation lost its runtime ownership"))?;
-            active.phase = phase.to_owned();
+            active.phase = phase.as_str().to_owned();
             Ok(())
         };
         let cancellation_requested = move || {
@@ -872,8 +878,14 @@ impl StoreAdministrationModule {
         })?;
         let record = staged.record().clone();
         drop(admin_reader);
-        backup::update_backup_job_phase(&profile_home, &operation_id, "running", "commit", None)
-            .map_err(core_error)?;
+        backup::update_backup_job_phase(
+            &profile_home,
+            &operation_id,
+            BackupJobState::Running,
+            BackupJobPhase::Commit,
+            None,
+        )
+        .map_err(core_error)?;
 
         let finish_profile_id = profile_id;
         let finish_library_id = library_id;
@@ -910,8 +922,8 @@ impl StoreAdministrationModule {
                 backup::update_backup_job_phase(
                     &profile_home,
                     &operation_id,
-                    "failed",
-                    "failed",
+                    BackupJobState::Failed,
+                    BackupJobPhase::Failed,
                     Some("Snapshot could not be committed."),
                 )
                 .map_err(core_error)?;
@@ -927,8 +939,8 @@ impl StoreAdministrationModule {
         backup::update_backup_job_phase(
             &profile_home,
             &operation_id,
-            "running",
-            "publishing",
+            BackupJobState::Running,
+            BackupJobPhase::Publishing,
             None,
         )
         .map_err(core_error)?;
@@ -955,8 +967,14 @@ impl StoreAdministrationModule {
         if let Ok(mut state) = self.runtime.lock() {
             state.integrity = StoreIntegrity::Ok;
         }
-        backup::update_backup_job_phase(&profile_home, &operation_id, "ready", "ready", None)
-            .map_err(core_error)?;
+        backup::update_backup_job_phase(
+            &profile_home,
+            &operation_id,
+            BackupJobState::Ready,
+            BackupJobPhase::Ready,
+            None,
+        )
+        .map_err(core_error)?;
         Ok(outcome)
     }
 
@@ -2338,8 +2356,16 @@ fn fail_backup_job(
     if let Err(journal_error) = backup::update_backup_job_phase(
         profile_home,
         operation_id,
-        if cancelled { "cancelled" } else { "failed" },
-        if cancelled { "cancelled" } else { "failed" },
+        if cancelled {
+            BackupJobState::Cancelled
+        } else {
+            BackupJobState::Failed
+        },
+        if cancelled {
+            BackupJobPhase::Cancelled
+        } else {
+            BackupJobPhase::Failed
+        },
         (!cancelled).then_some(user_message),
     ) {
         return core_error(journal_error);

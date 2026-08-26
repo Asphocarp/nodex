@@ -1543,6 +1543,20 @@ export interface CreateBackupInput {
 
 export type BackupJobState = "queued" | "running" | "cancelled" | "completed" | "failed";
 
+export type BackupJobPhase =
+  | "queued"
+  | "preparing"
+  | "cancellation_requested"
+  | "cancelled"
+  | "database_snapshot"
+  | "asset_copy"
+  | "validation"
+  | "digest"
+  | "commit"
+  | "publishing"
+  | "ready"
+  | "failed";
+
 export interface BackupJobProgress {
   databaseCopiedPages: number;
   databaseTotalPages: number;
@@ -1559,7 +1573,7 @@ export interface BackupJobProgress {
 export interface BackupJobStatus {
   jobId: string;
   state: BackupJobState;
-  phase: string;
+  phase: BackupJobPhase;
   completedUnits: number;
   totalUnits: number;
   startedAt: number;

@@ -756,14 +756,5 @@ idempotency, projections, and post-commit events behind `read` and `apply`.
 - `docs/adr/0004-atomic-block-relocation.md`: atomic ownership movement.
 - `docs/adr/0005-canvas-scene-native-sync-engine.md`: engine-neutral Documents
   and scene-native Canvas authority.
-- `docs/adr/0005-exclusive-card-parent-and-block-transfer.md`: retained exclusive
-  parenting/transfer durability; old parent nouns are superseded.
-- `docs/adr/0006-rich-card-title-and-semantic-block-promotion.md`: rich title and
-  semantic promotion behavior, to be renamed Page.
-- `docs/adr/0007-card-outliner-independent-document-surface.md`: flat outliner
-  presentation over independently synchronized target Documents.
-- `docs/adr/0010-card-detail-and-database-capability.md`: retained
-  membership-independent detail read; Card/Database capability terms are
-  superseded.
 - `docs/adr/0014-document-revision-history.md`: semantic revisions and forward
   restore.

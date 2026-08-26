@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
 interface LintDiagnostic {
@@ -34,7 +34,8 @@ function ownedPackageManifestPaths(): readonly string[] {
   const packagesDirectory = resolve(projectRoot, "packages");
   const workspaceManifests = readdirSync(packagesDirectory, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .map((entry) => resolve(packagesDirectory, entry.name, "package.json"));
+    .map((entry) => resolve(packagesDirectory, entry.name, "package.json"))
+    .filter(existsSync);
   return [resolve(projectRoot, "package.json"), ...workspaceManifests];
 }
 

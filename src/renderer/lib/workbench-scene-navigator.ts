@@ -151,6 +151,7 @@ export interface WorkbenchSceneNavigatorIdentityFactory {
 }
 
 export interface WorkbenchSceneNavigatorPort {
+  readonly hasAttachedThread: (sessionId: string) => boolean;
   readonly setScene: (
     owner: WorkbenchSceneOwner,
     update: (previous: WorkbenchSceneSnapshot | undefined) => WorkbenchSceneSnapshot,
@@ -501,6 +502,7 @@ function presentPreviewSurface(
 }
 
 function validateSceneSurfaceRequest(
+  port: WorkbenchSceneNavigatorPort,
   input: PresentWorkbenchPanelSurfaceInput,
 ): PresentWorkbenchPanelSurfaceResult | null {
   if (input.request.kind === "conversation") {
@@ -513,6 +515,16 @@ function validateSceneSurfaceRequest(
     return {
       status: "unavailable",
       reason: "Review requires an attached Session",
+    };
+  }
+  if (
+    input.owner.kind === "session" &&
+    input.request.kind === "review" &&
+    !port.hasAttachedThread(input.owner.sessionId)
+  ) {
+    return {
+      status: "unavailable",
+      reason: "Review requires an attached Thread",
     };
   }
   if (input.owner.kind !== "pages") return null;
@@ -540,7 +552,7 @@ export function createWorkbenchSceneNavigator(
   const presentPanelSurface = async (
     input: PresentWorkbenchPanelSurfaceInput,
   ): Promise<PresentWorkbenchPanelSurfaceResult> => {
-    const unavailable = validateSceneSurfaceRequest(input);
+    const unavailable = validateSceneSurfaceRequest(port, input);
     if (unavailable) return unavailable;
 
     const candidate = makeSurfaceDescriptor(input.request, identities);

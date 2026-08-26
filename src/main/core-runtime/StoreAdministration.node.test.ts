@@ -317,8 +317,8 @@ it.effect("resumes a durable Core snapshot job when Main starts again", () =>
     const durableJob = {
       job_id: operationId,
       operation_id: operationId,
-      state: "running",
-      phase: "validation",
+      state: "running" as const,
+      phase: "validation" as const,
       completed_units: 3,
       total_units: 7,
       started_at_ms: 10,

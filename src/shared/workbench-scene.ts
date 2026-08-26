@@ -477,6 +477,25 @@ function enforceSessionSceneInvariants(scene: WorkbenchSceneSnapshot): Workbench
   };
 }
 
+/** Removes Review surfaces when a Session has no attached Thread to review. */
+export function enforceWorkbenchSessionReviewEligibility(
+  scene: WorkbenchSceneSnapshot,
+  hasAttachedThread: boolean,
+): WorkbenchSceneSnapshot {
+  if (scene.owner.kind !== "session" || hasAttachedThread) return scene;
+
+  const reviewSurfaceIds = Object.values(scene.panelSurfacesById)
+    .filter((surface) => surface.kind === "review")
+    .map((surface) => surface.id);
+  if (reviewSurfaceIds.length === 0) return scene;
+
+  const eligibleScene = reviewSurfaceIds.reduce(
+    (current, surfaceId) => removeWorkbenchSceneSurface(current, surfaceId),
+    scene,
+  );
+  return { ...eligibleScene, touchedAt: scene.touchedAt };
+}
+
 export function isPagesSceneSurfaceAllowed(surface: WorkbenchSurfaceDescriptor): boolean {
   if (surface.kind === "page_stage" || surface.kind === "canvas_stage") {
     return surface.config.accessContext.kind === "library";

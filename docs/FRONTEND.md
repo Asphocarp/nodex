@@ -252,7 +252,7 @@ uses local state and a submit-time guard.
 
 Feature-specific editor behavior belongs in the focused specifications listed
 in [Product specifications](product-specs/index.md). Rich-editor performance
-work follows [Card Stage rich-editor performance](card-stage-rich-editor-performance.md).
+work follows [Page Stage rich-editor performance](product-specs/card-stage-rich-editor-performance.md).
 
 ## Shared UI system
 

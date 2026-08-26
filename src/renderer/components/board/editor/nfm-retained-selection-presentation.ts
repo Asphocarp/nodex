@@ -1,5 +1,5 @@
 import { ShowSelectionExtension } from "@blocknote/core/extensions";
-import { useExtension } from "@blocknote/react";
+import { useBlockNoteEditor } from "@blocknote/react";
 import { useEffectEvent, useLayoutEffect } from "react";
 
 import { SelectedBlockDecorationsExtension } from "./selected-block-decorations";
@@ -12,19 +12,22 @@ export function useNfmRetainedSelectionPresentation(
   owner: string,
   selectedBlockIds: readonly string[],
 ) {
-  const { showSelection } = useExtension(ShowSelectionExtension);
-  const { showSelectionAsBlocks } = useExtension(SelectedBlockDecorationsExtension);
+  const editor = useBlockNoteEditor();
+  const showSelection = editor.getExtension(ShowSelectionExtension)?.showSelection;
+  const showSelectionAsBlocks = editor.getExtension(
+    SelectedBlockDecorationsExtension,
+  )?.showSelectionAsBlocks;
   const selectedBlockIdsSignature = JSON.stringify(selectedBlockIds);
   const syncPresentation = useEffectEvent(() => {
-    showSelection(presentation === "inline", owner);
-    showSelectionAsBlocks(presentation === "blocks", owner, selectedBlockIds);
+    showSelection?.(presentation === "inline", owner);
+    showSelectionAsBlocks?.(presentation === "blocks", owner, selectedBlockIds);
   });
 
   useLayoutEffect(() => {
     syncPresentation();
     return () => {
-      showSelection(false, owner);
-      showSelectionAsBlocks(false, owner);
+      showSelection?.(false, owner);
+      showSelectionAsBlocks?.(false, owner);
     };
   }, [owner, presentation, selectedBlockIdsSignature, showSelection, showSelectionAsBlocks]);
 }

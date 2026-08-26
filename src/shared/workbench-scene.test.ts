@@ -11,6 +11,7 @@ import {
   cloneWorkbenchSceneLayoutForNewWindow,
   collectWorkbenchScenePresentedPageIds,
   createWorkbenchSceneSurface,
+  enforceWorkbenchSessionReviewEligibility,
   getWorkbenchSurfaceReuseKey,
   makeWorkbenchSceneKey,
   materializeInitialWorkbenchScene,
@@ -847,5 +848,34 @@ describe("WorkbenchScene", () => {
       }),
     ).toBe("review");
     expect(getWorkbenchSurfaceReuseKey(browserSurface())).toBeNull();
+  });
+
+  test("prunes persisted Review surfaces when a Session no longer has a Thread", () => {
+    const session = materializeInitialWorkbenchScene(
+      { kind: "session", sessionId: "session-1" },
+      {
+        identityFactory: identityFactory("threadless"),
+        touchedAt: "2026-08-26T00:00:00.000Z",
+      },
+    );
+    const withReview = createWorkbenchSceneSurface(session, {
+      panelId: "right",
+      surface: {
+        id: "review-session",
+        kind: "review",
+        titleSnapshot: "Review",
+        config: { projectId: "project-1" },
+        stateKey: 0,
+        state: null,
+      },
+    });
+
+    expect(enforceWorkbenchSessionReviewEligibility(withReview, true)).toBe(withReview);
+    const eligible = enforceWorkbenchSessionReviewEligibility(withReview, false);
+    expect(eligible.panelSurfacesById["review-session"]).toBeUndefined();
+    expect(flattenWorkbenchPanelTabIds(eligible.panels.right.layout)).not.toContain(
+      "review-session",
+    );
+    expect(eligible.touchedAt).toBe(withReview.touchedAt);
   });
 });

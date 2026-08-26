@@ -19,6 +19,9 @@ import {
 } from "../window-runtime/ApplicationWindowShellRuntime";
 import { WindowRuntime, live as windowRuntimeLive } from "../window-runtime/WindowRuntime";
 import { MainConfig } from "./MainConfig";
+import { MainShutdown } from "./MainShutdown";
+import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
+import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 
 const windowRuntime = Layer.unwrap(
   Effect.gen(function* () {
@@ -64,5 +67,11 @@ export const live: Layer.Layer<
   | ApplicationWindowShellRuntime
   | AppProtocolRuntime.AppProtocolRuntime,
   never,
-  ElectronApp | ElectronIpc | ElectronSessionHost | MainConfig
+  | ElectronApp
+  | ElectronDesktop
+  | ElectronIpc
+  | ElectronSessionHost
+  | MainConfig
+  | MainShutdown
+  | ScopedCallbackRuntime
 > = started;

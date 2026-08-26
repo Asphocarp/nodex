@@ -11,6 +11,7 @@ import type {
 import type { WorkbenchLocation } from "../../shared/workbench-layout";
 import { getWorkbenchSceneReturnLocation } from "../../shared/workbench-layout";
 import {
+  enforceWorkbenchSessionReviewEligibility,
   makeWorkbenchSceneKey,
   materializeInitialWorkbenchScene,
   type WorkbenchSceneOwner,
@@ -213,7 +214,10 @@ export function useWorkbenchSessionCatalog({
             sessionId: session.id,
           })
         ];
-      return persisted ?? materializeInitialWorkbenchScene(owner);
+      return enforceWorkbenchSessionReviewEligibility(
+        persisted ?? materializeInitialWorkbenchScene(owner),
+        session.thread !== null,
+      );
     },
     [window.scenesByOwnerKey],
   );
@@ -303,6 +307,17 @@ export function useWorkbenchSessionCatalog({
     ],
     [collectionsByProject, projectlessCollection.presentations],
   );
+  useEffect(() => {
+    for (const presentation of known) {
+      if (presentation.domain.thread !== null) continue;
+      const owner = { kind: "session", sessionId: presentation.domain.id } as const;
+      const persisted = window.scenesByOwnerKey[makeWorkbenchSceneKey(owner)];
+      if (!persisted) continue;
+      const eligible = enforceWorkbenchSessionReviewEligibility(persisted, false);
+      if (eligible === persisted) continue;
+      window.setScene(owner, eligible);
+    }
+  }, [known, window]);
   const selectedSummaryPresentation = activeSessionId
     ? (known.find((candidate) => candidate.domain.id === activeSessionId) ?? null)
     : null;

@@ -7,7 +7,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use nodex_core_contracts::administration::{
-    BackupCapacity, BackupJobProgress, BackupJobRecord, BackupRecord, BackupTrigger,
+    BackupCapacity, BackupJobPhase, BackupJobProgress, BackupJobRecord, BackupJobState,
+    BackupRecord, BackupTrigger,
 };
 use rusqlite::backup::{Backup, StepResult};
 use rusqlite::{Connection, OptionalExtension};
@@ -154,8 +155,8 @@ struct BackupJobJournal {
     operation_id: String,
     request_hash: String,
     profile_id: String,
-    state: String,
-    phase: String,
+    state: BackupJobState,
+    phase: BackupJobPhase,
     started_at_ms: i64,
     updated_at_ms: i64,
     label: Option<String>,
@@ -437,7 +438,7 @@ pub(super) fn create_backup(
     label: Option<&str>,
     include_assets: bool,
     trigger: BackupTrigger,
-    progress: &dyn Fn(&'static str) -> Result<(), StoreError>,
+    progress: &dyn Fn(BackupJobPhase) -> Result<(), StoreError>,
     cancellation_requested: &dyn Fn() -> Result<bool, StoreError>,
 ) -> Result<VerifiedStagedBackup, StoreError> {
     let trigger = trigger_name(trigger);
@@ -458,15 +459,15 @@ pub(super) fn create_backup(
 pub(super) fn update_backup_job_phase(
     profile_home: &Path,
     operation_id: &str,
-    state: &str,
-    phase: &str,
+    state: BackupJobState,
+    phase: BackupJobPhase,
     error: Option<&str>,
 ) -> Result<(), StoreError> {
     let Some(mut journal) = read_backup_job(profile_home, operation_id)? else {
         return Ok(());
     };
-    journal.state = state.to_owned();
-    journal.phase = phase.to_owned();
+    journal.state = state;
+    journal.phase = phase;
     journal.updated_at_ms = current_time_millis()?;
     journal.error = error.map(str::to_owned);
     write_backup_job(profile_home, &journal)
@@ -500,13 +501,18 @@ pub(super) fn request_backup_job_cancel(
             false,
         ));
     };
-    if journal.state == "cancelled" || (journal.state == "cancelling" && has_active_worker) {
+    if journal.state == BackupJobState::Cancelled
+        || (journal.state == BackupJobState::Cancelling && has_active_worker)
+    {
         return Ok(false);
     }
-    if journal.state == "ready"
-        || journal.state == "failed"
-        || matches!(journal.phase.as_str(), "commit" | "publishing" | "ready")
-    {
+    if matches!(
+        journal.state,
+        BackupJobState::Ready | BackupJobState::Failed
+    ) || matches!(
+        journal.phase,
+        BackupJobPhase::Commit | BackupJobPhase::Publishing | BackupJobPhase::Ready
+    ) {
         return Err(StoreError::new(
             StoreErrorCode::Conflict,
             "Snapshot can no longer be cancelled after publication has begun",
@@ -516,8 +522,8 @@ pub(super) fn request_backup_job_cancel(
     journal.updated_at_ms = current_time_millis()?;
     journal.error = None;
     if has_active_worker {
-        journal.state = "cancelling".to_owned();
-        journal.phase = "cancellation_requested".to_owned();
+        journal.state = BackupJobState::Cancelling;
+        journal.phase = BackupJobPhase::CancellationRequested;
         write_backup_job(profile_home, &journal)?;
         return Ok(true);
     }
@@ -527,8 +533,8 @@ pub(super) fn request_backup_job_cancel(
     if staging_directory.exists() {
         remove_owned_staging_directory(&root, &staging_directory)?;
     }
-    journal.state = "cancelled".to_owned();
-    journal.phase = "cancelled".to_owned();
+    journal.state = BackupJobState::Cancelled;
+    journal.phase = BackupJobPhase::Cancelled;
     write_backup_job(profile_home, &journal)?;
     Ok(true)
 }
@@ -558,7 +564,13 @@ pub(super) fn create_safety_backup(
     )?;
     let record = staged.record().clone();
     publish_verified_backup(staged)?;
-    update_backup_job_phase(profile_home, &operation_id, "ready", "ready", None)?;
+    update_backup_job_phase(
+        profile_home,
+        &operation_id,
+        BackupJobState::Ready,
+        BackupJobPhase::Ready,
+        None,
+    )?;
     Ok(record)
 }
 
@@ -572,7 +584,7 @@ fn stage_backup_with_trigger(
     label: Option<&str>,
     include_assets: bool,
     trigger: &str,
-    progress: &dyn Fn(&'static str) -> Result<(), StoreError>,
+    progress: &dyn Fn(BackupJobPhase) -> Result<(), StoreError>,
     cancellation_requested: &dyn Fn() -> Result<bool, StoreError>,
 ) -> Result<VerifiedStagedBackup, StoreError> {
     let root = prepare_backup_root(profile_home)?;
@@ -643,16 +655,16 @@ fn stage_backup_with_trigger(
                 update_backup_job_phase(
                     profile_home,
                     operation_id,
-                    "cancelled",
-                    "cancelled",
+                    BackupJobState::Cancelled,
+                    BackupJobPhase::Cancelled,
                     None,
                 )?;
             } else {
                 update_backup_job_phase(
                     profile_home,
                     operation_id,
-                    "failed",
-                    "failed",
+                    BackupJobState::Failed,
+                    BackupJobPhase::Failed,
                     Some("Snapshot creation failed."),
                 )?;
             }
@@ -751,12 +763,12 @@ fn stage_backup(
     label: Option<&str>,
     include_assets: bool,
     trigger: &str,
-    progress: &dyn Fn(&'static str) -> Result<(), StoreError>,
+    progress: &dyn Fn(BackupJobPhase) -> Result<(), StoreError>,
     cancellation_requested: &dyn Fn() -> Result<bool, StoreError>,
 ) -> Result<BackupRecord, StoreError> {
     let asset_snapshot_lease =
         crate::infrastructure::managed_asset_snapshot::acquire_snapshot_lease()?;
-    progress("database_snapshot")?;
+    progress(BackupJobPhase::DatabaseSnapshot)?;
     let database_path = staging_directory.join(BACKUP_DATABASE_FILE_NAME);
     let database_started_at = Instant::now();
     let mut database_busy_retries = 0u64;
@@ -800,7 +812,7 @@ fn stage_backup(
         progress.database_busy_retries = database_busy_retries;
     })?;
 
-    progress("asset_copy")?;
+    progress(BackupJobPhase::AssetCopy)?;
     if cancellation_requested()? {
         return Err(backup_cancelled());
     }
@@ -824,7 +836,7 @@ fn stage_backup(
     if cancellation_requested()? {
         return Err(backup_cancelled());
     }
-    progress("validation")?;
+    progress(BackupJobPhase::Validation)?;
     let validation_started_at = Instant::now();
     let (store_schema_version, store_epoch) = validate_backup_database(&database_path)?;
     update_backup_job_progress(profile_home, operation_id, |progress| {
@@ -834,7 +846,7 @@ fn stage_backup(
     if cancellation_requested()? {
         return Err(backup_cancelled());
     }
-    progress("digest")?;
+    progress(BackupJobPhase::Digest)?;
     let digest_started_at = Instant::now();
     let database_sha256 = sha256_regular_file(&database_path)?;
     update_backup_job_progress(profile_home, operation_id, |progress| {
@@ -870,7 +882,7 @@ fn stage_backup(
     if cancellation_requested()? {
         return Err(backup_cancelled());
     }
-    progress("commit")?;
+    progress(BackupJobPhase::Commit)?;
     write_manifest(staging_directory, &manifest)?;
     // The database, manifest, asset files, and nested asset directories were
     // already synced by their writers; persist only the staging entries here.
@@ -1730,12 +1742,15 @@ pub(super) fn begin_backup_job(
                 false,
             ));
         }
-        if matches!(existing.state.as_str(), "cancelling" | "cancelled") {
+        if matches!(
+            existing.state,
+            BackupJobState::Cancelling | BackupJobState::Cancelled
+        ) {
             return Err(backup_cancelled());
         }
-        if existing.state != "ready" {
-            existing.state = "running".to_owned();
-            existing.phase = "preparing".to_owned();
+        if existing.state != BackupJobState::Ready {
+            existing.state = BackupJobState::Running;
+            existing.phase = BackupJobPhase::Preparing;
             existing.updated_at_ms = current_time_millis()?;
             existing.error = None;
             write_backup_job(profile_home, &existing)?;
@@ -1751,8 +1766,8 @@ pub(super) fn begin_backup_job(
             operation_id: operation_id.to_owned(),
             request_hash: request_hash.to_owned(),
             profile_id: profile_id.to_owned(),
-            state: "running".to_owned(),
-            phase: "preparing".to_owned(),
+            state: BackupJobState::Running,
+            phase: BackupJobPhase::Preparing,
             started_at_ms: now,
             updated_at_ms: now,
             label: label.map(str::to_owned),
@@ -1887,7 +1902,10 @@ fn prune_terminal_backup_jobs(
         let journal: BackupJobJournal = serde_json::from_slice(&bytes)
             .map_err(|_| corrupt("Backup job journal JSON is invalid"))?;
         validate_backup_job(&journal)?;
-        if matches!(journal.state.as_str(), "cancelled" | "ready" | "failed") {
+        if matches!(
+            journal.state,
+            BackupJobState::Cancelled | BackupJobState::Ready | BackupJobState::Failed
+        ) {
             fs::remove_file(entry.path()).map_err(io_error)?;
             sync_directory(jobs)?;
             return Ok(());
@@ -1909,19 +1927,14 @@ fn validate_backup_job(journal: &BackupJobJournal) -> Result<(), StoreError> {
         || journal.profile_id.is_empty()
         || journal.started_at_ms < 0
         || journal.updated_at_ms < journal.started_at_ms
-        || !matches!(
-            journal.state.as_str(),
-            "running" | "cancelling" | "cancelled" | "ready" | "failed"
-        )
-        || journal.phase.is_empty()
         || !matches!(journal.trigger.as_str(), "manual" | "auto" | "pre-restore")
         || !is_safe_backup_id(&journal.backup_id)
         || journal
             .label
             .as_ref()
             .is_some_and(|label| label.chars().count() > 512)
-        || (journal.state == "failed" && journal.error.is_none())
-        || (journal.state != "failed" && journal.error.is_some())
+        || (journal.state == BackupJobState::Failed && journal.error.is_none())
+        || (journal.state != BackupJobState::Failed && journal.error.is_some())
     {
         return Err(corrupt("Backup job journal fields are invalid"));
     }
@@ -1935,7 +1948,7 @@ fn to_job_record(journal: BackupJobJournal) -> Result<BackupJobRecord, StoreErro
         "pre-restore" => BackupTrigger::PreRestore,
         _ => return Err(corrupt("Backup job trigger is invalid")),
     };
-    let (completed_units, total_units) = backup_phase_units(&journal.phase);
+    let (completed_units, total_units) = backup_phase_units(journal.phase);
     Ok(BackupJobRecord {
         job_id: journal.job_id,
         operation_id: journal.operation_id,
@@ -1954,17 +1967,20 @@ fn to_job_record(journal: BackupJobJournal) -> Result<BackupJobRecord, StoreErro
     })
 }
 
-fn backup_phase_units(phase: &str) -> (u64, u64) {
+fn backup_phase_units(phase: BackupJobPhase) -> (u64, u64) {
     let completed = match phase {
-        "queued" | "preparing" | "cancellation_requested" | "cancelled" => 0,
-        "database_snapshot" => 1,
-        "asset_copy" => 2,
-        "validation" => 3,
-        "digest" => 4,
-        "commit" => 5,
-        "publishing" => 6,
-        "ready" => 7,
-        _ => 0,
+        BackupJobPhase::Queued
+        | BackupJobPhase::Preparing
+        | BackupJobPhase::CancellationRequested
+        | BackupJobPhase::Cancelled
+        | BackupJobPhase::Failed => 0,
+        BackupJobPhase::DatabaseSnapshot => 1,
+        BackupJobPhase::AssetCopy => 2,
+        BackupJobPhase::Validation => 3,
+        BackupJobPhase::Digest => 4,
+        BackupJobPhase::Commit => 5,
+        BackupJobPhase::Publishing => 6,
+        BackupJobPhase::Ready => 7,
     };
     (completed, 7)
 }
