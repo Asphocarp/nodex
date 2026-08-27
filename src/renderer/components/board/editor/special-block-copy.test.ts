@@ -2,6 +2,7 @@ import { describe, expect, test } from "vite-plus/test";
 import { TextSelection } from "@tiptap/pm/state";
 import { Schema } from "@tiptap/pm/model";
 import {
+  createCopiedBlockPayload,
   createCopiedSelectionPayloadFromSelection,
   createStructuredPlainTextPayload,
   resolveNormalizedSelectionBlocks,
@@ -74,6 +75,33 @@ function createSelectionEditorStub(
 }
 
 describe("special block copy", () => {
+  test("serializes a current Block and its complete subtree without adjacent siblings", () => {
+    const current = {
+      id: "current",
+      type: "paragraph",
+      props: { textAlignment: "left" },
+      content: [{ type: "text", text: "Current", styles: {} }],
+      children: [
+        {
+          id: "child",
+          type: "paragraph",
+          props: { textAlignment: "left" },
+          content: [{ type: "text", text: "Child", styles: {} }],
+          children: [],
+        },
+      ],
+    };
+    const editor = createSelectionEditorStub({ blocks: [] });
+
+    const payload = createCopiedBlockPayload(editor, [current]);
+
+    expect(payload).toEqual({
+      clipboardHTML: "<full>Current\n\tChild</full>",
+      externalHTML: "<external>Current\n\tChild</external>",
+      structuredText: "Current\n\tChild",
+    });
+  });
+
   test("resolveStructuredPlainTextForSelection returns fallback when no block selection exists", () => {
     const fallback = "- fallback";
     const value = resolveStructuredPlainTextForSelection(

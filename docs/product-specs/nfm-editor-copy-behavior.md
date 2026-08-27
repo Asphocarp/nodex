@@ -1,7 +1,7 @@
 # NFM Editor Copy Behavior
 
 Status: Active
-Last Updated: 2026-08-21
+Last Updated: 2026-08-28
 
 This document describes copy-related behavior inside the NFM / BlockNote editor. It covers ordinary selection copy/cut, structural selection copy/cut, and the separate image-toolbar copy action.
 
@@ -35,14 +35,21 @@ They share some helpers, but they are not the same pipeline.
 
 ## Standard Copy And Cut
 
-The editor installs a ProseMirror plugin named `structured-plain-text-copy` that runs before BlockNote's default `copyToClipboard` extension. It first builds one visible-selection presentation, then chooses the ordinary or structural authority path from the selected forest.
+The editor installs a ProseMirror plugin named `nfm-structured-clipboard` that runs before BlockNote's default `copyToClipboard` extension. It resolves one semantic clipboard target, builds one portable presentation, then chooses the ordinary or structural authority path from that target.
+
+Target resolution follows this priority:
+
+1. A non-empty text, node, cell, or multi-Block selection remains authoritative.
+2. Otherwise, a collapsed text caret inside the host editor targets its complete current Block subtree.
+
+Copying from a collapsed caret does not manufacture a text or Block selection, move the caret, or show whole-Block selection paint. A native control or embedded non-editable island keeps its own clipboard behavior; a stale collapsed host-editor selection behind that control never becomes a Block command target.
 
 ### When it handles the event
 
 Standard copy/cut is handled only when all of the following are true:
 
 - the browser `ClipboardEvent` exposes `clipboardData`
-- the ProseMirror selection is non-empty
+- the target is either a non-empty ProseMirror selection or a collapsed text caret inside the host editor
 - structured payload creation succeeds
 - at least one clipboard MIME write succeeds
 
@@ -64,28 +71,30 @@ On success, the handler calls `preventDefault()`.
 
 Cut uses the same clipboard payload as copy.
 
-For an ordinary selection, after a successful clipboard write:
+For an ordinary target, after a successful clipboard write:
 
-- if the editor view is editable, it deletes the selection
+- if the editor view is editable, a range cut deletes that range and a collapsed-caret cut deletes the complete current Block subtree
 - if clipboard serialization/writing fails, it does not delete the selection
 
-For a selection containing an owning Page, Canvas, or Database, Core first captures an immutable ownership-closure snapshot. Main writes safe HTML/plain presentation plus a bounded capability envelope to the native clipboard and verifies that exact capability by reading it back. Cut submits one structural source deletion only after that verification succeeds. Failure leaves the complete source unchanged.
+A collapsed-caret cut resumes at the previous editable sibling's end, otherwise the next sibling's start, otherwise the parent or first surviving Block. Cutting the only root replaces it with one empty paragraph so the editor remains writable. The removal and cursor recovery form one undoable local transaction.
+
+For a target containing an owning Page, Canvas, or Database anywhere in its selected forest or current Block subtree, Core first captures an immutable ownership-closure snapshot. Main writes safe HTML/plain presentation plus a bounded capability envelope to the native clipboard and verifies that exact capability by reading it back. Cut submits one structural source deletion only after that verification succeeds. Failure leaves the complete source unchanged.
 
 ### How copy payloads are derived
 
-All 3 clipboard payloads are derived from the same cut-aware BlockNote selection snapshot when available:
+All 3 clipboard payloads are derived from the same resolved clipboard target:
 
 - `blocknote/html`
 - `text/html`
 - `text/plain`
 
-The helper starts from `editor.getSelectionCutBlocks(false)`, rebuilds a normalized selected block tree, and then exports:
+For a non-empty selection, the helper starts from `editor.getSelectionCutBlocks(false)` and rebuilds a normalized selected block tree. For a collapsed caret, it reads `editor.getTextCursorPosition().block` and keeps that Block's complete descendant tree. Both paths then export:
 
 - `clipboardHTML` from `editor.blocksToFullHTML(...)`
 - `externalHTML` from `editor.blocksToHTMLLossy(...)`
 - `structuredText` from `blockNoteToNfm(...)` plus `serializeClipboardText(...)`
 
-If the cut-aware path is unavailable or throws, the helper falls back to BlockNote's `selectedFragmentToHTML(...)` output and keeps the existing HTML-parse fallback for `text/plain`.
+If the cut-aware range path is unavailable or throws, the helper falls back to BlockNote's `selectedFragmentToHTML(...)` output and keeps the existing HTML-parse fallback for `text/plain`. A collapsed-caret Block target never degrades into an empty text-range payload.
 
 ### Plain-text asset rewriting
 
@@ -450,12 +459,13 @@ On success, the editor is focused again.
 ### Standard copy / cut
 
 - browser clipboard event driven
+- treats a collapsed host-editor caret as its complete current Block subtree without changing selection presentation
 - can write `blocknote/html`, `text/html`, `text/plain`
 - uses structure-preserving `text/plain`
 - preserves `blocknote/html` and `text/html` exactly as serialized
 - rewrites `nodex://assets/...` paths only in `text/plain` when the sync asset-path prefix is available
 - rewrites image lines in `text/plain` to Markdown image syntax after plain-text asset resolution
-- cut deletes the selection only after successful copy handling
+- cut deletes the resolved range or current Block only after successful copy handling
 
 ### Image toolbar copy
 

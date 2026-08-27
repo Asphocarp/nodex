@@ -1,10 +1,4 @@
-import {
-  createExtension,
-  getBlockInfo,
-  getNodeById,
-  selectedFragmentToHTML,
-  type ExtensionOptions,
-} from "@blocknote/core";
+import { createExtension, getBlockInfo, getNodeById, type ExtensionOptions } from "@blocknote/core";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "prosemirror-view";
@@ -24,11 +18,10 @@ import {
 } from "./child-group-enter";
 import { handleChildGroupBackspace } from "./child-group-backspace";
 import {
-  createCopiedSelectionPayloadFromSelection,
-  createStructuredPlainTextPayload,
-  rewriteCopiedSelectionAssetSourcesSync,
-  type SelectionEditorLike,
-} from "./special-block-copy";
+  cutOrdinaryNfmClipboardSelection,
+  resolveNfmClipboardSelection,
+} from "./nfm-clipboard-selection";
+import type { CopiedSelectionPayload } from "./special-block-copy";
 import { createEmptyThreadSectionBlock } from "./thread-section";
 import { canvasCreatePendingExtension } from "./canvas-create-pending-extension";
 import { mentionChipKeyboardNavigationExtension } from "./mention-chip-keyboard-navigation";
@@ -44,8 +37,6 @@ import type {
   NfmStructuralClipboardPresentation,
   NfmStructuralReplacementBlockLike,
 } from "./nfm-structural-editing-extension";
-import { getNfmBlockSelectionIds } from "./nfm-block-selection";
-import { hasTypedOwnerBlock } from "@/lib/typed-owner-blocks";
 import { nfmSyntaxHighlighter } from "@/lib/syntax-highlighting";
 import {
   planBackspaceAcrossAtomicBlocks,
@@ -128,27 +119,9 @@ const selectBlockShortcut = createExtension({
   },
 });
 
-function createStructuredSelectionClipboardPayload(
-  view: EditorView,
-  editor: BlockNoteEditor,
-): ReturnType<typeof createStructuredPlainTextPayload> | null {
-  if (view.state.selection.empty) return null;
-  try {
-    return rewriteCopiedSelectionAssetSourcesSync(
-      createCopiedSelectionPayloadFromSelection(
-        editor as unknown as SelectionEditorLike,
-        selectedFragmentToHTML(view, editor),
-      ),
-    );
-  } catch (error) {
-    console.error("Failed structured plain-text serialization", error);
-    return null;
-  }
-}
-
 function writeStructuredSelectionToClipboard(
   clipboardEvent: ClipboardEvent,
-  payload: ReturnType<typeof createStructuredPlainTextPayload>,
+  payload: CopiedSelectionPayload,
 ): boolean {
   if (!clipboardEvent.clipboardData) return false;
 
@@ -183,7 +156,7 @@ function writeStructuredSelectionToClipboard(
 
 function writeStructuralSelectionClaimToClipboard(
   clipboardEvent: ClipboardEvent,
-  payload: ReturnType<typeof createStructuredPlainTextPayload>,
+  payload: CopiedSelectionPayload,
   writeClaim: string,
 ): void {
   const clipboardData = clipboardEvent.clipboardData;
@@ -205,18 +178,6 @@ function writeStructuralSelectionClaimToClipboard(
   clipboardEvent.preventDefault();
 }
 
-function hasTypedOwnerClipboardSelection(view: EditorView, editor: BlockNoteEditor): boolean {
-  const blockSelectionIds = getNfmBlockSelectionIds(view.state.selection);
-  if (blockSelectionIds.length === 0) {
-    return hasTypedOwnerBlock(editor.getSelection()?.blocks ?? []);
-  }
-
-  const blockSelection = blockSelectionIds
-    .map((blockId) => editor.getBlock(blockId))
-    .filter((block) => block !== undefined);
-  return blockSelection.length !== blockSelectionIds.length || hasTypedOwnerBlock(blockSelection);
-}
-
 function blockUnavailableTypedOwnerClipboard(
   clipboardEvent: ClipboardEvent,
   onUnavailable: (() => void) | undefined,
@@ -234,8 +195,10 @@ function handleNfmClipboardCommand(
   options: NfmEditorExtensionOptions,
   clipboardEvent: ClipboardEvent,
 ): boolean {
-  const hasTypedOwnerSelection = hasTypedOwnerClipboardSelection(view, editor);
-  const payload = createStructuredSelectionClipboardPayload(view, editor);
+  const selection = resolveNfmClipboardSelection(view, editor, clipboardEvent.target);
+  if (!selection) return false;
+
+  const { hasTypedOwner: hasTypedOwnerSelection, payload } = selection;
   if (!payload) {
     if (!hasTypedOwnerSelection) return false;
     blockUnavailableTypedOwnerClipboard(clipboardEvent, options.onTypedBlocksUnavailable);
@@ -268,7 +231,7 @@ function handleNfmClipboardCommand(
   if (!writeStructuredSelectionToClipboard(clipboardEvent, payload)) return false;
 
   if (command === "cut" && view.editable) {
-    view.dispatch(view.state.tr.deleteSelection());
+    cutOrdinaryNfmClipboardSelection(view, editor, selection);
   }
   return true;
 }

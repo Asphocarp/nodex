@@ -25,7 +25,7 @@ interface ClipboardWriteOptions {
   clipboardItemCtor?: ClipboardItemCtor;
 }
 
-interface SelectionBlockLike {
+export interface SelectionBlockLike {
   id: string;
   type?: string;
   content?: unknown[];
@@ -685,6 +685,27 @@ export function createCopiedSelectionPayloadFromSelection(
   }
 
   throw new Error("Failed to create copied selection payload");
+}
+
+/** Serializes complete Block roots without manufacturing a visible editor selection. */
+export function createCopiedBlockPayload(
+  editor: SelectionEditorLike,
+  blocks: SelectionBlockLike[],
+): CopiedSelectionPayload {
+  if (!canSerializeSelectionHtml(editor)) {
+    throw new Error("Failed to create copied Block payload");
+  }
+
+  const normalizedBlocks = buildSelectionTree(editor, blocks);
+  if (normalizedBlocks.length === 0) {
+    throw new Error("Failed to create copied Block payload");
+  }
+
+  return {
+    clipboardHTML: editor.blocksToFullHTML(normalizedBlocks),
+    externalHTML: editor.blocksToHTMLLossy(normalizedBlocks),
+    structuredText: serializeSelectionToStructuredPlainText(normalizedBlocks),
+  };
 }
 
 export function createStructuredPlainTextPayload(
