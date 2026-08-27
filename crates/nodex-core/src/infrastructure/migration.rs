@@ -1541,6 +1541,14 @@ mod tests {
         .expect("frozen v133 Store");
     }
 
+    fn install_v136_fixture(home: &Path) {
+        fs::write(
+            home.join("nodex.db"),
+            include_bytes!("../../tests/fixtures/store-v136.db"),
+        )
+        .expect("frozen v136 Store");
+    }
+
     fn profile_secrets(connection: &Connection) -> (Vec<u8>, String) {
         let token = connection
             .query_row(
@@ -2128,6 +2136,83 @@ mod tests {
                 .is_some();
             assert!(exists, "missing {table}");
         }
+    }
+
+    #[test]
+    fn exact_v136_predecessor_migrates_to_current_once() {
+        let directory = tempdir().expect("Profile");
+        install_v136_fixture(directory.path());
+        let mut connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
+        validate_schema_identity(&connection, 136).expect("exact published v136 Store");
+        let source_secrets = profile_secrets(&connection);
+        let mut events = Vec::new();
+
+        let preparation =
+            prepare_profile_store_with_observer(&mut connection, directory.path(), &mut |event| {
+                events.push(event)
+            })
+            .expect("migrate v136");
+
+        assert_eq!(preparation.migrated_from_version, Some(136));
+        assert_eq!(preparation.schema_version, 137);
+        assert_eq!(
+            events,
+            vec![
+                StorePreparationEvent::MigrationStarted {
+                    from_version: 136,
+                    to_version: 137,
+                },
+                StorePreparationEvent::MigrationProgress {
+                    completed: 1,
+                    total: 1,
+                },
+            ]
+        );
+        validate_current_store(&connection).expect("current Store");
+        assert_eq!(profile_secrets(&connection), source_secrets);
+        let (source_revision, target_revision, backup_name) = connection
+            .query_row(
+                "SELECT source_revision, target_revision, backup_name \
+                 FROM core_store_migration_history",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .expect("v136 migration history");
+        assert_eq!((source_revision, target_revision), (136, 137));
+        assert!(backup_name.starts_with("v136-to-v137-"));
+        let backup_path = directory
+            .path()
+            .join("backups/core-migrations")
+            .join(backup_name);
+        validate_migration_backup(&backup_path, 136).expect("exact v136 migration backup");
+        drop(connection);
+
+        let mut reopened = open_writer(&directory.path().join("nodex.db")).expect("reopen");
+        let reopened_preparation =
+            prepare_profile_store(&mut reopened, directory.path()).expect("current reopen");
+        assert_eq!(reopened_preparation.migrated_from_version, None);
+        assert_eq!(
+            reopened
+                .query_row(
+                    "SELECT count(*) FROM core_store_migration_history",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("stable history"),
+            1
+        );
+        assert_eq!(
+            fs::read_dir(directory.path().join("backups/core-migrations"))
+                .expect("backups")
+                .count(),
+            1
+        );
     }
 
     #[test]

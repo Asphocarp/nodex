@@ -185,7 +185,7 @@ export function NodexTooltip({
             className={cn(
               richSurface
                 ? nodexFloatingSurfaceClassName
-                : "no-drag w-fit select-none rounded-lg border border-token-border bg-token-dropdown-background px-2 py-1 text-sm text-token-foreground whitespace-normal break-words",
+                : "no-drag w-fit select-none rounded-lg border-[0.5px] border-token-border bg-token-dropdown-background px-2 py-1 text-sm text-token-foreground whitespace-normal break-words",
               !richSurface && APP_SHELL_TOOLTIP_LAYER_CLASS,
               tooltipClassName,
             )}

@@ -425,14 +425,14 @@ export function LeftSidebar({
                         {SectionIcon ? (
                           <SectionIcon
                             className={cn(
-                              "absolute inset-0 my-auto ml-[-0.1rem] size-4.5 transition-opacity duration-150",
+                              "absolute inset-0 my-auto ml-[-0.1rem] size-4.5",
                               "opacity-100 group-hover/status:opacity-0 group-focus-visible:opacity-0",
                             )}
                           />
                         ) : null}
                         <ChevronDown
                           className={cn(
-                            "absolute inset-0 m-auto size-3 transition-all duration-150",
+                            "absolute inset-0 m-auto size-3 transition-transform duration-150",
                             SectionIcon
                               ? "opacity-0 group-hover/status:opacity-100 group-focus-visible:opacity-100"
                               : "opacity-100",

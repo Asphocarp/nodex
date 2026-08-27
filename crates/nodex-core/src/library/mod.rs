@@ -7807,6 +7807,21 @@ mod tests {
                 .map(|receipt| &receipt.outcome),
             Some(LibraryBlockPropertyMutationOutcome::Committed { .. })
         ));
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let (metadata_revision, indexed_metadata_revision) = connection.query_row(
+                    "SELECT block.metadata_revision, schedule.source_metadata_revision \
+                     FROM blocks block \
+                     JOIN scheduled_page_index schedule ON schedule.page_block_id = block.id \
+                     WHERE block.id = ?1",
+                    [PAGE],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                assert_eq!(indexed_metadata_revision, metadata_revision);
+                Ok(())
+            })
+            .expect("ordinary Property edits refresh scheduled Page source coordinates");
     }
 
     #[test]
