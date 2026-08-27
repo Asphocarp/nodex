@@ -73,8 +73,14 @@ describe("headless Block Document schema", () => {
             type: "threadMention",
             props: { uuid: "thread-1" },
           },
+          { type: "math", content: "x^2" },
           { type: "text", text: " after", styles: { italic: true } },
         ],
+      },
+      {
+        id: "math-block",
+        type: "mathBlock",
+        content: "\\sum_i x_i",
       },
       {
         id: "thread-section-block",
@@ -129,7 +135,7 @@ describe("headless Block Document schema", () => {
 
     expect(JSON.stringify(decoded)).toBe(JSON.stringify(editor.document));
     expect(decoded.map((block) => block.id).join(",")).toBe(
-      "callout-block,thread-section-block,page-block,database-block,canonical-page-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block",
+      "callout-block,math-block,thread-section-block,page-block,database-block,canonical-page-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block",
     );
   });
 });

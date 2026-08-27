@@ -84,6 +84,26 @@ export function parseNfm(input: string): NfmBlock[] {
       continue;
     }
 
+    const mathFenceLength = parseMathFenceOpen(content);
+    if (mathFenceLength !== null) {
+      const closingLine = findClosingMathFence(lines, i + 1, indent, mathFenceLength);
+      if (closingLine !== -1) {
+        const sourceLines = lines
+          .slice(i + 1, closingLine)
+          .map((sourceLine) => sourceLine.slice(indent));
+        addBlock(
+          {
+            type: "mathBlock",
+            source: sourceLines.join("\n"),
+            children: [],
+          },
+          indent,
+        );
+        i = closingLine + 1;
+        continue;
+      }
+    }
+
     const codeFence = parseCodeFenceOpen(content);
     if (codeFence) {
       const codeLines: string[] = [];
@@ -354,6 +374,28 @@ export function parseNfm(input: string): NfmBlock[] {
 }
 
 type CodeFenceMarker = "`" | "~";
+
+function parseMathFenceOpen(content: string): number | null {
+  const trimmed = content.trimEnd();
+  if (trimmed.length < 2) return null;
+  for (const char of trimmed) {
+    if (char !== "$") return null;
+  }
+  return trimmed.length;
+}
+
+function findClosingMathFence(
+  lines: readonly string[],
+  startLine: number,
+  indent: number,
+  fenceLength: number,
+): number {
+  const fence = "$".repeat(fenceLength);
+  for (let lineIndex = startLine; lineIndex < lines.length; lineIndex += 1) {
+    if (lines[lineIndex]!.slice(indent).trimEnd() === fence) return lineIndex;
+  }
+  return -1;
+}
 
 interface CodeFenceOpen {
   marker: CodeFenceMarker;

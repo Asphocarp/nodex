@@ -378,7 +378,8 @@ const parseStructuralTurnIntoTarget = (value: unknown, label: string) => {
     target.kind === "toggle_list" ||
     target.kind === "quote" ||
     target.kind === "callout" ||
-    target.kind === "code"
+    target.kind === "code" ||
+    target.kind === "equation"
   ) {
     exactKeys(target, label, ["kind"]);
     return { kind: target.kind } as const;

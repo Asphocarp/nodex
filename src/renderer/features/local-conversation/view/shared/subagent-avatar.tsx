@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type ComponentPropsWithoutRef } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 import avatar0Dark from "@/assets/subagent-avatars/avatar-0-dark.svg";
 import avatar0Light from "@/assets/subagent-avatars/avatar-0-light.svg";
 import avatar1Dark from "@/assets/subagent-avatars/avatar-1-dark.svg";
@@ -19,46 +19,10 @@ import avatar8Dark from "@/assets/subagent-avatars/avatar-8-dark.svg";
 import avatar8Light from "@/assets/subagent-avatars/avatar-8-light.svg";
 import avatar9Dark from "@/assets/subagent-avatars/avatar-9-dark.svg";
 import avatar9Light from "@/assets/subagent-avatars/avatar-9-light.svg";
+import { useDocumentTheme } from "@/lib/use-document-theme";
 import { cn } from "@/lib/utils";
 
 const SUBAGENT_AVATAR_HASH_MODULUS = 2_147_483_647;
-type SubagentAvatarTheme = "dark" | "light";
-
-const avatarThemeListeners = new Set<() => void>();
-let avatarThemeObserver: MutationObserver | null = null;
-
-function readAvatarTheme(): SubagentAvatarTheme {
-  if (typeof document === "undefined") return "light";
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
-}
-
-function subscribeAvatarTheme(listener: () => void): () => void {
-  avatarThemeListeners.add(listener);
-  if (
-    avatarThemeListeners.size === 1 &&
-    typeof document !== "undefined" &&
-    typeof MutationObserver !== "undefined"
-  ) {
-    avatarThemeObserver = new MutationObserver(() => {
-      avatarThemeListeners.forEach((currentListener) => currentListener());
-    });
-    avatarThemeObserver.observe(document.documentElement, {
-      attributeFilter: ["class"],
-      attributes: true,
-    });
-  }
-
-  return () => {
-    avatarThemeListeners.delete(listener);
-    if (avatarThemeListeners.size > 0) return;
-    avatarThemeObserver?.disconnect();
-    avatarThemeObserver = null;
-  };
-}
-
-function useSubagentAvatarTheme(): SubagentAvatarTheme {
-  return useSyncExternalStore(subscribeAvatarTheme, readAvatarTheme, () => "light");
-}
 
 export const SUBAGENT_AVATAR_ASSETS = [
   { dark: avatar0Dark, light: avatar0Light },
@@ -123,7 +87,7 @@ export interface SubagentAvatarProps extends Omit<
 }
 
 export function SubagentAvatar({ seed, className, ...props }: SubagentAvatarProps) {
-  const resolvedTheme = useSubagentAvatarTheme();
+  const resolvedTheme = useDocumentTheme();
   const index = resolveSubagentAvatarIndex(seed);
   const asset = SUBAGENT_AVATAR_ASSETS[index] ?? SUBAGENT_AVATAR_ASSETS[0];
 

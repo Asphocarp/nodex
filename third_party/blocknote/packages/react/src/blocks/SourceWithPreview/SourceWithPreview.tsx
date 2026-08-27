@@ -55,6 +55,8 @@ export type SourceWithPreviewProps = {
    * (e.g. "Enter a LaTeX equation").
    */
   sourcePlaceholder?: string;
+  /** Accessible name for the source editor when it differs from its placeholder. */
+  sourceAriaLabel?: string;
 };
 
 /**
@@ -93,6 +95,7 @@ export const SourceWithPreview = (
     emptySourcePlaceholder,
     errorPreview,
     sourcePlaceholder,
+    sourceAriaLabel,
   } = props;
 
   // Whether the error has been "committed": shown while the popup was
@@ -155,15 +158,24 @@ export const SourceWithPreview = (
       return;
     }
 
+    event.preventDefault();
     event.stopPropagation();
 
     popup.open();
   };
 
+  // The browser and ProseMirror otherwise establish an atom/node selection on
+  // pointer-down, which can overwrite the source selection created on click.
+  const handlePreviewMouseDown = (event: MouseEvent) => {
+    if (!editor.isEditable) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   // Closes the popup when clicking the "OK" button.
   const handleOkButtonClick = (event: MouseEvent) => {
     event.stopPropagation();
-
+    if (error != null) return;
     popup.close();
   };
 
@@ -178,12 +190,28 @@ export const SourceWithPreview = (
         (popup.isSelected ? " ProseMirror-selectednode" : "")
       }
       data-open={popup.isOpen ? "true" : "false"}
+      data-source-state={source.length === 0 ? "empty" : error != null ? "error" : "ready"}
+      onKeyDownCapture={(event) => {
+        if (
+          error != null &&
+          popup.isOpen &&
+          event.key === "Enter" &&
+          !event.shiftKey &&
+          !event.altKey &&
+          !event.metaKey &&
+          !event.ctrlKey
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
     >
       <PreviewContainer
         className="bn-preview-container"
         contentEditable={false}
         // When no source code is available, the "Add source" button should have the appropriate role.
         role={previewIsButton ? "button" : undefined}
+        onMouseDown={handlePreviewMouseDown}
         onClick={handlePreviewClick}
       >
         {previewContent}
@@ -200,8 +228,9 @@ export const SourceWithPreview = (
             aria-hidden={popup.isOpen ? undefined : true}
           >
             <code
+              className="bn-code-block-source-popup-editor"
               ref={contentRef}
-              aria-label={sourcePlaceholder}
+              aria-label={sourceAriaLabel ?? sourcePlaceholder}
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? errorId : undefined}
             />
@@ -221,6 +250,7 @@ export const SourceWithPreview = (
               // Prevents form submission when the editor is inside a `form`.
               type="button"
               className="bn-code-block-source-popup-ok-button"
+              disabled={error != null}
               onClick={handleOkButtonClick}
             >
               {editor.dictionary.code_block.ok_button_text}

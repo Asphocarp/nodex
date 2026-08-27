@@ -5,7 +5,9 @@ use thiserror::Error;
 use super::block_children::accepts_block_children;
 use super::block_materialization::{MaterializedBlockNode, dematerialize_block_tree};
 use super::materialized_inline::{MaterializedInlineError, materialized_inline_from_rich_text};
-use super::ordinary_block::{canonical_ordinary_block_shape, default_props};
+use super::ordinary_block::{
+    canonical_equation_block_content, canonical_ordinary_block_shape, default_props,
+};
 use super::rich_text::RichTextItem;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,6 +44,9 @@ pub fn plan_page_to_block_transformation(
         content: Some(materialized_inline_from_rich_text(rich_title)?),
         children: Vec::new(),
     };
+    if let Some(content) = canonical_equation_block_content(target, block.content.as_ref()) {
+        block.content = Some(content);
+    }
     let target_tree = dematerialize_block_tree(std::slice::from_ref(&block))
         .map_err(|error| PageToBlockError::InvalidResult(error.to_string()))?;
     let body = if retained_empty_placeholder_id.is_none() {
@@ -134,6 +139,7 @@ mod tests {
                 (LibraryStructuralTurnIntoTarget::Quote, "quote"),
                 (LibraryStructuralTurnIntoTarget::Callout, "callout"),
                 (LibraryStructuralTurnIntoTarget::Code, "codeBlock"),
+                (LibraryStructuralTurnIntoTarget::Equation, "mathBlock"),
             ])
             .collect()
     }
@@ -157,7 +163,7 @@ mod tests {
             },
         ];
         let targets = all_targets();
-        assert_eq!(targets.len(), 14);
+        assert_eq!(targets.len(), 15);
         for (target, expected_type) in targets {
             let plan = plan_page_to_block_transformation("page-a", &title, &body, &target)
                 .expect("valid transformation");
@@ -166,6 +172,7 @@ mod tests {
             let accepts_children = !matches!(
                 target,
                 LibraryStructuralTurnIntoTarget::Code
+                    | LibraryStructuralTurnIntoTarget::Equation
                     | LibraryStructuralTurnIntoTarget::Heading {
                         toggleable: false,
                         ..
@@ -179,14 +186,25 @@ mod tests {
                 assert_eq!(plan.trailing_siblings, body);
             }
             assert_eq!(plan.retained_empty_placeholder_id, None);
-            assert_eq!(
-                crate::domain::materialized_inline::rich_text_from_materialized_inline(
-                    plan.block.content.as_ref().expect("content")
-                )
-                .expect("decoded")
-                .rich_text,
-                title
-            );
+            if matches!(target, LibraryStructuralTurnIntoTarget::Equation) {
+                assert_eq!(
+                    plan.block.content,
+                    Some(json!([{
+                        "type": "text",
+                        "text": "Title ",
+                        "styles": {},
+                    }]))
+                );
+            } else {
+                assert_eq!(
+                    crate::domain::materialized_inline::rich_text_from_materialized_inline(
+                        plan.block.content.as_ref().expect("content")
+                    )
+                    .expect("decoded")
+                    .rich_text,
+                    title
+                );
+            }
         }
     }
 

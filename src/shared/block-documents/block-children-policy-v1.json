@@ -12,6 +12,7 @@
     "checkListItem": { "acceptance": "always", "layout": "indented" },
     "toggleListItem": { "acceptance": "always", "layout": "disclosure" },
     "codeBlock": { "acceptance": "never", "layout": "atomic" },
+    "mathBlock": { "acceptance": "never", "layout": "atomic" },
     "table": { "acceptance": "never", "layout": "atomic" },
     "quote": { "acceptance": "always", "layout": "enclosed" },
     "divider": { "acceptance": "never", "layout": "atomic" },

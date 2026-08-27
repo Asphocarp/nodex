@@ -21,7 +21,9 @@ use crate::document::{
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::identity::stable_uuid_v7;
-use crate::domain::ordinary_block::canonical_ordinary_block_shape;
+use crate::domain::ordinary_block::{
+    canonical_equation_block_content, canonical_ordinary_block_shape,
+};
 use crate::domain::page_to_block::{PageToBlockTransformation, plan_page_to_block_transformation};
 use crate::domain::rich_text::RichTextItem;
 use crate::infrastructure::durable_mutation::{self, OperationIdentity};
@@ -1930,6 +1932,7 @@ fn append_turn_into_operations(
     blocks: &[MaterializedBlockNode],
     parent_block_id: Option<&str>,
     page_plans: &BTreeMap<String, PageToBlockTransformation>,
+    target: &LibraryStructuralTurnIntoTarget,
     target_type: &str,
     target_props: &BTreeMap<String, serde_json::Value>,
     operations: &mut Vec<DocumentBlockOperation>,
@@ -1968,7 +1971,7 @@ fn append_turn_into_operations(
             patch: DocumentBlockUpdatePatch {
                 block_type: Some(target_type.to_owned()),
                 props: Some(target_props.clone()),
-                content: None,
+                content: canonical_equation_block_content(target, block.content.as_ref()),
                 unset_content: false,
             },
         });
@@ -1976,6 +1979,7 @@ fn append_turn_into_operations(
             &block.children,
             Some(&block.id),
             page_plans,
+            target,
             target_type,
             target_props,
             operations,
@@ -2135,6 +2139,7 @@ fn turn_active_selection(
         &original.roots,
         None,
         &page_plans,
+        &target,
         target_type,
         &target_props,
         &mut host_operations,

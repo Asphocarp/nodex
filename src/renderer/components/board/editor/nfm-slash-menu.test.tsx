@@ -412,6 +412,7 @@ describe("NfmSlashMenu", () => {
       "Quote",
       "Callout",
       "Code",
+      "Code - Mermaid",
       "Divider",
       "Table",
       "Image",

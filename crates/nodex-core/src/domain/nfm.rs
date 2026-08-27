@@ -37,6 +37,9 @@ pub struct NfmStyleSet {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NfmInlineContent {
+    Math {
+        source: String,
+    },
     Text {
         text: String,
         styles: NfmStyleSet,
@@ -152,6 +155,9 @@ pub enum NfmBlock {
         language: String,
         code: String,
         children: Vec<NfmBlock>,
+    },
+    MathBlock {
+        source: String,
     },
     Table {
         color: Option<String>,
@@ -360,6 +366,9 @@ fn materialize_block(block: &MaterializedBlockNode) -> Result<NfmBlock, NfmMater
             code: extract_code_text(block.content.as_ref()),
             children,
         },
+        "mathBlock" => NfmBlock::MathBlock {
+            source: extract_code_text(block.content.as_ref()),
+        },
         "table" => materialize_table(block, color)?,
         "callout" => NfmBlock::Callout {
             icon: non_empty_string_prop(&block.props, "icon"),
@@ -441,12 +450,22 @@ fn materialize_inline(content: Option<&Value>) -> Vec<NfmInlineContent> {
             Some("threadMention") => append_thread_mention(item, &mut output),
             Some("pageMention") => append_page_mention(item, &mut output),
             Some("dateMention") => append_date_mention(item, &mut output),
+            Some("math") => append_math(item, &mut output),
             Some("link") => append_link(item, &mut output),
             Some("text") => append_text(item, &mut output),
             _ => {}
         }
     }
     output
+}
+
+fn append_math(item: &Map<String, Value>, output: &mut Vec<NfmInlineContent>) {
+    let Some(source) = item.get("content").and_then(Value::as_str) else {
+        return;
+    };
+    output.push(NfmInlineContent::Math {
+        source: source.to_owned(),
+    });
 }
 
 fn append_attachment(item: &Map<String, Value>, output: &mut Vec<NfmInlineContent>) {
@@ -878,6 +897,12 @@ fn serialize_blocks(blocks: &[NfmBlock], indent: usize) -> Vec<String> {
                 lines.push(format!("{prefix}{fence}"));
                 lines.extend(serialize_blocks(children, indent + 1));
             }
+            NfmBlock::MathBlock { source } => {
+                let fence = select_math_fence(source);
+                lines.push(format!("{prefix}{fence}"));
+                lines.extend(source.split('\n').map(|line| format!("{prefix}{line}")));
+                lines.push(format!("{prefix}{fence}"));
+            }
             NfmBlock::Table {
                 color,
                 rows,
@@ -1028,6 +1053,7 @@ pub(crate) fn serialize_inline_content_for_adapter(items: &[NfmInlineContent]) -
 
 fn serialize_inline_item(item: &NfmInlineContent) -> String {
     match item {
+        NfmInlineContent::Math { source } => serialize_inline_math(source),
         NfmInlineContent::LineBreak => "<br>".to_owned(),
         NfmInlineContent::Attachment {
             kind,
@@ -1118,6 +1144,26 @@ fn serialize_inline_item(item: &NfmInlineContent) -> String {
         }
         NfmInlineContent::Text { text, styles } => apply_styles(escape_nfm(text), styles),
     }
+}
+
+fn serialize_inline_math(source: &str) -> String {
+    if !source.is_empty()
+        && !source.contains('\n')
+        && !source.contains('$')
+        && !source.contains('`')
+        && source.trim() == source
+    {
+        return format!("${source}$");
+    }
+
+    let longest_backtick_run = source
+        .as_bytes()
+        .split(|byte| *byte != b'`')
+        .map(<[u8]>::len)
+        .max()
+        .unwrap_or_default();
+    let fence = "`".repeat(longest_backtick_run + 1);
+    format!("${fence} {source} {fence}$")
 }
 
 fn apply_styles(mut text: String, styles: &NfmStyleSet) -> String {
@@ -1364,6 +1410,7 @@ fn collect_block_text(blocks: &[NfmBlock], parts: &mut Vec<String>) {
                 parts.push(code.clone());
                 collect_block_text(children, parts);
             }
+            NfmBlock::MathBlock { source } => parts.push(source.clone()),
             NfmBlock::Table { rows, .. } => {
                 for row in rows {
                     for cell in &row.cells {
@@ -1408,6 +1455,7 @@ fn collect_block_text(blocks: &[NfmBlock], parts: &mut Vec<String>) {
 fn collect_inline_text(items: &[NfmInlineContent], parts: &mut Vec<String>) {
     for item in items {
         match item {
+            NfmInlineContent::Math { source } => parts.push(source.clone()),
             NfmInlineContent::Text { text, .. } | NfmInlineContent::Link { text, .. } => {
                 parts.push(text.clone())
             }
@@ -1732,6 +1780,14 @@ impl<'a> InlineParser<'a> {
                 items.append(&mut span_items);
                 continue;
             }
+            if self.rest().starts_with('$')
+                && !styles.code
+                && let Some(math) = self.try_parse_math()
+            {
+                flush_inline_text(&mut text, &styles, &mut items);
+                items.push(math);
+                continue;
+            }
             if self.rest().starts_with('`') && !styles.code {
                 let fence_length = self
                     .rest()
@@ -1887,6 +1943,72 @@ impl<'a> InlineParser<'a> {
         Some(item)
     }
 
+    fn try_parse_math(&mut self) -> Option<NfmInlineContent> {
+        if !inline_math_boundary_before(self.input, self.position) {
+            return None;
+        }
+        let source_start = self.position + 1;
+        let bytes = self.input.as_bytes();
+
+        if bytes.get(source_start) == Some(&b'`') {
+            let fence_length = bytes[source_start..]
+                .iter()
+                .take_while(|byte| **byte == b'`')
+                .count();
+            let content_start = source_start + fence_length;
+            let source_end = find_exact_backtick_run(bytes, content_start, fence_length)?;
+            let closing_dollar = source_end + fence_length;
+            if bytes.get(closing_dollar) != Some(&b'$')
+                || !inline_math_boundary_after(self.input, closing_dollar + 1)
+            {
+                return None;
+            }
+            let mut source = &self.input[content_start..source_end];
+            if source.starts_with(' ') && source.ends_with(' ') && source.len() >= 2 {
+                source = &source[1..source.len() - 1];
+            }
+            self.position = closing_dollar + 1;
+            return Some(NfmInlineContent::Math {
+                source: source.to_owned(),
+            });
+        }
+
+        let first = self.input[source_start..].chars().next()?;
+        if first.is_whitespace() {
+            return None;
+        }
+        let mut cursor = source_start;
+        while cursor < self.input.len() {
+            let character = self.input[cursor..].chars().next()?;
+            if character == '\\' {
+                cursor += character.len_utf8();
+                if cursor < self.input.len() {
+                    cursor += self.input[cursor..].chars().next()?.len_utf8();
+                }
+                continue;
+            }
+            if character != '$' {
+                cursor += character.len_utf8();
+                continue;
+            }
+            let source = &self.input[source_start..cursor];
+            if !source.is_empty()
+                && source
+                    .chars()
+                    .next_back()
+                    .is_some_and(|character| !character.is_whitespace())
+                && inline_math_boundary_after(self.input, cursor + 1)
+            {
+                self.position = cursor + 1;
+                return Some(NfmInlineContent::Math {
+                    source: source.to_owned(),
+                });
+            }
+            cursor += 1;
+        }
+        None
+    }
+
     fn try_parse_span(&mut self, styles: &NfmStyleSet) -> Option<Vec<NfmInlineContent>> {
         if !self.rest().starts_with("<span ") {
             return None;
@@ -1986,6 +2108,22 @@ impl<'a> InlineParser<'a> {
     fn rest(&self) -> &'a str {
         &self.input[self.position..]
     }
+}
+
+fn inline_math_boundary_before(input: &str, position: usize) -> bool {
+    position == 0
+        || input[..position]
+            .chars()
+            .next_back()
+            .is_some_and(|character| character.is_whitespace() || "([{“‘".contains(character))
+}
+
+fn inline_math_boundary_after(input: &str, position: usize) -> bool {
+    position == input.len()
+        || input[position..]
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_whitespace() || ".,;:!?)]}”’".contains(character))
 }
 
 fn find_exact_backtick_run(input: &[u8], start: usize, fence_length: usize) -> Option<usize> {
@@ -2149,6 +2287,15 @@ fn select_code_fence(code: &str) -> String {
         }
     }
     "`".repeat(3.max(longest + 1))
+}
+fn select_math_fence(source: &str) -> String {
+    let longest = source
+        .split('\n')
+        .filter(|line| line.len() >= 2 && line.bytes().all(|byte| byte == b'$'))
+        .map(str::len)
+        .max()
+        .unwrap_or_default();
+    "$".repeat(2.max(longest + 1))
 }
 fn color_suffix(color: &Option<String>) -> String {
     color
@@ -2352,6 +2499,23 @@ mod tests {
             let serialized = serialize_inline_content(std::slice::from_ref(&expected));
             assert_eq!(parse_inline_content(&serialized), vec![expected]);
         }
+    }
+
+    #[test]
+    fn round_trips_simple_and_protected_inline_equations() {
+        for source in ["E = mc^2", "price = $5 and `raw`", " leading and trailing "] {
+            let expected = NfmInlineContent::Math {
+                source: source.to_owned(),
+            };
+            let serialized = serialize_inline_content(std::slice::from_ref(&expected));
+            assert_eq!(parse_inline_content(&serialized), vec![expected]);
+        }
+
+        let punctuated = "Energy is $E = mc^2$. See ($x + 1$).";
+        assert_eq!(
+            serialize_inline_content(&parse_inline_content(punctuated)),
+            punctuated,
+        );
     }
 
     #[test]

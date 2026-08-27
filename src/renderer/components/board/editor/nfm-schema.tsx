@@ -4,6 +4,7 @@ import {
   defaultInlineContentSpecs,
   defaultStyleSpecs,
 } from "@blocknote/core";
+import { createReactInlineMathSpec, createReactMathBlockSpec } from "@blocknote/math-block";
 import { editorCodeBlockOptions } from "./code-block-options";
 import { createNfmCodeBlockSpec } from "./nfm-code-block-spec";
 import { createAgentConfigInlineContentSpec } from "./agent-config-chip";
@@ -21,6 +22,10 @@ import { createPageMentionInlineContentSpec } from "./page-mention-inline-conten
 import { createSyncedBlockRefBlockSpec } from "./synced-block-ref-block";
 import { createReusableTemplateRefBlockSpec } from "./document-bearing-shell-block";
 import { BLOCK_CHILDREN_RULES } from "../../../../shared/block-documents/block-children-policy";
+import {
+  mathBlockConfig,
+  mathInlineContentConfig,
+} from "../../../../shared/block-documents/blocknote-schema-config";
 
 export const nfmSchema = BlockNoteSchema.create({
   blockChildrenRules: BLOCK_CHILDREN_RULES,
@@ -45,6 +50,7 @@ export const nfmSchema = BlockNoteSchema.create({
     pageRef: createPageRefBlockSpec(),
     syncedBlockRef: createSyncedBlockRefBlockSpec(),
     templateRef: createReusableTemplateRefBlockSpec(),
+    mathBlock: createReactMathBlockSpec(mathBlockConfig),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
@@ -53,6 +59,7 @@ export const nfmSchema = BlockNoteSchema.create({
     dateMention: createDateMentionInlineContentSpec(),
     pageMention: createPageMentionInlineContentSpec(),
     threadMention: createThreadMentionInlineContentSpec(),
+    math: createReactInlineMathSpec(mathInlineContentConfig),
   },
   styleSpecs: defaultStyleSpecs,
 });

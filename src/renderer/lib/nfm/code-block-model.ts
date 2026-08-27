@@ -10,11 +10,14 @@ export type CodeBlockActionBarMode = "all" | "minimal" | "more_only";
 export function getCodeBlockActionBarMode(
   availableWidth: number,
   columnRatio?: number,
+  hasMermaidActions = false,
 ): CodeBlockActionBarMode {
-  if (availableWidth <= 230 || (columnRatio !== undefined && columnRatio <= 1 / 3)) {
+  const moreOnlyWidth = hasMermaidActions ? 300 : 230;
+  const minimalWidth = hasMermaidActions ? 560 : 350;
+  if (availableWidth <= moreOnlyWidth || (columnRatio !== undefined && columnRatio <= 1 / 3)) {
     return "more_only";
   }
-  if (availableWidth <= 350 || (columnRatio !== undefined && columnRatio < 1 / 2)) {
+  if (availableWidth <= minimalWidth || (columnRatio !== undefined && columnRatio < 1 / 2)) {
     return "minimal";
   }
   return "all";

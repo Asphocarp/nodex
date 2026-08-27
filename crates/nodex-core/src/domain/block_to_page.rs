@@ -19,6 +19,7 @@ const PROMOTABLE_TYPES: &[&str] = &[
 const WRAPPED_TYPES: &[&str] = &[
     "checkListItem",
     "codeBlock",
+    "mathBlock",
     "table",
     "divider",
     "image",

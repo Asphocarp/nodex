@@ -2,6 +2,7 @@ import { type AnyExtension } from "@tiptap/core";
 import type { Plugin as ProsemirrorPlugin } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import type { PartialBlockNoDefaults } from "../schema/index.js";
+import type { AutomaticInputRule } from "../extensions/AutomaticInputRules/AutomaticInputRules.js";
 import { Store, StoreOptions } from "../util/Store.js";
 import type { BlockNoteEditor } from "./BlockNoteEditor.js";
 import { originalFactorySymbol } from "./managers/ExtensionManager/symbol.js";
@@ -67,6 +68,13 @@ export interface Extension<State = any, Key extends string = string> {
    * As an example, typing `#` in a paragraph block will trigger an input rule to replace the text with a heading block.
    */
   readonly inputRules?: ReadonlyArray<InputRule>;
+
+  /**
+   * Automatic text transforms that can edit inline content without changing
+   * the containing Block type. These rules share BlockNote's raw-input,
+   * history-boundary, composition, and immediate-Backspace behavior.
+   */
+  readonly automaticInputRules?: ReadonlyArray<AutomaticInputRule>;
 
   /**
    * A mapping of a keyboard shortcut to a function that will be called when the shortcut is pressed

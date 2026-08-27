@@ -1,5 +1,6 @@
 import { editorHasBlockWithType, isTableCellSelection } from "@blocknote/core";
 import { FormattingToolbarExtension } from "@blocknote/core/extensions";
+import { canInsertInlineMath, insertInlineMath } from "@blocknote/math-block";
 import { useBlockNoteEditor, useEditorState, useExtension } from "@blocknote/react";
 import {
   forwardRef,
@@ -119,9 +120,12 @@ interface TextActionMenuSnapshot {
   canUseTextColor: boolean;
   canUseBackgroundColor: boolean;
   canClearFormat: boolean;
+  canConvertToEquation: boolean;
 }
 
 type TextActionActionPopoverKey = "send-to-thread" | "move-to";
+
+const noopTextAction = () => undefined;
 type TextActionSelectionPresentationOwner =
   | "toolbar-focus"
   | "color"
@@ -194,6 +198,7 @@ export interface NfmTextActionMenuSurfaceProps {
   canUseTextColor: boolean;
   canUseBackgroundColor: boolean;
   canClearFormat: boolean;
+  canConvertToEquation?: boolean;
   linkControl?: ReactNode;
   nodexRows: TextActionNodexRow[];
   showReferenceMocks?: boolean;
@@ -206,6 +211,7 @@ export interface NfmTextActionMenuSurfaceProps {
   onSetTextColor: (color: TextActionColorValue) => void;
   onSetBackgroundColor: (color: TextActionColorValue) => void;
   onClearFormat: () => void;
+  onConvertToEquation?: () => void;
   onOpenBlockActions: (fallbackAnchorRect?: NfmSideMenuRect) => void;
   onNodexRow: (row: TextActionNodexRow) => void;
   onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
@@ -421,6 +427,9 @@ function createTextActionMenuSnapshot(editor: TextActionSnapshotEditor): TextAct
       canUseTextColor ||
       canUseBackgroundColor ||
       hasLinkInSchema(editor),
+    canConvertToEquation: canInsertInlineMath(
+      editor as unknown as Parameters<typeof canInsertInlineMath>[0],
+    ),
   };
 }
 
@@ -1502,6 +1511,7 @@ export function NfmTextActionMenuSurface({
   canUseTextColor,
   canUseBackgroundColor,
   canClearFormat,
+  canConvertToEquation = false,
   linkControl,
   nodexRows,
   showReferenceMocks = false,
@@ -1514,6 +1524,7 @@ export function NfmTextActionMenuSurface({
   onSetTextColor,
   onSetBackgroundColor,
   onClearFormat,
+  onConvertToEquation = noopTextAction,
   onOpenBlockActions,
   onNodexRow,
   onMoveBlocksToDestination,
@@ -1698,11 +1709,15 @@ export function NfmTextActionMenuSurface({
                 <TextActionCodeIcon />
               </TextActionButton>
             </TextActionButtonTooltip>
-            {showReferenceMocks ? (
-              <TextActionDisabledButton label="Equation" mock>
+            <TextActionButtonTooltip label="Equation">
+              <TextActionButton
+                label="Equation"
+                disabled={!canConvertToEquation}
+                onActivate={onConvertToEquation}
+              >
                 <TextActionEquationIcon />
-              </TextActionDisabledButton>
-            ) : null}
+              </TextActionButton>
+            </TextActionButtonTooltip>
             <TextActionMoreButton onOpenBlockActions={onOpenBlockActions} />
           </div>
         </div>
@@ -1846,6 +1861,11 @@ export function NfmTextActionMenu() {
     });
   };
 
+  const convertToEquation = () => {
+    if (!insertInlineMath(editor)) return;
+    formattingToolbar.store.setState(false);
+  };
+
   const openBlockActions = (fallbackAnchorRect?: NfmSideMenuRect) => {
     const opened = sideMenuOpenController.openForCurrentSelection({
       anchorRect: fallbackAnchorRect,
@@ -1896,6 +1916,7 @@ export function NfmTextActionMenu() {
       canUseTextColor={snapshot.canUseTextColor}
       canUseBackgroundColor={snapshot.canUseBackgroundColor}
       canClearFormat={snapshot.canClearFormat}
+      canConvertToEquation={snapshot.canConvertToEquation}
       linkControl={<NfmCreateLinkButton renderTrigger={renderCreateLinkTrigger} />}
       nodexRows={nodexRows}
       showReferenceMocks={import.meta.env.DEV}
@@ -1908,6 +1929,7 @@ export function NfmTextActionMenu() {
       onSetTextColor={setTextColor}
       onSetBackgroundColor={setBackgroundColor}
       onClearFormat={clearFormat}
+      onConvertToEquation={convertToEquation}
       onOpenBlockActions={openBlockActions}
       onNodexRow={handleNodexRow}
       onMoveBlocksToDestination={handleMoveBlocksToDestination}

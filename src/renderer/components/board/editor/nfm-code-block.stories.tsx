@@ -23,12 +23,18 @@ interface EditableCodeBlockStoryProps {
   readonly dark?: boolean;
   readonly narrow?: boolean;
   readonly wrapped?: boolean;
+  readonly language?: "typescript" | "mermaid";
+  readonly mermaidMode?: "code" | "preview" | "split";
+  readonly code?: string;
 }
 
 function EditableCodeBlockStory({
   dark = false,
   narrow = false,
   wrapped = false,
+  language = "typescript",
+  mermaidMode = "split",
+  code = STORY_CODE,
 }: EditableCodeBlockStoryProps) {
   const editor = useCreateBlockNote({
     schema: nfmSchema,
@@ -36,16 +42,20 @@ function EditableCodeBlockStory({
       {
         id: STORY_BLOCK_ID,
         type: "codeBlock",
-        props: { language: "typescript" },
-        content: STORY_CODE,
+        props: { language },
+        content: code,
       },
     ],
   });
 
   useEffect(() => {
     codeBlockViewState.setWrapped(STORY_BLOCK_ID, wrapped);
-    return () => codeBlockViewState.setWrapped(STORY_BLOCK_ID, false);
-  }, [wrapped]);
+    codeBlockViewState.setMermaidPreviewMode(STORY_BLOCK_ID, mermaidMode);
+    return () => {
+      codeBlockViewState.setWrapped(STORY_BLOCK_ID, false);
+      codeBlockViewState.setMermaidPreviewMode(STORY_BLOCK_ID, "split");
+    };
+  }, [mermaidMode, wrapped]);
 
   return (
     <NodexTooltipProvider>
@@ -125,6 +135,44 @@ export const NarrowMoreOnly: Story = {
 
 export const Dark: Story = {
   args: { dark: true },
+  globals: { theme: "dark" },
+  play: async ({ canvasElement }) => revealActionBar(canvasElement),
+};
+
+export const MermaidSplit: Story = {
+  args: {
+    language: "mermaid",
+    mermaidMode: "split",
+    code: "graph TD\n  Source --> Preview\n  Preview --> Fullscreen",
+  },
+  play: async ({ canvasElement }) => revealActionBar(canvasElement),
+};
+
+export const MermaidPreview: Story = {
+  args: {
+    language: "mermaid",
+    mermaidMode: "preview",
+    code: "sequenceDiagram\n  User->>Nodex: Edit source\n  Nodex-->>User: Render preview",
+  },
+  play: async ({ canvasElement }) => revealActionBar(canvasElement),
+};
+
+export const MermaidInvalid: Story = {
+  args: {
+    language: "mermaid",
+    mermaidMode: "split",
+    code: "graph TD\n  A -- broken",
+  },
+  play: async ({ canvasElement }) => revealActionBar(canvasElement),
+};
+
+export const MermaidDark: Story = {
+  args: {
+    dark: true,
+    language: "mermaid",
+    mermaidMode: "split",
+    code: "graph LR\n  Dark --> Theme\n  Theme --> Diagram",
+  },
   globals: { theme: "dark" },
   play: async ({ canvasElement }) => revealActionBar(canvasElement),
 };

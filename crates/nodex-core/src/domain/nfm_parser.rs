@@ -89,6 +89,28 @@ fn parse_block(
     if let Some(parsed) = parse_gfm_table(lines, index, indent) {
         return Ok(parsed);
     }
+    if let Some(fence_length) = math_fence(content) {
+        let mut source = Vec::new();
+        let mut cursor = index + 1;
+        let mut closing = None;
+        while cursor < lines.len() {
+            let line = strip_minimum_indent(lines[cursor], indent).unwrap_or(lines[cursor]);
+            if closing_math_fence(line, fence_length) {
+                closing = Some(cursor + 1);
+                break;
+            }
+            source.push(line.to_owned());
+            cursor += 1;
+        }
+        if let Some(next) = closing {
+            return Ok((
+                NfmBlock::MathBlock {
+                    source: source.join("\n"),
+                },
+                next,
+            ));
+        }
+    }
     if let Some(fence) = code_fence(content) {
         let mut code = Vec::new();
         let mut cursor = index + 1;
@@ -231,6 +253,16 @@ fn parse_block(
         },
         index + 1,
     ))
+}
+
+fn math_fence(content: &str) -> Option<usize> {
+    let trimmed = content.trim_end();
+    (trimmed.len() >= 2 && trimmed.bytes().all(|byte| byte == b'$')).then_some(trimmed.len())
+}
+
+fn closing_math_fence(content: &str, fence_length: usize) -> bool {
+    let trimmed = content.trim_end();
+    trimmed.len() == fence_length && trimmed.bytes().all(|byte| byte == b'$')
 }
 
 fn parse_callout(
@@ -727,6 +759,15 @@ fn materialize_parsed_block(
             Some(Value::Array(vec![text_json(code, &NfmStyleSet::default())])),
             children,
         ),
+        NfmBlock::MathBlock { source } => (
+            "mathBlock",
+            BTreeMap::new(),
+            Some(Value::Array(vec![text_json(
+                source,
+                &NfmStyleSet::default(),
+            )])),
+            &[],
+        ),
         NfmBlock::Table {
             color,
             rows,
@@ -905,6 +946,11 @@ fn inline_json(items: &[NfmInlineContent]) -> Value {
 
 fn inline_item_json(item: &NfmInlineContent) -> Value {
     match item {
+        NfmInlineContent::Math { source } => serde_json::json!({
+            "type": "math",
+            "props": {},
+            "content": source,
+        }),
         NfmInlineContent::Text { text, styles } => text_json(text, styles),
         NfmInlineContent::Link { text, href, styles } => serde_json::json!({
             "type": "link",
@@ -1347,6 +1393,31 @@ mod tests {
         let error = materialize_nfm_blocks_with_ids(&parsed, &mut || "duplicate".to_owned())
             .expect_err("duplicate IDs");
         assert_eq!(error, NfmBlockMaterializationError::InvalidBlockId);
+    }
+
+    #[test]
+    fn equations_round_trip_between_nfm_and_materialized_blocks() {
+        let nfm = "Energy $E = mc^2$\n$$$\nline one\n$$\nline two\n$$$";
+        let parsed = parse_nfm(nfm).expect("Equation NFM");
+        assert_eq!(serialize_nfm(&parsed), nfm);
+
+        let mut next_id = 0usize;
+        let materialized = materialize_nfm_blocks_with_ids(&parsed, &mut || {
+            next_id += 1;
+            format!("equation-{next_id}")
+        })
+        .expect("materialized Equations");
+        assert_eq!(materialized[1].block_type, "mathBlock");
+        assert_eq!(materialized[1].props, BTreeMap::new());
+        assert_eq!(
+            materialized[1].content,
+            Some(serde_json::json!([{
+                "type": "text",
+                "text": "line one\n$$\nline two",
+                "styles": {},
+            }]))
+        );
+        assert_eq!(materialize_nfm(&materialized).expect("NFM").nfm, nfm);
     }
 
     #[test]

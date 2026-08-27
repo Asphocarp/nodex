@@ -17,6 +17,7 @@ const INLINE_BLOCK_TYPES: &[&str] = &[
     "checkListItem",
     "toggleListItem",
     "codeBlock",
+    "mathBlock",
     "quote",
     "callout",
 ];
@@ -41,6 +42,7 @@ const INLINE_STYLE_NAMES: &[&str] = &[
     "textColor",
     "backgroundColor",
 ];
+const PLAIN_INLINE_CONTENT_TYPES: &[&str] = &["math"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MaterializedBlockNode {
@@ -254,6 +256,41 @@ fn dematerialize_inline_content(
                     )?);
                 }
                 output.push(XmlNode::Text { delta });
+            }
+            plain_type if PLAIN_INLINE_CONTENT_TYPES.contains(&plain_type) => {
+                let props = object
+                    .get("props")
+                    .and_then(Value::as_object)
+                    .ok_or_else(|| {
+                        invalid_materialized_field(
+                            block_id,
+                            format!("content[{index}].props"),
+                            "plain inline content props must be an object",
+                        )
+                    })?;
+                let source = object
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        invalid_materialized_field(
+                            block_id,
+                            format!("content[{index}].content"),
+                            "plain inline content must contain string content",
+                        )
+                    })?;
+                output.push(XmlNode::Element(XmlElementNode {
+                    name: plain_type.to_owned(),
+                    attributes: json_object_to_portable(props)?,
+                    children: (!source.is_empty())
+                        .then(|| XmlNode::Text {
+                            delta: vec![TextDelta {
+                                insert: source.to_owned(),
+                                attributes: BTreeMap::new(),
+                            }],
+                        })
+                        .into_iter()
+                        .collect(),
+                }));
             }
             atom_type => {
                 let props = object
@@ -620,6 +657,42 @@ fn materialize_inline_content(
                 }
             }
             XmlNode::Element(element) => {
+                if PLAIN_INLINE_CONTENT_TYPES.contains(&element.name.as_str()) {
+                    let mut source = String::new();
+                    for child in &element.children {
+                        let XmlNode::Text { delta } = child else {
+                            return Err(BlockMaterializationError::InvalidContent {
+                                block_id: block_id.to_owned(),
+                                field: element.name.clone(),
+                                message: "plain inline content contains a nested element"
+                                    .to_owned(),
+                            });
+                        };
+                        for chunk in delta {
+                            if !chunk.attributes.is_empty() {
+                                return Err(BlockMaterializationError::InvalidContent {
+                                    block_id: block_id.to_owned(),
+                                    field: element.name.clone(),
+                                    message: "plain inline content contains styled text".to_owned(),
+                                });
+                            }
+                            source.push_str(&chunk.insert);
+                        }
+                    }
+                    let mut plain = Map::new();
+                    plain.insert("type".to_owned(), Value::String(element.name.clone()));
+                    plain.insert(
+                        "props".to_owned(),
+                        Value::Object(
+                            materialize_attributes(&element.attributes)?
+                                .into_iter()
+                                .collect(),
+                        ),
+                    );
+                    plain.insert("content".to_owned(), Value::String(source));
+                    content.push(Value::Object(plain));
+                    continue;
+                }
                 if !element.children.is_empty() {
                     return Err(BlockMaterializationError::InvalidContent {
                         block_id: block_id.to_owned(),
@@ -966,6 +1039,26 @@ mod tests {
         .expect("serialize materialization");
 
         assert_eq!(actual, expected["blockTree"]);
+    }
+
+    #[test]
+    fn round_trips_plain_inline_content_with_its_source() {
+        let blocks = vec![MaterializedBlockNode {
+            id: "paragraph-with-equation".to_owned(),
+            block_type: "paragraph".to_owned(),
+            props: BTreeMap::new(),
+            content: Some(serde_json::json!([
+                { "type": "text", "text": "Energy is ", "styles": {} },
+                { "type": "math", "props": {}, "content": "E = mc^2" },
+                { "type": "text", "text": ".", "styles": {} }
+            ])),
+            children: Vec::new(),
+        }];
+
+        let canonical = dematerialize_block_tree(&blocks).expect("canonical Block tree");
+        let actual = materialize_block_tree(&canonical).expect("round-trip materialization");
+
+        assert_eq!(actual, blocks);
     }
 
     #[test]

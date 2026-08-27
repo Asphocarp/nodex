@@ -47,6 +47,10 @@ import type {
 import { getNfmBlockSelectionIds } from "./nfm-block-selection";
 import { hasTypedOwnerBlock } from "@/lib/typed-owner-blocks";
 import { nfmSyntaxHighlighter } from "@/lib/syntax-highlighting";
+import {
+  planBackspaceAcrossAtomicBlocks,
+  type AtomicBackspaceEditor,
+} from "./atomic-block-backspace";
 
 const toggleInputRule = createExtension({
   key: "toggle-input-rule",
@@ -444,6 +448,16 @@ const childGroupBackspaceExt = createExtension({
   },
 });
 
+const atomicBoundaryBackspaceExt = createExtension({
+  key: "atomic-boundary-backspace",
+  keyboardShortcuts: {
+    Backspace: ({ editor }: { editor: BlockNoteEditor }) => {
+      const plan = planBackspaceAcrossAtomicBlocks(editor as unknown as AtomicBackspaceEditor);
+      return plan?.kind === "protect_boundary";
+    },
+  },
+});
+
 export const NFM_DISABLED_EXTENSIONS = [
   "quote-block-shortcuts",
   "heading-shortcuts",
@@ -487,6 +501,7 @@ export function createNfmEditorExtensions(options: NfmEditorExtensionOptions = {
     selectedBlockDecorationsExtension(),
     childGroupEnterExt,
     childGroupBackspaceExt,
+    atomicBoundaryBackspaceExt,
   ];
 }
 

@@ -8,10 +8,17 @@ import {
   type CodeBlockActionBarMode,
 } from "@/lib/nfm/code-block-model";
 import { codeLanguagePreference } from "@/lib/nfm/code-language-preference";
+import { codeBlockViewState, type MermaidCodePreviewMode } from "@/lib/nfm/code-block-view-state";
+import { useTheme } from "@/lib/use-theme";
 import { normalizeCodeLanguageId } from "../../../../shared/nfm/code-language-catalog";
 import { NfmCodeBlockActionBar } from "./nfm-code-block-action-bar";
 import { createNfmSideMenuElementReference } from "./nfm-side-menu-anchor";
 import { useNfmSideMenuOpenController } from "./nfm-side-menu";
+import {
+  downloadMermaidDiagram,
+  readReadyMermaidSvg,
+  requestMermaidDiagramFullscreen,
+} from "./mermaid-code-preview";
 
 interface CodeBlockControllerBlock {
   readonly id: string;
@@ -36,6 +43,8 @@ interface ActiveCodeBlock {
   readonly anchor: HTMLElement;
   readonly surface: HTMLElement;
   readonly mode: CodeBlockActionBarMode;
+  readonly mermaidPreviewMode: MermaidCodePreviewMode;
+  readonly hasValidDiagram: boolean;
 }
 
 const CODE_SURFACE_SELECTOR = "[data-nfm-code-block-surface]";
@@ -50,6 +59,12 @@ function resolveActiveCodeBlock(surface: HTMLElement): ActiveCodeBlock | null {
   const blockId = surface.dataset.blockId;
   const anchor = surface.querySelector<HTMLElement>(CODE_ACTION_ANCHOR_SELECTOR);
   if (!blockId || !anchor) return null;
+  const isMermaid = surface.dataset.language === "mermaid";
+  const storedPreviewMode = surface.dataset.mermaidPreviewMode;
+  const mermaidPreviewMode: MermaidCodePreviewMode =
+    storedPreviewMode === "code" || storedPreviewMode === "preview" || storedPreviewMode === "split"
+      ? storedPreviewMode
+      : "split";
   const width =
     surface.getBoundingClientRect().width ||
     surface.closest<HTMLElement>(".bn-block-content")?.getBoundingClientRect().width ||
@@ -58,12 +73,29 @@ function resolveActiveCodeBlock(surface: HTMLElement): ActiveCodeBlock | null {
     blockId,
     anchor,
     surface,
-    mode: getCodeBlockActionBarMode(width),
+    mode: getCodeBlockActionBarMode(width, undefined, isMermaid),
+    mermaidPreviewMode,
+    hasValidDiagram: readReadyMermaidSvg(surface) !== null,
   };
+}
+
+function hasSameActiveCodeBlock(current: ActiveCodeBlock | null, next: ActiveCodeBlock): boolean {
+  return (
+    current?.blockId === next.blockId &&
+    current.anchor === next.anchor &&
+    current.mode === next.mode &&
+    current.mermaidPreviewMode === next.mermaidPreviewMode &&
+    current.hasValidDiagram === next.hasValidDiagram
+  );
+}
+
+function getRenderedMermaidSvg(surface: HTMLElement): string | null {
+  return readReadyMermaidSvg(surface);
 }
 
 export function NfmCodeBlockController() {
   const blockNoteEditor = useBlockNoteEditor();
+  const { resolved: theme } = useTheme();
   const editor = blockNoteEditor as unknown as CodeBlockControllerEditor;
   const sideMenu = useNfmSideMenuOpenController();
   const [active, setActive] = useState<ActiveCodeBlock | null>(null);
@@ -110,13 +142,7 @@ export function NfmCodeBlockController() {
       if (!surface || dragging || !ownsSurface(surface)) return;
       const next = resolveActiveCodeBlock(surface);
       if (!next) return;
-      setActive((current) =>
-        current?.blockId === next.blockId &&
-        current.anchor === next.anchor &&
-        current.mode === next.mode
-          ? current
-          : next,
-      );
+      setActive((current) => (hasSameActiveCodeBlock(current, next) ? current : next));
     };
     const showFirstSurface = () =>
       showForSurface(root.querySelector<HTMLElement>(CODE_SURFACE_SELECTOR));
@@ -169,15 +195,21 @@ export function NfmCodeBlockController() {
     };
     const mutationObserver = new MutationObserver(() => {
       const current = activeRef.current;
-      if (!current || current.surface.isConnected) return;
-      const replacement = findSurfaceByBlockId(current.blockId);
-      if (!replacement) {
-        setActive(null);
+      if (!current) return;
+      if (!current.surface.isConnected) {
+        const replacement = findSurfaceByBlockId(current.blockId);
+        if (!replacement) {
+          setActive(null);
+          return;
+        }
+        showForSurface(replacement);
         return;
       }
-      showForSurface(replacement);
+      const next = resolveActiveCodeBlock(current.surface);
+      if (next)
+        setActive((candidate) => (hasSameActiveCodeBlock(candidate, next) ? candidate : next));
     });
-    mutationObserver.observe(root, { childList: true, subtree: true });
+    mutationObserver.observe(root, { attributes: true, childList: true, subtree: true });
     root.addEventListener("pointerover", handlePointerOver);
     root.addEventListener("pointerout", handlePointerOut);
     root.addEventListener("focusin", handleFocusIn);
@@ -207,13 +239,7 @@ export function NfmCodeBlockController() {
         setActive(null);
         return;
       }
-      setActive((current) =>
-        current?.blockId === next.blockId &&
-        current.anchor === next.anchor &&
-        current.mode === next.mode
-          ? current
-          : next,
-      );
+      setActive((current) => (hasSameActiveCodeBlock(current, next) ? current : next));
     });
     observer.observe(active.surface);
     return () => observer.disconnect();
@@ -233,6 +259,9 @@ export function NfmCodeBlockController() {
   const block = editor.getBlock(active.blockId);
   if (!block || block.type !== "codeBlock") return null;
   const languageId = normalizeCodeLanguageId(block.props.language);
+  const source = getCodeBlockPlainText(block);
+  const isMermaid = languageId === "mermaid";
+  const renderedSvg = () => getRenderedMermaidSvg(active.surface);
 
   return createPortal(
     <NfmCodeBlockActionBar
@@ -256,7 +285,33 @@ export function NfmCodeBlockController() {
         });
         codeLanguagePreference.set(nextLanguage);
       }}
-      onCopy={() => writeTextToClipboard(getCodeBlockPlainText(block))}
+      onCopy={() => writeTextToClipboard(source)}
+      mermaid={
+        isMermaid
+          ? {
+              previewMode: active.mermaidPreviewMode,
+              hasValidDiagram: active.hasValidDiagram,
+              onPreviewModeChange: (nextMode) => {
+                if (nextMode === "preview") window.getSelection()?.removeAllRanges();
+                codeBlockViewState.setMermaidPreviewMode(active.blockId, nextMode);
+              },
+              onExpand: (trigger) => {
+                const svg = renderedSvg();
+                if (!svg) return;
+                requestMermaidDiagramFullscreen({
+                  source,
+                  svg,
+                  theme,
+                  returnFocusElement: trigger,
+                });
+              },
+              onDownload: () => {
+                const svg = renderedSvg();
+                if (svg) void downloadMermaidDiagram({ svg, theme });
+              },
+            }
+          : undefined
+      }
       onMore={(anchor) => {
         sideMenu.openForBlock({
           block,

@@ -4890,6 +4890,9 @@ export interface components {
         } | {
             /** @enum {string} */
             readonly kind: "code";
+        } | {
+            /** @enum {string} */
+            readonly kind: "equation";
         };
         /** @enum {string} */
         readonly LibraryTaskShorthandPreservedReason: "malformed_shorthand" | "nonempty_title_required" | "rich_text_boundary" | "target_property_conflict" | "target_schema_incompatible" | "tag_schema_permission_required" | "tag_option_limit";

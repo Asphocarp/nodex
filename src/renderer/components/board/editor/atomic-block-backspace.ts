@@ -1,4 +1,7 @@
-import { blockHasEditableTextContent } from "./block-content-capabilities";
+import {
+  blockAcceptsPlainTextMerge,
+  blockUsesPreviewFirstSource,
+} from "./block-content-capabilities";
 
 interface AtomicBackspaceBlock {
   readonly id: string;
@@ -6,7 +9,7 @@ interface AtomicBackspaceBlock {
   readonly children?: readonly AtomicBackspaceBlock[];
 }
 
-interface AtomicBackspaceEditor {
+export interface AtomicBackspaceEditor {
   readonly document: readonly AtomicBackspaceBlock[];
   readonly schema: {
     readonly blockSchema: Readonly<Record<string, { readonly content?: string }>>;
@@ -50,9 +53,15 @@ export function planBackspaceAcrossAtomicBlocks(
   if (!view?.state.selection.empty || view.state.selection.$from.parentOffset !== 0) return null;
 
   const cursor = editor.getTextCursorPosition();
+  if (blockUsesPreviewFirstSource(editor.schema, cursor.block.type)) {
+    return { kind: "protect_boundary" };
+  }
   if (cursor.block.type !== "paragraph") return null;
-  if (!cursor.prevBlock || blockHasEditableTextContent(editor.schema, cursor.prevBlock.type)) {
+  if (!cursor.prevBlock || blockAcceptsPlainTextMerge(editor.schema, cursor.prevBlock.type)) {
     return null;
+  }
+  if (blockUsesPreviewFirstSource(editor.schema, cursor.prevBlock.type)) {
+    return { kind: "protect_boundary" };
   }
 
   const parent = editor.getParentBlock(cursor.block.id);
@@ -62,7 +71,7 @@ export function planBackspaceAcrossAtomicBlocks(
 
   for (let index = currentIndex - 1; index >= 0; index -= 1) {
     const candidate = siblings[index];
-    if (!candidate || !blockHasEditableTextContent(editor.schema, candidate.type)) continue;
+    if (!candidate || !blockAcceptsPlainTextMerge(editor.schema, candidate.type)) continue;
     return {
       kind: "merge",
       sourceBlockId: cursor.block.id,

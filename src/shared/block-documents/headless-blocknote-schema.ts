@@ -25,6 +25,8 @@ import {
   threadSectionBlockConfig,
   syncedBlockRefBlockConfig,
   reusableTemplateRefBlockConfig,
+  mathBlockConfig,
+  mathInlineContentConfig,
 } from "./blocknote-schema-config";
 import { BLOCK_CHILDREN_RULES } from "./block-children-policy";
 
@@ -35,7 +37,7 @@ const failHeadlessRender = (): never => {
 const createHeadlessBlockSpec = <
   const TType extends string,
   const TProps extends PropSchema,
-  const TContent extends "inline" | "none",
+  const TContent extends "inline" | "none" | "plain",
 >(
   config: BlockConfig<TType, TProps, TContent>,
 ) => createBlockSpec(config, { render: failHeadlessRender })();
@@ -74,6 +76,7 @@ const headlessBlockDocumentBlockSpecs = {
   databaseViewRef: createHeadlessBlockSpec(databaseViewRefBlockConfig),
   syncedBlockRef: createHeadlessBlockSpec(syncedBlockRefBlockConfig),
   templateRef: createHeadlessBlockSpec(reusableTemplateRefBlockConfig),
+  mathBlock: createHeadlessBlockSpec(mathBlockConfig),
 } as const;
 
 export const HEADLESS_BLOCK_DOCUMENT_BLOCK_TYPES = Object.freeze(
@@ -90,6 +93,7 @@ export const headlessBlockDocumentSchema = BlockNoteSchema.create({
     dateMention: createHeadlessInlineContentSpec(dateMentionInlineContentConfig),
     pageMention: createHeadlessInlineContentSpec(pageMentionInlineContentConfig),
     threadMention: createHeadlessInlineContentSpec(threadMentionInlineContentConfig),
+    math: createHeadlessInlineContentSpec(mathInlineContentConfig),
   },
   styleSpecs: defaultStyleSpecs,
 });

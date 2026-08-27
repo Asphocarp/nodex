@@ -173,12 +173,14 @@ Configure global hold and global toggle directly in Settings → Voice; the full
 
 ### Input Rules (text triggers)
 
-| Typed at line start | Result                                        |
-| ------------------- | --------------------------------------------- |
-| `> `                | Toggle list item                              |
-| `\| `               | Quote block                                   |
-| `# `–`#### `        | Heading level 1–4                             |
-| `/table`            | Insert a 2x3 simple table from the slash menu |
+| Typed at line start       | Result                                        |
+| ------------------------- | --------------------------------------------- |
+| `> `                      | Toggle list item                              |
+| `\| `                     | Quote block                                   |
+| `# `–`#### `              | Heading level 1–4                             |
+| `/table`                  | Insert a 2x3 simple table from the slash menu |
+| `$$ ` / `\[ `             | Create a Block Equation                       |
+| `$source$` / `\(source\)` | Create an Inline Equation                     |
 
 ### Tables
 
@@ -197,6 +199,18 @@ Configure global hold and global toggle directly in Settings → Voice; the full
 | `Delete` at the end of a non-empty Code Block | Merge the immediately following editable text Block into the Code Block                                 |
 | `Tab`                                         | Insert one literal tab at the start of every selected line                                              |
 | `Shift+Tab`                                   | Remove one leading tab, two spaces, or one space from every selected line when present                  |
+
+Mermaid Code previews additionally use Enter or Space on a focused diagram to open fullscreen, and Escape to close fullscreen and restore focus. Preview format changes are local UI state and do not enter editor Undo.
+
+### Equations
+
+| Shortcut         | Action                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `⌘/Ctrl+Shift+E` | Insert an Inline Equation at a text caret or convert selected text, then select its TeX source |
+| `Enter`          | Submit valid TeX and close the Equation source popup                                           |
+| `Shift+Enter`    | Insert a line break in Block Equation source                                                   |
+| `Escape`         | Close the source popup and return focus to the Equation                                        |
+| `⌘/Ctrl+A`       | Select only the active Equation source before any editor-wide selection                        |
 
 ### Navigation
 

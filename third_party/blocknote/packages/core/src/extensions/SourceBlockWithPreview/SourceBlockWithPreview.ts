@@ -1,4 +1,4 @@
-import { TextSelection } from "prosemirror-state";
+import { TextSelection, type Selection } from "prosemirror-state";
 
 import type { BlockNoteEditor } from "../../editor/BlockNoteEditor";
 import {
@@ -6,6 +6,42 @@ import {
   createStore,
 } from "../../editor/BlockNoteExtension.js";
 import { Block } from "../../blocks/index.js";
+
+interface BlockNodeSelectionLike {
+  readonly node?: { readonly attrs?: { readonly id?: unknown } };
+  readonly nodes?: ReadonlyArray<{
+    readonly attrs?: { readonly id?: unknown };
+  }>;
+}
+
+function selectionIncludesBlock(selection: Selection, blockId: string): boolean {
+  const blockSelection = selection as Selection & BlockNodeSelectionLike;
+  if (Array.isArray(blockSelection.nodes)) {
+    return blockSelection.nodes.some((node) => node.attrs?.id === blockId);
+  }
+  return blockSelection.node?.attrs?.id === blockId;
+}
+
+/** Moves selection into a preview block and selects its complete editable source. */
+export function selectSourceBlockContent(
+  editor: BlockNoteEditor<any, any, any>,
+  blockId: string,
+): boolean {
+  editor.setTextCursorPosition(blockId, "end");
+  const block = editor.getBlock(blockId);
+  const view = editor.prosemirrorView;
+  if (!block || !view) return false;
+
+  const { $from } = view.state.selection;
+  if ($from.parent.type.name !== block.type) return false;
+
+  view.dispatch(
+    view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, $from.start(), $from.end()),
+    ),
+  );
+  return true;
+}
 
 /**
  * A single editor-wide extension that drives the source popup for blocks that
@@ -75,12 +111,14 @@ export const SourceBlockWithPreviewExtension = createExtension(
             return true;
           }
 
-          editor.setTextCursorPosition(block.id, "end");
-          store.setState((state) => ({
-            ...state,
-            popupOpen:
-              store.state.popupOpen === block.id ? undefined : block.id,
-          }));
+          if (store.state.popupOpen === block.id) {
+            editor.setTextCursorPosition(block.id, "end");
+            store.setState((state) => ({ ...state, popupOpen: undefined }));
+            return true;
+          }
+
+          store.setState((state) => ({ ...state, popupOpen: block.id }));
+          selectSourceBlockContent(editor, block.id);
 
           return true;
         },
@@ -105,19 +143,7 @@ export const SourceBlockWithPreviewExtension = createExtension(
             return false;
           }
 
-          const view = editor.prosemirrorView!;
-          const { $from } = view.state.selection;
-          if ($from.parent.type.name !== block.type) {
-            return false;
-          }
-
-          view.dispatch(
-            view.state.tr.setSelection(
-              TextSelection.create(view.state.doc, $from.start(), $from.end()),
-            ),
-          );
-
-          return true;
+          return selectSourceBlockContent(editor, block.id);
         },
         // While the popup is closed, moves the selection straight to the previous/next block
         // instead of into the (hidden) source.
@@ -162,7 +188,18 @@ export const SourceBlockWithPreviewExtension = createExtension(
             return;
           }
 
-          if (event.key === "Backspace" || event.key === "Delete") {
+          if (event.key === "Backspace") {
+            // A closed preview protects its hidden source caret, but an explicit
+            // block selection still owns normal block-level deletion semantics.
+            if (selectionIncludesBlock(editor.prosemirrorState.selection, block.id)) {
+              return;
+            }
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+          }
+
+          if (event.key === "Delete") {
             event.preventDefault();
             event.stopImmediatePropagation();
             editor.removeBlocks([block.id]);

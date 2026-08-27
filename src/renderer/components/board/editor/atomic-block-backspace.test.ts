@@ -25,6 +25,7 @@ function editorFor(input: {
           paragraph: { content: "inline" },
           heading: { content: "inline" },
           codeBlock: { content: "plain" },
+          mathBlock: { content: "plain" },
           page: { content: "none" },
           divider: { content: "none" },
           image: { content: "none" },
@@ -111,6 +112,33 @@ describe("atomic Block Backspace", () => {
       sourceBlockId: "after",
       targetBlockId: "source",
     });
+  });
+
+  test("treats preview-first Math source as atomic rather than a merge target", () => {
+    const input = editorFor({
+      blocks: [block("equation", "mathBlock"), block("after")],
+      cursorIndex: 1,
+    });
+
+    expect(planBackspaceAcrossAtomicBlocks(input.editor)).toEqual({ kind: "protect_boundary" });
+  });
+
+  test("does not skip over preview-first Math to merge with an earlier text Block", () => {
+    const input = editorFor({
+      blocks: [block("before"), block("equation", "mathBlock"), block("after")],
+      cursorIndex: 2,
+    });
+
+    expect(planBackspaceAcrossAtomicBlocks(input.editor)).toEqual({ kind: "protect_boundary" });
+  });
+
+  test("protects the start of preview-first Math source", () => {
+    const input = editorFor({
+      blocks: [block("before"), block("equation", "mathBlock")],
+      cursorIndex: 1,
+    });
+
+    expect(planBackspaceAcrossAtomicBlocks(input.editor)).toEqual({ kind: "protect_boundary" });
   });
 
   test.each(["heading", "bulletListItem", "toggleListItem", "quote", "callout", "codeBlock"])(

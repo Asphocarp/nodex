@@ -48,8 +48,8 @@ To create a citation, you can either reference a compressed URL like this,[^{{1}
 Colors:
 <span color?="Color">Rich text</span>
 Inline math:
-$Equation$ or $`Equation`$ if you want to use markdown delimiters within the equation.
-There must be whitespace before the starting $ symbol and after the ending $ symbol. There must not be whitespace right after the starting $ symbol or before the ending $ symbol.
+$Equation$ for simple source. If the source contains `$`, backticks, boundary whitespace, or a line break, wrap it as `$` followed by a variable-length inline-code span followed by `$`, for example `$`` price = $5 and `raw` ``$`. Choose a backtick fence longer than every backtick run in the source.
+The starting `$` must be at the beginning of inline content, after whitespace, or after an opening bracket. The ending `$` must be at the end of inline content, before whitespace, or before sentence/closing punctuation. There must not be whitespace right after the starting `$` or before the ending `$`.
 Inline line breaks within a block (this is mostly useful in multi-line quote blocks, where an ordinary newline character should not be used since it will break up the block structure):
 <br>
 Mentions:
@@ -199,6 +199,7 @@ Equation:
 $$
 Equation
 $$
+Equation fences are standalone runs of at least two `$` characters. Opening and closing fences must match exactly. Equation source is literal. If the source contains a standalone dollar-only line, choose an outer fence longer than every such line; for example use `$$$` around source that contains a standalone `$$` line.
 		Code:
 ```language
 Code

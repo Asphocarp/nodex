@@ -5,6 +5,11 @@ import { ArrowUpRight, Copy, Link2 } from "@/components/shared/icons/generic-ico
 
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import {
+  inlineTintedChipIconClassName,
+  inlineTintedChipLabelClassName,
+  inlineTintedChipVariants,
+} from "@/components/ui/inline-tinted-chip";
 import { readManagedAssetPreview } from "@/lib/assets";
 import { invoke } from "@/lib/api";
 import { useFileReferenceRouter } from "@/lib/file-reference-router";
@@ -321,8 +326,8 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
               type="button"
               contentEditable={false}
               className={cn(
-                "inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! px-1.5 font-normal align-baseline",
-                "blend cursor-interaction bg-token-charts-purple/10 text-token-charts-purple hover:bg-token-charts-purple/20",
+                inlineTintedChipVariants({ tone: "purple", interactive: true }),
+                "blend",
               )}
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -333,8 +338,8 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
                 setOpen((current) => !current);
               }}
             >
-              <Icon className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
-              <span className="blend truncate leading-[inherit]">{label}</span>
+              <Icon className={inlineTintedChipIconClassName} />
+              <span className={cn(inlineTintedChipLabelClassName, "blend truncate")}>{label}</span>
               {inlineContent.props.mode === "link" && (
                 <Link2 className="-mr-0.5 ml-0.5 inline-block size-3.5 shrink-0 self-center" />
               )}

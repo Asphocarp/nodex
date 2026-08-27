@@ -511,7 +511,7 @@ NESTED BLOCKS
 
 .bn-block-content .bn-preview-with-source-popup {
   display: flex;
-  padding: 12px;
+  padding: 4px 8px;
   width: 100%;
 }
 
@@ -552,7 +552,7 @@ NESTED BLOCKS
   color: transparent;
   height: 0;
   left: 0;
-  margin-top: 4px;
+  margin-top: 6px;
   overflow: clip;
   position: absolute;
   top: 100%;
@@ -563,7 +563,7 @@ NESTED BLOCKS
 .bn-preview-with-source-popup[data-open="true"] .bn-source-block-popup {
   background-color: var(--bn-colors-menu-background);
   border: var(--bn-border);
-  border-radius: var(--bn-border-radius-medium);
+  border-radius: 10px;
   box-shadow: var(--bn-shadow-medium);
   color: var(--bn-colors-menu-text);
   height: unset;
@@ -573,7 +573,7 @@ NESTED BLOCKS
 .bn-block-content
   .bn-preview-with-source-popup[data-open="true"]
   .bn-source-block-popup {
-  width: 100%;
+  width: min(400px, calc(100vw - 32px));
 }
 
 .bn-inline-content-section
@@ -591,13 +591,15 @@ NESTED BLOCKS
   align-self: center;
   flex: 1;
   margin: 0;
-  max-height: 200px;
+  min-height: 60px;
+  max-height: 50vh;
   overflow: auto;
   padding: 16px;
   position: relative;
   tab-size: 2;
   white-space: pre;
   width: 0;
+  font-size: 14px;
 }
 
 .bn-code-block-source-popup-input-empty::before {
@@ -632,10 +634,10 @@ NESTED BLOCKS
 .bn-code-block-source-popup-ok-button {
   align-items: center;
   appearance: none;
-  background-color: rgb(37, 99, 235);
+  background-color: var(--bn-colors-menu-text);
   border: none;
   border-radius: var(--bn-border-radius-small);
-  color: white;
+  color: var(--bn-colors-menu-background);
   cursor: pointer;
   display: flex;
   font-size: 0.8em;
@@ -650,7 +652,12 @@ NESTED BLOCKS
 }
 
 .bn-code-block-source-popup-ok-button:hover {
-  background-color: rgb(29, 78, 216);
+  opacity: 0.82;
+}
+
+.bn-code-block-source-popup-ok-button:disabled {
+  cursor: default;
+  opacity: 0.38;
 }
 
 .bn-preview-with-source-popup:has(.bn-preview-placeholder) {
@@ -660,7 +667,7 @@ NESTED BLOCKS
 .bn-preview-placeholder {
   align-items: center;
   background-color: rgb(242, 241, 238);
-  border-radius: 4px;
+  border-radius: 10px;
   color: rgb(95, 91, 92);
   display: flex;
 }

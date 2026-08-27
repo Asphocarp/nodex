@@ -32,6 +32,10 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
       parts.push(block.code);
     }
 
+    if (block.type === "mathBlock") {
+      parts.push(block.source);
+    }
+
     if (block.type === "table") {
       for (const row of block.rows) {
         for (const cell of row.cells) {
@@ -90,6 +94,11 @@ function collectInlineText(items: NfmInlineContent[], parts: string[]): void {
 
     if (item.type === "dateMention") {
       parts.push(formatDateMentionPlainText(item));
+      continue;
+    }
+
+    if (item.type === "math") {
+      parts.push(item.source);
       continue;
     }
 

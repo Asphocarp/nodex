@@ -42,7 +42,7 @@ export interface BlockNoteInlineContentValue {
   readonly href?: string;
   readonly styles?: Readonly<Record<string, boolean | string>>;
   readonly props?: Readonly<Record<string, unknown>>;
-  readonly content?: readonly BlockNoteInlineContentValue[];
+  readonly content?: readonly BlockNoteInlineContentValue[] | string;
 }
 
 export interface BlockNoteBlockValue {
@@ -193,6 +193,14 @@ function nfmBlockToBN(block: NfmBlock, toggleStates?: Map<string, boolean>): BNP
         props: { language: normalizeCodeLanguageId(block.language) },
         content: [{ type: "text", text: block.code, styles: {} }],
         children,
+      };
+
+    case "mathBlock":
+      return {
+        type: "mathBlock",
+        props: {},
+        content: [{ type: "text", text: block.source, styles: {} }],
+        children: [],
       };
 
     case "table": {
@@ -379,6 +387,14 @@ function nfmInlineToBN(items: NfmInlineContent[]): BNInlineContent[] {
           timeFormat: item.timeFormat ?? "",
           reminder: item.reminder ?? "",
         },
+      };
+    }
+
+    if (item.type === "math") {
+      return {
+        type: "math",
+        props: {},
+        content: item.source,
       };
     }
 
@@ -572,6 +588,13 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
         children,
       };
     }
+
+    case "mathBlock":
+      return {
+        type: "mathBlock",
+        source: extractPlainBlockSource(block.content),
+        children: [],
+      };
 
     case "table":
       return bnTableToNfm(block, color);
@@ -913,10 +936,13 @@ function bnInlineToNfm(content: unknown): NfmInlineContent[] {
       if (!normalized) continue;
 
       items.push(normalized);
+    } else if (item.type === "math") {
+      if (typeof item.content !== "string") continue;
+      items.push({ type: "math", source: item.content });
     } else if (item.type === "link") {
       // Link content is StyledText[]. Flatten to plain text + first style set.
       // NFM links don't support per-span formatting, so we take the dominant style.
-      const contentArr = item.content ?? [];
+      const contentArr = Array.isArray(item.content) ? item.content : [];
       const text = contentArr.map((c: BNInlineContent) => c.text || "").join("");
       const styles =
         contentArr.length > 0 && contentArr[0].styles ? bnStylestoNfm(contentArr[0].styles) : {};
@@ -1041,10 +1067,12 @@ function blockNoteBackgroundToNfmBg(value: unknown): NfmBgColor | undefined {
   return mapping[normalized];
 }
 
-function extractCodeText(content: unknown): string {
+function extractPlainBlockSource(content: unknown): string {
   if (!content || !Array.isArray(content)) return "";
   return content.map((item: BNInlineContent) => item.text || "").join("");
 }
+
+const extractCodeText = extractPlainBlockSource;
 
 function normalizeImageUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;

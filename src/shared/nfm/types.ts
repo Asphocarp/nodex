@@ -77,6 +77,11 @@ export interface NfmLineBreak {
   type: "linebreak";
 }
 
+export interface NfmMathInlineContent {
+  type: "math";
+  source: string;
+}
+
 export interface NfmAttachmentInlineContent {
   type: "attachment";
   kind: "text" | "file" | "folder";
@@ -121,6 +126,7 @@ export type NfmInlineContent =
   | NfmTextSpan
   | NfmLinkSpan
   | NfmLineBreak
+  | NfmMathInlineContent
   | NfmAttachmentInlineContent
   | NfmAgentConfigInlineContent
   | NfmThreadMentionInlineContent
@@ -136,6 +142,7 @@ export type NfmBlockType =
   | "toggle"
   | "blockquote"
   | "codeBlock"
+  | "mathBlock"
   | "table"
   | "callout"
   | "image"
@@ -201,6 +208,11 @@ export interface NfmCodeBlock extends NfmBlockBase {
   type: "codeBlock";
   language: string;
   code: string;
+}
+
+export interface NfmMathBlock extends NfmBlockBase {
+  type: "mathBlock";
+  source: string;
 }
 
 export type NfmTableAlignment = "left" | "center" | "right";
@@ -309,6 +321,7 @@ export type NfmBlock =
   | NfmToggle
   | NfmBlockquote
   | NfmCodeBlock
+  | NfmMathBlock
   | NfmTable
   | NfmCallout
   | NfmImage

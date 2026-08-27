@@ -1,5 +1,17 @@
-import { useState } from "react";
-import { Check, Copy, Ellipsis } from "@/components/shared/icons/generic-icons";
+import { useRef, useState } from "react";
+import {
+  Check,
+  Copy,
+  Download,
+  Ellipsis,
+  Maximize2,
+} from "@/components/shared/icons/generic-icons";
+import {
+  CodeAndPreviewIcon,
+  CodeOnlyPreviewIcon,
+  PreviewOnlyIcon,
+} from "@/components/shared/icons";
+import { useTransientFeedback } from "@/components/shared/use-transient-feedback";
 import {
   codeBlockActionButtonClassName,
   codeBlockActionDividerClassName,
@@ -10,6 +22,7 @@ import {
   NodexOptionPicker,
   type NodexOptionPickerOption,
 } from "@/components/ui/dropdown";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   getCodeLanguageSearchText,
@@ -17,7 +30,36 @@ import {
 } from "../../../../shared/nfm/code-language-catalog";
 import { searchCodeLanguages, type CodeBlockActionBarMode } from "@/lib/nfm/code-block-model";
 import { cn } from "@/lib/utils";
-import { useTransientFeedback } from "@/components/shared/use-transient-feedback";
+import type { MermaidCodePreviewMode } from "@/lib/nfm/code-block-view-state";
+
+const MERMAID_PREVIEW_OPTIONS = [
+  {
+    value: "code",
+    ariaLabel: "Show only code and hide preview",
+    tooltip: "Code",
+    icon: CodeOnlyPreviewIcon,
+  },
+  {
+    value: "preview",
+    ariaLabel: "Show only preview and hide code",
+    tooltip: "Preview",
+    icon: PreviewOnlyIcon,
+  },
+  {
+    value: "split",
+    ariaLabel: "Show code and preview",
+    tooltip: "Split",
+    icon: CodeAndPreviewIcon,
+  },
+] as const;
+
+export interface NfmCodeBlockMermaidActions {
+  readonly previewMode: MermaidCodePreviewMode;
+  readonly hasValidDiagram: boolean;
+  readonly onPreviewModeChange: (mode: MermaidCodePreviewMode) => void;
+  readonly onExpand: (trigger: HTMLButtonElement) => void;
+  readonly onDownload: () => void;
+}
 
 export interface NfmCodeBlockActionBarProps {
   readonly languageId: string;
@@ -27,6 +69,108 @@ export interface NfmCodeBlockActionBarProps {
   readonly onMore: (anchor: HTMLButtonElement) => void;
   readonly onInteractionOpenChange?: (open: boolean) => void;
   readonly tooltipsDisabled?: boolean;
+  readonly mermaid?: NfmCodeBlockMermaidActions;
+}
+
+function MermaidPreviewModePicker({
+  value,
+  open,
+  tooltipsDisabled,
+  onOpenChange,
+  onValueChange,
+}: {
+  readonly value: MermaidCodePreviewMode;
+  readonly open: boolean;
+  readonly tooltipsDisabled: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onValueChange: (value: MermaidCodePreviewMode) => void;
+}) {
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const CurrentIcon =
+    MERMAID_PREVIEW_OPTIONS.find((option) => option.value === value)?.icon ?? CodeAndPreviewIcon;
+  const choose = (nextValue: MermaidCodePreviewMode) => {
+    onValueChange(nextValue);
+    onOpenChange(false);
+  };
+  const moveSelection = (currentIndex: number, direction: -1 | 1) => {
+    const nextIndex =
+      (currentIndex + direction + MERMAID_PREVIEW_OPTIONS.length) % MERMAID_PREVIEW_OPTIONS.length;
+    const next = MERMAID_PREVIEW_OPTIONS[nextIndex]!;
+    onValueChange(next.value);
+    optionRefs.current[nextIndex]?.focus();
+  };
+
+  const trigger = (
+    <NodexPopoverTrigger>
+      <button
+        type="button"
+        aria-label="Open language preview format dropdown"
+        className={cn(codeBlockActionButtonClassName, "[&_svg]:size-4")}
+      >
+        <CurrentIcon />
+      </button>
+    </NodexPopoverTrigger>
+  );
+
+  return (
+    <NodexPopover open={open} onOpenChange={onOpenChange}>
+      <NodexTooltip tooltipContent="Display" disabled={tooltipsDisabled || open}>
+        {trigger}
+      </NodexTooltip>
+      <NodexPopoverContent
+        side="bottom"
+        align="end"
+        sideOffset={8}
+        initialFocus={false}
+        finalFocus={false}
+        role="radiogroup"
+        aria-label="Diagram display"
+        className="w-auto flex-row overflow-visible rounded-md p-0.5"
+      >
+        {MERMAID_PREVIEW_OPTIONS.map((option, index) => {
+          const OptionIcon = option.icon;
+          const selected = option.value === value;
+          return (
+            <div key={option.value} className="flex items-center">
+              {index > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className={cn("mx-1 h-4 w-px", codeBlockActionDividerClassName)}
+                />
+              ) : null}
+              <NodexTooltip tooltipContent={option.tooltip} disabled={tooltipsDisabled}>
+                <button
+                  ref={(node) => {
+                    optionRefs.current[index] = node;
+                  }}
+                  type="button"
+                  role="radio"
+                  aria-label={option.ariaLabel}
+                  aria-checked={selected}
+                  tabIndex={selected ? 0 : -1}
+                  data-mermaid-preview-mode-option={option.value}
+                  className={cn(
+                    codeBlockActionButtonClassName,
+                    "[&_svg]:size-4",
+                    selected &&
+                      "bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] text-[var(--foreground)]",
+                  )}
+                  onClick={() => choose(option.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                    event.preventDefault();
+                    moveSelection(index, event.key === "ArrowLeft" ? -1 : 1);
+                  }}
+                >
+                  <OptionIcon />
+                </button>
+              </NodexTooltip>
+            </div>
+          );
+        })}
+      </NodexPopoverContent>
+    </NodexPopover>
+  );
 }
 
 export function NfmCodeBlockActionBar({
@@ -37,8 +181,10 @@ export function NfmCodeBlockActionBar({
   onMore,
   onInteractionOpenChange,
   tooltipsDisabled = false,
+  mermaid,
 }: NfmCodeBlockActionBarProps) {
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [previewModeOpen, setPreviewModeOpen] = useState(false);
   const copyFeedback = useTransientFeedback();
   const language = resolveCodeLanguage(languageId);
   const locale = globalThis.navigator?.language || "en";
@@ -51,6 +197,11 @@ export function NfmCodeBlockActionBar({
 
   const changeLanguageOpen = (open: boolean) => {
     setLanguageOpen(open);
+    onInteractionOpenChange?.(open);
+  };
+
+  const changePreviewModeOpen = (open: boolean) => {
+    setPreviewModeOpen(open);
     onInteractionOpenChange?.(open);
   };
 
@@ -69,7 +220,7 @@ export function NfmCodeBlockActionBar({
         codeBlockActionSurfaceClassName,
       )}
     >
-      {mode === "more_only" ? null : (
+      {mode !== "more_only" && (!mermaid || mode === "all") ? (
         <>
           <NodexOptionPicker
             value={language.id}
@@ -100,20 +251,59 @@ export function NfmCodeBlockActionBar({
             aria-hidden="true"
             className={cn("mx-0.5 h-4 w-px shrink-0", codeBlockActionDividerClassName)}
           />
-          <NodexTooltip
-            tooltipContent={copyFeedback.visible ? "Copied" : "Copy code"}
-            disabled={tooltipsDisabled}
-          >
-            <button
-              type="button"
-              aria-label="Copy code to clipboard"
-              className={codeBlockActionButtonClassName}
-              onClick={() => void copyCode()}
-            >
-              {copyFeedback.visible ? <Check /> : <Copy />}
-            </button>
-          </NodexTooltip>
         </>
+      ) : null}
+      {mermaid ? (
+        <>
+          <MermaidPreviewModePicker
+            value={mermaid.previewMode}
+            open={previewModeOpen}
+            tooltipsDisabled={tooltipsDisabled}
+            onOpenChange={changePreviewModeOpen}
+            onValueChange={mermaid.onPreviewModeChange}
+          />
+          {mode === "all" ? (
+            <>
+              <NodexTooltip tooltipContent="Expand diagram" disabled={tooltipsDisabled}>
+                <button
+                  type="button"
+                  aria-label="Expand diagram"
+                  disabled={!mermaid.hasValidDiagram}
+                  className={codeBlockActionButtonClassName}
+                  onClick={(event) => mermaid.onExpand(event.currentTarget)}
+                >
+                  <Maximize2 />
+                </button>
+              </NodexTooltip>
+              <NodexTooltip tooltipContent="Download diagram as JPEG" disabled={tooltipsDisabled}>
+                <button
+                  type="button"
+                  aria-label="Download diagram as JPEG"
+                  disabled={!mermaid.hasValidDiagram}
+                  className={codeBlockActionButtonClassName}
+                  onClick={mermaid.onDownload}
+                >
+                  <Download />
+                </button>
+              </NodexTooltip>
+            </>
+          ) : null}
+        </>
+      ) : null}
+      {mode === "more_only" ? null : (
+        <NodexTooltip
+          tooltipContent={copyFeedback.visible ? "Copied" : "Copy code"}
+          disabled={tooltipsDisabled}
+        >
+          <button
+            type="button"
+            aria-label="Copy code to clipboard"
+            className={codeBlockActionButtonClassName}
+            onClick={() => void copyCode()}
+          >
+            {copyFeedback.visible ? <Check /> : <Copy />}
+          </button>
+        </NodexTooltip>
       )}
       <NodexTooltip tooltipContent="Block actions" disabled={tooltipsDisabled}>
         <button

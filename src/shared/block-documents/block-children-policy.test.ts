@@ -33,6 +33,7 @@ describe("block children contract", () => {
       "checkListItem",
       "toggleListItem",
       "codeBlock",
+      "mathBlock",
       "table",
       "quote",
       "divider",

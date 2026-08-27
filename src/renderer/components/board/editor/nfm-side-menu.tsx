@@ -54,7 +54,7 @@ import {
   PlusIcon,
   ReviewEnableWordWrapIcon,
 } from "@/components/shared/icons";
-import { Copy, WandSparkles } from "@/components/shared/icons/generic-icons";
+import { Copy, Download, Maximize2, WandSparkles } from "@/components/shared/icons/generic-icons";
 import { NodexPopover, NodexPopoverAnchor } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
 import { NodexTooltip } from "@/components/ui/tooltip";
@@ -103,6 +103,7 @@ import {
   type NfmSideMenuRect,
 } from "./nfm-side-menu-anchor";
 import { useNfmSideMenuRuntime } from "./nfm-side-menu-runtime";
+import { downloadMermaidDiagram, readReadyMermaidSvg } from "./mermaid-code-preview";
 import {
   applySideMenuSelectionIntent,
   createSideMenuDragSelectionSnapshot,
@@ -570,6 +571,8 @@ function getBlockTypeIcon(item: NfmSideMenuTurnIntoItem) {
 
 function getActionIcon(key: NfmSideMenuActionKey) {
   if (key === "copy-code") return <Copy className="size-4" />;
+  if (key === "expand-diagram") return <Maximize2 className="size-4" />;
+  if (key === "download-diagram") return <Download className="size-4" />;
   if (key === "wrap-code") return <ReviewEnableWordWrapIcon className="size-4" />;
   if (key === "code-language") return <CodeBracketsIcon className="size-5" />;
   if (key === "format-code") return <WandSparkles className="size-4" />;
@@ -1429,6 +1432,14 @@ function NfmSideMenuPopup({
   const codeLanguageId = normalizeCodeLanguageId(selectedTopLevelBlock?.props?.language);
   const isSingleCodeBlock =
     selectedTopLevelBlock?.type === "codeBlock" && topLevelSelectedBlocks.length === 1;
+  const codeSurface = currentBlockId
+    ? ([
+        ...(editor.domElement?.querySelectorAll<HTMLElement>("[data-nfm-code-block-surface]") ??
+          []),
+      ].find((surface) => surface.dataset.blockId === currentBlockId) ?? null)
+    : null;
+  const readyMermaidSvg = readReadyMermaidSvg(codeSurface);
+  const hasValidDiagram = readyMermaidSvg !== null;
   const colorTargetBlocks = useMemo(
     () => (selectedActionBlocks.length > 0 ? selectedActionBlocks : block ? [block] : []),
     [block, selectedActionBlocks],
@@ -1471,6 +1482,8 @@ function NfmSideMenuPopup({
           ? {
               wrapped: codeWrapped,
               canFormat: canFormatCodeLanguage(codeLanguageId),
+              isMermaid: codeLanguageId === "mermaid",
+              hasValidDiagram,
             }
           : undefined,
       }),
@@ -1481,6 +1494,7 @@ function NfmSideMenuPopup({
       currentBlockId,
       codeLanguageId,
       codeWrapped,
+      hasValidDiagram,
       editor.settings?.tables?.headers,
       runtimeSnapshot.hasConvertDividerToThreadSection,
       isEditable,
@@ -1655,6 +1669,28 @@ function NfmSideMenuPopup({
         return;
       }
 
+      if (key === "expand-diagram") {
+        close("action");
+        queueMicrotask(() =>
+          codeSurface
+            ?.querySelector<HTMLButtonElement>(
+              '[aria-label="Click diagram to expand in fullscreen"]',
+            )
+            ?.click(),
+        );
+        return;
+      }
+
+      if (key === "download-diagram") {
+        if (!readyMermaidSvg) return;
+        void downloadMermaidDiagram({
+          svg: readyMermaidSvg,
+          theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
+        });
+        close("action");
+        return;
+      }
+
       if (key === "format-code") {
         const sourceBlock = selectedTopLevelBlock ?? block;
         if (sourceBlock.type !== "codeBlock") return;
@@ -1731,9 +1767,11 @@ function NfmSideMenuPopup({
       close,
       codeLanguageId,
       codeWrapped,
+      codeSurface,
       currentBlockId,
       editor,
       isEditable,
+      readyMermaidSvg,
       openState,
       runtimeSnapshot,
       selectedTopLevelBlock,
