@@ -260,7 +260,7 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
     const firstPageId = pageIds[0];
     if (!firstPageId) throw new Error("Gate E fixture has no Page");
     await projectClient.libraryRead({
-      kind: "page_file",
+      kind: "page_projection_file",
       page_id: firstPageId,
       file_kind: "body_nested_markdown",
       prepare: null,
@@ -270,13 +270,13 @@ describe.runIf(enabled)("Rust Core Gate E runtime", () => {
     for (let index = 0; index < 100; index += 1) {
       const measurement = await elapsedMilliseconds(() =>
         projectClient.libraryRead({
-          kind: "page_file",
+          kind: "page_projection_file",
           page_id: firstPageId,
           file_kind: "body_nested_markdown",
           prepare: null,
         }),
       );
-      if (measurement.value.value.kind !== "page_file") {
+      if (measurement.value.value.kind !== "page_projection_file") {
         throw new Error("Gate E Page read returned an unexpected projection");
       }
       warmPageReadMs.push(measurement.elapsedMs);

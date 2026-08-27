@@ -1,8 +1,8 @@
 use chrono::{DateTime, NaiveDate};
 use nodex_core_contracts::library::{
-    LibraryPageDraftProjection, LibraryPageFileKind, LibraryPageFileProjection,
-    LibraryPageFileValidators, LibraryPagePrepareKind, PageMetaProjectionV2, ProjectedIdentityV1,
-    ProjectedPropertyTypeV1, ProjectedPropertyV1, ProjectedPropertyValueV1,
+    LibraryPageDraftProjection, LibraryPagePrepareKind, LibraryPageProjectionFile,
+    LibraryPageProjectionFileKind, LibraryPageProjectionFileValidators, PageMetaProjectionV2,
+    ProjectedIdentityV1, ProjectedPropertyTypeV1, ProjectedPropertyV1, ProjectedPropertyValueV1,
     ProjectedRelationSummaryV1, ProjectedScheduleV1,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -24,21 +24,21 @@ const MAX_IDENTITY_BYTES: usize = 512;
 const MAX_NAME_BYTES: usize = 4_096;
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 
-pub(super) struct PageFileRequest<'a> {
+pub(super) struct PageProjectionFileRequest<'a> {
     pub commit_head: i64,
     pub requesting_project_id: Option<&'a str>,
     pub page_id: &'a str,
-    pub kind: LibraryPageFileKind,
+    pub kind: LibraryPageProjectionFileKind,
     pub prepare: Option<LibraryPagePrepareKind>,
 }
 
-pub(super) fn page_file(
+pub(super) fn page_projection_file(
     connection: &Connection,
     library_id: &str,
     store_epoch: &str,
-    request: PageFileRequest<'_>,
-) -> Result<LibraryPageFileProjection, StoreError> {
-    let PageFileRequest {
+    request: PageProjectionFileRequest<'_>,
+) -> Result<LibraryPageProjectionFile, StoreError> {
+    let PageProjectionFileRequest {
         commit_head,
         requesting_project_id,
         page_id,
@@ -55,7 +55,7 @@ pub(super) fn page_file(
         None => resolve_library_actor_project_id(connection, library_id)?,
     };
     let page_key = crate::database::current_page_key_for_page(connection, library_id, page_id)?;
-    let mut validators = LibraryPageFileValidators {
+    let mut validators = LibraryPageProjectionFileValidators {
         title_etag: None,
         body_etag: None,
         page_etag: None,
@@ -118,8 +118,10 @@ pub(super) fn page_file(
     }
 
     let (content, metadata) = match kind {
-        LibraryPageFileKind::BodyNestedMarkdown => (with_final_newline(&page.body_nfm), None),
-        LibraryPageFileKind::MetaYaml => {
+        LibraryPageProjectionFileKind::BodyNestedMarkdown => {
+            (with_final_newline(&page.body_nfm), None)
+        }
+        LibraryPageProjectionFileKind::MetaYaml => {
             let projection = PageMetaProjectionV2 {
                 id: page.page_id.clone(),
                 page_key: page_key.clone(),
@@ -142,7 +144,7 @@ pub(super) fn page_file(
         }
     };
 
-    Ok(LibraryPageFileProjection {
+    Ok(LibraryPageProjectionFile {
         version: PAGE_FILE_VERSION,
         library_id: library_id.to_owned(),
         store_epoch: store_epoch.to_owned(),
@@ -168,27 +170,27 @@ pub(super) fn page_draft_projection(
     page_id: &str,
     requesting_project_id: Option<&str>,
 ) -> Result<LibraryPageDraftProjection, StoreError> {
-    let meta = page_file(
+    let meta = page_projection_file(
         connection,
         library_id,
         store_epoch,
-        PageFileRequest {
+        PageProjectionFileRequest {
             commit_head,
             requesting_project_id,
             page_id,
-            kind: LibraryPageFileKind::MetaYaml,
+            kind: LibraryPageProjectionFileKind::MetaYaml,
             prepare: Some(LibraryPagePrepareKind::TitleSet),
         },
     )?;
-    let body = page_file(
+    let body = page_projection_file(
         connection,
         library_id,
         store_epoch,
-        PageFileRequest {
+        PageProjectionFileRequest {
             commit_head,
             requesting_project_id,
             page_id,
-            kind: LibraryPageFileKind::BodyNestedMarkdown,
+            kind: LibraryPageProjectionFileKind::BodyNestedMarkdown,
             prepare: Some(LibraryPagePrepareKind::DocumentReplace),
         },
     )?;
@@ -209,6 +211,8 @@ pub(super) fn page_draft_projection(
         .validators
         .body_etag
         .ok_or_else(|| corrupt("Page draft body omitted its body ETag"))?;
+    let page_files =
+        super::page_files::list(connection, library_id, page_id, None, Some(100), false)?;
     Ok(LibraryPageDraftProjection {
         version: PAGE_DRAFT_VERSION,
         metadata_projection_version: PAGE_FILE_VERSION,
@@ -222,24 +226,25 @@ pub(super) fn page_draft_projection(
         document_head_seq: meta.document_head_seq,
         meta_yaml: meta.content,
         body_nested_markdown: body.content,
+        page_files,
         title_etag,
         body_etag,
     })
 }
 
 fn validate_prepare(
-    kind: LibraryPageFileKind,
+    kind: LibraryPageProjectionFileKind,
     prepare: Option<&LibraryPagePrepareKind>,
 ) -> Result<(), StoreError> {
     let valid = matches!(
         (kind, prepare),
         (_, None)
             | (
-                LibraryPageFileKind::MetaYaml,
+                LibraryPageProjectionFileKind::MetaYaml,
                 Some(LibraryPagePrepareKind::TitleSet)
             )
             | (
-                LibraryPageFileKind::BodyNestedMarkdown,
+                LibraryPageProjectionFileKind::BodyNestedMarkdown,
                 Some(LibraryPagePrepareKind::DocumentReplace)
             )
             | (_, Some(LibraryPagePrepareKind::PageDelete))
@@ -1150,21 +1155,21 @@ mod tests {
     fn prepare_is_narrowly_bound_to_the_projected_file() {
         assert!(
             validate_prepare(
-                LibraryPageFileKind::MetaYaml,
+                LibraryPageProjectionFileKind::MetaYaml,
                 Some(&LibraryPagePrepareKind::TitleSet)
             )
             .is_ok()
         );
         assert!(
             validate_prepare(
-                LibraryPageFileKind::BodyNestedMarkdown,
+                LibraryPageProjectionFileKind::BodyNestedMarkdown,
                 Some(&LibraryPagePrepareKind::DocumentReplace)
             )
             .is_ok()
         );
         assert!(
             validate_prepare(
-                LibraryPageFileKind::BodyNestedMarkdown,
+                LibraryPageProjectionFileKind::BodyNestedMarkdown,
                 Some(&LibraryPagePrepareKind::TitleSet)
             )
             .is_err()

@@ -1821,11 +1821,37 @@ pub(super) fn replace_secondary_projections(
         let ordinal = next_ordinal
             .entry((asset.source_block_id.as_str(), role))
             .or_insert(0);
+        let asset_hash = asset
+            .file_id
+            .as_deref()
+            .map(|file_id| {
+                connection
+                    .query_row(
+                        "SELECT version.blob_hash FROM page_files file \
+                         JOIN page_file_versions version ON version.file_id = file.file_id \
+                           AND version.version = file.current_version \
+                         WHERE file.file_id = ?1 AND file.library_id = ?2 \
+                           AND file.owner_page_id = ?3 AND file.state = 'live' \
+                           AND version.blob_hash IS NOT NULL",
+                        params![file_id, authority.head.library_id, authority.owner_block_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::InvalidInput,
+                            "Page Document references a File outside its direct ownership",
+                            false,
+                        )
+                    })
+            })
+            .transpose()?;
         connection.execute(
             "INSERT INTO block_asset_refs( \
                document_id, block_id, owner_block_id, library_id, document_generation, \
-               projected_seq, projection_version, role, ordinal, asset_uri, asset_hash, updated_at \
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11)",
+               projected_seq, projection_version, role, ordinal, asset_uri, asset_hash, \
+               page_file_id, updated_at \
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 authority.head.id,
                 asset.source_block_id,
@@ -1837,6 +1863,8 @@ pub(super) fn replace_secondary_projections(
                 role,
                 *ordinal,
                 asset.source,
+                asset_hash,
+                asset.file_id,
                 now,
             ],
         )?;

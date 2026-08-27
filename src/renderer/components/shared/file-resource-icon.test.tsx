@@ -2,11 +2,12 @@ import { createElement } from "react";
 import { describe, expect, test } from "vite-plus/test";
 import { render } from "@/test/dom";
 import {
-  resolveWorkspaceFileTabIcon,
-  resolveWorkspaceFileTabIconKey,
-} from "./workspace-file-tab-icons";
+  FileResourceIcon,
+  resolveFileResourceIcon,
+  resolveFileResourceIconKey,
+} from "./file-resource-icon";
 
-describe("resolveWorkspaceFileTabIconKey", () => {
+describe("FileResourceIcon", () => {
   test.each([
     ["/repo/SKILL.md", "skill"],
     ["/repo/index.ts", "typescript"],
@@ -22,32 +23,30 @@ describe("resolveWorkspaceFileTabIconKey", () => {
     ["/repo/archive.zip", "folder"],
     ["/repo/LICENSE", "file"],
   ] as const)("maps %s to %s", (path, expected) => {
-    expect(resolveWorkspaceFileTabIconKey(path)).toBe(expected);
+    expect(resolveFileResourceIconKey(path)).toBe(expected);
   });
 
   test("falls back to MIME types before the generic file icon", () => {
-    expect(resolveWorkspaceFileTabIconKey("/repo/cover", "image/webp")).toBe("image");
-    expect(resolveWorkspaceFileTabIconKey("/repo/data", "application/pdf")).toBe("pdf");
-    expect(resolveWorkspaceFileTabIconKey("/repo/notes", "text/plain")).toBe("document");
-    expect(resolveWorkspaceFileTabIconKey("/repo/value", "application/octet-stream")).toBe("file");
+    expect(resolveFileResourceIconKey("/repo/cover", "image/webp")).toBe("image");
+    expect(resolveFileResourceIconKey("/repo/data", "application/pdf")).toBe("pdf");
+    expect(resolveFileResourceIconKey("/repo/notes", "text/plain")).toBe("document");
+    expect(resolveFileResourceIconKey("/repo/value", "application/octet-stream")).toBe("file");
   });
 
   test("recognizes directory paths and empty file tabs", () => {
-    expect(resolveWorkspaceFileTabIconKey("/repo/src/")).toBe("folder");
-    expect(resolveWorkspaceFileTabIconKey()).toBe("file");
+    expect(resolveFileResourceIconKey("/repo/src/")).toBe("folder");
+    expect(resolveFileResourceIconKey()).toBe("file");
   });
 
   test("returns stable component identities for the same semantic icon", () => {
-    expect(resolveWorkspaceFileTabIcon("/repo/one.ts")).toBe(
-      resolveWorkspaceFileTabIcon("/repo/two.ts"),
-    );
-    expect(resolveWorkspaceFileTabIcon("/repo/one.ts")).not.toBe(
-      resolveWorkspaceFileTabIcon("/repo/one.tsx"),
+    expect(resolveFileResourceIcon("/repo/one.ts")).toBe(resolveFileResourceIcon("/repo/two.ts"));
+    expect(resolveFileResourceIcon("/repo/one.ts")).not.toBe(
+      resolveFileResourceIcon("/repo/one.tsx"),
     );
   });
 
   test("renders the dedicated tab glyph family without file-tree sprites or colors", () => {
-    const JavaScriptIcon = resolveWorkspaceFileTabIcon("/repo/index.mjs");
+    const JavaScriptIcon = resolveFileResourceIcon("/repo/index.mjs");
     const view = render(createElement(JavaScriptIcon, { className: "icon-xs" }));
     const svg = view.container.querySelector("svg");
     const path = svg?.querySelector("path");
@@ -61,8 +60,8 @@ describe("resolveWorkspaceFileTabIconKey", () => {
   });
 
   test("uses the simplified document and generic-file geometries independently", () => {
-    const DocumentIcon = resolveWorkspaceFileTabIcon("/repo/README.md");
-    const FileIcon = resolveWorkspaceFileTabIcon("/repo/LICENSE");
+    const DocumentIcon = resolveFileResourceIcon("/repo/README.md");
+    const FileIcon = resolveFileResourceIcon("/repo/LICENSE");
     const documentView = render(createElement(DocumentIcon));
     const fileView = render(createElement(FileIcon));
     const documentSvg = documentView.container.querySelector("svg");
@@ -76,5 +75,13 @@ describe("resolveWorkspaceFileTabIconKey", () => {
     expect(fileSvg?.getAttribute("data-file-tab-icon")).toBe("file");
     expect(fileSvg?.getAttribute("viewBox")).toBe("0 0 10 10");
     expect(fileSvg?.querySelector("use")).toBe(null);
+  });
+
+  test("renders the shared path and MIME projection without exposing resolver details", () => {
+    const view = render(
+      <FileResourceIcon path="references/report" mimeType="application/pdf" className="size-4" />,
+    );
+
+    expect(view.container.querySelector("[data-file-tab-icon='pdf']")).not.toBeNull();
   });
 });

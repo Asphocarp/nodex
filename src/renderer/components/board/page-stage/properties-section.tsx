@@ -23,6 +23,7 @@ import { presentPageChatItemActivity } from "@/lib/page-chat-activity-presentati
 import { cn } from "@/lib/utils";
 import { PageStageDataSourcePropertyControl } from "./data-source-property-control";
 import type { PageStageController } from "./use-page-stage-controller";
+import { PageFilesRow } from "./page-files-row";
 
 interface PageStagePropertiesSectionProps {
   readonly controller: PageStageController;
@@ -283,12 +284,6 @@ function RelatedChatsPropertyRow({ controller }: PageStagePropertiesSectionProps
 export function PageStagePropertiesSection({ controller }: PageStagePropertiesSectionProps) {
   if (!controller.page) return null;
   const { propertyControls } = controller;
-  const hasSectionRows =
-    propertyControls.sectionProperties.length > 0 ||
-    controller.hasRelatedChatsRow ||
-    propertyControls.hasScheduleCapability;
-  if (!hasSectionRows) return null;
-
   const isCollapsed = (propertyId: string): boolean => {
     if (propertyId === "tags") return controller.collapseTagsByDefault;
     if (propertyId === "assignee") return controller.collapseAssigneeByDefault;
@@ -302,6 +297,8 @@ export function PageStagePropertiesSection({ controller }: PageStagePropertiesSe
       </div>
 
       <div className="flex flex-col pb-1">
+        <PageFilesRow controller={controller} />
+
         {propertyControls.sectionProperties.map((item) => {
           if (!controller.showCollapsedProperties && isCollapsed(item.property.propertyId)) {
             return null;

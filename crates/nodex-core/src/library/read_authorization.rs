@@ -48,7 +48,10 @@ fn read_subject(
         LibraryRead::Path { target } => Some(route_target(target)),
         LibraryRead::PageDetail { page_id }
         | LibraryRead::PageContent { page_id }
-        | LibraryRead::PageFile { page_id, .. }
+        | LibraryRead::PageFiles { page_id, .. }
+        | LibraryRead::PageFileMetadata { page_id, .. }
+        | LibraryRead::PageFileVersions { page_id, .. }
+        | LibraryRead::PageProjectionFile { page_id, .. }
         | LibraryRead::PageDraftProjection { page_id } => Some(ResourceKey::Page {
             page_id: page_id.clone(),
         }),

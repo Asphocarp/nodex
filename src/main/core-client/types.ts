@@ -87,6 +87,13 @@ type SuccessfulPayload<Response> = Response extends {
 
 export type LibraryReadSnapshot = SuccessfulPayload<LibraryReadResponse>;
 export type LibraryApplyResult = SuccessfulPayload<LibraryApplyResponse>;
+export type PreparedPageFileBlob = components["schemas"]["LibraryPreparedPageFileBlob"];
+
+export interface PageFileBlobBytes {
+  readonly bytes: Uint8Array;
+  readonly mimeType: string;
+  readonly etag: string;
+}
 
 export type DatabaseReadRequest = components["schemas"]["DatabaseReadRequest"];
 export type DatabaseRead = DatabaseReadRequest["read"];
@@ -235,6 +242,21 @@ export interface CoreClientPort {
   ): Promise<CoreLocalMutationResolveResponse>;
   libraryRead(read: LibraryRead, options?: CoreRequestOptions): Promise<LibraryReadSnapshot>;
   libraryApply(input: LibraryApplyInput, options?: CoreRequestOptions): Promise<LibraryApplyResult>;
+  preparePageFileBlob(
+    input: {
+      readonly operationId: string;
+      readonly bytes: Uint8Array;
+    },
+    options?: CoreRequestOptions,
+  ): Promise<PreparedPageFileBlob>;
+  readPageFileBlob(
+    input: {
+      readonly pageId: string;
+      readonly fileId: string;
+      readonly version?: number;
+    },
+    options?: CoreRequestOptions,
+  ): Promise<PageFileBlobBytes>;
   filterProjectionImpactForProject(
     projectId: string,
     impact: ProjectionImpact,

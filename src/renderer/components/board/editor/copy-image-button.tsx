@@ -10,6 +10,8 @@ import { useCallback } from "react";
 import { toast } from "@/components/ui/toast";
 
 import { copyImageToClipboard } from "./copy-image";
+import { parsePageFileSource } from "../../../../shared/page-files";
+import { usePageFilePlacementRuntime } from "./page-file-runtime";
 
 export function CopyImageButton({
   copyImageToClipboardImpl = copyImageToClipboard,
@@ -18,6 +20,7 @@ export function CopyImageButton({
 }) {
   const Components = useComponentsContext()!;
   const editor = useBlockNoteEditor<BlockSchema, InlineContentSchema, StyleSchema>();
+  const pageFileRuntime = usePageFilePlacementRuntime();
 
   const block = useEditorState({
     editor,
@@ -46,20 +49,32 @@ export function CopyImageButton({
   const onClick = useCallback(() => {
     if (!block) return;
 
-    void copyImageToClipboardImpl(block.props.url).then((result) => {
-      if (!result.ok) {
-        toast.danger(result.message, {
+    void (async () => {
+      const source =
+        parsePageFileSource(block.props.url) && pageFileRuntime
+          ? await pageFileRuntime.readImageDataUrl(block.props.url)
+          : block.props.url;
+      return copyImageToClipboardImpl(source);
+    })()
+      .then((result) => {
+        if (!result.ok) {
+          toast.danger(result.message, {
+            id: "editor-copy-image",
+          });
+          return;
+        }
+
+        toast.success("Copied image to clipboard.", {
           id: "editor-copy-image",
         });
-        return;
-      }
-
-      toast.success("Copied image to clipboard.", {
-        id: "editor-copy-image",
+        editor.focus();
+      })
+      .catch(() => {
+        toast.danger("The image could not be read.", {
+          id: "editor-copy-image",
+        });
       });
-      editor.focus();
-    });
-  }, [block, copyImageToClipboardImpl, editor]);
+  }, [block, copyImageToClipboardImpl, editor, pageFileRuntime]);
 
   if (!block) return null;
 

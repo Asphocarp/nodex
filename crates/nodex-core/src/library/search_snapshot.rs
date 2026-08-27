@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::library::{
-    LibraryPageFileKind, LibrarySearchSnapshotFile, LibrarySearchSnapshotLease,
+    LibraryPageProjectionFileKind, LibrarySearchSnapshotFile, LibrarySearchSnapshotLease,
     LibrarySearchSnapshotManifest, LibrarySearchSnapshotOwner, LibrarySearchSnapshotOwnerKind,
     LibrarySearchSnapshotPage, LibrarySearchSnapshotRelease, LibrarySearchSnapshotScope,
     LibrarySearchSnapshotWarning,
@@ -31,7 +31,7 @@ const READ_ONLY_FILE_MODE: u32 = 0o400;
 #[derive(Clone)]
 struct PreparedFile {
     relative_path: String,
-    kind: LibraryPageFileKind,
+    kind: LibraryPageProjectionFileKind,
     sha256: String,
     bytes: Vec<u8>,
 }
@@ -394,8 +394,8 @@ impl SearchSnapshotStore {
 
     fn ensure_cache_file(&self, file: &PreparedFile) -> Result<PathBuf, StoreError> {
         let kind = match file.kind {
-            LibraryPageFileKind::MetaYaml => "meta",
-            LibraryPageFileKind::BodyNestedMarkdown => "body",
+            LibraryPageProjectionFileKind::MetaYaml => "meta",
+            LibraryPageProjectionFileKind::BodyNestedMarkdown => "body",
         };
         let parent = self.root.join("cache/v1").join(kind);
         require_owned_directory(&parent)?;
@@ -478,15 +478,15 @@ pub(super) fn prepare(
     let mut total_bytes = 0usize;
     for page_id in page_ids {
         super::require_page_read_access(connection, library_id, project_id, &page_id)?;
-        let body = match super::page_projection::page_file(
+        let body = match super::page_projection::page_projection_file(
             connection,
             library_id,
             store_epoch,
-            super::page_projection::PageFileRequest {
+            super::page_projection::PageProjectionFileRequest {
                 commit_head,
                 requesting_project_id: Some(project_id),
                 page_id: &page_id,
-                kind: LibraryPageFileKind::BodyNestedMarkdown,
+                kind: LibraryPageProjectionFileKind::BodyNestedMarkdown,
                 prepare: None,
             },
         ) {
@@ -516,15 +516,15 @@ pub(super) fn prepare(
             }
             Err(error) => return Err(error),
         };
-        let meta = super::page_projection::page_file(
+        let meta = super::page_projection::page_projection_file(
             connection,
             library_id,
             store_epoch,
-            super::page_projection::PageFileRequest {
+            super::page_projection::PageProjectionFileRequest {
                 commit_head,
                 requesting_project_id: Some(project_id),
                 page_id: &page_id,
-                kind: LibraryPageFileKind::MetaYaml,
+                kind: LibraryPageProjectionFileKind::MetaYaml,
                 prepare: None,
             },
         )?;
@@ -537,13 +537,13 @@ pub(super) fn prepare(
         let ownership_path = ownership_path(connection, library_id, &page_id)?;
         let logical_root = logical_page_path(&ownership_path, &metadata.title_markdown, &page_id);
         let meta_file = snapshot_file(
-            LibraryPageFileKind::MetaYaml,
+            LibraryPageProjectionFileKind::MetaYaml,
             &format!("{physical_root}/meta.yaml"),
             &format!("{logical_root}/meta.yaml"),
             meta.content.as_bytes(),
         )?;
         let body_file = snapshot_file(
-            LibraryPageFileKind::BodyNestedMarkdown,
+            LibraryPageProjectionFileKind::BodyNestedMarkdown,
             &format!("{physical_root}/body.nested.md"),
             &format!("{logical_root}/body.nested.md"),
             body.content.as_bytes(),
@@ -960,7 +960,7 @@ fn terminal_data_source(
 }
 
 fn snapshot_file(
-    kind: LibraryPageFileKind,
+    kind: LibraryPageProjectionFileKind,
     physical_relative_path: &str,
     logical_path: &str,
     bytes: &[u8],

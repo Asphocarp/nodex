@@ -12,6 +12,7 @@ mod draft;
 pub mod error;
 pub mod meta_yaml;
 mod open;
+mod page_files;
 mod page_lifecycle;
 mod page_mutation;
 pub mod patch;

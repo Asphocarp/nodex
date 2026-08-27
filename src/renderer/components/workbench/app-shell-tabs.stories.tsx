@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { History, X } from "@/components/shared/icons/generic-icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { resolveWorkspaceFileTabIcon } from "@/features/workspace-files";
+import { resolveFileResourceIcon } from "@/components/shared/file-resource-icon";
 import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favicon";
 import { AppShellTabs, type AppShellTabItem, type AppShellTabTitleSource } from "./app-shell-tabs";
 
@@ -294,7 +294,7 @@ function FileTabsAndOverflowStory() {
   const tabs: AppShellTabItem[] = fileTabs.map((tab, index) => ({
     id: tab.id,
     title: tab.title,
-    icon: resolveWorkspaceFileTabIcon(tab.path),
+    icon: resolveFileResourceIcon(tab.path),
     closable: true,
     preview: index === fileTabs.length - 1,
     reorderable: index !== fileTabs.length - 1,

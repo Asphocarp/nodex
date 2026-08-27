@@ -21,6 +21,9 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
+mod page_file_blobs;
+mod page_file_path;
+mod page_files;
 mod page_projection;
 mod page_search;
 mod projection_authorization;
@@ -775,6 +778,7 @@ impl LibraryModule {
                 affected_resource_ids: vec![resource_id],
                 page_create: None,
                 page_copy: None,
+                page_files: None,
                 canvas_mutation: None,
                 block_transfer: None,
                 block_transfer_undo: None,
@@ -796,6 +800,7 @@ impl LibraryModule {
             database_ids: affected_database_ids,
             view_ids: Vec::new(),
             parent_keys: Vec::new(),
+            page_file_manifest_revisions: BTreeMap::new(),
         });
         let projection_impact = match target {
             LibraryResourceTarget::Page { .. } => {
@@ -970,12 +975,12 @@ mod tests {
         LibraryBlockTransferDataSourcePlacement, LibraryBlockTransferDocumentHead,
         LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferSource,
         LibraryBlockTransferTarget, LibraryDocumentHead, LibraryMoveDestinationScope,
-        LibraryNavigationParent, LibraryPageCopyValue, LibraryPageFileKind,
-        LibraryPageLifecycleMutation, LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
-        LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind, LibraryPageReferenceMatchSource,
-        LibraryPageSearchMatch, LibraryPageSearchTagMode, LibraryPageWorkflowStatus,
-        LibraryPageWriteDestination, LibraryProjectAccessChange, LibraryProjectPageSearchFilters,
-        LibraryWriteParent,
+        LibraryNavigationParent, LibraryPageCopyValue, LibraryPageLifecycleMutation,
+        LibraryPageLifecycleState, LibraryPageLifecycleTagOption,
+        LibraryPageLifecycleViewPlacement, LibraryPagePrepareKind, LibraryPageProjectionFileKind,
+        LibraryPageReferenceMatchSource, LibraryPageSearchMatch, LibraryPageSearchTagMode,
+        LibraryPageWorkflowStatus, LibraryPageWriteDestination, LibraryProjectAccessChange,
+        LibraryProjectPageSearchFilters, LibraryWriteParent,
     };
     use nodex_core_contracts::workspace::{
         PROJECT_WORKSPACE_CONTRACT_VERSION, ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch,
@@ -1022,15 +1027,15 @@ mod tests {
                 context,
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: page_id.to_owned(),
-                        file_kind: LibraryPageFileKind::MetaYaml,
+                        file_kind: LibraryPageProjectionFileKind::MetaYaml,
                         prepare: Some(LibraryPagePrepareKind::PageMove { view_id: None }),
                     },
                 },
             )
             .expect("prepare Page move");
-        let LibraryReadValue::PageFile { value } = prepared.value else {
+        let LibraryReadValue::PageProjectionFile { value } = prepared.value else {
             panic!("Page move preparation")
         };
         value
@@ -2170,14 +2175,14 @@ mod tests {
         };
         assert_eq!(value.title, "Native lifecycle");
         assert_eq!(value.body_nfm, "Native body");
-        let LibraryReadValue::PageFile { value: body_file } = module
+        let LibraryReadValue::PageProjectionFile { value: body_file } = module
             .read(
                 &persistent_context,
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: PAGE.to_owned(),
-                        file_kind: LibraryPageFileKind::BodyNestedMarkdown,
+                        file_kind: LibraryPageProjectionFileKind::BodyNestedMarkdown,
                         prepare: None,
                     },
                 },
@@ -2193,14 +2198,14 @@ mod tests {
         assert_eq!(body_file.validators.body_etag, None);
         assert_eq!(body_file.validators.page_etag, None);
 
-        let LibraryReadValue::PageFile { value: meta_file } = module
+        let LibraryReadValue::PageProjectionFile { value: meta_file } = module
             .read(
                 &persistent_context,
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: PAGE.to_owned(),
-                        file_kind: LibraryPageFileKind::MetaYaml,
+                        file_kind: LibraryPageProjectionFileKind::MetaYaml,
                         prepare: Some(LibraryPagePrepareKind::TitleSet),
                     },
                 },
@@ -2242,9 +2247,9 @@ mod tests {
                 &persistent_context,
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: PAGE.to_owned(),
-                        file_kind: LibraryPageFileKind::BodyNestedMarkdown,
+                        file_kind: LibraryPageProjectionFileKind::BodyNestedMarkdown,
                         prepare: Some(LibraryPagePrepareKind::TitleSet),
                     },
                 },

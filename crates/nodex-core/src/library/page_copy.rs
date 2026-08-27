@@ -288,6 +288,7 @@ pub(super) fn copy_page(
                     committed_revisions: execution.committed_revisions,
                     page_create: None,
                     page_copy: Some(execution.result),
+                    page_files: None,
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
@@ -463,16 +464,37 @@ pub(super) fn execute_page_copy(
         )?;
     }
 
+    let source_to_target_page_ids = plan
+        .documents
+        .iter()
+        .filter(|document| document.owner_type == "page")
+        .map(|document| {
+            (
+                document.source_owner_id.clone(),
+                document.target_owner_id.clone(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let page_file_copy = super::page_files::clone_for_page_copy(
+        connection,
+        library_id,
+        operation_id,
+        requesting_project_id,
+        &now,
+        &source_to_target_page_ids,
+    )?;
     let mut persisted_documents = persist_copy_documents(
         connection,
         commit_context,
         requesting_project_id,
         &plan,
+        &page_file_copy.file_ids,
         store_epoch,
         operation_id,
         &now,
         assets_root,
     )?;
+    let page_file_manifest_revisions = page_file_copy.manifest_revisions;
 
     let data_source_placement = data_source_destination
         .as_ref()
@@ -549,6 +571,11 @@ pub(super) fn execute_page_copy(
         committed_revisions.insert(format!("blockMetadata:{page_id}"), revision);
         committed_revisions.insert(format!("pageParent:{page_id}"), revision);
     }
+    committed_revisions.extend(
+        page_file_manifest_revisions
+            .into_iter()
+            .map(|(page_id, revision)| (format!("pageFiles:{page_id}"), revision)),
+    );
     for (document_id, head_seq) in &persisted_documents.heads {
         committed_revisions.insert(format!("documentHead:{document_id}"), *head_seq);
     }
@@ -735,11 +762,30 @@ pub(crate) fn clone_page_for_occurrence(
         &LibraryWriteParent::Library { before: None },
         input.now,
     )?;
+    let page_file_copy = super::page_files::clone_for_page_copy(
+        connection,
+        library_id,
+        input.operation_id,
+        input.actor_project_id,
+        input.now,
+        &plan
+            .documents
+            .iter()
+            .filter(|document| document.owner_type == "page")
+            .map(|document| {
+                (
+                    document.source_owner_id.clone(),
+                    document.target_owner_id.clone(),
+                )
+            })
+            .collect(),
+    )?;
     let document_heads = persist_copy_documents(
         connection,
         input.commit_context,
         input.actor_project_id,
         &plan,
+        &page_file_copy.file_ids,
         store_epoch,
         input.operation_id,
         input.now,
@@ -957,6 +1003,7 @@ fn persist_copy_documents(
     commit_context: &CommitContext,
     actor_project_id: &str,
     plan: &CopyPlan,
+    page_file_ids: &BTreeMap<String, String>,
     store_epoch: &str,
     operation_id: &str,
     now: &str,
@@ -986,7 +1033,8 @@ fn persist_copy_documents(
             document_heads.insert(document.target_document_id.clone(), head_seq);
             continue;
         };
-        let remapped_blocks = remap_blocks(&materialization.block_tree, &plan.block_ids)?;
+        let remapped_blocks =
+            remap_blocks(&materialization.block_tree, &plan.block_ids, page_file_ids)?;
         let prepared = prepare_yjs_clone_genesis(
             &document.target_document_id,
             &document.owner_type,
@@ -1563,6 +1611,7 @@ fn assert_fresh_identities(connection: &Connection, plan: &CopyPlan) -> Result<(
 fn remap_blocks(
     blocks: &[MaterializedBlockNode],
     block_ids: &BTreeMap<String, String>,
+    page_file_ids: &BTreeMap<String, String>,
 ) -> Result<Vec<MaterializedBlockNode>, StoreError> {
     blocks
         .iter()
@@ -1573,12 +1622,55 @@ fn remap_blocks(
                     .cloned()
                     .ok_or_else(|| corrupt("Page copy omitted a content Block identity"))?,
                 block_type: block.block_type.clone(),
-                props: block.props.clone(),
-                content: block.content.clone(),
-                children: remap_blocks(&block.children, block_ids)?,
+                props: block
+                    .props
+                    .iter()
+                    .map(|(key, value)| {
+                        (
+                            key.clone(),
+                            remap_page_file_references(value, page_file_ids),
+                        )
+                    })
+                    .collect(),
+                content: block
+                    .content
+                    .as_ref()
+                    .map(|value| remap_page_file_references(value, page_file_ids)),
+                children: remap_blocks(&block.children, block_ids, page_file_ids)?,
             })
         })
         .collect()
+}
+
+fn remap_page_file_references(
+    value: &serde_json::Value,
+    page_file_ids: &BTreeMap<String, String>,
+) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(value) => value
+            .strip_prefix("nodex://files/")
+            .and_then(|file_id| page_file_ids.get(file_id))
+            .map(|file_id| serde_json::Value::String(format!("nodex://files/{file_id}")))
+            .unwrap_or_else(|| serde_json::Value::String(value.clone())),
+        serde_json::Value::Array(values) => serde_json::Value::Array(
+            values
+                .iter()
+                .map(|value| remap_page_file_references(value, page_file_ids))
+                .collect(),
+        ),
+        serde_json::Value::Object(values) => serde_json::Value::Object(
+            values
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        key.clone(),
+                        remap_page_file_references(value, page_file_ids),
+                    )
+                })
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
 }
 
 fn flatten_blocks(blocks: &[MaterializedBlockNode]) -> Vec<&MaterializedBlockNode> {

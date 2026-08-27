@@ -507,7 +507,7 @@ fn internal(error: impl std::fmt::Display) -> CliError {
 
 #[cfg(test)]
 mod tests {
-    use nodex_core_contracts::library::LibraryPageFileKind;
+    use nodex_core_contracts::library::LibraryPageProjectionFileKind;
     use tempfile::tempdir;
 
     use super::*;
@@ -595,12 +595,12 @@ mod tests {
                     schedule_revision: None,
                     title_sha256: "a".repeat(64),
                     meta: file(
-                        LibraryPageFileKind::MetaYaml,
+                        LibraryPageProjectionFileKind::MetaYaml,
                         "pages/hash/meta.yaml",
                         "Library/CLI~page-1/meta.yaml",
                     ),
                     body: file(
-                        LibraryPageFileKind::BodyNestedMarkdown,
+                        LibraryPageProjectionFileKind::BodyNestedMarkdown,
                         "pages/hash/body.nested.md",
                         "Library/CLI~page-1/body.nested.md",
                     ),
@@ -658,13 +658,13 @@ mod tests {
                     schedule_revision: None,
                     title_sha256: digest(b"CLI"),
                     meta: projected_file(
-                        LibraryPageFileKind::MetaYaml,
+                        LibraryPageProjectionFileKind::MetaYaml,
                         "pages/hash/meta.yaml",
                         "Library/CLI~page-1/meta.yaml",
                         meta_bytes,
                     ),
                     body: projected_file(
-                        LibraryPageFileKind::BodyNestedMarkdown,
+                        LibraryPageProjectionFileKind::BodyNestedMarkdown,
                         "pages/hash/body.nested.md",
                         "Library/CLI~page-1/body.nested.md",
                         body_bytes,
@@ -746,7 +746,7 @@ mod tests {
     }
 
     fn file(
-        kind: LibraryPageFileKind,
+        kind: LibraryPageProjectionFileKind,
         physical: &str,
         logical: &str,
     ) -> nodex_core_contracts::library::LibrarySearchSnapshotFile {
@@ -760,7 +760,7 @@ mod tests {
     }
 
     fn projected_file(
-        kind: LibraryPageFileKind,
+        kind: LibraryPageProjectionFileKind,
         physical: &str,
         logical: &str,
         bytes: &[u8],

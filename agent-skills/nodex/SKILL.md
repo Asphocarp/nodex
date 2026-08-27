@@ -1,6 +1,6 @@
 ---
 name: nodex
-description: Use the Nodex CLI to discover Pages by readable Page key or stable ID, edit Nested Markdown rich-editor content, inspect Project context, query saved Database Views or Boards, move Pages atomically, and open Nodex resources. Trigger only when the user wants to read, change, organize, or open content in Nodex.
+description: Use the Nodex CLI to discover and edit Pages, manage exact-format Files owned by a Page, inspect Project context, query saved Database Views or Boards, move Pages atomically, and open Nodex resources. Trigger only when the user wants to read, change, organize, or open content in Nodex.
 ---
 
 # Nodex
@@ -27,7 +27,8 @@ Do not guess an older interface or substitute direct storage access. See
 
 ## Route the task
 
-- Discover, read, edit, create, move, duplicate, or delete a Page: read
+- Discover, read, edit, create, move, duplicate, or delete a Page, or manage
+  exact-format Files owned by it: read
   [page-editor.md](references/page-editor.md).
 - Query a saved View or organize a Board: read
   [project-database-views.md](references/project-database-views.md).
@@ -45,7 +46,8 @@ Do not guess an older interface or substitute direct storage access. See
    full `@stable-id`. A Page key is ideal for discovery and conversation; use
    the canonical ID for mutation commands.
 2. Read the smallest required state. Request a prepared ETag only for the
-   mutation that needs it.
+   mutation that needs it. For Files, list the current manifest immediately
+   before a write; Core applies manifest revision fencing.
 3. Derive a non-secret idempotency key from the user's stable intent. Reuse that
    exact key only when retrying the same logical mutation after response loss.
 4. Execute one semantic CLI mutation. Never reproduce a Nodex write through

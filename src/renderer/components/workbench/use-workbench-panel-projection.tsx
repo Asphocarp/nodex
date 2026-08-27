@@ -25,7 +25,8 @@ import {
   SubagentAvatar,
   SubagentGlyphIcon,
 } from "@/features/local-conversation/view/shared/subagent-avatar";
-import { getWorkspaceFileDomTabId, resolveWorkspaceFileTabIcon } from "@/features/workspace-files";
+import { resolveFileResourceIcon } from "@/components/shared/file-resource-icon";
+import { getWorkspaceFileDomTabId } from "@/features/workspace-files";
 import {
   makePageTitleResourceKey,
   type PageTitleProjectionStore,
@@ -334,7 +335,7 @@ export function useWorkbenchPanelProjection({
         const chromeContext = resolveProjectTargetTabChromeContext(tab, session, projects);
         const filesIcon =
           !transientPanelTab && tab.kind === "files"
-            ? resolveWorkspaceFileTabIcon("path" in tab.config ? tab.config.path : undefined)
+            ? resolveFileResourceIcon("path" in tab.config ? tab.config.path : undefined)
             : null;
         const browserTabSnapshot =
           !transientPanelTab && tab.kind === "browser"

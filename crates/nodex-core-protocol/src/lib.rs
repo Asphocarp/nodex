@@ -20,7 +20,10 @@ use nodex_core_contracts::{
         OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead,
         OwnedDocumentReadValue, OwnedDocumentReceipt,
     },
-    library::{LibraryCommitValue, LibraryIntent, LibraryRead, LibraryReadValue, LibraryReceipt},
+    library::{
+        LibraryCommitValue, LibraryIntent, LibraryPreparedPageFileBlob, LibraryRead,
+        LibraryReadValue, LibraryReceipt,
+    },
     workspace::{
         ProjectWorkspaceCommitValue, ProjectWorkspaceIntent, ProjectWorkspaceRead,
         ProjectWorkspaceReadValue, ProjectWorkspaceReceipt,
@@ -29,15 +32,16 @@ use nodex_core_contracts::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use utoipa::{OpenApi, ToSchema};
+use utoipa::{IntoParams, OpenApi, ToSchema};
 
 pub use nodex_store_format::{
     CURRENT_STORE_SCHEMA_FINGERPRINT, CURRENT_STORE_VERSION, MIN_SUPPORTED_STORE_REVISION,
     STORE_LINEAGE,
 };
 
-pub const TRANSPORT_PROTOCOL_MIN: u32 = 11;
-pub const TRANSPORT_PROTOCOL_MAX: u32 = 11;
+pub const TRANSPORT_PROTOCOL_MIN: u32 = 12;
+pub const TRANSPORT_PROTOCOL_MAX: u32 = 12;
+pub const MAX_PAGE_FILE_BLOB_BYTES: usize = 64 * 1024 * 1024;
 pub const COMPATIBILITY_MANIFEST_VERSION: u32 = 1;
 pub const MAX_ORDINARY_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ORDINARY_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
@@ -57,6 +61,20 @@ pub const INTERACTIVE_REQUEST_DEADLINE_MS: u64 = 20_000;
 pub const BACKGROUND_REQUEST_DEADLINE_MS: u64 = 60_000;
 pub const MAINTENANCE_REQUEST_DEADLINE_MS: u64 = 120_000;
 
+#[derive(Clone, Debug, Deserialize, Eq, IntoParams, PartialEq, Serialize, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct PreparePageFileBlobQuery {
+    pub operation_id: String,
+    pub store_epoch: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, IntoParams, PartialEq, Serialize, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct ReadPageFileBlobQuery {
+    pub page_id: String,
+    pub version: Option<i64>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct CoreTransportBudgets {
     pub ordinary_json_request_bytes: u64,
@@ -64,6 +82,7 @@ pub struct CoreTransportBudgets {
     pub event_frame_bytes: u64,
     pub document_json_request_bytes: u64,
     pub document_response_bytes: u64,
+    pub page_file_blob_bytes: u64,
     pub request_deadline_min_ms: u64,
     pub request_deadline_max_ms: u64,
     pub interactive_request_deadline_ms: u64,
@@ -77,6 +96,7 @@ pub const CORE_TRANSPORT_BUDGETS: CoreTransportBudgets = CoreTransportBudgets {
     event_frame_bytes: MAX_EVENT_FRAME_BYTES as u64,
     document_json_request_bytes: MAX_DOCUMENT_JSON_REQUEST_BYTES as u64,
     document_response_bytes: MAX_DOCUMENT_RESPONSE_BYTES as u64,
+    page_file_blob_bytes: MAX_PAGE_FILE_BLOB_BYTES as u64,
     request_deadline_min_ms: MIN_REQUEST_DEADLINE_MS,
     request_deadline_max_ms: MAX_REQUEST_DEADLINE_MS,
     interactive_request_deadline_ms: INTERACTIVE_REQUEST_DEADLINE_MS,
@@ -976,6 +996,34 @@ mod api {
     )]
     pub(super) fn shutdown() {}
 
+    #[utoipa::path(
+        post,
+        path = "/core/v1/page-files/blobs/prepare",
+        params(
+            PreparePageFileBlobQuery,
+            ("x-nodex-request-id" = Option<String>, Header),
+            ("x-nodex-request-class" = Option<CoreRequestClass>, Header),
+            ("x-nodex-request-deadline-ms" = Option<u64>, Header)
+        ),
+        request_body(content = Vec<u8>, content_type = "application/octet-stream"),
+        responses((status = 200, body = LibraryPreparedPageFileBlob))
+    )]
+    pub(super) fn prepare_page_file_blob() {}
+
+    #[utoipa::path(
+        get,
+        path = "/core/v1/page-files/blobs/{file_id}",
+        params(
+            ("file_id" = String, Path),
+            ReadPageFileBlobQuery,
+            ("x-nodex-request-id" = Option<String>, Header),
+            ("x-nodex-request-class" = Option<CoreRequestClass>, Header),
+            ("x-nodex-request-deadline-ms" = Option<u64>, Header)
+        ),
+        responses((status = 200, body = Vec<u8>, content_type = "application/octet-stream"))
+    )]
+    pub(super) fn read_page_file_blob() {}
+
     macro_rules! module_paths {
         ($read_fn:ident, $apply_fn:ident, $path:literal, $read:ty, $read_response:ty, $apply:ty, $apply_response:ty) => {
             #[utoipa::path(
@@ -1072,6 +1120,8 @@ mod api {
         api::resolve_local_mutation,
         api::cancel_request,
         api::shutdown,
+        api::prepare_page_file_blob,
+        api::read_page_file_blob,
         api::library_read,
         api::library_apply,
         api::database_read,
@@ -1108,6 +1158,9 @@ mod api {
         CoreRequestClass,
         CoreRequestCancelRequest,
         CoreRequestCancelResponse,
+        PreparePageFileBlobQuery,
+        ReadPageFileBlobQuery,
+        LibraryPreparedPageFileBlob,
         ShutdownRequest,
         ShutdownResponse,
         RuntimeGenerationIdentity,
@@ -1188,6 +1241,8 @@ mod tests {
             "/core/v1/modules/library/read",
             "/core/v1/modules/workspace/apply",
             "/core/v1/modules/workspace/read",
+            "/core/v1/page-files/blobs/prepare",
+            "/core/v1/page-files/blobs/{file_id}",
         ]
         .into_iter()
         .map(str::to_owned)

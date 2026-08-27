@@ -60,6 +60,16 @@ import type {
   LibraryModuleReadRequest,
   LibraryModuleReadResult,
 } from "../../shared/library-module";
+import type {
+  PageFileBytes,
+  PickPageFilesInput,
+  PickPageFilesResult,
+  PreparedPickedPageFile,
+  PreparePageFileInput,
+  ReadPageFileBytesInput,
+  SavePageFileInput,
+  SavePageFileResult,
+} from "../../shared/page-files";
 import type { LibraryPageDetailResult, PageDetailResult } from "../../shared/page-detail";
 import type {
   DocumentMutationRequest,
@@ -632,6 +642,45 @@ export async function applyLibraryModule(
   const result = await invoke("library-module:apply", accessContext, request);
   if (result.ok) await admitLocalCommitApply(result.localCommit);
   return result;
+}
+
+export function pickAndPreparePageFiles(
+  accessContext: ContentAccessContext,
+  input: PickPageFilesInput,
+): Promise<PickPageFilesResult> {
+  return invoke("page-files:pick-and-prepare", accessContext, input);
+}
+
+export async function prepareDroppedPageFiles(
+  accessContext: ContentAccessContext,
+  operationId: string,
+  files: readonly File[],
+): Promise<readonly PreparedPickedPageFile[]> {
+  const prepare = window.api?.prepareDroppedPageFiles;
+  if (!prepare) throw new Error("Native file drop is unavailable");
+  const result = await prepare(accessContext, operationId, files);
+  return result.files;
+}
+
+export function preparePageFile(
+  accessContext: ContentAccessContext,
+  input: PreparePageFileInput,
+): Promise<PreparedPickedPageFile> {
+  return invoke("page-files:prepare", accessContext, input);
+}
+
+export function readPageFileBytes(
+  accessContext: ContentAccessContext,
+  input: ReadPageFileBytesInput,
+): Promise<PageFileBytes> {
+  return invoke("page-files:read", accessContext, input);
+}
+
+export function savePageFile(
+  accessContext: ContentAccessContext,
+  input: SavePageFileInput,
+): Promise<SavePageFileResult> {
+  return invoke("page-files:save", accessContext, input);
 }
 
 export function readLibraryDatabaseModule(

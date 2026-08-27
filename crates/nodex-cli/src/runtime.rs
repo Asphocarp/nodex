@@ -14,9 +14,9 @@ use nodex_core_contracts::database::{
 };
 use nodex_core_contracts::library::{
     LibraryCatalogKind, LibraryLifecycle, LibraryNavigationNode, LibraryNavigationParent,
-    LibraryPageFileKind, LibraryPageHistoryCursor, LibraryPageKeyTarget, LibraryPageOwnershipPath,
-    LibraryPagePrepareKind, LibraryRead, LibraryReadValue, LibraryResourceTarget,
-    LibrarySearchSnapshotScope,
+    LibraryPageHistoryCursor, LibraryPageKeyTarget, LibraryPageOwnershipPath,
+    LibraryPagePrepareKind, LibraryPageProjectionFileKind, LibraryRead, LibraryReadValue,
+    LibraryResourceTarget, LibrarySearchSnapshotScope,
 };
 use nodex_core_contracts::workspace::{
     ProjectLifecycle, ProjectWorkspaceProject, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
@@ -34,9 +34,9 @@ use serde_json::{Value, json};
 
 use crate::cli::{
     BackupCommand, BlockArgs, BlockCommand, Cli, Command, DraftArgs, DraftCommand, HistoryArgs,
-    OpenArgs, OpenCommand, PageArgs, PageCommand, PageTitleArgs, PageTitleCommand, PrepareKind,
-    ProfileArgs, ProfileCloneArgs, ProfileCommand, ReadArgs, RgArgs, SedArgs, ServiceArgs,
-    ViewArgs, ViewCommand,
+    OpenArgs, OpenCommand, PageArgs, PageCommand, PageFileCommand, PageTitleArgs, PageTitleCommand,
+    PrepareKind, ProfileArgs, ProfileCloneArgs, ProfileCommand, ReadArgs, RgArgs, SedArgs,
+    ServiceArgs, ViewArgs, ViewCommand,
 };
 use crate::error::{CliError, CliErrorCode};
 
@@ -235,6 +235,43 @@ pub fn execute(cli: Cli) -> Result<CommandOutput, CliError> {
             arguments,
             cli.json,
         ),
+        Command::Page(PageArgs {
+            command: PageCommand::File(arguments),
+        }) => match arguments.command {
+            PageFileCommand::List(arguments) => {
+                crate::page_files::list(&client, cli.project.as_deref(), &cwd, arguments)
+            }
+            PageFileCommand::Read(arguments) => {
+                crate::page_files::read(&client, cli.project.as_deref(), &cwd, arguments)
+            }
+            PageFileCommand::Put(arguments) => {
+                crate::page_files::put(&client, cli.project.as_deref(), &cwd, arguments, cli.json)
+            }
+            PageFileCommand::Rename(arguments) => crate::page_files::rename(
+                &client,
+                cli.project.as_deref(),
+                &cwd,
+                arguments,
+                cli.json,
+            ),
+            PageFileCommand::Delete(arguments) => crate::page_files::delete(
+                &client,
+                cli.project.as_deref(),
+                &cwd,
+                arguments,
+                cli.json,
+            ),
+            PageFileCommand::Versions(arguments) => {
+                crate::page_files::versions(&client, cli.project.as_deref(), &cwd, arguments)
+            }
+            PageFileCommand::Restore(arguments) => crate::page_files::restore(
+                &client,
+                cli.project.as_deref(),
+                &cwd,
+                arguments,
+                cli.json,
+            ),
+        },
         Command::Page(PageArgs {
             command: PageCommand::Insert(arguments),
         }) => crate::page_mutation::insert_page_content(
@@ -784,9 +821,9 @@ fn read_page(
     let project = selected_project(client, explicit_project, cwd)?;
     let page_id = resolve_page_selector(client, &project.id, &arguments.page)?;
     let file_kind = if arguments.meta {
-        LibraryPageFileKind::MetaYaml
+        LibraryPageProjectionFileKind::MetaYaml
     } else {
-        LibraryPageFileKind::BodyNestedMarkdown
+        LibraryPageProjectionFileKind::BodyNestedMarkdown
     };
     let prepare = match arguments.prepare {
         Some(PrepareKind::TitleSet) => Some(LibraryPagePrepareKind::TitleSet),
@@ -803,13 +840,13 @@ fn read_page(
     };
     let snapshot = unwrap_library(client.library_read(
         Some(&project.id),
-        LibraryRead::PageFile {
+        LibraryRead::PageProjectionFile {
             page_id,
             file_kind,
             prepare,
         },
     ))?;
-    let LibraryReadValue::PageFile { value } = snapshot.value else {
+    let LibraryReadValue::PageProjectionFile { value } = snapshot.value else {
         return Err(internal("Core returned the wrong Page file snapshot"));
     };
     if json_output {
@@ -832,13 +869,13 @@ fn sed_page(
     let page_id = resolve_page_selector(client, &project.id, &arguments.page)?;
     let snapshot = unwrap_library(client.library_read(
         Some(&project.id),
-        LibraryRead::PageFile {
+        LibraryRead::PageProjectionFile {
             page_id,
-            file_kind: LibraryPageFileKind::BodyNestedMarkdown,
+            file_kind: LibraryPageProjectionFileKind::BodyNestedMarkdown,
             prepare: None,
         },
     ))?;
-    let LibraryReadValue::PageFile { value } = snapshot.value else {
+    let LibraryReadValue::PageProjectionFile { value } = snapshot.value else {
         return Err(internal("Core returned the wrong Page file snapshot"));
     };
     let selected = crate::sed::select_lines(&value.content, range);

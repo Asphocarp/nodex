@@ -130,6 +130,8 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
         | LibraryRead::MoveDestinations { .. }
         | LibraryRead::AgentSearch { .. }
         | LibraryRead::Search { .. }
+        | LibraryRead::PageFiles { .. }
+        | LibraryRead::PageFileVersions { .. }
         | LibraryRead::PageHistory { .. }
         | LibraryRead::PageBacklinks { .. } => ReadBudgetPolicy::CollectionWindow,
         LibraryRead::Path { .. } | LibraryRead::PageOwnershipPath { .. } => {
@@ -143,13 +145,14 @@ fn library_policy(read: &LibraryRead) -> ReadBudgetPolicy {
         | LibraryRead::PrepareAgentPageCopy { .. }
         | LibraryRead::PrepareAgentCreatePages { .. }
         | LibraryRead::PrepareAgentMovePages { .. } => ReadBudgetPolicy::BoundedBatch,
-        LibraryRead::PageContent { .. } | LibraryRead::PageFile { .. } => {
+        LibraryRead::PageContent { .. } | LibraryRead::PageProjectionFile { .. } => {
             ReadBudgetPolicy::LargeObject
         }
         LibraryRead::Metadata
         | LibraryRead::ResourceProjectAccess { .. }
         | LibraryRead::FilterProjectionImpactForProject { .. }
         | LibraryRead::PageDetail { .. }
+        | LibraryRead::PageFileMetadata { .. }
         | LibraryRead::PageDraftProjection { .. }
         | LibraryRead::AcquireSearchSnapshot { .. }
         | LibraryRead::ReleaseSearchSnapshot { .. }

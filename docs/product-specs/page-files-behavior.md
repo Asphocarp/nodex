@@ -1,0 +1,154 @@
+# Page Files Behavior
+
+Status: Active  
+Last Updated: 2026-08-28
+
+Page Files are exact-format resources owned directly by a Page. They are the
+durable home for images, PDFs, scripts, datasets, reference material, and other
+content whose bytes and filename matter. Nodex does not introduce a separate
+Artifact type: Agent-created outputs and user uploads use the same File model.
+
+## Product model
+
+Every Page has Files, whether or not the Page belongs to a Data Source. Files
+are intrinsic Page content, not a Data Source Property. A File has:
+
+- stable identity and exactly one owner Page;
+- a portable Page-relative logical path;
+- exact MIME, byte length, immutable current bytes, and retained versions;
+- creation and update provenance, including an Agent Turn when applicable.
+
+Renaming or replacing content preserves File identity. Deleting a body
+placement does not delete the File. Copying a Page creates fresh File identities
+for the copy while reusing identical immutable bytes.
+
+Logical folder rows are derived from slash-separated path prefixes. They have no
+identity, metadata, permissions, empty state, or lifecycle. A child Page owns
+its own direct Files; the parent Files surface never flattens descendants.
+
+## Page Stage
+
+Every Page Stage Properties section contains one compact `Files` row. The row
+shows an empty affordance or up to two wrapping path chips, followed by a
+compact remaining-count chip and a trailing add action when needed. Each File
+chip uses the same path/MIME-derived format icon as other exact-format File
+surfaces and opens that File directly; the count and add controls open the Page
+Files surface. Opening the Page or rendering the closed row never loads File
+bytes. The Page Files list, deleted rows, and preview header use the same File
+icon projection.
+
+The Files surface supports:
+
+- adding one or more regular files;
+- dropping files, directories, or a mixed selection from the operating system
+  anywhere on the open surface;
+- bounded recursive directory import, preserving logical paths;
+- editing an existing exact-format text File;
+- filtering by logical path;
+- previewing bounded text and images;
+- renaming paths, replacing bytes, downloading, deleting, and restoring;
+- viewing deleted entries without treating them as part of the live namespace.
+
+Each File is at most 64 MiB. One desktop import accepts at most 100 regular
+files and 256 MiB total. Symlinks and special files are rejected. Text preview
+and editing are bounded to 2 MiB; larger text-like Files remain downloadable.
+Unsupported formats receive a truthful no-preview state.
+
+The empty state presents a persistent file-drop affordance. While a supported
+system drag is over the Files surface, the surface presents one stable,
+unmistakable drop indicator even as the pointer crosses nested controls. A
+dropped batch uses the same byte, count, path-allocation, and atomic manifest
+mutation rules as the file picker. Dropped directories expand automatically and
+retain their root name and relative paths. `Add folder` remains an explicit
+picker entry, not a recovery path for unsupported drag behavior. A symlink,
+special file, or violated batch bound rejects the whole selection before the
+manifest changes.
+
+All metadata mutations compare the Page's current Files manifest revision. A
+stale operation makes no partial changes and asks the caller to reload. A batch
+validates its final namespace, so path swaps are legal while Unicode/case
+collisions, traversal, reserved names, excessive depth, and excessive length
+are rejected.
+
+The closed row and an open Files surface refresh only when Core announces a new
+manifest revision for that exact Page. Ordinary Page body, Property, focus, and
+selection changes do not invalidate Files. Background refresh retains the last
+rendered manifest instead of replacing it with an empty/loading state.
+
+## Placements
+
+An image or attachment in a Page body may reference a direct live File using:
+
+```text
+nodex://files/<file-id>
+```
+
+The URI stores stable identity, not a path or blob hash. Presentation resolves
+the current logical basename and bytes from the owner Page, so rename and
+replace do not rewrite the body. A Page Document cannot persist a reference to
+a deleted, missing, or foreign-owner File.
+
+Removing a placement leaves the File intact. Deleting a File that still has
+placements is refused; the user removes those placements explicitly before
+deleting it. This keeps placement editing and File ownership understandable
+without a hidden cascade.
+
+Within one Page, Block move/copy preserves File IDs. Across Pages, Core creates
+fresh target File IDs, reuses immutable bytes, and rewrites only the transferred
+Blocks in the same Library transaction. Source Files are not implicitly
+deleted. Moving a whole Page preserves its File IDs; copying a Page closure
+creates new IDs for every copied Page's direct live Files.
+
+Legacy `nodex://assets/*` references remain compatibility locators for content
+created by non-Page surfaces. New Page uploads, pasted materialized resources,
+and Page images use Page Files. Canvas, queued payload, Composer, and other
+non-Page asset authorities remain separate.
+
+Pasting clipboard images into a Page publishes the image bytes first and adds
+the body image Block only after publication succeeds. A failed upload therefore
+leaves the body unchanged instead of creating an empty image Block. Clipboard
+adapters accept both standard `DataTransfer.files` and image-only
+`DataTransferItem.getAsFile()` exposure.
+
+## Versions and deletion
+
+Create, replace, rename, delete, restore, and clone each append a File version
+with actor, optional Turn, operation identity, and time. Restore is a forward
+mutation from a retained version. Deleted Files leave the live path namespace
+but remain visible and restorable while their history is retained.
+
+Page archive/delete/restore keeps direct Files and versions. Whole-Page copy
+copies only each live current state into version 1 of a fresh identity; it does
+not fork source history.
+
+## Agent and package access
+
+Agents use ordinary child Pages for Nodex-native plans, notes, and design
+documents. Exact-format output goes into the Files of the nearest semantic owner
+Page. No Plan Mode behavior or prompt is specialized for Files.
+
+The native Agent interface exposes bounded semantic commands to list, read,
+put/replace, rename, delete, inspect versions, and restore Files. Page draft
+projection includes the direct File manifest eagerly; bytes stay lazy and are
+read through explicit File commands. Neither renderer nor Agent receives a
+Profile path or a read-by-hash capability.
+
+## Reliability and authorization
+
+Core owns File metadata, authorization, immutable blob publication, reads,
+deduplication, and garbage collection. Upload first publishes verified bytes
+and returns a Project/store/operation-bound receipt; a semantic mutation then
+consumes that receipt. A failed semantic commit may leave an unreachable blob,
+but it cannot leave committed metadata pointing to missing bytes.
+
+Page read/write access covers its direct Files and follows the existing Page
+ownership closure for descendants. A body reference never grants access to a
+foreign File. Backups include every retained reachable File blob and restore
+validates size and SHA-256 before switching Profiles. Garbage collection is
+serialized against backup snapshots and never removes bytes protected by a live
+prepared receipt or retained File version.
+
+The architecture decision is recorded in
+[ADR 0051](../adr/0051-page-owned-files-and-immutable-bytes.md). Attachment
+authoring details are owned by
+[NFM Editor Attachment Chip Behavior](nfm-editor-attachment-chip-behavior.md).

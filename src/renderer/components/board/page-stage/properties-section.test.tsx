@@ -7,6 +7,31 @@ import { PageStagePropertiesSection } from "./properties-section";
 import type { PageStageController } from "./use-page-stage-controller";
 import type { PageStagePropertyControls } from "./use-page-stage-properties";
 
+vi.mock("@/lib/api", () => ({
+  applyLibraryModule: vi.fn(),
+  pickAndPreparePageFiles: vi.fn(),
+  prepareDroppedPageFiles: vi.fn(),
+  preparePageFile: vi.fn(),
+  readPageFileBytes: vi.fn(),
+  savePageFile: vi.fn(),
+  readLibraryModule: vi.fn(async () => ({
+    ok: true,
+    value: {
+      value: {
+        kind: "page_files",
+        value: {
+          pageId: "nested-page",
+          revision: 0,
+          files: [],
+          nextCursor: null,
+          hasMore: false,
+          total: 0,
+        },
+      },
+    },
+  })),
+}));
+
 const page = {
   id: "nested-page",
   pageKey: null,
@@ -58,6 +83,8 @@ const emptyPropertyControls: PageStagePropertyControls = {
 const buildController = (overrides: Partial<PageStageController> = {}): PageStageController =>
   ({
     page,
+    contentAccessContext: { kind: "project", projectId: "project-1" },
+    storeEpoch: "store-1",
     hasDatabaseProperties: false,
     hasRelatedChatsRow: false,
     propertyControls: emptyPropertyControls,
@@ -65,11 +92,18 @@ const buildController = (overrides: Partial<PageStageController> = {}): PageStag
   }) as PageStageController;
 
 describe("PageStagePropertiesSection", () => {
-  test("omits the section when the Page has no property rows", () => {
+  test("keeps Files available when the Page has no database property rows", async () => {
     const view = render(<PageStagePropertiesSection controller={buildController()} />);
 
-    expect(view.container.firstChild).toBeNull();
-    expect(view.queryByText("Properties")).toBeNull();
+    expect(view.getByText("Properties")).toBeTruthy();
+    expect(view.getByText("Files")).toBeTruthy();
+    const files = await view.findByRole("button", { name: "Add Page Files" });
+    await act(async () => {
+      fireEvent.click(files);
+      await Promise.resolve();
+    });
+    expect(view.getByRole("dialog")).toBeTruthy();
+    expect(view.queryByRole("button", { name: "New text" })).toBeNull();
   });
 
   test("uses the shared Empty value to add a related Chat without execution controls", async () => {
@@ -89,6 +123,8 @@ describe("PageStagePropertiesSection", () => {
         })}
       />,
     );
+
+    await view.findByRole("button", { name: "Add Page Files" });
 
     expect(view.getByText("Properties")).toBeTruthy();
     expect(view.getByText("Linked chats")).toBeTruthy();
@@ -163,6 +199,8 @@ describe("PageStagePropertiesSection", () => {
         })}
       />,
     );
+
+    await view.findByRole("button", { name: "Add Page Files" });
 
     expect(view.queryByText("Nodex")).toBeNull();
     expect(view.queryByText("No thread yet")).toBeNull();

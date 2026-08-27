@@ -3,9 +3,11 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   canMaterializePasteResourceItems,
   capturePasteResourceTarget,
+  clipboardFilesFromDataTransfer,
   continueInlinePaste,
   createPastedTextUploadFile,
   derivePastedTextAttachmentName,
+  insertBlocksAtPasteTarget,
   insertAttachmentsAtPasteTarget,
   looksLikeMarkdown,
   normalizeClipboardFileDraftItems,
@@ -14,6 +16,20 @@ import {
 import { DEFAULT_PASTE_RESOURCE_SETTINGS } from "../../../lib/paste-resource-settings";
 
 describe("paste resource helpers", () => {
+  test("reads screenshot clipboard images from DataTransfer items when files is empty", () => {
+    const image = new File(["png"], "image.png", { type: "image/png" });
+
+    expect(
+      clipboardFilesFromDataTransfer({
+        files: [],
+        items: [
+          { kind: "string", getAsFile: () => null },
+          { kind: "file", getAsFile: () => image },
+        ],
+      }),
+    ).toEqual([image]);
+  });
+
   test("captures typed descendants when a resource paste would replace a parent", () => {
     const target = capturePasteResourceTarget({
       getSelection: () => ({
@@ -233,6 +249,78 @@ describe("paste resource helpers", () => {
     const paragraph = calls[0]?.blocks[0] as { type?: string; content?: unknown[] } | undefined;
     expect(paragraph?.type).toBe("paragraph");
     expect(Array.isArray(paragraph?.content)).toBe(true);
+  });
+
+  test("insertBlocksAtPasteTarget replaces the captured empty paragraph atomically", () => {
+    const calls: Array<{ blockIds: string[]; blocks: unknown[] }> = [];
+    const editor = {
+      document: [{ id: "block-1" }],
+      insertInlineContent: () => {},
+      replaceBlocks: (blockIds: string[], blocks: unknown[]) => {
+        calls.push({ blockIds, blocks });
+      },
+      insertBlocks: () => {},
+    };
+    const image = {
+      id: "image-1",
+      type: "image",
+      props: { url: "nodex://files/file-1", name: "diagram.png" },
+      children: [],
+    };
+
+    expect(
+      insertBlocksAtPasteTarget(
+        editor,
+        {
+          selectedBlockIds: [],
+          currentBlockId: "block-1",
+          canInsertInline: true,
+          replaceCurrentEmptyParagraph: true,
+        },
+        [image],
+      ),
+    ).toBe(true);
+    expect(calls).toEqual([{ blockIds: ["block-1"], blocks: [image] }]);
+  });
+
+  test("insertBlocksAtPasteTarget preserves the captured position after async upload", () => {
+    const calls: Array<{
+      blocks: unknown[];
+      referenceBlockId: string;
+      placement: "before" | "after";
+    }> = [];
+    const editor = {
+      document: [{ id: "block-1" }, { id: "block-2" }],
+      insertInlineContent: () => {},
+      replaceBlocks: () => {},
+      insertBlocks: (
+        blocks: unknown[],
+        referenceBlockId: string,
+        placement: "before" | "after",
+      ) => {
+        calls.push({ blocks, referenceBlockId, placement });
+      },
+    };
+    const image = {
+      id: "image-1",
+      type: "image",
+      props: { url: "nodex://files/file-1", name: "diagram.png" },
+      children: [],
+    };
+
+    expect(
+      insertBlocksAtPasteTarget(
+        editor,
+        {
+          selectedBlockIds: [],
+          currentBlockId: "block-1",
+          canInsertInline: true,
+          replaceCurrentEmptyParagraph: false,
+        },
+        [image],
+      ),
+    ).toBe(true);
+    expect(calls).toEqual([{ blocks: [image], referenceBlockId: "block-1", placement: "after" }]);
   });
 
   test("continueInlinePaste replays html, markdown, and plain text using paste semantics", () => {

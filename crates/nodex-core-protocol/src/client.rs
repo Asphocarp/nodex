@@ -26,13 +26,14 @@ use crate::{
     HandshakeRequest, HandshakeResponse, HealthResponse, LibraryApplyRequest, LibraryApplyResponse,
     LibraryReadRequest, LibraryReadResponse, MAX_DOCUMENT_JSON_REQUEST_BYTES,
     MAX_DOCUMENT_RESPONSE_BYTES, MAX_ORDINARY_JSON_REQUEST_BYTES, MAX_ORDINARY_JSON_RESPONSE_BYTES,
-    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
-    OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
-    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, RuntimeDescriptor,
-    RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse, StoreAdministrationApplyRequest,
-    StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
-    StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX, TRANSPORT_PROTOCOL_MIN,
-    canonical_manifest_digest, core_client_requirements, evaluate_compatibility,
+    MAX_PAGE_FILE_BLOB_BYTES, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
+    OwnedDocumentReadRequest, OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest,
+    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
+    RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse,
+    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
+    StoreAdministrationReadRequest, StoreAdministrationReadResponse, TRANSPORT_PROTOCOL_MAX,
+    TRANSPORT_PROTOCOL_MIN, canonical_manifest_digest, core_client_requirements,
+    evaluate_compatibility,
 };
 
 const PRIVATE_MODE: u32 = 0o600;
@@ -89,6 +90,13 @@ pub struct CoreClient {
     connection_binding: String,
     pub descriptor: RuntimeDescriptor,
     pub handshake: HandshakeResponse,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PageFileBlobResponse {
+    pub bytes: Vec<u8>,
+    pub mime_type: String,
+    pub etag: String,
 }
 
 impl CoreClient {
@@ -157,6 +165,83 @@ impl CoreClient {
             &LibraryApplyRequest(request),
             ScopeHeaders::project(project_id),
         )
+    }
+
+    /// Streams exact bytes to Core and receives an opaque receipt that can be
+    /// consumed only by the matching Page File mutation.
+    pub fn prepare_page_file_blob(
+        &self,
+        project_id: Option<&str>,
+        operation_id: &str,
+        store_epoch: &str,
+        source: &mut impl Read,
+        byte_length: u64,
+    ) -> Result<nodex_core_contracts::library::LibraryPreparedPageFileBlob, ClientError> {
+        if byte_length > MAX_PAGE_FILE_BLOB_BYTES as u64 {
+            return Err(ClientError::RequestTooLarge {
+                maximum: MAX_PAGE_FILE_BLOB_BYTES,
+                actual: usize::try_from(byte_length).unwrap_or(usize::MAX),
+            });
+        }
+        let path = format!(
+            "/core/v1/page-files/blobs/prepare?operation_id={}&store_epoch={}",
+            percent_encode(operation_id),
+            percent_encode(store_epoch),
+        );
+        let body = connected_stream_request(
+            self,
+            "POST",
+            &path,
+            source,
+            byte_length,
+            ScopeHeaders::project(project_id),
+            MAX_ORDINARY_JSON_RESPONSE_BYTES,
+        )?;
+        serde_json::from_slice(&body.bytes).map_err(ClientError::from)
+    }
+
+    /// Reads one authorized File version by semantic identity. Blob hashes and
+    /// Profile filesystem locations never cross this boundary.
+    pub fn read_page_file_blob(
+        &self,
+        project_id: Option<&str>,
+        page_id: &str,
+        file_id: &str,
+        version: Option<i64>,
+    ) -> Result<PageFileBlobResponse, ClientError> {
+        let version = version
+            .map(|version| format!("&version={version}"))
+            .unwrap_or_default();
+        let path = format!(
+            "/core/v1/page-files/blobs/{}?page_id={}{}",
+            percent_encode(file_id),
+            percent_encode(page_id),
+            version,
+        );
+        let mut empty = io::empty();
+        let response = connected_stream_request(
+            self,
+            "GET",
+            &path,
+            &mut empty,
+            0,
+            ScopeHeaders::project(project_id),
+            MAX_PAGE_FILE_BLOB_BYTES,
+        )?;
+        let mime_type = response
+            .header("content-type")
+            .unwrap_or("application/octet-stream")
+            .to_owned();
+        let etag = response
+            .header("etag")
+            .unwrap_or_default()
+            .trim_matches('"')
+            .to_owned();
+        Ok(PageFileBlobResponse {
+            bytes: response.bytes,
+            mime_type,
+            etag,
+        })
     }
 
     pub fn database_read(
@@ -315,6 +400,115 @@ impl CoreClient {
         headers.extend(scope.values);
         request_json(&self.socket, &self.auth, path, request, &headers)
     }
+}
+
+struct RawHttpResponse {
+    head: String,
+    bytes: Vec<u8>,
+}
+
+impl RawHttpResponse {
+    fn header(&self, expected: &str) -> Option<&str> {
+        self.head.lines().skip(1).find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.trim()
+                .eq_ignore_ascii_case(expected)
+                .then_some(value.trim())
+        })
+    }
+}
+
+fn connected_stream_request(
+    client: &CoreClient,
+    method: &str,
+    path: &str,
+    source: &mut impl Read,
+    byte_length: u64,
+    scope: ScopeHeaders<'_>,
+    maximum_response_bytes: usize,
+) -> Result<RawHttpResponse, ClientError> {
+    let mut stream = UnixStream::connect(&client.socket)?;
+    stream.set_read_timeout(Some(REQUEST_TIMEOUT))?;
+    stream.set_write_timeout(Some(REQUEST_TIMEOUT))?;
+    write!(
+        stream,
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nContent-Type: application/octet-stream\r\nContent-Length: {byte_length}\r\nConnection: close\r\n",
+        client.auth,
+    )?;
+    for (name, value) in [
+        (CONNECTION_HEADER, client.connection_id.as_str()),
+        (
+            CONNECTION_BINDING_HEADER,
+            client.connection_binding.as_str(),
+        ),
+    ]
+    .into_iter()
+    .chain(scope.values)
+    {
+        if !valid_header(name) || !valid_header(value) {
+            return Err(ClientError::InvalidRuntime(
+                "request header contains invalid bytes".to_owned(),
+            ));
+        }
+        write!(stream, "{name}: {value}\r\n")?;
+    }
+    stream.write_all(b"\r\n")?;
+    let copied = io::copy(&mut source.take(byte_length), &mut stream)?;
+    if copied != byte_length {
+        return Err(ClientError::Io(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            format!("Page File source ended after {copied} of {byte_length} bytes"),
+        )));
+    }
+
+    let mut reader = BufReader::new(stream);
+    let head = String::from_utf8(read_http_response_head(&mut reader)?).map_err(|_| {
+        ClientError::InvalidRuntime("Core returned non-UTF-8 HTTP headers".to_owned())
+    })?;
+    if response_content_length(&head).is_some_and(|length| length > maximum_response_bytes) {
+        return Err(ClientError::ResponseTooLarge {
+            maximum: maximum_response_bytes,
+            observed_at_least: response_content_length(&head).expect("length checked"),
+        });
+    }
+    let status = head
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|status| status.parse::<u16>().ok())
+        .ok_or_else(|| ClientError::InvalidRuntime("Core HTTP status is invalid".to_owned()))?;
+    let mut bytes = Vec::new();
+    reader
+        .take(u64::try_from(maximum_response_bytes + 1).unwrap_or(u64::MAX))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > maximum_response_bytes {
+        return Err(ClientError::ResponseTooLarge {
+            maximum: maximum_response_bytes,
+            observed_at_least: bytes.len(),
+        });
+    }
+    if !(200..300).contains(&status) {
+        let message = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .ok()
+            .and_then(|value| value.get("message")?.as_str().map(str::to_owned))
+            .unwrap_or_else(|| String::from_utf8_lossy(&bytes).trim().to_owned());
+        return Err(ClientError::Http { status, message });
+    }
+    Ok(RawHttpResponse { head, bytes })
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(char::from(byte));
+            continue;
+        }
+        encoded.push('%');
+        encoded.push(char::from(b"0123456789ABCDEF"[(byte >> 4) as usize]));
+        encoded.push(char::from(b"0123456789ABCDEF"[(byte & 0x0f) as usize]));
+    }
+    encoded
 }
 
 pub fn connect_or_launch(

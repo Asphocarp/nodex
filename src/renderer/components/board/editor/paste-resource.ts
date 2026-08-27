@@ -29,6 +29,25 @@ export interface PasteResourceDialogState {
   allowLink: boolean;
 }
 
+interface ClipboardFileSource {
+  readonly files?: ArrayLike<File> | null;
+  readonly items?: ArrayLike<{
+    readonly kind: string;
+    getAsFile(): File | null;
+  }> | null;
+}
+
+/** Chromium may expose screenshot clipboard bytes only through DataTransferItem.getAsFile(). */
+export function clipboardFilesFromDataTransfer(source: ClipboardFileSource): File[] {
+  const files = Array.from(source.files ?? []);
+  if (files.length > 0) return files;
+  return Array.from(source.items ?? []).flatMap((item) => {
+    if (item.kind !== "file") return [];
+    const file = item.getAsFile();
+    return file ? [file] : [];
+  });
+}
+
 export function canMaterializePasteResourceItems(items: PasteResourceDraftItem[]): boolean {
   return items.every((item) => item.kind !== "folder");
 }
@@ -66,6 +85,49 @@ type PasteTargetMutationEditor = {
   replaceBlocks: unknown;
   insertBlocks: unknown;
 };
+
+/** Insert already-materialized blocks at the position captured before asynchronous work began. */
+export function insertBlocksAtPasteTarget(
+  editor: PasteTargetMutationEditor,
+  target: PasteResourceTarget,
+  blocks: unknown[],
+): boolean {
+  if (blocks.length === 0) return false;
+
+  const replaceBlocks = editor.replaceBlocks as (
+    blockIds: string[],
+    blocksToInsert: unknown[],
+  ) => unknown;
+  const insertBlocks = editor.insertBlocks as (
+    blocksToInsert: unknown[],
+    referenceBlockId: string,
+    placement: "before" | "after",
+  ) => unknown;
+
+  if (target.selectedBlockIds.length > 0) {
+    replaceBlocks.call(editor, target.selectedBlockIds, blocks);
+    return true;
+  }
+
+  if (target.currentBlockId && target.replaceCurrentEmptyParagraph) {
+    replaceBlocks.call(editor, [target.currentBlockId], blocks);
+    return true;
+  }
+
+  if (target.currentBlockId) {
+    insertBlocks.call(editor, blocks, target.currentBlockId, "after");
+    return true;
+  }
+
+  const lastBlockId = editor.document?.[editor.document.length - 1]?.id;
+  if (typeof lastBlockId === "string" && lastBlockId.length > 0) {
+    insertBlocks.call(editor, blocks, lastBlockId, "after");
+    return true;
+  }
+
+  replaceBlocks.call(editor, [], blocks);
+  return true;
+}
 
 function isEmptyParagraphBlock(block: SelectionBlockLike | null): boolean {
   if (!block || block.type !== "paragraph") return false;
@@ -159,40 +221,7 @@ export function insertAttachmentsAtPasteTarget(
   }
 
   const paragraph = createAttachmentParagraph(attachments);
-
-  const replaceBlocks = editor.replaceBlocks as (
-    blockIds: string[],
-    blocksToInsert: unknown[],
-  ) => unknown;
-  const insertBlocks = editor.insertBlocks as (
-    blocksToInsert: unknown[],
-    referenceBlockId: string,
-    placement: "before" | "after",
-  ) => unknown;
-
-  if (target.selectedBlockIds.length > 0) {
-    replaceBlocks.call(editor, target.selectedBlockIds, [paragraph]);
-    return true;
-  }
-
-  if (target.currentBlockId && target.replaceCurrentEmptyParagraph) {
-    replaceBlocks.call(editor, [target.currentBlockId], [paragraph]);
-    return true;
-  }
-
-  if (target.currentBlockId) {
-    insertBlocks.call(editor, [paragraph], target.currentBlockId, "after");
-    return true;
-  }
-
-  const lastBlockId = editor.document?.[editor.document.length - 1]?.id;
-  if (typeof lastBlockId === "string" && lastBlockId.length > 0) {
-    insertBlocks.call(editor, [paragraph], lastBlockId, "after");
-    return true;
-  }
-
-  replaceBlocks.call(editor, [], [paragraph]);
-  return true;
+  return insertBlocksAtPasteTarget(editor, target, [paragraph]);
 }
 
 function slugifyFileName(value: string): string {

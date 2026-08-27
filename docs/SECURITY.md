@@ -46,6 +46,29 @@ follow the same content-redaction policy as Page titles and search queries.
 
 Nodex is local-first. Main risks are malformed local inputs, accidental data loss, renderer capability abuse, and unsafe command/file-change approvals during Codex thread execution.
 
+## Page File boundaries
+
+Page File access is authorized by canonical owner Page and Project scope on
+every metadata and byte request. File references carry opaque stable File IDs;
+they do not grant access, expose content hashes, or reveal Profile paths. Core
+rejects a Page Document that references a missing, deleted, or foreign-owner
+File. Prepared upload receipts are Store-, Project-, operation-, size-, and
+expiry-bound and are single-use except for exact idempotent replay.
+
+Logical paths are normalized and must be portable relative paths. Core rejects
+absolute paths, traversal, empty segments, reserved Windows names, Unicode/case
+collisions, control characters, and bounded depth/length violations. Desktop
+file and directory import accepts only regular files, rejects symlinks and
+special nodes, and enforces 64 MiB per File, 100 Files, and 256 MiB per batch.
+Text previews are separately bounded. Download chooses a user destination and
+does not reinterpret a logical path as a host filesystem authority.
+
+Exact-format scripts and binaries are inert content. Agents cannot execute a
+managed blob root or use it as cwd; execution requires explicit materialization
+into the normal workspace and remains governed by existing filesystem and
+command approval policy. Backup restore hashes every managed Page File blob
+before Profile switch, and garbage collection is serialized against snapshots.
+
 ## Security Controls in Place
 
 ### Release supply chain

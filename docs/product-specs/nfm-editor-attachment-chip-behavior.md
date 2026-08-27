@@ -1,7 +1,7 @@
 # NFM Editor Attachment Chip Behavior
 
 Status: Active
-Last Updated: 2026-08-11
+Last Updated: 2026-08-28
 
 This document describes the current pasted-attachment behavior inside the NFM / BlockNote editor.
 
@@ -36,7 +36,10 @@ Not included:
 ## Terminology
 
 - `attachment chip`: the inline visual token inserted into paragraph-like content
-- `saved attachment`: an attachment with `mode="materialized"` that points to a `nodex://assets/...` source
+- `Page File attachment`: an attachment with `mode="materialized"` that points
+  to a direct `nodex://files/<file-id>` resource of the containing Page
+- `legacy saved attachment`: a materialized `nodex://assets/...` attachment
+  created by a non-Page or older authoring surface
 - `linked attachment`: an attachment with `mode="link"` that points to an original absolute local path
 - `attachment popover`: the click-open details surface anchored to the chip
 
@@ -60,7 +63,7 @@ Syntax:
 <attachment
   kind="text|file|folder"
   mode="materialized|link"
-  source="nodex://assets/...|/abs/path"
+  source="nodex://files/<file-id>|nodex://assets/...|/abs/path"
   name="..."
   mime="..."
   bytes="..."
@@ -76,6 +79,8 @@ Attribute rules:
 - `name` is required
 - `mime`, `bytes`, and `origin` are optional
 - `origin` is typically present only for saved file/folder attachments that came from an original local path
+- new materialized attachments in a Page use `nodex://files/<file-id>`; the
+  source is stable identity and does not change when the File is renamed
 
 Block-level `<resource ... />` is no longer a structured NFM element.
 
@@ -204,8 +209,10 @@ The dialog lists each pasted item with:
 
 The editor:
 
-- creates a real `.txt` asset file in shared assets
-- derives the persisted asset filename from the first non-empty line, slugified, with `.txt`
+- on a Page, creates a direct `.txt` Page File; other editor hosts retain their
+  narrow managed-asset behavior
+- derives the preferred logical filename from the first non-empty line,
+  slugified, with `.txt`, and allocates a portable collision-free Page path
 - derives the chip label from the first non-empty line, truncated to 80 characters, fallback `Pasted text`
 - inserts a `kind="text"` attachment chip with `mode="materialized"`
 
@@ -213,7 +220,8 @@ The editor:
 
 The editor:
 
-- copies the file into shared assets
+- on a Page, copies the exact bytes into a direct Page File through Core; other
+  editor hosts retain their narrow managed-asset behavior
 - inserts a `kind="file"` attachment chip with `mode="materialized"`
 - preserves `origin` when the source came from an absolute local path
 
@@ -276,7 +284,8 @@ The chip should feel like a mention/reference token, not like a separate block e
 
 `kind="file"` or `kind="folder"`:
 
-- use `name`
+- for a Page File, resolve the current logical basename by stable File ID
+- otherwise use `name`
 
 Inline display truncates labels to 48 characters.
 
@@ -313,14 +322,19 @@ Metadata area shows:
 
 Actions:
 
-- `Open`
-- `Reveal`
-- `Copy path`
+- Page File: `Save` and `Copy reference`
+- legacy saved or linked attachment: `Open`, `Reveal`, and `Copy path`
 - `Open original` when `origin` exists and differs from the primary source
 
 ### Primary target resolution
 
-Saved attachment:
+Page File attachment:
+
+- `Save` reads the currently authorized File bytes through Core and opens a
+  destination chooser; no Profile path is revealed
+- `Copy reference` copies the stable `nodex://files/<file-id>` reference
+
+Legacy saved attachment:
 
 - `Open` resolves the `nodex://assets/...` source to a local asset path, then opens it
 
@@ -425,6 +439,8 @@ Desktop Electron:
 - supports bounded synchronous metadata-only inspection in the paste event path
 - transfers bounded rich clipboard payloads asynchronously
 - supports resolving saved asset paths for open/reveal actions
+- on Page surfaces, publishes new materialized attachments as direct Page Files
+  and resolves their metadata/bytes through the owner Page authority
 
 Browser runtime:
 

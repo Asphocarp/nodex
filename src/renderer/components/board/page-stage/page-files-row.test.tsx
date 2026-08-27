@@ -1,0 +1,209 @@
+import { act, fireEvent, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
+
+import { render } from "@/test/dom";
+import type { PageStageController } from "./use-page-stage-controller";
+
+const api = vi.hoisted(() => ({
+  applyLibraryModule: vi.fn(),
+  pickAndPreparePageFiles: vi.fn(),
+  prepareDroppedPageFiles: vi.fn(),
+  preparePageFile: vi.fn(),
+  readLibraryModule: vi.fn(),
+  readPageFileBytes: vi.fn(),
+  savePageFile: vi.fn(),
+}));
+const toastApi = vi.hoisted(() => ({
+  danger: vi.fn(),
+  success: vi.fn(),
+}));
+
+vi.mock("@/lib/api", () => api);
+vi.mock("@/components/ui/toast", () => ({ toast: toastApi }));
+
+import { PageFilesRow } from "./page-files-row";
+
+const emptyManifest = {
+  pageId: "page-1",
+  revision: 0,
+  files: [],
+  nextCursor: null,
+  hasMore: false,
+  total: 0,
+} as const;
+
+const controller = {
+  page: {
+    id: "page-1",
+    title: "Drop target",
+  },
+  contentAccessContext: { kind: "project", projectId: "project-1" },
+  storeEpoch: "store-1",
+} as PageStageController;
+
+const fileTransfer = (files: readonly File[], directory = false): DataTransfer =>
+  ({
+    types: ["Files"],
+    files,
+    items: files.map((file) => ({
+      kind: "file",
+      type: file.type,
+      getAsFile: () => file,
+      webkitGetAsEntry: () => ({ isDirectory: directory }),
+    })),
+    dropEffect: "none",
+  }) as unknown as DataTransfer;
+
+describe("PageFilesRow native file drop", () => {
+  beforeEach(() => {
+    api.applyLibraryModule.mockReset();
+    api.pickAndPreparePageFiles.mockReset();
+    api.prepareDroppedPageFiles.mockReset();
+    api.preparePageFile.mockReset();
+    api.readPageFileBytes.mockReset();
+    api.savePageFile.mockReset();
+    api.readLibraryModule.mockReset();
+    toastApi.danger.mockReset();
+    toastApi.success.mockReset();
+    api.readLibraryModule.mockResolvedValue({
+      ok: true,
+      value: { value: { kind: "page_files", value: emptyManifest } },
+    });
+  });
+
+  test("keeps the indicator stable across child boundaries and commits dropped files as one batch", async () => {
+    api.prepareDroppedPageFiles.mockResolvedValue([
+      {
+        logicalPath: "brief.md",
+        mimeType: "text/markdown",
+        receiptId: "receipt-1",
+        byteLength: 5,
+      },
+      {
+        logicalPath: "data.json",
+        mimeType: "application/json",
+        receiptId: "receipt-2",
+        byteLength: 2,
+      },
+    ]);
+    api.applyLibraryModule.mockResolvedValue({ ok: true });
+
+    const view = render(<PageFilesRow controller={controller} />);
+    const openFiles = await view.findByRole("button", { name: "Add Page Files" });
+    await act(async () => {
+      fireEvent.click(openFiles);
+      await Promise.resolve();
+    });
+
+    const dialog = view.getByRole("dialog", { name: "Files" });
+    const surface = dialog.querySelector<HTMLElement>("[data-page-files-drop-surface]");
+    const emptyZone = view.getByRole("button", { name: /Drop files or folders here/u });
+    if (!surface) throw new Error("Files drop surface is unavailable");
+
+    const transfer = fileTransfer([
+      new File(["brief"], "brief.md", { type: "text/markdown" }),
+      new File(["{}"], "data.json", { type: "application/json" }),
+    ]);
+
+    await act(async () => {
+      fireEvent.dragEnter(surface, { dataTransfer: transfer });
+      fireEvent.dragEnter(emptyZone, { dataTransfer: transfer });
+      fireEvent.dragLeave(emptyZone, { dataTransfer: transfer });
+      await Promise.resolve();
+    });
+    expect(view.getByRole("status", { name: /Drop files and folders to add/u })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.dragOver(emptyZone, { dataTransfer: transfer });
+      fireEvent.drop(emptyZone, { dataTransfer: transfer });
+      await Promise.resolve();
+    });
+    expect(transfer.dropEffect).toBe("copy");
+    expect(view.queryByRole("status", { name: /Drop files and folders to add/u })).toBeNull();
+
+    await waitFor(() => expect(api.applyLibraryModule).toHaveBeenCalledTimes(1));
+    expect(api.prepareDroppedPageFiles).toHaveBeenCalledTimes(1);
+    const prepare = api.prepareDroppedPageFiles.mock.calls[0];
+    const apply = api.applyLibraryModule.mock.calls[0]?.[1];
+    expect(prepare?.[0]).toEqual(controller.contentAccessContext);
+    expect(prepare?.[2]).toEqual(Array.from(transfer.files));
+    expect(apply?.operationId).toBe(prepare?.[1]);
+    expect(apply?.operation).toMatchObject({
+      kind: "apply_page_file_changes",
+      pageId: "page-1",
+      expectedManifestRevision: 0,
+      changes: [
+        {
+          kind: "create",
+          logicalPath: "brief.md",
+          mimeType: "text/markdown",
+          preparedBlobReceiptId: "receipt-1",
+        },
+        {
+          kind: "create",
+          logicalPath: "data.json",
+          mimeType: "application/json",
+          preparedBlobReceiptId: "receipt-2",
+        },
+      ],
+    });
+  });
+
+  test("commits a dropped directory with its expanded logical paths", async () => {
+    api.prepareDroppedPageFiles.mockResolvedValue([
+      {
+        logicalPath: "references/api.md",
+        mimeType: "text/markdown",
+        receiptId: "receipt-directory-1",
+        byteLength: 3,
+      },
+      {
+        logicalPath: "references/nested/schema.json",
+        mimeType: "application/json",
+        receiptId: "receipt-directory-2",
+        byteLength: 2,
+      },
+    ]);
+    api.applyLibraryModule.mockResolvedValue({ ok: true });
+    const view = render(<PageFilesRow controller={controller} />);
+    const openFiles = await view.findByRole("button", { name: "Add Page Files" });
+    await act(async () => {
+      fireEvent.click(openFiles);
+      await Promise.resolve();
+    });
+
+    const dialog = view.getByRole("dialog", { name: "Files" });
+    const surface = dialog.querySelector<HTMLElement>("[data-page-files-drop-surface]");
+    if (!surface) throw new Error("Files drop surface is unavailable");
+    const transfer = fileTransfer([new File([], "references")], true);
+
+    await act(async () => {
+      fireEvent.dragEnter(surface, { dataTransfer: transfer });
+      fireEvent.drop(surface, { dataTransfer: transfer });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(api.applyLibraryModule).toHaveBeenCalledTimes(1));
+    expect(api.prepareDroppedPageFiles).toHaveBeenCalledWith(
+      controller.contentAccessContext,
+      expect.any(String),
+      Array.from(transfer.files),
+    );
+    expect(api.applyLibraryModule.mock.calls[0]?.[1]?.operation).toMatchObject({
+      kind: "apply_page_file_changes",
+      changes: [
+        {
+          kind: "create",
+          logicalPath: "references/api.md",
+          preparedBlobReceiptId: "receipt-directory-1",
+        },
+        {
+          kind: "create",
+          logicalPath: "references/nested/schema.json",
+          preparedBlobReceiptId: "receipt-directory-2",
+        },
+      ],
+    });
+    expect(toastApi.danger).not.toHaveBeenCalled();
+  });
+});

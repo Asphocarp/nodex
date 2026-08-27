@@ -28,6 +28,12 @@ Page bodies are canonical Nested Markdown. Read
 content to a temporary file and pass `--file`; do not risk shell interpolation
 of tabs, markup, or user text.
 
+Exact-format bytes are Files owned directly by a Page. Use them for images,
+PDFs, scripts, datasets, reference Markdown, and exports whose byte format
+matters. Use a child Page for content that should remain a Nodex-native,
+collaborative document. A File path such as `references/api.md` organizes the
+Page's direct Files; its prefixes are not Pages or durable folders.
+
 ## Prepared validators
 
 Request only the validator for the planned write:
@@ -83,6 +89,57 @@ nodex page delete --json @PAGE_ID \
   --if-match 'NARROW_ETAG' \
   --idempotency-key page-delete-PAGE_ID-v1
 ```
+
+## Page File workflows
+
+List before a File write so the operation is grounded in the current manifest:
+
+```sh
+nodex page file list --json @PAGE_ID --limit 100
+```
+
+Create or replace the File at a logical path. `--from -` reads bounded stdin;
+prefer a regular source file when the output already exists on disk:
+
+```sh
+nodex page file put --json @PAGE_ID \
+  --path prototype/check.py \
+  --from /tmp/check.py \
+  --idempotency-key page-file-put-PAGE_ID-check-v1
+```
+
+Read by stable File ID or exact logical path. Binary output goes to a file;
+`--output -` is suitable only when the caller can preserve raw stdout bytes:
+
+```sh
+nodex page file read @PAGE_ID \
+  --file prototype/check.py \
+  --output /tmp/check.py
+```
+
+Rename changes only the logical path; placements continue to use the same File
+identity. Delete fails while the Page body still references the File:
+
+```sh
+nodex page file rename --json @PAGE_ID \
+  --file prototype/check.py \
+  --to scripts/check.py \
+  --idempotency-key page-file-rename-PAGE_ID-check-v1
+
+nodex page file delete --json @PAGE_ID \
+  --file scripts/check.py \
+  --idempotency-key page-file-delete-PAGE_ID-check-v1
+```
+
+Inspect or restore retained versions with `page file versions` and
+`page file restore --version N`. A restore creates a new current version; it
+does not rewrite history.
+
+Import only outputs the user intends to keep with the Page. Build caches,
+temporary intermediates, and executable checkouts remain in the Agent
+workspace. Reading a script from a Page does not authorize execution; first
+materialize it to the normal workspace and use the existing command approval
+flow.
 
 Use `nodex patch --json --file PATCH_FILE --idempotency-key KEY` for exact,
 multi-edit Page changes when the patch contract is the clearest expression of

@@ -36,7 +36,7 @@ import {
   createCoreLibraryModuleAdapter,
   type CoreLibraryModuleAdapter,
 } from "../core-client/library-module-adapter";
-import type { CoreClientPort } from "../core-client/types";
+import type { CoreClientPort, PageFileBlobBytes, PreparedPageFileBlob } from "../core-client/types";
 import { CoreAuthority, CoreSessionAccess } from "../core-runtime/CoreAuthority";
 import {
   type CoreMinimumCommitTimeout,
@@ -69,6 +69,15 @@ export class LibraryModule extends Context.Service<
       accessContext: ContentAccessContext,
       request: LibraryModuleApplyRequest,
     ) => LibraryEffect<LibraryModuleApplyResult>;
+    readonly preparePageFileBlob: (
+      accessContext: ContentAccessContext,
+      operationId: string,
+      bytes: Uint8Array,
+    ) => LibraryEffect<PreparedPageFileBlob>;
+    readonly readPageFileBlob: (
+      accessContext: ContentAccessContext,
+      input: { readonly pageId: string; readonly fileId: string; readonly version?: number },
+    ) => LibraryEffect<PageFileBlobBytes>;
     readonly readProjectPageDetail: (
       projectId: string,
       pageId: string,
@@ -134,13 +143,13 @@ export const live: Layer.Layer<LibraryModule, never, CoreAuthority | CoreSession
           profileId: authority.identity.profileId,
           storeEpoch: authority.identity.storeEpoch,
         });
-      const use = <A>(
+      const useClient = <A>(
         operation: string,
         projectId: string | undefined,
-        run: (adapter: CoreLibraryModuleAdapter, signal: AbortSignal) => Promise<A>,
+        run: (client: CoreClientPort, signal: AbortSignal) => Promise<A>,
       ): LibraryEffect<A> =>
         sessions
-          .use(operation, (client, signal) => run(adapter(client), signal), {
+          .use(operation, run, {
             ...(projectId ? { projectId } : {}),
           })
           .pipe(
@@ -149,6 +158,12 @@ export const live: Layer.Layer<LibraryModule, never, CoreAuthority | CoreSession
                 new LibraryModuleError({ operation, ...(projectId ? { projectId } : {}), cause }),
             ),
           );
+      const use = <A>(
+        operation: string,
+        projectId: string | undefined,
+        run: (adapter: CoreLibraryModuleAdapter, signal: AbortSignal) => Promise<A>,
+      ): LibraryEffect<A> =>
+        useClient(operation, projectId, (client, signal) => run(adapter(client), signal));
       const projectIdForAccess = (access: ContentAccessContext): string | undefined =>
         access.kind === "project" ? access.projectId : undefined;
       const readPageDetailAtLeast = <A extends PageDetailResult | LibraryPageDetailResult>(
@@ -173,6 +188,18 @@ export const live: Layer.Layer<LibraryModule, never, CoreAuthority | CoreSession
           use("library.read", projectIdForAccess(accessContext), (core) => core.read(request)),
         apply: (accessContext, request) =>
           use("library.apply", projectIdForAccess(accessContext), (core) => core.apply(request)),
+        preparePageFileBlob: (accessContext, operationId, bytes) =>
+          useClient(
+            "library.preparePageFileBlob",
+            projectIdForAccess(accessContext),
+            (client, signal) => client.preparePageFileBlob({ operationId, bytes }, { signal }),
+          ),
+        readPageFileBlob: (accessContext, input) =>
+          useClient(
+            "library.readPageFileBlob",
+            projectIdForAccess(accessContext),
+            (client, signal) => client.readPageFileBlob(input, { signal }),
+          ),
         readProjectPageDetail: (projectId, pageId, minimumCommitSeq) =>
           readPageDetailAtLeast(
             use("library.readProjectPageDetail", projectId, (core) =>

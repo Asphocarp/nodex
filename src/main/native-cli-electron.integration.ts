@@ -286,12 +286,12 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       ).resolves.toBe("Cold CLI body\n");
 
       const projected = await runtime.rootClient.libraryRead({
-        kind: "page_file",
+        kind: "page_projection_file",
         page_id: pageId,
         file_kind: "body_nested_markdown",
         prepare: null,
       });
-      if (projected.value.kind !== "page_file") {
+      if (projected.value.kind !== "page_projection_file") {
         throw new Error("Electron did not receive the Page file projection");
       }
       expect(projected.value.value.content).toBe(body);

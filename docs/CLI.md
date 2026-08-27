@@ -79,7 +79,9 @@ collections are bounded and use opaque continuations.
 ## Drafts and mutations
 
 `draft create` materializes one bounded Page editing workspace with immutable
-base, editable work, and a private manifest. It is not a checkout or authority.
+base, editable work, a direct Page File manifest, and a private manifest. File
+bytes remain lazy and are read through explicit semantic commands; a draft is
+not a mounted checkout or authority.
 `draft diff` is local. `draft apply` rereads current authority, semantically
 merges the supported title/body changes when safe, and commits them atomically.
 `draft discard` removes only a validated generated draft.
@@ -98,6 +100,34 @@ Every mutation accepts a stable idempotency key. Narrow ETags bind the current
 resource and guard kind; they are not capabilities. An exact retry returns the
 first immutable result. A stale or mismatched guard fails before mutation and
 requires a fresh read.
+
+## Page Files
+
+`nodex page file` provides generic exact-format resource operations under the
+selected Project and owner Page:
+
+```text
+nodex page file list <page-selector>
+nodex page file read <page-selector> --file <id-or-path> --output -
+nodex page file put <page-selector> --path references/api.md --from ./api.md
+nodex page file rename <page-selector> --file references/api.md --to references/v2.md
+nodex page file delete <page-selector> --file references/v2.md
+nodex page file versions <page-selector> --file <id-or-path>
+nodex page file restore <page-selector> --file <id-or-path> --version 2
+```
+
+`put` creates a File or replaces the current File at the exact logical path. It
+streams a regular source file, or accepts bounded stdin with `--from -`, then
+commits metadata by manifest revision. `read --output -` emits exact bytes;
+other outputs are regular local files. File selectors accept a stable File ID
+or an exact logical path. Listing and version history are paged, and no command
+exposes a Profile path or blob-hash read capability.
+
+Paths use portable `/`-separated Page-relative syntax. Traversal, symlinks,
+special files, invalid portable names, and files larger than 64 MiB are rejected.
+Rename and replace preserve File identity. Delete fails while the File is still
+placed in its Page body. All mutation results include the resulting manifest
+revision and exact created, updated, or deleted File IDs.
 
 ## Search leases
 

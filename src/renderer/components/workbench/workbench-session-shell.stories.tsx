@@ -1490,6 +1490,9 @@ function installStoryApi(readSessionsByProject: () => Record<string, ProjectSess
                 },
               };
             }
+            if (read.mode !== "children") {
+              return { kind: "metadata" };
+            }
             return {
               kind: "children",
               parent: read.parent,

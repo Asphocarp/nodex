@@ -1,0 +1,1979 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use nodex_core_contracts::library::{
+    LibraryPageFileChange, LibraryPageFileChangeKind, LibraryPageFileManifest,
+    LibraryPageFileMutationReceipt, LibraryPageFileState, LibraryPageFileSummary,
+    LibraryPageFileVersion, LibraryPageFileVersionPage,
+};
+use nodex_core_contracts::{AdapterKind, BoundModuleContext, ModuleName};
+use rusqlite::{Connection, OptionalExtension, params};
+use serde_json::json;
+
+use crate::domain::identity::stable_uuid_v7;
+use crate::infrastructure::durable_mutation::{self, OperationIdentity};
+use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
+
+use super::cursor::{self, KeysetCoordinate, KeysetValue};
+use super::mutation::{
+    MutationEffects, library_commit_result, resolve_library_mutation_authority, seal_mutation,
+    sqlite_now,
+};
+use super::page_file_path::PortablePageFilePath;
+use super::{LibraryApplyOutcome, require_page_read_access, require_page_write_access};
+
+const MODULE_NAME: &str = "library";
+const OPERATION_KIND: &str = "apply_page_file_changes";
+const DEFAULT_LIMIT: usize = 50;
+const MAX_LIMIT: usize = 100;
+const MAX_CHANGES: usize = 100;
+const MAX_ID_BYTES: usize = 512;
+const MAX_MIME_TYPE_BYTES: usize = 255;
+
+#[derive(Clone)]
+struct CurrentFile {
+    file_id: String,
+    logical_path: String,
+    path_key: String,
+    mime_type: String,
+    byte_length: u64,
+    current_version: i64,
+    state: LibraryPageFileState,
+    blob_hash: Option<String>,
+    created_by_actor_id: String,
+    created_by_turn_id: Option<String>,
+    created_at: String,
+}
+
+#[derive(Clone)]
+struct DesiredFile {
+    file_id: String,
+    logical_path: String,
+    path_key: String,
+    mime_type: String,
+    byte_length: u64,
+    version: i64,
+    state: LibraryPageFileState,
+    blob_hash: Option<String>,
+    change_kind: LibraryPageFileChangeKind,
+    created_by_actor_id: String,
+    created_by_turn_id: Option<String>,
+    created_at: String,
+    is_new: bool,
+}
+
+struct DesiredFileUpdate {
+    change_kind: LibraryPageFileChangeKind,
+    logical_path: String,
+    path_key: String,
+    mime_type: String,
+    byte_length: u64,
+    blob_hash: Option<String>,
+    state: LibraryPageFileState,
+}
+
+struct FilePersistenceContext<'a> {
+    connection: &'a Connection,
+    library_id: &'a str,
+    page_id: &'a str,
+    manifest_revision: i64,
+    operation_id: &'a str,
+    actor_id: &'a str,
+    turn_id: Option<&'a str>,
+    now: &'a str,
+}
+
+struct PreparedBlob {
+    receipt_id: String,
+    content_hash: String,
+    byte_length: u64,
+}
+
+pub(super) fn list(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+    requested_cursor: Option<&str>,
+    requested_limit: Option<u32>,
+    include_deleted: bool,
+) -> Result<LibraryPageFileManifest, StoreError> {
+    let revision = manifest_revision(connection, library_id, page_id)?;
+    let limit = read_limit(requested_limit)?;
+    let subject = vec![
+        "page_files".to_owned(),
+        page_id.to_owned(),
+        if include_deleted { "all" } else { "live" }.to_owned(),
+    ];
+    let after = requested_cursor
+        .map(|encoded| cursor::decode(connection, encoded, library_id, &subject))
+        .transpose()?;
+    let (after_path_key, after_file_id) = text_cursor_coordinate(after.as_ref())?;
+    let query_limit = i64::try_from(limit.saturating_add(1))
+        .map_err(|_| invalid("Page File limit overflowed"))?;
+    let mut files = connection
+        .prepare(
+            "SELECT file.file_id, file.owner_page_id, file.logical_path, file.mime_type, \
+                    file.byte_length, file.current_version, file.state, \
+                    COALESCE(current_version.blob_hash, ( \
+                      SELECT prior.blob_hash FROM page_file_versions prior \
+                      WHERE prior.file_id = file.file_id AND prior.blob_hash IS NOT NULL \
+                      ORDER BY prior.version DESC LIMIT 1 \
+                    )), file.created_by_actor_id, file.created_by_turn_id, \
+                    file.created_at, file.updated_at, file.path_key \
+             FROM page_files file \
+             JOIN page_file_versions current_version \
+               ON current_version.file_id = file.file_id \
+              AND current_version.version = file.current_version \
+             WHERE file.library_id = ?1 AND file.owner_page_id = ?2 \
+               AND (?3 = 1 OR file.state = 'live') \
+               AND (?4 IS NULL OR file.path_key > ?4 \
+                 OR (file.path_key = ?4 AND file.file_id > ?5)) \
+             ORDER BY file.path_key, file.file_id LIMIT ?6",
+        )?
+        .query_map(
+            params![
+                library_id,
+                page_id,
+                include_deleted,
+                after_path_key,
+                after_file_id,
+                query_limit,
+            ],
+            summary_from_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = files.len() > limit;
+    files.truncate(limit);
+    let next_cursor = has_more
+        .then(|| {
+            let last = files
+                .last()
+                .ok_or_else(|| corrupt("Page File continuation has no entry"))?;
+            let path_key = PortablePageFilePath::parse(&last.logical_path)?
+                .collision_key()
+                .to_owned();
+            cursor::mint(
+                connection,
+                library_id,
+                &subject,
+                KeysetCoordinate {
+                    values: vec![KeysetValue::Text { value: path_key }],
+                    stable_id: last.file_id.clone(),
+                },
+            )
+        })
+        .transpose()?;
+    let total = connection.query_row(
+        "SELECT COUNT(*) FROM page_files \
+         WHERE library_id = ?1 AND owner_page_id = ?2 AND (?3 = 1 OR state = 'live')",
+        params![library_id, page_id, include_deleted],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(LibraryPageFileManifest {
+        page_id: page_id.to_owned(),
+        revision,
+        files,
+        next_cursor,
+        has_more,
+        total: u64::try_from(total).map_err(|_| corrupt("Page File count is invalid"))?,
+    })
+}
+
+pub(super) fn metadata(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+    file_id: &str,
+) -> Result<LibraryPageFileSummary, StoreError> {
+    validate_id(page_id, "Page")?;
+    validate_id(file_id, "Page File")?;
+    connection
+        .query_row(
+            "SELECT file.file_id, file.owner_page_id, file.logical_path, file.mime_type, \
+                    file.byte_length, file.current_version, file.state, \
+                    COALESCE(current_version.blob_hash, ( \
+                      SELECT prior.blob_hash FROM page_file_versions prior \
+                      WHERE prior.file_id = file.file_id AND prior.blob_hash IS NOT NULL \
+                      ORDER BY prior.version DESC LIMIT 1 \
+                    )), file.created_by_actor_id, file.created_by_turn_id, \
+                    file.created_at, file.updated_at, file.path_key \
+             FROM page_files file \
+             JOIN page_file_versions current_version \
+               ON current_version.file_id = file.file_id \
+              AND current_version.version = file.current_version \
+             WHERE file.library_id = ?1 AND file.owner_page_id = ?2 AND file.file_id = ?3",
+            params![library_id, page_id, file_id],
+            summary_from_row,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Page File is unavailable"))
+}
+
+pub(super) fn versions(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+    file_id: &str,
+    requested_cursor: Option<&str>,
+    requested_limit: Option<u32>,
+) -> Result<LibraryPageFileVersionPage, StoreError> {
+    metadata(connection, library_id, page_id, file_id)?;
+    let limit = read_limit(requested_limit)?;
+    let subject = vec![
+        "page_file_versions".to_owned(),
+        page_id.to_owned(),
+        file_id.to_owned(),
+    ];
+    let after = requested_cursor
+        .map(|encoded| cursor::decode(connection, encoded, library_id, &subject))
+        .transpose()?;
+    let after_version = integer_cursor_coordinate(after.as_ref(), file_id)?;
+    let query_limit = i64::try_from(limit.saturating_add(1))
+        .map_err(|_| invalid("Page File version limit overflowed"))?;
+    let mut entries = connection
+        .prepare(
+            "SELECT version.file_id, version.version, version.manifest_revision, \
+                    version.change_kind, version.logical_path, version.mime_type, \
+                    version.byte_length, version.blob_hash, version.actor_id, \
+                    version.turn_id, version.operation_id, version.occurred_at \
+             FROM page_file_versions version \
+             WHERE version.library_id = ?1 AND version.owner_page_id = ?2 \
+               AND version.file_id = ?3 AND (?4 IS NULL OR version.version < ?4) \
+             ORDER BY version.version DESC LIMIT ?5",
+        )?
+        .query_map(
+            params![library_id, page_id, file_id, after_version, query_limit],
+            version_from_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = entries.len() > limit;
+    entries.truncate(limit);
+    let next_cursor = has_more
+        .then(|| {
+            let last = entries
+                .last()
+                .ok_or_else(|| corrupt("Page File version continuation has no entry"))?;
+            cursor::mint(
+                connection,
+                library_id,
+                &subject,
+                KeysetCoordinate {
+                    values: vec![KeysetValue::Integer {
+                        value: last.version,
+                    }],
+                    stable_id: file_id.to_owned(),
+                },
+            )
+        })
+        .transpose()?;
+    Ok(LibraryPageFileVersionPage {
+        page_id: page_id.to_owned(),
+        file_id: file_id.to_owned(),
+        versions: entries,
+        next_cursor,
+        has_more,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn apply(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    page_id: &str,
+    expected_manifest_revision: i64,
+    changes: &[LibraryPageFileChange],
+    turn_id: Option<&str>,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    validate_id(page_id, "Page")?;
+    validate_id(operation_id, "Operation")?;
+    validate_optional_id(turn_id, "Agent turn")?;
+    if expected_manifest_revision < 0 {
+        return Err(invalid("Page File manifest revision cannot be negative"));
+    }
+    if changes.is_empty() || changes.len() > MAX_CHANGES {
+        return Err(invalid("Page File mutation must contain 1 to 100 changes"));
+    }
+
+    let authority = resolve_library_mutation_authority(connection, context, library_id)?;
+    if let Some(project_id) = authority.requesting_project_id.as_deref() {
+        require_page_write_access(connection, library_id, project_id, page_id)?;
+    } else if !trusted_root_adapter(&context.adapter) {
+        return Err(unauthorized("Page File writes require Page write access"));
+    }
+    require_active_page(connection, library_id, page_id)?;
+    let current_revision = manifest_revision(connection, library_id, page_id)?;
+    if current_revision != expected_manifest_revision {
+        return Err(revision_conflict("Page File manifest revision changed"));
+    }
+
+    let now = sqlite_now(connection)?;
+    let current_files = load_current_files(connection, library_id, page_id)?;
+    let (planned, receipt) = plan_changes(
+        connection,
+        context,
+        store_epoch,
+        library_id,
+        operation_id,
+        page_id,
+        expected_manifest_revision + 1,
+        changes,
+        turn_id,
+        &authority.actor_project_id,
+        &now,
+        &current_files,
+    )?;
+    let result = durable_mutation::run(
+        connection,
+        OperationIdentity {
+            module: ModuleName::Library,
+            module_name: MODULE_NAME,
+            operation_id,
+            intent_hash: request_hash,
+            store_epoch,
+            committed_at: &now,
+            context,
+        },
+        |scope| {
+            let updated = connection.execute(
+                "UPDATE page_file_manifests SET revision = ?1, updated_at = ?2 \
+                 WHERE page_id = ?3 AND library_id = ?4 AND revision = ?5",
+                params![
+                    receipt.manifest_revision,
+                    now,
+                    page_id,
+                    library_id,
+                    expected_manifest_revision,
+                ],
+            )?;
+            if updated != 1 {
+                return Err(revision_conflict("Page File manifest revision changed"));
+            }
+            replace_namespace_paths(connection, library_id, page_id, &planned)?;
+            let persistence = FilePersistenceContext {
+                connection,
+                library_id,
+                page_id,
+                manifest_revision: receipt.manifest_revision,
+                operation_id,
+                actor_id: &authority.actor_project_id,
+                turn_id,
+                now: &now,
+            };
+            for desired in &planned {
+                persist_desired_file(&persistence, desired)?;
+            }
+            for receipt_id in &receipt.consumed_blob_receipt_ids {
+                let consumed = connection.execute(
+                    "UPDATE prepared_blob_receipts \
+                     SET state = 'consumed', consumed_commit_seq = ?1, updated_at = ?2 \
+                     WHERE receipt_id = ?3 AND state = 'prepared'",
+                    params![scope.evidence().commit_seq(), now, receipt_id],
+                )?;
+                if consumed != 1 {
+                    return Err(revision_conflict(
+                        "Prepared Blob receipt is no longer available",
+                    ));
+                }
+            }
+            seal_mutation(
+                scope,
+                context,
+                operation_id,
+                MutationEffects {
+                    project_id: authority.actor_project_id.clone(),
+                    operation_kind: OPERATION_KIND,
+                    change_kind: "library.changed",
+                    did_mutate: true,
+                    created_target: None,
+                    affected_parent_keys: Vec::new(),
+                    affected_block_ids: Vec::new(),
+                    affected_page_ids: vec![page_id.to_owned()],
+                    affected_database_ids: Vec::new(),
+                    affected_view_ids: Vec::new(),
+                    affected_document_ids: Vec::new(),
+                    committed_revisions: BTreeMap::from([(
+                        format!("pageFiles:{page_id}"),
+                        receipt.manifest_revision,
+                    )]),
+                    page_create: None,
+                    page_copy: None,
+                    page_files: Some(receipt.clone()),
+                    canvas_mutation: None,
+                    block_transfer: None,
+                    block_transfer_undo: None,
+                    structural_edit: None,
+                    page_lifecycle: None,
+                    block_property_mutation: None,
+                    agent_page_copy: None,
+                    agent_create_pages: None,
+                    agent_move_pages: None,
+                    change_payload: Some(json!({
+                        "operationKind": OPERATION_KIND,
+                        "pageId": page_id,
+                        "manifestRevision": receipt.manifest_revision,
+                        "createdFileIds": receipt.created_file_ids,
+                        "updatedFileIds": receipt.updated_file_ids,
+                        "deletedFileIds": receipt.deleted_file_ids,
+                    })),
+                    committed_at: now.clone(),
+                },
+            )
+        },
+    )?;
+    library_commit_result(connection, result)
+}
+
+/// Replaces the changed part of a Page's path namespace before advancing File
+/// heads. The namespace table is the deep module that makes a batch's final
+/// paths authoritative without exposing SQLite's row-by-row UNIQUE timing;
+/// this is what permits atomic `a ↔ b` swaps.
+fn replace_namespace_paths(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+    planned: &[DesiredFile],
+) -> Result<(), StoreError> {
+    for desired in planned {
+        connection.execute(
+            "DELETE FROM page_file_namespace WHERE file_id = ?1",
+            [&desired.file_id],
+        )?;
+    }
+    for desired in planned {
+        if desired.state != LibraryPageFileState::Live {
+            continue;
+        }
+        connection.execute(
+            "INSERT INTO page_file_namespace(owner_page_id, library_id, path_key, file_id) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![page_id, library_id, desired.path_key, desired.file_id],
+        )?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_changes(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    page_id: &str,
+    manifest_revision: i64,
+    changes: &[LibraryPageFileChange],
+    turn_id: Option<&str>,
+    actor_id: &str,
+    now: &str,
+    current_files: &BTreeMap<String, CurrentFile>,
+) -> Result<(Vec<DesiredFile>, LibraryPageFileMutationReceipt), StoreError> {
+    let mut planned = Vec::with_capacity(changes.len());
+    let mut changed_file_ids = BTreeSet::new();
+    let mut consumed_receipts = BTreeSet::new();
+    let mut created_file_ids = Vec::new();
+    let mut updated_file_ids = Vec::new();
+    let mut deleted_file_ids = Vec::new();
+
+    for change in changes {
+        let desired = match change {
+            LibraryPageFileChange::Create {
+                file_id,
+                logical_path,
+                mime_type,
+                prepared_blob_receipt_id,
+            } => {
+                validate_new_file_id(connection, file_id)?;
+                mark_changed_file(&mut changed_file_ids, file_id)?;
+                let path = PortablePageFilePath::parse(logical_path)?;
+                let prepared = prepared_blob(
+                    connection,
+                    store_epoch,
+                    library_id,
+                    actor_id,
+                    operation_id,
+                    prepared_blob_receipt_id,
+                )?;
+                mark_consumed_receipt(&mut consumed_receipts, &prepared.receipt_id)?;
+                created_file_ids.push(file_id.clone());
+                DesiredFile {
+                    file_id: file_id.clone(),
+                    logical_path: path.display().to_owned(),
+                    path_key: path.collision_key().to_owned(),
+                    mime_type: validate_mime_type(mime_type)?,
+                    byte_length: prepared.byte_length,
+                    version: 1,
+                    state: LibraryPageFileState::Live,
+                    blob_hash: Some(prepared.content_hash),
+                    change_kind: LibraryPageFileChangeKind::Create,
+                    created_by_actor_id: actor_id.to_owned(),
+                    created_by_turn_id: turn_id.map(str::to_owned),
+                    created_at: now.to_owned(),
+                    is_new: true,
+                }
+            }
+            LibraryPageFileChange::ReplaceContent {
+                file_id,
+                expected_version,
+                mime_type,
+                prepared_blob_receipt_id,
+            } => {
+                let current = current_live_file(current_files, file_id, *expected_version)?;
+                mark_changed_file(&mut changed_file_ids, file_id)?;
+                let prepared = prepared_blob(
+                    connection,
+                    store_epoch,
+                    library_id,
+                    actor_id,
+                    operation_id,
+                    prepared_blob_receipt_id,
+                )?;
+                mark_consumed_receipt(&mut consumed_receipts, &prepared.receipt_id)?;
+                updated_file_ids.push(file_id.clone());
+                desired_from_current(
+                    current,
+                    DesiredFileUpdate {
+                        change_kind: LibraryPageFileChangeKind::Replace,
+                        logical_path: current.logical_path.clone(),
+                        path_key: current.path_key.clone(),
+                        mime_type: validate_mime_type(mime_type)?,
+                        byte_length: prepared.byte_length,
+                        blob_hash: Some(prepared.content_hash),
+                        state: LibraryPageFileState::Live,
+                    },
+                )
+            }
+            LibraryPageFileChange::Rename {
+                file_id,
+                expected_version,
+                logical_path,
+            } => {
+                let current = current_live_file(current_files, file_id, *expected_version)?;
+                mark_changed_file(&mut changed_file_ids, file_id)?;
+                let path = PortablePageFilePath::parse(logical_path)?;
+                updated_file_ids.push(file_id.clone());
+                desired_from_current(
+                    current,
+                    DesiredFileUpdate {
+                        change_kind: LibraryPageFileChangeKind::Rename,
+                        logical_path: path.display().to_owned(),
+                        path_key: path.collision_key().to_owned(),
+                        mime_type: current.mime_type.clone(),
+                        byte_length: current.byte_length,
+                        blob_hash: current.blob_hash.clone(),
+                        state: LibraryPageFileState::Live,
+                    },
+                )
+            }
+            LibraryPageFileChange::Delete {
+                file_id,
+                expected_version,
+            } => {
+                let current = current_live_file(current_files, file_id, *expected_version)?;
+                reject_referenced_file_deletion(connection, file_id)?;
+                mark_changed_file(&mut changed_file_ids, file_id)?;
+                deleted_file_ids.push(file_id.clone());
+                desired_from_current(
+                    current,
+                    DesiredFileUpdate {
+                        change_kind: LibraryPageFileChangeKind::Delete,
+                        logical_path: current.logical_path.clone(),
+                        path_key: current.path_key.clone(),
+                        mime_type: current.mime_type.clone(),
+                        byte_length: 0,
+                        blob_hash: None,
+                        state: LibraryPageFileState::Deleted,
+                    },
+                )
+            }
+            LibraryPageFileChange::RestoreVersion {
+                file_id,
+                expected_version,
+                source_version,
+            } => {
+                let current = current_file(current_files, file_id, *expected_version)?;
+                mark_changed_file(&mut changed_file_ids, file_id)?;
+                let source = load_restorable_version(
+                    connection,
+                    library_id,
+                    page_id,
+                    file_id,
+                    *source_version,
+                )?;
+                updated_file_ids.push(file_id.clone());
+                desired_from_current(
+                    current,
+                    DesiredFileUpdate {
+                        change_kind: LibraryPageFileChangeKind::Restore,
+                        logical_path: source.logical_path,
+                        path_key: source.path_key,
+                        mime_type: source.mime_type,
+                        byte_length: source.byte_length,
+                        blob_hash: source.blob_hash,
+                        state: LibraryPageFileState::Live,
+                    },
+                )
+            }
+            LibraryPageFileChange::CloneIntoPage {
+                source_page_id,
+                source_file_id,
+                target_file_id,
+                logical_path,
+            } => {
+                validate_new_file_id(connection, target_file_id)?;
+                mark_changed_file(&mut changed_file_ids, target_file_id)?;
+                authorize_clone_source(connection, context, library_id, source_page_id)?;
+                let source =
+                    load_live_file(connection, library_id, source_page_id, source_file_id)?;
+                let path = PortablePageFilePath::parse(logical_path)?;
+                created_file_ids.push(target_file_id.clone());
+                DesiredFile {
+                    file_id: target_file_id.clone(),
+                    logical_path: path.display().to_owned(),
+                    path_key: path.collision_key().to_owned(),
+                    mime_type: source.mime_type,
+                    byte_length: source.byte_length,
+                    version: 1,
+                    state: LibraryPageFileState::Live,
+                    blob_hash: source.blob_hash,
+                    change_kind: LibraryPageFileChangeKind::Clone,
+                    created_by_actor_id: actor_id.to_owned(),
+                    created_by_turn_id: turn_id.map(str::to_owned),
+                    created_at: now.to_owned(),
+                    is_new: true,
+                }
+            }
+        };
+        planned.push(desired);
+    }
+
+    validate_final_namespace(current_files, &planned)?;
+    created_file_ids.sort();
+    updated_file_ids.sort();
+    deleted_file_ids.sort();
+    Ok((
+        planned,
+        LibraryPageFileMutationReceipt {
+            page_id: page_id.to_owned(),
+            manifest_revision,
+            created_file_ids,
+            updated_file_ids,
+            deleted_file_ids,
+            consumed_blob_receipt_ids: consumed_receipts.into_iter().collect(),
+        },
+    ))
+}
+
+fn reject_referenced_file_deletion(
+    connection: &Connection,
+    file_id: &str,
+) -> Result<(), StoreError> {
+    let referenced = connection
+        .query_row(
+            "SELECT 1 FROM block_asset_refs WHERE page_file_id = ?1 LIMIT 1",
+            [file_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !referenced {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::ProtectedOwnerDeletion,
+        "Page File is still placed in the Page body",
+        false,
+    ))
+}
+
+fn persist_desired_file(
+    context: &FilePersistenceContext<'_>,
+    desired: &DesiredFile,
+) -> Result<(), StoreError> {
+    let byte_length = i64::try_from(desired.byte_length)
+        .map_err(|_| invalid("Page File byte length exceeds the Store bound"))?;
+    context.connection.execute(
+        "INSERT INTO page_file_versions( \
+           file_id, version, library_id, owner_page_id, manifest_revision, change_kind, \
+           logical_path, path_key, mime_type, blob_hash, byte_length, actor_id, turn_id, \
+           operation_id, occurred_at \
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        params![
+            desired.file_id,
+            desired.version,
+            context.library_id,
+            context.page_id,
+            context.manifest_revision,
+            change_kind_name(desired.change_kind),
+            desired.logical_path,
+            desired.path_key,
+            desired.mime_type,
+            desired.blob_hash,
+            byte_length,
+            context.actor_id,
+            context.turn_id,
+            context.operation_id,
+            context.now,
+        ],
+    )?;
+    if desired.is_new {
+        context.connection.execute(
+            "INSERT INTO page_files( \
+               file_id, library_id, owner_page_id, logical_path, path_key, mime_type, \
+               byte_length, current_version, state, created_by_actor_id, created_by_turn_id, \
+               created_at, updated_at \
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+            params![
+                desired.file_id,
+                context.library_id,
+                context.page_id,
+                desired.logical_path,
+                desired.path_key,
+                desired.mime_type,
+                byte_length,
+                desired.version,
+                state_name(desired.state),
+                desired.created_by_actor_id,
+                desired.created_by_turn_id,
+                desired.created_at,
+            ],
+        )?;
+        return Ok(());
+    }
+    let updated = context.connection.execute(
+        "UPDATE page_files SET logical_path = ?1, path_key = ?2, mime_type = ?3, \
+           byte_length = ?4, current_version = ?5, state = ?6, updated_at = ?7 \
+         WHERE file_id = ?8 AND library_id = ?9 AND owner_page_id = ?10 \
+           AND current_version = ?11",
+        params![
+            desired.logical_path,
+            desired.path_key,
+            desired.mime_type,
+            byte_length,
+            desired.version,
+            state_name(desired.state),
+            context.now,
+            desired.file_id,
+            context.library_id,
+            context.page_id,
+            desired.version - 1,
+        ],
+    )?;
+    if updated != 1 {
+        return Err(revision_conflict("Page File version changed"));
+    }
+    Ok(())
+}
+
+pub(super) struct PageFileCopyClosure {
+    pub(super) manifest_revisions: BTreeMap<String, i64>,
+    pub(super) file_ids: BTreeMap<String, String>,
+}
+
+pub(super) struct PreparedPageFileTransfer {
+    source_page_id: String,
+    target_page_id: String,
+    expected_target_manifest_revision: i64,
+    files: Vec<PreparedPageFileTransferEntry>,
+}
+
+struct PreparedPageFileTransferEntry {
+    source_file_id: String,
+    source_version: i64,
+    target_file_id: String,
+    logical_path: String,
+    path_key: String,
+    mime_type: String,
+    byte_length: i64,
+    blob_hash: String,
+}
+
+impl PreparedPageFileTransfer {
+    pub(super) fn file_ids(&self) -> BTreeMap<String, String> {
+        self.files
+            .iter()
+            .map(|file| (file.source_file_id.clone(), file.target_file_id.clone()))
+            .collect()
+    }
+}
+
+pub(super) fn block_transfer_references_page_files(
+    connection: &Connection,
+    source_document_id: &str,
+    source_block_ids: &BTreeSet<String>,
+) -> Result<bool, StoreError> {
+    let mut statement = connection.prepare(
+        "SELECT block_id FROM block_asset_refs \
+         WHERE document_id = ?1 AND page_file_id IS NOT NULL",
+    )?;
+    let mut rows = statement.query([source_document_id])?;
+    while let Some(row) = rows.next()? {
+        if source_block_ids.contains(&row.get::<_, String>(0)?) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Plans the File part of an ordinary cross-Page Block transfer. Only Files
+/// actually placed by the selected subtree are cloned; bytes remain shared.
+pub(super) fn prepare_block_transfer(
+    connection: &Connection,
+    library_id: &str,
+    operation_id: &str,
+    source_document_id: &str,
+    source_page_id: &str,
+    target_page_id: &str,
+    source_block_ids: &BTreeSet<String>,
+) -> Result<Option<PreparedPageFileTransfer>, StoreError> {
+    if source_page_id == target_page_id {
+        return Ok(None);
+    }
+    let source_file_ids = connection
+        .prepare(
+            "SELECT block_id, page_file_id FROM block_asset_refs \
+             WHERE document_id = ?1 AND page_file_id IS NOT NULL \
+             ORDER BY page_file_id, block_id",
+        )?
+        .query_map([source_document_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .filter_map(|(block_id, file_id)| source_block_ids.contains(&block_id).then_some(file_id))
+        .collect::<BTreeSet<_>>();
+    if source_file_ids.is_empty() {
+        return Ok(None);
+    }
+
+    let expected_target_manifest_revision =
+        read_manifest_revision(connection, library_id, target_page_id)?;
+    let mut occupied_path_keys = connection
+        .prepare(
+            "SELECT path_key FROM page_files \
+             WHERE library_id = ?1 AND owner_page_id = ?2 AND state = 'live'",
+        )?
+        .query_map(params![library_id, target_page_id], |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+    let mut files = Vec::with_capacity(source_file_ids.len());
+    for source_file_id in source_file_ids {
+        let source = load_live_file(connection, library_id, source_page_id, &source_file_id)?;
+        let (logical_path, path_key) = allocate_transfer_path(
+            &source.logical_path,
+            &source_file_id,
+            &mut occupied_path_keys,
+        )?;
+        files.push(PreparedPageFileTransferEntry {
+            target_file_id: stable_uuid_v7(
+                operation_id,
+                "block_transfer_page_file",
+                &format!("{source_file_id}:{target_page_id}"),
+            ),
+            source_file_id,
+            source_version: source.current_version,
+            logical_path,
+            path_key,
+            mime_type: source.mime_type,
+            byte_length: i64::try_from(source.byte_length)
+                .map_err(|_| corrupt("Page File byte length exceeds Store bounds"))?,
+            blob_hash: source
+                .blob_hash
+                .ok_or_else(|| corrupt("Live Page File has no Blob"))?,
+        });
+    }
+    Ok(Some(PreparedPageFileTransfer {
+        source_page_id: source_page_id.to_owned(),
+        target_page_id: target_page_id.to_owned(),
+        expected_target_manifest_revision,
+        files,
+    }))
+}
+
+pub(super) fn apply_block_transfer(
+    connection: &Connection,
+    library_id: &str,
+    operation_id: &str,
+    actor_id: &str,
+    now: &str,
+    prepared: &PreparedPageFileTransfer,
+) -> Result<LibraryPageFileMutationReceipt, StoreError> {
+    let manifest_revision = prepared.expected_target_manifest_revision + 1;
+    let advanced = connection.execute(
+        "UPDATE page_file_manifests SET revision = ?1, updated_at = ?2 \
+         WHERE page_id = ?3 AND library_id = ?4 AND revision = ?5",
+        params![
+            manifest_revision,
+            now,
+            prepared.target_page_id,
+            library_id,
+            prepared.expected_target_manifest_revision,
+        ],
+    )?;
+    if advanced != 1 {
+        return Err(revision_conflict("Target Page File manifest changed"));
+    }
+
+    let mut created_file_ids = Vec::with_capacity(prepared.files.len());
+    for file in &prepared.files {
+        let source_matches = connection
+            .query_row(
+                "SELECT 1 FROM page_files current \
+                 JOIN page_file_versions version ON version.file_id = current.file_id \
+                   AND version.version = current.current_version \
+                 WHERE current.file_id = ?1 AND current.library_id = ?2 \
+                   AND current.owner_page_id = ?3 AND current.current_version = ?4 \
+                   AND current.state = 'live' AND version.blob_hash = ?5",
+                params![
+                    file.source_file_id,
+                    library_id,
+                    prepared.source_page_id,
+                    file.source_version,
+                    file.blob_hash,
+                ],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !source_matches {
+            return Err(revision_conflict("Source Page File changed"));
+        }
+        validate_new_file_id(connection, &file.target_file_id)?;
+        connection.execute(
+            "INSERT INTO page_file_namespace(owner_page_id, library_id, path_key, file_id) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                prepared.target_page_id,
+                library_id,
+                file.path_key,
+                file.target_file_id
+            ],
+        )?;
+        connection.execute(
+            "INSERT INTO page_file_versions( \
+               file_id, version, library_id, owner_page_id, manifest_revision, change_kind, \
+               logical_path, path_key, mime_type, blob_hash, byte_length, actor_id, turn_id, \
+               operation_id, occurred_at \
+             ) VALUES (?1, 1, ?2, ?3, ?4, 'clone', ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12)",
+            params![
+                file.target_file_id,
+                library_id,
+                prepared.target_page_id,
+                manifest_revision,
+                file.logical_path,
+                file.path_key,
+                file.mime_type,
+                file.blob_hash,
+                file.byte_length,
+                actor_id,
+                operation_id,
+                now,
+            ],
+        )?;
+        connection.execute(
+            "INSERT INTO page_files( \
+               file_id, library_id, owner_page_id, logical_path, path_key, mime_type, \
+               byte_length, current_version, state, created_by_actor_id, created_by_turn_id, \
+               created_at, updated_at \
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'live', ?8, NULL, ?9, ?9)",
+            params![
+                file.target_file_id,
+                library_id,
+                prepared.target_page_id,
+                file.logical_path,
+                file.path_key,
+                file.mime_type,
+                file.byte_length,
+                actor_id,
+                now,
+            ],
+        )?;
+        created_file_ids.push(file.target_file_id.clone());
+    }
+    Ok(LibraryPageFileMutationReceipt {
+        page_id: prepared.target_page_id.clone(),
+        manifest_revision,
+        created_file_ids,
+        updated_file_ids: Vec::new(),
+        deleted_file_ids: Vec::new(),
+        consumed_blob_receipt_ids: Vec::new(),
+    })
+}
+
+fn read_manifest_revision(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<i64, StoreError> {
+    connection
+        .query_row(
+            "SELECT revision FROM page_file_manifests \
+             WHERE page_id = ?1 AND library_id = ?2",
+            params![page_id, library_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Page File manifest is unavailable"))
+}
+
+fn allocate_transfer_path(
+    source_path: &str,
+    source_file_id: &str,
+    occupied: &mut BTreeSet<String>,
+) -> Result<(String, String), StoreError> {
+    let source = PortablePageFilePath::parse(source_path)?;
+    if occupied.insert(source.collision_key().to_owned()) {
+        return Ok((
+            source.display().to_owned(),
+            source.collision_key().to_owned(),
+        ));
+    }
+    let (directory, basename) = source_path
+        .rsplit_once('/')
+        .map_or(("", source_path), |(directory, basename)| {
+            (directory, basename)
+        });
+    let (stem, extension) = basename
+        .rfind('.')
+        .filter(|index| *index > 0)
+        .map_or((basename, ""), |index| basename.split_at(index));
+    for copy_number in 2..=10_000 {
+        let basename = format!("{stem} ({copy_number}){extension}");
+        let candidate = if directory.is_empty() {
+            basename
+        } else {
+            format!("{directory}/{basename}")
+        };
+        let path = PortablePageFilePath::parse(&candidate)?;
+        if occupied.insert(path.collision_key().to_owned()) {
+            return Ok((path.display().to_owned(), path.collision_key().to_owned()));
+        }
+    }
+    let fallback = PortablePageFilePath::parse(&format!(
+        "transferred/{}",
+        &source_file_id[..source_file_id.len().min(32)]
+    ))?;
+    if !occupied.insert(fallback.collision_key().to_owned()) {
+        return Err(invalid("Target Page File namespace is exhausted"));
+    }
+    Ok((
+        fallback.display().to_owned(),
+        fallback.collision_key().to_owned(),
+    ))
+}
+
+/// Starts copied Pages with fresh File identities and one current-state
+/// history entry while reusing immutable Blob bytes. The returned identity map
+/// is used to rewrite `nodex://files/` references before copied Documents are
+/// persisted, so File ownership and Document projection advance atomically.
+pub(super) fn clone_for_page_copy(
+    connection: &Connection,
+    library_id: &str,
+    operation_id: &str,
+    actor_id: &str,
+    now: &str,
+    source_to_target_page_ids: &BTreeMap<String, String>,
+) -> Result<PageFileCopyClosure, StoreError> {
+    let mut manifest_revisions = BTreeMap::new();
+    let mut file_ids = BTreeMap::new();
+    for (source_page_id, target_page_id) in source_to_target_page_ids {
+        let files = connection
+            .prepare(
+                "SELECT file.file_id, file.logical_path, file.path_key, file.mime_type, \
+                        file.byte_length, version.blob_hash \
+                 FROM page_files file \
+                 JOIN page_file_versions version ON version.file_id = file.file_id \
+                   AND version.version = file.current_version \
+                 WHERE file.library_id = ?1 AND file.owner_page_id = ?2 \
+                   AND file.state = 'live' AND version.blob_hash IS NOT NULL \
+                 ORDER BY file.path_key, file.file_id",
+            )?
+            .query_map(params![library_id, source_page_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if files.is_empty() {
+            continue;
+        }
+        let advanced = connection.execute(
+            "UPDATE page_file_manifests SET revision = 1, updated_at = ?1 \
+             WHERE page_id = ?2 AND library_id = ?3 AND revision = 0",
+            params![now, target_page_id, library_id],
+        )?;
+        if advanced != 1 {
+            return Err(corrupt("Copied Page File manifest is unavailable"));
+        }
+        for (source_file_id, logical_path, path_key, mime_type, byte_length, blob_hash) in files {
+            let target_file_id = stable_uuid_v7(
+                operation_id,
+                "page_file",
+                &format!("{source_file_id}:{target_page_id}"),
+            );
+            connection.execute(
+                "INSERT INTO page_file_namespace(owner_page_id, library_id, path_key, file_id) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![target_page_id, library_id, path_key, target_file_id],
+            )?;
+            connection.execute(
+                "INSERT INTO page_file_versions( \
+                   file_id, version, library_id, owner_page_id, manifest_revision, change_kind, \
+                   logical_path, path_key, mime_type, blob_hash, byte_length, actor_id, turn_id, \
+                   operation_id, occurred_at \
+                 ) VALUES (?1, 1, ?2, ?3, 1, 'clone', ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11)",
+                params![
+                    target_file_id,
+                    library_id,
+                    target_page_id,
+                    logical_path,
+                    path_key,
+                    mime_type,
+                    blob_hash,
+                    byte_length,
+                    actor_id,
+                    operation_id,
+                    now,
+                ],
+            )?;
+            connection.execute(
+                "INSERT INTO page_files( \
+                   file_id, library_id, owner_page_id, logical_path, path_key, mime_type, \
+                   byte_length, current_version, state, created_by_actor_id, created_by_turn_id, \
+                   created_at, updated_at \
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 'live', ?8, NULL, ?9, ?9)",
+                params![
+                    target_file_id,
+                    library_id,
+                    target_page_id,
+                    logical_path,
+                    path_key,
+                    mime_type,
+                    byte_length,
+                    actor_id,
+                    now,
+                ],
+            )?;
+            file_ids.insert(source_file_id, target_file_id);
+        }
+        manifest_revisions.insert(target_page_id.clone(), 1);
+    }
+    Ok(PageFileCopyClosure {
+        manifest_revisions,
+        file_ids,
+    })
+}
+
+fn load_current_files(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<BTreeMap<String, CurrentFile>, StoreError> {
+    connection
+        .prepare(
+            "SELECT file.file_id, file.logical_path, file.path_key, \
+                    file.mime_type, file.byte_length, file.current_version, file.state, \
+                    version.blob_hash, file.created_by_actor_id, file.created_by_turn_id, \
+                    file.created_at \
+             FROM page_files file \
+             JOIN page_file_versions version \
+               ON version.file_id = file.file_id AND version.version = file.current_version \
+             WHERE file.library_id = ?1 AND file.owner_page_id = ?2",
+        )?
+        .query_map(params![library_id, page_id], current_file_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .map(|file| Ok((file.file_id.clone(), file)))
+        .collect()
+}
+
+fn load_live_file(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+    file_id: &str,
+) -> Result<CurrentFile, StoreError> {
+    validate_id(page_id, "Source Page")?;
+    validate_id(file_id, "Source Page File")?;
+    connection
+        .query_row(
+            "SELECT file.file_id, file.logical_path, file.path_key, \
+                    file.mime_type, file.byte_length, file.current_version, file.state, \
+                    version.blob_hash, file.created_by_actor_id, file.created_by_turn_id, \
+                    file.created_at \
+             FROM page_files file \
+             JOIN page_file_versions version \
+               ON version.file_id = file.file_id AND version.version = file.current_version \
+             WHERE file.library_id = ?1 AND file.owner_page_id = ?2 \
+               AND file.file_id = ?3 AND file.state = 'live'",
+            params![library_id, page_id, file_id],
+            current_file_from_row,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Source Page File is unavailable"))
+}
+
+fn load_restorable_version(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+    file_id: &str,
+    source_version: i64,
+) -> Result<CurrentFile, StoreError> {
+    if source_version < 1 {
+        return Err(invalid("Source Page File version must be positive"));
+    }
+    connection
+        .query_row(
+            "SELECT version.file_id, version.logical_path, \
+                    version.path_key, version.mime_type, version.byte_length, version.version, \
+                    'live', version.blob_hash, version.actor_id, version.turn_id, \
+                    version.occurred_at \
+             FROM page_file_versions version \
+             WHERE version.library_id = ?1 AND version.owner_page_id = ?2 \
+               AND version.file_id = ?3 AND version.version = ?4 \
+               AND version.change_kind <> 'delete' AND version.blob_hash IS NOT NULL",
+            params![library_id, page_id, file_id, source_version],
+            current_file_from_row,
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Restorable Page File version is unavailable"))
+}
+
+fn prepared_blob(
+    connection: &Connection,
+    store_epoch: &str,
+    library_id: &str,
+    project_id: &str,
+    operation_id: &str,
+    receipt_id: &str,
+) -> Result<PreparedBlob, StoreError> {
+    validate_id(receipt_id, "Prepared Blob receipt")?;
+    connection
+        .query_row(
+            "SELECT receipt.receipt_id, receipt.content_hash, receipt.byte_length \
+             FROM prepared_blob_receipts receipt \
+             JOIN managed_blobs blob ON blob.content_hash = receipt.content_hash \
+               AND blob.byte_length = receipt.byte_length \
+             WHERE receipt.receipt_id = ?1 AND receipt.project_id = ?2 \
+               AND receipt.library_id = ?3 AND receipt.store_epoch = ?4 \
+               AND receipt.operation_id = ?5 AND receipt.state = 'prepared' \
+               AND receipt.expires_at_unix_ms >= \
+                 CAST(strftime('%s', 'now') AS INTEGER) * 1000",
+            params![
+                receipt_id,
+                project_id,
+                library_id,
+                store_epoch,
+                operation_id
+            ],
+            |row| {
+                let byte_length = row.get::<_, i64>(2)?;
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    byte_length,
+                ))
+            },
+        )
+        .optional()?
+        .map(|(receipt_id, content_hash, byte_length)| {
+            Ok::<PreparedBlob, StoreError>(PreparedBlob {
+                receipt_id,
+                content_hash,
+                byte_length: u64::try_from(byte_length)
+                    .map_err(|_| corrupt("Prepared Blob length is invalid"))?,
+            })
+        })
+        .transpose()?
+        .ok_or_else(|| not_found("Prepared Blob receipt is unavailable"))
+}
+
+fn validate_final_namespace(
+    current_files: &BTreeMap<String, CurrentFile>,
+    planned: &[DesiredFile],
+) -> Result<(), StoreError> {
+    let mut final_files = current_files
+        .values()
+        .map(|file| (file.file_id.clone(), (file.path_key.clone(), file.state)))
+        .collect::<BTreeMap<_, _>>();
+    for desired in planned {
+        final_files.insert(
+            desired.file_id.clone(),
+            (desired.path_key.clone(), desired.state),
+        );
+    }
+    let mut live_paths = BTreeMap::new();
+    for (file_id, (path_key, state)) in final_files {
+        if state == LibraryPageFileState::Deleted {
+            continue;
+        }
+        if let Some(existing_file_id) = live_paths.insert(path_key, file_id.clone()) {
+            return Err(StoreError::new(
+                StoreErrorCode::Conflict,
+                format!(
+                    "Page File path collides with another live File ({existing_file_id}, {file_id})"
+                ),
+                false,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn current_file<'a>(
+    current_files: &'a BTreeMap<String, CurrentFile>,
+    file_id: &str,
+    expected_version: i64,
+) -> Result<&'a CurrentFile, StoreError> {
+    validate_id(file_id, "Page File")?;
+    let current = current_files
+        .get(file_id)
+        .ok_or_else(|| not_found("Page File is unavailable"))?;
+    if current.current_version != expected_version {
+        return Err(revision_conflict("Page File version changed"));
+    }
+    Ok(current)
+}
+
+fn current_live_file<'a>(
+    current_files: &'a BTreeMap<String, CurrentFile>,
+    file_id: &str,
+    expected_version: i64,
+) -> Result<&'a CurrentFile, StoreError> {
+    let current = current_file(current_files, file_id, expected_version)?;
+    if current.state != LibraryPageFileState::Live || current.blob_hash.is_none() {
+        return Err(not_found("Live Page File is unavailable"));
+    }
+    Ok(current)
+}
+
+fn desired_from_current(current: &CurrentFile, update: DesiredFileUpdate) -> DesiredFile {
+    DesiredFile {
+        file_id: current.file_id.clone(),
+        logical_path: update.logical_path,
+        path_key: update.path_key,
+        mime_type: update.mime_type,
+        byte_length: update.byte_length,
+        version: current.current_version + 1,
+        state: update.state,
+        blob_hash: update.blob_hash,
+        change_kind: update.change_kind,
+        created_by_actor_id: current.created_by_actor_id.clone(),
+        created_by_turn_id: current.created_by_turn_id.clone(),
+        created_at: current.created_at.clone(),
+        is_new: false,
+    }
+}
+
+fn authorize_clone_source(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    source_page_id: &str,
+) -> Result<(), StoreError> {
+    validate_id(source_page_id, "Source Page")?;
+    if let Some(project_id) = context.project_id.as_ref() {
+        return require_page_read_access(connection, library_id, &project_id.0, source_page_id);
+    }
+    if trusted_root_adapter(&context.adapter) {
+        return require_active_page(connection, library_id, source_page_id);
+    }
+    Err(unauthorized("Source Page File requires Page read access"))
+}
+
+fn require_active_page(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<(), StoreError> {
+    let exists = connection
+        .query_row(
+            "SELECT 1 FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.library_id = page.library_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 \
+               AND block.type = 'page' AND block.lifecycle = 'active'",
+            params![page_id, library_id],
+            |_| Ok(()),
+        )
+        .optional()?;
+    exists.ok_or_else(|| not_found("Page is unavailable"))
+}
+
+fn manifest_revision(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<i64, StoreError> {
+    validate_id(page_id, "Page")?;
+    connection
+        .query_row(
+            "SELECT manifest.revision FROM page_file_manifests manifest \
+             JOIN pages page ON page.block_id = manifest.page_id \
+               AND page.library_id = manifest.library_id \
+             WHERE manifest.page_id = ?1 AND manifest.library_id = ?2",
+            params![page_id, library_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Page File manifest is unavailable"))
+}
+
+fn validate_new_file_id(connection: &Connection, file_id: &str) -> Result<(), StoreError> {
+    validate_id(file_id, "Page File")?;
+    let exists = connection
+        .query_row(
+            "SELECT 1 FROM page_files WHERE file_id = ?1",
+            [file_id],
+            |_| Ok(()),
+        )
+        .optional()?;
+    if exists.is_some() {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "Page File identity already exists",
+            false,
+        ));
+    }
+    Ok(())
+}
+
+fn mark_changed_file(changed: &mut BTreeSet<String>, file_id: &str) -> Result<(), StoreError> {
+    if !changed.insert(file_id.to_owned()) {
+        return Err(invalid(
+            "One Page File can only appear once in a mutation batch",
+        ));
+    }
+    Ok(())
+}
+
+fn mark_consumed_receipt(
+    receipts: &mut BTreeSet<String>,
+    receipt_id: &str,
+) -> Result<(), StoreError> {
+    if !receipts.insert(receipt_id.to_owned()) {
+        return Err(invalid(
+            "One Prepared Blob receipt can only publish one Page File version",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_id(value: &str, label: &str) -> Result<(), StoreError> {
+    if value.is_empty()
+        || value.len() > MAX_ID_BYTES
+        || value.trim() != value
+        || value.chars().any(char::is_control)
+    {
+        return Err(invalid(format!("{label} identity is invalid")));
+    }
+    Ok(())
+}
+
+fn validate_optional_id(value: Option<&str>, label: &str) -> Result<(), StoreError> {
+    value.map_or(Ok(()), |value| validate_id(value, label))
+}
+
+fn validate_mime_type(value: &str) -> Result<String, StoreError> {
+    if value.is_empty()
+        || value.len() > MAX_MIME_TYPE_BYTES
+        || value.trim() != value
+        || value.chars().any(char::is_control)
+        || !value.contains('/')
+    {
+        return Err(invalid("Page File MIME type is invalid"));
+    }
+    Ok(value.to_ascii_lowercase())
+}
+
+fn read_limit(requested: Option<u32>) -> Result<usize, StoreError> {
+    let limit = usize::try_from(requested.unwrap_or(DEFAULT_LIMIT as u32))
+        .map_err(|_| invalid("Page File limit is invalid"))?;
+    if limit == 0 || limit > MAX_LIMIT {
+        return Err(invalid("Page File limit must be between 1 and 100"));
+    }
+    Ok(limit)
+}
+
+fn text_cursor_coordinate(
+    coordinate: Option<&KeysetCoordinate>,
+) -> Result<(Option<String>, Option<String>), StoreError> {
+    let Some(coordinate) = coordinate else {
+        return Ok((None, None));
+    };
+    let [KeysetValue::Text { value }] = coordinate.values.as_slice() else {
+        return Err(invalid("Page File cursor coordinate is invalid"));
+    };
+    Ok((Some(value.clone()), Some(coordinate.stable_id.clone())))
+}
+
+fn integer_cursor_coordinate(
+    coordinate: Option<&KeysetCoordinate>,
+    file_id: &str,
+) -> Result<Option<i64>, StoreError> {
+    let Some(coordinate) = coordinate else {
+        return Ok(None);
+    };
+    let [KeysetValue::Integer { value }] = coordinate.values.as_slice() else {
+        return Err(invalid("Page File version cursor coordinate is invalid"));
+    };
+    if coordinate.stable_id != file_id || *value < 1 {
+        return Err(invalid("Page File version cursor identity is invalid"));
+    }
+    Ok(Some(*value))
+}
+
+fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryPageFileSummary> {
+    let byte_length = row.get::<_, i64>(4)?;
+    let state = state_from_name(&row.get::<_, String>(6)?)?;
+    let blob_etag = row.get::<_, Option<String>>(7)?.unwrap_or_default();
+    Ok(LibraryPageFileSummary {
+        file_id: row.get(0)?,
+        owner_page_id: row.get(1)?,
+        logical_path: row.get(2)?,
+        mime_type: row.get(3)?,
+        byte_length: u64::try_from(byte_length)
+            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(4, byte_length))?,
+        version: row.get(5)?,
+        blob_etag,
+        state,
+        created_by_actor_id: row.get(8)?,
+        created_by_turn_id: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+    })
+}
+
+fn current_file_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CurrentFile> {
+    let byte_length = row.get::<_, i64>(4)?;
+    Ok(CurrentFile {
+        file_id: row.get(0)?,
+        logical_path: row.get(1)?,
+        path_key: row.get(2)?,
+        mime_type: row.get(3)?,
+        byte_length: u64::try_from(byte_length)
+            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(4, byte_length))?,
+        current_version: row.get(5)?,
+        state: state_from_name(&row.get::<_, String>(6)?)?,
+        blob_hash: row.get(7)?,
+        created_by_actor_id: row.get(8)?,
+        created_by_turn_id: row.get(9)?,
+        created_at: row.get(10)?,
+    })
+}
+
+fn version_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LibraryPageFileVersion> {
+    let byte_length = row.get::<_, i64>(6)?;
+    Ok(LibraryPageFileVersion {
+        file_id: row.get(0)?,
+        version: row.get(1)?,
+        manifest_revision: row.get(2)?,
+        change_kind: change_kind_from_name(&row.get::<_, String>(3)?)?,
+        logical_path: row.get(4)?,
+        mime_type: row.get(5)?,
+        byte_length: u64::try_from(byte_length)
+            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(6, byte_length))?,
+        blob_etag: row.get(7)?,
+        actor_id: row.get(8)?,
+        turn_id: row.get(9)?,
+        operation_id: row.get(10)?,
+        occurred_at: row.get(11)?,
+    })
+}
+
+fn state_name(state: LibraryPageFileState) -> &'static str {
+    match state {
+        LibraryPageFileState::Live => "live",
+        LibraryPageFileState::Deleted => "deleted",
+    }
+}
+
+fn state_from_name(value: &str) -> rusqlite::Result<LibraryPageFileState> {
+    match value {
+        "live" => Ok(LibraryPageFileState::Live),
+        "deleted" => Ok(LibraryPageFileState::Deleted),
+        _ => Err(rusqlite::Error::InvalidColumnType(
+            0,
+            "state".to_owned(),
+            rusqlite::types::Type::Text,
+        )),
+    }
+}
+
+fn change_kind_name(kind: LibraryPageFileChangeKind) -> &'static str {
+    match kind {
+        LibraryPageFileChangeKind::Create => "create",
+        LibraryPageFileChangeKind::Replace => "replace",
+        LibraryPageFileChangeKind::Rename => "rename",
+        LibraryPageFileChangeKind::Delete => "delete",
+        LibraryPageFileChangeKind::Restore => "restore",
+        LibraryPageFileChangeKind::Clone => "clone",
+    }
+}
+
+fn change_kind_from_name(value: &str) -> rusqlite::Result<LibraryPageFileChangeKind> {
+    match value {
+        "create" => Ok(LibraryPageFileChangeKind::Create),
+        "replace" => Ok(LibraryPageFileChangeKind::Replace),
+        "rename" => Ok(LibraryPageFileChangeKind::Rename),
+        "delete" => Ok(LibraryPageFileChangeKind::Delete),
+        "restore" => Ok(LibraryPageFileChangeKind::Restore),
+        "clone" => Ok(LibraryPageFileChangeKind::Clone),
+        _ => Err(rusqlite::Error::InvalidColumnType(
+            0,
+            "change_kind".to_owned(),
+            rusqlite::types::Type::Text,
+        )),
+    }
+}
+
+fn trusted_root_adapter(adapter: &AdapterKind) -> bool {
+    matches!(
+        adapter,
+        AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+    )
+}
+
+fn invalid(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::InvalidInput, message, false)
+}
+
+fn not_found(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::NotFound, message, false)
+}
+
+fn unauthorized(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::Unauthorized, message, false)
+}
+
+fn revision_conflict(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::RevisionConflict, message, true)
+}
+
+fn corrupt(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use nodex_core_contracts::library::{
+        LIBRARY_CONTRACT_VERSION, LibraryIntent, LibraryRead, LibraryReadValue, LibraryWriteParent,
+    };
+    use nodex_core_contracts::{
+        AdapterKind, BoundModuleContext, LibraryId, ModuleApplyRequest, ModuleReadRequest,
+        ProfileId, ProjectId, StoreEpoch,
+    };
+    use rusqlite::params;
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::infrastructure::sqlite::with_immediate_transaction;
+    use crate::infrastructure::store::SqliteStoreKernel;
+
+    const NOW: &str = "2026-08-28T00:00:00.000Z";
+
+    fn context() -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:page-files".to_owned(),
+            adapter: AdapterKind::Test,
+        }
+    }
+
+    fn seeded_library() -> (
+        tempfile::TempDir,
+        SqliteStoreKernel,
+        super::super::LibraryModule,
+    ) {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open_test(&home).expect("fresh Store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Page Files', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Library");
+        let module = super::super::LibraryModule::new("profile-1", "library-1", &kernel);
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    operation_id: "operation:create-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page-1".to_owned(),
+                        document_id: "document-1".to_owned(),
+                        title: "Files".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create Page");
+        (directory, kernel, module)
+    }
+
+    fn seed_receipt(kernel: &SqliteStoreKernel, operation_id: &str, receipt_id: &str, fill: char) {
+        let hash = fill.to_string().repeat(64);
+        let operation_id = operation_id.to_owned();
+        let receipt_id = receipt_id.to_owned();
+        kernel
+            .writer()
+            .call(move |connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO managed_blobs( \
+                           content_hash, physical_asset_name, byte_length, created_at \
+                         ) VALUES (?1, ?1, 4, ?2)",
+                        params![hash, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO prepared_blob_receipts( \
+                           receipt_id, project_id, library_id, store_epoch, content_hash, \
+                           byte_length, state, operation_id, expires_at_unix_ms, \
+                           consumed_commit_seq, created_at, updated_at \
+                         ) VALUES (?1, 'project-1', 'library-1', 'epoch-1', ?2, 4, \
+                           'prepared', ?3, 4102444800000, NULL, ?4, ?4)",
+                        params![receipt_id, hash, operation_id, NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed prepared Blob receipt");
+    }
+
+    fn apply_request(
+        operation_id: &str,
+        expected_manifest_revision: i64,
+        changes: Vec<LibraryPageFileChange>,
+    ) -> ModuleApplyRequest<LibraryIntent> {
+        ModuleApplyRequest {
+            contract_version: LIBRARY_CONTRACT_VERSION,
+            operation_id: operation_id.to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ApplyPageFileChanges {
+                page_id: "page-1".to_owned(),
+                expected_manifest_revision,
+                changes,
+                turn_id: Some("turn-1".to_owned()),
+            },
+        }
+    }
+
+    fn manifest(
+        module: &super::super::LibraryModule,
+        include_deleted: bool,
+    ) -> LibraryPageFileManifest {
+        let read = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    contract_version: LIBRARY_CONTRACT_VERSION,
+                    read: LibraryRead::PageFiles {
+                        page_id: "page-1".to_owned(),
+                        cursor: None,
+                        limit: Some(100),
+                        include_deleted: Some(include_deleted),
+                    },
+                },
+            )
+            .expect("read Page Files");
+        let LibraryReadValue::PageFiles { value } = read.value else {
+            panic!("Page Files value");
+        };
+        *value
+    }
+
+    #[test]
+    fn manifest_batch_supports_path_swaps_cas_and_idempotent_replay() {
+        let (_directory, kernel, module) = seeded_library();
+        seed_receipt(&kernel, "operation:create-files", "receipt-a", 'a');
+        seed_receipt(&kernel, "operation:create-files", "receipt-b", 'b');
+        let create = apply_request(
+            "operation:create-files",
+            0,
+            vec![
+                LibraryPageFileChange::Create {
+                    file_id: "file-a".to_owned(),
+                    logical_path: "references/a.md".to_owned(),
+                    mime_type: "text/markdown".to_owned(),
+                    prepared_blob_receipt_id: "receipt-a".to_owned(),
+                },
+                LibraryPageFileChange::Create {
+                    file_id: "file-b".to_owned(),
+                    logical_path: "references/b.md".to_owned(),
+                    mime_type: "text/markdown".to_owned(),
+                    prepared_blob_receipt_id: "receipt-b".to_owned(),
+                },
+            ],
+        );
+        let created = module
+            .apply(&context(), create.clone())
+            .expect("create Files");
+        assert_eq!(
+            created
+                .committed
+                .value
+                .page_files
+                .as_ref()
+                .unwrap()
+                .manifest_revision,
+            1
+        );
+
+        let replay = module
+            .apply(&context(), create)
+            .expect("replay create Files");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(manifest(&module, false).revision, 1);
+
+        let swapped = module
+            .apply(
+                &context(),
+                apply_request(
+                    "operation:swap-files",
+                    1,
+                    vec![
+                        LibraryPageFileChange::Rename {
+                            file_id: "file-a".to_owned(),
+                            expected_version: 1,
+                            logical_path: "references/b.md".to_owned(),
+                        },
+                        LibraryPageFileChange::Rename {
+                            file_id: "file-b".to_owned(),
+                            expected_version: 1,
+                            logical_path: "references/a.md".to_owned(),
+                        },
+                    ],
+                ),
+            )
+            .expect("swap final namespace");
+        assert_eq!(
+            swapped
+                .committed
+                .value
+                .page_files
+                .as_ref()
+                .unwrap()
+                .manifest_revision,
+            2
+        );
+        let paths = manifest(&module, false)
+            .files
+            .into_iter()
+            .map(|file| (file.file_id, file.logical_path))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(paths["file-a"], "references/b.md");
+        assert_eq!(paths["file-b"], "references/a.md");
+
+        let stale = module
+            .apply(
+                &context(),
+                apply_request(
+                    "operation:stale-rename",
+                    1,
+                    vec![LibraryPageFileChange::Rename {
+                        file_id: "file-a".to_owned(),
+                        expected_version: 2,
+                        logical_path: "stale.md".to_owned(),
+                    }],
+                ),
+            )
+            .expect_err("stale manifest must fail");
+        assert_eq!(
+            stale.code,
+            nodex_core_contracts::CoreErrorCode::RevisionConflict
+        );
+        assert_eq!(manifest(&module, false).revision, 2);
+    }
+
+    #[test]
+    fn deleted_files_leave_live_namespace_but_remain_restorable() {
+        let (_directory, kernel, module) = seeded_library();
+        seed_receipt(&kernel, "operation:create-file", "receipt-a", 'c');
+        module
+            .apply(
+                &context(),
+                apply_request(
+                    "operation:create-file",
+                    0,
+                    vec![LibraryPageFileChange::Create {
+                        file_id: "file-a".to_owned(),
+                        logical_path: "brief.md".to_owned(),
+                        mime_type: "text/markdown".to_owned(),
+                        prepared_blob_receipt_id: "receipt-a".to_owned(),
+                    }],
+                ),
+            )
+            .expect("create File");
+        module
+            .apply(
+                &context(),
+                apply_request(
+                    "operation:delete-file",
+                    1,
+                    vec![LibraryPageFileChange::Delete {
+                        file_id: "file-a".to_owned(),
+                        expected_version: 1,
+                    }],
+                ),
+            )
+            .expect("delete File");
+
+        assert!(manifest(&module, false).files.is_empty());
+        let deleted = manifest(&module, true);
+        assert_eq!(deleted.files[0].state, LibraryPageFileState::Deleted);
+        assert_eq!(deleted.files[0].version, 2);
+
+        module
+            .apply(
+                &context(),
+                apply_request(
+                    "operation:restore-file",
+                    2,
+                    vec![LibraryPageFileChange::RestoreVersion {
+                        file_id: "file-a".to_owned(),
+                        expected_version: 2,
+                        source_version: 1,
+                    }],
+                ),
+            )
+            .expect("restore File");
+        let restored = manifest(&module, false);
+        assert_eq!(restored.files[0].state, LibraryPageFileState::Live);
+        assert_eq!(restored.files[0].version, 3);
+        assert_eq!(restored.files[0].logical_path, "brief.md");
+    }
+}

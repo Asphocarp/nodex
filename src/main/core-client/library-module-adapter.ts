@@ -290,6 +290,28 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
         cursor: read.cursor ?? null,
         limit: read.limit ?? null,
       };
+    case "page_files":
+      return {
+        kind: "page_files",
+        page_id: read.pageId,
+        cursor: read.cursor ?? null,
+        limit: read.limit ?? null,
+        include_deleted: read.includeDeleted ?? null,
+      };
+    case "page_file_metadata":
+      return {
+        kind: "page_file_metadata",
+        page_id: read.pageId,
+        file_id: read.fileId,
+      };
+    case "page_file_versions":
+      return {
+        kind: "page_file_versions",
+        page_id: read.pageId,
+        file_id: read.fileId,
+        cursor: read.cursor ?? null,
+        limit: read.limit ?? null,
+      };
   }
 };
 
@@ -556,6 +578,61 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
           { kind: "page_metadata" },
           operation.clientSessionId,
         ),
+      };
+    case "apply_page_file_changes":
+      return {
+        kind: operation.kind,
+        page_id: operation.pageId,
+        expected_manifest_revision: operation.expectedManifestRevision,
+        turn_id: operation.turnId ?? null,
+        changes: operation.changes.map((change) => {
+          switch (change.kind) {
+            case "create":
+              return {
+                kind: change.kind,
+                file_id: change.fileId,
+                logical_path: change.logicalPath,
+                mime_type: change.mimeType,
+                prepared_blob_receipt_id: change.preparedBlobReceiptId,
+              };
+            case "replace_content":
+              return {
+                kind: change.kind,
+                file_id: change.fileId,
+                expected_version: change.expectedVersion,
+                mime_type: change.mimeType,
+                prepared_blob_receipt_id: change.preparedBlobReceiptId,
+              };
+            case "rename":
+              return {
+                kind: change.kind,
+                file_id: change.fileId,
+                expected_version: change.expectedVersion,
+                logical_path: change.logicalPath,
+              };
+            case "delete":
+              return {
+                kind: change.kind,
+                file_id: change.fileId,
+                expected_version: change.expectedVersion,
+              };
+            case "restore_version":
+              return {
+                kind: change.kind,
+                file_id: change.fileId,
+                expected_version: change.expectedVersion,
+                source_version: change.sourceVersion,
+              };
+            case "clone_into_page":
+              return {
+                kind: change.kind,
+                source_page_id: change.sourcePageId,
+                source_file_id: change.sourceFileId,
+                target_file_id: change.targetFileId,
+                logical_path: change.logicalPath,
+              };
+          }
+        }),
       };
     case "apply_structural_edit":
       return {
@@ -1020,10 +1097,79 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
         total: value.total,
         sourcePageCount: value.source_page_count,
       } as const;
+    case "page_files":
+      return {
+        kind: value.kind,
+        value: {
+          pageId: value.value.page_id,
+          revision: value.value.revision,
+          files: value.value.files.map(mapPageFileSummary),
+          nextCursor: value.value.next_cursor ?? null,
+          hasMore: value.value.has_more,
+          total: value.value.total,
+        },
+      } as const;
+    case "page_file_metadata":
+      return {
+        kind: value.kind,
+        value: mapPageFileSummary(value.value),
+      } as const;
+    case "page_file_versions":
+      return {
+        kind: value.kind,
+        value: {
+          pageId: value.value.page_id,
+          fileId: value.value.file_id,
+          versions: value.value.versions.map((version) => ({
+            fileId: version.file_id,
+            version: version.version,
+            manifestRevision: version.manifest_revision,
+            changeKind: version.change_kind,
+            logicalPath: version.logical_path,
+            mimeType: version.mime_type,
+            byteLength: version.byte_length,
+            blobEtag: version.blob_etag ?? null,
+            actorId: version.actor_id,
+            turnId: version.turn_id ?? null,
+            operationId: version.operation_id,
+            occurredAt: version.occurred_at,
+          })),
+          nextCursor: value.value.next_cursor ?? null,
+          hasMore: value.value.has_more,
+        },
+      } as const;
     default:
       throw new Error(`Core Library read ${value.kind} cannot satisfy the catalog Adapter`);
   }
 };
+
+const mapPageFileSummary = (file: {
+  readonly file_id: string;
+  readonly owner_page_id: string;
+  readonly logical_path: string;
+  readonly mime_type: string;
+  readonly byte_length: number;
+  readonly version: number;
+  readonly blob_etag: string;
+  readonly state: "live" | "deleted";
+  readonly created_by_actor_id: string;
+  readonly created_by_turn_id?: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}) => ({
+  fileId: file.file_id,
+  ownerPageId: file.owner_page_id,
+  logicalPath: file.logical_path,
+  mimeType: file.mime_type,
+  byteLength: file.byte_length,
+  version: file.version,
+  blobEtag: file.blob_etag,
+  state: file.state,
+  createdByActorId: file.created_by_actor_id,
+  createdByTurnId: file.created_by_turn_id ?? null,
+  createdAt: file.created_at,
+  updatedAt: file.updated_at,
+});
 
 const mapPageDataSourceContext = (context: CorePageDetail["data_source_context"]): unknown => {
   if (context.kind === "standalone") return { kind: "standalone" };
@@ -1562,6 +1708,8 @@ const mapCoreError = (error: CoreModuleError): LibraryModuleError => {
         return "state_corrupt";
       case "resource_exhausted":
         return "resource_exhausted";
+      case "protected_owner_deletion":
+        return "file_in_use";
       default:
         return "unknown";
     }
@@ -1984,6 +2132,16 @@ export const createCoreLibraryModuleAdapter = (
                           committed.outcome.structural_edit.resume.fallback_after_block_id ?? null,
                       }
                     : null,
+                }
+              : null,
+            pageFiles: committed.outcome.page_files
+              ? {
+                  pageId: committed.outcome.page_files.page_id,
+                  manifestRevision: committed.outcome.page_files.manifest_revision,
+                  createdFileIds: committed.outcome.page_files.created_file_ids,
+                  updatedFileIds: committed.outcome.page_files.updated_file_ids,
+                  deletedFileIds: committed.outcome.page_files.deleted_file_ids,
+                  consumedBlobReceiptIds: committed.outcome.page_files.consumed_blob_receipt_ids,
                 }
               : null,
             affectedParentKeys: receipt.affected_parent_keys,

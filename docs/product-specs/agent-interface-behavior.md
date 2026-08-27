@@ -26,7 +26,9 @@ The current intent families let an agent:
 - execute saved Views or bounded temporary Data Source queries;
 - create complete Pages;
 - update Page title/body through Nested Markdown or stable Block operations;
-- move or duplicate Page ownership roots.
+- move or duplicate Page ownership roots;
+- list, read, create/replace, rename, delete, inspect, and restore direct Page
+  Files through bounded semantic operations.
 
 Page results expose canonical `id`, nullable current `pageKey`, and bounded
 matched-key evidence when an authorized historical alias led to the result.
@@ -85,8 +87,18 @@ ownership, or content validation.
 The native CLI selects one Profile and, where required, one Project before
 calling Core. It provides bounded context/tree/history reads, canonical Page
 content, saved View queries, immutable snapshot search, explicit local drafts,
-semantic Page/Block mutations, backup/doctor operations, deep links, and
-optional Core prewarming.
+semantic Page/Block mutations, lazy Page File manifests and exact byte
+operations, backup/doctor operations, deep links, and optional Core prewarming.
+
+Page Files are generic Agent outputs, not Artifacts or a Plan-specific channel.
+Agents create Nodex-native plans and notes as ordinary child Pages; exact-format
+images, scripts, PDFs, datasets, and references are direct Files of the nearest
+semantic owner Page. File writes bind the exact Project, owner Page, Store
+epoch, operation identity, manifest revision, and optional source Turn. Agents
+never receive physical blob paths or read-by-hash access, and executable Files
+must be materialized into the ordinary approved workspace before execution.
+The Page draft projection eagerly exposes only direct File metadata; bytes are
+read explicitly and remain bounded. These capabilities do not alter Plan Mode.
 
 `profile clone` is the global offline provisioning operation for local
 production-shape testing. It accepts a source Profile home only to select a

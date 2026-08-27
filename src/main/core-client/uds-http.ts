@@ -34,6 +34,7 @@ const MAX_EVENT_FRAME_BYTES = CORE_TRANSPORT_BUDGETS.event_frame_bytes;
 const TRANSPORT_LIVENESS_TIMEOUT_MS = 5_000;
 const MAX_CONFIGURED_REQUEST_TIMEOUT_MS = 120_000;
 const DOCUMENT_ROUTE_PREFIX = "/core/v1/modules/document/";
+const PAGE_FILE_BLOB_ROUTE_PREFIX = "/core/v1/page-files/blobs/";
 const MODULE_ROUTE_PREFIX = "/core/v1/modules/";
 const LOCAL_MUTATION_ROUTE = "/core/v1/local-mutations/resolve";
 const DEFAULT_REQUEST_DEADLINES_MS: Readonly<Record<CoreRequestClass, number>> = {
@@ -57,7 +58,11 @@ const requestExecution = (
   requestPath: string,
   options: CoreRequestOptions,
 ): RequestExecutionHeaders | null => {
-  if (!requestPath.startsWith(MODULE_ROUTE_PREFIX) && requestPath !== LOCAL_MUTATION_ROUTE) {
+  if (
+    !requestPath.startsWith(MODULE_ROUTE_PREFIX) &&
+    !requestPath.startsWith(PAGE_FILE_BLOB_ROUTE_PREFIX) &&
+    requestPath !== LOCAL_MUTATION_ROUTE
+  ) {
     return null;
   }
   const requestClass = options.class ?? "interactive";
@@ -81,6 +86,12 @@ const requestExecution = (
 export type DocumentFrameResponse<Response> =
   | { readonly kind: "binary"; readonly bytes: Uint8Array }
   | { readonly kind: "json"; readonly value: Response };
+
+export interface BoundedBytesResponse {
+  readonly bytes: Uint8Array;
+  readonly contentType: string | undefined;
+  readonly etag: string | undefined;
+}
 
 export class CoreHttpError extends Error {
   constructor(
@@ -434,6 +445,95 @@ export class UdsHttpTransport {
         settle(() => reject(normalizeTransportError(error, "connect"))),
       );
       request.write(body);
+      request.end();
+    });
+  }
+
+  requestBoundedBytes(
+    method: "GET" | "POST",
+    requestPath: string,
+    body: Uint8Array | undefined,
+    requestHeaders: Readonly<Record<string, string>>,
+    maximumResponseBytes: number,
+    options: CoreRequestOptions = {},
+  ): Promise<BoundedBytesResponse> {
+    const execution = requestExecution(requestPath, options);
+    if (!execution) {
+      return Promise.reject(new Error("Page File Blob requests require Core execution metadata"));
+    }
+    const transportTimeoutMs = execution.deadlineMs + this.#transportLivenessTimeoutMs;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (action: () => void): void => {
+        if (settled) return;
+        settled = true;
+        options.signal?.removeEventListener("abort", cancelCoreRequest);
+        action();
+      };
+      const cancelCoreRequest = (): void => {
+        void this.#cancelRequest(execution.requestId, requestHeaders);
+      };
+      const request = httpRequest(
+        {
+          socketPath: this.socketPath,
+          path: requestPath,
+          method,
+          agent: false,
+          signal: options.signal,
+          headers: {
+            ...requestHeaders,
+            "x-nodex-request-id": execution.requestId,
+            "x-nodex-request-class": execution.class,
+            "x-nodex-request-deadline-ms": String(execution.deadlineMs),
+            accept: "application/octet-stream, application/json",
+            authorization: `Bearer ${this.authCapability}`,
+            ...(body
+              ? {
+                  "content-length": body.byteLength,
+                  "content-type": "application/octet-stream",
+                }
+              : {}),
+          },
+        },
+        (response) => {
+          collectResponse(response, maximumResponseBytes)
+            .then((bytes) => {
+              const status = response.statusCode ?? 0;
+              if (status < 200 || status >= 300) {
+                const value = decodeBoundedJson<unknown>(
+                  bytes,
+                  Math.min(maximumResponseBytes, MAX_JSON_RESPONSE_BYTES),
+                  "Core Page File Blob error response",
+                );
+                settle(() => reject(new CoreHttpError(status, errorMessage(value))));
+                return;
+              }
+              settle(() =>
+                resolve({
+                  bytes,
+                  contentType: response.headers["content-type"]?.split(";", 1)[0],
+                  etag: response.headers.etag,
+                }),
+              );
+            })
+            .catch((error: unknown) =>
+              settle(() => reject(normalizeTransportError(error, "response"))),
+            );
+        },
+      );
+      if (options.signal?.aborted) {
+        cancelCoreRequest();
+      } else {
+        options.signal?.addEventListener("abort", cancelCoreRequest, { once: true });
+      }
+      request.setTimeout(transportTimeoutMs, () => {
+        cancelCoreRequest();
+        request.destroy(new CoreTransportError("timeout", "response", "ETIMEDOUT", null));
+      });
+      request.on("error", (error) =>
+        settle(() => reject(normalizeTransportError(error, "connect"))),
+      );
+      if (body) request.write(body);
       request.end();
     });
   }
