@@ -5833,73 +5833,67 @@ fn source_restore_operations(
         .iter()
         .map(|root| root.source_root_id.as_str())
         .collect::<BTreeSet<_>>();
-    let mut found_blocks = BTreeSet::new();
-    let mut found_original_roots = BTreeSet::new();
-    let mut operations = Vec::with_capacity(expected_roots.len());
 
-    fn collect_moved<'a>(
-        block: &'a MaterializedBlockNode,
-        moved: &BTreeSet<&str>,
-        found: &mut BTreeSet<&'a str>,
-    ) {
-        if moved.contains(block.id.as_str()) {
-            found.insert(block.id.as_str());
-        }
-        for child in &block.children {
-            collect_moved(child, moved, found);
-        }
+    struct SourceRestoreTraversal<'sets, 'roots> {
+        moved: &'sets BTreeSet<&'roots str>,
+        expected_roots: &'sets BTreeSet<&'roots str>,
+        found_blocks: BTreeSet<String>,
+        found_original_roots: BTreeSet<String>,
+        operations: Vec<DocumentBlockOperation>,
     }
 
-    fn visit_siblings<'a>(
-        siblings: &'a [MaterializedBlockNode],
-        parent_block_id: Option<&'a str>,
-        parent_is_moved: bool,
-        moved: &BTreeSet<&str>,
-        expected_roots: &BTreeSet<&str>,
-        found_blocks: &mut BTreeSet<&'a str>,
-        found_original_roots: &mut BTreeSet<&'a str>,
-        operations: &mut Vec<DocumentBlockOperation>,
-    ) {
-        for (index, block) in siblings.iter().enumerate() {
-            let is_moved = moved.contains(block.id.as_str());
-            if is_moved {
-                collect_moved(block, moved, found_blocks);
-                if expected_roots.contains(block.id.as_str()) {
-                    found_original_roots.insert(block.id.as_str());
+    impl SourceRestoreTraversal<'_, '_> {
+        fn collect_moved(&mut self, block: &MaterializedBlockNode) {
+            if self.moved.contains(block.id.as_str()) {
+                self.found_blocks.insert(block.id.clone());
+            }
+            for child in &block.children {
+                self.collect_moved(child);
+            }
+        }
+
+        fn visit_siblings(
+            &mut self,
+            siblings: &[MaterializedBlockNode],
+            parent_block_id: Option<&str>,
+            parent_is_moved: bool,
+        ) {
+            for (index, block) in siblings.iter().enumerate() {
+                let is_moved = self.moved.contains(block.id.as_str());
+                if is_moved {
+                    self.collect_moved(block);
+                    if self.expected_roots.contains(block.id.as_str()) {
+                        self.found_original_roots.insert(block.id.clone());
+                    }
                 }
+                if is_moved && !parent_is_moved {
+                    self.operations.push(DocumentBlockOperation::InsertBlock {
+                        block: block.clone(),
+                        parent_block_id: parent_block_id.map(str::to_owned),
+                        before_block_id: siblings.get(index + 1).map(|sibling| sibling.id.clone()),
+                    });
+                    continue;
+                }
+                self.visit_siblings(
+                    &block.children,
+                    Some(block.id.as_str()),
+                    parent_is_moved || is_moved,
+                );
             }
-            if is_moved && !parent_is_moved {
-                operations.push(DocumentBlockOperation::InsertBlock {
-                    block: block.clone(),
-                    parent_block_id: parent_block_id.map(str::to_owned),
-                    before_block_id: siblings.get(index + 1).map(|sibling| sibling.id.clone()),
-                });
-                continue;
-            }
-            visit_siblings(
-                &block.children,
-                Some(block.id.as_str()),
-                parent_is_moved || is_moved,
-                moved,
-                expected_roots,
-                found_blocks,
-                found_original_roots,
-                operations,
-            );
         }
     }
 
-    visit_siblings(
-        &source_before_transfer.block_tree,
-        None,
-        false,
-        &moved,
-        &expected_roots,
-        &mut found_blocks,
-        &mut found_original_roots,
-        &mut operations,
-    );
-    if found_blocks.len() != moved.len() || found_original_roots != expected_roots {
+    let mut traversal = SourceRestoreTraversal {
+        moved: &moved,
+        expected_roots: &expected_roots,
+        found_blocks: BTreeSet::new(),
+        found_original_roots: BTreeSet::new(),
+        operations: Vec::with_capacity(expected_roots.len()),
+    };
+    traversal.visit_siblings(&source_before_transfer.block_tree, None, false);
+    if traversal.found_blocks.len() != moved.len()
+        || traversal.found_original_roots.len() != expected_roots.len()
+    {
         return Err(corrupt(
             "Block transfer Undo source snapshot is missing moved Block evidence",
         ));
@@ -5907,8 +5901,8 @@ fn source_restore_operations(
 
     // A selected root may use the next selected sibling as its anchor. Apply
     // right-to-left so every such anchor exists before it is referenced.
-    operations.reverse();
-    Ok(operations)
+    traversal.operations.reverse();
+    Ok(traversal.operations)
 }
 
 fn bound_project_id(context: &BoundModuleContext) -> Result<&str, StoreError> {
