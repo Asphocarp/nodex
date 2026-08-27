@@ -571,6 +571,7 @@ fn rich_text_item(item: &NfmInlineContent) -> Result<RichTextItem, SemanticMutat
             reminder: date.reminder.clone(),
         }),
         NfmInlineContent::LineBreak
+        | NfmInlineContent::Math { .. }
         | NfmInlineContent::Attachment { .. }
         | NfmInlineContent::AgentConfig { .. } => Err(SemanticMutationError::Invalid(
             "title Markdown contains unsupported inline content".to_owned(),

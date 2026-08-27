@@ -84,6 +84,15 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         lines.push(prefix + fence);
         break;
       }
+      case "mathBlock": {
+        const fence = selectMathFence(block.source);
+        lines.push(prefix + fence);
+        for (const sourceLine of block.source.split("\n")) {
+          lines.push(prefix + sourceLine);
+        }
+        lines.push(prefix + fence);
+        break;
+      }
       case "table": {
         lines.push(...serializeNfmTable(block, indent));
         break;
@@ -192,6 +201,15 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
 function selectCodeFence(code: string): string {
   const longestBacktickRun = findLongestRepeatedRun(code, "`");
   return "`".repeat(Math.max(3, longestBacktickRun + 1));
+}
+
+function selectMathFence(source: string): string {
+  const standaloneDollarRuns = source
+    .split("\n")
+    .filter((line) => /^\$+$/u.test(line))
+    .map((line) => line.length);
+  const longestRun = Math.max(0, ...standaloneDollarRuns);
+  return "$".repeat(Math.max(2, longestRun + 1));
 }
 
 function findLongestRepeatedRun(text: string, char: string): number {

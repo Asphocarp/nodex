@@ -22,6 +22,7 @@ import {
   type DefaultReactSuggestionItem,
   type SuggestionMenuProps,
 } from "@blocknote/react";
+import { getMathSlashMenuItems } from "@blocknote/math-block";
 import { Ellipsis, Minus, Settings2 } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownActionRow,
@@ -55,11 +56,13 @@ import {
   CalendarIcon,
   ClockIcon,
   CanvasIcon,
+  CodeBracketsIcon,
   NfmImageBlockIcon,
   NfmSideMenuPageInIcon,
   NfmTableBlockIcon,
   PageIcon,
   TextActionReactionIcon,
+  TextActionEquationIcon,
 } from "@/components/shared/icons";
 import { buildDateMentionQueryMatches, type DateMentionQueryMatch } from "@/lib/nfm/date-mention";
 import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
@@ -211,6 +214,9 @@ const SUGGESTION_SYNTAX_HINT_BY_KEY: Record<string, string> = {
   bullet_list: "-",
   check_list: "[]",
   code_block: "```",
+  code_mermaid: "```mermaid",
+  math_block: "$$",
+  inline_math: "$x$",
   divider: "---",
   table: "table",
   image: "image",
@@ -233,6 +239,7 @@ const NFM_SLASH_MENU_ITEM_PRESENTATIONS = [
   { key: "toggle_heading_2", group: "Text", turnIntoKey: "toggle-heading-2" },
   { key: "toggle_heading_3", group: "Text", turnIntoKey: "toggle-heading-3" },
   { key: "emoji", group: "Text", label: "Emoji" },
+  { key: "inline_math", group: "Text", label: "Inline equation" },
   { key: "bullet_list", group: "Lists", turnIntoKey: "bullet-list" },
   { key: "numbered_list", group: "Lists", turnIntoKey: "numbered-list" },
   { key: "check_list", group: "Lists", turnIntoKey: "todo-list" },
@@ -240,6 +247,8 @@ const NFM_SLASH_MENU_ITEM_PRESENTATIONS = [
   { key: "quote", group: "Blocks", turnIntoKey: "quote" },
   { key: "callout", group: "Blocks", turnIntoKey: "callout" },
   { key: "code_block", group: "Blocks", turnIntoKey: "code" },
+  { key: "code_mermaid", group: "Blocks", label: "Code - Mermaid" },
+  { key: "math_block", group: "Blocks", label: "Block equation" },
   { key: "divider", group: "Blocks", label: "Divider" },
   { key: "table", group: "Blocks", label: "Table" },
   { key: "image", group: "Blocks", label: "Image" },
@@ -271,6 +280,8 @@ function getNfmSlashMenuItemIcon(key: NfmSlashMenuItemKey, turnIntoKey?: NfmTurn
   if (key === "embed_page") return <NfmSideMenuPageInIcon />;
   if (key === "subpage" || key === "mention_page") return <PageIcon className="size-5" />;
   if (key === "thread_section") return <ThreadIcon className="size-5" />;
+  if (key === "math_block" || key === "inline_math") return <TextActionEquationIcon />;
+  if (key === "code_mermaid") return <CodeBracketsIcon className="size-5" />;
   return <Settings2 className="size-5" />;
 }
 
@@ -290,7 +301,8 @@ function presentNfmSlashMenuItem(item: NfmSuggestionItem): NfmSuggestionItem | n
     key,
     title: turnIntoDefinition?.label ?? presentation.label ?? item.title,
     group: presentation.group,
-    icon: getNfmSlashMenuItemIcon(key as NfmSlashMenuItemKey, presentation.turnIntoKey),
+    icon:
+      getNfmSlashMenuItemIcon(key as NfmSlashMenuItemKey, presentation.turnIntoKey) ?? item.icon,
   };
 }
 
@@ -686,6 +698,15 @@ export function getNfmSlashMenuCustomItems(
     openSubpageCreator,
   }: NfmSlashMenuCustomItemActions = {},
 ): NfmSuggestionItem[] {
+  const schema = (
+    editor as {
+      readonly schema?: { readonly blockSchema?: unknown; readonly inlineContentSchema?: unknown };
+    }
+  ).schema;
+  const [mathBlockItem, inlineMathItem] =
+    schema?.blockSchema && schema.inlineContentSchema
+      ? getMathSlashMenuItems(editor as Parameters<typeof getMathSlashMenuItems>[0])
+      : [];
   const calloutItem = {
     key: "callout",
     title: "Callout",
@@ -707,6 +728,21 @@ export function getNfmSlashMenuCustomItems(
       insertBlock(editor, {
         type: "codeBlock",
         props: { language: codeLanguagePreference.get() },
+      });
+    },
+  } satisfies NfmSuggestionItem;
+
+  const mermaidCodeItem = {
+    key: "code_mermaid",
+    title: "Code - Mermaid",
+    subtext: "Create an editable Mermaid diagram",
+    aliases: ["mermaid", "diagram", "flowchart", "graph"],
+    hint: null,
+    onItemClick: () => {
+      insertBlock(editor, {
+        type: "codeBlock",
+        props: { language: "mermaid" },
+        content: "graph TD\n  Mermaid --> Diagram\n",
       });
     },
   } satisfies NfmSuggestionItem;
@@ -823,8 +859,33 @@ export function getNfmSlashMenuCustomItems(
     : null;
 
   const items = [
+    ...(inlineMathItem
+      ? [
+          {
+            ...inlineMathItem,
+            key: "inline_math",
+            title: "Inline equation",
+            subtext: "Insert a formula in the current line",
+            aliases: ["inline equation", "inline math", "formula", "latex"],
+            hint: null,
+          } satisfies NfmSuggestionItem,
+        ]
+      : []),
     calloutItem,
     codeItem,
+    mermaidCodeItem,
+    ...(mathBlockItem
+      ? [
+          {
+            ...mathBlockItem,
+            key: "math_block",
+            title: "Block equation",
+            subtext: "Display a standalone mathematical formula",
+            aliases: ["equation", "math", "formula", "latex"],
+            hint: null,
+          } satisfies NfmSuggestionItem,
+        ]
+      : []),
     tableItem,
     ...(canvasItem ? [canvasItem] : []),
     ...(mentionPageItem ? [mentionPageItem] : []),

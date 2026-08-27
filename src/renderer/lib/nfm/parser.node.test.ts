@@ -5,6 +5,78 @@ import { parseNfm } from "./parser";
 import { serializeNfm } from "./serializer";
 
 describe("NFM code fences", () => {
+  test("round-trips block and inline equations without storing rendered output", () => {
+    const input = ["Energy is $E = mc^2$ today", "$$", "\\frac{a}{b}", "$$"].join("\n");
+
+    const blocks = parseNfm(input);
+
+    expect(blocks).toEqual([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Energy is ", styles: {} },
+          { type: "math", source: "E = mc^2" },
+          { type: "text", text: " today", styles: {} },
+        ],
+        children: [],
+      },
+      { type: "mathBlock", source: "\\frac{a}{b}", children: [] },
+    ]);
+    expect(serializeNfm(blocks)).toBe(input);
+  });
+
+  test("uses collision-safe equation fences and protected inline source", () => {
+    const blocks = [
+      {
+        type: "paragraph",
+        content: [
+          { type: "math", source: "price = $5 and `raw`" },
+          { type: "text", text: " after", styles: {} },
+        ],
+        children: [],
+      },
+      { type: "mathBlock", source: "x = 1\n$$\ny = 2", children: [] },
+    ] satisfies NfmBlock[];
+
+    const serialized = serializeNfm(blocks);
+
+    expect(serialized).toBe("$`` price = $5 and `raw` ``$ after\n$$$\nx = 1\n$$\ny = 2\n$$$");
+    expect(parseNfm(serialized)).toEqual(blocks);
+  });
+
+  test("keeps escaped dollars and unclosed equation fences as literal text", () => {
+    const blocks = parseNfm("Cost is \\$5 and $$not closed");
+
+    expect(blocks).toEqual([
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "Cost is $5 and $$not closed", styles: {} }],
+        children: [],
+      },
+    ]);
+  });
+
+  test("round-trips inline equations next to sentence punctuation", () => {
+    const input = "Energy is $E = mc^2$. See ($x + 1$).";
+
+    const blocks = parseNfm(input);
+
+    expect(blocks).toEqual([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Energy is ", styles: {} },
+          { type: "math", source: "E = mc^2" },
+          { type: "text", text: ". See (", styles: {} },
+          { type: "math", source: "x + 1" },
+          { type: "text", text: ").", styles: {} },
+        ],
+        children: [],
+      },
+    ]);
+    expect(serializeNfm(blocks)).toBe(input);
+  });
+
   test("Canvas owner shells require and preserve an exact uuid", () => {
     const nfm = '<canvas uuid="canvas-1" />';
     const blocks = parseNfm(nfm);

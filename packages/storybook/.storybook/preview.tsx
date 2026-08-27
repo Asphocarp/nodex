@@ -9,6 +9,7 @@ import {
 } from "../../../src/renderer/lib/dev-story-font-size";
 import { useTheme } from "../../../src/renderer/lib/use-theme";
 import { NodexModalHost } from "../../../src/renderer/lib/modal-registry";
+import { MermaidDiagramModalController } from "../../../src/renderer/components/board/editor/mermaid-code-preview";
 
 initializeRendererDocument({ storybook: true });
 
@@ -60,6 +61,7 @@ const withNodexFrame: Decorator = (Story, context) => {
       >
         <Story />
       </div>
+      <MermaidDiagramModalController />
       <NodexModalHost />
     </AppProviders>
   );

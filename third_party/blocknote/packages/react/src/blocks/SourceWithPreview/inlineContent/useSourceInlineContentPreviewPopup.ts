@@ -1,5 +1,6 @@
 import {
   BlockNoteEditor,
+  selectSourceInlineContent,
   SourceInlineContentWithPreviewExtension,
 } from "@blocknote/core";
 import { TextSelection } from "@tiptap/pm/state";
@@ -45,25 +46,19 @@ export const useSourceInlineContentPreviewPopup = (props: {
     },
   );
 
-  // Opens the popup by moving the selection to the end of the source.
+  // Opens the popup with the complete source selected for immediate replacement.
   const open = () => {
     if (!editor.isEditable) {
       return;
     }
 
     const pos = getPos();
-    if (!pos) {
+    if (pos === undefined) {
       return;
     }
 
     store.setState({ selected: pos });
-
-    const view = editor.prosemirrorView!;
-    view.dispatch(
-      view.state.tr.setSelection(
-        TextSelection.create(view.state.tr.doc, pos + node.nodeSize - 1),
-      ),
-    );
+    selectSourceInlineContent(editor, pos, node.nodeSize);
     editor.focus();
   };
 
@@ -75,7 +70,7 @@ export const useSourceInlineContentPreviewPopup = (props: {
     }
 
     const pos = getPos();
-    if (!pos) {
+    if (pos === undefined) {
       return;
     }
 

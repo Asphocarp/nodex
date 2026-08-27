@@ -1,5 +1,6 @@
 import {
   BlockNoteEditor,
+  selectSourceBlockContent,
   SourceBlockWithPreviewExtension,
 } from "@blocknote/core";
 
@@ -34,14 +35,14 @@ export const useSourceBlockPreviewPopup = (props: {
     selector: (state) => state.selected === block.id,
   });
 
-  // Opens the popup with the cursor at the end of the source.
+  // Opens the popup with the complete source selected for immediate replacement.
   const open = () => {
     if (!editor.isEditable) {
       return;
     }
 
     store.setState((state) => ({ ...state, popupOpen: block.id }));
-    editor.setTextCursorPosition(block.id, "end");
+    selectSourceBlockContent(editor, block.id);
     editor.focus();
   };
 

@@ -2088,7 +2088,7 @@ describe("Core Library Module Adapter", () => {
   test("maps atomic Page mention creation and its destination fence", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
-      contract_version: 34,
+      contract_version: 35,
       store_epoch: identity.storeEpoch,
       commit_head: 8,
       authorization: pageAuthorization(8),

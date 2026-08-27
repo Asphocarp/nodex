@@ -14,6 +14,7 @@ import {
   defaultStyleSpecs,
 } from "@blocknote/core";
 import type { PartialBlock } from "@blocknote/core";
+import { createReactInlineMathSpec, createReactMathBlockSpec } from "@blocknote/math-block";
 import {
   createReactBlockSpec,
   createReactInlineContentSpec,
@@ -33,6 +34,11 @@ import {
 import { cn } from "@/lib/utils";
 import { nfmSyntaxHighlighter } from "@/lib/syntax-highlighting";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import {
+  inlineTintedChipIconClassName,
+  inlineTintedChipLabelClassName,
+  inlineTintedChipVariants,
+} from "@/components/ui/inline-tinted-chip";
 import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
 import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
 import { resolveAgentConfigChip, type AgentConfigProps } from "./agent-config-chip";
@@ -61,6 +67,8 @@ import {
   databaseViewRefBlockConfig,
   syncedBlockRefBlockConfig,
   reusableTemplateRefBlockConfig,
+  mathBlockConfig,
+  mathInlineContentConfig,
   threadMentionInlineContentConfig,
   threadSectionBlockConfig,
 } from "../../../../shared/block-documents/blocknote-schema-config";
@@ -201,12 +209,9 @@ const createReadonlyAttachmentInlineContentSpec = () =>
       const props = inlineContent.props as PreviewAttachmentProps;
       return (
         <NodexTooltip tooltipContent={props.source}>
-          <span
-            contentEditable={false}
-            className="inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! bg-token-charts-purple/10 px-1.5 font-normal text-token-charts-purple"
-          >
-            <Paperclip className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
-            <span className="truncate leading-[inherit]">
+          <span contentEditable={false} className={inlineTintedChipVariants({ tone: "purple" })}>
+            <Paperclip className={inlineTintedChipIconClassName} />
+            <span className={cn(inlineTintedChipLabelClassName, "truncate")}>
               {formatPreviewAttachmentLabel(props)}
             </span>
           </span>
@@ -224,17 +229,16 @@ const createReadonlyAgentConfigInlineContentSpec = () =>
         <NodexTooltip tooltipContent={[chip.label, chip.detail].filter(Boolean).join(" - ")}>
           <span
             contentEditable={false}
-            className={cn(
-              "inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! px-1.5 font-normal",
-              chip.invalid
-                ? "bg-token-foreground/8 text-token-description-foreground"
-                : "bg-token-charts-blue/10 text-token-charts-blue",
-            )}
+            className={inlineTintedChipVariants({
+              tone: chip.invalid ? "neutral" : "accent",
+            })}
           >
-            <Icon className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
-            <span className="truncate leading-[inherit]">{chip.label}</span>
+            <Icon className={inlineTintedChipIconClassName} />
+            <span className={cn(inlineTintedChipLabelClassName, "truncate")}>{chip.label}</span>
             {chip.detail ? (
-              <span className="ml-1 truncate leading-[inherit] opacity-70">{chip.detail}</span>
+              <span className={cn(inlineTintedChipLabelClassName, "ml-1 truncate opacity-70")}>
+                {chip.detail}
+              </span>
             ) : null}
           </span>
         </NodexTooltip>
@@ -283,6 +287,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     syncedBlockRef: createReadonlySyncedBlockRefBlockSpec(),
     templateRef: createReadonlyTemplateRefBlockSpec(),
     threadSection: createReadonlyThreadSectionBlockSpec(),
+    mathBlock: createReactMathBlockSpec(mathBlockConfig),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
@@ -291,6 +296,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     dateMention: createReadonlyDateMentionInlineContentSpec(),
     pageMention: createReadonlyPageMentionInlineContentSpec(),
     threadMention: createReadonlyThreadMentionInlineContentSpec(),
+    math: createReactInlineMathSpec(mathInlineContentConfig),
   },
   styleSpecs: defaultStyleSpecs,
 });

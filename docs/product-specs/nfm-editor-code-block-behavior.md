@@ -7,7 +7,7 @@ Last updated: 2026-08-27
 
 Code Blocks present source text with syntax highlighting while preserving a small durable document shape: language and code. Editing controls stay out of the source and appear as one compact Action Bar at the upper-right of the block. Code Blocks do not support captions.
 
-This contract owns editable Code Blocks, read-only BlockNote previews, NFM previews, language selection, formatting capability, and renderer-local line wrapping.
+This contract owns editable Code Blocks, read-only BlockNote previews, NFM previews, language selection, formatting capability, and renderer-local line wrapping. Mermaid-specific Code preview behavior is owned by [NFM Editor Equation and Mermaid Preview Behavior](./nfm-editor-equation-and-mermaid-preview-behavior.md).
 
 ## Durable content and local presentation
 
@@ -22,6 +22,8 @@ Line wrapping is renderer-local presentation state keyed by durable Block ID as 
 - unavailable browser storage does not prevent the current renderer session from changing wrap.
 
 Changing wrap must leave the materialized Block Document and serialized NFM byte-for-byte unchanged.
+
+Mermaid preview format follows the same renderer-local ownership but uses its own `code-mermaid-preview-${blockId}` key and defaults to split. It is never a Block prop. Its complete state, action, security, and export contract is defined in the dedicated Equation and Mermaid preview specification.
 
 ## Source selection
 
@@ -51,7 +53,7 @@ The surface has a 10px radius, 22px horizontal code inset, 24px outer vertical p
 
 The product surface is the sole Code Block backdrop; the surrounding BlockNote content host remains transparent. Its translucent background token and Shiki token theme must resolve from the same light or dark color scheme. Ordinary code and syntax punctuation maintain at least a 4.5:1 contrast ratio against the fully composited surface in both schemes.
 
-The Action Bar is inset 4px from the top and end edge. It is 28px high with 24px controls. A normal-width bar contains Language, Copy, and More; a block no wider than 230px contains only More. Width changes are observed rather than inferred from document structure.
+The Action Bar is inset 4px from the top and end edge. It is 28px high with 24px controls. A normal-width ordinary-Code bar contains Language, Copy, and More; a block no wider than 230px contains only More. Mermaid Code has a larger capability-derived width budget and progressively collapses its additional preview actions. Width changes are observed rather than inferred from document structure.
 
 The Action Bar and read-only header resolve their floating surface, foreground, controls, divider, and outline from the same light or dark scheme as the Code Block. Related portaled pickers and menus inherit the renderer window scheme rather than retaining light chrome inside a dark editor.
 

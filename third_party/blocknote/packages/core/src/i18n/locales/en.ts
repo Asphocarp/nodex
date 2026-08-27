@@ -202,7 +202,7 @@ export const en = {
   },
   code_block: {
     add_source_button_text: "Add source code",
-    ok_button_text: "OK",
+    ok_button_text: "Done",
   },
   // from react package:
   side_menu: {

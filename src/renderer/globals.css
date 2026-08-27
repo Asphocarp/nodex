@@ -1,4 +1,5 @@
 @import "tailwindcss" source(".");
+@import "./components/ui/inline-tinted-chip.css";
 @import "streamdown/styles.css";
 @import "@xterm/xterm/css/xterm.css";
 @import "tw-animate-css";
@@ -17,6 +18,7 @@
 @source "../../node_modules/@streamdown/math/dist/*.js";
 @source "../../node_modules/@streamdown/cjk/dist/*.js";
 @source "../../third_party/blocknote/packages/shadcn/src";
+@source "../../third_party/blocknote/packages/math-block/src";
 
 /* Symbol-only fallback for terminal glyphs such as Powerline and Nerd Font icons. */
 @font-face {
@@ -426,6 +428,78 @@
   color: var(--shiki-dark, var(--foreground)) !important;
 }
 
+/* Source-with-preview blocks render Shiki decorations with an inline light color.
+   Resolve their dark token at the product theme boundary, just as Code Blocks do. */
+.nfm-editor .bn-root[data-color-scheme="dark"] .bn-source-block-popup .shiki {
+  color: var(--shiki-dark, var(--color-token-editor-foreground)) !important;
+}
+
+/* BlockNote's dark red-on-red defaults are only 1.44:1. Keep the semantic danger
+   foreground while deriving a restrained surface that stays readable. */
+.nfm-editor .bn-root[data-color-scheme="dark"] .bn-preview-placeholder-error {
+  background-color: color-mix(in srgb, var(--color-text-danger) 18%, transparent);
+  color: var(--color-text-danger);
+}
+
+.nfm-editor .bn-root[data-color-scheme="dark"] .bn-code-block-source-error {
+  color: var(--color-text-danger);
+}
+
+/* A Block Equation owns the full block width, so its committed diagnostic does too.
+   Inline Equation errors remain compact chips through the inline rules below. */
+.nfm-editor .bn-block-content[data-content-type="mathBlock"] .bn-preview-placeholder-error {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 0;
+}
+
+.nfm-editor
+  .bn-block-content[data-content-type="mathBlock"]
+  .bn-preview-placeholder-error
+  .bn-preview-placeholder-icon {
+  display: none;
+}
+
+.nfm-editor
+  .bn-block-content[data-content-type="mathBlock"]
+  .bn-preview-placeholder-error
+  .bn-preview-placeholder-text {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+/* Participate in the paragraph's baseline exactly like the established inline chips. */
+.nfm-editor .bn-inline-content-section .bn-preview-with-source-popup {
+  vertical-align: baseline;
+}
+
+/* BlockNote owns this DOM, so adapt Inline Equation to the shared prose-chip
+   primitive here instead of coupling the vendored editor to app components. */
+.nfm-editor .bn-inline-content-section .bn-preview-placeholder {
+  @apply inline-tinted-chip inline-tinted-chip-neutral;
+}
+
+.nfm-editor .bn-inline-content-section .bn-preview-placeholder-error {
+  @apply inline-tinted-chip-danger;
+}
+
+.nfm-editor .bn-editor[contenteditable="true"] .bn-inline-content-section .bn-preview-placeholder {
+  @apply inline-tinted-chip-interactive;
+}
+
+.nfm-editor .bn-code-block-source-popup-ok-button {
+  background-color: var(--accent-blue);
+  color: var(--white);
+}
+
+.nfm-editor .bn-code-block-source-popup-ok-button:disabled {
+  background-color: color-mix(in srgb, var(--accent-blue) 36%, transparent);
+  color: color-mix(in srgb, var(--white) 55%, transparent);
+  opacity: 1;
+}
+
 .nfm-code-block {
   color: var(--foreground);
 }
@@ -678,7 +752,7 @@
 }
 
 /* Inline code*/
-.nfm-editor .bn-inline-content code {
+.nfm-editor .bn-inline-content code:not(.bn-code-block-source-popup-editor) {
   background-color: var(--color-token-text-code-block-background);
   padding: 0.125rem 0.375rem;
   border-radius: var(--radius-sm);
@@ -690,7 +764,10 @@
   vertical-align: baseline;
 }
 
-[data-codex-window-type="electron"] .nfm-editor .bn-inline-content code {
+[data-codex-window-type="electron"]
+  .nfm-editor
+  .bn-inline-content
+  code:not(.bn-code-block-source-popup-editor) {
   background-color: color-mix(in oklab, var(--color-token-list-hover-background) 60%, transparent);
   mix-blend-mode: normal;
 }

@@ -52,7 +52,12 @@ describe("nfm side menu model", () => {
       isTableBlock: false,
       canUseTableHeaders: false,
       showMockActions: false,
-      codeBlock: { wrapped: true, canFormat: true },
+      codeBlock: {
+        wrapped: true,
+        canFormat: true,
+        isMermaid: false,
+        hasValidDiagram: false,
+      },
     });
     const rows = flattenNfmSideMenuRows(sections);
 
@@ -78,11 +83,49 @@ describe("nfm side menu model", () => {
         isTableBlock: false,
         canUseTableHeaders: false,
         showMockActions: false,
-        codeBlock: { wrapped: false, canFormat: false },
+        codeBlock: {
+          wrapped: false,
+          canFormat: false,
+          isMermaid: false,
+          hasValidDiagram: false,
+        },
       }),
     );
 
     expect(rows.some(({ row }) => row.key === "format-code")).toBe(false);
+  });
+
+  test("keeps diagram actions in the Block menu without duplicating display modes", () => {
+    const rows = flattenNfmSideMenuRows(
+      buildNfmSideMenuSections({
+        currentBlockId: "diagram-1",
+        currentBlockType: "codeBlock",
+        selectionTitle: "Code",
+        selectedTopLevelBlockCount: 1,
+        isEditable: true,
+        canUseColor: true,
+        canSendBlocks: true,
+        hasConvertDividerToThreadSection: false,
+        isTableBlock: false,
+        canUseTableHeaders: false,
+        showMockActions: false,
+        codeBlock: {
+          wrapped: false,
+          canFormat: false,
+          isMermaid: true,
+          hasValidDiagram: true,
+        },
+      }),
+    );
+
+    expect(
+      rows
+        .filter(({ row }) => ["expand-diagram", "download-diagram"].includes(row.key))
+        .map(({ row }) => [row.key, row.enabled]),
+    ).toEqual([
+      ["expand-diagram", true],
+      ["download-diagram", true],
+    ]);
   });
 
   test("copies the production action grouping boundaries without copy links", () => {

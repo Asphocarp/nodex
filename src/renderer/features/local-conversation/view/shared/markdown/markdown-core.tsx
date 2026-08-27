@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Streamdown } from "streamdown";
 import { MARKDOWN_CONTENT_CLASS_NAME } from "@/components/shared/inline-markdown-code";
 import { FileLinkWorkspaceProvider } from "@/components/shared/file-link-anchor";
+import { useDocumentTheme } from "@/lib/use-document-theme";
 import {
   StreamdownMermaidError,
   streamdownComponents,
@@ -35,6 +36,7 @@ export function MarkdownCore({
   cwd,
   projectWorkspacePath,
 }: MarkdownCoreProps) {
+  const theme = useDocumentTheme();
   const normalizedContent = useMemo(() => normalizeMarkdown(content), [content]);
   const shouldAnimateStreamingText = animateStreamingText && parseIncompleteMarkdown;
 
@@ -44,7 +46,10 @@ export function MarkdownCore({
         components={streamdownComponents}
         plugins={streamdownPlugins}
         remarkPlugins={preserveLineBreaks ? streamdownRemarkPluginsWithBreaks : undefined}
-        mermaid={{ errorComponent: StreamdownMermaidError }}
+        mermaid={{
+          config: { theme: theme === "dark" ? "dark" : "neutral" },
+          errorComponent: StreamdownMermaidError,
+        }}
         parseIncompleteMarkdown={parseIncompleteMarkdown}
         mode={parseIncompleteMarkdown ? "streaming" : "static"}
         animated={

@@ -473,6 +473,7 @@ function serializeInlinePlainText(items: NfmInlineContent[]): string {
       if (item.type === "threadMention") return `[Thread: ${item.uuid}]`;
       if (item.type === "pageMention") return `[Page: ${item.targetPageId}]`;
       if (item.type === "dateMention") return formatDateMentionPlainText(item);
+      if (item.type === "math") return item.source;
       if (item.type === "link") return item.text;
       return item.text;
     })

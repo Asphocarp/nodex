@@ -6,6 +6,22 @@ import {
   createStore,
 } from "../../editor/BlockNoteExtension.js";
 
+/** Selects the complete editable source held by one inline preview node. */
+export function selectSourceInlineContent(
+  editor: BlockNoteEditor<any, any, any>,
+  pos: number,
+  nodeSize: number,
+): boolean {
+  const view = editor.prosemirrorView;
+  if (!view || nodeSize < 2) return false;
+  view.dispatch(
+    view.state.tr.setSelection(
+      TextSelection.create(view.state.doc, pos + 1, pos + nodeSize - 1),
+    ),
+  );
+  return true;
+}
+
 /**
  * Inline-content counterpart of {@link SourceBlockWithPreviewExtension}. A
  * single editor-wide extension that drives the source popup for inline content
@@ -81,14 +97,11 @@ export const SourceInlineContentWithPreviewExtension = createExtension(
             return false;
           }
 
-          const view = editor.prosemirrorView!;
-          view.dispatch(
-            view.state.tr.setSelection(
-              TextSelection.create(view.state.doc, $from.start(), $from.end()),
-            ),
+          return selectSourceInlineContent(
+            editor,
+            $from.before(),
+            $from.node().nodeSize,
           );
-
-          return true;
         },
       },
       mount: ({ dom, signal }) => {

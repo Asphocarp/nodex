@@ -14,8 +14,8 @@ export type SourcePreviewPopup = {
    */
   isSelected: boolean;
   /**
-   * Opens the popup, moves the cursor into the source, and focuses the
-   * editor. Does nothing when the editor isn't editable.
+   * Opens the popup, selects the complete source, and focuses the editor. Does
+   * nothing when the editor isn't editable.
    */
   open: () => void;
   /**

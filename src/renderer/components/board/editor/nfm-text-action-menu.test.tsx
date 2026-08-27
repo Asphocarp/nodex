@@ -166,6 +166,7 @@ function renderTextActionMenu(props?: Partial<NfmTextActionMenuSurfaceProps>) {
     textColors: [] as string[],
     backgroundColors: [] as string[],
     clearFormat: 0,
+    equations: 0,
     blockActions: 0,
     nodexRows: [] as string[],
     moveDestinations: [] as NfmMoveToDestination[],
@@ -206,6 +207,7 @@ function renderTextActionMenu(props?: Partial<NfmTextActionMenuSurfaceProps>) {
         canUseTextColor={true}
         canUseBackgroundColor={true}
         canClearFormat={true}
+        canConvertToEquation={true}
         linkControl={
           <button type="button" aria-label="Link">
             Link
@@ -241,6 +243,9 @@ function renderTextActionMenu(props?: Partial<NfmTextActionMenuSurfaceProps>) {
         }}
         onClearFormat={() => {
           actions.clearFormat += 1;
+        }}
+        onConvertToEquation={() => {
+          actions.equations += 1;
         }}
         onOpenBlockActions={() => {
           actions.blockActions += 1;
@@ -371,11 +376,13 @@ describe("nfm text action menu surface", () => {
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Bold" }));
       fireEvent.click(view.getByRole("button", { name: "Clear format" }));
+      fireEvent.click(view.getByRole("button", { name: "Equation" }));
       await settleAsyncRender();
     });
 
     expect(actions.styles.join(",")).toBe("bold");
     expect(actions.clearFormat).toBe(1);
+    expect(actions.equations).toBe(1);
     expect(actions.nodexRows.join(",")).toBe("");
   });
 

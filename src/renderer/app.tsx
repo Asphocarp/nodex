@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CoreAuthorityStatusNotice } from "@/components/core-authority-status";
 import { NodexToastProvider } from "@/components/ui/toast";
 import { WorkbenchShell } from "@/components/workbench/workbench-shell";
+import { MermaidDiagramModalController } from "@/components/board/editor/mermaid-code-preview";
 import { AppUpdateRestartNotice } from "@/components/workbench/app-update-restart-notice";
 import { LocalConversationProvider } from "@/features/local-conversation";
 import { HeartbeatAutomationController } from "@/features/local-conversation/heartbeat-automation-controller";
@@ -104,6 +105,7 @@ export default function App({ windowSessionBootstrap }: AppProps) {
             </div>
           </div>
         ) : null}
+        <MermaidDiagramModalController />
         <NodexModalHost />
       </LocalConversationProvider>
     </NodexToastProvider>

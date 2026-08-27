@@ -15,6 +15,7 @@ import { ThemeProvider } from "./lib/use-theme";
 import { invoke, subscribeAppUpdateStatus } from "./lib/api";
 import type { AppUpdateStatus } from "./lib/types";
 import { createMaitaiStore, MaitaiProvider, preloadEagerPersistedAtoms } from "./lib/maitai";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 interface AppProvidersProps {

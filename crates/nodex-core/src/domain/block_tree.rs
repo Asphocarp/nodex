@@ -26,6 +26,7 @@ pub const REGISTERED_BLOCK_TYPES: &[&str] = &[
     "checkListItem",
     "toggleListItem",
     "codeBlock",
+    "mathBlock",
     "table",
     "quote",
     "divider",

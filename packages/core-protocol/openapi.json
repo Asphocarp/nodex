@@ -20016,6 +20016,20 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "equation"
+                ]
+              }
+            }
           }
         ],
         "description": "The lossless ordinary Block shapes supported by the structural Turn into\noperation. This is intentionally closed: typed owners and atom Blocks need\ndedicated domain transitions rather than arbitrary type/props patches."

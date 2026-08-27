@@ -4,6 +4,7 @@ import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
 import { serializeNfmTablePlainText } from "../../../shared/nfm/table";
 import { formatDateMentionPlainText } from "../../../shared/nfm/date-mention";
 import { serializeNfm } from "../../../shared/nfm/serializer";
+import { serializeInlineContent } from "../../../shared/nfm/serializer-inline";
 
 /**
  * Serialize NFM blocks into structure-preserving plain text for clipboard
@@ -99,6 +100,13 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
           lines.push(prefix + codeLine);
         }
         lines.push(prefix + fence);
+        break;
+      }
+
+      case "mathBlock": {
+        for (const sourceLine of serializeNfm([block]).split("\n")) {
+          lines.push(prefix + sourceLine);
+        }
         break;
       }
 
@@ -208,6 +216,7 @@ function serializeInlinePlainText(items: NfmInlineContent[]): string {
       if (item.type === "dateMention") {
         return formatDateMentionPlainText(item);
       }
+      if (item.type === "math") return serializeInlineContent([item]);
       if (item.type === "link") {
         const inner = applyStyleMarkers(item.text, item.styles);
         return `[${inner}](${item.href})`;

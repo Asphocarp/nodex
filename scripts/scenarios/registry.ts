@@ -1,14 +1,16 @@
 import type { ScenarioDomainRecipe } from "./contracts";
 import { boardDenseScenario } from "./scenarios/board-dense";
 import { databaseContextMenuPerformanceScenario } from "./scenarios/database-context-menu-performance";
-import { pageRelatedChatActivityScenario } from "./scenarios/page-related-chat-activity";
 import { nfmCodeBlockActionsScenario } from "./scenarios/nfm-code-block-actions";
+import { nfmEquationAndMermaidScenario } from "./scenarios/nfm-equation-and-mermaid";
+import { pageRelatedChatActivityScenario } from "./scenarios/page-related-chat-activity";
 
 const scenarios = new Map<string, ScenarioDomainRecipe>([
   [boardDenseScenario.id, boardDenseScenario],
   [databaseContextMenuPerformanceScenario.id, databaseContextMenuPerformanceScenario],
   [pageRelatedChatActivityScenario.id, pageRelatedChatActivityScenario],
   [nfmCodeBlockActionsScenario.id, nfmCodeBlockActionsScenario],
+  [nfmEquationAndMermaidScenario.id, nfmEquationAndMermaidScenario],
 ]);
 
 export const listScenarioIds = (): readonly string[] => [...scenarios.keys()];

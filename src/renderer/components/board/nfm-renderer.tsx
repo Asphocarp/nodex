@@ -35,7 +35,10 @@ import { DateMentionInlineVisual } from "./date-mention-inline-visual";
 import { ThreadMentionInlineVisual } from "./thread-mention-inline-visual";
 import { PageMentionInlineVisual } from "./page-mention-inline-visual";
 import { CodeBlockReadOnlyHeader } from "@/components/shared/code-block-readonly-header";
+import { MermaidCodePreview } from "@/components/board/editor/mermaid-code-preview";
+import { useTheme } from "@/lib/use-theme";
 import { resolveCodeLanguage } from "../../../shared/nfm/code-language-catalog";
+import { latexToHTMLString } from "@blocknote/math-block";
 
 interface NfmRendererProps {
   content: string;
@@ -251,6 +254,9 @@ function BlockComponent({
         <HighlightedCodeBlock code={block.code} language={block.language} className={colorClass} />
       );
 
+    case "mathBlock":
+      return <MathSourcePreview source={block.source} displayMode />;
+
     case "table":
       return (
         <NfmTableBlock
@@ -448,6 +454,9 @@ function HighlightedCodeBlock({
   className?: string;
 }) {
   const resolvedLanguage = resolveCodeLanguage(language);
+  if (resolvedLanguage.id === "mermaid") {
+    return <ReadonlyMermaidCodeBlock code={code} className={className} />;
+  }
   const highlightLanguage = resolvedLanguage.shikiLanguage ?? "text";
   const fencedCode = `\`\`\`${highlightLanguage}\n${code}\n\`\`\``;
 
@@ -460,6 +469,24 @@ function HighlightedCodeBlock({
         {fencedCode}
       </Streamdown>
     </div>
+  );
+}
+
+function ReadonlyMermaidCodeBlock({ code, className }: { code: string; className?: string }) {
+  const { resolved: theme } = useTheme();
+
+  return (
+    <figure
+      className={cn(
+        "relative my-2 overflow-hidden rounded-[10px] bg-[var(--code-block-bg)] pt-6 text-sm",
+        className,
+      )}
+    >
+      <div className="absolute top-1 right-1 z-[3]">
+        <CodeBlockReadOnlyHeader languageId="mermaid" code={code} />
+      </div>
+      <MermaidCodePreview source={code} theme={theme} />
+    </figure>
   );
 }
 
@@ -597,6 +624,10 @@ function InlineItem({
     );
   }
 
+  if (item.type === "math") {
+    return <MathSourcePreview source={item.source} />;
+  }
+
   // text span
   const classes = styleClasses(item.styles, { includeCode: false });
   if (item.styles.code) {
@@ -604,6 +635,28 @@ function InlineItem({
   }
   if (!classes) return <>{item.text}</>;
   return <span className={classes}>{item.text}</span>;
+}
+
+function MathSourcePreview({
+  source,
+  displayMode = false,
+}: {
+  source: string;
+  displayMode?: boolean;
+}) {
+  const { htmlString, error } = latexToHTMLString(source, !displayMode);
+  const Tag = displayMode ? "div" : "span";
+
+  return (
+    <Tag
+      className={cn(
+        displayMode && "my-3 overflow-x-auto py-2 text-center",
+        error && "font-mono text-[0.92em] text-token-description-foreground",
+      )}
+      title={error}
+      dangerouslySetInnerHTML={{ __html: htmlString }}
+    />
+  );
 }
 
 function styleClasses(
@@ -668,6 +721,7 @@ function inlineText(items: NfmInlineContent[]): string {
       if (item.type === "threadMention") return item.uuid;
       if (item.type === "pageMention") return item.targetPageId;
       if (item.type === "dateMention") return formatDateMentionPlainText(item);
+      if (item.type === "math") return item.source;
       return item.text;
     })
     .join("")

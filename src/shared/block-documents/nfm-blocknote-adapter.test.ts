@@ -8,6 +8,28 @@ import {
 } from "./nfm-blocknote-adapter";
 
 describe("NFM BlockNote genesis adapter", () => {
+  test("round-trips block and inline equation source", () => {
+    const source = parseNfm("Before $x^2$ after\n$$\n\\sum_i x_i\n$$");
+    const blockNote = nfmToBlockNote(source);
+
+    expect(blockNote).toMatchObject([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Before " },
+          { type: "math", content: "x^2" },
+          { type: "text", text: " after" },
+        ],
+      },
+      {
+        type: "mathBlock",
+        content: [{ type: "text", text: "\\sum_i x_i" }],
+        children: [],
+      },
+    ]);
+    expect(blockNoteToNfm(blockNote)).toEqual(source);
+  });
+
   test("normalizes imported code languages to the product catalog", () => {
     expect(
       nfmToBlockNote([

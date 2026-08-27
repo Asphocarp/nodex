@@ -94,6 +94,15 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
         }
       }
 
+      if (input[i] === "$" && !styles.code) {
+        const math = tryParseMath();
+        if (math) {
+          flushText();
+          items.push(math);
+          continue;
+        }
+      }
+
       if (input[i] === "`" && !styles.code) {
         const fenceLength = repeatedRunLength(input, i, "`");
         const fence = "`".repeat(fenceLength);
@@ -200,6 +209,55 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
       href,
       styles: { ...styles, ...(uniformLabel?.styles ?? {}) },
     };
+  }
+
+  function tryParseMath(): NfmInlineContent | null {
+    if (input[i] !== "$" || !isInlineMathBoundaryBefore(input[i - 1])) return null;
+
+    const sourceStart = i + 1;
+    if (input[sourceStart] === "`") {
+      const fenceLength = repeatedRunLength(input, sourceStart, "`");
+      const fence = "`".repeat(fenceLength);
+      const sourceEnd = findClosingCodeFence(input, sourceStart + fenceLength, fence);
+      if (sourceEnd === -1) return null;
+
+      const closingDollar = sourceEnd + fenceLength;
+      if (input[closingDollar] !== "$" || !isInlineMathBoundaryAfter(input[closingDollar + 1])) {
+        return null;
+      }
+
+      let source = input.slice(sourceStart + fenceLength, sourceEnd);
+      if (source.startsWith(" ") && source.endsWith(" ") && source.length >= 2) {
+        source = source.slice(1, -1);
+      }
+      i = closingDollar + 1;
+      return { type: "math", source };
+    }
+
+    if (sourceStart >= len || /\s/u.test(input[sourceStart]!)) return null;
+    let sourceEnd = sourceStart;
+    while (sourceEnd < len) {
+      if (input[sourceEnd] === "\\" && sourceEnd + 1 < len) {
+        sourceEnd += 2;
+        continue;
+      }
+      if (input[sourceEnd] !== "$") {
+        sourceEnd += 1;
+        continue;
+      }
+
+      const source = input.slice(sourceStart, sourceEnd);
+      if (
+        source.length > 0 &&
+        !/\s$/u.test(source) &&
+        isInlineMathBoundaryAfter(input[sourceEnd + 1])
+      ) {
+        i = sourceEnd + 1;
+        return { type: "math", source };
+      }
+      sourceEnd += 1;
+    }
+    return null;
   }
 
   function tryParseSpan(styles: NfmStyleSet): NfmInlineContent[] | null {
@@ -367,6 +425,14 @@ function findClosingCodeFence(input: string, start: number, fence: string): numb
 
 function isEscapable(char: string): boolean {
   return "\\*~`$[]<>{}|^".includes(char);
+}
+
+function isInlineMathBoundaryBefore(char: string | undefined): boolean {
+  return char === undefined || /\s/u.test(char) || "([{“‘".includes(char);
+}
+
+function isInlineMathBoundaryAfter(char: string | undefined): boolean {
+  return char === undefined || /\s/u.test(char) || ".,;:!?)]}”’".includes(char);
 }
 
 function unescapeNfm(text: string): string {

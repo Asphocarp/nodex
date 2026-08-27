@@ -14,6 +14,8 @@ export type NfmSideMenuActionKey =
   | "wrap-code"
   | "code-language"
   | "format-code"
+  | "expand-diagram"
+  | "download-diagram"
   | "turn-into"
   | "color"
   | "copy-link-to-block"
@@ -76,6 +78,8 @@ export interface NfmSideMenuModelInput {
   codeBlock?: {
     wrapped: boolean;
     canFormat: boolean;
+    isMermaid: boolean;
+    hasValidDiagram: boolean;
   };
 }
 
@@ -281,6 +285,28 @@ export function buildNfmSideMenuSections(input: NfmSideMenuModelInput): NfmSideM
                   visualGroup: "code",
                   enabled: input.isEditable,
                   keywords: ["prettier", "beautify"],
+                },
+              ] satisfies NfmSideMenuAction[])
+            : []),
+          ...(input.codeBlock.isMermaid
+            ? ([
+                {
+                  key: "expand-diagram",
+                  label: "Expand diagram",
+                  kind: "action",
+                  section: "selection",
+                  visualGroup: "code",
+                  enabled: input.codeBlock.hasValidDiagram,
+                  keywords: ["fullscreen", "preview"],
+                },
+                {
+                  key: "download-diagram",
+                  label: "Download diagram as JPEG",
+                  kind: "action",
+                  section: "selection",
+                  visualGroup: "code",
+                  enabled: input.codeBlock.hasValidDiagram,
+                  keywords: ["export", "image", "jpeg"],
                 },
               ] satisfies NfmSideMenuAction[])
             : []),

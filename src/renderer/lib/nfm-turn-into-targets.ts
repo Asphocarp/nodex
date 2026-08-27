@@ -84,6 +84,12 @@ export const NFM_TURN_INTO_DEFINITIONS = [
     target: { kind: "code" },
     localPatch: { type: "codeBlock" },
   },
+  {
+    key: "equation",
+    label: "Block equation",
+    target: { kind: "equation" },
+    localPatch: { type: "mathBlock" },
+  },
 ] as const satisfies readonly NfmTurnIntoDefinition[];
 
 export interface NfmTurnBlocksIntoInput {

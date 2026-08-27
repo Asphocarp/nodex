@@ -20,6 +20,11 @@ import {
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import {
+  inlineTintedChipIconClassName,
+  inlineTintedChipLabelClassName,
+  inlineTintedChipVariants,
+} from "@/components/ui/inline-tinted-chip";
 import { useCodexAvailableModels } from "@/features/local-conversation/local-conversation-store";
 import {
   formatCodexModelLabel,
@@ -442,11 +447,11 @@ export function AgentConfigInlineContentView({
               type="button"
               contentEditable={false}
               className={cn(
-                "inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! px-1.5 font-normal align-baseline outline-hidden",
-                "blend cursor-interaction focus-visible:ring-token-focus focus-visible:ring-2",
-                chip.invalid
-                  ? "bg-token-foreground/8 text-token-description-foreground hover:bg-token-foreground/10"
-                  : "bg-token-charts-blue/10 text-token-charts-blue hover:bg-token-charts-blue/20",
+                inlineTintedChipVariants({
+                  tone: chip.invalid ? "neutral" : "accent",
+                  interactive: true,
+                }),
+                "blend outline-hidden focus-visible:ring-token-focus focus-visible:ring-2",
               )}
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -457,10 +462,14 @@ export function AgentConfigInlineContentView({
                 setOpen((current) => !current);
               }}
             >
-              <Icon className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
-              <span className="blend truncate leading-[inherit]">{chip.label}</span>
+              <Icon className={inlineTintedChipIconClassName} />
+              <span className={cn(inlineTintedChipLabelClassName, "blend truncate")}>
+                {chip.label}
+              </span>
               {chip.detail ? (
-                <span className="blend ml-1 truncate leading-[inherit] opacity-70">
+                <span
+                  className={cn(inlineTintedChipLabelClassName, "blend ml-1 truncate opacity-70")}
+                >
                   {chip.detail}
                 </span>
               ) : null}

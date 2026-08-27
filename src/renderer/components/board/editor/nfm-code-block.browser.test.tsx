@@ -4,11 +4,24 @@ import { AllSelection } from "@tiptap/pm/state";
 import { act, fireEvent, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { codeBlockViewState } from "@/lib/nfm/code-block-view-state";
+import { NodexModalHost } from "@/lib/modal-registry";
+import { createMaitaiStore, MaitaiProvider } from "@/lib/maitai";
+import {
+  contrastRatio,
+  getPaintedBackground,
+  parseComputedColor,
+  relativeLuminance,
+} from "@/test/color-contrast";
 import { blockNoteToNfm } from "../../../../shared/block-documents/nfm-blocknote-adapter";
 import { serializeNfm } from "../../../../shared/nfm";
 import { nfmSchema } from "./nfm-schema";
 import { createNfmEditorExtensions } from "./nfm-editor-extensions";
 import { NfmCodeBlockController } from "./nfm-code-block-controller";
+import {
+  MermaidDiagramModal,
+  MermaidDiagramModalController,
+  readReadyMermaidSvg,
+} from "./mermaid-code-preview";
 import { NfmSideMenuOpenProvider } from "./nfm-side-menu";
 import { selectCurrentBlockContent } from "./select-block-shortcut";
 import "../../../globals.css";
@@ -16,74 +29,12 @@ import "../../../globals.css";
 const mountedEditors: BlockNoteEditor<any, any, any>[] = [];
 const mountedViews: RenderResult[] = [];
 
-interface RgbaColor {
-  readonly red: number;
-  readonly green: number;
-  readonly blue: number;
-  readonly alpha: number;
-}
-
-function parseComputedColor(value: string): RgbaColor {
-  const channels = value.match(/[\d.]+/gu)?.map(Number);
-  if (!channels || channels.length < 3) throw new Error(`Unsupported computed color: ${value}`);
-  return {
-    red: channels[0]!,
-    green: channels[1]!,
-    blue: channels[2]!,
-    alpha: channels[3] ?? 1,
-  };
-}
-
-function compositeColor(foreground: RgbaColor, background: RgbaColor): RgbaColor {
-  const alpha = foreground.alpha + background.alpha * (1 - foreground.alpha);
-  if (alpha === 0) return { red: 0, green: 0, blue: 0, alpha: 0 };
-  const compositeChannel = (foregroundChannel: number, backgroundChannel: number) =>
-    (foregroundChannel * foreground.alpha +
-      backgroundChannel * background.alpha * (1 - foreground.alpha)) /
-    alpha;
-  return {
-    red: compositeChannel(foreground.red, background.red),
-    green: compositeChannel(foreground.green, background.green),
-    blue: compositeChannel(foreground.blue, background.blue),
-    alpha,
-  };
-}
-
-function getPaintedBackground(element: HTMLElement): RgbaColor {
-  const layers: RgbaColor[] = [];
-  for (let current: HTMLElement | null = element; current; current = current.parentElement) {
-    layers.unshift(parseComputedColor(getComputedStyle(current).backgroundColor));
-  }
-  return layers.reduce((background, layer) => compositeColor(layer, background), {
-    red: 255,
-    green: 255,
-    blue: 255,
-    alpha: 1,
-  });
-}
-
-function relativeLuminance(color: RgbaColor): number {
-  const linearize = (channel: number) => {
-    const normalized = channel / 255;
-    return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
-  };
-  return (
-    linearize(color.red) * 0.2126 + linearize(color.green) * 0.7152 + linearize(color.blue) * 0.0722
-  );
-}
-
-function contrastRatio(foreground: RgbaColor, background: RgbaColor): number {
-  const paintedForeground = compositeColor(foreground, background);
-  const lighter = Math.max(relativeLuminance(paintedForeground), relativeLuminance(background));
-  const darker = Math.min(relativeLuminance(paintedForeground), relativeLuminance(background));
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
 afterEach(() => {
   vi.restoreAllMocks();
   for (const view of mountedViews.splice(0)) view.unmount();
   for (const editor of mountedEditors.splice(0)) editor._tiptapEditor.destroy();
   document.body.replaceChildren();
+  document.documentElement.classList.remove("dark");
 });
 
 async function mountCodeBlock(
@@ -91,6 +42,7 @@ async function mountCodeBlock(
   content = "const longValue: string = 'one two three four';",
   theme: "light" | "dark" = "light",
   followingParagraph?: string,
+  language: "typescript" | "mermaid" = "typescript",
 ) {
   const editor = BlockNoteEditor.create({
     schema: nfmSchema,
@@ -99,7 +51,7 @@ async function mountCodeBlock(
       {
         id: blockId,
         type: "codeBlock",
-        props: { language: "typescript" },
+        props: { language },
         content,
       },
       ...(followingParagraph === undefined
@@ -109,27 +61,31 @@ async function mountCodeBlock(
   });
   mountedEditors.push(editor);
   const view = render(
-    <div
-      className={
-        theme === "dark"
-          ? "nfm-editor dark bg-[var(--background)]"
-          : "nfm-editor bg-[var(--background)]"
-      }
-    >
-      <BlockNoteViewRaw
-        editor={editor}
-        theme={theme}
-        formattingToolbar={false}
-        linkToolbar={false}
-        slashMenu={false}
-        sideMenu={false}
-        tableHandles={false}
+    <MaitaiProvider store={createMaitaiStore()}>
+      <div
+        className={
+          theme === "dark"
+            ? "nfm-editor dark bg-[var(--background)]"
+            : "nfm-editor bg-[var(--background)]"
+        }
       >
-        <NfmSideMenuOpenProvider>
-          <NfmCodeBlockController />
-        </NfmSideMenuOpenProvider>
-      </BlockNoteViewRaw>
-    </div>,
+        <BlockNoteViewRaw
+          editor={editor}
+          theme={theme}
+          formattingToolbar={false}
+          linkToolbar={false}
+          slashMenu={false}
+          sideMenu={false}
+          tableHandles={false}
+        >
+          <NfmSideMenuOpenProvider>
+            <NfmCodeBlockController />
+          </NfmSideMenuOpenProvider>
+        </BlockNoteViewRaw>
+        <MermaidDiagramModalController />
+        <NodexModalHost />
+      </div>
+    </MaitaiProvider>,
   );
   mountedViews.push(view);
   await act(async () => {
@@ -139,6 +95,20 @@ async function mountCodeBlock(
 }
 
 describe("NFM Code Block surface in Chromium", () => {
+  test("exposes only a current ready Mermaid SVG to expand and download actions", () => {
+    const surface = document.createElement("div");
+    surface.innerHTML = `
+      <div data-nfm-mermaid-preview data-nfm-mermaid-status="error">
+        <span data-nfm-mermaid-svg><svg viewBox="0 0 10 10"></svg></span>
+      </div>
+    `;
+
+    expect(readReadyMermaidSvg(surface)).toBeNull();
+    surface.querySelector<HTMLElement>("[data-nfm-mermaid-preview]")!.dataset.nfmMermaidStatus =
+      "ready";
+    expect(readReadyMermaidSvg(surface)).toContain("<svg");
+  });
+
   test("merges the following paragraph into Code Block source on Backspace", async () => {
     const { editor } = await mountCodeBlock("code-backspace-merge", "alpha", "light", "beta");
     const prosemirrorView = editor.prosemirrorView;
@@ -327,6 +297,101 @@ describe("NFM Code Block surface in Chromium", () => {
     expect(serializeNfm(blockNoteToNfm(editor.document))).toBe(nfmBefore);
     expect(editor.getBlock("code-wrap-local")?.props).not.toHaveProperty("wrapped");
   });
+
+  test("projects Mermaid code, preview, and split without changing durable source", async () => {
+    const source = "graph TD\n  Source --> Preview";
+    const { editor, host } = await mountCodeBlock(
+      "mermaid-local-preview",
+      source,
+      "light",
+      undefined,
+      "mermaid",
+    );
+    const before = serializeNfm(blockNoteToNfm(editor.document));
+    const surface = host.querySelector<HTMLElement>("[data-nfm-code-block-surface]")!;
+
+    expect(surface.dataset.mermaidPreviewMode).toBe("split");
+    expect(
+      await screen.findByRole("button", { name: "Click diagram to expand in fullscreen" }),
+    ).not.toBeNull();
+    const diagram = surface.querySelector<SVGSVGElement>("[data-nfm-mermaid-svg] svg")!;
+    const intrinsicWidth = diagram.viewBox.baseVal.width;
+    expect(diagram.getBoundingClientRect().width).toBeLessThanOrEqual(intrinsicWidth + 1);
+    expect(
+      surface.querySelector("[data-nfm-code-source-region]")?.getAttribute("inert"),
+    ).toBeNull();
+
+    await act(async () => {
+      fireEvent.pointerOver(surface);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    });
+    const previewFormatTrigger = await screen.findByRole("button", {
+      name: "Open language preview format dropdown",
+    });
+    await act(async () => {
+      fireEvent.click(previewFormatTrigger);
+      await Promise.resolve();
+    });
+    const previewOnlyItem = await screen.findByRole("radio", {
+      name: "Show only preview and hide code",
+    });
+    await act(async () => {
+      fireEvent.click(previewOnlyItem);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(surface.dataset.mermaidPreviewMode).toBe("preview"));
+    const sourceRegion = surface.querySelector<HTMLElement>("[data-nfm-code-source-region]")!;
+    expect(sourceRegion.getAttribute("aria-hidden")).toBe("true");
+    expect(sourceRegion.hasAttribute("inert")).toBe(true);
+    expect(serializeNfm(blockNoteToNfm(editor.document))).toBe(before);
+    expect(editor.getBlock("mermaid-local-preview")?.props).not.toHaveProperty("previewMode");
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Click diagram to expand in fullscreen" }),
+      );
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole("dialog", { name: "Mermaid diagram" })).not.toBeNull();
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Mermaid diagram" })).toBeNull(),
+    );
+  });
+
+  test.each(["light", "dark"] as const)(
+    "paints an opaque %s surface behind an expanded Mermaid diagram",
+    (theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      mountedViews.push(
+        render(
+          <MermaidDiagramModal
+            source="graph TD\n  Source --> Preview"
+            svg='<svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z" /></svg>'
+            theme={theme}
+            onClose={() => {}}
+          />,
+        ),
+      );
+
+      const fullscreenSurface = document.querySelector<HTMLElement>(
+        "[data-nfm-mermaid-fullscreen]",
+      );
+      if (!fullscreenSurface) throw new Error("Expected an expanded Mermaid surface");
+      const background = parseComputedColor(getComputedStyle(fullscreenSurface).backgroundColor);
+
+      expect(background.alpha).toBe(1);
+      if (theme === "dark") {
+        expect(relativeLuminance(background)).toBeLessThan(0.1);
+      } else {
+        expect(relativeLuminance(background)).toBeGreaterThan(0.8);
+      }
+    },
+  );
 
   test("starts duplicated blocks with an independent nowrap state", async () => {
     const originalId = "code-wrap-identity";

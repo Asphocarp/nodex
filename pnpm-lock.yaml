@@ -97,6 +97,12 @@ importers:
       '@blocknote/core':
         specifier: workspace:*
         version: link:third_party/blocknote/packages/core
+      '@blocknote/diagram-block':
+        specifier: workspace:*
+        version: link:third_party/blocknote/packages/diagram-block
+      '@blocknote/math-block':
+        specifier: workspace:*
+        version: link:third_party/blocknote/packages/math-block
       '@blocknote/react':
         specifier: workspace:*
         version: link:third_party/blocknote/packages/react
@@ -280,6 +286,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      dompurify:
+        specifier: 3.4.11
+        version: 3.4.11
       electron:
         specifier: 43.4.1
         version: 43.4.1(supports-color@10.2.2)
@@ -311,8 +320,8 @@ importers:
         specifier: 29.1.1
         version: 29.1.1(@noble/hashes@2.2.0)
       katex:
-        specifier: 0.17.0
-        version: 0.17.0
+        specifier: 0.16.47
+        version: 0.16.47
       lightningcss:
         specifier: ^1.32.0
         version: 1.32.0
@@ -328,6 +337,9 @@ importers:
       mdast-util-to-string:
         specifier: 4.0.0
         version: 4.0.0
+      mermaid:
+        specifier: 11.15.0
+        version: 11.15.0
       minisearch:
         specifier: 7.2.0
         version: 7.2.0
@@ -606,6 +618,57 @@ importers:
       yjs:
         specifier: 13.6.31
         version: 13.6.31
+
+  third_party/blocknote/packages/diagram-block:
+    dependencies:
+      '@blocknote/core':
+        specifier: workspace:*
+        version: link:../core
+      '@blocknote/react':
+        specifier: workspace:*
+        version: link:../react
+      mermaid:
+        specifier: 11.15.0
+        version: 11.15.0
+      react:
+        specifier: ^18.0 || ^19.0 || >= 19.0.0-rc
+        version: 19.2.7
+      react-dom:
+        specifier: ^18.0 || ^19.0 || >= 19.0.0-rc
+        version: 19.2.7(react@19.2.7)
+      react-icons:
+        specifier: 5.6.0
+        version: 5.6.0(react@19.2.7)
+
+  third_party/blocknote/packages/math-block:
+    dependencies:
+      '@blocknote/core':
+        specifier: workspace:*
+        version: link:../core
+      '@blocknote/react':
+        specifier: workspace:*
+        version: link:../react
+      '@handlewithcare/prosemirror-inputrules':
+        specifier: ^0.1.4
+        version: 0.1.4(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.2)
+      katex:
+        specifier: 0.16.47
+        version: 0.16.47
+      prosemirror-model:
+        specifier: 1.25.11
+        version: 1.25.11
+      prosemirror-state:
+        specifier: ^1.4.4
+        version: 1.4.4
+      react:
+        specifier: ^18.0 || ^19.0 || >= 19.0.0-rc
+        version: 19.2.7
+      react-dom:
+        specifier: ^18.0 || ^19.0 || >= 19.0.0-rc
+        version: 19.2.7(react@19.2.7)
+      react-icons:
+        specifier: 5.6.0
+        version: 5.6.0(react@19.2.7)
 
   third_party/blocknote/packages/react:
     dependencies:
@@ -5904,10 +5967,6 @@ packages:
 
   katex@0.16.47:
     resolution: {integrity: sha512-Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg==}
-    hasBin: true
-
-  katex@0.17.0:
-    resolution: {integrity: sha512-Vdw0ATsQ9V+LuegM/BTwQqV/6cTl5lbGcIrU+BCgLxyf6bo38ybOr372tuSIxir3CN720flu1meYR6XzNMwQnw==}
     hasBin: true
 
   keyv@4.5.4:
@@ -13175,10 +13234,6 @@ snapshots:
       graceful-fs: 4.2.11
 
   katex@0.16.47:
-    dependencies:
-      commander: 8.3.0
-
-  katex@0.17.0:
     dependencies:
       commander: 8.3.0
 

@@ -463,6 +463,7 @@ function inlineToText(content: NfmInlineContent[]): string {
       if (item.type === "threadMention") return item.uuid;
       if (item.type === "pageMention") return item.targetPageId;
       if (item.type === "dateMention") return formatDateMentionPlainText(item);
+      if (item.type === "math") return item.source;
       return item.text;
     })
     .join("");
@@ -476,7 +477,8 @@ function findInlineSpan(content: NfmInlineContent[], text: string): StyledInline
       item.type === "agentConfig" ||
       item.type === "threadMention" ||
       item.type === "pageMention" ||
-      item.type === "dateMention"
+      item.type === "dateMention" ||
+      item.type === "math"
     )
       return false;
     return item.text === text;

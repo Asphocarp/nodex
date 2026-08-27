@@ -55,6 +55,10 @@ function serializeItem(item: NfmInlineContent): string {
     return attrs ? `<mention-date ${attrs} />` : "";
   }
 
+  if (item.type === "math") {
+    return serializeInlineMath(item.source);
+  }
+
   if (item.type === "link") {
     const inner = applyStyles(escapeNfm(item.text), item.styles);
     return `[${inner}](${item.href})`;
@@ -73,6 +77,25 @@ function serializeItem(item: NfmInlineContent): string {
   let text = escapeNfm(item.text);
   text = applyStyles(text, item.styles);
   return text;
+}
+
+function serializeInlineMath(source: string): string {
+  if (
+    source.length > 0 &&
+    !source.includes("\n") &&
+    !source.includes("$") &&
+    !source.includes("`") &&
+    source.trim() === source
+  ) {
+    return `$${source}$`;
+  }
+
+  const longestBacktickRun = Math.max(
+    0,
+    ...[...source.matchAll(/`+/gu)].map((match) => match[0].length),
+  );
+  const fence = "`".repeat(longestBacktickRun + 1);
+  return `$${fence} ${source} ${fence}$`;
 }
 
 function applyStyles(text: string, styles: NfmStyleSet): string {

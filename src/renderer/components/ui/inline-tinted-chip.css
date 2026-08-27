@@ -1,0 +1,87 @@
+/* Compact semantic atoms embedded in prose. The tint is supplied by a tone
+   utility; typography and geometry deliberately inherit from surrounding text. */
+@utility inline-tinted-chip {
+  --inline-tinted-chip-foreground: var(--color-token-description-foreground);
+  --inline-tinted-chip-fill: var(--color-token-foreground);
+  --inline-tinted-chip-fill-strength: 8%;
+  --inline-tinted-chip-hover-strength: 10%;
+
+  display: inline-flex;
+  max-width: 100%;
+  align-items: baseline;
+  padding-inline: 6px;
+  border-radius: var(--radius-sm);
+  background-color: color-mix(
+    in srgb,
+    var(--inline-tinted-chip-fill) var(--inline-tinted-chip-fill-strength),
+    transparent
+  );
+  color: var(--inline-tinted-chip-foreground);
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: inherit;
+  vertical-align: baseline;
+  white-space: nowrap;
+
+  & > :is(.inline-tinted-chip-icon, .bn-preview-placeholder-icon) {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    flex: none;
+    align-self: center;
+    align-items: center;
+    justify-content: center;
+    margin-inline: -2px 2px;
+  }
+
+  & > :is(.inline-tinted-chip-icon, .bn-preview-placeholder-icon) > svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  & > :is(.inline-tinted-chip-label, .bn-preview-placeholder-text) {
+    min-width: 0;
+    margin: 0;
+    font-size: inherit;
+    line-height: inherit;
+  }
+}
+
+@utility inline-tinted-chip-neutral {
+  --inline-tinted-chip-foreground: var(--color-token-description-foreground);
+  --inline-tinted-chip-fill: var(--color-token-foreground);
+  --inline-tinted-chip-fill-strength: 8%;
+  --inline-tinted-chip-hover-strength: 10%;
+}
+
+@utility inline-tinted-chip-accent {
+  --inline-tinted-chip-foreground: var(--color-token-charts-blue);
+  --inline-tinted-chip-fill: var(--color-token-charts-blue);
+  --inline-tinted-chip-fill-strength: 10%;
+  --inline-tinted-chip-hover-strength: 20%;
+}
+
+@utility inline-tinted-chip-purple {
+  --inline-tinted-chip-foreground: var(--color-token-charts-purple);
+  --inline-tinted-chip-fill: var(--color-token-charts-purple);
+  --inline-tinted-chip-fill-strength: 10%;
+  --inline-tinted-chip-hover-strength: 20%;
+}
+
+@utility inline-tinted-chip-danger {
+  --inline-tinted-chip-foreground: var(--color-text-danger);
+  --inline-tinted-chip-fill: var(--color-text-danger);
+  --inline-tinted-chip-fill-strength: 18%;
+  --inline-tinted-chip-hover-strength: 22%;
+}
+
+@utility inline-tinted-chip-interactive {
+  cursor: var(--cursor-interaction, pointer);
+  transition-property: background-color, color;
+  transition-duration: 100ms;
+
+  &:hover {
+    --inline-tinted-chip-fill-strength: var(--inline-tinted-chip-hover-strength);
+  }
+}

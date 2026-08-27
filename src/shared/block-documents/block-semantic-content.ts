@@ -16,6 +16,7 @@ export const BLOCK_TO_PAGE_TYPE_CAPABILITIES = {
   checkListItem: "wrap_subtree",
   toggleListItem: "promote_primary",
   codeBlock: "wrap_subtree",
+  mathBlock: "wrap_subtree",
   table: "wrap_subtree",
   quote: "promote_primary",
   divider: "wrap_subtree",

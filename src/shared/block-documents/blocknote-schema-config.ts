@@ -3,6 +3,17 @@ import {
   type CustomBlockConfig,
   type CustomInlineContentConfig,
 } from "@blocknote/core";
+export const mathBlockConfig = {
+  type: "mathBlock",
+  propSchema: {},
+  content: "plain",
+} as const satisfies CustomBlockConfig;
+
+export const mathInlineContentConfig = {
+  type: "math",
+  propSchema: {},
+  content: "plain",
+} as const satisfies CustomInlineContentConfig;
 
 export const calloutBlockConfig = {
   type: "callout",
@@ -140,6 +151,7 @@ export const blockDocumentCustomBlockConfigs = {
   databaseViewRef: databaseViewRefBlockConfig,
   syncedBlockRef: syncedBlockRefBlockConfig,
   templateRef: reusableTemplateRefBlockConfig,
+  mathBlock: mathBlockConfig,
 } as const;
 
 export const blockDocumentCustomInlineContentConfigs = {
@@ -148,4 +160,5 @@ export const blockDocumentCustomInlineContentConfigs = {
   dateMention: dateMentionInlineContentConfig,
   pageMention: pageMentionInlineContentConfig,
   threadMention: threadMentionInlineContentConfig,
+  math: mathInlineContentConfig,
 } as const;

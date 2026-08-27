@@ -2,7 +2,6 @@ import { Children, isValidElement, type ReactNode } from "react";
 import { cjk } from "@streamdown/cjk";
 import { createCodePlugin } from "@streamdown/code";
 import { createMathPlugin } from "@streamdown/math";
-import { createMermaidPlugin } from "@streamdown/mermaid";
 import remarkBreaks from "remark-breaks";
 import { defaultRemarkPlugins, type Components, type MermaidErrorComponentProps } from "streamdown";
 import type { Pluggable } from "unified";
@@ -19,9 +18,8 @@ import {
   resolveOrderedListPadding,
 } from "./ordered-list-groups";
 import { NFM_CODE_THEME_PAIR } from "./syntax-highlighting";
+import { streamdownMermaidPlugin } from "./mermaid-runtime";
 import { cn } from "./utils";
-
-import "katex/dist/katex.min.css";
 
 const baseStreamdownCodePlugin = createCodePlugin({
   themes: [NFM_CODE_THEME_PAIR[0], NFM_CODE_THEME_PAIR[1]],
@@ -64,14 +62,7 @@ export const streamdownCodePlugin = {
 
 export const streamdownPlugins = {
   code: streamdownCodePlugin,
-  mermaid: createMermaidPlugin({
-    config: {
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: "default",
-      suppressErrorRendering: true,
-    },
-  }),
+  mermaid: streamdownMermaidPlugin,
   math: createMathPlugin({
     errorColor: "var(--foreground-tertiary)",
   }),

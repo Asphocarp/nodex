@@ -604,7 +604,8 @@ export type LibraryStructuralTurnIntoTarget =
   | { readonly kind: "toggle_list" }
   | { readonly kind: "quote" }
   | { readonly kind: "callout" }
-  | { readonly kind: "code" };
+  | { readonly kind: "code" }
+  | { readonly kind: "equation" };
 
 export type LibraryStructuralEditCommand =
   | {

@@ -1,7 +1,7 @@
 # NFM Editor Slash Menu Behavior
 
 Status: Active
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 ## Purpose
 
@@ -18,9 +18,9 @@ Typed trigger boundaries and suggestion-session dismissal are owned by
 Available items appear in this group and item order. Capability-dependent rows
 are omitted when their runtime is unavailable.
 
-1. `Text`: Text, Heading 1/2/3, Toggle heading 1/2/3, Emoji
+1. `Text`: Text, Heading 1/2/3, Toggle heading 1/2/3, Emoji, Inline equation
 2. `Lists`: Bulleted list, Numbered list, To-do list, Toggle list
-3. `Blocks`: Quote, Callout, Code, Divider, Table, Image
+3. `Blocks`: Quote, Callout, Code, Code - Mermaid, Block equation, Divider, Table, Image
 4. `Pages`: Subpage, Mention a page, Embed page, Canvas
 5. `Agent`: Thread Section, Agent Config
 

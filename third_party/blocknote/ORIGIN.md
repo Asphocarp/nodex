@@ -12,6 +12,8 @@ Nodex vendors a narrow BlockNote subset so editor fixes can be maintained direct
   - `packages/react` -> `third_party/blocknote/packages/react`
   - `packages/shadcn` -> `third_party/blocknote/packages/shadcn`
   - `packages/code-block` -> `third_party/blocknote/packages/code-block`
+  - `packages/math-block` -> `third_party/blocknote/packages/math-block`
+  - `packages/diagram-block` -> `third_party/blocknote/packages/diagram-block`
 
 ## License Boundary
 
@@ -21,7 +23,8 @@ The `@blocknote/xl-*` packages are intentionally excluded because upstream marks
 
 ## Runtime Contract
 
-- App imports stay on `@blocknote/core`, `@blocknote/react`, `@blocknote/shadcn`, and `@blocknote/code-block`.
+- App imports stay on the source-first `@blocknote/core`, `@blocknote/react`, `@blocknote/shadcn`, `@blocknote/code-block`, `@blocknote/math-block`, and narrow `@blocknote/diagram-block/trim-diagram-svg` surfaces.
+- Math is a first-class BlockNote/NFM content type. Mermaid remains a `codeBlock` language and consumes only the Diagram package's pure SVG trimming helper; Nodex never registers the package's separate `diagram` Block or initializer.
 - Root `package.json` resolves those packages through pnpm workspaces.
 - Vendored package exports are source-first and point at `src` instead of `dist`.
 - Upstream package `devDependencies` are omitted from the private vendored manifests so editor runtime code resolves React and other peers from Nodex instead of package-local tooling installs.
@@ -48,14 +51,15 @@ The fork is maintained as product behavior, not as a list of files that must win
 | Code Block parsing, syntax loading, product language catalog, creation default, plain-text merge boundaries, and Tab/Shift-Tab indentation | `core/src/blocks/Code/`, `core/src/api/blockManipulation/commands/mergeBlocks/`, Core keyboard shortcuts, the generated `@blocknote/code-block` highlighter, and renderer Code Block composition | `docs/product-specs/nfm-editor-code-block-behavior.md`; Code Block Core/renderer/browser/Electron suites; `docs/KEYBOARD_SHORTCUTS.md` | Use the editor-wide syntax-highlighting Extension and the renderer's custom React spec. Preserve the exact generated grammar catalog, normalized/dynamic creation language, literal indentation, start-of-source Backspace no-op, content-model-aware plain-text merges with child promotion, and NFM parsing; never restore BlockNote's vanilla language select, a block-local highlighter, or the generic non-paragraph reset for plain-source Blocks. |
 | Table semantics, clipboard/parser hardening, nested-list normalization, and bounded block-change reporting | Core table, Markdown, clipboard, parser, transaction-reporting, and security helpers | table product spec; focused Core/NFM conversion and escaping tests; typed-owner Chromium guard; Electron collaborative Enter smoke | Re-evaluate patch by patch. A preflight change reader must accept split, paste, and copy-drop transactions before `UniqueID.appendTransaction` assigns persistent IDs, keep temporary snapshot identities out of the dispatched document, and ignore attribution suggested-deletion copies. Retain only behavior with a product or security oracle; do not carry snapshot churn as an independent patch. |
 | Popover portal ownership, exit subtree identity, inert closing state, and static-exit opt-in | React `GenericPopover`, `FloatingUIOptions`, editor interaction scopes | lifecycle, formatting, context-menu, and floating-surface browser tests | Replay on target portal contracts. The final committed subtree stays inert through exit; selection-reactive surfaces may snapshot geometry without creating a second interaction owner. |
-| Source-first packages, lazy controller exports, and renderer chunk ownership | four private manifests, Vite configs, React lazy controller entry points | typecheck, renderer chunk tests, build | Reconstruct deterministically from the target manifests. Re-evaluate lazy imports against target default-UI chunks rather than copying old files blindly. |
+| Source-first packages, lazy controller exports, and renderer chunk ownership | six private manifests, Vite configs, React lazy controller entry points | typecheck, renderer chunk tests, build | Reconstruct deterministically from the target manifests. Re-evaluate lazy imports against target default-UI chunks rather than copying old files blindly. |
+| Equation source-with-preview editing, strict KaTeX rendering, popup accessibility, atomic Backspace boundary, and childless Math identity | Core/React SourceWithPreview plus the optional Math package | `docs/product-specs/nfm-editor-equation-and-mermaid-preview-behavior.md`; NFM/headless/renderer Equation tests | Re-evaluate upstream Math and SourceWithPreview together. Preserve source-only durability, strict KaTeX options, semantic preview states, invalid-source Done guard, atomic Backspace behavior, renderer/headless schema parity, and the product-owned popup geometry. |
 | Vendored shadcn adapter, semantic side-menu button props, and Nodex icon geometry | `shadcn/src/**` | editor renderer/browser tests and visual review | Adopt the target Base UI implementation first, then replay only the intrinsic button Interface and icon geometry. Do not retain Radix selectors or `asChild`. |
 
 No generated `dist` hunks are carried forward. Snapshots are evidence produced by retained behavior, not standalone patches. Future BlockNote changes must update this ledger when a behavior is absorbed upstream, rebuilt on a new seam, or intentionally removed.
 
 ## Upgrade Workflow
 
-Treat BlockNote upgrades as a source rebase, not as an npm version bump. The goal is to re-import the same four packages from a newer upstream tag, replay Nodex's local source delta, then restore the workspace package contract described above.
+Treat BlockNote upgrades as a source rebase, not as an npm version bump. The goal is to re-import the same six packages from a newer upstream tag, replay Nodex's local source delta, then restore the workspace package contract described above.
 
 Use a local clone instead of reading upstream files from `raw.githubusercontent.com`:
 
@@ -72,7 +76,7 @@ git -C "$blocknote_upgrade_dir/blocknote" checkout "$OLD_TAG"
 Mirror the current vendored packages into the old upstream checkout and create a source delta. Exclude package manifests from this patch because Nodex's private workspace/source-first manifests are deterministic and should be re-applied after the new upstream package manifests are copied:
 
 ```bash
-for pkg in core react shadcn code-block; do
+for pkg in core react shadcn code-block math-block diagram-block; do
   rsync -a --delete \
     "third_party/blocknote/packages/$pkg/" \
     "$blocknote_upgrade_dir/blocknote/packages/$pkg/"
@@ -83,10 +87,14 @@ git -C "$blocknote_upgrade_dir/blocknote" diff --output="$blocknote_upgrade_dir/
   packages/react \
   packages/shadcn \
   packages/code-block \
+  packages/math-block \
+  packages/diagram-block \
   ':(exclude)packages/core/package.json' \
   ':(exclude)packages/react/package.json' \
   ':(exclude)packages/shadcn/package.json' \
-  ':(exclude)packages/code-block/package.json'
+  ':(exclude)packages/code-block/package.json' \
+  ':(exclude)packages/math-block/package.json' \
+  ':(exclude)packages/diagram-block/package.json'
 ```
 
 Reset the clone to the new upstream tag and replay the source delta with three-way merge support:
@@ -104,7 +112,7 @@ Resolve conflicts in the upstream clone first. Every retained hunk must map to a
 Copy the resolved packages back into Nodex:
 
 ```bash
-for pkg in core react shadcn code-block; do
+for pkg in core react shadcn code-block math-block diagram-block; do
   rsync -a --delete \
     "$blocknote_upgrade_dir/blocknote/packages/$pkg/" \
     "third_party/blocknote/packages/$pkg/"
@@ -124,7 +132,7 @@ After copying, restore the vendored package manifest rules:
 Then update this file:
 
 - Change the upstream tag and commit.
-- Keep the imported package list limited to `core`, `react`, `shadcn`, and `code-block`.
+- Keep the imported package list limited to `core`, `react`, `shadcn`, `code-block`, `math-block`, and `diagram-block`.
 - Keep the `@blocknote/xl-*` exclusion unless the licensing decision changes explicitly.
 - Refresh the Semantic Patch Ledger so every retained local behavior names its current seam and oracle.
 

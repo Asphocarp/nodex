@@ -4,8 +4,8 @@ import { applyLocalNfmTurnInto, NFM_TURN_INTO_DEFINITIONS } from "./nfm-turn-int
 
 describe("NFM Turn into target catalog", () => {
   test("exposes the complete lossless target matrix with one typed intent per menu item", () => {
-    expect(NFM_TURN_INTO_DEFINITIONS).toHaveLength(14);
-    expect(new Set(NFM_TURN_INTO_DEFINITIONS.map((item) => item.key)).size).toBe(14);
+    expect(NFM_TURN_INTO_DEFINITIONS).toHaveLength(15);
+    expect(new Set(NFM_TURN_INTO_DEFINITIONS.map((item) => item.key)).size).toBe(15);
     expect(
       NFM_TURN_INTO_DEFINITIONS.filter((item) => item.target.kind === "heading").map((item) => ({
         level: item.target.kind === "heading" ? item.target.level : null,
@@ -32,6 +32,7 @@ describe("NFM Turn into target catalog", () => {
       "quote",
       "callout",
       "code",
+      "equation",
     ]);
   });
 

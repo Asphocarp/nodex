@@ -8,6 +8,7 @@ import {
   NfmSideMenuQuoteBlockIcon,
   NfmSideMenuTextBlockIcon,
   NfmSideMenuToggleListBlockIcon,
+  TextActionEquationIcon,
 } from "@/components/shared/icons";
 import type { NFM_TURN_INTO_DEFINITIONS } from "@/lib/nfm-turn-into-targets";
 
@@ -43,6 +44,9 @@ export function NfmTurnIntoBlockIcon({ targetKey, className }: NfmTurnIntoBlockI
   }
   if (targetKey === "quote") {
     return <NfmSideMenuQuoteBlockIcon className={className} />;
+  }
+  if (targetKey === "equation") {
+    return <TextActionEquationIcon className={className} />;
   }
   if (targetKey === "code") {
     return <NfmSideMenuCodeBlockIcon className={className} />;

@@ -1,6 +1,6 @@
 import { AllSelection, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { findSelectedEditableLeaf, selectEditableLeafContent } from "@/lib/editable-leaf-selection";
-import { blockHasEditableTextContent } from "./block-content-capabilities";
+import { blockHasSelectableTextContent } from "./block-content-capabilities";
 
 interface BlockCursor {
   id: string;
@@ -65,6 +65,6 @@ export function selectCurrentBlockContent(
   if (editableLeaf) return selectLeafThenEditor(editor, editableLeaf, selection);
 
   const cursor = editor.getTextCursorPosition();
-  if (!blockHasEditableTextContent(editor.schema, cursor.block.type)) return false;
+  if (!blockHasSelectableTextContent(editor.schema, cursor.block.type)) return false;
   return selectProseMirrorTextContent(editor);
 }

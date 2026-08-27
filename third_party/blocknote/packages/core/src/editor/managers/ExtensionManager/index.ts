@@ -129,6 +129,17 @@ export class ExtensionManager {
         this.addExtension(extension);
       }
     }
+
+    // Inline content owns editor behavior too (for example, source-aware
+    // keyboard commands and typing transforms), so register its declared
+    // extensions through the same lifecycle and dependency graph as Blocks.
+    for (const inlineContent of Object.values(
+      this.editor.schema.inlineContentSpecs,
+    )) {
+      for (const extension of inlineContent.extensions ?? []) {
+        this.addExtension(extension);
+      }
+    }
   }
 
   /**
@@ -532,13 +543,18 @@ export class ExtensionManager {
     if (
       !extension.prosemirrorPlugins?.length &&
       !Object.keys(extension.keyboardShortcuts || {}).length &&
-      !extension.inputRules?.length
+      !extension.inputRules?.length &&
+      !extension.automaticInputRules?.length
     ) {
       // We can bail out early if the extension has no features to add to the tiptap editor
       return { plugins, inputRules };
     }
 
     this.extensionPlugins.set(extension, plugins);
+
+    if (extension.automaticInputRules?.length) {
+      inputRules.push(...extension.automaticInputRules);
+    }
 
     if (extension.inputRules?.length) {
       inputRules.push(
