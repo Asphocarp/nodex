@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Check, Copy, Ellipsis } from "@/components/shared/icons/generic-icons";
 import {
   codeBlockActionButtonClassName,
@@ -17,6 +17,7 @@ import {
 } from "../../../../shared/nfm/code-language-catalog";
 import { searchCodeLanguages, type CodeBlockActionBarMode } from "@/lib/nfm/code-block-model";
 import { cn } from "@/lib/utils";
+import { useTransientFeedback } from "@/components/shared/use-transient-feedback";
 
 export interface NfmCodeBlockActionBarProps {
   readonly languageId: string;
@@ -38,8 +39,7 @@ export function NfmCodeBlockActionBar({
   tooltipsDisabled = false,
 }: NfmCodeBlockActionBarProps) {
   const [languageOpen, setLanguageOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyFeedback = useTransientFeedback();
   const language = resolveCodeLanguage(languageId);
   const locale = globalThis.navigator?.language || "en";
   const languages = searchCodeLanguages("", locale);
@@ -49,13 +49,6 @@ export function NfmCodeBlockActionBar({
     searchText: getCodeLanguageSearchText(item),
   }));
 
-  useEffect(
-    () => () => {
-      if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
-    },
-    [],
-  );
-
   const changeLanguageOpen = (open: boolean) => {
     setLanguageOpen(open);
     onInteractionOpenChange?.(open);
@@ -63,9 +56,7 @@ export function NfmCodeBlockActionBar({
 
   const copyCode = async () => {
     if (!(await onCopy())) return;
-    setCopied(true);
-    if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
-    copyResetTimerRef.current = setTimeout(() => setCopied(false), 1_500);
+    copyFeedback.show();
   };
 
   return (
@@ -110,7 +101,7 @@ export function NfmCodeBlockActionBar({
             className={cn("mx-0.5 h-4 w-px shrink-0", codeBlockActionDividerClassName)}
           />
           <NodexTooltip
-            tooltipContent={copied ? "Copied" : "Copy code"}
+            tooltipContent={copyFeedback.visible ? "Copied" : "Copy code"}
             disabled={tooltipsDisabled}
           >
             <button
@@ -119,7 +110,7 @@ export function NfmCodeBlockActionBar({
               className={codeBlockActionButtonClassName}
               onClick={() => void copyCode()}
             >
-              {copied ? <Check /> : <Copy />}
+              {copyFeedback.visible ? <Check /> : <Copy />}
             </button>
           </NodexTooltip>
         </>

@@ -286,8 +286,8 @@ pub(super) fn apply(
                     params![now, page_id],
                 )?;
             }
-            for page_id in schedule_pages(&resolved) {
-                refresh_scheduled_index(connection, &page_id, &now)?;
+            for page_id in block_metadata_revisions.keys() {
+                refresh_scheduled_index(connection, page_id, &now)?;
             }
 
             let outcome = LibraryBlockPropertyMutationOutcome::Committed {

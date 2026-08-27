@@ -224,6 +224,31 @@ describe("NFM Code Block surface in Chromium", () => {
     expect(await screen.findByRole("toolbar", { name: "Code block action bar" })).not.toBeNull();
   });
 
+  test("reanchors the fine-pointer Action Bar when highlighting replaces its NodeView", async () => {
+    const { host } = await mountCodeBlock("code-replaced-node-view");
+    const originalSurface = host.querySelector<HTMLElement>("[data-nfm-code-block-surface]");
+    if (!originalSurface) throw new Error("Expected the initial Code Block surface");
+
+    fireEvent.pointerOver(originalSurface, { pointerType: "mouse" });
+    await screen.findByRole("toolbar", { name: "Code block action bar" });
+
+    const replacementSurface = originalSurface.cloneNode(true) as HTMLElement;
+    replacementSurface.querySelector("[data-nfm-code-block-action-bar]")?.remove();
+    await act(async () => {
+      originalSurface.replaceWith(replacementSurface);
+      await Promise.resolve();
+    });
+
+    const replacementAnchor = replacementSurface.querySelector<HTMLElement>(
+      "[data-nfm-code-block-action-anchor]",
+    );
+    if (!replacementAnchor) throw new Error("Expected the replacement action anchor");
+    await waitFor(() => {
+      expect(replacementAnchor.querySelector("[data-nfm-code-block-action-bar]")).not.toBeNull();
+    });
+    expect(screen.getAllByRole("toolbar", { name: "Code block action bar" })).toHaveLength(1);
+  });
+
   test("renders a product action anchor without the vanilla language select", async () => {
     const { host } = await mountCodeBlock("code-surface");
     const surface = host.querySelector<HTMLElement>("[data-nfm-code-block-surface]");

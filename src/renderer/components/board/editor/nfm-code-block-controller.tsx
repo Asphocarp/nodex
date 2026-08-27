@@ -120,6 +120,10 @@ export function NfmCodeBlockController() {
     };
     const showFirstSurface = () =>
       showForSurface(root.querySelector<HTMLElement>(CODE_SURFACE_SELECTOR));
+    const findSurfaceByBlockId = (blockId: string) =>
+      [...root.querySelectorAll<HTMLElement>(CODE_SURFACE_SELECTOR)].find(
+        (surface) => surface.dataset.blockId === blockId,
+      ) ?? null;
     const clearUnlessOwned = (surface: HTMLElement, relatedTarget: EventTarget | null) => {
       if (!ownsSurface(surface) || coarsePointer) return;
       if (relatedTarget instanceof Node && surface.contains(relatedTarget)) return;
@@ -164,7 +168,14 @@ export function NfmCodeBlockController() {
       if (coarsePointer) showFirstSurface();
     };
     const mutationObserver = new MutationObserver(() => {
-      if (activeRef.current && !activeRef.current.surface.isConnected) setActive(null);
+      const current = activeRef.current;
+      if (!current || current.surface.isConnected) return;
+      const replacement = findSurfaceByBlockId(current.blockId);
+      if (!replacement) {
+        setActive(null);
+        return;
+      }
+      showForSurface(replacement);
     });
     mutationObserver.observe(root, { childList: true, subtree: true });
     root.addEventListener("pointerover", handlePointerOver);

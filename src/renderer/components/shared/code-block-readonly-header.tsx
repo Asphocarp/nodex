@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { Check, Copy } from "@/components/shared/icons/generic-icons";
 import {
   codeBlockActionButtonClassName,
@@ -8,6 +7,7 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
+import { useTransientFeedback } from "@/components/shared/use-transient-feedback";
 import { resolveCodeLanguage } from "../../../shared/nfm/code-language-catalog";
 
 export function CodeBlockReadOnlyHeader({
@@ -17,22 +17,12 @@ export function CodeBlockReadOnlyHeader({
   readonly languageId: string;
   readonly code: string;
 }) {
-  const [copied, setCopied] = useState(false);
-  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyFeedback = useTransientFeedback();
   const language = resolveCodeLanguage(languageId);
-
-  useEffect(
-    () => () => {
-      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-    },
-    [],
-  );
 
   const copy = async () => {
     if (!(await writeTextToClipboard(code))) return;
-    setCopied(true);
-    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-    resetTimerRef.current = setTimeout(() => setCopied(false), 1_500);
+    copyFeedback.show();
   };
 
   return (
@@ -53,14 +43,14 @@ export function CodeBlockReadOnlyHeader({
         aria-hidden="true"
         className={cn("h-4 w-px shrink-0", codeBlockActionDividerClassName)}
       />
-      <NodexTooltip tooltipContent={copied ? "Copied" : "Copy code"}>
+      <NodexTooltip tooltipContent={copyFeedback.visible ? "Copied" : "Copy code"}>
         <button
           type="button"
           aria-label="Copy code to clipboard"
           className={cn(codeBlockActionButtonClassName, "shrink-0")}
           onClick={() => void copy()}
         >
-          {copied ? <Check /> : <Copy />}
+          {copyFeedback.visible ? <Check /> : <Copy />}
         </button>
       </NodexTooltip>
     </div>

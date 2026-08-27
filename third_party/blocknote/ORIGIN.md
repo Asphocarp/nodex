@@ -126,7 +126,7 @@ Then update this file:
 - Change the upstream tag and commit.
 - Keep the imported package list limited to `core`, `react`, `shadcn`, and `code-block`.
 - Keep the `@blocknote/xl-*` exclusion unless the licensing decision changes explicitly.
-- Refresh `Nodex Local Modifications` to match the actual post-rebase delta.
+- Refresh the Semantic Patch Ledger so every retained local behavior names its current seam and oracle.
 
 Finish with the standard validation commands:
 
