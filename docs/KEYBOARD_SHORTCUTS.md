@@ -169,7 +169,7 @@ Configure global hold and global toggle directly in Settings → Voice; the full
 | ------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `⌘/Ctrl+Alt+1`–`4` | Heading level 1–4                                                         |                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `⌘/Ctrl+Enter`     | Modify current block; otherwise send current thread section in Page Stage | Modifies actionable blocks first: checkbox toggle, native toggle expand/collapse, image preview, Page-reference disclosure, or bound thread-section open. A Page reference toggles in place even while its live title is focused; its independently owned body keeps the shortcut for its own editor. In Page Stage, unhandled blocks keep the existing thread-section send fallback and confirmation preview. |
-| `⌘/Ctrl+A`         | Progressively select the current block, then the editor                   | The first press selects the active block content or embedded Page title. Pressing it again while that leaf remains fully selected expands the selection to the whole editor.                                                                                                                                                                                                                                   |
+| `⌘/Ctrl+A`         | Progressively select the current block, then the editor                   | The first press selects the active rich-text or plain-source Block content—including Code Block source—or an embedded Page title. Pressing it again while that leaf remains fully selected expands the selection to the whole editor.                                                                                                                                                                          |
 
 ### Input Rules (text triggers)
 
@@ -190,10 +190,13 @@ Configure global hold and global toggle directly in Settings → Voice; the full
 
 ### Code Blocks
 
-| Shortcut    | Action                                                                                 |
-| ----------- | -------------------------------------------------------------------------------------- |
-| `Tab`       | Insert one literal tab at the start of every selected line                             |
-| `Shift+Tab` | Remove one leading tab, two spaces, or one space from every selected line when present |
+| Shortcut                                      | Action                                                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `Backspace` at Code Block start               | No-op; preserves the Code Block type and position                                                       |
+| `Backspace` at the following text Block start | Merge that Block's plain text into the Code Block, promote its children, and keep the caret at the join |
+| `Delete` at the end of a non-empty Code Block | Merge the immediately following editable text Block into the Code Block                                 |
+| `Tab`                                         | Insert one literal tab at the start of every selected line                                              |
+| `Shift+Tab`                                   | Remove one leading tab, two spaces, or one space from every selected line when present                  |
 
 ### Navigation
 

@@ -1,7 +1,7 @@
 # NFM Editor Code Block Behavior
 
 Status: Active
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 ## Purpose
 
@@ -22,6 +22,18 @@ Line wrapping is renderer-local presentation state keyed by durable Block ID as 
 - unavailable browser storage does not prevent the current renderer session from changing wrap.
 
 Changing wrap must leave the materialized Block Document and serialized NFM byte-for-byte unchanged.
+
+## Source selection
+
+Code source is plain editable text rather than rich inline content. `⌘/Ctrl+A` inside an editable Code Block therefore follows the editor's progressive text-Block selection contract: the first press selects exactly that Code Block's complete source, including literal newlines, without selecting adjacent Blocks. A second press while the complete source remains selected expands to the complete editor. Syntax-highlight decorations and local wrap presentation do not change either selection boundary.
+
+## Deletion boundaries
+
+A collapsed Backspace at the beginning of an established Code Block is a handled no-op. It does not turn the Code Block into a paragraph, lift it out of a child group, merge it into a rich-text parent, or move the cursor. The editor's immediate automatic-transform Undo remains earlier in the command chain, so Backspace may still restore literal input directly after a Code Block input rule fires.
+
+Backspace at the beginning of an immediately following editable text Block merges that Block into the Code Block. The Code Block keeps its identity, language, and local presentation state; the source Block shell is removed; and its direct children are promoted one level at the shell's former position. Rich-text styling is discarded as the content enters the plain-source model, while text and line breaks are retained. An empty Code Block absorbs the following text instead of being deleted. The cursor rests at the join between the Code Block's old source and the appended text, and one Undo restores the boundary.
+
+Forward Delete at the end of a non-empty Code Block uses the same content-model-aware merge with the immediately following editable text Block. Other source-internal Backspace and Delete input remains ordinary character editing.
 
 ## Language catalog
 
@@ -68,4 +80,4 @@ Read-only BlockNote and NFM previews resolve the same language catalog and use t
 
 ## Verification boundary
 
-Pure tests own catalog, normalization, capacity, view-state failure semantics, and formatter outcomes. Renderer/browser tests own real NodeView lifecycle, hover/focus/drag, local wrap projection, language transactions, shared More actions, duplicate/delete identity behavior, and single-step formatting Undo. The `nfm-code-block-actions` public-operation scenario supplies production-shaped Code Blocks for Core and Electron validation. Storybook covers idle, hover, picker, More, wrapped, narrow, dark, and read-only states.
+Pure tests own catalog, normalization, capacity, view-state failure semantics, formatter outcomes, editable-content capability, content-model-aware merges, child promotion, cursor placement, and Undo boundaries. Renderer/browser tests own real NodeView lifecycle, progressive source selection, Backspace boundaries, hover/focus/drag, local wrap projection, language transactions, shared More actions, duplicate/delete identity behavior, and single-step formatting Undo. The `nfm-code-block-actions` public-operation scenario supplies production-shaped Code Blocks for Core and Electron validation. Storybook covers idle, hover, picker, More, wrapped, narrow, dark, and read-only states.

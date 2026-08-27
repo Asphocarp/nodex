@@ -4,8 +4,10 @@
  * When Backspace is pressed at the start of a child block:
  * - nested classic list items and toggle list items exit list formatting in
  *   place by resetting to a paragraph
- * - all other leaf child blocks merge into the previous sibling (if one
- *   exists), otherwise into the parent block's content
+ * - other inline leaf children merge into the previous sibling (if one
+ *   exists), otherwise into the parent block's inline content
+ * - plain-text children and targets stay on BlockNote's content-model-aware
+ *   boundary path
  *
  * This preserves root-level list-item Backspace semantics for nested list-like
  * children while still preventing BlockNote's default unindent/lift for the
@@ -38,6 +40,7 @@ interface TiptapView {
 export interface EditorForChildGroupBackspace {
   schema: {
     acceptsBlockChildren: (block: { type: string; props?: Record<string, unknown> }) => boolean;
+    blockSchema: Record<string, { content: "inline" | "plain" | "none" | "table" } | undefined>;
   };
   getTextCursorPosition: () => { block: BlockCursor };
   getBlock: (id: string) => BlockWithChildren | undefined;
@@ -89,6 +92,9 @@ export function handleChildGroupBackspace(editor: EditorForChildGroupBackspace):
   if (!acceptsChildren(editor, parent)) return false;
   if (!isCursorAtBlockStart(editor)) return false;
 
+  const currentContentModel = editor.schema.blockSchema[currentBlock.type]?.content;
+  if (currentContentModel !== "inline") return false;
+
   if (shouldResetToParagraphAtBlockStart(currentBlock.type)) {
     editor.updateBlock(currentBlock, { type: "paragraph", props: {} });
     editor.focus();
@@ -99,6 +105,7 @@ export function handleChildGroupBackspace(editor: EditorForChildGroupBackspace):
   const previousSibling = editor.getPrevBlock(currentBlock.id);
   const targetBlock = previousSibling ? editor.getBlock(previousSibling.id) : parent;
   if (!targetBlock) return false;
+  if (editor.schema.blockSchema[targetBlock.type]?.content !== "inline") return false;
 
   // Both blocks must have array content to merge
   if (!Array.isArray(targetBlock.content) || !Array.isArray(currentBlock.content)) return false;

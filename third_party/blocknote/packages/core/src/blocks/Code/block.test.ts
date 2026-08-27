@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { TextSelection } from "@tiptap/pm/state";
 import { BlockNoteEditor } from "../../editor/BlockNoteEditor.js";
 import type { PartialBlock } from "../defaultBlocks.js";
@@ -308,6 +308,158 @@ describe("getLanguageId", () => {
 
   it("exposes the shared keyboard extension for React block specs", () => {
     expect(createCodeBlockSpec(options).extensions).toHaveLength(1);
+  });
+});
+
+describe("Code block deletion boundaries", () => {
+  let editor: BlockNoteEditor;
+
+  afterEach(() => {
+    editor?._tiptapEditor.destroy();
+  });
+
+  function createBoundaryEditor(initialContent: PartialBlock[]) {
+    editor = BlockNoteEditor.create({ initialContent });
+    editor.mount(document.createElement("div"));
+    return editor;
+  }
+
+  it("merges a following paragraph into the code block on Backspace", () => {
+    createBoundaryEditor([
+      { id: "code", type: "codeBlock", content: "alpha" },
+      { id: "after", type: "paragraph", content: "beta" },
+    ]);
+    editor.setTextCursorPosition("after", "start");
+
+    expect(pressKey(editor, "Backspace")).toBe(true);
+
+    expect(editor.document).toHaveLength(1);
+    expect(editor.document[0]).toMatchObject({ id: "code", type: "codeBlock" });
+    expect(editor.document[0].content).toEqual([
+      { type: "text", text: "alphabeta", styles: {} },
+    ]);
+    expect(editor.getTextCursorPosition().block.id).toBe("code");
+    expect(editor.transact((tr) => tr.selection.$anchor.parentOffset)).toBe(5);
+  });
+
+  it("keeps an empty code block when it absorbs the following paragraph", () => {
+    createBoundaryEditor([
+      { id: "code", type: "codeBlock", content: "" },
+      { id: "after", type: "paragraph", content: "beta" },
+    ]);
+    editor.setTextCursorPosition("after", "start");
+
+    expect(pressKey(editor, "Backspace")).toBe(true);
+
+    expect(editor.document).toHaveLength(1);
+    expect(editor.document[0]).toMatchObject({ id: "code", type: "codeBlock" });
+    expect(editor.document[0].content).toEqual([{ type: "text", text: "beta", styles: {} }]);
+    expect(editor.transact((tr) => tr.selection.$anchor.parentOffset)).toBe(0);
+  });
+
+  it("flattens rich paragraph content when merging it into code", () => {
+    createBoundaryEditor([
+      { id: "code", type: "codeBlock", content: "alpha" },
+      {
+        id: "after",
+        type: "paragraph",
+        content: [{ type: "text", text: "beta", styles: { bold: true } }],
+      },
+    ]);
+    editor.setTextCursorPosition("after", "start");
+
+    expect(pressKey(editor, "Backspace")).toBe(true);
+
+    expect(editor.document[0].content).toEqual([
+      { type: "text", text: "alphabeta", styles: {} },
+    ]);
+  });
+
+  it("preserves line breaks when merging rich text into code", () => {
+    createBoundaryEditor([
+      { id: "code", type: "codeBlock", content: "alpha" },
+      { id: "after", type: "paragraph", content: "beta\ngamma" },
+    ]);
+    editor.setTextCursorPosition("after", "start");
+
+    expect(pressKey(editor, "Backspace")).toBe(true);
+
+    expect(editor.document[0].content).toEqual([
+      { type: "text", text: "alphabeta\ngamma", styles: {} },
+    ]);
+  });
+
+  it("promotes children of a paragraph merged into code", () => {
+    createBoundaryEditor([
+      { id: "code", type: "codeBlock", content: "alpha" },
+      {
+        id: "after",
+        type: "paragraph",
+        content: "beta",
+        children: [{ id: "child", type: "paragraph", content: "child" }],
+      },
+    ]);
+    editor.setTextCursorPosition("after", "start");
+
+    expect(pressKey(editor, "Backspace")).toBe(true);
+
+    expect(editor.document).toHaveLength(2);
+    expect(editor.document[0]).toMatchObject({ id: "code", type: "codeBlock", children: [] });
+    expect(editor.document[0].content).toEqual([
+      { type: "text", text: "alphabeta", styles: {} },
+    ]);
+    expect(editor.document[1]).toMatchObject({ id: "child", type: "paragraph" });
+  });
+
+  it("treats Backspace at the start of code as a handled no-op", () => {
+    createBoundaryEditor([{ id: "code", type: "codeBlock", content: "alpha" }]);
+    editor.setTextCursorPosition("code", "start");
+    const before = editor.document;
+
+    expect(pressKey(editor, "Backspace")).toBe(true);
+
+    expect(editor.document).toEqual(before);
+    expect(editor.getTextCursorPosition().block.id).toBe("code");
+    expect(editor.transact((tr) => tr.selection.$anchor.parentOffset)).toBe(0);
+  });
+
+  it("merges the following paragraph into code on forward Delete", () => {
+    createBoundaryEditor([
+      { id: "code", type: "codeBlock", content: "alpha" },
+      { id: "after", type: "paragraph", content: "beta" },
+    ]);
+    editor.setTextCursorPosition("code", "end");
+
+    expect(pressKey(editor, "Delete")).toBe(true);
+
+    expect(editor.document).toHaveLength(1);
+    expect(editor.document[0]).toMatchObject({ id: "code", type: "codeBlock" });
+    expect(editor.document[0].content).toEqual([
+      { type: "text", text: "alphabeta", styles: {} },
+    ]);
+    expect(editor.transact((tr) => tr.selection.$anchor.parentOffset)).toBe(5);
+  });
+
+  it("records the boundary merge as one undoable transaction", () => {
+    createBoundaryEditor([
+      { id: "code", type: "codeBlock", content: "alpha" },
+      { id: "after", type: "paragraph", content: "beta" },
+    ]);
+    editor.setTextCursorPosition("after", "start");
+    expect(pressKey(editor, "Backspace")).toBe(true);
+
+    expect(editor.undo()).toBe(true);
+    expect(editor.document).toHaveLength(2);
+    expect(editor.document[0]).toMatchObject({ id: "code", type: "codeBlock" });
+    expect(editor.document[0].content).toEqual([{ type: "text", text: "alpha", styles: {} }]);
+    expect(editor.document[1]).toMatchObject({ id: "after", type: "paragraph" });
+    expect(editor.document[1].content).toEqual([{ type: "text", text: "beta", styles: {} }]);
+
+    expect(editor.redo()).toBe(true);
+    expect(editor.document).toHaveLength(1);
+    expect(editor.document[0].content).toEqual([
+      { type: "text", text: "alphabeta", styles: {} },
+    ]);
   });
 });
 

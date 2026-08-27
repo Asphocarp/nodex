@@ -1,10 +1,14 @@
-import { Node } from "prosemirror-model";
-import { EditorState } from "prosemirror-state";
+import { Fragment, Node } from "prosemirror-model";
+import { EditorState, TextSelection, type Transaction } from "prosemirror-state";
 
 import {
   BlockInfo,
+  getBlockInfo,
   getBlockInfoFromResolvedPos,
+  getNodeId,
 } from "../../../getBlockInfoFromPos.js";
+import { getNodeById } from "../../../nodeUtil.js";
+import { getBlockSchema } from "../../../pmUtil.js";
 
 /**
  * Returns the block info from the parent block
@@ -103,15 +107,108 @@ export const getBottomNestedBlockInfo = (doc: Node, blockInfo: BlockInfo) => {
   return blockInfo;
 };
 
-const canMerge = (prevBlockInfo: BlockInfo, nextBlockInfo: BlockInfo) => {
+const canMerge = (
+  state: EditorState,
+  prevBlockInfo: BlockInfo,
+  nextBlockInfo: BlockInfo,
+) => {
+  if (!prevBlockInfo.isBlockContainer || !nextBlockInfo.isBlockContainer) {
+    return false;
+  }
+
+  const blockSchema = getBlockSchema(state.schema);
+  const previousContentModel = blockSchema[prevBlockInfo.blockNoteType]?.content;
+  const nextContentModel = blockSchema[nextBlockInfo.blockNoteType]?.content;
+
+  if (previousContentModel === "plain") {
+    return nextContentModel === "inline" || nextContentModel === "plain";
+  }
+
   return (
-    prevBlockInfo.isBlockContainer &&
-    prevBlockInfo.blockContent.node.type.spec.content === "inline*" &&
+    previousContentModel === "inline" &&
     prevBlockInfo.blockContent.node.childCount > 0 &&
-    nextBlockInfo.isBlockContainer &&
-    nextBlockInfo.blockContent.node.type.spec.content === "inline*"
+    nextContentModel === "inline"
   );
 };
+
+function plainContentFromBlockContent(source: Node, target: Node): Fragment {
+  const nodes: Node[] = [];
+  const appendText = (text: string, sourceNode: Node) => {
+    if (!text) return;
+    nodes.push(target.type.schema.text(text, target.type.allowedMarks(sourceNode.marks)));
+  };
+
+  source.descendants((node) => {
+    if (node.isText) {
+      appendText(node.text ?? "", node);
+      return false;
+    }
+    if (!node.isLeaf) return true;
+
+    const text =
+      node.type.name === "hardBreak"
+        ? "\n"
+        : (node.type.spec.leafText?.(node) ?? "\ufffc");
+    appendText(text, node);
+    return false;
+  });
+  return Fragment.fromArray(nodes);
+}
+
+function liftNextBlockChildren(transaction: Transaction, nextBlockInfo: BlockInfo): void {
+  if (!nextBlockInfo.isBlockContainer || !nextBlockInfo.childContainer) return;
+
+  const childBlocksStart = transaction.doc.resolve(nextBlockInfo.childContainer.beforePos + 1);
+  const childBlocksEnd = transaction.doc.resolve(nextBlockInfo.childContainer.afterPos - 1);
+  const childBlocksRange = childBlocksStart.blockRange(childBlocksEnd);
+  if (!childBlocksRange) return;
+
+  const nextBlockPosition = transaction.doc.resolve(nextBlockInfo.bnBlock.beforePos);
+  transaction.lift(childBlocksRange, nextBlockPosition.depth);
+}
+
+/**
+ * A plain-text block is a semantic sink: rich inline source is flattened,
+ * source children are promoted, and the caret stays at the original join.
+ */
+function mergeIntoPlainTextBlock(
+  state: EditorState,
+  dispatch: ((args?: any) => any) | undefined,
+  prevBlockInfo: BlockInfo,
+  nextBlockInfo: BlockInfo,
+): boolean {
+  if (!prevBlockInfo.isBlockContainer || !nextBlockInfo.isBlockContainer) {
+    return false;
+  }
+  if (!dispatch) return true;
+
+  const targetId = getNodeId(prevBlockInfo.bnBlock.node, state.doc);
+  const sourceId = getNodeId(nextBlockInfo.bnBlock.node, state.doc);
+  const transaction = state.tr;
+
+  liftNextBlockChildren(transaction, nextBlockInfo);
+
+  const targetNode = getNodeById(targetId, transaction.doc);
+  const sourceNode = getNodeById(sourceId, transaction.doc);
+  if (!targetNode || !sourceNode) return false;
+
+  const targetInfo = getBlockInfo(targetNode);
+  const sourceInfo = getBlockInfo(sourceNode);
+  if (!targetInfo.isBlockContainer || !sourceInfo.isBlockContainer) return false;
+
+  const sourceContent = plainContentFromBlockContent(
+    nextBlockInfo.blockContent.node,
+    targetInfo.blockContent.node,
+  );
+  const joinPosition = targetInfo.blockContent.afterPos - 1;
+  transaction.delete(sourceInfo.bnBlock.beforePos, sourceInfo.bnBlock.afterPos);
+  if (sourceContent.size > 0) {
+    transaction.insert(joinPosition, sourceContent);
+  }
+  transaction.setSelection(TextSelection.create(transaction.doc, joinPosition)).scrollIntoView();
+  dispatch(transaction);
+  return true;
+}
 
 const mergeBlocks = (
   state: EditorState,
@@ -119,6 +216,14 @@ const mergeBlocks = (
   prevBlockInfo: BlockInfo,
   nextBlockInfo: BlockInfo,
 ) => {
+  const blockSchema = getBlockSchema(state.schema);
+  if (
+    prevBlockInfo.isBlockContainer &&
+    blockSchema[prevBlockInfo.blockNoteType]?.content === "plain"
+  ) {
+    return mergeIntoPlainTextBlock(state, dispatch, prevBlockInfo, nextBlockInfo);
+  }
+
   // Un-nests all children of the next block.
   if (!nextBlockInfo.isBlockContainer) {
     throw new Error(
@@ -191,7 +296,7 @@ export const mergeBlocksCommand =
       prevBlockInfo,
     );
 
-    if (!canMerge(bottomNestedBlockInfo, nextBlockInfo)) {
+    if (!canMerge(state, bottomNestedBlockInfo, nextBlockInfo)) {
       return false;
     }
 

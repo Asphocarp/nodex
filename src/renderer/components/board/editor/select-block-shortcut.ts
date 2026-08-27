@@ -1,14 +1,10 @@
-import { findBlockDescendantById } from "./block-dom-selectors";
-import { AllSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
+import { AllSelection, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { findSelectedEditableLeaf, selectEditableLeafContent } from "@/lib/editable-leaf-selection";
+import { blockHasEditableTextContent } from "./block-content-capabilities";
 
 interface BlockCursor {
   id: string;
   type: string;
-}
-
-interface BlockConfig {
-  content?: string;
 }
 
 interface EditorWithSelectShortcut {
@@ -17,7 +13,7 @@ interface EditorWithSelectShortcut {
     readonly state: EditorState;
     readonly dispatch: (transaction: Transaction) => void;
   };
-  schema: { blockSchema: Record<string, BlockConfig> };
+  schema: { blockSchema: Record<string, { content?: string }> };
   getTextCursorPosition: () => { block: BlockCursor };
 }
 
@@ -26,22 +22,27 @@ function getBrowserSelection(): Selection | null {
   return window.getSelection();
 }
 
-function isInlineBlock(editor: EditorWithSelectShortcut, blockType: string): boolean {
-  const blockConfig = editor.schema.blockSchema[blockType];
-  return blockConfig?.content === "inline";
-}
-
-export function findInlineContentForBlock(
-  editorDom: ParentNode | undefined,
-  blockId: string,
-): HTMLElement | null {
-  return findBlockDescendantById<HTMLElement>(editorDom, blockId, ".bn-inline-content");
-}
-
 function selectEditorContent(editor: EditorWithSelectShortcut): boolean {
   const view = editor.prosemirrorView;
   if (!view) return false;
   view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)));
+  return true;
+}
+
+/** Keeps managed text selection in editor state so NodeView decoration updates cannot collapse it. */
+function selectProseMirrorTextContent(editor: EditorWithSelectShortcut): boolean {
+  const view = editor.prosemirrorView;
+  if (!view) return false;
+
+  const { selection } = view.state;
+  if (!selection.$anchor.sameParent(selection.$head)) return selectEditorContent(editor);
+  if (!selection.$anchor.parent.isTextblock) return false;
+
+  const from = selection.$anchor.start();
+  const to = selection.$anchor.end();
+  if (selection.from <= from && selection.to >= to) return selectEditorContent(editor);
+
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from, to)));
   return true;
 }
 
@@ -64,9 +65,6 @@ export function selectCurrentBlockContent(
   if (editableLeaf) return selectLeafThenEditor(editor, editableLeaf, selection);
 
   const cursor = editor.getTextCursorPosition();
-  if (!isInlineBlock(editor, cursor.block.type)) return false;
-
-  const inlineContent = findInlineContentForBlock(editor.domElement, cursor.block.id);
-  if (!inlineContent) return false;
-  return selectLeafThenEditor(editor, inlineContent, selection);
+  if (!blockHasEditableTextContent(editor.schema, cursor.block.type)) return false;
+  return selectProseMirrorTextContent(editor);
 }
