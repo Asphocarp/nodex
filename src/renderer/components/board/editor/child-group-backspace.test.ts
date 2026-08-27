@@ -20,6 +20,9 @@ function makeEditor(
     atBlockStart?: boolean;
     currentContent?: unknown;
     targetContent?: unknown;
+    targetType?: string;
+    currentContentModel?: "inline" | "plain" | "none" | "table";
+    targetContentModel?: "inline" | "plain" | "none" | "table";
     currentContentSize?: number;
   } = {},
 ) {
@@ -38,6 +41,9 @@ function makeEditor(
     atBlockStart = true,
     currentContent = [],
     targetContent = ["Hello"],
+    currentContentModel = "inline",
+    targetContentModel = "inline",
+    targetType = targetContentModel === "plain" ? "codeBlock" : "paragraph",
     currentContentSize = Array.isArray(currentContent) ? currentContent.length : 8,
   } = overrides;
 
@@ -71,7 +77,7 @@ function makeEditor(
   };
   const previousSibling = {
     id: previousSiblingId,
-    type: "paragraph",
+    type: targetType,
     content: targetContent,
     children: [],
   };
@@ -85,6 +91,12 @@ function makeEditor(
   const editor: EditorForChildGroupBackspace = {
     schema: {
       acceptsBlockChildren: (block) => block.type === parentType && parentInline,
+      blockSchema: {
+        [currentType]: { content: currentContentModel },
+        [parentType]: { content: "inline" },
+        paragraph: { content: "inline" },
+        [targetType]: { content: targetContentModel },
+      },
     },
     getTextCursorPosition: () => ({
       block: { id: blockId, type: currentType },
@@ -423,6 +435,29 @@ describe("handleChildGroupBackspace", () => {
     });
 
     expect(handleChildGroupBackspace(editor)).toBe(false);
+  });
+
+  test("leaves a plain-text child boundary to the plain block shortcut", () => {
+    const editor = makeEditor({
+      currentType: "codeBlock",
+      currentContentModel: "plain",
+      currentContent: ["source"],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBe(false);
+    expect(editor._mergedTarget()).toBe(undefined);
+    expect(editor._updatedType()).toBe(undefined);
+  });
+
+  test("leaves a plain-text merge target to the content-model-aware shortcut", () => {
+    const editor = makeEditor({
+      targetContentModel: "plain",
+      currentContent: ["source"],
+      targetContent: ["target"],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBe(false);
+    expect(editor._mergedTarget()).toBe(undefined);
   });
 
   test("returns false when block has children", () => {

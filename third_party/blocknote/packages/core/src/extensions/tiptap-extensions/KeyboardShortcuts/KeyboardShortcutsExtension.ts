@@ -58,16 +58,22 @@ export const KeyboardShortcutsExtension = Extension.create<{
             const isParagraph =
               blockInfo.blockContent.node.type.name === "paragraph";
 
-            if (selectionAtBlockStart && !isParagraph) {
-              return commands.command(
-                updateBlockCommand(blockInfo.bnBlock.beforePos, {
-                  type: "paragraph",
-                  props: {},
-                }),
-              );
+            if (!selectionAtBlockStart || isParagraph) {
+              return false;
             }
 
-            return false;
+            const contentModel =
+              this.options.editor.schema.blockSchema[blockInfo.blockNoteType]?.content;
+            if (contentModel === "plain") {
+              return true;
+            }
+
+            return commands.command(
+              updateBlockCommand(blockInfo.bnBlock.beforePos, {
+                type: "paragraph",
+                props: {},
+              }),
+            );
           }),
         // Removes a level of nesting if the block is indented if the selection is at the start of the block.
         () =>
@@ -92,7 +98,7 @@ export const KeyboardShortcutsExtension = Extension.create<{
             return false;
           }),
         // Merges block with the previous one if it isn't indented, and the selection is at the start of the
-        // block. The target block for merging must contain inline content.
+        // block. The target block must have a compatible editable text model.
         () =>
           commands.command(({ state }) => {
             const blockInfo = getBlockInfoFromSelection(state);
@@ -105,14 +111,10 @@ export const KeyboardShortcutsExtension = Extension.create<{
               state.doc,
               blockInfo.bnBlock.beforePos,
             );
-            // If the previous block has no inline content, it can't be merged.
-            // It's instead deleted, which is done later in the chan, so we
-            // return early here.
-            if (
-              !prevBlockInfo ||
-              !prevBlockInfo.isBlockContainer ||
-              prevBlockInfo.blockContent.node.type.spec.content !== "inline*"
-            ) {
+            // The merge command owns content-model compatibility. Keeping that
+            // policy in one place lets plain-text targets absorb rich text
+            // without teaching the keyboard shortcut about PM expressions.
+            if (!prevBlockInfo || !prevBlockInfo.isBlockContainer) {
               return false;
             }
 

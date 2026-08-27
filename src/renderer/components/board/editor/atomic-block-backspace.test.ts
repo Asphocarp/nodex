@@ -24,6 +24,7 @@ function editorFor(input: {
         blockSchema: {
           paragraph: { content: "inline" },
           heading: { content: "inline" },
+          codeBlock: { content: "plain" },
           page: { content: "none" },
           divider: { content: "none" },
           image: { content: "none" },
@@ -88,6 +89,28 @@ describe("atomic Block Backspace", () => {
 
     expect(planBackspaceAcrossAtomicBlocks(ordinary.editor)).toBeNull();
     expect(planBackspaceAcrossAtomicBlocks(middle.editor)).toBeNull();
+  });
+
+  test("does not treat a plain-text Code Block as an atomic boundary", () => {
+    const input = editorFor({
+      blocks: [block("source", "codeBlock"), block("after")],
+      cursorIndex: 1,
+    });
+
+    expect(planBackspaceAcrossAtomicBlocks(input.editor)).toBeNull();
+  });
+
+  test("can resolve a plain-text Code Block before an atomic run as the editable target", () => {
+    const input = editorFor({
+      blocks: [block("source", "codeBlock"), block("page", "page"), block("after")],
+      cursorIndex: 2,
+    });
+
+    expect(planBackspaceAcrossAtomicBlocks(input.editor)).toEqual({
+      kind: "merge",
+      sourceBlockId: "after",
+      targetBlockId: "source",
+    });
   });
 
   test.each(["heading", "bulletListItem", "toggleListItem", "quote", "callout", "codeBlock"])(

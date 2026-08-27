@@ -1,3 +1,5 @@
+import { blockHasEditableTextContent } from "./block-content-capabilities";
+
 interface AtomicBackspaceBlock {
   readonly id: string;
   readonly type: string;
@@ -34,9 +36,6 @@ export type AtomicBlockBackspacePlan =
       readonly targetBlockId: string;
     };
 
-const hasInlineContent = (editor: AtomicBackspaceEditor, block: AtomicBackspaceBlock): boolean =>
-  editor.schema.blockSchema[block.type]?.content === "inline";
-
 /**
  * Plans the semantic merge behind Backspace at an atomic boundary.
  *
@@ -52,7 +51,9 @@ export function planBackspaceAcrossAtomicBlocks(
 
   const cursor = editor.getTextCursorPosition();
   if (cursor.block.type !== "paragraph") return null;
-  if (!cursor.prevBlock || hasInlineContent(editor, cursor.prevBlock)) return null;
+  if (!cursor.prevBlock || blockHasEditableTextContent(editor.schema, cursor.prevBlock.type)) {
+    return null;
+  }
 
   const parent = editor.getParentBlock(cursor.block.id);
   const siblings = parent?.children ?? editor.document;
@@ -61,7 +62,7 @@ export function planBackspaceAcrossAtomicBlocks(
 
   for (let index = currentIndex - 1; index >= 0; index -= 1) {
     const candidate = siblings[index];
-    if (!candidate || !hasInlineContent(editor, candidate)) continue;
+    if (!candidate || !blockHasEditableTextContent(editor.schema, candidate.type)) continue;
     return {
       kind: "merge",
       sourceBlockId: cursor.block.id,

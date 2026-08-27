@@ -1,5 +1,6 @@
 import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteViewRaw } from "@blocknote/react";
+import { AllSelection } from "@tiptap/pm/state";
 import { act, fireEvent, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import { codeBlockViewState } from "@/lib/nfm/code-block-view-state";
@@ -9,6 +10,7 @@ import { nfmSchema } from "./nfm-schema";
 import { createNfmEditorExtensions } from "./nfm-editor-extensions";
 import { NfmCodeBlockController } from "./nfm-code-block-controller";
 import { NfmSideMenuOpenProvider } from "./nfm-side-menu";
+import { selectCurrentBlockContent } from "./select-block-shortcut";
 import "../../../globals.css";
 
 const mountedEditors: BlockNoteEditor<any, any, any>[] = [];
@@ -88,6 +90,7 @@ async function mountCodeBlock(
   blockId: string,
   content = "const longValue: string = 'one two three four';",
   theme: "light" | "dark" = "light",
+  followingParagraph?: string,
 ) {
   const editor = BlockNoteEditor.create({
     schema: nfmSchema,
@@ -99,6 +102,9 @@ async function mountCodeBlock(
         props: { language: "typescript" },
         content,
       },
+      ...(followingParagraph === undefined
+        ? []
+        : [{ id: `${blockId}-after`, type: "paragraph" as const, content: followingParagraph }]),
     ],
   });
   mountedEditors.push(editor);
@@ -133,6 +139,69 @@ async function mountCodeBlock(
 }
 
 describe("NFM Code Block surface in Chromium", () => {
+  test("merges the following paragraph into Code Block source on Backspace", async () => {
+    const { editor } = await mountCodeBlock("code-backspace-merge", "alpha", "light", "beta");
+    const prosemirrorView = editor.prosemirrorView;
+    if (!prosemirrorView) throw new Error("Expected a mounted Code Block editor");
+
+    await act(async () => {
+      editor.setTextCursorPosition("code-backspace-merge-after", "start");
+      editor.focus();
+      fireEvent.keyDown(prosemirrorView.dom, { key: "Backspace", code: "Backspace" });
+      await Promise.resolve();
+    });
+
+    expect(editor.document).toHaveLength(1);
+    expect(editor.document[0]).toMatchObject({
+      id: "code-backspace-merge",
+      type: "codeBlock",
+    });
+    expect(editor.document[0].content).toEqual([{ type: "text", text: "alphabeta", styles: {} }]);
+    expect(editor.getTextCursorPosition().block.id).toBe("code-backspace-merge");
+    expect(editor.prosemirrorState.selection.$anchor.parentOffset).toBe(5);
+  });
+
+  test("keeps Backspace at the start of a Code Block as a no-op", async () => {
+    const { editor } = await mountCodeBlock("code-backspace-start", "alpha", "light", "after");
+    const prosemirrorView = editor.prosemirrorView;
+    if (!prosemirrorView) throw new Error("Expected a mounted Code Block editor");
+    const before = editor.document;
+
+    await act(async () => {
+      editor.setTextCursorPosition("code-backspace-start", "start");
+      editor.focus();
+      fireEvent.keyDown(prosemirrorView.dom, { key: "Backspace", code: "Backspace" });
+      await Promise.resolve();
+    });
+
+    expect(editor.document).toEqual(before);
+    expect(editor.getTextCursorPosition().block.id).toBe("code-backspace-start");
+    expect(editor.prosemirrorState.selection.$anchor.parentOffset).toBe(0);
+  });
+
+  test("progressively selects Code Block source before the complete editor", async () => {
+    const source = "const alpha = 1;\nconst beta = 2;";
+    const { editor } = await mountCodeBlock("code-selection", source, "light", "After");
+
+    await act(async () => {
+      editor.setTextCursorPosition("code-selection", "end");
+      editor.focus();
+      expect(selectCurrentBlockContent(editor)).toBe(true);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await Promise.resolve();
+    });
+
+    expect(document.getSelection()?.toString()).toBe(source);
+
+    await act(async () => {
+      expect(selectCurrentBlockContent(editor)).toBe(true);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await Promise.resolve();
+    });
+
+    expect(editor.prosemirrorState.selection).toBeInstanceOf(AllSelection);
+  });
+
   test("keeps the sole Action Bar mounted for coarse pointer input", async () => {
     vi.spyOn(window, "matchMedia").mockImplementation(
       (query) =>

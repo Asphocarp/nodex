@@ -1,7 +1,7 @@
 # NFM Editor Structural Editing Behavior
 
 Status: Active
-Last updated: 2026-08-25
+Last updated: 2026-08-27
 
 ## Purpose
 
@@ -35,7 +35,9 @@ After Backspace, the cursor prefers the previous surviving editable Block at its
 
 Backspace at the start of a paragraph after a consecutive run of Page, Canvas, Database, image, divider, or other atomic Blocks merges that paragraph's inline content into the nearest preceding editable sibling. The atomic run remains in place. The cursor rests at the join between the target's original content and the appended content. The removed paragraph's direct children are promoted one level in their original order at the paragraph's former position, so they remain after the atomic run; nested owners keep their identities and owned Documents. The complete content merge, child promotion, and shell deletion is one structural history entry.
 
-Non-paragraph Blocks keep their ordinary first-Backspace normalization, such as resetting a list, toggle, quote, callout, code, or heading to a paragraph; a later Backspace may then perform the atomic-boundary merge. If no preceding editable sibling exists at that level, Backspace leaves the Document and cursor unchanged. Deleting an atomic Block remains an explicit Block-selection action.
+Rich inline content and plain source text are both editable Block content for this boundary. In particular, a Code Block is never skipped or crossed as though it were an atomic Block merely because its source disallows rich-text styles.
+
+Rich-inline non-paragraph Blocks keep their ordinary first-Backspace normalization, such as resetting a list, toggle, quote, callout, or heading to a paragraph; a later Backspace may then perform the atomic-boundary merge. Plain-source Blocks are semantic text boundaries: Backspace at their start is consumed without normalization or lifting, while an immediately following editable text Block may merge into them through the plain-source merge path. If no preceding editable sibling exists at that level, Backspace leaves the Document and cursor unchanged. Deleting an atomic Block remains an explicit Block-selection action.
 
 ## Copy, cut, paste, and duplicate
 
