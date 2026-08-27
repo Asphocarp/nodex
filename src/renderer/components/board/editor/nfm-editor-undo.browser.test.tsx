@@ -45,10 +45,16 @@ function typeString(editor: BlockNoteEditor, text: string): void {
 
 function pressEditorShortcut(
   editor: BlockNoteEditor,
-  options: { readonly key: string; readonly metaKey?: boolean; readonly shiftKey?: boolean },
+  options: { readonly key: string; readonly modKey?: boolean; readonly shiftKey?: boolean },
 ): boolean {
   const view = requireMountedEditorView(editor);
-  const event = new KeyboardEvent("keydown", options);
+  const applePlatform = /Mac|iP(?:hone|ad|od)/u.test(navigator.platform);
+  const event = new KeyboardEvent("keydown", {
+    key: options.key,
+    ctrlKey: options.modKey === true && !applePlatform,
+    metaKey: options.modKey === true && applePlatform,
+    shiftKey: options.shiftKey,
+  });
   return !!view.someProp("handleKeyDown", (handler) => handler(view, event));
 }
 
@@ -96,25 +102,25 @@ describe("collaborative NFM undo in Chromium", () => {
       ]);
 
       await act(async () => {
-        expect(pressEditorShortcut(editor, { key: "z", metaKey: true })).toBe(true);
+        expect(pressEditorShortcut(editor, { key: "z", modKey: true })).toBe(true);
         await settleEditor();
       });
       expect(editor.document[0].content).toEqual([{ type: "text", text: "**ABC**", styles: {} }]);
 
       await act(async () => {
-        expect(pressEditorShortcut(editor, { key: "z", metaKey: true })).toBe(true);
+        expect(pressEditorShortcut(editor, { key: "z", modKey: true })).toBe(true);
         await settleEditor();
       });
       expect(editor.document[0].content).toEqual([]);
 
       await act(async () => {
-        expect(pressEditorShortcut(editor, { key: "z", metaKey: true, shiftKey: true })).toBe(true);
+        expect(pressEditorShortcut(editor, { key: "z", modKey: true, shiftKey: true })).toBe(true);
         await settleEditor();
       });
       expect(editor.document[0].content).toEqual([{ type: "text", text: "**ABC**", styles: {} }]);
 
       await act(async () => {
-        expect(pressEditorShortcut(editor, { key: "z", metaKey: true, shiftKey: true })).toBe(true);
+        expect(pressEditorShortcut(editor, { key: "z", modKey: true, shiftKey: true })).toBe(true);
         await settleEditor();
       });
       expect(editor.document[0].content).toEqual([
@@ -174,14 +180,14 @@ describe("collaborative NFM undo in Chromium", () => {
       expect(left.prosemirrorState.doc.textContent).toBe("ABCR");
 
       await act(async () => {
-        expect(pressEditorShortcut(left, { key: "z", metaKey: true })).toBe(true);
+        expect(pressEditorShortcut(left, { key: "z", modKey: true })).toBe(true);
         await settleEditor();
       });
       expect(left.prosemirrorState.doc.textContent).toBe("**ABC**R");
       expect(right.prosemirrorState.doc.textContent).toBe("**ABC**R");
 
       await act(async () => {
-        expect(pressEditorShortcut(left, { key: "z", metaKey: true })).toBe(true);
+        expect(pressEditorShortcut(left, { key: "z", modKey: true })).toBe(true);
         await settleEditor();
       });
       expect(left.prosemirrorState.doc.textContent).toBe("R");
