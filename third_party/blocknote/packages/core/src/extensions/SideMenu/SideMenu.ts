@@ -1,4 +1,3 @@
-import { DOMParser, Slice } from "@tiptap/pm/model";
 import {
   EditorState,
   Plugin,
@@ -22,7 +21,9 @@ import {
 } from "../../schema/index.js";
 import { getDraggableBlockFromElement } from "../getDraggableBlockFromElement.js";
 import {
+  BLOCKNOTE_SLICE_MIME,
   dragStart,
+  parseSideMenuDragSlice,
   type SideMenuBlockDragStartEvent,
   type SideMenuBlockDragStartResult,
   unsetDragImage,
@@ -483,10 +484,10 @@ export class SideMenuView<
    * ensures that PM always drops the blocks in between other blocks, and not
    * inside them.
    *
-   * After the `dragstart` event fires on the drag handle, it sets
-   * `blocknote/html` data on the clipboard. This handler fires right after,
-   * parsing the `blocknote/html` data into nodes and setting them on
-   * `view.dragging`.
+   * After the `dragstart` event fires on the drag handle, it stores the selected
+   * ProseMirror Slice in a BlockNote-specific transfer format. This handler
+   * fires right after, validates that structured payload against this editor's
+   * schema, and sets the resulting Slice on `view.dragging`.
    *
    * Note: Setting `view.dragging` on `dragover` would be better as the user
    * could then drag between editors in different windows, but you can only
@@ -494,8 +495,8 @@ export class SideMenuView<
    */
   onDragStart = (event: DragEvent) => {
     if (this.isExternalDragManaged(event)) return;
-    const html = event.dataTransfer?.getData("blocknote/html");
-    if (!html) {
+    const serializedSlice = event.dataTransfer?.getData(BLOCKNOTE_SLICE_MIME);
+    if (!serializedSlice) {
       return;
     }
 
@@ -507,16 +508,16 @@ export class SideMenuView<
       return;
     }
 
-    const element = document.createElement("div");
-    element.innerHTML = html;
-
-    const parser = DOMParser.fromSchema(this.pmView.state.schema);
-    const node = parser.parse(element, {
-      topNode: this.pmView.state.schema.nodes["blockGroup"].create(),
-    });
+    const slice = parseSideMenuDragSlice(
+      serializedSlice,
+      this.pmView.state.schema,
+    );
+    if (!slice) {
+      return;
+    }
 
     this.pmView.dragging = {
-      slice: new Slice(node.content, 0, 0),
+      slice,
       move: true,
     };
     this.setDraggedBlockIdsForDropSelection(
@@ -583,7 +584,7 @@ export class SideMenuView<
     const isBlockNoteDrag =
       this.pmView.dragging !== null ||
       this.isDragOrigin ||
-      event.dataTransfer?.types.includes("blocknote/html") ||
+      event.dataTransfer?.types.includes(BLOCKNOTE_SLICE_MIME) ||
       (event.target instanceof Node && this.pmView.dom.contains(event.target));
 
     if (!isBlockNoteDrag) {
@@ -646,7 +647,7 @@ export class SideMenuView<
     const isBlockNoteDrag =
       this.pmView.dragging !== null ||
       this.isDragOrigin ||
-      event.dataTransfer?.types.includes("blocknote/html") ||
+      event.dataTransfer?.types.includes(BLOCKNOTE_SLICE_MIME) ||
       (event.target instanceof Node && this.pmView.dom.contains(event.target));
 
     if (!isBlockNoteDrag) {
@@ -656,7 +657,7 @@ export class SideMenuView<
 
     // We need to check if there is text content that is being dragged (select some text & just drag it)
     const textContentIsBeingDragged =
-      !event.dataTransfer?.types.includes("blocknote/html") &&
+      !event.dataTransfer?.types.includes(BLOCKNOTE_SLICE_MIME) &&
       !!this.pmView.dragging;
     // This is the side menu drag from this plugin
     const sideMenuIsBeingDragged = !!this.isDragOrigin;
@@ -748,7 +749,7 @@ export class SideMenuView<
     const isBlockNoteDrag =
       this.pmView.dragging !== null ||
       this.isDragOrigin ||
-      event.dataTransfer?.types.includes("blocknote/html") ||
+      event.dataTransfer?.types.includes(BLOCKNOTE_SLICE_MIME) ||
       (event.target instanceof Node && this.pmView.dom.contains(event.target));
 
     if (!isBlockNoteDrag) {

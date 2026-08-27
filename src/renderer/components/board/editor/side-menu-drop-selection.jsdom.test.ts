@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { BlockNoteEditor } from "@blocknote/core";
 import {
+  BLOCKNOTE_SLICE_MIME,
   createSideMenuDroppedBlockSelection,
   getSideMenuDroppedBlockIdsFromSelection,
   getSideMenuDroppedBlockIdsFromSlice,
@@ -159,7 +160,7 @@ function makeDropEvent(type: string, clientX: number, clientY: number) {
     dataTransfer: {
       configurable: true,
       value: {
-        types: ["blocknote/html"],
+        types: [BLOCKNOTE_SLICE_MIME],
       },
     },
   });

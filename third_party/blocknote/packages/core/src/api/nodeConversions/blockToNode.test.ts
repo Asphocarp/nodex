@@ -111,3 +111,36 @@ describe("blockToNode: plain-block backwards compatibility (write path)", () => 
     editor._tiptapEditor.destroy();
   });
 });
+
+describe("table header conversion", () => {
+  it("round-trips complete header rows and columns", () => {
+    const editor = BlockNoteEditor.create();
+
+    try {
+      const node = blockToNode(
+        {
+          type: "table",
+          content: {
+            type: "tableContent",
+            headerRows: 1,
+            headerCols: 1,
+            rows: [
+              { cells: ["Header", "Column"] },
+              { cells: ["Row", "Value"] },
+            ],
+          },
+        } as any,
+        editor.pmSchema,
+      );
+
+      const block = nodeToBlock(node, wrapInDoc(editor.pmSchema, node));
+      expect(block.content).toMatchObject({
+        type: "tableContent",
+        headerRows: 1,
+        headerCols: 1,
+      });
+    } finally {
+      editor._tiptapEditor.destroy();
+    }
+  });
+});

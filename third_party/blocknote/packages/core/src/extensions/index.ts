@@ -14,6 +14,7 @@ export * from "./PreviousBlockType/PreviousBlockType.js";
 export * from "./ShowSelection/ShowSelection.js";
 export * from "./SideMenu/MultipleNodeSelection.js";
 export * from "./SideMenu/dropSelection.js";
+export { BLOCKNOTE_SLICE_MIME } from "./SideMenu/dragging.js";
 export * from "./SideMenu/SideMenu.js";
 export * from "./SourceBlockWithPreview/SourceBlockWithPreview.js";
 export * from "./SourceInlineContentWithPreview/SourceInlineContentWithPreview.js";

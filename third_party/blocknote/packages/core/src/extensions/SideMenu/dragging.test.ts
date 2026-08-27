@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { Schema, type Node } from "prosemirror-model";
+import { Schema, Slice, type Node } from "prosemirror-model";
 
 import { getBlockInfoWithManualOffset } from "../../api/getBlockInfoFromPos.js";
 import { getNodeById } from "../../api/nodeUtil.js";
 import {
   getSideMenuDragBlockPositionsFromSnapshot,
+  parseSideMenuDragSlice,
+  serializeSideMenuDragSlice,
   type SideMenuBlockPositionRange,
 } from "./dragging.js";
 import { MultipleNodeSelection } from "./MultipleNodeSelection.js";
@@ -133,6 +135,29 @@ function makeNestedDoc() {
     makeBlock("block-2"),
   ]);
 }
+
+describe("side-menu drag transfer", () => {
+  test("round-trips a structured ProseMirror slice", () => {
+    const slice = new Slice(makeDoc([makeBlock("block-0")]).content, 0, 0);
+
+    expect(
+      parseSideMenuDragSlice(serializeSideMenuDragSlice(slice), schema)?.toJSON(),
+    ).toEqual(slice.toJSON());
+  });
+
+  test("rejects malformed and non-slice payloads", () => {
+    expect(parseSideMenuDragSlice("not json", schema)).toBeUndefined();
+    expect(
+      parseSideMenuDragSlice(JSON.stringify({ content: "not an array" }), schema),
+    ).toBeUndefined();
+    expect(
+      parseSideMenuDragSlice(
+        JSON.stringify({ content: [{ type: "unknown" }] }),
+        schema,
+      ),
+    ).toBeUndefined();
+  });
+});
 
 describe("side-menu drag selection bounds", () => {
   test("excludes the next sibling when selection ends at that block start", () => {
