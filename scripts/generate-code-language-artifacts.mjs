@@ -2,6 +2,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { serializeGeneratedCodeString } from "./generated-code-string.mjs";
+
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = resolve(repositoryRoot, "src/shared/nfm/code-language-catalog-v1.json");
 const bundlePath = resolve(
@@ -16,12 +18,26 @@ if (catalog.contractVersion !== 1 || !Array.isArray(catalog.languages)) {
 
 const loaderByLanguageId = new Map();
 const productLanguageIdsByShikiLanguage = new Map();
+const LANGUAGE_TOKEN_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+
+const readLanguageToken = (value, field) => {
+  if (typeof value !== "string" || !LANGUAGE_TOKEN_PATTERN.test(value)) {
+    throw new TypeError(`${field} must be a lowercase kebab-case language token`);
+  }
+  return value;
+};
+
 for (const language of catalog.languages) {
-  if (typeof language.shikiLanguage !== "string") continue;
-  loaderByLanguageId.set(language.id, language.shikiLanguage);
-  const productLanguageIds = productLanguageIdsByShikiLanguage.get(language.shikiLanguage) ?? [];
-  productLanguageIds.push(language.id);
-  productLanguageIdsByShikiLanguage.set(language.shikiLanguage, productLanguageIds);
+  const languageId = readLanguageToken(language.id, "Code language id");
+  if (language.shikiLanguage === null) continue;
+  const shikiLanguage = readLanguageToken(language.shikiLanguage, `${languageId}.shikiLanguage`);
+  if (loaderByLanguageId.has(languageId)) {
+    throw new TypeError(`Duplicate highlighted code language id: ${languageId}`);
+  }
+  loaderByLanguageId.set(languageId, shikiLanguage);
+  const productLanguageIds = productLanguageIdsByShikiLanguage.get(shikiLanguage) ?? [];
+  productLanguageIds.push(languageId);
+  productLanguageIdsByShikiLanguage.set(shikiLanguage, productLanguageIds);
 }
 
 const languageLoaders = [...loaderByLanguageId]
@@ -29,15 +45,15 @@ const languageLoaders = [...loaderByLanguageId]
     const productAliases = productLanguageIdsByShikiLanguage
       .get(shikiLanguage)
       .filter((productLanguageId) => productLanguageId !== shikiLanguage);
-    const modulePath = JSON.stringify(`@shikijs/langs-precompiled/${shikiLanguage}`);
+    const modulePath = serializeGeneratedCodeString(`@shikijs/langs-precompiled/${shikiLanguage}`);
     if (productAliases.length === 0) {
-      return `  ${JSON.stringify(languageId)}: () => import(${modulePath}),`;
+      return `  ${serializeGeneratedCodeString(languageId)}: () => import(${modulePath}),`;
     }
-    return `  ${JSON.stringify(languageId)}: () => import(${modulePath}).then((module) => ({
+    return `  ${serializeGeneratedCodeString(languageId)}: () => import(${modulePath}).then((module) => ({
     default: module.default.map((language) =>
-      language.name === ${JSON.stringify(shikiLanguage)}
+      language.name === ${serializeGeneratedCodeString(shikiLanguage)}
         ? { ...language, aliases: [...new Set([...(language.aliases ?? []), ${productAliases
-          .map(JSON.stringify)
+          .map(serializeGeneratedCodeString)
           .join(", ")}])] }
         : language,
     ),
