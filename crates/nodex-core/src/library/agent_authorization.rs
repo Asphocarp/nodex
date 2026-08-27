@@ -633,6 +633,7 @@ pub(super) fn persist_project_grants(
                     committed_revisions,
                     page_create: None,
                     page_copy: None,
+                    page_files: None,
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,

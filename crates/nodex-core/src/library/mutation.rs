@@ -75,6 +75,7 @@ pub(super) struct MutationEffects {
     pub(super) committed_revisions: BTreeMap<String, i64>,
     pub(super) page_create: Option<LibraryPageCreateResult>,
     pub(super) page_copy: Option<LibraryPageCopyResult>,
+    pub(super) page_files: Option<nodex_core_contracts::library::LibraryPageFileMutationReceipt>,
     pub(super) canvas_mutation: Option<LibraryCanvasMutationResult>,
     pub(super) block_transfer: Option<LibraryBlockTransferResult>,
     pub(super) block_transfer_undo:
@@ -289,6 +290,23 @@ pub(super) fn apply(
                         destination,
                     )
                 }
+                LibraryIntent::ApplyPageFileChanges {
+                    page_id,
+                    expected_manifest_revision,
+                    changes,
+                    turn_id,
+                } => super::page_files::apply(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    page_id,
+                    *expected_manifest_revision,
+                    changes,
+                    turn_id.as_deref(),
+                ),
                 LibraryIntent::CreateDatabase {
                     database_id,
                     data_source_id,
@@ -1003,6 +1021,7 @@ fn move_block(
                     committed_revisions,
                     page_create: None,
                     page_copy: None,
+                    page_files: None,
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
@@ -1224,6 +1243,7 @@ fn change_resource_lifecycle(
                     ),
                     page_create: None,
                     page_copy: None,
+                    page_files: None,
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
@@ -1312,6 +1332,7 @@ fn grant_project_access(
                         .collect(),
                     page_create: None,
                     page_copy: None,
+                    page_files: None,
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
@@ -1424,6 +1445,7 @@ fn set_project_access(
                     committed_revisions,
                     page_create: None,
                     page_copy: None,
+                    page_files: None,
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
@@ -2410,6 +2432,7 @@ fn create_database(
                     ),
                     page_create: None,
                     page_copy: None,
+                    page_files: None,
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
@@ -2734,6 +2757,7 @@ fn create_page(
                     ),
                     page_create: Some(page_create),
                     page_copy: None,
+                    page_files: None,
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,
@@ -3447,6 +3471,19 @@ fn build_mutation_result(
         "affectedParentKeys".to_owned(),
         json!(effects.affected_parent_keys),
     );
+    let page_file_manifest_revisions = effects
+        .committed_revisions
+        .iter()
+        .filter_map(|(key, revision)| {
+            key.strip_prefix("pageFiles:")
+                .filter(|page_id| !page_id.is_empty())
+                .map(|page_id| (page_id.to_owned(), *revision))
+        })
+        .collect::<BTreeMap<_, _>>();
+    payload_object.insert(
+        "pageFileManifestRevisions".to_owned(),
+        json!(page_file_manifest_revisions),
+    );
     let data_source_ids = effects
         .affected_parent_keys
         .iter()
@@ -3608,6 +3645,7 @@ fn assemble_mutation_result(
             affected_resource_ids: block_ids,
             page_create: effects.page_create,
             page_copy: effects.page_copy,
+            page_files: effects.page_files,
             canvas_mutation: effects.canvas_mutation,
             block_transfer: effects.block_transfer,
             block_transfer_undo: effects.block_transfer_undo,
@@ -4111,9 +4149,9 @@ mod tests {
     use nodex_core_contracts::document::{DocumentSemanticCommand, OwnedDocumentIntent};
     use nodex_core_contracts::library::{
         LibraryAgentSiblingAnchor, LibraryCanvasDestination, LibraryDocumentHead,
-        LibraryInheritedProjectAccessSource, LibraryNavigationParent, LibraryPageFileKind,
-        LibraryPageInsertion, LibraryPageLifecycleMutation, LibraryPageLifecycleState,
-        LibraryPagePrepareKind, LibraryPageWriteDestination, LibraryRead, LibraryReadValue,
+        LibraryInheritedProjectAccessSource, LibraryNavigationParent, LibraryPageInsertion,
+        LibraryPageLifecycleMutation, LibraryPageLifecycleState, LibraryPagePrepareKind,
+        LibraryPageProjectionFileKind, LibraryPageWriteDestination, LibraryRead, LibraryReadValue,
         LibrarySearchSnapshotScope,
     };
     use nodex_core_contracts::{
@@ -4380,9 +4418,9 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: page_id.to_owned(),
-                        file_kind: LibraryPageFileKind::MetaYaml,
+                        file_kind: LibraryPageProjectionFileKind::MetaYaml,
                         prepare: Some(LibraryPagePrepareKind::PageMove {
                             view_id: view_id.map(str::to_owned),
                         }),
@@ -4390,7 +4428,7 @@ mod tests {
                 },
             )
             .expect("prepare Page move");
-        let LibraryReadValue::PageFile { value } = prepared.value else {
+        let LibraryReadValue::PageProjectionFile { value } = prepared.value else {
             panic!("Page move preparation")
         };
         value
@@ -6849,15 +6887,15 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: created.page_id.clone(),
-                        file_kind: LibraryPageFileKind::BodyNestedMarkdown,
+                        file_kind: LibraryPageProjectionFileKind::BodyNestedMarkdown,
                         prepare: None,
                     },
                 },
             )
             .expect("read created Page body");
-        let LibraryReadValue::PageFile { value: body } = body.value else {
+        let LibraryReadValue::PageProjectionFile { value: body } = body.value else {
             panic!("Page body projection")
         };
         assert_eq!(body.content, "## Runtime\nCore starts on demand.\n");
@@ -6866,15 +6904,15 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: created.page_id.clone(),
-                        file_kind: LibraryPageFileKind::MetaYaml,
+                        file_kind: LibraryPageProjectionFileKind::MetaYaml,
                         prepare: None,
                     },
                 },
             )
             .expect("read created Page metadata");
-        let LibraryReadValue::PageFile { value: metadata } = metadata.value else {
+        let LibraryReadValue::PageProjectionFile { value: metadata } = metadata.value else {
             panic!("Page metadata projection")
         };
         assert_eq!(
@@ -7383,32 +7421,39 @@ mod tests {
             2
         );
 
-        let page_file = module
+        let page_projection_file = module
             .read(
                 &context(),
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: created.page_id.clone(),
-                        file_kind: LibraryPageFileKind::MetaYaml,
+                        file_kind: LibraryPageProjectionFileKind::MetaYaml,
                         prepare: None,
                     },
                 },
             )
             .expect("read keyed Page metadata");
-        let LibraryReadValue::PageFile { value: page_file } = page_file.value else {
+        let LibraryReadValue::PageProjectionFile {
+            value: page_projection_file,
+        } = page_projection_file.value
+        else {
             panic!("Page file projection")
         };
-        assert_eq!(page_file.version, 2);
-        assert_eq!(page_file.page_key.as_deref(), Some("LAB-1"));
+        assert_eq!(page_projection_file.version, 2);
+        assert_eq!(page_projection_file.page_key.as_deref(), Some("LAB-1"));
         assert_eq!(
-            page_file
+            page_projection_file
                 .metadata
                 .as_ref()
                 .and_then(|metadata| metadata.page_key.as_deref()),
             Some("LAB-1")
         );
-        assert!(page_file.content.contains("page_key: \"LAB-1\"\n"));
+        assert!(
+            page_projection_file
+                .content
+                .contains("page_key: \"LAB-1\"\n")
+        );
 
         let evidence = kernel
             .readers()
@@ -7657,15 +7702,15 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: created.page_id.clone(),
-                        file_kind: LibraryPageFileKind::MetaYaml,
+                        file_kind: LibraryPageProjectionFileKind::MetaYaml,
                         prepare: Some(LibraryPagePrepareKind::TitleSet),
                     },
                 },
             )
             .expect("prepare title mutation");
-        let LibraryReadValue::PageFile {
+        let LibraryReadValue::PageProjectionFile {
             value: prepared_title,
         } = prepared_title.value
         else {
@@ -8031,15 +8076,15 @@ mod tests {
                 &context(),
                 ModuleReadRequest {
                     contract_version: LIBRARY_CONTRACT_VERSION,
-                    read: LibraryRead::PageFile {
+                    read: LibraryRead::PageProjectionFile {
                         page_id: copied.page_id.clone(),
-                        file_kind: LibraryPageFileKind::MetaYaml,
+                        file_kind: LibraryPageProjectionFileKind::MetaYaml,
                         prepare: Some(LibraryPagePrepareKind::PageDelete),
                     },
                 },
             )
             .expect("prepare delete before move");
-        let LibraryReadValue::PageFile { value: before_move } = before_move.value else {
+        let LibraryReadValue::PageProjectionFile { value: before_move } = before_move.value else {
             panic!("Page file")
         };
         let stale_delete_etag = before_move.validators.page_etag.expect("Page ETag");

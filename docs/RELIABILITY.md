@@ -177,6 +177,24 @@ replacement, publishes all-or-nothing, rotates the Store epoch, and relaunches
 Electron. Old outboxes, checkpoints, Awareness, and cursors cannot replay across
 that epoch.
 
+### Page File blobs
+
+Page File bytes use a publish-before-reference protocol owned by Core. A bounded
+stream is hashed into a private same-directory staging file, fsynced, published
+without replacement under a content-addressed immutable name, and revalidated
+before Core returns an opaque prepared receipt. The receipt is bound to Store
+epoch, Project, operation identity, hash, size, and expiry. Only the matching
+Page File manifest mutation may consume it. Consequently a failed metadata
+commit can leave reclaimable unreferenced bytes, but a committed File version
+cannot point to bytes that were never published.
+
+Whole-Store backup copies the immutable asset tree under the existing snapshot
+lease. Restore verifies every retained Page File version's managed blob size and
+SHA-256 before installation. Blob garbage collection computes reachability from
+live and retained File versions plus unexpired receipts, takes the destructive
+side of the snapshot lease, and rechecks the Store coordinate before unlinking;
+backup and GC therefore cannot race a reachable blob out of the closure.
+
 Maintenance has one canonical coordinator for integrity, compaction, retention,
 collection, and vacuum. It never rewrites immutable receipts/history or removes
 pinned revisions. Block collection uses version-fenced current projections and

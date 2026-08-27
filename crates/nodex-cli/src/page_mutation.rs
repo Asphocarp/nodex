@@ -8,7 +8,7 @@ use nodex_core_contracts::document::{
     OwnedDocumentIntent,
 };
 use nodex_core_contracts::library::{
-    LibraryPageFileKind, LibraryPageFileProjection, LibraryRead, LibraryReadValue,
+    LibraryPageProjectionFile, LibraryPageProjectionFileKind, LibraryRead, LibraryReadValue,
 };
 use nodex_core_contracts::{
     CoreErrorCode, ModuleApplyRequest, StoreEpoch, VersionedModuleContract,
@@ -286,16 +286,16 @@ enum SemanticWrite {
 }
 
 impl SemanticWrite {
-    fn file_kind(&self) -> LibraryPageFileKind {
+    fn file_kind(&self) -> LibraryPageProjectionFileKind {
         match self {
-            Self::Title { .. } => LibraryPageFileKind::MetaYaml,
+            Self::Title { .. } => LibraryPageProjectionFileKind::MetaYaml,
             Self::Patch(_)
             | Self::Insert { .. }
             | Self::Replace { .. }
             | Self::BlockInsert { .. }
             | Self::BlockUpdate { .. }
             | Self::BlockMove { .. }
-            | Self::BlockDelete { .. } => LibraryPageFileKind::BodyNestedMarkdown,
+            | Self::BlockDelete { .. } => LibraryPageProjectionFileKind::BodyNestedMarkdown,
         }
     }
 
@@ -355,7 +355,7 @@ impl SemanticWrite {
         }
     }
 
-    fn preflight(&self, snapshot: &LibraryPageFileProjection) -> Result<(), CliError> {
+    fn preflight(&self, snapshot: &LibraryPageProjectionFile) -> Result<(), CliError> {
         let Self::Patch(patch) = self else {
             return Ok(());
         };
@@ -528,17 +528,17 @@ fn read_page_file(
     client: &CoreClient,
     project_id: &str,
     page_id: &str,
-    file_kind: LibraryPageFileKind,
-) -> Result<LibraryPageFileProjection, CliError> {
+    file_kind: LibraryPageProjectionFileKind,
+) -> Result<LibraryPageProjectionFile, CliError> {
     let snapshot = unwrap_library(client.library_read(
         Some(project_id),
-        LibraryRead::PageFile {
+        LibraryRead::PageProjectionFile {
             page_id: page_id.to_owned(),
             file_kind,
             prepare: None,
         },
     ))?;
-    let LibraryReadValue::PageFile { value } = snapshot.value else {
+    let LibraryReadValue::PageProjectionFile { value } = snapshot.value else {
         return Err(CliError::new(
             CliErrorCode::Internal,
             "Core returned the wrong Page file snapshot",

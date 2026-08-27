@@ -7,6 +7,7 @@ use super::nfm::{NfmBlock, NfmInlineContent, parse_page_deep_link};
 
 const MAX_REFERENCE_DISPLAY_HINT_LENGTH: usize = 512;
 const NODEX_ASSET_SCHEME: &str = "nodex://assets/";
+const NODEX_FILE_SCHEME: &str = "nodex://files/";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -91,6 +92,8 @@ pub struct BlockDocumentAssetReference {
     pub kind: BlockDocumentAssetKind,
     pub source: String,
     pub managed_file_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -347,6 +350,7 @@ fn append_asset_reference(
         kind,
         source: source.to_owned(),
         managed_file_name: parse_asset_source(source),
+        file_id: parse_page_file_source(source),
     });
 }
 
@@ -377,6 +381,20 @@ pub(crate) fn parse_asset_source(source: &str) -> Option<String> {
         .bytes()
         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
         .then_some(decoded)
+}
+
+pub(crate) fn parse_page_file_source(source: &str) -> Option<String> {
+    let file_id = source.strip_prefix(NODEX_FILE_SCHEME)?;
+    if file_id.is_empty()
+        || file_id.len() > MAX_BLOCK_ID_LENGTH
+        || file_id.trim() != file_id
+        || file_id.contains('/')
+        || file_id.contains('%')
+        || file_id.chars().any(char::is_control)
+    {
+        return None;
+    }
+    Some(file_id.to_owned())
 }
 
 fn percent_decode(input: &str) -> Option<String> {

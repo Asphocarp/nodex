@@ -1151,6 +1151,7 @@ fn seal_canvas_mutation(
             ]),
             page_create: None,
             page_copy: None,
+            page_files: None,
             canvas_mutation: Some(canvas_mutation),
             block_transfer: None,
             block_transfer_undo: None,

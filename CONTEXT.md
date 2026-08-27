@@ -58,7 +58,8 @@ copy, relocation, or migration may reuse it.
 
 A Page is a document-bearing Block. Page has no separate storage identity: Page
 ID is Block ID. Every Page owns exactly one Document containing its
-collaborative rich title and body.
+collaborative rich title and body, and may directly own Files whose exact bytes
+must survive independently of body placement.
 
 A Page key such as `LAB-13` is a human- and Agent-readable secondary locator,
 not Page identity. An enabled Database owns the prefix, monotonic counter, and
@@ -109,6 +110,29 @@ never moves it or creates/reactivates membership.
 
 `Card` is not a domain alias. It may be used only for a visual presentation
 such as `BoardCard` or a generic request-card component.
+
+### Page File
+
+A Page File is an exact-format durable resource directly owned by one Page. It
+has stable File identity and one Page-relative logical path; rename and content
+replacement preserve identity, while Page copy creates new File identity.
+_Avoid_: Artifact, attachment as ownership, Data Source Files Property.
+
+A child Page owns its own Files. Parent Page Files never flatten descendant
+Files; recursive ownership is composed through the existing Page parent tree.
+
+### File placement
+
+A File placement is an image or attachment occurrence in the owning Page's
+Document. It references stable File identity and never becomes ownership;
+removing a placement leaves the File intact.
+_Avoid_: Asset URI as File identity.
+
+### Logical folder
+
+A Logical folder is a presentation derived from Page File path prefixes. It has
+no durable identity, Properties, history, lifecycle, or access policy.
+_Avoid_: Folder Page, Subpage as folder.
 
 ### Document
 
@@ -390,8 +414,9 @@ Database. All foreign resources require either an explicit grant or a bounded
 Agent consent overlay.
 
 Database closure includes owned Data Sources, hosted Views, Source-parented
-Pages, nested Pages, owned Documents, and assets. Page closure includes nested
-Pages, physically nested Databases, Documents, and assets. Closure never follows
+Pages, nested Pages, owned Documents, direct Files, and assets. Page closure
+includes nested Pages, physically nested Databases, Documents, direct Files,
+and assets. Closure never follows
 `pageRef`, relation, linked View, mention, backlink, or ordinary link edges.
 Canvas closure includes its owned scene Document and managed assets. A
 Page-parented Canvas inherits the host Page grant and has no independent grant.
@@ -539,6 +564,7 @@ state is rejected rather than replayed.
 | Profile → Library                                                          | `profiles` and `libraries`                                               |
 | Block identity, type, lifecycle, Library, and parent                       | `blocks` plus typed placement detail                                     |
 | Page title and body                                                        | Page Document (`yjs`)                                                    |
+| Page File identity, logical path, versions, and provenance                 | Page Files manifest and immutable managed blobs                          |
 | Ordinary Block hierarchy/order/content                                     | nearest owning Document                                                  |
 | Canvas metadata and Library/Page placement                                 | `blocks`, `canvas_owners`, and the exact host shell or Library placement |
 | Canvas scene and managed-file metadata                                     | normalized Canvas scene rows                                             |
@@ -602,6 +628,10 @@ state is rejected rather than replayed.
     while historical assignments and retired-prefix ranges remain resolvable.
 25. A Linked chat never changes Page ownership, Database membership, Project
     resource grants, Agent authority, Session ownership, or Thread attachment.
+26. Every Page has one direct Files manifest. A live File has exactly one owner
+    Page and one portable logical path; logical folders have no identity.
+27. A Page File placement references stable File identity, remains non-owning,
+    and must resolve to a live File directly owned by the containing Page.
 
 ## Operation semantics
 
@@ -639,16 +669,18 @@ semantic commands create immediate linked revisions. Named/restore revisions
 are pinned; unpinned retention is deterministic recent/hourly/daily.
 
 Page History combines content revisions with property, Data Source, lifecycle,
-and relocation activity. Reading recreates the registered semantic Document and
-derives NFM preview. Restore pins current state and applies selected semantic
-state as a new forward mutation.
+relocation, and Page File version activity. Reading recreates the registered
+semantic Document and derives NFM preview. Document and File restores both
+append new forward semantic states rather than rewinding history.
 
 ### Move and copy
 
 Moving within one Document is one engine transaction; cross-Document movement
-uses relocation. Moving Page changes shell/parent only and preserves its owned
-Document. Moving into/out of a Source changes active membership atomically and
-leaves old Source values dormant. Copy allocates a fresh ownership closure.
+uses relocation and clones referenced Files into the target Page. Moving Page
+changes shell/parent only and preserves its owned Document and File identities.
+Moving into/out of a Source changes active membership atomically and leaves old
+Source values dormant. Copy allocates a fresh ownership closure, including new
+File identities whose immutable bytes may be deduplicated.
 Changing Source or View within one Database preserves the Page-key assignment.
 Cross-Database movement allocates or reuses the target assignment while
 retaining the source key as a historical locator; copy receives a fresh Page

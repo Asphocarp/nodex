@@ -21,6 +21,8 @@ import type {
   LibraryApplyResult,
   LibraryRead,
   LibraryReadSnapshot,
+  PageFileBlobBytes,
+  PreparedPageFileBlob,
   OwnedDocumentApplyInput,
   OwnedDocumentApplyResult,
   OwnedDocumentRead,
@@ -176,6 +178,15 @@ export class FakeCoreClient implements CoreClientPort {
   readonly automationApplyOptions: Array<CoreRequestOptions | undefined> = [];
   readonly reads: LibraryRead[] = [];
   readonly applies: LibraryApplyInput[] = [];
+  readonly preparedPageFileBlobs: Array<{
+    readonly operationId: string;
+    readonly bytes: Uint8Array;
+  }> = [];
+  readonly readPageFileBlobs: Array<{
+    readonly pageId: string;
+    readonly fileId: string;
+    readonly version?: number;
+  }> = [];
   readonly databaseReads: DatabaseRead[] = [];
   readonly databaseApplies: DatabaseApplyInput[] = [];
   readonly workspaceReads: ProjectWorkspaceRead[] = [];
@@ -199,6 +210,8 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #automationReadResults: AutomationReadSnapshot[] = [];
   readonly #automationApplyResults: AutomationApplyResult[] = [];
   readonly #applyResults: LibraryApplyResult[] = [];
+  readonly #preparedPageFileBlobResults: PreparedPageFileBlob[] = [];
+  readonly #pageFileBlobReadResults: PageFileBlobBytes[] = [];
   readonly #databaseReadResults: DatabaseReadSnapshot[] = [];
   readonly #databaseApplyResults: DatabaseApplyResult[] = [];
   readonly #workspaceReadResults: ProjectWorkspaceReadSnapshot[] = [];
@@ -245,6 +258,14 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueApply(result: ApplyFixtureInput<LibraryApplyResult>): void {
     this.#applyResults.push(normalizeApplyFixture(result));
+  }
+
+  enqueuePreparedPageFileBlob(result: PreparedPageFileBlob): void {
+    this.#preparedPageFileBlobResults.push(result);
+  }
+
+  enqueuePageFileBlobRead(result: PageFileBlobBytes): void {
+    this.#pageFileBlobReadResults.push(result);
   }
 
   enqueueDatabaseRead(result: DatabaseReadSnapshot): void {
@@ -345,6 +366,27 @@ export class FakeCoreClient implements CoreClientPort {
     this.applies.push(input);
     const result = this.#applyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Library apply");
+    return result;
+  }
+
+  async preparePageFileBlob(input: {
+    readonly operationId: string;
+    readonly bytes: Uint8Array;
+  }): Promise<PreparedPageFileBlob> {
+    this.preparedPageFileBlobs.push(input);
+    const result = this.#preparedPageFileBlobResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Prepared Page File Blob");
+    return result;
+  }
+
+  async readPageFileBlob(input: {
+    readonly pageId: string;
+    readonly fileId: string;
+    readonly version?: number;
+  }): Promise<PageFileBlobBytes> {
+    this.readPageFileBlobs.push(input);
+    const result = this.#pageFileBlobReadResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Page File Blob read");
     return result;
   }
 

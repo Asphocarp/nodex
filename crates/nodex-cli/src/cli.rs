@@ -193,6 +193,106 @@ pub enum PageCommand {
     Move(PageMoveArgs),
     Duplicate(PageDuplicateArgs),
     Delete(PageDeleteArgs),
+    File(PageFileArgs),
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageFileArgs {
+    #[command(subcommand)]
+    pub command: PageFileCommand,
+}
+
+#[derive(Clone, Debug, PartialEq, Subcommand)]
+pub enum PageFileCommand {
+    /// List Files directly owned by one Page.
+    List(PageFileListArgs),
+    /// Read current or historical exact bytes.
+    Read(PageFileReadArgs),
+    /// Create a File, or replace the File currently at the same logical path.
+    Put(PageFilePutArgs),
+    /// Change a File's Page-relative logical path without changing its identity.
+    Rename(PageFileRenameArgs),
+    /// Delete an unreferenced File while retaining its version history.
+    Delete(PageFileDeleteArgs),
+    /// List immutable versions of one File.
+    Versions(PageFileVersionsArgs),
+    /// Restore a retained version as a new current version.
+    Restore(PageFileRestoreArgs),
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageFileListArgs {
+    pub page: String,
+    #[arg(long, value_name = "OPAQUE_CURSOR")]
+    pub after: Option<String>,
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
+    pub limit: Option<u32>,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageFileReadArgs {
+    pub page: String,
+    #[arg(long, value_name = "FILE_ID_OR_LOGICAL_PATH")]
+    pub file: String,
+    #[arg(long)]
+    pub version: Option<i64>,
+    #[arg(long, default_value = "-", value_name = "PATH_OR_DASH")]
+    pub output: PathBuf,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageFilePutArgs {
+    pub page: String,
+    #[arg(long, value_name = "PAGE_RELATIVE_PATH")]
+    pub path: String,
+    #[arg(long = "from", value_name = "PATH_OR_DASH")]
+    pub source: PathBuf,
+    #[arg(long, value_name = "MIME_TYPE")]
+    pub mime: Option<String>,
+    #[command(flatten)]
+    pub mutation: MutationArgs,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageFileRenameArgs {
+    pub page: String,
+    #[arg(long, value_name = "FILE_ID_OR_LOGICAL_PATH")]
+    pub file: String,
+    #[arg(long = "to", value_name = "PAGE_RELATIVE_PATH")]
+    pub path: String,
+    #[command(flatten)]
+    pub mutation: MutationArgs,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageFileDeleteArgs {
+    pub page: String,
+    #[arg(long, value_name = "FILE_ID_OR_LOGICAL_PATH")]
+    pub file: String,
+    #[command(flatten)]
+    pub mutation: MutationArgs,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageFileVersionsArgs {
+    pub page: String,
+    #[arg(long, value_name = "FILE_ID_OR_LOGICAL_PATH")]
+    pub file: String,
+    #[arg(long, value_name = "OPAQUE_CURSOR")]
+    pub after: Option<String>,
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
+    pub limit: Option<u32>,
+}
+
+#[derive(Clone, Debug, Args, PartialEq)]
+pub struct PageFileRestoreArgs {
+    pub page: String,
+    #[arg(long, value_name = "FILE_ID_OR_LOGICAL_PATH")]
+    pub file: String,
+    #[arg(long)]
+    pub version: i64,
+    #[command(flatten)]
+    pub mutation: MutationArgs,
 }
 
 #[derive(Clone, Debug, Args, PartialEq)]
@@ -749,6 +849,70 @@ mod tests {
         let unbounded =
             Cli::try_parse_from(["nodex", "view", "query", "@view-1", "--limit", "201"])
                 .expect_err("View windows are bounded");
+        assert_eq!(unbounded.kind(), clap::error::ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn page_file_commands_keep_owner_and_exact_file_coordinates_explicit() {
+        let put = Cli::try_parse_from([
+            "nodex",
+            "--json",
+            "page",
+            "file",
+            "put",
+            "@page-1",
+            "--path",
+            "references/api.md",
+            "--from",
+            "./api.md",
+            "--idempotency-key",
+            "page-file-put-1",
+        ])
+        .expect("Page File put");
+        let Command::Page(PageArgs {
+            command:
+                PageCommand::File(PageFileArgs {
+                    command: PageFileCommand::Put(arguments),
+                }),
+        }) = put.command
+        else {
+            panic!("expected Page File put command")
+        };
+        assert_eq!(arguments.page, "@page-1");
+        assert_eq!(arguments.path, "references/api.md");
+        assert_eq!(arguments.source, PathBuf::from("./api.md"));
+        assert_eq!(
+            arguments.mutation.idempotency_key.as_deref(),
+            Some("page-file-put-1")
+        );
+
+        let rename = Cli::try_parse_from([
+            "nodex",
+            "page",
+            "file",
+            "rename",
+            "@page-1",
+            "--file",
+            "references/api.md",
+            "--to",
+            "references/v2.md",
+        ])
+        .expect("Page File rename");
+        let Command::Page(PageArgs {
+            command:
+                PageCommand::File(PageFileArgs {
+                    command: PageFileCommand::Rename(arguments),
+                }),
+        }) = rename.command
+        else {
+            panic!("expected Page File rename command")
+        };
+        assert_eq!(arguments.file, "references/api.md");
+        assert_eq!(arguments.path, "references/v2.md");
+
+        let unbounded =
+            Cli::try_parse_from(["nodex", "page", "file", "list", "@page-1", "--limit", "101"])
+                .expect_err("Page File list windows are bounded");
         assert_eq!(unbounded.kind(), clap::error::ErrorKind::ValueValidation);
     }
 

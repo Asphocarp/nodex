@@ -73,6 +73,17 @@ Blocks, Documents, owner registries, search/asset projections, and top-level pla
 
 Every active Page has exactly one `library | page | data_source` parent. Page ownership forms an acyclic forest. References, mentions, backlinks, relations, and Views are non-owning and do not expand authorization. Page ID is Block ID; Document identity remains independent.
 
+Each Page also directly owns an independent Files manifest. A File's stable
+identity and logical path belong to the Library Module; exact bytes are
+immutable Core-managed blobs shared by content hash. Body attachments and
+images are non-owning placements, and child Page Files compose through the
+existing Page ownership forest instead of flattening into their parent. Core is
+the only publication, authorization, metadata-mutation, copy/transfer, backup,
+restore, and garbage-collection authority. Electron and CLI may stream or save
+explicit user-selected bytes but never receive the physical blob locator. See
+[Page Files Behavior](docs/product-specs/page-files-behavior.md) and
+[ADR 0051](docs/adr/0051-page-owned-files-and-immutable-bytes.md).
+
 A top-level Canvas is authorized by an explicit generic Canvas resource grant. An embedded Canvas inherits the host Page authorization path and has no active direct Canvas grant. Moving between Library and Page placement changes that grant state atomically with the host shell and never rehomes content.
 
 A Database is a Container Block that owns Data Sources and Views. An enabled Database also owns one Page-key namespace whose Library-unique prefix history, monotonic counter, and immutable Database/Page assignments provide readable aliases without replacing Page UUID identity. A Data Source owns its schema, row Pages, typed Property values, and query identity. Its fixed `task_parent` Property is a cardinality-one self-Relation; the Relation value header is the sole concurrency authority for roots and children, and only its edge may carry sibling rank. The resulting task hierarchy is non-owning presentation semantics: it never changes a Page's structural `library | page | data_source` parent or expands authorization, and there is no parallel hierarchy graph. A View targets exactly one Data Source and owns its durable Filter, default presentation, and one View-global Page rank. Per-View Profile state has two independent authorities: a revision-fenced sparse Board/List presentation and a bounded set of typed collapsed occurrences changed by idempotent per-target patches. Their delivery atoms require View read authorization but carry no shared projection coordinates, so personal changes converge without invalidating View content or Library navigation. The Rust Database Module contract owns the complete typed View-definition grammar and a tagged read command for each legal coordinate set; identity descriptors are typed responses, so unrelated target, window, group, and Page-ID parameters cannot cross the Core boundary. SQLite schema markers and canonical JSON are storage encoding, while Main and renderer casing and compatibility envelopes are explicit mechanical projections rather than parallel domain grammars. Core normalizes the effective presentation against Data Source capabilities before query execution. Board consumes its established bounded group windows. List consumes a dedicated grouped/nested occurrence window whose complete Core projection graph also resolves semantic subtree moves; the renderer's bounded window owns pointer preview only and never expands descendants or composes authoritative Property, Parent, or order writes. Both layouts commit through the same atomic Database boundary. These identities are independent and must not be derived from one another.
@@ -83,7 +94,7 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 
 | State or capability                                                                         | Authoritative owner                                                          | Adapters and projections                                                                                                                         |
 | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Blocks, Pages, Databases, Documents, search, schedules, history                             | Rust Core Library/Database/Document Modules                                  | Core protocol, Electron adapters, CLI, renderer read models                                                                                      |
+| Blocks, Pages, Page Files, Databases, Documents, search, schedules, history                 | Rust Core Library/Database/Document Modules                                  | Core protocol, authenticated blob streams, Electron adapters, CLI, renderer read models                                                          |
 | Page-key namespaces, prefix history, counters, assignments                                  | Rust Core Database Module                                                    | Contextual Core projections; CLI/Agent resolve to canonical Page IDs                                                                             |
 | Projects, Sessions, durable Thread metadata and queued follow-up ledgers, execution context | Rust Core Workspace Module                                                   | Electron Codex/Workspace services and renderer queries                                                                                           |
 | Page–Project Session Linked chat edges and Page Chat activity                               | Rust Core Workspace Module                                                   | Effect Main Workspace Adapter; renderer joins bounded Workspace activity with Database Page windows                                              |
@@ -96,7 +107,7 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 | Window layout, owner-scoped Scenes, surface placement                                       | Renderer Window Session App aggregate                                        | Main persists the revisioned Window Session catalog                                                                                              |
 | Browser guests, Browser Use, MCP App guests, Terminal processes                             | Electron Main runtime aggregates                                             | Renderer holds presentation descriptors and host bindings only                                                                                   |
 | Git repository live-read state                                                              | Main-owned Git worker process                                                | Typed Main/preload bus and renderer query projections                                                                                            |
-| Preferences, managed asset files, logs, OS notifications                                    | Electron Main local/OS adapters                                              | Typed renderer IPC; managed assets use immutable atomic publication outside backup staging, while durable semantic content remains in Core       |
+| Preferences, non-Page managed assets, logs, OS notifications                                | Electron Main local/OS adapters                                              | Typed renderer IPC; Page File blobs remain Core-owned, while Canvas/queue and other host assets retain their narrow existing adapters            |
 
 Authority and presentation are intentionally different. A Scene can present a Page without owning it; a renderer cache can display a Database window without authorizing it; Main can relay a Codex document without becoming its visible writer.
 
@@ -110,14 +121,14 @@ The Rust Core is the only production authority allowed to open `nodex.db`, write
 
 Core is organized as six deep semantic Modules under [`crates/nodex-core/src`](crates/nodex-core/src):
 
-| Module         | Owns                                                                             |
-| -------------- | -------------------------------------------------------------------------------- |
-| Library        | Block/Page ownership, navigation, lifecycle, content operations, resource grants |
-| Database       | Database/Data Source/View schema, values, relations, queries, and positions      |
-| Document       | Yrs/Canvas persistence, live sync, versions, and content operations              |
-| Workspace      | Projects, Sessions, Threads, sidebar order, execution metadata                   |
-| Automation     | Definitions, schedules, runs, occurrences, reminders, leases                     |
-| Administration | Backup, restore, retention, compaction, Store maintenance                        |
+| Module         | Owns                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------- |
+| Library        | Block/Page ownership, Files, navigation, lifecycle, content operations, resource grants |
+| Database       | Database/Data Source/View schema, values, relations, queries, and positions             |
+| Document       | Yrs/Canvas persistence, live sync, versions, and content operations                     |
+| Workspace      | Projects, Sessions, Threads, sidebar order, execution metadata                          |
+| Automation     | Definitions, schedules, runs, occurrences, reminders, leases                            |
+| Administration | Backup, restore, retention, compaction, Store maintenance                               |
 
 Each public Module presents a versioned `read`/`apply` Interface in [`crates/nodex-core-contracts`](crates/nodex-core-contracts). Module implementations may share internal transaction kernels, but callers may not compose several public Module calls and call the result atomic. A cross-domain mutation belongs to one owning aggregate that invokes the other domain seams inside the same Core transaction.
 

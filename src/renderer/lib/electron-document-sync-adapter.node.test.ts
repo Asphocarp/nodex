@@ -87,6 +87,7 @@ describe("createElectronDocumentSyncAdapter", () => {
         event: {
           kind: "library_changed",
           database_ids: [],
+          page_file_manifest_revisions: {},
           page_ids: [],
           parent_keys: [],
           view_ids: [],

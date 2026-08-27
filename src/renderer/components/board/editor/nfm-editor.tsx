@@ -97,10 +97,12 @@ import { resolveSendBlockSelection } from "./send-block-selection";
 import { PasteResourceDialog } from "./paste-resource-dialog";
 import {
   canMaterializePasteResourceItems,
+  clipboardFilesFromDataTransfer,
   continueInlinePaste,
   capturePasteResourceTarget,
   createPastedTextUploadFile,
   derivePastedTextAttachmentName,
+  insertBlocksAtPasteTarget,
   insertAttachmentsAtPasteTarget,
   normalizeClipboardFileDraftItems,
   shouldPromptForOversizedText,
@@ -167,6 +169,7 @@ import {
   uploadImageAsset,
   uploadResourceAsset,
 } from "@/lib/assets";
+import { parsePageFileSource } from "../../../../shared/page-files";
 import { useSpellcheck } from "@/lib/use-spellcheck";
 import { useTheme } from "@/lib/use-theme";
 import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
@@ -208,6 +211,8 @@ import {
   prepareNfmEditorStructuralMutation,
   type NfmEditorStructuralMutationRuntime,
 } from "./nfm-editor-relocation";
+import { createPageFilePlacementRuntime, PageFileRuntimeProvider } from "./page-file-runtime";
+import { subscribePageFileChanges } from "@/lib/page-library-changes";
 import { moveNfmBlocks } from "@/lib/nfm-block-move-runtime";
 import {
   hasTypedOwnerBlock,
@@ -450,6 +455,7 @@ function NfmEditorInstance({
   const [replaceQuery, setReplaceQuery] = useState("");
   const [searchMatchCount, setSearchMatchCount] = useState(0);
   const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
+  const [pageFileAuthorityVersion, setPageFileAuthorityVersion] = useState(0);
   const [pasteResourceDialog, setPasteResourceDialog] = useState<PasteResourceDialogState | null>(
     null,
   );
@@ -519,6 +525,31 @@ function NfmEditorInstance({
     };
   }, [executionProjectId, projectName]);
 
+  useEffect(() => {
+    const pageId = sourcePageContext?.pageId;
+    setPageFileAuthorityVersion(0);
+    if (!pageId) return;
+    return subscribePageFileChanges(pageId, (revision) => {
+      setPageFileAuthorityVersion((version) => Math.max(version, revision));
+    });
+  }, [sourcePageContext?.pageId]);
+
+  const sourcePageId = sourcePageContext?.pageId;
+  const pageFileRuntime = useMemo(
+    () =>
+      sourcePageId
+        ? createPageFilePlacementRuntime(
+            {
+              contentAccessContext,
+              pageId: sourcePageId,
+              storeEpoch: source.storeEpoch,
+            },
+            pageFileAuthorityVersion,
+          )
+        : null,
+    [contentAccessContext, pageFileAuthorityVersion, source.storeEpoch, sourcePageId],
+  );
+
   const threadMentionSummaryMap = useMemo(
     () => ({
       ...projectThreadSummaryMap,
@@ -531,13 +562,44 @@ function NfmEditorInstance({
     threadMentionSummaryMapRef.current = threadMentionSummaryMap;
   }, [threadMentionSummaryMap]);
 
-  const uploadFile = useCallback(async (file: File) => uploadImageAsset(file), []);
+  const uploadFile = useCallback(
+    async (file: File) =>
+      pageFileRuntime
+        ? pageFileRuntime.upload({ kind: "browser_file", file })
+        : uploadImageAsset(file),
+    [pageFileRuntime],
+  );
 
-  const resolveFileUrl = useCallback(async (source: string) => {
-    const displayUrl = resolveAssetSourceToDisplayUrl(source);
-    if (!displayUrl) throw new Error("Managed image path is unavailable");
-    return displayUrl;
-  }, []);
+  const resolveFileUrl = useCallback(
+    async (fileSource: string) => {
+      if (parsePageFileSource(fileSource)) {
+        if (!pageFileRuntime) throw new Error("Page File authority is unavailable");
+        return pageFileRuntime.readImageDataUrl(fileSource);
+      }
+      const displayUrl = resolveAssetSourceToDisplayUrl(fileSource);
+      if (!displayUrl) throw new Error("Managed image path is unavailable");
+      return displayUrl;
+    },
+    [pageFileRuntime],
+  );
+
+  const openImagePreview = useCallback(
+    (input: { readonly source: string; readonly alt: string }) => {
+      if (!parsePageFileSource(input.source)) {
+        setImagePreview(resolveImagePreview(input));
+        return;
+      }
+      if (!pageFileRuntime) {
+        toast.danger("Page File authority is unavailable");
+        return;
+      }
+      void pageFileRuntime
+        .readImageDataUrl(input.source)
+        .then((source) => setImagePreview({ source, alt: input.alt }))
+        .catch(() => toast.danger("Couldn’t preview image"));
+    },
+    [pageFileRuntime],
+  );
 
   const canvasCommandHandlersRef = useRef({
     duplicate: async (canvasBlockId: string) => {
@@ -1140,7 +1202,14 @@ function NfmEditorInstance({
         for (const item of pasteResourceDialog.items) {
           if (item.kind === "text") {
             const text = pasteResourceDialog.textPayload ?? "";
-            const uploaded = await uploadResourceAsset(createPastedTextUploadFile(text));
+            const upload = createPastedTextUploadFile(text);
+            const uploaded = pageFileRuntime
+              ? {
+                  source: await pageFileRuntime.upload({ kind: "browser_file", file: upload }),
+                  mimeType: upload.type || "text/plain",
+                  bytes: upload.size,
+                }
+              : await uploadResourceAsset(upload);
             nextAttachments.push({
               type: "attachment",
               props: {
@@ -1173,7 +1242,17 @@ function NfmEditorInstance({
           }
 
           if (item.path) {
-            const uploaded = await materializeLocalResourceAsset(item.path);
+            const uploaded = pageFileRuntime
+              ? {
+                  source: await pageFileRuntime.upload(
+                    { kind: "local_path", path: item.path },
+                    item.name,
+                  ),
+                  name: item.name,
+                  mimeType: item.mimeType ?? "application/octet-stream",
+                  bytes: item.bytes,
+                }
+              : await materializeLocalResourceAsset(item.path);
             nextAttachments.push({
               type: "attachment",
               props: {
@@ -1182,7 +1261,7 @@ function NfmEditorInstance({
                 source: uploaded.source,
                 name: uploaded.name,
                 mimeType: uploaded.mimeType,
-                bytes: uploaded.bytes,
+                ...(typeof uploaded.bytes === "number" ? { bytes: uploaded.bytes } : {}),
                 origin: item.path,
               },
             });
@@ -1190,7 +1269,14 @@ function NfmEditorInstance({
           }
 
           if (item.file) {
-            const uploaded = await uploadResourceAsset(item.file);
+            const uploaded = pageFileRuntime
+              ? {
+                  source: await pageFileRuntime.upload({ kind: "browser_file", file: item.file }),
+                  name: item.file.name,
+                  mimeType: item.file.type || "application/octet-stream",
+                  bytes: item.file.size,
+                }
+              : await uploadResourceAsset(item.file);
             nextAttachments.push({
               type: "attachment",
               props: {
@@ -1241,6 +1327,7 @@ function NfmEditorInstance({
       editor,
       pasteResourceDialog,
       pasteResourcePending,
+      pageFileRuntime,
       structuralEditingController,
     ],
   );
@@ -1283,6 +1370,37 @@ function NfmEditorInstance({
     pasteResourcePending,
     structuralEditingController,
   ]);
+
+  const handleImagePaste = useCallback(
+    async (files: File[], target: ReturnType<typeof capturePasteResourceTarget>) => {
+      if (!editor || files.length === 0) return;
+      try {
+        const blocks = await Promise.all(
+          files.map(async (file) => ({
+            id: createUuidV7(),
+            type: "image" as const,
+            props: {
+              url: await uploadFile(file),
+              name: file.name,
+            },
+            children: [],
+          })),
+        );
+        const typedTarget = hasTypedOwnerType([
+          ...(target.selectedBlockTypes ?? []),
+          target.currentBlockType ?? null,
+        ]);
+        const inserted = typedTarget
+          ? (structuralEditingController.current?.handleBlockPaste(blocks) ?? false)
+          : insertBlocksAtPasteTarget(editor, target, blocks);
+        if (!inserted) throw new Error("Couldn’t insert the pasted image at the original position");
+      } catch (error) {
+        console.error("Failed to paste image", error);
+        toast.danger(error instanceof Error ? error.message : "Couldn’t paste image");
+      }
+    },
+    [editor, structuralEditingController, uploadFile],
+  );
 
   // Handle content changes from the editor
   const handleChange = useCallback(() => {
@@ -1345,10 +1463,17 @@ function NfmEditorInstance({
       }
 
       const plainText = event.clipboardData.getData("text/plain");
-      const clipboardFiles = Array.from(event.clipboardData.files ?? []);
-      const nonImageFiles = clipboardFiles.filter((file) => !file.type.startsWith("image/"));
+      const clipboardFiles = clipboardFilesFromDataTransfer(event.clipboardData);
+      const onlyImageFiles =
+        clipboardFiles.length > 0 && clipboardFiles.every((file) => file.type.startsWith("image/"));
+      if (onlyImageFiles) {
+        event.preventDefault();
+        event.stopPropagation();
+        void handleImagePaste(clipboardFiles, capturePasteResourceTarget(editor));
+        return;
+      }
       const inspectedItems = window.api?.inspectPasteClipboard?.().items ?? [];
-      const shouldPromptFiles = inspectedItems.length > 0 || nonImageFiles.length > 0;
+      const shouldPromptFiles = inspectedItems.length > 0 || clipboardFiles.length > 0;
       const shouldPromptText =
         !shouldPromptFiles &&
         shouldPromptForOversizedText(
@@ -1379,8 +1504,8 @@ function NfmEditorInstance({
         return;
       }
 
-      if (nonImageFiles.length > 0) {
-        const fileDraftItems = normalizeClipboardFileDraftItems(nonImageFiles);
+      if (clipboardFiles.length > 0) {
+        const fileDraftItems = normalizeClipboardFileDraftItems(clipboardFiles);
         setPasteResourceDialog({
           target,
           items: fileDraftItems,
@@ -1406,7 +1531,7 @@ function NfmEditorInstance({
     return () => {
       container.removeEventListener("paste", handlePasteCapture, true);
     };
-  }, [editor, pasteResourceDialog, pasteResourceSettings, serializeEditorToNfm]);
+  }, [editor, handleImagePaste, pasteResourceDialog, pasteResourceSettings, serializeEditorToNfm]);
 
   useEffect(() => {
     if (!editor) return;
@@ -1579,7 +1704,7 @@ function NfmEditorInstance({
             event.preventDefault();
             event.stopPropagation();
             if (!event.repeat) {
-              setImagePreview(resolveImagePreview(focusedImage));
+              openImagePreview(focusedImage);
             }
             return;
           }
@@ -1639,7 +1764,7 @@ function NfmEditorInstance({
           !event.shiftKey &&
           handleNfmEditorModEnterShortcut(editor as unknown as ModifyShortcutEditor, {
             openImagePreview: (preview) => {
-              setImagePreview(resolveImagePreview(preview));
+              openImagePreview(preview);
             },
             openThread: onOpenCodexThread ? handleOpenThreadSectionThread : undefined,
             sendThreadSectionByBlockId: handleSendThreadSectionByBlockId,
@@ -1699,6 +1824,7 @@ function NfmEditorInstance({
     handleOpenThreadSectionThread,
     navigateSearch,
     onOpenCodexThread,
+    openImagePreview,
     openSearch,
     searchOpen,
     structuralEditingController,
@@ -1734,14 +1860,14 @@ function NfmEditorInstance({
 
       event.preventDefault();
       event.stopPropagation();
-      setImagePreview(resolveImagePreview(preview));
+      openImagePreview(preview);
     };
 
     el.addEventListener("dblclick", handleDoubleClick, true);
     return () => {
       el.removeEventListener("dblclick", handleDoubleClick, true);
     };
-  }, [editor]);
+  }, [editor, openImagePreview]);
 
   const handleConvertDividerToThreadSection = useCallback(
     (blockId: string) => {
@@ -2612,110 +2738,41 @@ function NfmEditorInstance({
       : `${Math.max(searchActiveIndex + 1, 0)} of ${searchMatchCount}`;
 
   return (
-    <div
-      ref={containerRef}
-      className={cn("nfm-editor relative", className)}
-      spellCheck={spellcheck}
-      onClickCapture={handleEditorClickCapture}
-      onFocusCapture={(event) => {
-        if (!editorSession) return;
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-        const ownsFocusedEditor =
-          target.closest(".nfm-editor") === event.currentTarget &&
-          target.closest(".ProseMirror") !== null;
-        editorSession.setShouldRestoreEditorFocus(ownsFocusedEditor);
-      }}
-      onBlurCapture={(event) => {
-        if (!editorSession) return;
-        const nextTarget = event.relatedTarget;
-        if (!(nextTarget instanceof Element)) return;
-        if (!nextTarget.closest('[data-page-stage-surface="true"]')) return;
-        editorSession.setShouldRestoreEditorFocus(false);
-      }}
-    >
-      {searchOpen && (
-        <div className="pointer-events-none sticky top-2 z-90 flex h-0 justify-end">
-          <div className="pointer-events-auto mr-2 flex w-fit max-w-[calc(100%-16px)] flex-col self-start overflow-hidden rounded-lg border border-(--border) bg-(--card) shadow-[0_2px_8px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.32),0_0_0_1px_rgba(255,255,255,0.06)]">
-            <div className="flex items-center gap-0.5 px-1 py-1 pl-2.5">
-              <input
-                ref={searchInputRef}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    navigateSearch(e.shiftKey ? "prev" : "next", true);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    closeSearch();
-                  }
-                }}
-                placeholder="Find in description"
-                className="h-7 min-w-35 flex-1 border-none bg-transparent text-base/7 font-normal text-(--foreground) outline-none placeholder:text-(--foreground-tertiary)"
-                aria-label="Find in description"
-              />
-              <span className="min-w-10.5 pr-0.5 text-right text-xs whitespace-nowrap text-(--foreground-tertiary) tabular-nums">
-                {activeMatchLabel}
-              </span>
-              <NodexTooltip tooltipContent="Previous match (Shift+Enter)">
-                <button
-                  type="button"
-                  className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
-                  onClick={() => navigateSearch("prev", true)}
-                  aria-label="Previous match"
-                >
-                  <ChevronUp className="size-4" />
-                </button>
-              </NodexTooltip>
-              <NodexTooltip tooltipContent="Next match (Enter)">
-                <button
-                  type="button"
-                  className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
-                  onClick={() => navigateSearch("next", true)}
-                  aria-label="Next match"
-                >
-                  <ChevronDown className="size-4" />
-                </button>
-              </NodexTooltip>
-              <NodexTooltip
-                tooltipContent={replaceOpen ? "Hide replace controls" : "Show replace controls"}
-              >
-                <button
-                  type="button"
-                  className={cn(
-                    "inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)",
-                    replaceOpen && "text-(--accent-blue)",
-                  )}
-                  onClick={() => setReplaceOpen((prev) => !prev)}
-                  aria-label={replaceOpen ? "Hide replace controls" : "Show replace controls"}
-                >
-                  <Repeat2 className="size-4" />
-                </button>
-              </NodexTooltip>
-              <NodexTooltip tooltipContent="Close (Esc)">
-                <button
-                  type="button"
-                  className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
-                  onClick={closeSearch}
-                  aria-label="Close find"
-                >
-                  <X className="size-4" />
-                </button>
-              </NodexTooltip>
-            </div>
-
-            {replaceOpen && (
-              <div className="flex items-center gap-0.5 px-1 py-1 pt-0 pl-2.5">
+    <PageFileRuntimeProvider value={pageFileRuntime}>
+      <div
+        ref={containerRef}
+        className={cn("nfm-editor relative", className)}
+        spellCheck={spellcheck}
+        onClickCapture={handleEditorClickCapture}
+        onFocusCapture={(event) => {
+          if (!editorSession) return;
+          const target = event.target;
+          if (!(target instanceof Element)) return;
+          const ownsFocusedEditor =
+            target.closest(".nfm-editor") === event.currentTarget &&
+            target.closest(".ProseMirror") !== null;
+          editorSession.setShouldRestoreEditorFocus(ownsFocusedEditor);
+        }}
+        onBlurCapture={(event) => {
+          if (!editorSession) return;
+          const nextTarget = event.relatedTarget;
+          if (!(nextTarget instanceof Element)) return;
+          if (!nextTarget.closest('[data-page-stage-surface="true"]')) return;
+          editorSession.setShouldRestoreEditorFocus(false);
+        }}
+      >
+        {searchOpen && (
+          <div className="pointer-events-none sticky top-2 z-90 flex h-0 justify-end">
+            <div className="pointer-events-auto mr-2 flex w-fit max-w-[calc(100%-16px)] flex-col self-start overflow-hidden rounded-lg border border-(--border) bg-(--card) shadow-[0_2px_8px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.32),0_0_0_1px_rgba(255,255,255,0.06)]">
+              <div className="flex items-center gap-0.5 px-1 py-1 pl-2.5">
                 <input
-                  value={replaceQuery}
-                  onChange={(e) => setReplaceQuery(e.target.value)}
+                  ref={searchInputRef}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      replaceCurrentMatch();
+                      navigateSearch(e.shiftKey ? "prev" : "next", true);
                       return;
                     }
                     if (e.key === "Escape") {
@@ -2723,181 +2780,252 @@ function NfmEditorInstance({
                       closeSearch();
                     }
                   }}
-                  placeholder="Replace with..."
-                  className="h-7 min-w-30 flex-1 border-none bg-transparent text-base/7 font-normal text-(--foreground) outline-none placeholder:text-(--foreground-tertiary)"
-                  aria-label="Replace text"
+                  placeholder="Find in description"
+                  className="h-7 min-w-35 flex-1 border-none bg-transparent text-base/7 font-normal text-(--foreground) outline-none placeholder:text-(--foreground-tertiary)"
+                  aria-label="Find in description"
                 />
-                <div className="ml-auto flex items-center gap-1">
-                  <NodexTooltip tooltipContent="Replace all matches">
-                    <button
-                      type="button"
-                      className="h-6.5 cursor-pointer rounded-sm border-none bg-transparent px-2 text-xs font-medium whitespace-nowrap text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
-                      onClick={replaceAllMatches}
-                      aria-label="Replace all matches"
-                    >
-                      Replace all
-                    </button>
-                  </NodexTooltip>
-                  <NodexTooltip tooltipContent="Replace current match">
-                    <button
-                      type="button"
-                      className="inline-flex h-6.5 cursor-pointer items-center gap-1 rounded-sm border-none bg-(--accent-blue) px-2.5 text-xs font-medium whitespace-nowrap text-white transition-filter duration-swift ease-out hover:brightness-110"
-                      onClick={replaceCurrentMatch}
-                      aria-label="Replace current match"
-                    >
-                      Replace
-                      <CornerDownLeft className="size-4" />
-                    </button>
-                  </NodexTooltip>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      {threadSectionPicker ? (
-        <NodexPopover
-          open
-          onOpenChange={(open) => {
-            if (!open) closeThreadSectionPicker();
-          }}
-        >
-          <NodexPopoverAnchor>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none fixed"
-              style={{
-                left: threadSectionPicker.anchorRect.left,
-                top: threadSectionPicker.anchorRect.top,
-                width: threadSectionPicker.anchorRect.width,
-                height: threadSectionPicker.anchorRect.height,
-              }}
-            />
-          </NodexPopoverAnchor>
-          <NodexPopoverContent
-            side="right"
-            align="center"
-            sideOffset={6}
-            aria-label="Send thread section to chat"
-            finalFocus={false}
-            className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
-            style={{ width: 330 }}
-          >
-            <NfmSendToThreadMenuSurface
-              projectId={executionProjectId}
-              threadItems={sendToThreadItems}
-              threadItemsLoading={sendToThreadItemsLoading}
-              projectNameById={sendToThreadProjectNameById}
-              preferredTarget={threadSectionPicker.preferredTarget}
-              onAccept={handleAcceptThreadSectionPicker}
-              onClose={closeThreadSectionPicker}
-              showModeSelector={false}
-            />
-          </NodexPopoverContent>
-        </NodexPopover>
-      ) : null}
-      {headingRail?.portalElement ? (
-        <NfmHeadingNavigationRail
-          editor={editor as unknown as Parameters<typeof NfmHeadingNavigationRail>[0]["editor"]}
-          scrollContainerRef={headingRail.scrollContainerRef}
-          portalElement={headingRail.portalElement}
-          isActivePanelTab={isActivePanelTab}
-        />
-      ) : null}
-      <BlockReferenceRuntimeProvider value={blockReferenceRuntimeValue}>
-        <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
-          <ThreadMentionRuntimeProvider value={threadMentionRuntimeValue}>
-            <NfmEditorContextMenu editor={editor} onBeforePaste={handlePendingStructuralPaste}>
-              <NfmTextActionMenuRuntimeProvider value={textActionMenuRuntimeValue}>
-                <NfmSideMenuRuntimeProvider value={sideMenuRuntimeValue}>
-                  <BlockNoteView
-                    editor={editor}
-                    onEditorViewMount={() => {
-                      editorSession?.restoreSelection(editor);
-                    }}
-                    onEditorViewUnmount={() => {
-                      editorSession?.captureSelection(editor);
-                    }}
-                    editable
-                    onChange={handleChange}
-                    theme={themeMode}
-                    attributionTooltip={false}
-                    formattingToolbar={false}
-                    emojiPicker={false}
-                    linkToolbar={false}
-                    slashMenu={false}
-                    sideMenu={false}
-                    tableHandles={false}
-                    data-theming-css-variables-demo
+                <span className="min-w-10.5 pr-0.5 text-right text-xs whitespace-nowrap text-(--foreground-tertiary) tabular-nums">
+                  {activeMatchLabel}
+                </span>
+                <NodexTooltip tooltipContent="Previous match (Shift+Enter)">
+                  <button
+                    type="button"
+                    className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                    onClick={() => navigateSearch("prev", true)}
+                    aria-label="Previous match"
                   >
-                    <NfmSideMenuOpenProvider>
-                      <NfmCodeBlockController />
-                      <NfmSideMenuShortcutController />
-                      <SideMenuController
-                        sideMenu={customSideMenu}
-                        floatingUIOptions={sideMenuFloatingOptions}
-                      />
-                      <NfmFormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
-                      <NfmLinkToolbarController
-                        linkToolbar={renderLinkToolbar}
-                        floatingUIOptions={{
-                          useTransitionStylesProps: {
-                            duration: 0,
-                          },
-                          useTransitionStatusProps: {
-                            duration: 0,
-                          },
-                        }}
-                      />
-                      <NfmSlashMenu executionProjectId={executionProjectId} allowPageReferences />
-                      <NfmTableHandlesController />
-                    </NfmSideMenuOpenProvider>
-                  </BlockNoteView>
-                </NfmSideMenuRuntimeProvider>
-              </NfmTextActionMenuRuntimeProvider>
-            </NfmEditorContextMenu>
-          </ThreadMentionRuntimeProvider>
-        </ThreadSectionRuntimeProvider>
-      </BlockReferenceRuntimeProvider>
-      {pasteResourceDialog && (
-        <PasteResourceDialog
-          open={pasteResourceDialog !== null}
-          state={pasteResourceDialog}
-          pending={pasteResourcePending}
-          error={pasteResourceError}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) {
-              closePasteResourceDialog();
-            }
-          }}
-          finalFocus={() => {
-            restoreEditorFocus();
-            return false;
-          }}
-          onChooseMode={(mode) => {
-            void handlePasteResourceChoice(mode);
-          }}
-          onContinueInline={handleContinuePasteInline}
-        />
-      )}
-      {imagePreview && (
-        <ImagePreviewDialog
-          open={imagePreview !== null}
-          src={imagePreview.source}
-          alt={imagePreview.alt}
-          allowLocalPath
-          closeOnSpace
-          finalFocus={() => {
-            restoreEditorFocus();
-            return false;
-          }}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) {
-              setImagePreview(null);
-            }
-          }}
-        />
-      )}
-    </div>
+                    <ChevronUp className="size-4" />
+                  </button>
+                </NodexTooltip>
+                <NodexTooltip tooltipContent="Next match (Enter)">
+                  <button
+                    type="button"
+                    className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                    onClick={() => navigateSearch("next", true)}
+                    aria-label="Next match"
+                  >
+                    <ChevronDown className="size-4" />
+                  </button>
+                </NodexTooltip>
+                <NodexTooltip
+                  tooltipContent={replaceOpen ? "Hide replace controls" : "Show replace controls"}
+                >
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)",
+                      replaceOpen && "text-(--accent-blue)",
+                    )}
+                    onClick={() => setReplaceOpen((prev) => !prev)}
+                    aria-label={replaceOpen ? "Hide replace controls" : "Show replace controls"}
+                  >
+                    <Repeat2 className="size-4" />
+                  </button>
+                </NodexTooltip>
+                <NodexTooltip tooltipContent="Close (Esc)">
+                  <button
+                    type="button"
+                    className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                    onClick={closeSearch}
+                    aria-label="Close find"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </NodexTooltip>
+              </div>
+
+              {replaceOpen && (
+                <div className="flex items-center gap-0.5 px-1 py-1 pt-0 pl-2.5">
+                  <input
+                    value={replaceQuery}
+                    onChange={(e) => setReplaceQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        replaceCurrentMatch();
+                        return;
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        closeSearch();
+                      }
+                    }}
+                    placeholder="Replace with..."
+                    className="h-7 min-w-30 flex-1 border-none bg-transparent text-base/7 font-normal text-(--foreground) outline-none placeholder:text-(--foreground-tertiary)"
+                    aria-label="Replace text"
+                  />
+                  <div className="ml-auto flex items-center gap-1">
+                    <NodexTooltip tooltipContent="Replace all matches">
+                      <button
+                        type="button"
+                        className="h-6.5 cursor-pointer rounded-sm border-none bg-transparent px-2 text-xs font-medium whitespace-nowrap text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                        onClick={replaceAllMatches}
+                        aria-label="Replace all matches"
+                      >
+                        Replace all
+                      </button>
+                    </NodexTooltip>
+                    <NodexTooltip tooltipContent="Replace current match">
+                      <button
+                        type="button"
+                        className="inline-flex h-6.5 cursor-pointer items-center gap-1 rounded-sm border-none bg-(--accent-blue) px-2.5 text-xs font-medium whitespace-nowrap text-white transition-filter duration-swift ease-out hover:brightness-110"
+                        onClick={replaceCurrentMatch}
+                        aria-label="Replace current match"
+                      >
+                        Replace
+                        <CornerDownLeft className="size-4" />
+                      </button>
+                    </NodexTooltip>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {threadSectionPicker ? (
+          <NodexPopover
+            open
+            onOpenChange={(open) => {
+              if (!open) closeThreadSectionPicker();
+            }}
+          >
+            <NodexPopoverAnchor>
+              <span
+                aria-hidden="true"
+                className="pointer-events-none fixed"
+                style={{
+                  left: threadSectionPicker.anchorRect.left,
+                  top: threadSectionPicker.anchorRect.top,
+                  width: threadSectionPicker.anchorRect.width,
+                  height: threadSectionPicker.anchorRect.height,
+                }}
+              />
+            </NodexPopoverAnchor>
+            <NodexPopoverContent
+              side="right"
+              align="center"
+              sideOffset={6}
+              aria-label="Send thread section to chat"
+              finalFocus={false}
+              className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
+              style={{ width: 330 }}
+            >
+              <NfmSendToThreadMenuSurface
+                projectId={executionProjectId}
+                threadItems={sendToThreadItems}
+                threadItemsLoading={sendToThreadItemsLoading}
+                projectNameById={sendToThreadProjectNameById}
+                preferredTarget={threadSectionPicker.preferredTarget}
+                onAccept={handleAcceptThreadSectionPicker}
+                onClose={closeThreadSectionPicker}
+                showModeSelector={false}
+              />
+            </NodexPopoverContent>
+          </NodexPopover>
+        ) : null}
+        {headingRail?.portalElement ? (
+          <NfmHeadingNavigationRail
+            editor={editor as unknown as Parameters<typeof NfmHeadingNavigationRail>[0]["editor"]}
+            scrollContainerRef={headingRail.scrollContainerRef}
+            portalElement={headingRail.portalElement}
+            isActivePanelTab={isActivePanelTab}
+          />
+        ) : null}
+        <BlockReferenceRuntimeProvider value={blockReferenceRuntimeValue}>
+          <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
+            <ThreadMentionRuntimeProvider value={threadMentionRuntimeValue}>
+              <NfmEditorContextMenu editor={editor} onBeforePaste={handlePendingStructuralPaste}>
+                <NfmTextActionMenuRuntimeProvider value={textActionMenuRuntimeValue}>
+                  <NfmSideMenuRuntimeProvider value={sideMenuRuntimeValue}>
+                    <BlockNoteView
+                      editor={editor}
+                      onEditorViewMount={() => {
+                        editorSession?.restoreSelection(editor);
+                      }}
+                      onEditorViewUnmount={() => {
+                        editorSession?.captureSelection(editor);
+                      }}
+                      editable
+                      onChange={handleChange}
+                      theme={themeMode}
+                      attributionTooltip={false}
+                      formattingToolbar={false}
+                      emojiPicker={false}
+                      linkToolbar={false}
+                      slashMenu={false}
+                      sideMenu={false}
+                      tableHandles={false}
+                      data-theming-css-variables-demo
+                    >
+                      <NfmSideMenuOpenProvider>
+                        <NfmCodeBlockController />
+                        <NfmSideMenuShortcutController />
+                        <SideMenuController
+                          sideMenu={customSideMenu}
+                          floatingUIOptions={sideMenuFloatingOptions}
+                        />
+                        <NfmFormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
+                        <NfmLinkToolbarController
+                          linkToolbar={renderLinkToolbar}
+                          floatingUIOptions={{
+                            useTransitionStylesProps: {
+                              duration: 0,
+                            },
+                            useTransitionStatusProps: {
+                              duration: 0,
+                            },
+                          }}
+                        />
+                        <NfmSlashMenu executionProjectId={executionProjectId} allowPageReferences />
+                        <NfmTableHandlesController />
+                      </NfmSideMenuOpenProvider>
+                    </BlockNoteView>
+                  </NfmSideMenuRuntimeProvider>
+                </NfmTextActionMenuRuntimeProvider>
+              </NfmEditorContextMenu>
+            </ThreadMentionRuntimeProvider>
+          </ThreadSectionRuntimeProvider>
+        </BlockReferenceRuntimeProvider>
+        {pasteResourceDialog && (
+          <PasteResourceDialog
+            open={pasteResourceDialog !== null}
+            state={pasteResourceDialog}
+            pending={pasteResourcePending}
+            error={pasteResourceError}
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen) {
+                closePasteResourceDialog();
+              }
+            }}
+            finalFocus={() => {
+              restoreEditorFocus();
+              return false;
+            }}
+            onChooseMode={(mode) => {
+              void handlePasteResourceChoice(mode);
+            }}
+            onContinueInline={handleContinuePasteInline}
+          />
+        )}
+        {imagePreview && (
+          <ImagePreviewDialog
+            open={imagePreview !== null}
+            src={imagePreview.source}
+            alt={imagePreview.alt}
+            allowLocalPath
+            closeOnSpace
+            finalFocus={() => {
+              restoreEditorFocus();
+              return false;
+            }}
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen) {
+                setImagePreview(null);
+              }
+            }}
+          />
+        )}
+      </div>
+    </PageFileRuntimeProvider>
   );
 }

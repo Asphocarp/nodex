@@ -19,6 +19,8 @@ import { attachmentInlineContentConfig } from "../../../../shared/block-document
 import { formatAttachmentBytes } from "./attachment-chip-format";
 import { getAttachmentTooltipLines } from "./attachment-chip-tooltip";
 import type { ManagedFolderManifest } from "../../../../shared/managed-assets";
+import { parsePageFileSource } from "../../../../shared/page-files";
+import { usePageFilePlacementRuntime, type PageFilePlacementRuntime } from "./page-file-runtime";
 
 type AttachmentPreview =
   | { type: "text"; content: string; truncated: boolean }
@@ -71,17 +73,35 @@ function getAttachmentIcon(kind: AttachmentProps["kind"], mode: AttachmentProps[
   return PageIcon;
 }
 
-function canPreviewAttachment(props: AttachmentProps): boolean {
+function canPreviewAttachment(
+  props: AttachmentProps,
+  pageFileRuntime: PageFilePlacementRuntime | null,
+): boolean {
   if (props.mode !== "materialized") return false;
-  if (!props.source.startsWith("nodex://assets/")) return false;
+  const isOwnedFile = parsePageFileSource(props.source) !== null;
+  if (!props.source.startsWith("nodex://assets/") && !(isOwnedFile && pageFileRuntime))
+    return false;
   if (props.kind === "folder" || props.kind === "text") return true;
   return isTextLikeMimeType(props.mimeType ?? "");
 }
 
-async function loadAttachmentPreview(props: AttachmentProps): Promise<AttachmentPreview> {
-  if (!canPreviewAttachment(props)) return null;
+async function loadAttachmentPreview(
+  props: AttachmentProps,
+  pageFileRuntime: PageFilePlacementRuntime | null,
+): Promise<AttachmentPreview> {
+  if (!canPreviewAttachment(props, pageFileRuntime)) return null;
 
   try {
+    if (parsePageFileSource(props.source) && pageFileRuntime) {
+      const file = await pageFileRuntime.read(props.source);
+      const previewLimit = 64 * 1024;
+      const previewBytes = file.bytes.subarray(0, previewLimit);
+      return {
+        type: "text",
+        content: new TextDecoder().decode(previewBytes),
+        truncated: file.bytes.byteLength > previewLimit,
+      };
+    }
     const preview = await readManagedAssetPreview({
       source: props.source,
       kind: props.kind === "folder" ? "folder" : "text",
@@ -108,15 +128,17 @@ function AttachmentPopover({
   const [preview, setPreview] = useState<AttachmentPreview>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const { opener } = useFileLinkOpener();
+  const pageFileRuntime = usePageFilePlacementRuntime();
+  const isOwnedFile = parsePageFileSource(props.source) !== null;
 
   useEffect(() => {
-    if (!canPreviewAttachment(props)) return;
+    if (!canPreviewAttachment(props, pageFileRuntime)) return;
 
     let cancelled = false;
     const run = async () => {
       setPreviewLoading(true);
       try {
-        const nextPreview = await loadAttachmentPreview(props);
+        const nextPreview = await loadAttachmentPreview(props, pageFileRuntime);
         if (!cancelled) {
           setPreview(nextPreview);
         }
@@ -131,18 +153,23 @@ function AttachmentPopover({
     return () => {
       cancelled = true;
     };
-  }, [props]);
+  }, [pageFileRuntime, props]);
 
   const sizeLabel = getAttachmentSizeLabel(props);
-  const stateLabel = props.mode === "materialized" ? "Saved in Nodex" : "Linked to the original";
+  const stateLabel = isOwnedFile
+    ? "Owned by this Page"
+    : props.mode === "materialized"
+      ? "Saved in Nodex"
+      : "Linked to the original";
   const hasOriginal =
     typeof props.origin === "string" && props.origin.length > 0 && props.origin !== props.source;
 
   const resolvePrimaryPath = useCallback(async (): Promise<string | null> => {
     if (props.mode === "link") return props.source || null;
+    if (isOwnedFile) return null;
     const resolved = await invoke("asset:resolve-path", props.source);
     return typeof resolved === "string" && resolved.trim().length > 0 ? resolved : null;
-  }, [props.mode, props.source]);
+  }, [isOwnedFile, props.mode, props.source]);
 
   const openPath = useCallback(
     async (path: string, nextOpener = opener) => {
@@ -193,15 +220,25 @@ function AttachmentPopover({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <AttachmentActionButton label="Open" icon={ArrowUpRight} onClick={onPrimaryOpen} />
-        <AttachmentActionButton label="Reveal" icon={FolderOpenIcon} onClick={handleReveal} />
-        <AttachmentActionButton label="Copy path" icon={Copy} onClick={handleCopyPath} />
+        <AttachmentActionButton
+          label={isOwnedFile ? "Save" : "Open"}
+          icon={ArrowUpRight}
+          onClick={onPrimaryOpen}
+        />
+        {!isOwnedFile && (
+          <AttachmentActionButton label="Reveal" icon={FolderOpenIcon} onClick={handleReveal} />
+        )}
+        <AttachmentActionButton
+          label={isOwnedFile ? "Copy reference" : "Copy path"}
+          icon={Copy}
+          onClick={handleCopyPath}
+        />
         {hasOriginal && (
           <AttachmentActionButton label="Open original" icon={Link2} onClick={handleOpenOriginal} />
         )}
       </div>
 
-      {canPreviewAttachment(props) && (
+      {canPreviewAttachment(props, pageFileRuntime) && (
         <div className="mt-3 overflow-hidden rounded-lg bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_8%,transparent)]">
           {previewLoading && (
             <div className="px-3 py-2 text-xs text-[color-mix(in_srgb,var(--foreground)_54%,transparent)]">
@@ -245,14 +282,14 @@ function AttachmentPopover({
         </div>
       )}
 
-      {!canPreviewAttachment(props) && props.mode === "link" && (
+      {!canPreviewAttachment(props, pageFileRuntime) && props.mode === "link" && (
         <p className="mt-3 text-xs text-[color-mix(in_srgb,var(--foreground)_52%,transparent)]">
           This attachment keeps a link to the original location instead of copying its contents into
           Nodex.
         </p>
       )}
 
-      {!canPreviewAttachment(props) && props.mode === "materialized" && (
+      {!canPreviewAttachment(props, pageFileRuntime) && props.mode === "materialized" && (
         <p className="mt-3 text-xs text-[color-mix(in_srgb,var(--foreground)_52%,transparent)]">
           This saved attachment doesn&apos;t have an inline preview.
         </p>
@@ -288,23 +325,54 @@ function AttachmentActionButton({
 
 function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: AttachmentProps } }) {
   const [open, setOpen] = useState(false);
-  const label = useMemo(() => getAttachmentLabel(inlineContent.props), [inlineContent.props]);
-  const tooltipLines = getAttachmentTooltipLines(inlineContent.props);
   const fileReferenceRouter = useFileReferenceRouter();
+  const pageFileRuntime = usePageFilePlacementRuntime();
+  const isOwnedFile = parsePageFileSource(inlineContent.props.source) !== null;
+  const [ownedLogicalPath, setOwnedLogicalPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isOwnedFile || !pageFileRuntime) return;
+    let active = true;
+    void pageFileRuntime
+      .metadata(inlineContent.props.source)
+      .then((file) => {
+        if (active) setOwnedLogicalPath(file.logicalPath);
+      })
+      .catch(() => {
+        if (active) setOwnedLogicalPath(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [inlineContent.props.source, isOwnedFile, pageFileRuntime]);
+  const resolvedProps = useMemo<AttachmentProps>(() => {
+    if (!ownedLogicalPath) return inlineContent.props;
+    return {
+      ...inlineContent.props,
+      name: ownedLogicalPath.split("/").at(-1) || inlineContent.props.name,
+    };
+  }, [inlineContent.props, ownedLogicalPath]);
+  const label = useMemo(() => getAttachmentLabel(resolvedProps), [resolvedProps]);
+  const tooltipLines = getAttachmentTooltipLines(resolvedProps);
 
   const resolvePrimaryPath = useCallback(async (): Promise<string | null> => {
     if (inlineContent.props.mode === "link") return inlineContent.props.source || null;
+    if (isOwnedFile) return null;
     const resolved = await invoke("asset:resolve-path", inlineContent.props.source);
     return typeof resolved === "string" && resolved.trim().length > 0 ? resolved : null;
-  }, [inlineContent.props.mode, inlineContent.props.source]);
+  }, [inlineContent.props.mode, inlineContent.props.source, isOwnedFile]);
 
   const handlePrimaryOpen = useCallback(async () => {
+    if (isOwnedFile) {
+      if (!pageFileRuntime) return;
+      await pageFileRuntime.save(resolvedProps.source, resolvedProps.name || "File");
+      return;
+    }
     const path = await resolvePrimaryPath();
     if (!path) return;
     await fileReferenceRouter.open({ path }, { title: label });
-  }, [fileReferenceRouter, label, resolvePrimaryPath]);
+  }, [fileReferenceRouter, isOwnedFile, label, pageFileRuntime, resolvePrimaryPath, resolvedProps]);
 
-  const Icon = getAttachmentIcon(inlineContent.props.kind, inlineContent.props.mode);
+  const Icon = getAttachmentIcon(resolvedProps.kind, resolvedProps.mode);
 
   return (
     <NodexPopover open={open} onOpenChange={setOpen}>
@@ -340,7 +408,7 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
             >
               <Icon className={inlineTintedChipIconClassName} />
               <span className={cn(inlineTintedChipLabelClassName, "blend truncate")}>{label}</span>
-              {inlineContent.props.mode === "link" && (
+              {resolvedProps.mode === "link" && (
                 <Link2 className="-mr-0.5 ml-0.5 inline-block size-3.5 shrink-0 self-center" />
               )}
             </button>
@@ -349,7 +417,7 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
       </NodexTooltip>
 
       <NodexPopoverContent side="top" align="start" className="w-full" initialFocus={false}>
-        <AttachmentPopover props={inlineContent.props} onPrimaryOpen={handlePrimaryOpen} />
+        <AttachmentPopover props={resolvedProps} onPrimaryOpen={handlePrimaryOpen} />
       </NodexPopoverContent>
     </NodexPopover>
   );

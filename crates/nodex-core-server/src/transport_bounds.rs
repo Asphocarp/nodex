@@ -22,6 +22,8 @@ const MAX_JSON_OBJECT_FIELDS: usize = 4_096;
 const MAX_JSON_KEY_BYTES: usize = 256;
 const MAX_JSON_STRING_BYTES: usize = 1024 * 1024;
 const DOCUMENT_ROUTE_PREFIX: &str = "/core/v1/modules/document/";
+const PAGE_FILE_BLOB_ROUTE_PREFIX: &str = "/core/v1/page-files/blobs/";
+pub(crate) const BOUNDED_STREAM_HEADER: &str = "x-nodex-bounded-stream";
 
 #[derive(Serialize)]
 struct TransportError<'a> {
@@ -35,6 +37,12 @@ pub(crate) async fn enforce(mut request: Request, next: Next) -> Response {
         MAX_DOCUMENT_REQUEST_BYTES
     } else if request.uri().path().starts_with(DOCUMENT_ROUTE_PREFIX) {
         document_wire::MAX_DOCUMENT_FRAME_BYTES
+    } else if request
+        .uri()
+        .path()
+        .starts_with(PAGE_FILE_BLOB_ROUTE_PREFIX)
+    {
+        nodex_core_protocol::MAX_PAGE_FILE_BLOB_BYTES
     } else {
         MAX_JSON_REQUEST_BYTES
     };
@@ -71,7 +79,11 @@ pub(crate) async fn enforce(mut request: Request, next: Next) -> Response {
         request = Request::from_parts(parts, Body::from(bytes));
     }
 
-    let response = next.run(request).await;
+    let mut response = next.run(request).await;
+    if response.headers().contains_key(BOUNDED_STREAM_HEADER) {
+        response.headers_mut().remove(BOUNDED_STREAM_HEADER);
+        return response;
+    }
     let Some(limit) = response_limit(response.headers()) else {
         return response;
     };

@@ -21,11 +21,12 @@ fs2.workspace = true
 futures-core.workspace = true
 getrandom.workspace = true
 hex.workspace = true
+http-body-util.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

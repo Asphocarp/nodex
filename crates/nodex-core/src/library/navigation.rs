@@ -222,7 +222,69 @@ pub(super) fn read(
                 )?),
             })
         }
-        LibraryRead::PageFile {
+        LibraryRead::PageFiles {
+            page_id,
+            cursor,
+            limit,
+            include_deleted,
+        } => {
+            require_bound_page_read_access(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_id,
+            )?;
+            Ok(LibraryReadValue::PageFiles {
+                value: Box::new(super::page_files::list(
+                    connection,
+                    library_id,
+                    &page_id,
+                    cursor.as_deref(),
+                    limit,
+                    include_deleted.unwrap_or(false),
+                )?),
+            })
+        }
+        LibraryRead::PageFileMetadata { page_id, file_id } => {
+            require_bound_page_read_access(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_id,
+            )?;
+            Ok(LibraryReadValue::PageFileMetadata {
+                value: Box::new(super::page_files::metadata(
+                    connection, library_id, &page_id, &file_id,
+                )?),
+            })
+        }
+        LibraryRead::PageFileVersions {
+            page_id,
+            file_id,
+            cursor,
+            limit,
+        } => {
+            require_bound_page_read_access(
+                connection,
+                library_id,
+                requesting_project_id,
+                requesting_adapter,
+                &page_id,
+            )?;
+            Ok(LibraryReadValue::PageFileVersions {
+                value: Box::new(super::page_files::versions(
+                    connection,
+                    library_id,
+                    &page_id,
+                    &file_id,
+                    cursor.as_deref(),
+                    limit,
+                )?),
+            })
+        }
+        LibraryRead::PageProjectionFile {
             page_id,
             file_kind,
             prepare,
@@ -234,12 +296,12 @@ pub(super) fn read(
                 requesting_adapter,
                 &page_id,
             )?;
-            Ok(LibraryReadValue::PageFile {
-                value: Box::new(super::page_projection::page_file(
+            Ok(LibraryReadValue::PageProjectionFile {
+                value: Box::new(super::page_projection::page_projection_file(
                     connection,
                     library_id,
                     store_epoch,
-                    super::page_projection::PageFileRequest {
+                    super::page_projection::PageProjectionFileRequest {
                         commit_head,
                         requesting_project_id,
                         page_id: &page_id,

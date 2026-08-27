@@ -22,9 +22,13 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use axum::body::to_bytes;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Query, Request, State};
-use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
+use axum::body::{Body, Bytes, to_bytes};
+use axum::extract::{
+    ConnectInfo, DefaultBodyLimit, Extension, Path as AxumPath, Query, Request, State,
+};
+use axum::http::header::{
+    AUTHORIZATION, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_NONE_MATCH,
+};
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, Sse};
@@ -32,6 +36,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use fs2::FileExt;
+use http_body_util::BodyExt as _;
 use nodex_core::ModuleWriterResult;
 use nodex_core::administration::StoreAdministrationModule;
 use nodex_core::automation::AutomationModule;
@@ -75,9 +80,10 @@ use nodex_core_protocol::{
     DatabaseReadResponse, EventEnvelope, EventReplayRequired, HandshakeRequest, HandshakeResponse,
     HealthDurationMetric, HealthResponse, LauncherKind, LibraryApplyRequest, LibraryApplyResponse,
     LibraryReadRequest, LibraryReadResponse, LocalMutationResolveRequest,
-    LocalMutationResolveResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
-    OwnedDocumentReadRequest, OwnedDocumentReadResponse, ProjectWorkspaceApplyRequest,
-    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
+    LocalMutationResolveResponse, MAX_PAGE_FILE_BLOB_BYTES, OwnedDocumentApplyRequest,
+    OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse,
+    PreparePageFileBlobQuery, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
+    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ReadPageFileBlobQuery,
     ResponseEnvelope, RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest,
     ShutdownResponse, ShutdownStatus, StoreAdministrationApplyRequest,
     StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
@@ -87,6 +93,7 @@ use nodex_core_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
 use tracing::Instrument;
@@ -124,6 +131,8 @@ static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 const INTERNAL_STARTUP_EVENTS_ENV: &str = "NODEX_INTERNAL_STARTUP_EVENTS_VERSION";
 const INTERNAL_STARTUP_EVENTS_VERSION: u32 = 1;
 const MIGRATION_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+const PREPARED_PAGE_FILE_BLOB_LIFETIME: Duration = Duration::from_secs(15 * 60);
+const PAGE_FILE_BLOB_CHUNK_BYTES: usize = 64 * 1024;
 
 fn report_internal_startup_event(event: CoreStartupEvent) {
     if std::env::var(INTERNAL_STARTUP_EVENTS_ENV).as_deref() != Ok("1") {
@@ -834,6 +843,318 @@ async fn library_read(
         })
         .await;
     Json(LibraryReadResponse(response_envelope(response)))
+}
+
+async fn prepare_page_file_blob(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    Query(query): Query<PreparePageFileBlobQuery>,
+    headers: HeaderMap,
+    request: Request,
+) -> Result<Json<nodex_core_contracts::library::LibraryPreparedPageFileBlob>, ApiError> {
+    let context = module_context(&state, &headers, &bound).map_err(api_core_error)?;
+    if context.project_id.is_none()
+        && !matches!(
+            context.adapter,
+            nodex_core_contracts::AdapterKind::ElectronHost
+                | nodex_core_contracts::AdapterKind::NativeCli
+                | nodex_core_contracts::AdapterKind::Test
+        )
+    {
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "Prepared Page File Blobs require a Project or trusted local Library authority",
+        ));
+    }
+    if headers
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .is_some_and(|length| length > MAX_PAGE_FILE_BLOB_BYTES as u64)
+    {
+        return Err(ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Page File Blob exceeds its byte bound",
+        ));
+    }
+    let gc_state = Arc::clone(&state);
+    state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Background, move || {
+            gc_state.library.collect_unreachable_page_file_blobs(100)
+        })
+        .await
+        .map_err(api_core_error)?;
+    let assets_root = state
+        .library
+        .page_file_blob_root()
+        .map_err(api_core_error)?;
+    let published = publish_page_file_blob(assets_root, request.into_body()).await?;
+    let receipt_id = format!(
+        "page-file-blob:{}",
+        random_hex(24).map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Prepared Blob identity failed: {error}"),
+            )
+        })?
+    );
+    let expires_at_unix_ms = SystemTime::now()
+        .checked_add(PREPARED_PAGE_FILE_BLOB_LIFETIME)
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Prepared Blob expiry is unavailable",
+            )
+        })?;
+    let request_state = Arc::clone(&state);
+    let operation_id = query.operation_id;
+    let expected_store_epoch = query.store_epoch;
+    let response = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            request_state.library.register_prepared_page_file_blob(
+                &context,
+                &expected_store_epoch,
+                &operation_id,
+                &receipt_id,
+                &published.content_hash,
+                &published.physical_asset_name,
+                published.byte_length,
+                expires_at_unix_ms,
+            )
+        })
+        .await
+        .map_err(api_core_error)?;
+    Ok(Json(response))
+}
+
+async fn read_page_file_blob(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+    AxumPath(file_id): AxumPath<String>,
+    Query(query): Query<ReadPageFileBlobQuery>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let context = module_context(&state, &headers, &bound).map_err(api_core_error)?;
+    let request_state = Arc::clone(&state);
+    let page_id = query.page_id;
+    let descriptor = state
+        .request_executor
+        .execute(&bound.id, &headers, RequestClass::Interactive, move || {
+            request_state.library.resolve_page_file_blob(
+                &context,
+                &page_id,
+                &file_id,
+                query.version,
+            )
+        })
+        .await
+        .map_err(api_core_error)?;
+    let etag = format!("\"{}\"", descriptor.blob_etag);
+    if headers
+        .get(IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
+    {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(ETAG, etag)
+            .header(CACHE_CONTROL, "private, no-cache")
+            .body(Body::empty())
+            .map_err(|error| {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Page File Blob response failed: {error}"),
+                )
+            });
+    }
+    let mut file = tokio::fs::File::open(&descriptor.physical_path)
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "Managed Page File Blob bytes are unavailable",
+            )
+        })?;
+    let stream = async_stream::stream! {
+        let mut buffer = vec![0_u8; PAGE_FILE_BLOB_CHUNK_BYTES];
+        loop {
+            match file.read(&mut buffer).await {
+                Ok(0) => break,
+                Ok(read) => yield Ok::<Bytes, io::Error>(Bytes::copy_from_slice(&buffer[..read])),
+                Err(error) => {
+                    yield Err::<Bytes, io::Error>(error);
+                    break;
+                }
+            }
+        }
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, descriptor.mime_type)
+        .header(CONTENT_LENGTH, descriptor.byte_length.to_string())
+        .header(ETAG, etag)
+        .header(CACHE_CONTROL, "private, no-cache")
+        .header(transport_bounds::BOUNDED_STREAM_HEADER, "page-file-blob")
+        .body(Body::from_stream(stream))
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Page File Blob response failed: {error}"),
+            )
+        })
+}
+
+struct PublishedPageFileBlob {
+    content_hash: String,
+    physical_asset_name: String,
+    byte_length: u64,
+}
+
+async fn publish_page_file_blob(
+    assets_root: PathBuf,
+    mut body: Body,
+) -> Result<PublishedPageFileBlob, ApiError> {
+    let staging_root = sibling_staging_root(&assets_root);
+    tokio::fs::create_dir_all(&assets_root)
+        .await
+        .and_then(|()| std::fs::set_permissions(&assets_root, fs::Permissions::from_mode(0o700)))
+        .map_err(blob_io_error)?;
+    tokio::fs::create_dir_all(&staging_root)
+        .await
+        .and_then(|()| std::fs::set_permissions(&staging_root, fs::Permissions::from_mode(0o700)))
+        .map_err(blob_io_error)?;
+    let temporary_name = format!(
+        ".page-file-{}.{}.tmp",
+        std::process::id(),
+        random_hex(16).map_err(blob_io_error)?
+    );
+    let temporary_path = staging_root.join(temporary_name);
+    let mut temporary = tokio::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary_path)
+        .await
+        .map_err(blob_io_error)?;
+    let result = async {
+        let mut hasher = Sha256::new();
+        let mut byte_length = 0_u64;
+        while let Some(frame) = body.frame().await {
+            let frame = frame.map_err(|_| {
+                ApiError::new(StatusCode::BAD_REQUEST, "Page File Blob body is invalid")
+            })?;
+            let Ok(bytes) = frame.into_data() else {
+                continue;
+            };
+            byte_length = byte_length.checked_add(bytes.len() as u64).ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Page File Blob exceeds its byte bound",
+                )
+            })?;
+            if byte_length > MAX_PAGE_FILE_BLOB_BYTES as u64 {
+                return Err(ApiError::new(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Page File Blob exceeds its byte bound",
+                ));
+            }
+            hasher.update(&bytes);
+            temporary.write_all(&bytes).await.map_err(blob_io_error)?;
+        }
+        temporary.sync_all().await.map_err(blob_io_error)?;
+        drop(temporary);
+        tokio::fs::set_permissions(&temporary_path, fs::Permissions::from_mode(0o600))
+            .await
+            .map_err(blob_io_error)?;
+        let content_hash = hex::encode(hasher.finalize());
+        let physical_asset_name = format!("page-file-{content_hash}.blob");
+        let target_path = assets_root.join(&physical_asset_name);
+        match tokio::fs::hard_link(&temporary_path, &target_path).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                verify_published_page_file_blob(&target_path, &content_hash, byte_length).await?;
+            }
+            Err(error) => return Err(blob_io_error(error)),
+        }
+        sync_directory(assets_root.clone()).await?;
+        verify_published_page_file_blob(&target_path, &content_hash, byte_length).await?;
+        Ok(PublishedPageFileBlob {
+            content_hash,
+            physical_asset_name,
+            byte_length,
+        })
+    }
+    .await;
+    let cleanup = tokio::fs::remove_file(&temporary_path).await;
+    if let Err(error) = cleanup
+        && error.kind() != io::ErrorKind::NotFound
+        && result.is_ok()
+    {
+        return Err(blob_io_error(error));
+    }
+    result
+}
+
+async fn sync_directory(path: PathBuf) -> Result<(), ApiError> {
+    tokio::task::spawn_blocking(move || fs::File::open(path)?.sync_all())
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Page File Blob directory sync failed: {error}"),
+            )
+        })?
+        .map_err(blob_io_error)
+}
+
+async fn verify_published_page_file_blob(
+    path: &Path,
+    expected_hash: &str,
+    expected_length: u64,
+) -> Result<(), ApiError> {
+    let metadata = tokio::fs::symlink_metadata(path)
+        .await
+        .map_err(blob_io_error)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() != expected_length
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "Managed Page File Blob hash collision",
+        ));
+    }
+    let mut file = tokio::fs::File::open(path).await.map_err(blob_io_error)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; PAGE_FILE_BLOB_CHUNK_BYTES];
+    loop {
+        let read = file.read(&mut buffer).await.map_err(blob_io_error)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    if hex::encode(hasher.finalize()) != expected_hash {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "Managed Page File Blob hash collision",
+        ));
+    }
+    Ok(())
+}
+
+fn sibling_staging_root(assets_root: &Path) -> PathBuf {
+    let mut path = assets_root.as_os_str().to_os_string();
+    path.push(".staging");
+    PathBuf::from(path)
+}
+
+fn blob_io_error(error: io::Error) -> ApiError {
+    ApiError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("Page File Blob storage failed: {error}"),
+    )
 }
 
 async fn cancel_request(
@@ -2537,9 +2858,24 @@ fn router(state: Arc<ServerState>) -> Router {
             bind_connection,
         ))
         .layer(DefaultBodyLimit::max(MAX_DOCUMENT_REQUEST_BYTES));
+    let page_file_blob_routes = Router::new()
+        .route(
+            "/core/v1/page-files/blobs/prepare",
+            post(prepare_page_file_blob),
+        )
+        .route(
+            "/core/v1/page-files/blobs/{file_id}",
+            get(read_page_file_blob),
+        )
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&state),
+            bind_connection,
+        ))
+        .layer(DefaultBodyLimit::max(MAX_PAGE_FILE_BLOB_BYTES));
     infrastructure_routes
         .merge(connected_routes)
         .merge(document_routes)
+        .merge(page_file_blob_routes)
         .layer(middleware::from_fn(transport_bounds::enforce))
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),

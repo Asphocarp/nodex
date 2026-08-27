@@ -23,6 +23,7 @@ import { usePageStageCollapsedProperties } from "@/lib/use-page-stage-collapsed-
 import {
   contentAccessContextKey,
   projectIdFromContentAccessContext,
+  type ContentAccessContext,
 } from "../../../../shared/content-access-context";
 import type {
   PageStageMetadataMutationResult,
@@ -36,6 +37,8 @@ import {
 
 interface UsePageStageControllerResult {
   page: PageStageCorePage | null;
+  contentAccessContext: ContentAccessContext;
+  storeEpoch: string;
   hasDatabaseProperties: boolean;
   propertyControls: PageStagePropertyControls;
   title: string;
@@ -586,6 +589,8 @@ export function usePageStageController(
 
   return {
     page,
+    contentAccessContext,
+    storeEpoch: props.documentAuthority.descriptor.storeEpoch,
     hasDatabaseProperties: propertyControls.properties.length > 0,
     propertyControls,
     title,

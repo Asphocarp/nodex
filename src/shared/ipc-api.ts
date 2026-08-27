@@ -91,6 +91,18 @@ import type {
   LibraryModuleReadRequest,
   LibraryModuleReadResult,
 } from "./library-module";
+import type {
+  PageFileBytes,
+  PickPageFilesInput,
+  PickPageFilesResult,
+  PrepareDroppedPageFilesInput,
+  PrepareDroppedPageFilesResult,
+  PreparedPickedPageFile,
+  PreparePageFileInput,
+  ReadPageFileBytesInput,
+  SavePageFileInput,
+  SavePageFileResult,
+} from "./page-files";
 import type { DatabaseChangeEvent } from "./database-events";
 import type {
   PageLifecycleMutationCommandResultV2,
@@ -690,6 +702,26 @@ export interface IpcApi {
   "library-module:apply": {
     args: [accessContext: ContentAccessContext, request: LibraryModuleApplyRequest];
     result: LibraryModuleApplyResult;
+  };
+  "page-files:pick-and-prepare": {
+    args: [accessContext: ContentAccessContext, input: PickPageFilesInput];
+    result: PickPageFilesResult;
+  };
+  "page-files:prepare-local-drop": {
+    args: [accessContext: ContentAccessContext, input: PrepareDroppedPageFilesInput];
+    result: PrepareDroppedPageFilesResult;
+  };
+  "page-files:prepare": {
+    args: [accessContext: ContentAccessContext, input: PreparePageFileInput];
+    result: PreparedPickedPageFile;
+  };
+  "page-files:read": {
+    args: [accessContext: ContentAccessContext, input: ReadPageFileBytesInput];
+    result: PageFileBytes;
+  };
+  "page-files:save": {
+    args: [accessContext: ContentAccessContext, input: SavePageFileInput];
+    result: SavePageFileResult;
   };
   "library-database-module:read": {
     args: [request: LibraryDatabaseModuleReadRequestV2];

@@ -18,11 +18,14 @@ import {
   materializeImageSourceAsDataUrl,
 } from "@/features/user-attachment-image-editor";
 import { readManagedImageDataUrl } from "@/lib/assets";
+import { parsePageFileSource } from "../../../../shared/page-files";
+import { usePageFilePlacementRuntime } from "./page-file-runtime";
 
 export function NfmFileDownloadButton() {
   const dict = useDictionary();
   const Components = useComponentsContext()!;
   const editor = useBlockNoteEditor<BlockSchema, InlineContentSchema, StyleSchema>();
+  const pageFileRuntime = usePageFilePlacementRuntime();
 
   const block = useEditorState({
     editor,
@@ -53,9 +56,12 @@ export function NfmFileDownloadButton() {
     void (async () => {
       try {
         const source = block.props.url;
-        const dataUrl = await materializeImageSourceAsDataUrl(source, {
-          readManagedAsset: readManagedImageDataUrl,
-        });
+        const dataUrl =
+          parsePageFileSource(source) && pageFileRuntime
+            ? await pageFileRuntime.readImageDataUrl(source)
+            : await materializeImageSourceAsDataUrl(source, {
+                readManagedAsset: readManagedImageDataUrl,
+              });
         const props = block.props as typeof block.props & {
           caption?: string;
           name?: string;

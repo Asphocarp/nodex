@@ -20,6 +20,8 @@ import type {
   GlobalDictationRendererCommand,
   GlobalDictationRendererEvent,
 } from "../shared/global-dictation";
+import type { ContentAccessContext } from "../shared/content-access-context";
+import type { PrepareDroppedPageFilesResult } from "../shared/page-files";
 
 declare module "*.css";
 
@@ -72,6 +74,11 @@ declare global {
       ) => Promise<StructuralClipboardWriteResult>;
       getPathInfoForFile?: (file: File) => ClipboardPasteInspectionItem | null;
       getPathForFile?: (file: File) => string;
+      prepareDroppedPageFiles?: (
+        accessContext: ContentAccessContext,
+        operationId: string,
+        files: readonly File[],
+      ) => Promise<PrepareDroppedPageFilesResult>;
       sendGitWorkerMessage?: (
         message: import("../shared/git-worker-protocol").GitWorkerMessageFromView,
       ) => Promise<void>;

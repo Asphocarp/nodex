@@ -28,6 +28,7 @@ use crate::infrastructure::store_replacement::{
 
 const ASSETS_DIRECTORY_NAME: &str = "assets";
 const MAX_CANVAS_ASSET_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_PAGE_FILE_BLOB_BYTES: u64 = 64 * 1024 * 1024;
 
 pub(super) struct RestoreInstallation {
     pub journal: StoreReplacementJournal,
@@ -761,6 +762,64 @@ fn validate_assets(
         }
     }
 
+    let page_file_blobs = connection
+        .prepare(
+            "SELECT physical_asset_name, content_hash, byte_length \
+             FROM managed_blobs ORDER BY content_hash",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (managed_file_name, expected_hash, expected_length) in page_file_blobs {
+        if expected_length < 0 {
+            return Err(corrupt(
+                "Restore candidate Page File Blob length is invalid",
+            ));
+        }
+        let Some(bytes) = read_asset(
+            assets_root,
+            &managed_file_name,
+            Some(MAX_PAGE_FILE_BLOB_BYTES),
+            missing_asset_policy,
+            &mut missing_assets,
+        )?
+        else {
+            continue;
+        };
+        if i64::try_from(bytes.len()).ok() != Some(expected_length)
+            || sha256(&bytes) != expected_hash
+        {
+            return Err(corrupt(
+                "Restore candidate Page File Blob evidence does not match its file",
+            ));
+        }
+    }
+
+    let invalid_page_file_namespace = connection.query_row(
+        "SELECT EXISTS( \
+           SELECT 1 FROM page_files file \
+           LEFT JOIN page_file_namespace namespace ON namespace.file_id = file.file_id \
+           WHERE (file.state = 'live' AND ( \
+             namespace.file_id IS NULL \
+             OR namespace.owner_page_id <> file.owner_page_id \
+             OR namespace.library_id <> file.library_id \
+             OR namespace.path_key <> file.path_key \
+           )) OR (file.state = 'deleted' AND namespace.file_id IS NOT NULL) \
+         )",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if invalid_page_file_namespace {
+        return Err(corrupt(
+            "Restore candidate Page File namespace does not match current File heads",
+        ));
+    }
+
     let queue_evidence_mode = match missing_asset_policy {
         MissingAssetPolicy::Reject => {
             crate::workspace::queued_follow_up::QueuedAssetEvidenceMode::RequireFiles(assets_root)
@@ -927,6 +986,18 @@ mod tests {
                    asset_uri TEXT NOT NULL, managed_file_name TEXT NOT NULL, \
                    asset_hash TEXT NOT NULL, byte_length INTEGER NOT NULL \
                  ); \
+                 CREATE TABLE managed_blobs( \
+                   content_hash TEXT NOT NULL, physical_asset_name TEXT NOT NULL, \
+                   byte_length INTEGER NOT NULL \
+                 ); \
+                 CREATE TABLE page_files( \
+                   file_id TEXT NOT NULL, owner_page_id TEXT NOT NULL, library_id TEXT NOT NULL, \
+                   path_key TEXT NOT NULL, state TEXT NOT NULL \
+                 ); \
+                 CREATE TABLE page_file_namespace( \
+                   file_id TEXT NOT NULL, owner_page_id TEXT NOT NULL, library_id TEXT NOT NULL, \
+                   path_key TEXT NOT NULL \
+                 ); \
                  INSERT INTO documents(id, library_id, generation, head_seq) \
                  VALUES ('document:1', 'library:1', 1, 4); \
                  INSERT INTO block_asset_refs( \
@@ -955,5 +1026,57 @@ mod tests {
                 .expect("complete restore closure"),
             0
         );
+    }
+
+    #[test]
+    fn restore_rejects_tampered_page_file_blob_bytes() {
+        let connection = Connection::open_in_memory().expect("Page File restore fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE documents( \
+                   id TEXT NOT NULL, library_id TEXT NOT NULL, generation INTEGER NOT NULL, \
+                   head_seq INTEGER NOT NULL \
+                 ); \
+                 CREATE TABLE block_asset_refs( \
+                   document_id TEXT NOT NULL, library_id TEXT NOT NULL, \
+                   document_generation INTEGER NOT NULL, projected_seq INTEGER NOT NULL, \
+                   asset_uri TEXT NOT NULL, asset_hash TEXT \
+                 ); \
+                 CREATE TABLE canvas_scene_file_refs( \
+                   document_id TEXT NOT NULL, library_id TEXT NOT NULL, \
+                   document_generation INTEGER NOT NULL, file_id TEXT NOT NULL, \
+                   asset_uri TEXT NOT NULL, managed_file_name TEXT NOT NULL, \
+                   asset_hash TEXT NOT NULL, byte_length INTEGER NOT NULL \
+                 ); \
+                 CREATE TABLE managed_blobs( \
+                   content_hash TEXT NOT NULL, physical_asset_name TEXT NOT NULL, \
+                   byte_length INTEGER NOT NULL \
+                 ); \
+                 CREATE TABLE page_files( \
+                   file_id TEXT NOT NULL, owner_page_id TEXT NOT NULL, library_id TEXT NOT NULL, \
+                   path_key TEXT NOT NULL, state TEXT NOT NULL \
+                 ); \
+                 CREATE TABLE page_file_namespace( \
+                   file_id TEXT NOT NULL, owner_page_id TEXT NOT NULL, library_id TEXT NOT NULL, \
+                   path_key TEXT NOT NULL \
+                 );",
+            )
+            .expect("Page File restore schema");
+        let expected = b"trusted bytes";
+        let content_hash = sha256(expected);
+        connection
+            .execute(
+                "INSERT INTO managed_blobs(content_hash, physical_asset_name, byte_length) \
+                 VALUES (?1, 'page-file-test.blob', ?2)",
+                params![content_hash, expected.len() as i64],
+            )
+            .expect("managed Blob evidence");
+        let assets = tempdir().expect("assets");
+        fs::write(assets.path().join("page-file-test.blob"), b"forged-bytes!")
+            .expect("tampered Blob");
+
+        let error = validate_assets(&connection, assets.path(), MissingAssetPolicy::Reject)
+            .expect_err("restore must reject a tampered Page File Blob");
+        assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
     }
 }

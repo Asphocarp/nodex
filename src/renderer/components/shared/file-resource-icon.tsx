@@ -1,15 +1,15 @@
 import type { ComponentType } from "react";
 import { FileTabIconSvg, type FileTabIconName } from "@/components/shared/icons";
 
-export type WorkspaceFileTabIconKey = FileTabIconName;
+export type FileResourceIconKey = FileTabIconName;
 
-type WorkspaceFileTabIconComponent = ComponentType<{ className?: string }>;
+type FileResourceIconComponent = ComponentType<{ className?: string }>;
 
-const EXACT_ICON_KEY_BY_NAME: Readonly<Record<string, WorkspaceFileTabIconKey>> = {
+const EXACT_ICON_KEY_BY_NAME: Readonly<Record<string, FileResourceIconKey>> = {
   "skill.md": "skill",
 };
 
-const ICON_KEY_BY_EXTENSION: Readonly<Record<string, WorkspaceFileTabIconKey>> = {
+const ICON_KEY_BY_EXTENSION: Readonly<Record<string, FileResourceIconKey>> = {
   bash: "shell",
   bazel: "build",
   bmp: "image",
@@ -102,7 +102,7 @@ const ICON_KEY_BY_EXTENSION: Readonly<Record<string, WorkspaceFileTabIconKey>> =
 
 const ICON_KEY_BY_MIME_PREFIX: readonly {
   prefix: string;
-  key: WorkspaceFileTabIconKey;
+  key: FileResourceIconKey;
 }[] = [
   { prefix: "image/", key: "image" },
   { prefix: "text/", key: "document" },
@@ -111,13 +111,13 @@ const ICON_KEY_BY_MIME_PREFIX: readonly {
   { prefix: "application/gzip", key: "folder" },
 ];
 
-function workspaceFileBasename(path: string): string {
+function fileResourceBasename(path: string): string {
   const normalized = path.replaceAll("\\", "/");
   return normalized.slice(normalized.lastIndexOf("/") + 1).toLowerCase();
 }
 
-function workspaceFileLookupExtension(path: string): string | null {
-  const basename = workspaceFileBasename(path);
+function fileResourceLookupExtension(path: string): string | null {
+  const basename = fileResourceBasename(path);
   const dotIndex = basename.lastIndexOf(".");
 
   if (dotIndex > 0 && dotIndex < basename.length - 1) {
@@ -132,18 +132,18 @@ function workspaceFileLookupExtension(path: string): string | null {
   return null;
 }
 
-export function resolveWorkspaceFileTabIconKey(
+export function resolveFileResourceIconKey(
   path?: string | null,
   mimeType?: string | null,
-): WorkspaceFileTabIconKey {
+): FileResourceIconKey {
   if (path) {
     if (/[\\/]$/.test(path)) return "folder";
 
-    const basename = workspaceFileBasename(path);
+    const basename = fileResourceBasename(path);
     const exactKey = EXACT_ICON_KEY_BY_NAME[basename];
     if (exactKey) return exactKey;
 
-    const extension = workspaceFileLookupExtension(path);
+    const extension = fileResourceLookupExtension(path);
     if (extension) {
       const extensionKey = ICON_KEY_BY_EXTENSION[extension];
       if (extensionKey) return extensionKey;
@@ -161,12 +161,12 @@ export function resolveWorkspaceFileTabIconKey(
   return "file";
 }
 
-function makeWorkspaceFileTabIcon(iconKey: WorkspaceFileTabIconKey): WorkspaceFileTabIconComponent {
-  const WorkspaceFileTabIcon = ({ className }: { className?: string }) => (
+function makeFileResourceIcon(iconKey: FileResourceIconKey): FileResourceIconComponent {
+  const ResolvedFileResourceIcon = ({ className }: { className?: string }) => (
     <FileTabIconSvg className={className} icon={iconKey} />
   );
-  WorkspaceFileTabIcon.displayName = `WorkspaceFileTabIcon(${iconKey})`;
-  return WorkspaceFileTabIcon;
+  ResolvedFileResourceIcon.displayName = `FileResourceIcon(${iconKey})`;
+  return ResolvedFileResourceIcon;
 }
 
 const COMPONENT_BY_ICON_KEY = Object.fromEntries(
@@ -200,13 +200,26 @@ const COMPONENT_BY_ICON_KEY = Object.fromEntries(
       toml: true,
       typescript: true,
       yaml: true,
-    } satisfies Record<WorkspaceFileTabIconKey, true>) as WorkspaceFileTabIconKey[]
-  ).map((iconKey) => [iconKey, makeWorkspaceFileTabIcon(iconKey)]),
-) as Record<WorkspaceFileTabIconKey, WorkspaceFileTabIconComponent>;
+    } satisfies Record<FileResourceIconKey, true>) as FileResourceIconKey[]
+  ).map((iconKey) => [iconKey, makeFileResourceIcon(iconKey)]),
+) as Record<FileResourceIconKey, FileResourceIconComponent>;
 
-export function resolveWorkspaceFileTabIcon(
+export function resolveFileResourceIcon(
   path?: string | null,
   mimeType?: string | null,
-): WorkspaceFileTabIconComponent {
-  return COMPONENT_BY_ICON_KEY[resolveWorkspaceFileTabIconKey(path, mimeType)];
+): FileResourceIconComponent {
+  return COMPONENT_BY_ICON_KEY[resolveFileResourceIconKey(path, mimeType)];
+}
+
+export function FileResourceIcon({
+  path,
+  mimeType,
+  className,
+}: {
+  readonly path?: string | null;
+  readonly mimeType?: string | null;
+  readonly className?: string;
+}) {
+  const Icon = resolveFileResourceIcon(path, mimeType);
+  return <Icon className={className} />;
 }

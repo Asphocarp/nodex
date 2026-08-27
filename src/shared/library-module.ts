@@ -125,6 +125,62 @@ export interface LibraryPageBacklink {
   readonly updatedAt: string;
 }
 
+export type LibraryPageFileState = "live" | "deleted";
+export type LibraryPageFileChangeKind =
+  | "create"
+  | "replace"
+  | "rename"
+  | "delete"
+  | "restore"
+  | "clone";
+
+export interface LibraryPageFileSummary {
+  readonly fileId: string;
+  readonly ownerPageId: string;
+  readonly logicalPath: string;
+  readonly mimeType: string;
+  readonly byteLength: number;
+  readonly version: number;
+  readonly blobEtag: string;
+  readonly state: LibraryPageFileState;
+  readonly createdByActorId: string;
+  readonly createdByTurnId: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface LibraryPageFileManifest {
+  readonly pageId: string;
+  readonly revision: number;
+  readonly files: readonly LibraryPageFileSummary[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+  readonly total: number;
+}
+
+export interface LibraryPageFileVersion {
+  readonly fileId: string;
+  readonly version: number;
+  readonly manifestRevision: number;
+  readonly changeKind: LibraryPageFileChangeKind;
+  readonly logicalPath: string;
+  readonly mimeType: string;
+  readonly byteLength: number;
+  readonly blobEtag: string | null;
+  readonly actorId: string;
+  readonly turnId: string | null;
+  readonly operationId: string;
+  readonly occurredAt: string;
+}
+
+export interface LibraryPageFileVersionPage {
+  readonly pageId: string;
+  readonly fileId: string;
+  readonly versions: readonly LibraryPageFileVersion[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+}
+
 export type LibraryMoveDestinationScope =
   | { readonly kind: "suggested" }
   | {
@@ -190,6 +246,25 @@ export type LibraryRead =
   | {
       readonly mode: "page_backlinks";
       readonly targetPageId: string;
+      readonly cursor?: string;
+      readonly limit?: number;
+    }
+  | {
+      readonly mode: "page_files";
+      readonly pageId: string;
+      readonly cursor?: string;
+      readonly limit?: number;
+      readonly includeDeleted?: boolean;
+    }
+  | {
+      readonly mode: "page_file_metadata";
+      readonly pageId: string;
+      readonly fileId: string;
+    }
+  | {
+      readonly mode: "page_file_versions";
+      readonly pageId: string;
+      readonly fileId: string;
       readonly cursor?: string;
       readonly limit?: number;
     };
@@ -296,7 +371,10 @@ export type LibraryReadValue =
       readonly hasMore: boolean;
       readonly total: number;
       readonly sourcePageCount: number;
-    };
+    }
+  | { readonly kind: "page_files"; readonly value: LibraryPageFileManifest }
+  | { readonly kind: "page_file_metadata"; readonly value: LibraryPageFileSummary }
+  | { readonly kind: "page_file_versions"; readonly value: LibraryPageFileVersionPage };
 
 export interface LibraryModuleReadSnapshot {
   readonly profileId: string;
@@ -665,6 +743,54 @@ export interface ReverseLibraryStructuralEditOperation {
   readonly token: LibraryStructuralHistoryToken;
 }
 
+export type LibraryPageFileChange =
+  | {
+      readonly kind: "create";
+      readonly fileId: string;
+      readonly logicalPath: string;
+      readonly mimeType: string;
+      readonly preparedBlobReceiptId: string;
+    }
+  | {
+      readonly kind: "replace_content";
+      readonly fileId: string;
+      readonly expectedVersion: number;
+      readonly mimeType: string;
+      readonly preparedBlobReceiptId: string;
+    }
+  | {
+      readonly kind: "rename";
+      readonly fileId: string;
+      readonly expectedVersion: number;
+      readonly logicalPath: string;
+    }
+  | {
+      readonly kind: "delete";
+      readonly fileId: string;
+      readonly expectedVersion: number;
+    }
+  | {
+      readonly kind: "restore_version";
+      readonly fileId: string;
+      readonly expectedVersion: number;
+      readonly sourceVersion: number;
+    }
+  | {
+      readonly kind: "clone_into_page";
+      readonly sourcePageId: string;
+      readonly sourceFileId: string;
+      readonly targetFileId: string;
+      readonly logicalPath: string;
+    };
+
+export interface ApplyPageFileChangesOperation {
+  readonly kind: "apply_page_file_changes";
+  readonly pageId: string;
+  readonly expectedManifestRevision: number;
+  readonly turnId?: string;
+  readonly changes: readonly LibraryPageFileChange[];
+}
+
 export type LibraryApplyOperation =
   | CreateLibraryPageOperation
   | CreateLibraryPageMentionOperation
@@ -680,6 +806,7 @@ export type LibraryApplyOperation =
   | GrantLibraryResourceToProjectOperation
   | SetLibraryProjectAccessOperation
   | ApplyPageMetadataPropertiesOperation
+  | ApplyPageFileChangesOperation
   | ApplyLibraryStructuralEditOperation
   | ReverseLibraryStructuralEditOperation;
 
@@ -719,6 +846,15 @@ export interface LibraryStructuralEditResult {
   } | null;
 }
 
+export interface LibraryPageFileMutationReceipt {
+  readonly pageId: string;
+  readonly manifestRevision: number;
+  readonly createdFileIds: readonly string[];
+  readonly updatedFileIds: readonly string[];
+  readonly deletedFileIds: readonly string[];
+  readonly consumedBlobReceiptIds: readonly string[];
+}
+
 export interface LibraryModuleApplyReceipt {
   readonly operationId: string;
   readonly profileId: string;
@@ -730,6 +866,7 @@ export interface LibraryModuleApplyReceipt {
   readonly createdTarget: Exclude<LibraryRouteTarget, { readonly kind: "view" }> | null;
   readonly canvasMutation: LibraryCanvasMutationResult | null;
   readonly structuralEdit: LibraryStructuralEditResult | null;
+  readonly pageFiles?: LibraryPageFileMutationReceipt | null;
   readonly affectedParentKeys: readonly string[];
   readonly affectedPageIds: readonly string[];
   readonly affectedDatabaseIds: readonly DatabaseId[];
@@ -756,6 +893,7 @@ export type LibraryModuleErrorCode =
   | "document_conflict"
   | "stale_cursor"
   | "resource_exhausted"
+  | "file_in_use"
   | "state_corrupt"
   | "unknown";
 

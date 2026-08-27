@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Cursor;
 use std::path::Path;
 use std::process::Command;
 use std::thread;
@@ -8,8 +9,9 @@ use nodex_core::infrastructure::schema::CURRENT_STORE_REVISION;
 use nodex_core_contracts::administration::{StoreAdministrationRead, StoreAdministrationReadValue};
 use nodex_core_contracts::events::DeliveryAuthorizationScope;
 use nodex_core_contracts::library::{
-    LibraryAccess, LibraryIntent, LibraryPageFileKind, LibraryPagePrepareKind, LibraryRead,
-    LibraryReadValue, LibraryResourceTarget, LibraryWriteParent,
+    LibraryAccess, LibraryIntent, LibraryPageFileChange, LibraryPagePrepareKind,
+    LibraryPageProjectionFileKind, LibraryRead, LibraryReadValue, LibraryResourceTarget,
+    LibraryWriteParent,
 };
 use nodex_core_contracts::workspace::{ProjectWorkspaceIntent, ProjectWorkspaceStarterPage};
 use nodex_core_contracts::{
@@ -146,20 +148,20 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
         )
         .expect("grant Page through native client");
     assert!(matches!(granted.0, ResponseEnvelope::Ok(_)));
-    let page_file = client
+    let page_projection_file = client
         .library_read(
             Some(project_id),
-            LibraryRead::PageFile {
+            LibraryRead::PageProjectionFile {
                 page_id: page_id.to_owned(),
-                file_kind: LibraryPageFileKind::MetaYaml,
+                file_kind: LibraryPageProjectionFileKind::MetaYaml,
                 prepare: Some(LibraryPagePrepareKind::TitleSet),
             },
         )
         .expect("read Page file through native client");
-    let ResponseEnvelope::Ok(snapshot) = page_file.0 else {
+    let ResponseEnvelope::Ok(snapshot) = page_projection_file.0 else {
         panic!("expected Page file snapshot")
     };
-    let LibraryReadValue::PageFile { value } = snapshot.value else {
+    let LibraryReadValue::PageProjectionFile { value } = snapshot.value else {
         panic!("expected Page file value")
     };
     assert!(
@@ -169,6 +171,45 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
     );
     assert!(value.validators.title_etag.is_some());
     assert!(value.validators.body_etag.is_none());
+
+    let file_bytes = b"native client Page File";
+    let file_operation_id = "native-client-page-file";
+    let prepared = client
+        .prepare_page_file_blob(
+            Some(project_id),
+            file_operation_id,
+            &client.handshake.store_epoch,
+            &mut Cursor::new(file_bytes),
+            file_bytes.len() as u64,
+        )
+        .expect("stream Page File through native client");
+    let applied = client
+        .library_apply(
+            Some(project_id),
+            ModuleApplyRequest {
+                contract_version: nodex_core_contracts::library::LIBRARY_CONTRACT_VERSION,
+                operation_id: file_operation_id.to_owned(),
+                store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
+                intent: LibraryIntent::ApplyPageFileChanges {
+                    page_id: page_id.to_owned(),
+                    expected_manifest_revision: 0,
+                    changes: vec![LibraryPageFileChange::Create {
+                        file_id: "native-client-file".to_owned(),
+                        logical_path: "references/native.txt".to_owned(),
+                        mime_type: "text/plain".to_owned(),
+                        prepared_blob_receipt_id: prepared.receipt_id,
+                    }],
+                    turn_id: None,
+                },
+            },
+        )
+        .expect("commit Page File through native client");
+    assert!(matches!(applied.0, ResponseEnvelope::Ok(_)));
+    let read_back = client
+        .read_page_file_blob(Some(project_id), page_id, "native-client-file", None)
+        .expect("read Page File through native client");
+    assert_eq!(read_back.bytes, file_bytes);
+    assert_eq!(read_back.mime_type, "text/plain");
 
     drop(second);
     drop(client);

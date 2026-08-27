@@ -150,6 +150,7 @@ fn create_page_in_data_source(
                     committed_revisions: created.committed_revisions,
                     page_create: Some(created.page_create),
                     page_copy: None,
+                    page_files: None,
                     canvas_mutation: None,
                     block_transfer: None,
                     block_transfer_undo: None,

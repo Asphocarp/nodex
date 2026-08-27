@@ -82,6 +82,7 @@ struct DraftManifest {
     normalized_base_metadata_sha256: String,
     base_title_etag: String,
     base_body_etag: String,
+    base_page_files: nodex_core_contracts::library::LibraryPageFileManifest,
     paths: DraftPaths,
 }
 
@@ -198,6 +199,7 @@ pub(crate) fn create(
             normalized_base_metadata_sha256: normalized_metadata_hash(&base_metadata)?,
             base_title_etag: projection.title_etag.clone(),
             base_body_etag: projection.body_etag.clone(),
+            base_page_files: projection.page_files,
             paths: DraftPaths::default(),
         };
         let mut manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(internal)?;
@@ -254,6 +256,7 @@ pub(crate) fn create(
         "directory": destination.path,
         "page_id": manifest.page_id,
         "project_id": manifest.project_id,
+        "page_files": manifest.base_page_files,
         "files": [MANIFEST_FILE, "base/meta.yaml", "base/body.nested.md", "work/meta.yaml", "work/body.nested.md"],
     })))
 }
@@ -825,6 +828,10 @@ fn validate_manifest(manifest: &DraftManifest, root: &Path) -> Result<(), CliErr
         || manifest.base_title_etag.len() > 512
         || manifest.base_body_etag.is_empty()
         || manifest.base_body_etag.len() > 512
+        || manifest.base_page_files.page_id != manifest.page_id
+        || manifest.base_page_files.revision < 0
+        || manifest.base_page_files.files.len() > 100
+        || manifest.base_page_files.total < manifest.base_page_files.files.len() as u64
         || DateTime::parse_from_rfc3339(&manifest.created_at).is_err()
     {
         return Err(unsafe_path(root, "draft manifest contract is invalid"));
@@ -1688,6 +1695,14 @@ mod tests {
             document_head_seq: 1,
             meta_yaml: String::new(),
             body_nested_markdown: body.to_owned(),
+            page_files: nodex_core_contracts::library::LibraryPageFileManifest {
+                page_id: "page-1".to_owned(),
+                revision: 0,
+                files: Vec::new(),
+                next_cursor: None,
+                has_more: false,
+                total: 0,
+            },
             title_etag: "title-etag".to_owned(),
             body_etag: body_etag.to_owned(),
         }
@@ -1716,6 +1731,14 @@ mod tests {
             normalized_base_metadata_sha256: normalized_metadata_hash(&parsed).unwrap(),
             base_title_etag: "title-etag".to_owned(),
             base_body_etag: "body-etag".to_owned(),
+            base_page_files: nodex_core_contracts::library::LibraryPageFileManifest {
+                page_id: "page-1".to_owned(),
+                revision: 0,
+                files: Vec::new(),
+                next_cursor: None,
+                has_more: false,
+                total: 0,
+            },
             paths: DraftPaths::default(),
         };
         let mut manifest_bytes = serde_json::to_vec_pretty(&manifest).unwrap();

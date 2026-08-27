@@ -5,7 +5,7 @@
 //! into deliberately redacted, independently authorizable atoms before the
 //! LocalCommit manifest is sealed.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use nodex_core_contracts::administration::StoreAdministrationEvent;
 use nodex_core_contracts::automation::AutomationEvent;
@@ -236,7 +236,17 @@ fn compile_library(
     event: LibraryEvent,
 ) -> Result<Vec<DeliveryAtomDraft>, StoreError> {
     let mut atoms = Vec::new();
-    for page_id in &event.page_ids {
+    let page_ids = event
+        .page_ids
+        .iter()
+        .chain(event.page_file_manifest_revisions.keys())
+        .collect::<BTreeSet<_>>();
+    for page_id in page_ids {
+        let page_file_manifest_revisions = event
+            .page_file_manifest_revisions
+            .get(page_id)
+            .map(|revision| BTreeMap::from([(page_id.clone(), *revision)]))
+            .unwrap_or_default();
         atoms.push(atom(
             DeliveryAtomKind::LibraryNavigationChanged,
             [
@@ -253,6 +263,7 @@ fn compile_library(
                     database_ids: Vec::new(),
                     view_ids: Vec::new(),
                     parent_keys: Vec::new(),
+                    page_file_manifest_revisions,
                 },
             },
         ));
@@ -274,6 +285,7 @@ fn compile_library(
                     database_ids: vec![database_id.clone()],
                     view_ids: Vec::new(),
                     parent_keys: Vec::new(),
+                    page_file_manifest_revisions: BTreeMap::new(),
                 },
             },
         ));
@@ -295,6 +307,7 @@ fn compile_library(
                     database_ids: Vec::new(),
                     view_ids: vec![view_id.clone()],
                     parent_keys: Vec::new(),
+                    page_file_manifest_revisions: BTreeMap::new(),
                 },
             },
         ));
@@ -315,6 +328,7 @@ fn compile_library(
                     database_ids: Vec::new(),
                     view_ids: Vec::new(),
                     parent_keys: vec![parent_key.clone()],
+                    page_file_manifest_revisions: BTreeMap::new(),
                 },
             },
         ));
@@ -331,6 +345,7 @@ fn compile_library(
                     database_ids: Vec::new(),
                     view_ids: Vec::new(),
                     parent_keys: Vec::new(),
+                    page_file_manifest_revisions: BTreeMap::new(),
                 },
             },
         ));
@@ -742,6 +757,49 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn page_file_manifest_revisions_are_redacted_to_each_page_atom() {
+        let connection = Connection::open_in_memory().expect("in-memory compiler store");
+        let atoms = compile(
+            &connection,
+            "library:test",
+            "project:test",
+            CoreModuleEventPayload::Library(LibraryEvent {
+                kind: nodex_core_contracts::library::LibraryEventKind::LibraryChanged,
+                page_ids: vec!["page:visible".to_owned(), "page:hidden".to_owned()],
+                database_ids: Vec::new(),
+                view_ids: Vec::new(),
+                parent_keys: Vec::new(),
+                page_file_manifest_revisions: BTreeMap::from([
+                    ("page:visible".to_owned(), 7),
+                    ("page:hidden".to_owned(), 3),
+                ]),
+            }),
+        )
+        .expect("compile Page File atoms");
+
+        assert_eq!(atoms.len(), 2);
+        for atom in atoms {
+            let DeliveryAtomPayload::Library { event, .. } = &atom.payload else {
+                panic!("expected Library atom");
+            };
+            assert_eq!(event.page_ids.len(), 1);
+            assert_eq!(event.page_file_manifest_revisions.len(), 1);
+            assert_eq!(
+                event.page_file_manifest_revisions.get(&event.page_ids[0]),
+                Some(if event.page_ids[0] == "page:visible" {
+                    &7
+                } else {
+                    &3
+                }),
+            );
+            assert_eq!(
+                payload_claims(&atom.payload).expect("atom claims"),
+                atom.required_resources,
+            );
+        }
+    }
 
     #[test]
     fn mixed_database_event_is_split_into_exact_resource_atoms() {

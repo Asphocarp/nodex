@@ -33,6 +33,15 @@ ETags and cursors are scoped validators, not durable IDs. Reread the Page or
 saved View and reconsider the mutation against current state. Do not strip the
 validator, retry an old ETag, or substitute another command's ETag.
 
+## A Page File manifest changed
+
+Rerun `nodex page file list --json @PAGE_ID`, compare the current File identity,
+path, and version with the requested change, then issue a new logical mutation
+with a new idempotency key. Reuse the prior key only when the prior response was
+lost and the payload is identical. If deletion reports that the File is in use,
+remove the intended Page-body placements first; do not bypass the reference
+guard.
+
 ## The Skill is externally managed
 
 A project-local or copied Skill may be managed by an external Skills installer.

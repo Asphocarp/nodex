@@ -1,0 +1,54 @@
+import { createContext, useContext, type ReactNode } from "react";
+
+import type { PageFileBytes } from "../../../../shared/page-files";
+import type { LibraryPageFileSummary } from "../../../../shared/library-module";
+import {
+  createOwnedPageFile,
+  pageFileImageDataUrl,
+  readOwnedPageFile,
+  readOwnedPageFileMetadata,
+  saveOwnedPageFile,
+  type PageFileAuthority,
+  type PageFileUploadSource,
+} from "@/lib/page-file-resources";
+
+export interface PageFilePlacementRuntime {
+  readonly authority: PageFileAuthority;
+  readonly authorityVersion: number;
+  upload(source: PageFileUploadSource, preferredLogicalPath?: string): Promise<string>;
+  read(source: string): Promise<PageFileBytes>;
+  metadata(source: string): Promise<LibraryPageFileSummary>;
+  readImageDataUrl(source: string): Promise<string>;
+  save(source: string, logicalPath: string): Promise<void>;
+}
+
+export const createPageFilePlacementRuntime = (
+  authority: PageFileAuthority,
+  authorityVersion = 0,
+): PageFilePlacementRuntime => ({
+  authority,
+  authorityVersion,
+  upload: async (source, preferredLogicalPath) =>
+    (await createOwnedPageFile(authority, source, preferredLogicalPath)).source,
+  read: (source) => readOwnedPageFile(authority, source),
+  metadata: (source) => readOwnedPageFileMetadata(authority, source),
+  readImageDataUrl: (source) => pageFileImageDataUrl(authority, source),
+  save: (source, logicalPath) => saveOwnedPageFile(authority, source, logicalPath),
+});
+
+const PageFileRuntimeContext = createContext<PageFilePlacementRuntime | null>(null);
+
+export function PageFileRuntimeProvider({
+  value,
+  children,
+}: {
+  readonly value: PageFilePlacementRuntime | null;
+  readonly children: ReactNode;
+}) {
+  return (
+    <PageFileRuntimeContext.Provider value={value}>{children}</PageFileRuntimeContext.Provider>
+  );
+}
+
+export const usePageFilePlacementRuntime = (): PageFilePlacementRuntime | null =>
+  useContext(PageFileRuntimeContext);

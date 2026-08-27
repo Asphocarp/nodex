@@ -11,6 +11,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { FileImage } from "@/components/shared/icons/generic-icons";
 import { readManagedImageByteLength } from "@/lib/assets";
 import { parseAssetSource } from "../../../../shared/assets";
+import { parsePageFileSource } from "../../../../shared/page-files";
+import { usePageFilePlacementRuntime } from "./page-file-runtime";
 
 import { resolveAssetSourceToDisplayUrl, type ManagedAssetPathResolver } from "../../../lib/assets";
 
@@ -73,18 +75,29 @@ export function formatImageFileSize(bytes: number): string {
 function useImageFileSize(source: string): number | null {
   const knownSize = resolveDataUrlByteLength(source);
   const [fileSize, setFileSize] = useState<number | null>(knownSize);
+  const pageFileRuntime = usePageFilePlacementRuntime();
 
   useEffect(() => {
     let mounted = true;
     setFileSize(knownSize);
 
-    if (knownSize !== null || parseAssetSource(source) === null) {
+    const pageFileId = parsePageFileSource(source);
+    if (knownSize !== null || (parseAssetSource(source) === null && !pageFileId)) {
       return () => {
         mounted = false;
       };
     }
 
-    void readManagedImageByteLength(source)
+    const readSize = pageFileId
+      ? pageFileRuntime?.read(source).then((file) => file.bytes.byteLength)
+      : readManagedImageByteLength(source);
+    if (!readSize) {
+      return () => {
+        mounted = false;
+      };
+    }
+
+    void readSize
       .then((bytes) => {
         if (mounted) setFileSize(bytes);
       })
@@ -95,7 +108,7 @@ function useImageFileSize(source: string): number | null {
     return () => {
       mounted = false;
     };
-  }, [knownSize, source]);
+  }, [knownSize, pageFileRuntime, source]);
 
   return fileSize;
 }
@@ -124,7 +137,25 @@ function ImagePreview({ block }: Omit<ImageBlockRenderProps, "contentRef">) {
 }
 
 function NfmImageFileName({ block }: Omit<ImageBlockRenderProps, "contentRef">) {
-  const name = resolveImageFileName(block.props.url, block.props.name);
+  const pageFileRuntime = usePageFilePlacementRuntime();
+  const [logicalPath, setLogicalPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (!parsePageFileSource(block.props.url) || !pageFileRuntime) return;
+    let active = true;
+    void pageFileRuntime
+      .metadata(block.props.url)
+      .then((file) => {
+        if (active) setLogicalPath(file.logicalPath);
+      })
+      .catch(() => {
+        if (active) setLogicalPath(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [block.props.url, pageFileRuntime]);
+  const name =
+    logicalPath?.split("/").at(-1) || resolveImageFileName(block.props.url, block.props.name);
   const fileSize = useImageFileSize(block.props.url);
 
   return (
