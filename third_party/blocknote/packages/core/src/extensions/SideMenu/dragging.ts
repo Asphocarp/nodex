@@ -1,4 +1,4 @@
-import { Node, Slice } from "prosemirror-model";
+import { Node, type Schema, Slice } from "prosemirror-model";
 import { NodeSelection, Selection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 
@@ -19,6 +19,33 @@ import { getSideMenuDroppedBlockIdsFromSlice } from "./dropSelection.js";
 import { MultipleNodeSelection } from "./MultipleNodeSelection.js";
 
 let dragImageElement: Element | undefined;
+
+export const BLOCKNOTE_SLICE_MIME = "application/x-blocknote-slice+json";
+
+export function serializeSideMenuDragSlice(slice: Slice): string {
+  return JSON.stringify(slice.toJSON());
+}
+
+export function parseSideMenuDragSlice(
+  serializedSlice: string,
+  schema: Schema,
+): Slice | undefined {
+  try {
+    const value: unknown = JSON.parse(serializedSlice);
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !("content" in value) ||
+      !Array.isArray(value.content)
+    ) {
+      return undefined;
+    }
+
+    return Slice.fromJSON(schema, value);
+  } catch {
+    return undefined;
+  }
+}
 
 export type SideMenuBlockDragStartEvent = {
   dataTransfer: DataTransfer | null;
@@ -500,9 +527,6 @@ export function dragStart<
     const selectedSlice = view.state.selection.content();
     const schema = editor.pmSchema;
 
-    const clipboardHTML =
-      view.serializeForClipboard(selectedSlice).dom.innerHTML;
-
     const externalHTMLExporter = createExternalHTMLExporter(schema, editor);
 
     const blocks = fragmentToBlocks(selectedSlice.content);
@@ -511,7 +535,10 @@ export function dragStart<
     const plainText = cleanHTMLToMarkdown(externalHTML);
 
     e.dataTransfer.clearData();
-    e.dataTransfer.setData("blocknote/html", clipboardHTML);
+    e.dataTransfer.setData(
+      BLOCKNOTE_SLICE_MIME,
+      serializeSideMenuDragSlice(selectedSlice),
+    );
     e.dataTransfer.setData("text/html", externalHTML);
     e.dataTransfer.setData("text/plain", plainText);
     e.dataTransfer.effectAllowed = "move";

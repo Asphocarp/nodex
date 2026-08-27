@@ -522,7 +522,7 @@ function serializeTable(el: HTMLElement, ctx: SerializeContext): string {
 }
 
 function escapeTableCell(text: string): string {
-  return text.replace(/\|/g, "\\|");
+  return text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
 function formatTableRow(

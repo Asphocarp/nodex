@@ -55,6 +55,7 @@ export function contentNodeToTableContent<
     const row: TableContent<I, S>["rows"][0] = {
       cells: [],
     };
+    const headerRow: boolean[] = [];
 
     if (rowIndex === 0) {
       rowNode.content.forEach((cellNode) => {
@@ -66,12 +67,9 @@ export function contentNodeToTableContent<
       });
     }
 
-    row.cells = rowNode.content.content.map((cellNode, cellIndex) => {
-      if (!headerMatrix[rowIndex]) {
-        headerMatrix[rowIndex] = [];
-      }
+    row.cells = rowNode.content.content.map((cellNode) => {
       // Mark the cell as a header if it is a tableHeader node.
-      headerMatrix[rowIndex][cellIndex] = cellNode.type.name === "tableHeader";
+      headerRow.push(cellNode.type.name === "tableHeader");
       // Convert cell content to inline content and merge adjacent styled text nodes
       const content = cellNode.content.content
         .map((child) =>
@@ -120,6 +118,7 @@ export function contentNodeToTableContent<
       } satisfies TableCell<I, S>;
     });
 
+    headerMatrix.push(headerRow);
     ret.rows.push(row);
   });
 
