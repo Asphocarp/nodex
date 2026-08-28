@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
   NodexDropdownButtonTrigger,
   NodexOptionPicker,
+  NodexSettingsDropdownTrigger,
   type NodexOptionPickerSearchMode,
   type NodexDropdownButtonTriggerProps,
   type NodexDropdownContentWidth,
@@ -29,6 +30,7 @@ interface DatabaseViewSelectProps {
   readonly contentWidth?: NodexDropdownContentWidth;
   readonly chrome?: NodexDropdownButtonTriggerProps["chrome"];
   readonly size?: NodexDropdownButtonTriggerProps["size"];
+  readonly triggerStyle?: "default" | "settings";
 }
 
 export function DatabaseViewSelect({
@@ -44,7 +46,10 @@ export function DatabaseViewSelect({
   contentWidth = "sm",
   chrome = "filled",
   size = "xs",
+  triggerStyle = "default",
 }: DatabaseViewSelectProps) {
+  const triggerContent = <span className="min-w-0 flex-1 truncate text-left">{valueLabel}</span>;
+
   return (
     <NodexOptionPicker
       value={value}
@@ -62,15 +67,25 @@ export function DatabaseViewSelect({
         disabled: option.disabled,
       }))}
       triggerButton={
-        <NodexDropdownButtonTrigger
-          aria-label={ariaLabel}
-          aria-disabled={disabled}
-          size={size}
-          chrome={chrome}
-          className={cn("min-w-0", className)}
-        >
-          <span className="min-w-0 flex-1 truncate text-left">{valueLabel}</span>
-        </NodexDropdownButtonTrigger>
+        triggerStyle === "settings" ? (
+          <NodexSettingsDropdownTrigger
+            aria-label={ariaLabel}
+            aria-disabled={disabled}
+            className={cn("min-w-0", className)}
+          >
+            {triggerContent}
+          </NodexSettingsDropdownTrigger>
+        ) : (
+          <NodexDropdownButtonTrigger
+            aria-label={ariaLabel}
+            aria-disabled={disabled}
+            size={size}
+            chrome={chrome}
+            className={cn("min-w-0", className)}
+          >
+            {triggerContent}
+          </NodexDropdownButtonTrigger>
+        )
       }
     />
   );

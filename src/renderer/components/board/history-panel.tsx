@@ -447,7 +447,7 @@ export function HistoryPanel({
           </div>
         </section>
 
-        <aside className="flex min-h-0 flex-col border-l-[0.5px] border-token-border bg-token-bg-fog/70 max-md:border-t-[0.5px] max-md:border-l-0">
+        <aside className="flex min-h-0 flex-col border-l-[0.5px] border-token-border bg-token-main-surface-primary max-md:border-t-[0.5px] max-md:border-l-0">
           <header className="flex shrink-0 items-start gap-2 px-3 py-3">
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-base font-medium text-token-text-primary">
@@ -469,7 +469,7 @@ export function HistoryPanel({
             </NodexButton>
           </header>
 
-          <div className="flex shrink-0 flex-wrap gap-1 px-2 pb-2">
+          <div className="flex h-8 shrink-0 items-end gap-3 border-b-[0.5px] border-token-border px-3">
             {HISTORY_FILTERS.map((item) => (
               <button
                 key={item.value}
@@ -477,10 +477,10 @@ export function HistoryPanel({
                 aria-pressed={filter === item.value}
                 onClick={() => setFilter(item.value)}
                 className={cn(
-                  "rounded-md px-2 py-1 text-xs",
+                  "relative flex h-8 items-center px-0.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-token-focus",
                   filter === item.value
-                    ? "bg-token-foreground/10 text-token-text-primary"
-                    : "text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-text-secondary",
+                    ? "text-token-text-primary after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-token-text-primary"
+                    : "text-token-description-foreground hover:text-token-text-secondary",
                 )}
               >
                 {item.label}
@@ -489,7 +489,7 @@ export function HistoryPanel({
           </div>
 
           <div
-            className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+            className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
             onKeyDown={handleTimelineKeyDown}
           >
             {filter === "revisions" ? (
@@ -708,7 +708,7 @@ export function HistoryTimelineDetails({
         ))}
       </dl>
 
-      <div className="mt-5 flex items-start gap-2 rounded-lg bg-token-foreground/5 px-3 py-2.5 text-xs text-token-description-foreground">
+      <div className="mt-5 flex items-start gap-2 rounded-lg bg-transparent px-3 py-2.5 text-xs text-token-description-foreground ring-[0.5px] ring-inset ring-token-border">
         <ShieldCheck className="icon-2xs mt-0.5 shrink-0" />
         <p>
           {entry.evidence.status === "verified"
@@ -798,10 +798,7 @@ function HistoryEntryRow({
       aria-pressed={selected}
       aria-label={`${entry.display.title}, ${formatAbsoluteTimestamp(entry.occurredAt)}`}
       onClick={onSelect}
-      className={cn(
-        "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left",
-        selected ? "bg-token-foreground/10" : "hover:bg-token-foreground/5",
-      )}
+      className={historyEntryRowClassName(selected)}
     >
       <HistoryKindIcon entry={entry} className="mt-0.5" />
       <span className="min-w-0 flex-1">
@@ -833,10 +830,7 @@ function CurrentHistoryEntryRow({
       aria-pressed={selected}
       aria-label="Current Page content"
       onClick={onSelect}
-      className={cn(
-        "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left",
-        selected ? "bg-token-foreground/10" : "hover:bg-token-foreground/5",
-      )}
+      className={historyEntryRowClassName(selected)}
     >
       <History className="icon-2xs mt-0.5 shrink-0 text-token-description-foreground" />
       <span className="min-w-0 flex-1">
@@ -848,6 +842,12 @@ function CurrentHistoryEntryRow({
     </button>
   );
 }
+
+const historyEntryRowClassName = (selected: boolean): string =>
+  cn(
+    "flex w-full items-start gap-2 rounded-md bg-transparent px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-token-focus",
+    selected ? "bg-token-foreground/10" : "hover:bg-token-foreground/5",
+  );
 
 function HistoryKindIcon({ entry, className }: { entry: PageHistoryEntry; className?: string }) {
   if (entry.kind === "document_version") {
