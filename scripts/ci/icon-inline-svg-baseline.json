@@ -1,6 +1,7 @@
 {
   "src/renderer/bootstrap/nodex-logo-source.ts": 1,
   "src/renderer/components/board/column.tsx": 2,
+  "src/renderer/components/board/editor/nfm-code-block.browser.test.tsx": 3,
   "src/renderer/components/board/editor/nfm-table-handles.stories.tsx": 1,
   "src/renderer/components/board/list-view.tsx": 1,
   "src/renderer/components/board/nfm-renderer.tsx": 2,
@@ -38,6 +39,7 @@
   "src/renderer/features/user-attachment-image-editor/adapters/resolved-image-asset.node.test.ts": 1,
   "src/renderer/features/user-attachment-image-editor/view/image-preview-dialog.stories.tsx": 1,
   "src/renderer/features/user-attachment-image-editor/view/user-attachment-image-editor.stories.tsx": 1,
+  "src/renderer/lib/mermaid-runtime.browser.test.ts": 1,
   "src/renderer/lib/status-presentation.tsx": 1,
   "src/renderer/lib/status-chip.tsx": 1
 }

@@ -59,7 +59,7 @@ const PERMISSION_MODE_ITEMS: PermissionModeDropdownItem[] = [
   },
   {
     value: "custom",
-    triggerLabel: "Custom",
+    triggerLabel: "Custom (config.toml)",
     optionLabel: "Custom (config.toml)",
     description: "Uses permissions defined in config.toml",
   },

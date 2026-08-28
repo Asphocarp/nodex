@@ -113,6 +113,7 @@ describe("NfmCodeBlockActionBar", () => {
     ).toBe("true");
     fireEvent.click(screen.getByRole("radio", { name: "Show only preview and hide code" }));
     expect(onPreviewModeChange).toHaveBeenCalledWith("preview");
+    expect(document.activeElement).toBe(displayTrigger);
 
     fireEvent.click(screen.getByRole("button", { name: "Expand diagram" }));
     fireEvent.click(screen.getByRole("button", { name: "Download diagram as JPEG" }));

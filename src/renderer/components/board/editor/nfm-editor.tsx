@@ -2759,7 +2759,7 @@ function NfmEditorInstance({
       >
         {searchOpen && (
           <div className="pointer-events-none sticky top-2 z-90 flex h-0 justify-end">
-            <div className="pointer-events-auto mr-2 flex w-fit max-w-[calc(100%-16px)] flex-col self-start overflow-hidden rounded-lg border border-(--border) bg-(--card) shadow-[0_2px_8px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.32),0_0_0_1px_rgba(255,255,255,0.06)]">
+            <div className="pointer-events-auto mr-2 flex w-fit max-w-[calc(100%-16px)] flex-col self-start overflow-hidden rounded-lg border-[0.5px] border-(--border) bg-(--card) shadow-[0_2px_8px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.32),0_0_0_1px_rgba(255,255,255,0.06)]">
               <div className="flex items-center gap-0.5 px-1 py-1 pl-2.5">
                 <input
                   ref={searchInputRef}
@@ -2786,7 +2786,7 @@ function NfmEditorInstance({
                 <NodexTooltip tooltipContent="Previous match (Shift+Enter)">
                   <button
                     type="button"
-                    className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                    className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) hover:bg-(--background-tertiary) hover:text-(--foreground)"
                     onClick={() => navigateSearch("prev", true)}
                     aria-label="Previous match"
                   >
@@ -2796,7 +2796,7 @@ function NfmEditorInstance({
                 <NodexTooltip tooltipContent="Next match (Enter)">
                   <button
                     type="button"
-                    className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                    className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) hover:bg-(--background-tertiary) hover:text-(--foreground)"
                     onClick={() => navigateSearch("next", true)}
                     aria-label="Next match"
                   >
@@ -2809,7 +2809,7 @@ function NfmEditorInstance({
                   <button
                     type="button"
                     className={cn(
-                      "inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)",
+                      "inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) hover:bg-(--background-tertiary) hover:text-(--foreground)",
                       replaceOpen && "text-(--accent-blue)",
                     )}
                     onClick={() => setReplaceOpen((prev) => !prev)}
@@ -2821,7 +2821,7 @@ function NfmEditorInstance({
                 <NodexTooltip tooltipContent="Close (Esc)">
                   <button
                     type="button"
-                    className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                    className="inline-flex h-6.5 w-6.5 shrink-0 cursor-pointer items-center justify-center rounded-sm border-none bg-transparent text-(--foreground-secondary) hover:bg-(--background-tertiary) hover:text-(--foreground)"
                     onClick={closeSearch}
                     aria-label="Close find"
                   >
@@ -2854,7 +2854,7 @@ function NfmEditorInstance({
                     <NodexTooltip tooltipContent="Replace all matches">
                       <button
                         type="button"
-                        className="h-6.5 cursor-pointer rounded-sm border-none bg-transparent px-2 text-xs font-medium whitespace-nowrap text-(--foreground-secondary) transition-background-color duration-swift ease-out hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                        className="h-6.5 cursor-pointer rounded-sm border-none bg-transparent px-2 text-xs font-medium whitespace-nowrap text-(--foreground-secondary) hover:bg-(--background-tertiary) hover:text-(--foreground)"
                         onClick={replaceAllMatches}
                         aria-label="Replace all matches"
                       >

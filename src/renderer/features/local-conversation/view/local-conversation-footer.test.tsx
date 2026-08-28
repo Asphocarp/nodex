@@ -14,6 +14,12 @@ import {
   LocalConversationThreadScrollLayout,
 } from "./local-conversation-thread-scroll-controller";
 
+vi.mock("@/lib/use-command-keymap-state", () => ({
+  useCommandKeymapState: () => ({
+    data: { version: 1, platform: "macOS", entries: [], hasCustomBindings: false },
+  }),
+}));
+
 const render = (ui: Parameters<typeof renderWithMaitai>[0]) =>
   renderWithMaitai(ui, { wrapper: TestQueryProvider });
 
@@ -572,7 +578,7 @@ describe("LocalConversationFooter", () => {
     });
     const addContext = overlay.querySelector('button[aria-label="Add files and more"]');
     const prompt = overlay.querySelector('[data-codex-composer="true"]');
-    const permission = overlay.querySelector('button[aria-label="Permission mode"]');
+    const permission = overlay.querySelector('button[aria-label="Change permissions"]');
     const formFooter = overlay.querySelector('[data-composer-form-footer="true"]');
     const inputSlot = formFooter?.querySelector('[data-composer-input-slot="true"]');
     expect(isBefore(addContext, prompt)).toBe(true);
@@ -915,7 +921,9 @@ describe("LocalConversationFooter", () => {
         const inputSlot = formFooter?.querySelector('[data-composer-input-slot="true"]');
         const leadingSlot = formFooter?.querySelector('[data-composer-footer-leading="true"]');
         const trailingSlot = formFooter?.querySelector('[data-composer-footer-trailing="true"]');
-        const permissionTrigger = formFooter?.querySelector('button[aria-label="Permission mode"]');
+        const permissionTrigger = formFooter?.querySelector(
+          'button[aria-label="Change permissions"]',
+        );
         const modelTrigger = formFooter?.querySelector(
           'button[data-intelligence-selector-trigger="true"]',
         );
