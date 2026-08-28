@@ -15,11 +15,12 @@ import {
 import { getWorkspaceFileParentPath, normalizeOptionalPath } from "./workbench-workspace-context";
 import { getDefaultPanelIdForTabKind } from "./workbench-panel-actions";
 import {
-  resolveDbCardSourceLeafId,
   resolveLeafIdForPanelTab,
-  resolveRightNeighborPanelPlacement,
+  resolveSessionPanelSurfaceTarget,
   resolveSessionPanelActiveLeafId,
   resolveSessionPanelActiveTabId,
+  type WorkbenchPanelSurfaceSlot,
+  type WorkbenchSurfaceRelativePlacement,
 } from "./workbench-panel-placement";
 import {
   buildSideChatParentNavigationPath,
@@ -40,7 +41,10 @@ import {
 } from "./workbench-panel-preview";
 import { getRenderablePanelPreviewTab } from "./workbench-panel-projection";
 import { makeWorkbenchSessionPanelSlotKey } from "./workbench-panel-slot-key";
-import { findWorkbenchPanelLeaf } from "../../shared/workbench-panel-layout";
+import {
+  findWorkbenchPanelLeaf,
+  listWorkbenchPanelLeaves,
+} from "../../shared/workbench-panel-layout";
 import type { WorkbenchPanelController } from "./use-workbench-panel-controller";
 import type { WorkbenchSessionRenderProjection } from "./workbench-session-presentation";
 import type { useCodexAppServerControl } from "@/features/local-conversation";
@@ -65,6 +69,21 @@ import type { useWorkbenchPanelLifecycle } from "./use-workbench-panel-lifecycle
 
 type ProjectSession = WorkbenchSessionRenderProjection;
 export const IMAGE_SIDE_PANEL_AUTO_EXPANDED_STORAGE_KEY = "image-side-panel-auto-expanded-v1";
+
+function resolvePreviewSurfaceSlot(
+  session: WorkbenchSessionRenderProjection,
+  sourceSurfaceId: string | undefined,
+  previewTabsByPanel: WorkbenchPanelController["previewTabsByPanel"],
+): WorkbenchPanelSurfaceSlot | null {
+  if (!sourceSurfaceId) return null;
+  for (const panelId of ["right", "bottom"] as const) {
+    for (const leaf of listWorkbenchPanelLeaves(session.panels[panelId].layout)) {
+      const preview = getRenderablePanelPreviewTab(session, panelId, leaf.id, previewTabsByPanel);
+      if (preview?.id === sourceSurfaceId) return { panelId, leafId: leaf.id };
+    }
+  }
+  return null;
+}
 
 function describeSideChatOpenFailure(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message.trim();
@@ -130,6 +149,7 @@ export function removeImageEditorPreviewsFromLeaf(
 export interface OpenCanvasStageOptions {
   readonly targetPanelId?: PanelId;
   readonly targetLeafId?: string;
+  readonly placement?: WorkbenchSurfaceRelativePlacement;
 }
 
 export type OpenCanvasStageHandler = (
@@ -949,38 +969,53 @@ export function useWorkbenchPanelOpeners({
       const existing = activeSession.tabs.find(
         (tab) =>
           tab.kind === "page_stage" &&
-          tab.panelId === "right" &&
           "pageId" in tab.config &&
           tab.config.pageId === pageId &&
           tab.config.projectId === projectId,
       );
       if (existing) {
-        const existingLeafId = resolveLeafIdForPanelTab(activeSession, "right", existing.id);
-        clearPanelPreviewTab(activeSession.id, "right", existingLeafId);
-        await updateActivePanel("right", { collapsed: false });
-        await setActivePanelTab("right", existing.id, { leafId: existingLeafId, openPanel: true });
+        const existingLeafId = resolveLeafIdForPanelTab(
+          activeSession,
+          existing.panelId,
+          existing.id,
+        );
+        clearPanelPreviewTab(activeSession.id, existing.panelId, existingLeafId);
+        await updateActivePanel(existing.panelId, { collapsed: false });
+        await setActivePanelTab(existing.panelId, existing.id, {
+          leafId: existingLeafId,
+          openPanel: true,
+        });
         return;
       }
 
-      const sourceLeafId = resolveDbCardSourceLeafId(activeSession, options?.sourceTabId);
-      const placement = resolveRightNeighborPanelPlacement(
-        activeSession.panels.right.layout,
-        sourceLeafId,
+      const sourcePreviewSlot = resolvePreviewSurfaceSlot(
+        activeSession,
+        options?.placement?.sourceSurfaceId,
+        previewTabsByPanel,
+      );
+      const placement = resolveSessionPanelSurfaceTarget(
+        activeSession,
+        "right",
+        options?.placement,
         {
-          fullWidth: rightPanelFullWidth,
+          rightPanelFullWidth,
+          sourceSlot: sourcePreviewSlot,
         },
       );
+      let targetPanelId = placement.kind === "existing" ? placement.panelId : "right";
       let targetLeafId = placement.kind === "existing" ? placement.leafId : undefined;
-      if (placement.kind === "ensure") {
+      if (placement.kind === "ensure-right") {
         targetLeafId = panelControllerRef.current.durable.ensureLeafToRight(activeSession, {
           panelId: "right",
           leafId: placement.sourceLeafId,
         });
+        targetPanelId = "right";
       }
-      const previewLeafId = targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, "right");
+      const previewLeafId =
+        targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, targetPanelId);
       const matchingPreviewTab = getRenderablePanelPreviewTab(
         activeSession,
-        "right",
+        targetPanelId,
         previewLeafId,
         previewTabsByPanel,
       );
@@ -991,24 +1026,31 @@ export function useWorkbenchPanelOpeners({
         matchingPreviewTab.config.pageId === pageId &&
         matchingPreviewTab.config.projectId === projectId
       ) {
-        await pinPreviewTab("right", matchingPreviewTab.id, previewLeafId);
+        await pinPreviewTab(targetPanelId, matchingPreviewTab.id, previewLeafId);
         return;
       }
 
       if (options?.openMode === "preview") {
         panelControllerRef.current.updatePreviewTabsByPanel((current) => ({
           ...current,
-          [makeWorkbenchSessionPanelSlotKey(activeSession.id, "right", previewLeafId)]:
-            makePreviewPageStageTab(activeSession, "right", { projectId, pageId, titleSnapshot }),
+          [makeWorkbenchSessionPanelSlotKey(activeSession.id, targetPanelId, previewLeafId)]:
+            makePreviewPageStageTab(activeSession, targetPanelId, {
+              projectId,
+              pageId,
+              titleSnapshot,
+            }),
         }));
-        await ensureActivePanelOpenWithoutRefresh("right");
+        await ensureActivePanelOpenWithoutRefresh(targetPanelId);
         await refreshProjectSessions(sessionProjectId);
         return;
       }
 
+      if (sourcePreviewSlot) {
+        clearPanelPreviewTab(activeSession.id, sourcePreviewSlot.panelId, sourcePreviewSlot.leafId);
+      }
       createSessionViewTab({
         sessionId: activeSession.id,
-        panelId: "right",
+        panelId: targetPanelId,
         ...(targetLeafId ? { targetLeafId } : {}),
         kind: "page_stage",
         title: titleSnapshot || pageId,
@@ -1018,7 +1060,7 @@ export function useWorkbenchPanelOpeners({
           titleSnapshot,
         },
       });
-      await ensureActivePanelOpenWithoutRefresh("right");
+      await ensureActivePanelOpenWithoutRefresh(targetPanelId);
     },
     [
       activeSession,
@@ -1054,9 +1096,34 @@ export function useWorkbenchPanelOpeners({
         return true;
       }
 
-      const panelId = options?.targetPanelId ?? "right";
-      const leafId =
-        options?.targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+      const sourcePreviewSlot = resolvePreviewSurfaceSlot(
+        activeSession,
+        options?.placement?.sourceSurfaceId,
+        previewTabsByPanel,
+      );
+      const placement = resolveSessionPanelSurfaceTarget(
+        activeSession,
+        options?.targetPanelId ?? "right",
+        options?.placement,
+        {
+          rightPanelFullWidth,
+          sourceSlot: sourcePreviewSlot,
+        },
+      );
+      let panelId = placement.kind === "existing" ? placement.panelId : "right";
+      let leafId = placement.kind === "existing" ? placement.leafId : options?.targetLeafId;
+      if (placement.kind === "fallback") panelId = placement.panelId;
+      if (placement.kind === "ensure-right") {
+        leafId = panelControllerRef.current.durable.ensureLeafToRight(activeSession, {
+          panelId: "right",
+          leafId: placement.sourceLeafId,
+        });
+        panelId = "right";
+      }
+      leafId ??= resolveSessionPanelActiveLeafId(activeSession, panelId);
+      if (sourcePreviewSlot) {
+        clearPanelPreviewTab(activeSession.id, sourcePreviewSlot.panelId, sourcePreviewSlot.leafId);
+      }
       clearPanelPreviewTab(activeSession.id, panelId, leafId);
       const created = createSessionViewTab({
         sessionId: activeSession.id,
@@ -1078,7 +1145,14 @@ export function useWorkbenchPanelOpeners({
       });
       return true;
     },
-    [activeSession, clearPanelPreviewTab, createSessionViewTab, setActivePanelTab],
+    [
+      activeSession,
+      clearPanelPreviewTab,
+      createSessionViewTab,
+      previewTabsByPanel,
+      rightPanelFullWidth,
+      setActivePanelTab,
+    ],
   );
 
   useEffect(() => {

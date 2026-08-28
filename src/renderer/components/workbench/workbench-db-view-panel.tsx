@@ -656,7 +656,7 @@ export function DbViewSessionTab({
       onCloseTaskSearch={() => setTaskSearchOpen(false)}
       onOpenPage={(pageId, titleSnapshot, openMode) => {
         void onOpenPageTab(projectId, pageId, titleSnapshot, {
-          sourceTabId: tab.id,
+          placement: { kind: "adjacent-right", sourceSurfaceId: tab.id },
           openMode,
         });
       }}

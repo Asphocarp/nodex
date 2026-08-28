@@ -1836,7 +1836,7 @@ export function WorkbenchRuntime({
       target: LibraryRouteTarget,
       options: {
         readonly titleSnapshot?: string;
-        readonly sourceSurfaceId?: string;
+        readonly placement?: PresentWorkbenchPanelSurfaceInput["target"]["placement"];
         readonly targetLeafId?: string;
         readonly targetPanelId?: PanelId;
         readonly mode?: PresentWorkbenchPanelSurfaceInput["mode"];
@@ -1893,14 +1893,7 @@ export function WorkbenchRuntime({
           target: {
             panelId: options.targetPanelId ?? "right",
             ...(options.targetLeafId ? { leafId: options.targetLeafId } : {}),
-            ...(options.sourceSurfaceId
-              ? {
-                  placement: {
-                    kind: "adjacent-right",
-                    sourceSurfaceId: options.sourceSurfaceId,
-                  },
-                }
-              : {}),
+            ...(options.placement ? { placement: options.placement } : {}),
           },
           mode: options.mode ?? "durable",
           navigation: "select-owner",
@@ -2081,14 +2074,7 @@ export function WorkbenchRuntime({
         },
         {
           mode: options?.openMode ?? "durable",
-          ...(options?.sourceTabId
-            ? {
-                placement: {
-                  kind: "adjacent-right" as const,
-                  sourceSurfaceId: options.sourceTabId,
-                },
-              }
-            : {}),
+          ...(options?.placement ? { placement: options.placement } : {}),
         },
       );
     },
@@ -2110,6 +2096,7 @@ export function WorkbenchRuntime({
         {
           panelId: options?.targetPanelId,
           targetLeafId: options?.targetLeafId,
+          placement: options?.placement,
         },
       ),
     [presentProjectSceneSurface],
@@ -3280,6 +3267,10 @@ export function WorkbenchRuntime({
       }
 
       if (surface.kind === "canvas_stage") {
+        const projectId =
+          surface.config.accessContext.kind === "project"
+            ? surface.config.accessContext.projectId
+            : activeProject.id;
         return (
           <WorkbenchCanvasStagePanel
             surface={surface}
@@ -3291,6 +3282,12 @@ export function WorkbenchRuntime({
               if (!projectSceneOwner) return;
               updateSceneSurfacePresentation(projectSceneOwner, surface.id, {
                 titleSnapshot: title,
+              });
+            }}
+            onOpenPage={({ pageId, titleSnapshot }) => {
+              void openProjectScenePage(projectId, pageId, titleSnapshot, {
+                openMode: "durable",
+                placement: { kind: "same-group", sourceSurfaceId: surface.id },
               });
             }}
           />
@@ -3620,7 +3617,7 @@ export function WorkbenchRuntime({
                 { kind: "page", pageId },
                 {
                   titleSnapshot,
-                  sourceSurfaceId: surface.id,
+                  placement: { kind: "adjacent-right", sourceSurfaceId: surface.id },
                   mode: openMode,
                 },
               );
@@ -3639,19 +3636,25 @@ export function WorkbenchRuntime({
             onOpenDatabase={(databaseId) => {
               void presentLibraryTarget(
                 { kind: "database", databaseId },
-                { sourceSurfaceId: surface.id },
+                { placement: { kind: "same-group", sourceSurfaceId: surface.id } },
               );
             }}
             onOpenPage={(pageId, titleSnapshot) => {
               void presentLibraryTarget(
                 { kind: "page", pageId },
-                { titleSnapshot, sourceSurfaceId: surface.id },
+                {
+                  titleSnapshot,
+                  placement: { kind: "same-group", sourceSurfaceId: surface.id },
+                },
               );
             }}
             onOpenCanvas={(canvasId, titleSnapshot) => {
               void presentLibraryTarget(
                 { kind: "canvas", canvasId },
-                { titleSnapshot, sourceSurfaceId: surface.id },
+                {
+                  titleSnapshot,
+                  placement: { kind: "same-group", sourceSurfaceId: surface.id },
+                },
               );
             }}
           />
@@ -3670,7 +3673,10 @@ export function WorkbenchRuntime({
             onOpenPage={({ pageId, titleSnapshot }) => {
               void presentLibraryTarget(
                 { kind: "page", pageId },
-                { titleSnapshot, sourceSurfaceId: surface.id },
+                {
+                  titleSnapshot,
+                  placement: { kind: "same-group", sourceSurfaceId: surface.id },
+                },
               );
             }}
           />

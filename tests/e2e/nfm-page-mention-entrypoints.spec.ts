@@ -75,6 +75,52 @@ test("opens an empty-query Page destination flow and resumes the mention session
   );
 });
 
+test("opens Page Stage references in the invoking tab group", async () => {
+  test.setTimeout(120_000);
+  await withElectronScenario(
+    {
+      label: "nfm-page-stage-reference-tab-group",
+      scenarioId: BOARD_DENSE_SCENARIO_ID,
+    },
+    async ({ application, page, manifest }) => {
+      if (!manifest) throw new Error("board/dense did not materialize");
+      await application.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1440, height: 960 });
+      });
+      await focusBoardDenseUi(page, manifest);
+
+      const sourcePageId = manifest.pageIdsByKey.primaryBuildPage;
+      const targetPageId = manifest.pageIdsByKey.boundedProjection;
+      if (!sourcePageId || !targetPageId) {
+        throw new Error("board/dense Page reference fixtures are missing");
+      }
+      const sourceSurface = page.locator(`[data-page-stage-page-id="${sourcePageId}"]:visible`);
+      const sourceLeaf = sourceSurface.locator("xpath=ancestor::*[@data-panel-group-leaf-id]");
+      const sourceLeafId = await sourceLeaf.getAttribute("data-panel-group-leaf-id");
+      if (!sourceLeafId) throw new Error("Source Page Stage has no tab group");
+
+      const projectHomeTab = page.getByRole("tab", { name: "Project Home" });
+      await projectHomeTab.click();
+      await expect(projectHomeTab).toHaveAttribute("aria-selected", "true");
+      await expect(sourceLeaf).toHaveAttribute("data-panel-group-leaf-active", "false");
+
+      await sourceSurface
+        .getByRole("link", { name: "Open Page Keep projection updates bounded" })
+        .first()
+        .click();
+
+      const targetTab = page.getByRole("tab", { name: "Keep projection updates bounded" });
+      await expect(targetTab).toHaveAttribute("aria-selected", "true");
+      await expect(
+        targetTab.locator("xpath=ancestor::*[@data-panel-group-leaf-id]"),
+      ).toHaveAttribute("data-panel-group-leaf-id", sourceLeafId);
+      await expect(
+        page.locator(`[data-page-stage-page-id="${targetPageId}"]:visible`),
+      ).toBeVisible();
+    },
+  );
+});
+
 test("creates Page mentions atomically under current and chosen parent Pages", async () => {
   test.setTimeout(120_000);
   await withElectronScenario(
