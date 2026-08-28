@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { describe, expect, test } from "vite-plus/test";
 
-import { collectLocalPageFileCandidates } from "./page-file-local-import";
+import { collectLocalPageFileCandidates, readLocalPageFile } from "./page-file-local-import";
 
 describe("local Page File import", () => {
   test("expands mixed files and folders into one deterministic logical-path batch", async () => {
@@ -43,6 +43,21 @@ describe("local Page File import", () => {
       await expect(collectLocalPageFileCandidates([folder])).rejects.toThrow(
         "references/alias.md is a symbolic link",
       );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reads through one no-follow file handle and rejects direct symlinks", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "nodex-page-file-import-"));
+    try {
+      const filePath = path.join(root, "notes.txt");
+      const aliasPath = path.join(root, "notes-alias.txt");
+      await fs.writeFile(filePath, "stable bytes");
+      await fs.symlink(filePath, aliasPath);
+
+      await expect(readLocalPageFile(filePath)).resolves.toEqual(Buffer.from("stable bytes"));
+      await expect(readLocalPageFile(aliasPath)).rejects.toThrow();
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

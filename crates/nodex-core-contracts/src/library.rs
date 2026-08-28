@@ -785,6 +785,7 @@ pub enum LibraryRead {
     },
     PageFiles {
         page_id: String,
+        query: Option<String>,
         cursor: Option<String>,
         limit: Option<u32>,
         include_deleted: Option<bool>,
@@ -1518,6 +1519,13 @@ pub enum LibraryPageFileChangeKind {
     Clone,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageFileCollisionPolicy {
+    Reject,
+    Suffix,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryPageFileBodyUsage {
@@ -1551,6 +1559,10 @@ pub struct LibraryPageFileManifest {
     pub next_cursor: Option<String>,
     pub has_more: bool,
     pub total: u64,
+    pub live_total: u64,
+    pub unplaced_total: u64,
+    pub placed_total: u64,
+    pub deleted_total: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -1581,11 +1593,18 @@ pub struct LibraryPageFileVersionPage {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryPageFileChange {
+    Put {
+        file_id: String,
+        logical_path: String,
+        mime_type: String,
+        prepared_blob_receipt_id: String,
+    },
     Create {
         file_id: String,
         logical_path: String,
         mime_type: String,
         prepared_blob_receipt_id: String,
+        collision_policy: LibraryPageFileCollisionPolicy,
     },
     ReplaceContent {
         file_id: String,
@@ -2527,6 +2546,14 @@ pub enum LibraryIntent {
         page_id: String,
         expected_manifest_revision: i64,
         changes: Vec<LibraryPageFileChange>,
+        turn_id: Option<String>,
+    },
+    PutPageFile {
+        page_id: String,
+        file_id: String,
+        logical_path: String,
+        mime_type: String,
+        prepared_blob_receipt_id: String,
         turn_id: Option<String>,
     },
     CreateDatabase {

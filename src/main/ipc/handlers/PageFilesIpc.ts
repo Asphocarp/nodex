@@ -8,14 +8,14 @@ import type { IpcMainInvokeEvent, OpenDialogOptions } from "electron";
 import { lookup as lookupMimeType } from "mime-types";
 import type { IpcApi } from "../../../shared/ipc-api";
 import { parseContentAccessContext } from "../../../shared/content-access-context";
-import { PAGE_FILE_MAX_BYTES } from "../../../shared/page-files";
+import { PAGE_FILE_IMPORT_MAX_BYTES, PAGE_FILE_MAX_BYTES } from "../../../shared/page-files";
 import { MainConfig } from "../../app/MainConfig";
 import { LibraryModule } from "../../library-application/LibraryModule";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
-import { collectLocalPageFileCandidates } from "./page-file-local-import";
+import { collectLocalPageFileCandidates, readLocalPageFile } from "./page-file-local-import";
 
 export class PageFilesIpcError extends Schema.TaggedError<PageFilesIpcError>()(
   "PageFilesIpcError",
@@ -26,17 +26,6 @@ type Handler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
   ...args: IpcApi[Channel]["args"]
 ) => Effect.Effect<IpcApi[Channel]["result"], unknown>;
-
-const readRegularFile = async (filePath: string): Promise<Uint8Array> => {
-  const metadata = await fs.lstat(filePath);
-  if (!metadata.isFile() || metadata.isSymbolicLink()) {
-    throw new Error("Page Files only accept regular files");
-  }
-  if (metadata.size > PAGE_FILE_MAX_BYTES) {
-    throw new Error("Page File exceeds the 64 MiB limit");
-  }
-  return fs.readFile(filePath);
-};
 
 const assertPreparedBytes = (bytes: Uint8Array): Uint8Array => {
   if (!(bytes instanceof Uint8Array)) {
@@ -93,6 +82,7 @@ export const live: Layer.Layer<
     const prepare = (
       access: ReturnType<typeof parseContentAccessContext>,
       operationId: string,
+      idempotencySlot: string,
       input: { logicalPath: string; mimeType: string; bytes: Uint8Array },
     ) =>
       Effect.gen(function* () {
@@ -105,7 +95,12 @@ export const live: Layer.Layer<
           );
         }
         const bytes = yield* run("validate-bytes", () => assertPreparedBytes(input.bytes));
-        const prepared = yield* library.preparePageFileBlob(access, operationId, bytes);
+        const prepared = yield* library.preparePageFileBlob(
+          access,
+          operationId,
+          idempotencySlot,
+          bytes,
+        );
         return {
           logicalPath: input.logicalPath,
           mimeType: input.mimeType,
@@ -124,12 +119,22 @@ export const live: Layer.Layer<
         const candidates = yield* run("enumerate-local-selection", () =>
           collectLocalPageFileCandidates(selectedPaths),
         );
+        let actualByteLength = 0;
         return yield* Effect.forEach(
-          candidates,
-          (candidate) =>
+          candidates.map((candidate, index) => ({ candidate, index })),
+          ({ candidate, index }) =>
             Effect.gen(function* () {
-              const bytes = yield* run("read", () => readRegularFile(candidate.filePath));
-              return yield* prepare(access, operationId, {
+              const bytes = yield* run("read", () => readLocalPageFile(candidate.filePath));
+              actualByteLength += bytes.byteLength;
+              if (actualByteLength > PAGE_FILE_IMPORT_MAX_BYTES) {
+                return yield* Effect.fail(
+                  new PageFilesIpcError({
+                    operation: "read",
+                    cause: new Error("File import exceeds the 256 MiB batch limit"),
+                  }),
+                );
+              }
+              return yield* prepare(access, operationId, `selection:${index}`, {
                 logicalPath: candidate.logicalPath,
                 mimeType: lookupMimeType(candidate.filePath) || "application/octet-stream",
                 bytes,
@@ -205,7 +210,7 @@ export const live: Layer.Layer<
                   }),
                 );
               }
-              return yield* prepare(access, input.operationId, {
+              return yield* prepare(access, input.operationId, "single", {
                 logicalPath,
                 mimeType:
                   input.source.mimeType?.trim() ||
@@ -216,8 +221,8 @@ export const live: Layer.Layer<
             }
 
             const localPath = input.source.path;
-            const bytes = yield* run("read", () => readRegularFile(localPath));
-            return yield* prepare(access, input.operationId, {
+            const bytes = yield* run("read", () => readLocalPageFile(localPath));
+            return yield* prepare(access, input.operationId, "single", {
               logicalPath: path.basename(localPath),
               mimeType: lookupMimeType(localPath) || "application/octet-stream",
               bytes,

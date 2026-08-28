@@ -890,15 +890,36 @@ async fn prepare_page_file_blob(
         .page_file_blob_root()
         .map_err(api_core_error)?;
     let published = publish_page_file_blob(assets_root, request.into_body()).await?;
-    let receipt_id = format!(
-        "page-file-blob:{}",
-        random_hex(24).map_err(|error| {
-            ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Prepared Blob identity failed: {error}"),
+    let receipt_id = match query.idempotency_slot.as_deref() {
+        Some(slot) => {
+            if slot.is_empty() || slot.len() > 512 {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "Prepared Blob idempotency slot must contain 1 to 512 bytes",
+                ));
+            }
+            let identity =
+                serde_json::to_vec(&(query.operation_id.as_str(), slot)).map_err(|_| {
+                    ApiError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Prepared Blob identity could not be encoded",
+                    )
+                })?;
+            format!(
+                "page-file-blob:stable:{}",
+                hex::encode(Sha256::digest(identity))
             )
-        })?
-    );
+        }
+        None => format!(
+            "page-file-blob:{}",
+            random_hex(24).map_err(|error| {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Prepared Blob identity failed: {error}"),
+                )
+            })?
+        ),
+    };
     let expires_at_unix_ms = SystemTime::now()
         .checked_add(PREPARED_PAGE_FILE_BLOB_LIFETIME)
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())

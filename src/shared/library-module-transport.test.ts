@@ -922,6 +922,10 @@ describe("Library Module transport", () => {
         nextCursor: null,
         hasMore: false,
         total: 1,
+        liveTotal: 1,
+        unplacedTotal: 0,
+        placedTotal: 1,
+        deletedTotal: 0,
       },
     };
 

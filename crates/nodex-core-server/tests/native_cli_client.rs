@@ -179,32 +179,51 @@ fn native_client_cold_starts_reuses_and_reads_the_authenticated_core() {
             Some(project_id),
             file_operation_id,
             &client.handshake.store_epoch,
+            Some("references/native.txt"),
             &mut Cursor::new(file_bytes),
             file_bytes.len() as u64,
         )
         .expect("stream Page File through native client");
+    let file_request = ModuleApplyRequest {
+        contract_version: nodex_core_contracts::library::LIBRARY_CONTRACT_VERSION,
+        operation_id: file_operation_id.to_owned(),
+        store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
+        intent: LibraryIntent::ApplyPageFileChanges {
+            page_id: page_id.to_owned(),
+            expected_manifest_revision: 0,
+            changes: vec![LibraryPageFileChange::Create {
+                file_id: "native-client-file".to_owned(),
+                logical_path: "references/native.txt".to_owned(),
+                mime_type: "text/plain".to_owned(),
+                prepared_blob_receipt_id: prepared.receipt_id.clone(),
+                collision_policy:
+                    nodex_core_contracts::library::LibraryPageFileCollisionPolicy::Reject,
+            }],
+            turn_id: None,
+        },
+    };
     let applied = client
-        .library_apply(
-            Some(project_id),
-            ModuleApplyRequest {
-                contract_version: nodex_core_contracts::library::LIBRARY_CONTRACT_VERSION,
-                operation_id: file_operation_id.to_owned(),
-                store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
-                intent: LibraryIntent::ApplyPageFileChanges {
-                    page_id: page_id.to_owned(),
-                    expected_manifest_revision: 0,
-                    changes: vec![LibraryPageFileChange::Create {
-                        file_id: "native-client-file".to_owned(),
-                        logical_path: "references/native.txt".to_owned(),
-                        mime_type: "text/plain".to_owned(),
-                        prepared_blob_receipt_id: prepared.receipt_id,
-                    }],
-                    turn_id: None,
-                },
-            },
-        )
+        .library_apply(Some(project_id), file_request.clone())
         .expect("commit Page File through native client");
     assert!(matches!(applied.0, ResponseEnvelope::Ok(_)));
+    let prepared_replay = client
+        .prepare_page_file_blob(
+            Some(project_id),
+            file_operation_id,
+            &client.handshake.store_epoch,
+            Some("references/native.txt"),
+            &mut Cursor::new(file_bytes),
+            file_bytes.len() as u64,
+        )
+        .expect("replay prepared Page File through native client");
+    assert_eq!(prepared_replay.receipt_id, prepared.receipt_id);
+    let replayed = client
+        .library_apply(Some(project_id), file_request)
+        .expect("replay Page File commit through native client");
+    let ResponseEnvelope::Ok(replayed) = replayed.0 else {
+        panic!("expected replayed Page File commit")
+    };
+    assert!(replayed.receipt().mutation.duplicate);
     let read_back = client
         .read_page_file_blob(Some(project_id), page_id, "native-client-file", None)
         .expect("read Page File through native client");

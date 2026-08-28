@@ -4035,6 +4035,14 @@ export interface components {
         readonly LibraryPageFileChange: {
             readonly file_id: string;
             /** @enum {string} */
+            readonly kind: "put";
+            readonly logical_path: string;
+            readonly mime_type: string;
+            readonly prepared_blob_receipt_id: string;
+        } | {
+            readonly collision_policy: components["schemas"]["LibraryPageFileCollisionPolicy"];
+            readonly file_id: string;
+            /** @enum {string} */
             readonly kind: "create";
             readonly logical_path: string;
             readonly mime_type: string;
@@ -4078,17 +4086,27 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryPageFileChangeKind: "create" | "replace" | "rename" | "delete" | "restore" | "clone";
+        /** @enum {string} */
+        readonly LibraryPageFileCollisionPolicy: "reject" | "suffix";
         readonly LibraryPageFileManifest: {
             /** Format: int64 */
             readonly body_usage_revision: number;
+            /** Format: int64 */
+            readonly deleted_total: number;
             readonly files: readonly components["schemas"]["LibraryPageFileSummary"][];
             readonly has_more: boolean;
+            /** Format: int64 */
+            readonly live_total: number;
             readonly next_cursor?: string | null;
             readonly page_id: string;
+            /** Format: int64 */
+            readonly placed_total: number;
             /** Format: int64 */
             readonly revision: number;
             /** Format: int64 */
             readonly total: number;
+            /** Format: int64 */
+            readonly unplaced_total: number;
         };
         readonly LibraryPageFileMutationReceipt: {
             readonly consumed_blob_receipt_ids: readonly string[];
@@ -5414,6 +5432,15 @@ export interface components {
                 readonly page_id: string;
                 readonly turn_id?: string | null;
             } | {
+                readonly file_id: string;
+                /** @enum {string} */
+                readonly kind: "put_page_file";
+                readonly logical_path: string;
+                readonly mime_type: string;
+                readonly page_id: string;
+                readonly prepared_blob_receipt_id: string;
+                readonly turn_id?: string | null;
+            } | {
                 readonly data_source_id: string;
                 readonly database_id: string;
                 /** @enum {string} */
@@ -6309,6 +6336,7 @@ export interface components {
                 /** Format: int32 */
                 readonly limit?: number | null;
                 readonly page_id: string;
+                readonly query?: string | null;
             } | {
                 readonly file_id: string;
                 /** @enum {string} */
@@ -6836,6 +6864,7 @@ export interface components {
             readonly offsetMinutes: number;
         };
         readonly PreparePageFileBlobQuery: {
+            readonly idempotency_slot?: string | null;
             readonly operation_id: string;
             readonly store_epoch: string;
         };
@@ -9028,6 +9057,7 @@ export interface operations {
     readonly prepare_page_file_blob: {
         readonly parameters: {
             readonly query: {
+                readonly idempotency_slot?: string;
                 readonly operation_id: string;
                 readonly store_epoch: string;
             };

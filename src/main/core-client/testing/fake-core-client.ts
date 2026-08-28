@@ -371,6 +371,7 @@ export class FakeCoreClient implements CoreClientPort {
 
   async preparePageFileBlob(input: {
     readonly operationId: string;
+    readonly idempotencySlot?: string;
     readonly bytes: Uint8Array;
   }): Promise<PreparedPageFileBlob> {
     this.preparedPageFileBlobs.push(input);

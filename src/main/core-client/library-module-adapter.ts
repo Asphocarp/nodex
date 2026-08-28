@@ -294,6 +294,7 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
       return {
         kind: "page_files",
         page_id: read.pageId,
+        query: read.query ?? null,
         cursor: read.cursor ?? null,
         limit: read.limit ?? null,
         include_deleted: read.includeDeleted ?? null,
@@ -594,6 +595,7 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
                 logical_path: change.logicalPath,
                 mime_type: change.mimeType,
                 prepared_blob_receipt_id: change.preparedBlobReceiptId,
+                collision_policy: change.collisionPolicy,
               };
             case "replace_content":
               return {
@@ -1108,6 +1110,10 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
           nextCursor: value.value.next_cursor ?? null,
           hasMore: value.value.has_more,
           total: value.value.total,
+          liveTotal: value.value.live_total,
+          unplacedTotal: value.value.unplaced_total,
+          placedTotal: value.value.placed_total,
+          deletedTotal: value.value.deleted_total,
         },
       } as const;
     case "page_file_metadata":

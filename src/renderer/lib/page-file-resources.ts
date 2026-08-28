@@ -18,9 +18,6 @@ import {
   savePageFile,
 } from "./api";
 
-const PAGE_FILE_READ_LIMIT = 100;
-const MAX_PAGE_FILE_COUNT = 10_000;
-
 export interface PageFileAuthority {
   readonly contentAccessContext: ContentAccessContext;
   readonly pageId: string;
@@ -38,31 +35,6 @@ export interface CreatedPageFile {
   readonly byteLength: number;
   readonly source: string;
 }
-
-const splitFileName = (logicalPath: string): readonly [string, string] => {
-  const slash = logicalPath.lastIndexOf("/");
-  const directory = slash < 0 ? "" : logicalPath.slice(0, slash + 1);
-  const name = slash < 0 ? logicalPath : logicalPath.slice(slash + 1);
-  const dot = name.lastIndexOf(".");
-  if (dot <= 0) return [`${directory}${name}`, ""];
-  return [`${directory}${name.slice(0, dot)}`, name.slice(dot)];
-};
-
-export const portablePageFilePathKey = (path: string): string =>
-  path.normalize("NFKC").toLocaleLowerCase("en");
-
-export const allocatePageFilePath = (
-  preferredPath: string,
-  occupiedPaths: ReadonlySet<string>,
-): string => {
-  if (!occupiedPaths.has(portablePageFilePathKey(preferredPath))) return preferredPath;
-  const [stem, extension] = splitFileName(preferredPath);
-  for (let index = 2; index < MAX_PAGE_FILE_COUNT; index += 1) {
-    const candidate = `${stem} (${index})${extension}`;
-    if (!occupiedPaths.has(portablePageFilePathKey(candidate))) return candidate;
-  }
-  return `${stem}-${createUuidV7()}${extension}`;
-};
 
 /** Validate a browser-delivered selection before publishing any immutable blobs. */
 export function validateBrowserPageFileBatch(files: readonly File[]): void {
@@ -115,58 +87,27 @@ const pageFilesFromRead = (value: Awaited<ReturnType<typeof readLibraryModule>>)
   return value.value.value.value;
 };
 
-/** Read one manifest revision completely so path allocation never depends on a partial UI page. */
-export async function readCompletePageFileManifest(
+export async function readPageFileManifestPage(
   contentAccessContext: ContentAccessContext,
   pageId: string,
-  includeDeleted = false,
+  input: {
+    readonly cursor?: string;
+    readonly query?: string;
+    readonly includeDeleted?: boolean;
+  } = {},
 ): Promise<LibraryPageFileManifest> {
-  let cursor: string | undefined;
-  let expectedRevision: number | null = null;
-  let expectedBodyUsageRevision: LibraryPageFileManifest["bodyUsageRevision"] | null = null;
-  let total = 0;
-  const files: LibraryPageFileSummary[] = [];
-
-  do {
-    const page = pageFilesFromRead(
-      await readLibraryModule(contentAccessContext, {
-        read: {
-          mode: "page_files",
-          pageId,
-          limit: PAGE_FILE_READ_LIMIT,
-          includeDeleted,
-          ...(cursor ? { cursor } : {}),
-        },
-      }),
-    );
-    if (expectedRevision !== null && page.revision !== expectedRevision) {
-      throw new Error("Page Files changed while they were being read");
-    }
-    if (
-      expectedBodyUsageRevision !== null &&
-      page.bodyUsageRevision !== expectedBodyUsageRevision
-    ) {
-      throw new Error("Page File body usage changed while Files were being read");
-    }
-    expectedRevision = page.revision;
-    expectedBodyUsageRevision = page.bodyUsageRevision;
-    total = page.total;
-    files.push(...page.files);
-    if (files.length > MAX_PAGE_FILE_COUNT) {
-      throw new Error("Page has too many Files to read safely");
-    }
-    cursor = page.nextCursor ?? undefined;
-  } while (cursor);
-
-  return {
-    pageId,
-    revision: expectedRevision ?? 0,
-    bodyUsageRevision: expectedBodyUsageRevision ?? 0,
-    files,
-    nextCursor: null,
-    hasMore: false,
-    total,
-  };
+  return pageFilesFromRead(
+    await readLibraryModule(contentAccessContext, {
+      read: {
+        mode: "page_files",
+        pageId,
+        limit: 1,
+        ...(input.query ? { query: input.query } : {}),
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...(input.includeDeleted ? { includeDeleted: true } : {}),
+      },
+    }),
+  );
 }
 
 /** Prepare immutable bytes, claim one Page path, and expose the resulting stable File URI. */
@@ -185,17 +126,8 @@ export async function createOwnedPageFile(
           operationId,
           source: { kind: "local_path", path: source.path },
         });
-  const manifest = await readCompletePageFileManifest(
-    authority.contentAccessContext,
-    authority.pageId,
-  );
-  const occupiedPaths = new Set(
-    manifest.files.map((file) => portablePageFilePathKey(file.logicalPath)),
-  );
-  const logicalPath = allocatePageFilePath(
-    preferredLogicalPath?.trim() || prepared.logicalPath,
-    occupiedPaths,
-  );
+  const manifest = await readPageFileManifestPage(authority.contentAccessContext, authority.pageId);
+  const logicalPath = preferredLogicalPath?.trim() || prepared.logicalPath;
   const fileId = createUuidV7();
   const result = await applyLibraryModule(authority.contentAccessContext, {
     operationId,
@@ -211,16 +143,18 @@ export async function createOwnedPageFile(
           logicalPath,
           mimeType: prepared.mimeType,
           preparedBlobReceiptId: prepared.receiptId,
+          collisionPolicy: "suffix",
         },
       ],
     },
   });
   if (!result.ok) throw new Error(result.error.message || "Couldn’t add Page File");
+  const created = await readPageFileMetadata(authority, fileId);
   return {
     fileId,
-    logicalPath,
-    mimeType: prepared.mimeType,
-    byteLength: prepared.byteLength,
+    logicalPath: created.logicalPath,
+    mimeType: created.mimeType,
+    byteLength: created.byteLength,
     source: pageFileSource(fileId),
   };
 }
@@ -243,6 +177,13 @@ export async function readOwnedPageFileMetadata(
 ): Promise<LibraryPageFileSummary> {
   const fileId = parsePageFileSource(source);
   if (!fileId) throw new Error("Page File reference is invalid");
+  return readPageFileMetadata(authority, fileId);
+}
+
+async function readPageFileMetadata(
+  authority: Pick<PageFileAuthority, "contentAccessContext" | "pageId">,
+  fileId: string,
+): Promise<LibraryPageFileSummary> {
   const result = await readLibraryModule(authority.contentAccessContext, {
     read: { mode: "page_file_metadata", pageId: authority.pageId, fileId },
   });

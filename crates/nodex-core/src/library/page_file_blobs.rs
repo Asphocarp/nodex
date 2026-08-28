@@ -152,8 +152,8 @@ impl LibraryModule {
                             false,
                         ));
                     }
-                    transaction.execute(
-                        "INSERT INTO prepared_blob_receipts( \
+                    let inserted = transaction.execute(
+                        "INSERT OR IGNORE INTO prepared_blob_receipts( \
                            receipt_id, project_id, library_id, store_epoch, content_hash, \
                            byte_length, state, operation_id, expires_at_unix_ms, \
                            consumed_commit_seq, created_at, updated_at \
@@ -170,6 +170,85 @@ impl LibraryModule {
                             now,
                         ],
                     )?;
+                    if inserted == 0 {
+                        let existing = transaction
+                            .query_row(
+                                "SELECT project_id, library_id, store_epoch, content_hash, \
+                                        byte_length, operation_id, expires_at_unix_ms \
+                                 FROM prepared_blob_receipts WHERE receipt_id = ?1",
+                                [&receipt_id],
+                                |row| {
+                                    Ok((
+                                        row.get::<_, String>(0)?,
+                                        row.get::<_, String>(1)?,
+                                        row.get::<_, String>(2)?,
+                                        row.get::<_, String>(3)?,
+                                        row.get::<_, i64>(4)?,
+                                        row.get::<_, String>(5)?,
+                                        row.get::<_, i64>(6)?,
+                                    ))
+                                },
+                            )
+                            .optional()?;
+                        let expected = (
+                            project_id.as_str(),
+                            library_id.as_str(),
+                            store_epoch.as_str(),
+                            content_hash.as_str(),
+                            byte_length,
+                            operation_id.as_str(),
+                        );
+                        let Some((
+                            existing_project_id,
+                            existing_library_id,
+                            existing_store_epoch,
+                            existing_content_hash,
+                            existing_byte_length,
+                            existing_operation_id,
+                            existing_expires_at_unix_ms,
+                        )) = existing
+                        else {
+                            return Err(StoreError::new(
+                                StoreErrorCode::StoreCorrupt,
+                                "Prepared Blob receipt conflict could not be resolved",
+                                false,
+                            ));
+                        };
+                        let observed = (
+                            existing_project_id.as_str(),
+                            existing_library_id.as_str(),
+                            existing_store_epoch.as_str(),
+                            existing_content_hash.as_str(),
+                            existing_byte_length,
+                            existing_operation_id.as_str(),
+                        );
+                        if observed != expected {
+                            return Err(StoreError::new(
+                                StoreErrorCode::IdempotencyKeyReused,
+                                "Prepared Blob idempotency slot is already bound to different bytes",
+                                false,
+                            ));
+                        }
+                        return Ok(LibraryPreparedPageFileBlob {
+                            receipt_id,
+                            blob_etag: content_hash,
+                            byte_length: u64::try_from(byte_length).map_err(|_| {
+                                StoreError::new(
+                                    StoreErrorCode::StoreCorrupt,
+                                    "Managed Blob length is invalid",
+                                    false,
+                                )
+                            })?,
+                            expires_at_unix_ms: u64::try_from(existing_expires_at_unix_ms)
+                                .map_err(|_| {
+                                    StoreError::new(
+                                        StoreErrorCode::StoreCorrupt,
+                                        "Prepared Blob expiry is invalid",
+                                        false,
+                                    )
+                                })?,
+                        });
+                    }
                     Ok(LibraryPreparedPageFileBlob {
                         receipt_id,
                         blob_etag: content_hash,

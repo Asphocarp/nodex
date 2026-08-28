@@ -223,6 +223,8 @@ pub enum PageFileCommand {
 #[derive(Clone, Debug, Args, PartialEq)]
 pub struct PageFileListArgs {
     pub page: String,
+    #[arg(long)]
+    pub include_deleted: bool,
     #[arg(long, value_name = "OPAQUE_CURSOR")]
     pub after: Option<String>,
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
@@ -249,6 +251,8 @@ pub struct PageFilePutArgs {
     pub source: PathBuf,
     #[arg(long, value_name = "MIME_TYPE")]
     pub mime: Option<String>,
+    #[arg(long, value_name = "TURN_ID")]
+    pub turn_id: Option<String>,
     #[command(flatten)]
     pub mutation: MutationArgs,
 }
@@ -260,6 +264,8 @@ pub struct PageFileRenameArgs {
     pub file: String,
     #[arg(long = "to", value_name = "PAGE_RELATIVE_PATH")]
     pub path: String,
+    #[arg(long, value_name = "TURN_ID")]
+    pub turn_id: Option<String>,
     #[command(flatten)]
     pub mutation: MutationArgs,
 }
@@ -269,6 +275,8 @@ pub struct PageFileDeleteArgs {
     pub page: String,
     #[arg(long, value_name = "FILE_ID_OR_LOGICAL_PATH")]
     pub file: String,
+    #[arg(long, value_name = "TURN_ID")]
+    pub turn_id: Option<String>,
     #[command(flatten)]
     pub mutation: MutationArgs,
 }
@@ -291,6 +299,8 @@ pub struct PageFileRestoreArgs {
     pub file: String,
     #[arg(long)]
     pub version: i64,
+    #[arg(long, value_name = "TURN_ID")]
+    pub turn_id: Option<String>,
     #[command(flatten)]
     pub mutation: MutationArgs,
 }
@@ -865,6 +875,8 @@ mod tests {
             "references/api.md",
             "--from",
             "./api.md",
+            "--turn-id",
+            "turn-42",
             "--idempotency-key",
             "page-file-put-1",
         ])
@@ -881,6 +893,7 @@ mod tests {
         assert_eq!(arguments.page, "@page-1");
         assert_eq!(arguments.path, "references/api.md");
         assert_eq!(arguments.source, PathBuf::from("./api.md"));
+        assert_eq!(arguments.turn_id.as_deref(), Some("turn-42"));
         assert_eq!(
             arguments.mutation.idempotency_key.as_deref(),
             Some("page-file-put-1")
@@ -909,6 +922,26 @@ mod tests {
         };
         assert_eq!(arguments.file, "references/api.md");
         assert_eq!(arguments.path, "references/v2.md");
+
+        let list = Cli::try_parse_from([
+            "nodex",
+            "page",
+            "file",
+            "list",
+            "@page-1",
+            "--include-deleted",
+        ])
+        .expect("Page File list including deleted Files");
+        let Command::Page(PageArgs {
+            command:
+                PageCommand::File(PageFileArgs {
+                    command: PageFileCommand::List(arguments),
+                }),
+        }) = list.command
+        else {
+            panic!("expected Page File list command")
+        };
+        assert!(arguments.include_deleted);
 
         let unbounded =
             Cli::try_parse_from(["nodex", "page", "file", "list", "@page-1", "--limit", "101"])

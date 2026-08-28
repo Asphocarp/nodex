@@ -245,6 +245,7 @@ export interface CoreClientPort {
   preparePageFileBlob(
     input: {
       readonly operationId: string;
+      readonly idempotencySlot?: string;
       readonly bytes: Uint8Array;
     },
     options?: CoreRequestOptions,

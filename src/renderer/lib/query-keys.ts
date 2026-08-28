@@ -126,6 +126,10 @@ export const queryKeys = {
     pageDocument: (pageId: string) => ["libraryPages", "document", pageId] as const,
     pageBacklinks: (accessContext: unknown, pageId: string) =>
       ["libraryPages", "backlinks", accessContext, pageId] as const,
+    pageFiles: (accessContext: unknown, pageId: string) =>
+      ["libraryPages", "files", accessContext, pageId] as const,
+    pageFilesWindow: (accessContext: unknown, pageId: string, query: string) =>
+      ["libraryPages", "files", accessContext, pageId, query] as const,
   },
   projectSessions: {
     all: () => ["projectSessions"] as const,

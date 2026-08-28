@@ -1,7 +1,7 @@
-import { act, fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
 
-import { render } from "@/test/dom";
+import { TestQueryProvider } from "@/test/query";
 import type { PageStageController } from "./use-page-stage-controller";
 
 const api = vi.hoisted(() => ({
@@ -31,6 +31,10 @@ const emptyManifest = {
   nextCursor: null,
   hasMore: false,
   total: 0,
+  liveTotal: 0,
+  unplacedTotal: 0,
+  placedTotal: 0,
+  deletedTotal: 0,
 } as const;
 
 const pageFile = (
@@ -63,6 +67,19 @@ const controller = {
   contentAccessContext: { kind: "project", projectId: "project-1" },
   storeEpoch: "store-1",
 } as PageStageController;
+
+const renderPageFilesRow = () =>
+  render(<PageFilesRow controller={controller} />, { wrapper: TestQueryProvider });
+
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (cause: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
 
 const fileTransfer = (files: readonly File[], directory = false): DataTransfer =>
   ({
@@ -111,7 +128,7 @@ describe("PageFilesRow native file drop", () => {
     ]);
     api.applyLibraryModule.mockResolvedValue({ ok: true });
 
-    const view = render(<PageFilesRow controller={controller} />);
+    const view = renderPageFilesRow();
     const openFiles = await view.findByRole("button", { name: "Add Page Files" });
     await act(async () => {
       fireEvent.click(openFiles);
@@ -188,7 +205,7 @@ describe("PageFilesRow native file drop", () => {
       },
     ]);
     api.applyLibraryModule.mockResolvedValue({ ok: true });
-    const view = render(<PageFilesRow controller={controller} />);
+    const view = renderPageFilesRow();
     const openFiles = await view.findByRole("button", { name: "Add Page Files" });
     await act(async () => {
       fireEvent.click(openFiles);
@@ -245,12 +262,14 @@ describe("PageFilesRow native file drop", () => {
               }),
             ],
             total: 1,
+            liveTotal: 1,
+            placedTotal: 1,
           },
         },
       },
     });
 
-    const view = render(<PageFilesRow controller={controller} />);
+    const view = renderPageFilesRow();
     const summary = await view.findByRole("button", {
       name: "Open 1 File shown in Page",
     });
@@ -278,6 +297,60 @@ describe("PageFilesRow native file drop", () => {
     await waitFor(() => expect(view.getByRole("tooltip").textContent).toBe("Rename"));
   });
 
+  test("ignores an older preview response after a later File is selected", async () => {
+    api.readLibraryModule.mockResolvedValue({
+      ok: true,
+      value: {
+        value: {
+          kind: "page_files",
+          value: {
+            ...emptyManifest,
+            files: [
+              pageFile("file-a", "a.txt", { kind: "not_in_body" }),
+              pageFile("file-b", "b.txt", { kind: "not_in_body" }),
+            ],
+            total: 2,
+            liveTotal: 2,
+            unplacedTotal: 2,
+          },
+        },
+      },
+    });
+    const first = deferred<{ bytes: Uint8Array; mimeType: string; etag: string }>();
+    const second = deferred<{ bytes: Uint8Array; mimeType: string; etag: string }>();
+    api.readPageFileBytes.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    const view = renderPageFilesRow();
+    const firstFile = await view.findByRole("button", { name: "Open a.txt" });
+    const secondFile = await view.findByRole("button", { name: "Open b.txt" });
+    await act(async () => {
+      fireEvent.click(firstFile);
+      fireEvent.click(secondFile);
+      second.resolve({
+        bytes: new TextEncoder().encode("second preview"),
+        mimeType: "text/plain",
+        etag: "etag-b",
+      });
+      await second.promise;
+    });
+    expect((view.getByRole("textbox", { name: "Edit b.txt" }) as HTMLTextAreaElement).value).toBe(
+      "second preview",
+    );
+
+    await act(async () => {
+      first.resolve({
+        bytes: new TextEncoder().encode("stale preview"),
+        mimeType: "text/plain",
+        etag: "etag-a",
+      });
+      await first.promise;
+    });
+    expect((view.getByRole("textbox", { name: "Edit b.txt" }) as HTMLTextAreaElement).value).toBe(
+      "second preview",
+    );
+    expect(view.queryByDisplayValue("stale preview")).toBeNull();
+  });
+
   test("keeps placed Files collapsed by default and searches across the full inventory", async () => {
     api.readLibraryModule.mockResolvedValue({
       ok: true,
@@ -296,12 +369,15 @@ describe("PageFilesRow native file drop", () => {
               }),
             ],
             total: 4,
+            liveTotal: 4,
+            unplacedTotal: 3,
+            placedTotal: 1,
           },
         },
       },
     });
 
-    const view = render(<PageFilesRow controller={controller} />);
+    const view = renderPageFilesRow();
     const more = await view.findByRole("button", { name: "Open 2 more Page Files" });
     expect(more.textContent).toBe("+2");
 
@@ -320,9 +396,9 @@ describe("PageFilesRow native file drop", () => {
       });
       await Promise.resolve();
     });
-    expect(view.getByRole("button", { name: "In page · 1" }).getAttribute("aria-expanded")).toBe(
-      "true",
-    );
-    expect(view.getByText("images/diagram.png", { exact: true })).toBeTruthy();
+    expect(
+      (await view.findByRole("button", { name: "In page · 1" })).getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(await view.findByText("images/diagram.png", { exact: true })).toBeTruthy();
   });
 });

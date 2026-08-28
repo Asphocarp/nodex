@@ -211,8 +211,7 @@ pub(super) fn page_draft_projection(
         .validators
         .body_etag
         .ok_or_else(|| corrupt("Page draft body omitted its body ETag"))?;
-    let page_files =
-        super::page_files::list(connection, library_id, page_id, None, Some(100), false)?;
+    let page_files = super::page_files::list_complete(connection, library_id, page_id, true)?;
     Ok(LibraryPageDraftProjection {
         version: PAGE_DRAFT_VERSION,
         metadata_projection_version: PAGE_FILE_VERSION,

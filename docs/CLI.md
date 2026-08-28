@@ -107,21 +107,25 @@ requires a fresh read.
 selected Project and owner Page:
 
 ```text
-nodex page file list <page-selector>
+nodex page file list <page-selector> [--include-deleted]
 nodex page file read <page-selector> --file <id-or-path> --output -
-nodex page file put <page-selector> --path references/api.md --from ./api.md
-nodex page file rename <page-selector> --file references/api.md --to references/v2.md
-nodex page file delete <page-selector> --file references/v2.md
+nodex page file put <page-selector> --path references/api.md --from ./api.md [--turn-id <turn-id>]
+nodex page file rename <page-selector> --file references/api.md --to references/v2.md [--turn-id <turn-id>]
+nodex page file delete <page-selector> --file references/v2.md [--turn-id <turn-id>]
 nodex page file versions <page-selector> --file <id-or-path>
-nodex page file restore <page-selector> --file <id-or-path> --version 2
+nodex page file restore <page-selector> --file <id-or-path> --version 2 [--turn-id <turn-id>]
 ```
 
 `put` creates a File or replaces the current File at the exact logical path. It
 streams a regular source file, or accepts bounded stdin with `--from -`, then
-commits metadata by manifest revision. `read --output -` emits exact bytes;
+commits one semantic Core operation. Repeating the same `put` with the same
+idempotency key and bytes returns the first immutable result even after the
+first call committed. `read --output -` emits exact bytes;
 other outputs are regular local files. File selectors accept a stable File ID
-or an exact logical path. Listing and version history are paged, and no command
-exposes a Profile path or blob-hash read capability.
+or an exact logical path. Listing and version history are paged;
+`--include-deleted` makes retained deleted identities and paths discoverable for
+history inspection and restore. No command exposes a Profile path or blob-hash
+read capability.
 
 Paths use portable `/`-separated Page-relative syntax. Traversal, symlinks,
 special files, invalid portable names, and files larger than 64 MiB are rejected.
