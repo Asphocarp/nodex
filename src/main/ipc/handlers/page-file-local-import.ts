@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 
 import {
@@ -11,6 +12,42 @@ export interface LocalPageFileCandidate {
   readonly filePath: string;
   readonly logicalPath: string;
   readonly byteLength: number;
+}
+
+/**
+ * Reads exactly one opened regular file object with bounded memory.
+ * Opening with O_NOFOLLOW and validating through the handle closes the path
+ * replacement window between metadata validation and byte access.
+ */
+export async function readLocalPageFile(filePath: string): Promise<Uint8Array> {
+  const handle = await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const initial = await handle.stat({ bigint: true });
+    if (!initial.isFile()) throw new Error("Page Files only accept regular files");
+    if (initial.size > BigInt(PAGE_FILE_MAX_BYTES)) {
+      throw new Error("Page File exceeds the 64 MiB limit");
+    }
+
+    const expectedByteLength = Number(initial.size);
+    const bytes = Buffer.allocUnsafe(expectedByteLength + 1);
+    let byteLength = 0;
+    while (byteLength < bytes.byteLength) {
+      const result = await handle.read(bytes, byteLength, bytes.byteLength - byteLength, null);
+      if (result.bytesRead === 0) break;
+      byteLength += result.bytesRead;
+    }
+
+    const final = await handle.stat({ bigint: true });
+    const changedDuringRead =
+      byteLength !== expectedByteLength ||
+      final.size !== initial.size ||
+      final.mtimeNs !== initial.mtimeNs ||
+      final.ctimeNs !== initial.ctimeNs;
+    if (changedDuringRead) throw new Error("Page File changed while it was being read");
+    return bytes.subarray(0, byteLength);
+  } finally {
+    await handle.close();
+  }
 }
 
 /**

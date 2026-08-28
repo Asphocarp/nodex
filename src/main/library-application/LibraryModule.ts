@@ -72,6 +72,7 @@ export class LibraryModule extends Context.Service<
     readonly preparePageFileBlob: (
       accessContext: ContentAccessContext,
       operationId: string,
+      idempotencySlot: string,
       bytes: Uint8Array,
     ) => LibraryEffect<PreparedPageFileBlob>;
     readonly readPageFileBlob: (
@@ -188,11 +189,12 @@ export const live: Layer.Layer<LibraryModule, never, CoreAuthority | CoreSession
           use("library.read", projectIdForAccess(accessContext), (core) => core.read(request)),
         apply: (accessContext, request) =>
           use("library.apply", projectIdForAccess(accessContext), (core) => core.apply(request)),
-        preparePageFileBlob: (accessContext, operationId, bytes) =>
+        preparePageFileBlob: (accessContext, operationId, idempotencySlot, bytes) =>
           useClient(
             "library.preparePageFileBlob",
             projectIdForAccess(accessContext),
-            (client, signal) => client.preparePageFileBlob({ operationId, bytes }, { signal }),
+            (client, signal) =>
+              client.preparePageFileBlob({ operationId, idempotencySlot, bytes }, { signal }),
           ),
         readPageFileBlob: (accessContext, input) =>
           useClient(

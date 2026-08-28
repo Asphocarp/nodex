@@ -174,6 +174,7 @@ impl CoreClient {
         project_id: Option<&str>,
         operation_id: &str,
         store_epoch: &str,
+        idempotency_slot: Option<&str>,
         source: &mut impl Read,
         byte_length: u64,
     ) -> Result<nodex_core_contracts::library::LibraryPreparedPageFileBlob, ClientError> {
@@ -183,10 +184,14 @@ impl CoreClient {
                 actual: usize::try_from(byte_length).unwrap_or(usize::MAX),
             });
         }
+        let idempotency_slot = idempotency_slot
+            .map(|slot| format!("&idempotency_slot={}", percent_encode(slot)))
+            .unwrap_or_default();
         let path = format!(
-            "/core/v1/page-files/blobs/prepare?operation_id={}&store_epoch={}",
+            "/core/v1/page-files/blobs/prepare?operation_id={}&store_epoch={}{}",
             percent_encode(operation_id),
             percent_encode(store_epoch),
+            idempotency_slot,
         );
         let body = connected_stream_request(
             self,

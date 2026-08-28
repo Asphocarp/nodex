@@ -7,8 +7,8 @@ use nodex_core_contracts::library::{
     LibraryPageFileSummary, LibraryRead, LibraryReadValue,
 };
 use nodex_core_contracts::{ModuleApplyRequest, StoreEpoch};
-use nodex_core_protocol::ResponseEnvelope;
 use nodex_core_protocol::client::CoreClient;
+use nodex_core_protocol::{LibraryApplyResponse, ResponseEnvelope};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -37,6 +37,7 @@ pub(crate) fn list(
         &page_id,
         arguments.after,
         arguments.limit,
+        arguments.include_deleted,
     )?;
     Ok(CommandOutput::Json(json!({
         "page_id": snapshot.page_id,
@@ -58,7 +59,7 @@ pub(crate) fn read(
         return Err(invalid("File version must be positive"));
     }
     let (project_id, page_id) = resolve_page(client, explicit_project, cwd, &arguments.page)?;
-    let file = resolve_file(client, &project_id, &page_id, &arguments.file)?;
+    let file = resolve_file(client, &project_id, &page_id, &arguments.file, true)?;
     let blob = client
         .read_page_file_blob(
             Some(&project_id),
@@ -92,10 +93,6 @@ pub(crate) fn put(
 ) -> Result<CommandOutput, CliError> {
     reject_return_fields(&arguments.mutation.r#return)?;
     let (project_id, page_id) = resolve_page(client, explicit_project, cwd, &arguments.page)?;
-    let manifest = read_manifest(client, &project_id, &page_id, None, Some(100))?;
-    let existing = find_all_files(client, &project_id, &page_id)?
-        .into_iter()
-        .find(|file| file.logical_path == arguments.path);
     let operation_id = operation_id(arguments.mutation.idempotency_key.as_deref(), json_output)?;
     let mime_type = arguments
         .mime
@@ -115,6 +112,7 @@ pub(crate) fn put(
                 Some(&project_id),
                 &operation_id,
                 &client.handshake.store_epoch,
+                Some(&arguments.path),
                 &mut Cursor::new(bytes.as_slice()),
                 bytes.len() as u64,
             )
@@ -130,32 +128,23 @@ pub(crate) fn put(
                 Some(&project_id),
                 &operation_id,
                 &client.handshake.store_epoch,
+                Some(&arguments.path),
                 &mut source,
                 metadata.len(),
             )
             .map_err(map_client_error)?
     };
-    let change = match existing.as_ref() {
-        Some(file) => LibraryPageFileChange::ReplaceContent {
-            file_id: file.file_id.clone(),
-            expected_version: file.version,
-            mime_type,
-            prepared_blob_receipt_id: prepared.receipt_id,
-        },
-        None => LibraryPageFileChange::Create {
-            file_id: file_id_for_operation(&operation_id),
-            logical_path: arguments.path,
-            mime_type,
-            prepared_blob_receipt_id: prepared.receipt_id,
-        },
-    };
-    apply(
+    let file_id = file_id_for_operation(&operation_id);
+    apply_put(
         client,
         &project_id,
         &page_id,
-        manifest.revision,
         operation_id,
-        change,
+        file_id,
+        arguments.path,
+        mime_type,
+        prepared.receipt_id,
+        arguments.turn_id,
     )
 }
 
@@ -168,8 +157,8 @@ pub(crate) fn rename(
 ) -> Result<CommandOutput, CliError> {
     reject_return_fields(&arguments.mutation.r#return)?;
     let (project_id, page_id) = resolve_page(client, explicit_project, cwd, &arguments.page)?;
-    let file = resolve_file(client, &project_id, &page_id, &arguments.file)?;
-    let manifest = read_manifest(client, &project_id, &page_id, None, Some(100))?;
+    let file = resolve_file(client, &project_id, &page_id, &arguments.file, false)?;
+    let manifest = read_manifest(client, &project_id, &page_id, None, Some(100), false)?;
     apply(
         client,
         &project_id,
@@ -181,6 +170,7 @@ pub(crate) fn rename(
             expected_version: file.version,
             logical_path: arguments.path,
         },
+        arguments.turn_id,
     )
 }
 
@@ -193,8 +183,8 @@ pub(crate) fn delete(
 ) -> Result<CommandOutput, CliError> {
     reject_return_fields(&arguments.mutation.r#return)?;
     let (project_id, page_id) = resolve_page(client, explicit_project, cwd, &arguments.page)?;
-    let file = resolve_file(client, &project_id, &page_id, &arguments.file)?;
-    let manifest = read_manifest(client, &project_id, &page_id, None, Some(100))?;
+    let file = resolve_file(client, &project_id, &page_id, &arguments.file, false)?;
+    let manifest = read_manifest(client, &project_id, &page_id, None, Some(100), false)?;
     apply(
         client,
         &project_id,
@@ -205,6 +195,7 @@ pub(crate) fn delete(
             file_id: file.file_id,
             expected_version: file.version,
         },
+        arguments.turn_id,
     )
 }
 
@@ -215,7 +206,7 @@ pub(crate) fn versions(
     arguments: PageFileVersionsArgs,
 ) -> Result<CommandOutput, CliError> {
     let (project_id, page_id) = resolve_page(client, explicit_project, cwd, &arguments.page)?;
-    let file = resolve_file(client, &project_id, &page_id, &arguments.file)?;
+    let file = resolve_file(client, &project_id, &page_id, &arguments.file, true)?;
     let snapshot = unwrap_library(client.library_read(
         Some(&project_id),
         LibraryRead::PageFileVersions {
@@ -247,8 +238,8 @@ pub(crate) fn restore(
         return Err(invalid("File version must be positive"));
     }
     let (project_id, page_id) = resolve_page(client, explicit_project, cwd, &arguments.page)?;
-    let file = resolve_file(client, &project_id, &page_id, &arguments.file)?;
-    let manifest = read_manifest(client, &project_id, &page_id, None, Some(100))?;
+    let file = resolve_file(client, &project_id, &page_id, &arguments.file, true)?;
+    let manifest = read_manifest(client, &project_id, &page_id, None, Some(100), true)?;
     apply(
         client,
         &project_id,
@@ -260,6 +251,7 @@ pub(crate) fn restore(
             expected_version: file.version,
             source_version: arguments.version,
         },
+        arguments.turn_id,
     )
 }
 
@@ -270,6 +262,7 @@ fn apply(
     expected_manifest_revision: i64,
     operation_id: String,
     change: LibraryPageFileChange,
+    turn_id: Option<String>,
 ) -> Result<CommandOutput, CliError> {
     let response = client
         .library_apply(
@@ -282,11 +275,15 @@ fn apply(
                     page_id: page_id.to_owned(),
                     expected_manifest_revision,
                     changes: vec![change],
-                    turn_id: None,
+                    turn_id,
                 },
             },
         )
         .map_err(map_client_error)?;
+    page_file_apply_output(response)
+}
+
+fn page_file_apply_output(response: LibraryApplyResponse) -> Result<CommandOutput, CliError> {
     let committed = match response.0 {
         ResponseEnvelope::Ok(committed) => committed,
         ResponseEnvelope::Error(error) => return Err(map_core_error(error)),
@@ -307,6 +304,39 @@ fn apply(
     })))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn apply_put(
+    client: &CoreClient,
+    project_id: &str,
+    page_id: &str,
+    operation_id: String,
+    file_id: String,
+    logical_path: String,
+    mime_type: String,
+    prepared_blob_receipt_id: String,
+    turn_id: Option<String>,
+) -> Result<CommandOutput, CliError> {
+    let response = client
+        .library_apply(
+            Some(project_id),
+            ModuleApplyRequest {
+                contract_version: LIBRARY_CONTRACT_VERSION,
+                operation_id,
+                store_epoch: StoreEpoch(client.handshake.store_epoch.clone()),
+                intent: LibraryIntent::PutPageFile {
+                    page_id: page_id.to_owned(),
+                    file_id,
+                    logical_path,
+                    mime_type,
+                    prepared_blob_receipt_id,
+                    turn_id,
+                },
+            },
+        )
+        .map_err(map_client_error)?;
+    page_file_apply_output(response)
+}
+
 fn resolve_page(
     client: &CoreClient,
     explicit_project: Option<&str>,
@@ -324,14 +354,16 @@ fn read_manifest(
     page_id: &str,
     cursor: Option<String>,
     limit: Option<u32>,
+    include_deleted: bool,
 ) -> Result<LibraryPageFileManifest, CliError> {
     let snapshot = unwrap_library(client.library_read(
         Some(project_id),
         LibraryRead::PageFiles {
             page_id: page_id.to_owned(),
+            query: None,
             cursor,
             limit,
-            include_deleted: None,
+            include_deleted: include_deleted.then_some(true),
         },
     ))?;
     let LibraryReadValue::PageFiles { value } = snapshot.value else {
@@ -344,11 +376,19 @@ fn find_all_files(
     client: &CoreClient,
     project_id: &str,
     page_id: &str,
+    include_deleted: bool,
 ) -> Result<Vec<LibraryPageFileSummary>, CliError> {
     let mut files = Vec::new();
     let mut cursor = None;
     loop {
-        let manifest = read_manifest(client, project_id, page_id, cursor, Some(100))?;
+        let manifest = read_manifest(
+            client,
+            project_id,
+            page_id,
+            cursor,
+            Some(100),
+            include_deleted,
+        )?;
         files.extend(manifest.files);
         if files.len() > MAX_PAGE_FILES_PER_COMMAND {
             return Err(invalid(
@@ -370,8 +410,9 @@ fn resolve_file(
     project_id: &str,
     page_id: &str,
     selector: &str,
+    include_deleted: bool,
 ) -> Result<LibraryPageFileSummary, CliError> {
-    let matches = find_all_files(client, project_id, page_id)?
+    let matches = find_all_files(client, project_id, page_id, include_deleted)?
         .into_iter()
         .filter(|file| file.file_id == selector || file.logical_path == selector)
         .collect::<Vec<_>>();

@@ -66,6 +66,7 @@ pub const MAINTENANCE_REQUEST_DEADLINE_MS: u64 = 120_000;
 pub struct PreparePageFileBlobQuery {
     pub operation_id: String,
     pub store_epoch: String,
+    pub idempotency_slot: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, IntoParams, PartialEq, Serialize, ToSchema)]

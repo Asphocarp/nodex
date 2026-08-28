@@ -1069,6 +1069,14 @@
             }
           },
           {
+            "name": "idempotency_slot",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "x-nodex-request-id",
             "in": "header",
             "required": false,
@@ -16331,6 +16339,40 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "put"
+                ]
+              },
+              "logical_path": {
+                "type": "string"
+              },
+              "mime_type": {
+                "type": "string"
+              },
+              "prepared_blob_receipt_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "file_id",
+              "logical_path",
+              "mime_type",
+              "prepared_blob_receipt_id",
+              "collision_policy",
+              "kind"
+            ],
+            "properties": {
+              "collision_policy": {
+                "$ref": "#/components/schemas/LibraryPageFileCollisionPolicy"
+              },
+              "file_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
                   "create"
                 ]
               },
@@ -16497,6 +16539,13 @@
           "clone"
         ]
       },
+      "LibraryPageFileCollisionPolicy": {
+        "type": "string",
+        "enum": [
+          "reject",
+          "suffix"
+        ]
+      },
       "LibraryPageFileManifest": {
         "type": "object",
         "required": [
@@ -16505,12 +16554,21 @@
           "body_usage_revision",
           "files",
           "has_more",
-          "total"
+          "total",
+          "live_total",
+          "unplaced_total",
+          "placed_total",
+          "deleted_total"
         ],
         "properties": {
           "body_usage_revision": {
             "type": "integer",
             "format": "int64"
+          },
+          "deleted_total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "files": {
             "type": "array",
@@ -16521,6 +16579,11 @@
           "has_more": {
             "type": "boolean"
           },
+          "live_total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "next_cursor": {
             "type": [
               "string",
@@ -16530,11 +16593,21 @@
           "page_id": {
             "type": "string"
           },
+          "placed_total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "revision": {
             "type": "integer",
             "format": "int64"
           },
           "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "unplaced_total": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -22239,6 +22312,46 @@
               {
                 "type": "object",
                 "required": [
+                  "page_id",
+                  "file_id",
+                  "logical_path",
+                  "mime_type",
+                  "prepared_blob_receipt_id",
+                  "kind"
+                ],
+                "properties": {
+                  "file_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "put_page_file"
+                    ]
+                  },
+                  "logical_path": {
+                    "type": "string"
+                  },
+                  "mime_type": {
+                    "type": "string"
+                  },
+                  "page_id": {
+                    "type": "string"
+                  },
+                  "prepared_blob_receipt_id": {
+                    "type": "string"
+                  },
+                  "turn_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "database_id",
                   "data_source_id",
                   "view_id",
@@ -26151,6 +26264,12 @@
                   },
                   "page_id": {
                     "type": "string"
+                  },
+                  "query": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 }
               },
@@ -28447,6 +28566,12 @@
           "store_epoch"
         ],
         "properties": {
+          "idempotency_slot": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "operation_id": {
             "type": "string"
           },

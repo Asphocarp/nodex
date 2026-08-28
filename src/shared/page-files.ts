@@ -39,14 +39,15 @@ export interface PreparedPickedPageFile {
 
 export const PAGE_FILE_SOURCE_PREFIX = "nodex://files/";
 
+const isValidPageFileId = (fileId: string): boolean =>
+  Boolean(fileId) &&
+  fileId === fileId.trim() &&
+  !fileId.includes("/") &&
+  !fileId.includes("%") &&
+  !/[\u0000-\u001f\u007f]/u.test(fileId);
+
 export const pageFileSource = (fileId: string): string => {
-  if (
-    !fileId ||
-    fileId !== fileId.trim() ||
-    fileId.includes("/") ||
-    fileId.includes("%") ||
-    /[\u0000-\u001f\u007f]/u.test(fileId)
-  ) {
+  if (!isValidPageFileId(fileId)) {
     throw new Error("Page File IDs must be non-empty URI path segments");
   }
   return `${PAGE_FILE_SOURCE_PREFIX}${fileId}`;
@@ -55,15 +56,7 @@ export const pageFileSource = (fileId: string): string => {
 export const parsePageFileSource = (source: string): string | null => {
   if (!source.startsWith(PAGE_FILE_SOURCE_PREFIX)) return null;
   const fileId = source.slice(PAGE_FILE_SOURCE_PREFIX.length);
-  if (
-    !fileId ||
-    fileId !== fileId.trim() ||
-    fileId.includes("/") ||
-    fileId.includes("%") ||
-    /[\u0000-\u001f\u007f]/u.test(fileId)
-  ) {
-    return null;
-  }
+  if (!isValidPageFileId(fileId)) return null;
   return fileId;
 };
 

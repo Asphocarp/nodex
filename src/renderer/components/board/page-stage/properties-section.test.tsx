@@ -1,8 +1,10 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { act, fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 
 import type { PageStageCorePage } from "@/lib/page-stage-page";
 import { render } from "@/test/dom";
+import { TestQueryProvider } from "@/test/query";
 import { PageStagePropertiesSection } from "./properties-section";
 import type { PageStageController } from "./use-page-stage-controller";
 import type { PageStagePropertyControls } from "./use-page-stage-properties";
@@ -22,10 +24,15 @@ vi.mock("@/lib/api", () => ({
         value: {
           pageId: "nested-page",
           revision: 0,
+          bodyUsageRevision: 0,
           files: [],
           nextCursor: null,
           hasMore: false,
           total: 0,
+          liveTotal: 0,
+          unplacedTotal: 0,
+          placedTotal: 0,
+          deletedTotal: 0,
         },
       },
     },
@@ -91,9 +98,12 @@ const buildController = (overrides: Partial<PageStageController> = {}): PageStag
     ...overrides,
   }) as PageStageController;
 
+const renderProperties = (element: ReactElement) =>
+  render(<TestQueryProvider>{element}</TestQueryProvider>);
+
 describe("PageStagePropertiesSection", () => {
   test("keeps Files available when the Page has no database property rows", async () => {
-    const view = render(<PageStagePropertiesSection controller={buildController()} />);
+    const view = renderProperties(<PageStagePropertiesSection controller={buildController()} />);
 
     expect(view.getByText("Properties")).toBeTruthy();
     expect(view.getByText("Files")).toBeTruthy();
@@ -108,7 +118,7 @@ describe("PageStagePropertiesSection", () => {
 
   test("uses the shared Empty value to add a related Chat without execution controls", async () => {
     const onCreateRelatedChat = vi.fn(async () => undefined);
-    const view = render(
+    const view = renderProperties(
       <PageStagePropertiesSection
         controller={buildController({
           hasRelatedChatsRow: true,
@@ -153,7 +163,7 @@ describe("PageStagePropertiesSection", () => {
     const handleOpenRelatedChat = vi.fn(async () => undefined);
     const handleRemoveRelatedChat = vi.fn(async () => undefined);
     const onLinkRelatedChat = vi.fn(async () => undefined);
-    const view = render(
+    const view = renderProperties(
       <PageStagePropertiesSection
         controller={buildController({
           hasRelatedChatsRow: true,

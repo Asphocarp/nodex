@@ -224,6 +224,7 @@ pub(super) fn read(
         }
         LibraryRead::PageFiles {
             page_id,
+            query,
             cursor,
             limit,
             include_deleted,
@@ -240,6 +241,7 @@ pub(super) fn read(
                     connection,
                     library_id,
                     &page_id,
+                    query.as_deref(),
                     cursor.as_deref(),
                     limit,
                     include_deleted.unwrap_or(false),

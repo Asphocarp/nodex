@@ -188,6 +188,10 @@ const expectedRoutes = new Set([
   "/core/v1/handshake",
   "/core/v1/health",
   "/core/v1/local-mutations/resolve",
+  // Page File metadata stays behind the Library Module. Exact bytes use these
+  // separately bounded, authenticated streams so they never enter JSON commands.
+  "/core/v1/page-files/blobs/prepare",
+  "/core/v1/page-files/blobs/{file_id}",
   "/core/v1/requests/cancel",
   ...["administration", "automation", "database", "document", "library", "workspace"].flatMap(
     (module) => ["apply", "read"].map((operation) => `/core/v1/modules/${module}/${operation}`),

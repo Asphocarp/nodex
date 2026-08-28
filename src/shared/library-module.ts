@@ -162,6 +162,10 @@ export interface LibraryPageFileManifest {
   readonly nextCursor: string | null;
   readonly hasMore: boolean;
   readonly total: number;
+  readonly liveTotal: number;
+  readonly unplacedTotal: number;
+  readonly placedTotal: number;
+  readonly deletedTotal: number;
 }
 
 export interface LibraryPageFileVersion {
@@ -258,6 +262,7 @@ export type LibraryRead =
   | {
       readonly mode: "page_files";
       readonly pageId: string;
+      readonly query?: string;
       readonly cursor?: string;
       readonly limit?: number;
       readonly includeDeleted?: boolean;
@@ -756,6 +761,7 @@ export type LibraryPageFileChange =
       readonly logicalPath: string;
       readonly mimeType: string;
       readonly preparedBlobReceiptId: string;
+      readonly collisionPolicy: "reject" | "suffix";
     }
   | {
       readonly kind: "replace_content";

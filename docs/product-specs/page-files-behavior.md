@@ -44,9 +44,9 @@ rows, and preview header use the same File icon projection.
 The open Files surface remains the complete ownership inventory. Unplaced Files
 appear first. Placed Files live in a default-collapsed `In page · N` disclosure;
 opening from an `N in page` summary expands it immediately. Path filtering
-searches the complete inventory and reveals matching placed Files without
-creating a persistent view mode. Placement is presentation, not a File type or
-visibility state.
+searches the complete inventory through bounded Core pages and reveals matching
+placed Files without creating a persistent view mode. Placement is presentation,
+not a File type or visibility state.
 
 The Files surface supports:
 
@@ -74,6 +74,14 @@ retain their root name and relative paths. `Add folder` remains an explicit
 picker entry, not a recovery path for unsupported drag behavior. A symlink,
 special file, or violated batch bound rejects the whole selection before the
 manifest changes.
+
+Core owns upload path allocation. When an added File collides under the portable
+path key, Core appends the first available ` (N)` suffix before the extension in
+the same atomic mutation. The native CLI's exact-path `put` continues to replace
+the live File already at that path instead of allocating a sibling. CLI `put`
+is one semantic Core operation: its prepared bytes occupy a stable slot under
+the operation identity, so an exact idempotent retry returns the original
+receipt without reinterpreting the now-current manifest.
 
 All metadata mutations compare the Page's current Files manifest revision. A
 stale operation makes no partial changes and asks the caller to reload. A batch
@@ -149,7 +157,9 @@ Page. No Plan Mode behavior or prompt is specialized for Files.
 The native Agent interface exposes bounded semantic commands to list, read,
 put/replace, rename, delete, inspect versions, and restore Files. Page draft
 projection includes the direct File manifest eagerly; bytes stay lazy and are
-read through explicit File commands. The manifest remains complete for Agents
+read through explicit File commands. Deleted Files can be included explicitly
+when listing and remain selectable by identity or exact path for versions and
+restore. The manifest remains complete for Agents
 and reports placement counts; row-level de-duplication is solely renderer
 presentation. Neither renderer nor Agent receives a Profile path or a
 read-by-hash capability.

@@ -13,30 +13,13 @@ const api = vi.hoisted(() => ({
 vi.mock("./api", () => api);
 
 import {
-  allocatePageFilePath,
   createOwnedPageFile,
-  portablePageFilePathKey,
   prepareBrowserPageFiles,
-  readCompletePageFileManifest,
+  readPageFileManifestPage,
   validateBrowserPageFileBatch,
 } from "./page-file-resources";
 
-describe("Page File path allocation", () => {
-  test("suffixes portable Unicode and case collisions while preserving directories", () => {
-    const occupied = new Set([
-      portablePageFilePathKey("references/Brief.PDF"),
-      portablePageFilePathKey("references/brief (2).pdf"),
-    ]);
-
-    expect(allocatePageFilePath("references/brief.pdf", occupied)).toBe("references/brief (3).pdf");
-    expect(
-      allocatePageFilePath(
-        "assets/Cafe\u0301.png",
-        new Set([portablePageFilePathKey("assets/Café.png")]),
-      ),
-    ).toBe("assets/Café (2).png");
-  });
-
+describe("Page File resources", () => {
   test("uses canonical UUID-v7 identities across prepare and apply", async () => {
     api.preparePageFile.mockResolvedValue({
       receiptId: "prepared-receipt",
@@ -44,23 +27,42 @@ describe("Page File path allocation", () => {
       mimeType: "image/png",
       byteLength: 7,
     });
-    api.readLibraryModule.mockResolvedValue({
-      ok: true,
-      value: {
+    api.readLibraryModule
+      .mockResolvedValueOnce({
+        ok: true,
         value: {
-          kind: "page_files",
           value: {
-            pageId: "page-1",
-            revision: 0,
-            bodyUsageRevision: 0,
-            files: [],
-            nextCursor: null,
-            hasMore: false,
-            total: 0,
+            kind: "page_files",
+            value: {
+              pageId: "page-1",
+              revision: 0,
+              bodyUsageRevision: 0,
+              files: [],
+              nextCursor: null,
+              hasMore: false,
+              total: 0,
+              liveTotal: 0,
+              unplacedTotal: 0,
+              placedTotal: 0,
+              deletedTotal: 0,
+            },
           },
         },
-      },
-    });
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          value: {
+            kind: "page_file_metadata",
+            value: {
+              fileId: "created-file",
+              logicalPath: "diagram (2).png",
+              mimeType: "image/png",
+              byteLength: 7,
+            },
+          },
+        },
+      });
     api.applyLibraryModule.mockResolvedValue({ ok: true, value: {} });
 
     await createOwnedPageFile(
@@ -80,6 +82,7 @@ describe("Page File path allocation", () => {
     expect(isUuidV7(prepareInput?.operationId)).toBe(true);
     expect(applyInput?.operationId).toBe(prepareInput?.operationId);
     expect(isUuidV7(applyInput?.operation.changes[0]?.fileId)).toBe(true);
+    expect(applyInput?.operation.changes[0]?.collisionPolicy).toBe("suffix");
   });
 
   test("rejects an invalid browser batch before publishing any bytes", async () => {
@@ -133,46 +136,35 @@ describe("Page File path allocation", () => {
     ]);
   });
 
-  test("rejects a paginated inventory assembled across body usage revisions", async () => {
+  test("reads one bounded manifest page without hydrating subsequent cursors", async () => {
     api.readLibraryModule.mockReset();
-    api.readLibraryModule
-      .mockResolvedValueOnce({
-        ok: true,
+    api.readLibraryModule.mockResolvedValueOnce({
+      ok: true,
+      value: {
         value: {
+          kind: "page_files",
           value: {
-            kind: "page_files",
-            value: {
-              pageId: "page-1",
-              revision: 3,
-              bodyUsageRevision: 4,
-              files: [],
-              nextCursor: "next",
-              hasMore: true,
-              total: 0,
-            },
+            pageId: "page-1",
+            revision: 3,
+            bodyUsageRevision: 4,
+            files: [],
+            nextCursor: "next",
+            hasMore: true,
+            total: 101,
+            liveTotal: 101,
+            unplacedTotal: 101,
+            placedTotal: 0,
+            deletedTotal: 0,
           },
         },
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        value: {
-          value: {
-            kind: "page_files",
-            value: {
-              pageId: "page-1",
-              revision: 3,
-              bodyUsageRevision: 5,
-              files: [],
-              nextCursor: null,
-              hasMore: false,
-              total: 0,
-            },
-          },
-        },
-      });
+      },
+    });
 
-    await expect(
-      readCompletePageFileManifest({ kind: "project", projectId: "project-1" }, "page-1"),
-    ).rejects.toThrow("Page File body usage changed while Files were being read");
+    const page = await readPageFileManifestPage(
+      { kind: "project", projectId: "project-1" },
+      "page-1",
+    );
+    expect(page.hasMore).toBe(true);
+    expect(api.readLibraryModule).toHaveBeenCalledOnce();
   });
 });

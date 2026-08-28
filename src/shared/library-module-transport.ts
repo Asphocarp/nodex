@@ -1098,6 +1098,7 @@ export const bindLibraryModuleApply = (value: unknown): LibraryModuleApplyReques
           "logicalPath",
           "mimeType",
           "preparedBlobReceiptId",
+          "collisionPolicy",
         ]);
         return {
           kind: change.kind,
@@ -1109,6 +1110,11 @@ export const bindLibraryModuleApply = (value: unknown): LibraryModuleApplyReques
             `${label}.preparedBlobReceiptId`,
             MAX_ID_LENGTH,
           ),
+          collisionPolicy: (() => {
+            const policy = string(change.collisionPolicy, `${label}.collisionPolicy`);
+            if (policy === "reject" || policy === "suffix") return policy;
+            throw new TypeError(`${label}.collisionPolicy is invalid`);
+          })(),
         } as const;
       }
       if (change.kind === "replace_content") {
@@ -1667,7 +1673,7 @@ export const bindLibraryModuleRead = (value: unknown): LibraryModuleReadRequest 
       read,
       "libraryModuleRead.read",
       ["mode", "pageId"],
-      ["cursor", "limit", "includeDeleted"],
+      ["query", "cursor", "limit", "includeDeleted"],
     );
     const cursor = optionalString(
       read.cursor,
@@ -1679,6 +1685,9 @@ export const bindLibraryModuleRead = (value: unknown): LibraryModuleReadRequest 
       read: {
         mode: read.mode,
         pageId: string(read.pageId, "libraryModuleRead.read.pageId", MAX_ID_LENGTH),
+        ...(read.query === undefined
+          ? {}
+          : { query: string(read.query, "libraryModuleRead.read.query", 1_024) }),
         ...(cursor === undefined ? {} : { cursor }),
         ...(limit === undefined ? {} : { limit }),
         ...(read.includeDeleted === undefined
@@ -2455,6 +2464,10 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
       "nextCursor",
       "hasMore",
       "total",
+      "liveTotal",
+      "unplacedTotal",
+      "placedTotal",
+      "deletedTotal",
     ]);
     if (!Array.isArray(manifest.files)) {
       throw new TypeError("library Page Files manifest.files must be an array");
@@ -2481,6 +2494,13 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
               ),
         hasMore: boolean(manifest.hasMore, "library Page Files manifest.hasMore"),
         total: revision(manifest.total, "library Page Files manifest.total"),
+        liveTotal: revision(manifest.liveTotal, "library Page Files manifest.liveTotal"),
+        unplacedTotal: revision(
+          manifest.unplacedTotal,
+          "library Page Files manifest.unplacedTotal",
+        ),
+        placedTotal: revision(manifest.placedTotal, "library Page Files manifest.placedTotal"),
+        deletedTotal: revision(manifest.deletedTotal, "library Page Files manifest.deletedTotal"),
       },
     };
   }

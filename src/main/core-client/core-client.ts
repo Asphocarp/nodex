@@ -251,13 +251,18 @@ export class CoreClient implements CoreClientPort {
   }
 
   async preparePageFileBlob(
-    input: { readonly operationId: string; readonly bytes: Uint8Array },
+    input: {
+      readonly operationId: string;
+      readonly idempotencySlot?: string;
+      readonly bytes: Uint8Array;
+    },
     options: CoreRequestOptions = {},
   ): Promise<PreparedPageFileBlob> {
     const query = new URLSearchParams({
       operation_id: input.operationId,
       store_epoch: this.handshake.store_epoch,
     });
+    if (input.idempotencySlot) query.set("idempotency_slot", input.idempotencySlot);
     const response = await this.#transport.requestBoundedBytes(
       "POST",
       `/core/v1/page-files/blobs/prepare?${query.toString()}`,

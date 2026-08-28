@@ -1,4 +1,4 @@
-import { type DragEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type DragEvent, useEffect, useRef, useState } from "react";
 
 import {
   ActivitySpinnerIcon,
@@ -42,17 +42,10 @@ import type {
   LibraryPageFileSummary,
 } from "../../../../shared/library-module";
 import type { PreparedPickedPageFile } from "../../../../shared/page-files";
-import { contentAccessContextKey } from "../../../../shared/content-access-context";
 import { createUuidV7 } from "../../../../shared/uuid-v7";
 import { cn } from "@/lib/utils";
-import {
-  allocatePageFilePath,
-  portablePageFilePathKey,
-  readCompletePageFileManifest,
-} from "@/lib/page-file-resources";
 import type { PageStageController } from "./use-page-stage-controller";
-import { subscribePageFileChanges } from "@/lib/page-library-changes";
-import type { PageFileChange } from "@/lib/page-library-changes";
+import { usePageFiles } from "@/lib/use-page-files";
 
 interface PageFilesRowProps {
   readonly controller: PageStageController;
@@ -73,6 +66,10 @@ const EMPTY_MANIFEST = (pageId: string): LibraryPageFileManifest => ({
   nextCursor: null,
   hasMore: false,
   total: 0,
+  liveTotal: 0,
+  unplacedTotal: 0,
+  placedTotal: 0,
+  deletedTotal: 0,
 });
 const MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024;
 const PAGE_FILE_ROW_CHIP_LIMIT = 2;
@@ -151,10 +148,6 @@ function FilePreviewSurface({
 export function PageFilesRow({ controller }: PageFilesRowProps) {
   const { contentAccessContext, page, storeEpoch } = controller;
   const [open, setOpen] = useState(false);
-  const [manifest, setManifest] = useState<LibraryPageFileManifest>(() =>
-    EMPTY_MANIFEST(page?.id ?? ""),
-  );
-  const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
   const [editingPath, setEditingPath] = useState("");
@@ -166,90 +159,23 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
   const [fileDragActive, setFileDragActive] = useState(false);
 
   const pageId = page?.id ?? "";
-  const authorityKey = `${storeEpoch}:${contentAccessContextKey(contentAccessContext)}:${pageId}`;
-  const activeAuthorityKeyRef = useRef(authorityKey);
-  const contentAccessContextRef = useRef(contentAccessContext);
-  const manifestRef = useRef(manifest);
   const fileDragDepthRef = useRef(0);
-  const loadInFlightRef = useRef<{
-    readonly authorityKey: string;
-    readonly promise: Promise<LibraryPageFileManifest>;
-  } | null>(null);
-  activeAuthorityKeyRef.current = authorityKey;
-  contentAccessContextRef.current = contentAccessContext;
-
-  const load = useCallback((): Promise<LibraryPageFileManifest> => {
-    if (!pageId) return Promise.resolve(EMPTY_MANIFEST(""));
-    const existing = loadInFlightRef.current;
-    if (existing?.authorityKey === authorityKey) return existing.promise;
-
-    const promise = readCompletePageFileManifest(contentAccessContextRef.current, pageId, true)
-      .then((result) => {
-        if (activeAuthorityKeyRef.current === authorityKey) {
-          manifestRef.current = result;
-          setManifest(result);
-        }
-        return result;
-      })
-      .finally(() => {
-        if (loadInFlightRef.current?.authorityKey === authorityKey) {
-          loadInFlightRef.current = null;
-        }
-      });
-    loadInFlightRef.current = { authorityKey, promise };
-    return promise;
-  }, [authorityKey, pageId]);
-
-  const refreshToChange = useCallback(
-    async (change: PageFileChange): Promise<void> => {
-      const first = await load();
-      const firstReached =
-        (change.manifestRevision === null || first.revision >= change.manifestRevision) &&
-        (change.bodyUsageRevision === null || first.bodyUsageRevision >= change.bodyUsageRevision);
-      if (firstReached) return;
-      const second = await load();
-      if (
-        (change.manifestRevision !== null && second.revision < change.manifestRevision) ||
-        (change.bodyUsageRevision !== null && second.bodyUsageRevision < change.bodyUsageRevision)
-      ) {
-        throw new Error("Page Files did not reach the announced inventory revision");
-      }
-    },
-    [load],
-  );
+  const previewRequestRef = useRef(0);
+  const normalizedQuery = query.trim();
+  const searchActive = normalizedQuery.length > 0;
+  const baseFiles = usePageFiles(contentAccessContext, pageId, { subscribe: true });
+  const filteredFiles = usePageFiles(contentAccessContext, pageId, {
+    query: normalizedQuery,
+    enabled: open && searchActive,
+  });
+  const inventory = searchActive ? filteredFiles : baseFiles;
+  const rowManifest = baseFiles.manifest ?? EMPTY_MANIFEST(pageId);
+  const manifest = inventory.manifest ?? EMPTY_MANIFEST(pageId);
+  const loading = inventory.loading;
 
   useEffect(() => {
-    let active = true;
-    const empty = EMPTY_MANIFEST(pageId);
-    manifestRef.current = empty;
-    setLoading(true);
-    setManifest(empty);
-    void load()
-      .catch(() => {
-        if (active) toast.danger("Couldn’t load Page Files");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [load, pageId]);
-
-  useEffect(() => {
-    if (!pageId) return;
-    return subscribePageFileChanges(pageId, (change) => {
-      if (
-        (change.manifestRevision === null ||
-          change.manifestRevision <= manifestRef.current.revision) &&
-        (change.bodyUsageRevision === null ||
-          change.bodyUsageRevision <= manifestRef.current.bodyUsageRevision)
-      ) {
-        return;
-      }
-      void refreshToChange(change).catch(() => toast.danger("Couldn’t refresh Page Files"));
-    });
-  }, [pageId, refreshToChange]);
+    if (baseFiles.error) toast.danger("Couldn’t load Page Files");
+  }, [baseFiles.error]);
 
   useEffect(
     () => () => {
@@ -259,6 +185,11 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
   );
 
   if (!page) return null;
+
+  const refreshInventories = async (): Promise<void> => {
+    await baseFiles.refresh();
+    if (searchActive) await filteredFiles.refresh();
+  };
 
   const applyChanges = async (
     operationId: string,
@@ -276,11 +207,11 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
       },
     });
     if (result.ok) {
-      await load();
+      await refreshInventories();
       return true;
     }
     toast.danger(pageFilesErrorMessage(result));
-    if (result.error.code === "revision_conflict") await load();
+    if (result.error.code === "revision_conflict") await refreshInventories();
     return false;
   };
 
@@ -289,21 +220,15 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
     preparedFiles: readonly PreparedPickedPageFile[],
   ): Promise<void> => {
     if (preparedFiles.length === 0) return;
-    const current = await load();
-    const occupied = new Set(
-      current.files
-        .filter((file) => file.state === "live")
-        .map((file) => portablePageFilePathKey(file.logicalPath)),
-    );
+    const current = await baseFiles.refresh();
     const changes = preparedFiles.map((file) => {
-      const logicalPath = allocatePageFilePath(file.logicalPath, occupied);
-      occupied.add(portablePageFilePathKey(logicalPath));
       return {
         kind: "create" as const,
         fileId: createUuidV7(),
-        logicalPath,
+        logicalPath: file.logicalPath,
         mimeType: file.mimeType,
         preparedBlobReceiptId: file.receiptId,
+        collisionPolicy: "suffix" as const,
       };
     });
     if (await applyChanges(operationId, current.revision, changes)) {
@@ -524,8 +449,9 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
   };
 
   const openPreview = async (file: LibraryPageFileSummary): Promise<void> => {
+    const requestId = previewRequestRef.current + 1;
+    previewRequestRef.current = requestId;
     setPreviewFileId(file.fileId);
-    if (preview?.objectUrl) URL.revokeObjectURL(preview.objectUrl);
     setPreview(null);
     if (
       isTextPreview(file.mimeType, file.logicalPath) &&
@@ -543,9 +469,14 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
         const objectUrl = URL.createObjectURL(
           new Blob([result.bytes.slice().buffer as ArrayBuffer], { type: result.mimeType }),
         );
+        if (previewRequestRef.current !== requestId) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
         setPreview({ fileId: file.fileId, kind: "image", objectUrl });
         return;
       }
+      if (previewRequestRef.current !== requestId) return;
       if (isTextPreview(file.mimeType, file.logicalPath)) {
         const text = new TextDecoder().decode(result.bytes);
         setPreview({
@@ -558,39 +489,37 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
       }
       setPreview({ fileId: file.fileId, kind: "unsupported" });
     } catch {
+      if (previewRequestRef.current !== requestId) return;
       setPreviewFileId(null);
       toast.danger("Couldn’t preview file");
     }
   };
 
+  const rowLiveFiles = rowManifest.files.filter((file) => file.state === "live");
   const liveFiles = manifest.files.filter((file) => file.state === "live");
   const unplacedFiles = liveFiles.filter((file) => file.bodyUsage.kind === "not_in_body");
   const inPageFiles = liveFiles.filter((file) => file.bodyUsage.kind === "placed");
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const matchesQuery = (file: LibraryPageFileSummary): boolean =>
-    file.logicalPath.toLocaleLowerCase().includes(normalizedQuery);
-  const visibleUnplacedFiles = unplacedFiles.filter(matchesQuery);
-  const visibleInPageFiles = inPageFiles.filter(matchesQuery);
-  const deletedFiles = manifest.files
-    .filter((file) => file.state === "deleted")
-    .filter(matchesQuery);
-  const previewFile = liveFiles.find((file) => file.fileId === previewFileId) ?? null;
-  const rowFiles = unplacedFiles.slice(0, PAGE_FILE_ROW_CHIP_LIMIT);
-  const hiddenUnplacedFileCount = unplacedFiles.length - rowFiles.length;
-  const hiddenFileCount = hiddenUnplacedFileCount + inPageFiles.length;
-  const summaryShowsInPage = hiddenUnplacedFileCount === 0 && inPageFiles.length > 0;
-  const summaryLabel = summaryShowsInPage ? `${inPageFiles.length} in page` : `+${hiddenFileCount}`;
+  const deletedFiles = manifest.files.filter((file) => file.state === "deleted");
+  const previewFile =
+    [...rowLiveFiles, ...liveFiles].find((file) => file.fileId === previewFileId) ?? null;
+  const rowFiles = rowLiveFiles
+    .filter((file) => file.bodyUsage.kind === "not_in_body")
+    .slice(0, PAGE_FILE_ROW_CHIP_LIMIT);
+  const hiddenUnplacedFileCount = Math.max(0, rowManifest.unplacedTotal - rowFiles.length);
+  const hiddenFileCount = hiddenUnplacedFileCount + rowManifest.placedTotal;
+  const summaryShowsInPage = hiddenUnplacedFileCount === 0 && rowManifest.placedTotal > 0;
+  const summaryLabel = summaryShowsInPage
+    ? `${rowManifest.placedTotal} in page`
+    : `+${hiddenFileCount}`;
   const hiddenSummaryParts = [
     hiddenUnplacedFileCount > 0
       ? `${hiddenUnplacedFileCount} more ${hiddenUnplacedFileCount === 1 ? "file" : "files"}`
       : null,
-    inPageFiles.length > 0 ? `${inPageFiles.length} shown in page` : null,
+    rowManifest.placedTotal > 0 ? `${rowManifest.placedTotal} shown in page` : null,
   ].filter((part): part is string => part !== null);
   const hiddenSummaryTooltip = hiddenSummaryParts.join(" · ");
-  const searchActive = normalizedQuery.length > 0;
   const inPageSectionExpanded = searchActive || inPageExpanded;
-  const hasSearchResults =
-    visibleUnplacedFiles.length + visibleInPageFiles.length + deletedFiles.length > 0;
+  const hasSearchResults = manifest.total > 0;
 
   const openFiles = (options: { readonly expandInPage?: boolean } = {}): void => {
     setInPageExpanded(options.expandInPage ?? false);
@@ -739,8 +668,8 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
           </div>
           <span className="min-w-0 truncate text-sm/5 text-(--foreground-secondary)">Files</span>
         </div>
-        <div className={cn("min-w-0 px-2", liveFiles.length === 0 && "self-center")}>
-          {loading ? (
+        <div className={cn("min-w-0 px-2", rowManifest.liveTotal === 0 && "self-center")}>
+          {baseFiles.loading ? (
             <div
               role="status"
               aria-label="Loading Page Files"
@@ -749,7 +678,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
               <ActivitySpinnerIcon className="size-3.5" />
             </div>
           ) : null}
-          {!loading && liveFiles.length === 0 ? (
+          {!baseFiles.loading && rowManifest.liveTotal === 0 ? (
             <button
               type="button"
               className={cn(
@@ -758,12 +687,12 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
               )}
               onClick={() => openFiles()}
               aria-label="Add Page Files"
-              aria-busy={loading}
+              aria-busy={baseFiles.loading}
             >
               <PropertyEmptyValue className="truncate" />
             </button>
           ) : null}
-          {!loading && liveFiles.length > 0 ? (
+          {!baseFiles.loading && rowManifest.liveTotal > 0 ? (
             <div className="flex min-h-7 flex-wrap items-center gap-1 py-0.5" aria-busy="false">
               {rowFiles.map((file) => (
                 <button
@@ -791,7 +720,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                     type="button"
                     aria-label={
                       summaryShowsInPage
-                        ? `Open ${inPageFiles.length} ${inPageFiles.length === 1 ? "File" : "Files"} shown in Page`
+                        ? `Open ${rowManifest.placedTotal} ${rowManifest.placedTotal === 1 ? "File" : "Files"} shown in Page`
                         : `Open ${hiddenFileCount} more Page Files`
                     }
                     className={cn(
@@ -892,7 +821,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                   <ActivitySpinnerIcon className="size-4" />
                 </div>
               ) : null}
-              {!loading && liveFiles.length === 0 ? (
+              {!loading && !searchActive && rowManifest.liveTotal === 0 ? (
                 <button
                   type="button"
                   disabled={mutating}
@@ -916,7 +845,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                   )}
                 </button>
               ) : null}
-              {!loading && liveFiles.length > 0 ? (
+              {!baseFiles.loading && rowManifest.liveTotal > 0 ? (
                 <div className="mb-2">
                   <input
                     value={query}
@@ -927,15 +856,15 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                   />
                 </div>
               ) : null}
-              {!loading && visibleUnplacedFiles.length > 0 ? (
-                <div className="divide-y divide-token-border/70">
-                  {visibleUnplacedFiles.map(renderFileRow)}
+              {!loading && unplacedFiles.length > 0 ? (
+                <div className="divide-y-[0.5px] divide-token-border/70">
+                  {unplacedFiles.map(renderFileRow)}
                 </div>
               ) : null}
-              {!loading && visibleInPageFiles.length > 0 ? (
+              {!loading && inPageFiles.length > 0 ? (
                 <section
                   className={cn(
-                    visibleUnplacedFiles.length > 0 && "mt-3 border-t border-token-border/70 pt-2",
+                    unplacedFiles.length > 0 && "mt-3 border-t-[0.5px] border-token-border/70 pt-2",
                   )}
                 >
                   <button
@@ -950,11 +879,11 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                         inPageSectionExpanded && "rotate-90",
                       )}
                     />
-                    <span>In page · {visibleInPageFiles.length}</span>
+                    <span>In page · {manifest.placedTotal}</span>
                   </button>
                   {inPageSectionExpanded ? (
-                    <div className="divide-y divide-token-border/70">
-                      {visibleInPageFiles.map(renderFileRow)}
+                    <div className="divide-y-[0.5px] divide-token-border/70">
+                      {inPageFiles.map(renderFileRow)}
                     </div>
                   ) : null}
                 </section>
@@ -965,11 +894,11 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                 </div>
               ) : null}
               {!loading && deletedFiles.length > 0 ? (
-                <div className="mt-4 border-t border-token-border/70 pt-3">
+                <div className="mt-4 border-t-[0.5px] border-token-border/70 pt-3">
                   <h3 className="mb-1 px-1 text-xs font-medium text-token-description-foreground">
                     Deleted
                   </h3>
-                  <div className="divide-y divide-token-border/50">
+                  <div className="divide-y-[0.5px] divide-token-border/50">
                     {deletedFiles.map((file) => (
                       <div
                         key={file.fileId}
@@ -1001,6 +930,18 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                   </div>
                 </div>
               ) : null}
+              {!loading && inventory.hasMore ? (
+                <div className="flex justify-center pt-3">
+                  <NodexDialogAction
+                    size="compact"
+                    disabled={inventory.loadingMore}
+                    onClick={() => void inventory.loadMore()}
+                  >
+                    {inventory.loadingMore ? <ActivitySpinnerIcon className="size-3" /> : null}
+                    Load more
+                  </NodexDialogAction>
+                </div>
+              ) : null}
             </NodexDialogBody>
           </NodexDialogFrame>
         </NodexDialogContent>
@@ -1010,6 +951,7 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
         open={previewFile !== null}
         onOpenChange={(nextOpen) => {
           if (!nextOpen) {
+            previewRequestRef.current += 1;
             setPreviewFileId(null);
             setPreview(null);
             setPreviewText("");
