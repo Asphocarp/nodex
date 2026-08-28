@@ -268,7 +268,8 @@ Current visual contract:
 
 - inline, baseline-participating chip
 - concise label only
-- icon on the left
+- path/MIME-derived File icon on the left, using the same projection as Page
+  Files; folders retain the folder glyph
 - optional link glyph on the right for linked attachments
 - purple tokenized mention-like styling
 
@@ -309,7 +310,7 @@ The attachment popover is the detailed interaction surface.
 
 Header shows:
 
-- icon
+- the same path/MIME-derived icon as the attachment chip
 - full label
 - kind
 - byte size when available

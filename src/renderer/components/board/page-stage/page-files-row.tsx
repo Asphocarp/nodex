@@ -2,7 +2,7 @@ import { type DragEvent, useCallback, useEffect, useRef, useState } from "react"
 
 import { ActivitySpinnerIcon, FileIcon, PlusIcon } from "@/components/shared/icons";
 import { FileResourceIcon } from "@/components/shared/file-resource-icon";
-import { DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME } from "@/components/database/property-value-chip";
+import { DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME } from "@/components/database/property-value-chip";
 import { DownloadIcon } from "@/components/shared/icons/generic-icons";
 import {
   NodexDialog,
@@ -585,8 +585,8 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                   data-page-file-chip="true"
                   aria-label={`Open ${file.logicalPath}`}
                   className={cn(
-                    DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
-                    "max-w-64 gap-1 bg-token-foreground/8 text-token-text-secondary outline-none hover:bg-token-foreground/10 hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus",
+                    DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME,
+                    "max-w-64 gap-1 text-token-text-secondary outline-none hover:bg-token-foreground/5 hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus",
                   )}
                   onClick={() => void openPreview(file)}
                 >
@@ -603,8 +603,8 @@ export function PageFilesRow({ controller }: PageFilesRowProps) {
                   type="button"
                   aria-label={`Open ${hiddenFileCount} more Page Files`}
                   className={cn(
-                    DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
-                    "bg-token-foreground/5 text-token-description-foreground outline-none hover:bg-token-foreground/8 hover:text-token-text-secondary focus-visible:ring-2 focus-visible:ring-token-focus",
+                    DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME,
+                    "text-token-description-foreground outline-none hover:bg-token-foreground/5 hover:text-token-text-secondary focus-visible:ring-2 focus-visible:ring-token-focus",
                   )}
                   onClick={() => setOpen(true)}
                 >

@@ -1,6 +1,6 @@
 ---
 name: general-design-guidelines
-description: General design guidelines for building premium, Linear/Arc-inspired UI. Use when creating or modifying frontend components, pages, dropdowns, settings panels, sidebars, poppers, command palettes, or any user-facing interface. Enforces a luxury, ultra-refined aesthetic with intentional spacing, opacity-based hierarchy, and crisp micro-animations.
+description: General design guidelines for building premium, Linear/Arc-inspired UI. Use when creating or modifying frontend components, pages, dropdowns, settings panels, sidebars, poppers, command palettes, or any user-facing interface. Enforces a luxury, ultra-refined aesthetic with intentional spacing, semantic surface treatments, and crisp micro-animations.
 ---
 
 # General Design Guidelines
@@ -14,24 +14,49 @@ The aesthetic is **luxury tool-grade software** — closer to Linear, Arc, Notio
 **Key tenets:**
 
 - Every element earns its space — no decorative filler
-- Hierarchy through **opacity and color**, not through borders and boxes
+- Use the least assertive treatment that still communicates identity, boundary, and affordance
+- Separate object boundaries from hierarchy: hairline outlines identify neutral objects; shading communicates state, category, selection, or emphasis
 - Flat, single-surface layouts — no gradient heroes, no nested bordered cards
 - Tight, intentional spacing — never loose or "airy" by default
 - Quiet until interacted with — reveal visual depth on pointer hover, active, or open states; do not make hidden chrome keyboard-focusable unless the surface contract explicitly requires it
 
 ## Visual Hierarchy
 
-### Use opacity and `color-mix()` — not borders — for hierarchy
+### Match treatment to meaning
 
-Establish foreground/background relationships using **alpha transparency on the foreground color**, not by defining separate border/divider colors.
+Boundary and hierarchy are different visual jobs. A boundary tells the user that
+content is one discrete object or control. Hierarchy tells the user what is
+active, selected, categorized, or important. Choose the quietest treatment that
+performs the required job, and escalate only when semantics require it:
+
+| Treatment | Default role                                                           | Typical examples                                                           |
+| --------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Plain     | Content needs no independent boundary                                  | Metadata, static values, low-emphasis labels                               |
+| Outline   | Neutral content is a discrete interactive object or reference          | Files, attachments, Page relations, linked chats, compact neutral controls |
+| Tinted    | Color or shading carries category, state, selection, or hover feedback | Status, priority, tags, selected segments, hover states                    |
+| Solid     | The action or state must dominate the local composition                | Primary actions, strong selection, critical emphasis                       |
+
+Neutral reference chips default to a transparent background with a semantic
+`0.5px` hairline outline. Use an inset ring when preserving chip geometry
+matters. A resting neutral chip does not earn a filled background merely by
+being clickable. On hover or selection, it may gain a subtle foreground-derived
+tint.
+
+Categorical chips may use semantic tints because their color carries meaning.
+Plain content should remain plain when neither boundary nor state needs to be
+communicated. Do not outline every value, or replace shading clutter with border
+clutter.
 
 ```css
-/* ✅ Good — opacity-based hierarchy */
-background: color-mix(in srgb, var(--foreground) 5%, transparent); /* subtle tint */
-background: color-mix(in srgb, var(--foreground) 10%, transparent); /* hover state */
-color: color-mix(in srgb, var(--foreground) 50%, transparent); /* secondary text */
+/* Neutral reference object */
+background: transparent;
+box-shadow: inset 0 0 0 0.5px var(--border);
 
-/* ❌ Bad — hard-coded grays or separate border colors */
+/* Semantic category or interaction state */
+background: color-mix(in srgb, var(--foreground) 5%, transparent);
+color: color-mix(in srgb, var(--foreground) 50%, transparent);
+
+/* Hard-coded gray is never a semantic treatment */
 background: #f5f5f5;
 border: 1px solid #e0e0e0;
 color: #999;
@@ -39,8 +64,10 @@ color: #999;
 
 **Practical token pattern** (Tailwind-style):
 
-- `bg-token-foreground/5` — subtle surface tint
-- `bg-token-foreground/10` — hover/active surface
+- `ring-[0.5px] ring-inset ring-token-border` — neutral object boundary
+- `bg-transparent` — resting neutral reference or control
+- `bg-token-foreground/5` — semantic tint or subtle hover state
+- `bg-token-foreground/10` — active or selected state
 - `text-token-text-secondary` — de-emphasized text (implemented via opacity)
 - `text-token-description-foreground` — tertiary/metadata text
 - `opacity-75` resting → `opacity-100` on hover/active — for sidebar nav items
@@ -194,10 +221,30 @@ Active/selected items must be **unmistakable** without being garish:
 | --------------- | ------------------------ | -------------------- | -------------- |
 | Ghost (toolbar) | transparent              | `border-transparent` | `rounded-full` |
 | Ghost hover     | `bg-token-foreground/5`  | —                    | —              |
+| Outlined        | transparent              | semantic `0.5px`     | context-owned  |
 | Tinted          | `bg-token-foreground/5`  | `border-transparent` | `rounded-lg`   |
 | Tinted active   | `bg-token-foreground/10` | —                    | —              |
 | Primary (send)  | `bg-token-foreground`    | —                    | `rounded-full` |
 | Disabled        | same + `opacity-40`      | —                    | —              |
+
+### Chips and compact tokens
+
+- Use outline for neutral references and resources whose object boundary helps
+  recognition or interaction: File, Attachment, Relation, linked Page, and
+  linked chat.
+- Use tint for categorical values whose color is meaningful: Status, Priority,
+  Tag, and comparable option-backed values.
+- Use plain text for values that do not need a discrete hit target or object
+  identity.
+- Keep dedicated add and remove actions visually separate from value chips;
+  they normally remain ghost controls. A compact `+N` summary may inherit the
+  value-chip treatment when it represents hidden values, even if it also opens
+  the complete collection.
+- When one trigger wraps several chips, hover each chip or the intended target,
+  not a large shared rectangle behind the whole value lane.
+- Preserve one semantic treatment across equivalent appearances. A Page
+  reference should not become filled solely because it appears in another
+  Property row.
 
 ## Dropdowns & Poppers
 
@@ -352,9 +399,11 @@ Reserve transitions only for **meaningful, intentional motion**:
 
 ## Borders & Dividers
 
-### Hairline borders only
+### Hairline boundaries only
 
-Outer container borders are always `0.5px` — never `1px` or thicker:
+When a container, outlined control, or neutral chip needs a visible boundary,
+use a semantic `0.5px` hairline. Prefer an inset ring for fixed-height compact
+controls so the boundary does not change their geometry:
 
 ```css
 border: 0.5px solid var(--border-token); /* outer ring */
@@ -414,6 +463,8 @@ All surfaces are **very close in value** — hierarchy comes from subtle shifts,
 Before shipping any UI, verify:
 
 - [ ] No element uses a hardcoded gray — all colors derived from foreground/background tokens
+- [ ] Every resting fill communicates category, state, selection, or emphasis; neutral reference chips default to a transparent hairline outline
+- [ ] Every outline communicates a useful object or interaction boundary; plain content remains plain
 - [ ] No border thicker than `0.5px` on containers (inputs may use `1px`)
 - [ ] No padding larger than `p-3` on list/menu items
 - [ ] No transition on hover states (background, color, opacity) — must be instant

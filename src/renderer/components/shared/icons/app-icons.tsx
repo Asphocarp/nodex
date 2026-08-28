@@ -5724,8 +5724,8 @@ const FILE_TAB_ICON_DEFINITIONS = {
     ],
   },
   file: {
-    width: 10,
-    height: 10,
+    width: 16,
+    height: 16,
     viewBox: "0 0 10 10",
     fill: "none",
     xmlns: "http://www.w3.org/2000/svg",

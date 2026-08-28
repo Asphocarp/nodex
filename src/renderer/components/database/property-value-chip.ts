@@ -6,6 +6,12 @@ export type DatabasePropertyValuePresentation = "compact" | "page" | "list" | "b
 export const DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME =
   "inline-flex h-5.5 min-w-0 items-center rounded-md px-1.5 text-sm/5";
 
+/** Quiet outline treatment for Page Property values that act as references. */
+export const DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME = [
+  DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
+  "bg-transparent ring-[0.5px] ring-inset ring-token-border",
+].join(" ");
+
 /** Dense chips keep their host surface opaque and strengthen on direct hover. */
 export const DATABASE_PROPERTY_VALUE_CHIP_CLASS_NAME = [
   "inline-flex h-6 min-h-6 max-w-[290px] items-center gap-1.5 overflow-hidden rounded-[48px] border-[0.5px]",

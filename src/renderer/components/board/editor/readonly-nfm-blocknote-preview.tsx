@@ -25,7 +25,6 @@ import {
   Bot,
   BoxSelect,
   Link2,
-  Paperclip,
   RefreshCw,
   Rows3,
   Settings2,
@@ -43,6 +42,7 @@ import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
 import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
 import { resolveAgentConfigChip, type AgentConfigProps } from "./agent-config-chip";
 import { formatAttachmentBytes } from "./attachment-chip-format";
+import { AttachmentResourceIcon } from "./attachment-resource-icon";
 import { createReadonlyDateMentionInlineContentSpec } from "./date-mention-inline-content-spec";
 import { createReadonlyPageMentionInlineContentSpec } from "./page-mention-inline-content";
 import { resolveThreadMentionDisplay } from "@/lib/nfm/thread-mention-display";
@@ -89,8 +89,8 @@ interface ReadonlyPreviewDocument {
 }
 
 interface PreviewAttachmentProps {
-  kind: string;
-  mode: string;
+  kind: "text" | "file" | "folder";
+  mode: "materialized" | "link";
   source: string;
   name: string;
   mimeType?: string;
@@ -210,7 +210,12 @@ const createReadonlyAttachmentInlineContentSpec = () =>
       return (
         <NodexTooltip tooltipContent={props.source}>
           <span contentEditable={false} className={inlineTintedChipVariants({ tone: "purple" })}>
-            <Paperclip className={inlineTintedChipIconClassName} />
+            <AttachmentResourceIcon
+              kind={props.kind}
+              name={props.name}
+              mimeType={props.mimeType}
+              className={inlineTintedChipIconClassName}
+            />
             <span className={cn(inlineTintedChipLabelClassName, "truncate")}>
               {formatPreviewAttachmentLabel(props)}
             </span>

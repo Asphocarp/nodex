@@ -9,7 +9,7 @@ import {
   DATABASE_PAGE_PROPERTY_EMPTY_TRIGGER_CLASS_NAME,
   PropertyEmptyValue,
 } from "@/components/database/property-empty-value";
-import { DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME } from "@/components/database/property-value-chip";
+import { DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME } from "@/components/database/property-value-chip";
 import {
   ActivitySpinnerIcon,
   ChevronDownIcon,
@@ -223,11 +223,11 @@ function RelatedChatsPropertyRow({ controller }: PageStagePropertiesSectionProps
                   data-page-stage-related-chat-session-id={chat.sessionId}
                   data-page-stage-related-chat-chip="true"
                   className={cn(
-                    DATABASE_PAGE_PROPERTY_VALUE_TOKEN_CLASS_NAME,
-                    "group/related-chat relative max-w-64 gap-0 p-0",
+                    DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME,
+                    "group/related-chat relative max-w-64 gap-0 p-0 hover:bg-token-foreground/5",
                     current
-                      ? "bg-token-foreground/12 text-token-text-primary hover:bg-token-foreground/12"
-                      : "bg-token-foreground/8 text-token-text-secondary hover:bg-token-foreground/10",
+                      ? "text-token-text-primary ring-token-border-heavy"
+                      : "text-token-text-secondary hover:text-token-text-primary",
                   )}
                 >
                   <button
