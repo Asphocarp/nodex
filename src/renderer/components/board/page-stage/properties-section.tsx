@@ -23,10 +23,70 @@ import { presentPageChatItemActivity } from "@/lib/page-chat-activity-presentati
 import { cn } from "@/lib/utils";
 import { PageStageDataSourcePropertyControl } from "./data-source-property-control";
 import type { PageStageController } from "./use-page-stage-controller";
+import type { PageStageRelatedChat } from "./types";
 import { PageFilesRow } from "./page-files-row";
 
 interface PageStagePropertiesSectionProps {
   readonly controller: PageStageController;
+}
+
+interface RelatedChatPropertyChipProps {
+  readonly chat: PageStageRelatedChat;
+  readonly current: boolean;
+  readonly saving: boolean;
+  readonly onOpen?: () => Promise<void>;
+  readonly onRemove?: () => Promise<void>;
+}
+
+/** Content-sized chips overlay hidden actions so resting geometry follows visible content only. */
+export function RelatedChatPropertyChip({
+  chat,
+  current,
+  saving,
+  onOpen,
+  onRemove,
+}: RelatedChatPropertyChipProps) {
+  const activity = presentPageChatItemActivity(chat);
+
+  return (
+    <span
+      data-page-stage-related-chat-session-id={chat.sessionId}
+      data-page-stage-related-chat-chip="true"
+      className={cn(
+        DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME,
+        "group/related-chat relative max-w-64 gap-0 p-0 hover:bg-token-foreground/5 group-focus-within/related-chat:bg-token-foreground/5",
+        current
+          ? "text-token-text-primary ring-token-border-heavy"
+          : "text-token-text-secondary hover:text-token-text-primary",
+      )}
+    >
+      <button
+        type="button"
+        aria-current={current ? "true" : undefined}
+        disabled={!onOpen}
+        onClick={() => void onOpen?.()}
+        className="flex h-full min-w-0 flex-1 items-center gap-1 px-1.5 text-left outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-60"
+      >
+        <PageChatActivityGlyph
+          activity={activity}
+          className={cn("size-4", activity.execution === "idle" && "text-inherit")}
+          unreadRingClassName="ring-token-main-surface-primary"
+        />
+        <span className="min-w-0 flex-1 truncate">{chat.displayTitle}</span>
+      </button>
+      {onRemove ? (
+        <button
+          type="button"
+          aria-label={`Remove relation to ${chat.displayTitle}`}
+          disabled={saving}
+          className="pointer-events-none absolute right-0.5 top-1/2 z-10 flex size-5 -translate-y-1/2 shrink-0 items-center justify-center rounded-sm bg-[color-mix(in_srgb,var(--color-token-foreground)_5%,var(--color-token-main-surface-primary))] text-token-description-foreground opacity-0 hover:bg-[color-mix(in_srgb,var(--color-token-foreground)_10%,var(--color-token-main-surface-primary))] hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus focus-visible:text-token-text-primary group-hover/related-chat:pointer-events-auto group-hover/related-chat:opacity-100 group-focus-within/related-chat:pointer-events-auto group-focus-within/related-chat:opacity-100 disabled:pointer-events-none disabled:opacity-40"
+          onClick={() => void onRemove()}
+        >
+          <XIcon className="size-3" />
+        </button>
+      ) : null}
+    </span>
+  );
 }
 
 function RelatedChatAddControl({
@@ -214,53 +274,18 @@ function RelatedChatsPropertyRow({ controller }: PageStagePropertiesSectionProps
         ) : null}
         {relatedChats.length > 0 ? (
           <div className="flex min-h-7 flex-wrap items-center gap-1 py-0.5">
-            {relatedChats.map((chat) => {
-              const activity = presentPageChatItemActivity(chat);
-              const current = currentSessionId === chat.sessionId;
-              return (
-                <span
-                  key={chat.sessionId}
-                  data-page-stage-related-chat-session-id={chat.sessionId}
-                  data-page-stage-related-chat-chip="true"
-                  className={cn(
-                    DATABASE_PAGE_PROPERTY_OUTLINED_TOKEN_CLASS_NAME,
-                    "group/related-chat relative max-w-64 gap-0 p-0 hover:bg-token-foreground/5",
-                    current
-                      ? "text-token-text-primary ring-token-border-heavy"
-                      : "text-token-text-secondary hover:text-token-text-primary",
-                  )}
-                >
-                  <button
-                    type="button"
-                    aria-current={current ? "true" : undefined}
-                    disabled={!onOpenRelatedChat}
-                    onClick={() => void handleOpenRelatedChat(chat.sessionId)}
-                    className={cn(
-                      "flex h-full min-w-0 flex-1 items-center gap-1 pl-1.5 text-left outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-token-focus disabled:opacity-60",
-                      onRemoveRelatedChat ? "pr-6" : "pr-1.5",
-                    )}
-                  >
-                    <PageChatActivityGlyph
-                      activity={activity}
-                      className={cn("size-4", activity.execution === "idle" && "text-inherit")}
-                      unreadRingClassName="ring-token-main-surface-primary"
-                    />
-                    <span className="min-w-0 flex-1 truncate">{chat.displayTitle}</span>
-                  </button>
-                  {onRemoveRelatedChat ? (
-                    <button
-                      type="button"
-                      aria-label={`Remove relation to ${chat.displayTitle}`}
-                      disabled={saving}
-                      className="absolute right-0.5 top-1/2 flex size-5 -translate-y-1/2 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 hover:bg-token-foreground/10 hover:text-token-text-primary group-hover/related-chat:opacity-100 group-focus-within/related-chat:opacity-100 disabled:opacity-40"
-                      onClick={() => void handleRemoveRelatedChat(chat.sessionId)}
-                    >
-                      <XIcon className="size-3" />
-                    </button>
-                  ) : null}
-                </span>
-              );
-            })}
+            {relatedChats.map((chat) => (
+              <RelatedChatPropertyChip
+                key={chat.sessionId}
+                chat={chat}
+                current={currentSessionId === chat.sessionId}
+                saving={saving}
+                onOpen={onOpenRelatedChat ? () => handleOpenRelatedChat(chat.sessionId) : undefined}
+                onRemove={
+                  onRemoveRelatedChat ? () => handleRemoveRelatedChat(chat.sessionId) : undefined
+                }
+              />
+            ))}
             {relatedChatsHasMore && onLoadMoreRelatedChats ? (
               <button
                 type="button"
