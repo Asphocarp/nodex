@@ -14,7 +14,7 @@ use nodex_core_contracts::events::{
     AuthorizedOwnedDocumentEvent, CoreModuleEventPayload, DeliveryAtomKind, DeliveryAtomPayload,
     ResourceKey,
 };
-use nodex_core_contracts::library::LibraryEvent;
+use nodex_core_contracts::library::{LibraryEvent, LibraryEventKind};
 use nodex_core_contracts::workspace::ProjectWorkspaceEvent;
 use rusqlite::{Connection, OptionalExtension};
 
@@ -91,6 +91,8 @@ pub(crate) fn payload_claims(
                 event
                     .page_ids
                     .iter()
+                    .chain(event.page_file_manifest_revisions.keys())
+                    .chain(event.page_file_body_usage_revisions.keys())
                     .cloned()
                     .map(|page_id| ResourceKey::Page { page_id }),
             );
@@ -240,10 +242,21 @@ fn compile_library(
         .page_ids
         .iter()
         .chain(event.page_file_manifest_revisions.keys())
+        .chain(event.page_file_body_usage_revisions.keys())
         .collect::<BTreeSet<_>>();
     for page_id in page_ids {
+        let page_ids = if event.page_ids.contains(page_id) {
+            vec![page_id.clone()]
+        } else {
+            Vec::new()
+        };
         let page_file_manifest_revisions = event
             .page_file_manifest_revisions
+            .get(page_id)
+            .map(|revision| BTreeMap::from([(page_id.clone(), *revision)]))
+            .unwrap_or_default();
+        let page_file_body_usage_revisions = event
+            .page_file_body_usage_revisions
             .get(page_id)
             .map(|revision| BTreeMap::from([(page_id.clone(), *revision)]))
             .unwrap_or_default();
@@ -259,11 +272,12 @@ fn compile_library(
                 library_id: library_id.to_owned(),
                 event: LibraryEvent {
                     kind: event.kind,
-                    page_ids: vec![page_id.clone()],
+                    page_ids,
                     database_ids: Vec::new(),
                     view_ids: Vec::new(),
                     parent_keys: Vec::new(),
                     page_file_manifest_revisions,
+                    page_file_body_usage_revisions,
                 },
             },
         ));
@@ -286,6 +300,7 @@ fn compile_library(
                     view_ids: Vec::new(),
                     parent_keys: Vec::new(),
                     page_file_manifest_revisions: BTreeMap::new(),
+                    page_file_body_usage_revisions: BTreeMap::new(),
                 },
             },
         ));
@@ -308,6 +323,7 @@ fn compile_library(
                     view_ids: vec![view_id.clone()],
                     parent_keys: Vec::new(),
                     page_file_manifest_revisions: BTreeMap::new(),
+                    page_file_body_usage_revisions: BTreeMap::new(),
                 },
             },
         ));
@@ -329,6 +345,7 @@ fn compile_library(
                     view_ids: Vec::new(),
                     parent_keys: vec![parent_key.clone()],
                     page_file_manifest_revisions: BTreeMap::new(),
+                    page_file_body_usage_revisions: BTreeMap::new(),
                 },
             },
         ));
@@ -346,6 +363,7 @@ fn compile_library(
                     view_ids: Vec::new(),
                     parent_keys: Vec::new(),
                     page_file_manifest_revisions: BTreeMap::new(),
+                    page_file_body_usage_revisions: BTreeMap::new(),
                 },
             },
         ));
@@ -470,23 +488,30 @@ fn compile_owned_document(
     library_id: &str,
     event: nodex_core_contracts::document::OwnedDocumentEvent,
 ) -> Result<Vec<DeliveryAtomDraft>, StoreError> {
-    let event = match event {
-        nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated { .. } => {
-            return Ok(Vec::new());
-        }
+    let (event, document_id, page_file_body_usage_changed) = match event {
+        nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
+            document_id,
+            page_file_body_usage_changed,
+            ..
+        } => (None, document_id, page_file_body_usage_changed),
         nodex_core_contracts::document::OwnedDocumentEvent::DocumentResyncRequired {
             document_id,
             generation,
             head_seq,
             update_id,
             update_hash,
-        } => AuthorizedOwnedDocumentEvent::DocumentResyncRequired {
+            page_file_body_usage_changed,
+        } => (
+            Some(AuthorizedOwnedDocumentEvent::DocumentResyncRequired {
+                document_id: document_id.clone(),
+                generation,
+                head_seq,
+                update_id,
+                update_hash,
+            }),
             document_id,
-            generation,
-            head_seq,
-            update_id,
-            update_hash,
-        },
+            page_file_body_usage_changed,
+        ),
         nodex_core_contracts::document::OwnedDocumentEvent::CanvasUpdated {
             document_id,
             generation,
@@ -494,14 +519,18 @@ fn compile_owned_document(
             head_seq,
             scene_hash,
             mutation,
-        } => AuthorizedOwnedDocumentEvent::CanvasUpdated {
+        } => (
+            Some(AuthorizedOwnedDocumentEvent::CanvasUpdated {
+                document_id: document_id.clone(),
+                generation,
+                base_head_seq,
+                head_seq,
+                scene_hash,
+                mutation,
+            }),
             document_id,
-            generation,
-            base_head_seq,
-            head_seq,
-            scene_hash,
-            mutation,
-        },
+            false,
+        ),
         nodex_core_contracts::document::OwnedDocumentEvent::CanvasGenerationChanged {
             document_id,
             previous_generation,
@@ -509,23 +538,39 @@ fn compile_owned_document(
             generation,
             head_seq,
             scene_hash,
-        } => AuthorizedOwnedDocumentEvent::CanvasGenerationChanged {
+        } => (
+            Some(AuthorizedOwnedDocumentEvent::CanvasGenerationChanged {
+                document_id: document_id.clone(),
+                previous_generation,
+                previous_head_seq,
+                generation,
+                head_seq,
+                scene_hash,
+            }),
             document_id,
-            previous_generation,
-            previous_head_seq,
-            generation,
-            head_seq,
-            scene_hash,
-        },
+            false,
+        ),
         nodex_core_contracts::document::OwnedDocumentEvent::DocumentInvalidated {
             document_id,
             reason,
-        } => AuthorizedOwnedDocumentEvent::DocumentInvalidated {
+            page_file_body_usage_changed,
+        } => (
+            Some(AuthorizedOwnedDocumentEvent::DocumentInvalidated {
+                document_id: document_id.clone(),
+                reason,
+            }),
             document_id,
-            reason,
-        },
+            page_file_body_usage_changed,
+        ),
     };
-    let document_id = owned_document_id(&event).to_owned();
+    let mut atoms = if page_file_body_usage_changed {
+        compile_page_file_body_usage(connection, library_id, &document_id)?
+    } else {
+        Vec::new()
+    };
+    let Some(event) = event else {
+        return Ok(atoms);
+    };
     let canvas_id = connection
         .query_row(
             "SELECT ownership.block_id
@@ -549,7 +594,7 @@ fn compile_owned_document(
             canvas_id: canvas_id.clone(),
         });
     }
-    Ok(vec![atom(
+    atoms.push(atom(
         DeliveryAtomKind::OwnedDocumentChanged,
         requirements,
         DeliveryAtomPayload::OwnedDocument {
@@ -557,7 +602,40 @@ fn compile_owned_document(
             canvas_id,
             event,
         },
-    )])
+    ));
+    Ok(atoms)
+}
+
+fn compile_page_file_body_usage(
+    connection: &Connection,
+    library_id: &str,
+    document_id: &str,
+) -> Result<Vec<DeliveryAtomDraft>, StoreError> {
+    let (page_id, revision) = connection
+        .query_row(
+            "SELECT projection.page_block_id, manifest.body_usage_revision \
+             FROM page_read_model projection \
+             JOIN page_file_manifests manifest \
+               ON manifest.page_id = projection.page_block_id \
+              AND manifest.library_id = projection.library_id \
+             WHERE projection.library_id = ?1 AND projection.document_id = ?2",
+            [library_id, document_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Page File body usage event has no Page projection"))?;
+    compile_library(
+        library_id,
+        LibraryEvent {
+            kind: LibraryEventKind::LibraryChanged,
+            page_ids: Vec::new(),
+            database_ids: Vec::new(),
+            view_ids: Vec::new(),
+            parent_keys: Vec::new(),
+            page_file_manifest_revisions: BTreeMap::new(),
+            page_file_body_usage_revisions: BTreeMap::from([(page_id, revision)]),
+        },
+    )
 }
 
 fn compile_workspace(
@@ -775,6 +853,7 @@ mod tests {
                     ("page:visible".to_owned(), 7),
                     ("page:hidden".to_owned(), 3),
                 ]),
+                page_file_body_usage_revisions: BTreeMap::new(),
             }),
         )
         .expect("compile Page File atoms");
@@ -799,6 +878,58 @@ mod tests {
                 atom.required_resources,
             );
         }
+    }
+
+    #[test]
+    fn page_file_body_usage_change_becomes_one_page_scoped_library_atom() {
+        let connection = Connection::open_in_memory().expect("in-memory compiler store");
+        connection
+            .execute_batch(
+                "CREATE TABLE page_read_model( \
+                   library_id TEXT NOT NULL, page_block_id TEXT NOT NULL, document_id TEXT NOT NULL, \
+                   document_generation INTEGER NOT NULL, document_projected_seq INTEGER NOT NULL \
+                 ); \
+                 CREATE TABLE page_file_manifests( \
+                   library_id TEXT NOT NULL, page_id TEXT NOT NULL, body_usage_revision INTEGER NOT NULL \
+                 ); \
+                 INSERT INTO page_read_model VALUES( \
+                   'library:test', 'page:test', 'document:test', 2, 9 \
+                 ); \
+                 INSERT INTO page_file_manifests VALUES( \
+                   'library:test', 'page:test', 4 \
+                 );",
+            )
+            .expect("seed Page projection");
+
+        let atoms = compile(
+            &connection,
+            "library:test",
+            "project:test",
+            CoreModuleEventPayload::OwnedDocument(
+                nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
+                    document_id: "document:test".to_owned(),
+                    generation: 2,
+                    head_seq: 9,
+                    update: vec![1],
+                    page_file_body_usage_changed: true,
+                },
+            ),
+        )
+        .expect("compile Page File body usage atom");
+
+        assert_eq!(atoms.len(), 1);
+        let DeliveryAtomPayload::Library { event, .. } = &atoms[0].payload else {
+            panic!("expected Library atom");
+        };
+        assert!(event.page_ids.is_empty());
+        assert_eq!(
+            event.page_file_body_usage_revisions.get("page:test"),
+            Some(&4),
+        );
+        assert_eq!(
+            payload_claims(&atoms[0].payload).expect("atom claims"),
+            atoms[0].required_resources,
+        );
     }
 
     #[test]

@@ -29,13 +29,23 @@ its own direct Files; the parent Files surface never flattens descendants.
 ## Page Stage
 
 Every Page Stage Properties section contains one compact `Files` row. The row
-shows an empty affordance or up to two wrapping path chips, followed by a
-compact remaining-count chip and a trailing add action when needed. Each File
-chip uses the same path/MIME-derived format icon as other exact-format File
-surfaces and opens that File directly; the count and add controls open the Page
-Files surface. Opening the Page or rendering the closed row never loads File
-bytes. The Page Files list, deleted rows, and preview header use the same File
-icon projection.
+avoids repeating Files that are already visible as placements in the Page body.
+It shows `Empty` only when the Page owns no live Files. Otherwise it shows up to
+two unplaced File chips and a compact summary when more inventory exists. When
+every live File is placed, the summary reads `N in page`; mixed overflow uses
+one combined `+N` summary whose tooltip distinguishes additional unplaced Files
+from Files shown in the body. Each File chip uses the same path/MIME-derived
+format icon as other exact-format File surfaces and opens that File directly.
+The summary and add controls open the Page Files surface. Opening the Page or
+rendering the closed row never loads File bytes. The Page Files list, deleted
+rows, and preview header use the same File icon projection.
+
+The open Files surface remains the complete ownership inventory. Unplaced Files
+appear first. Placed Files live in a default-collapsed `In page · N` disclosure;
+opening from an `N in page` summary expands it immediately. Path filtering
+searches the complete inventory and reveals matching placed Files without
+creating a persistent view mode. Placement is presentation, not a File type or
+visibility state.
 
 The Files surface supports:
 
@@ -71,9 +81,12 @@ collisions, traversal, reserved names, excessive depth, and excessive length
 are rejected.
 
 The closed row and an open Files surface refresh only when Core announces a new
-manifest revision for that exact Page. Ordinary Page body, Property, focus, and
-selection changes do not invalidate Files. Background refresh retains the last
-rendered manifest instead of replacing it with an empty/loading state.
+manifest revision or body-usage revision for that exact Page. Manifest and
+body-usage revisions are independent: File mutations advance only the manifest,
+while a changed Page File reference set or placement count advances only body
+usage. Ordinary text, Property, focus, and selection changes advance neither
+Files projection. Background refresh retains the last rendered manifest instead
+of replacing it with an empty or loading state.
 
 ## Placements
 
@@ -92,6 +105,11 @@ Removing a placement leaves the File intact. Deleting a File that still has
 placements is refused; the user removes those placements explicitly before
 deleting it. This keeps placement editing and File ownership understandable
 without a hidden cascade.
+
+Placement usage is derived by Core from canonical `block_asset_refs.page_file_id`
+rows. Each File summary reports either `not_in_body` or a positive placement
+count. Nodex does not persist an embedded, hidden, or Artifact classification on
+the File itself.
 
 Within one Page, Block move/copy preserves File IDs. Across Pages, Core creates
 fresh target File IDs, reuses immutable bytes, and rewrites only the transferred
@@ -130,8 +148,10 @@ Page. No Plan Mode behavior or prompt is specialized for Files.
 The native Agent interface exposes bounded semantic commands to list, read,
 put/replace, rename, delete, inspect versions, and restore Files. Page draft
 projection includes the direct File manifest eagerly; bytes stay lazy and are
-read through explicit File commands. Neither renderer nor Agent receives a
-Profile path or a read-by-hash capability.
+read through explicit File commands. The manifest remains complete for Agents
+and reports placement counts; row-level de-duplication is solely renderer
+presentation. Neither renderer nor Agent receives a Profile path or a
+read-by-hash capability.
 
 ## Reliability and authorization
 

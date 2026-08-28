@@ -26,6 +26,7 @@ import {
   type LibraryMoveDestinationEntry,
   type LibraryMoveDestinationScope,
   type LibraryPageReferenceCandidate,
+  type LibraryPageFileBodyUsage,
   type LibraryNavigationNode,
   type LibraryNavigationParent,
   type LibraryPlacementAnchor,
@@ -2101,10 +2102,29 @@ const parsePageFileSummary = (value: unknown, label: string) => {
     "createdByTurnId",
     "createdAt",
     "updatedAt",
+    "bodyUsage",
   ]);
   if (file.state !== "live" && file.state !== "deleted") {
     throw new TypeError(`${label}.state is unsupported`);
   }
+  const bodyUsage = record(file.bodyUsage, `${label}.bodyUsage`);
+  if (bodyUsage.kind === "not_in_body") {
+    exactKeys(bodyUsage, `${label}.bodyUsage`, ["kind"]);
+  } else if (bodyUsage.kind === "placed") {
+    exactKeys(bodyUsage, `${label}.bodyUsage`, ["kind", "placementCount"]);
+    if (revision(bodyUsage.placementCount, `${label}.bodyUsage.placementCount`) < 1) {
+      throw new TypeError(`${label}.bodyUsage.placementCount must be positive`);
+    }
+  } else {
+    throw new TypeError(`${label}.bodyUsage.kind is unsupported`);
+  }
+  const parsedBodyUsage: LibraryPageFileBodyUsage =
+    bodyUsage.kind === "placed"
+      ? {
+          kind: "placed",
+          placementCount: revision(bodyUsage.placementCount, `${label}.bodyUsage.placementCount`),
+        }
+      : { kind: "not_in_body" };
   return {
     fileId: string(file.fileId, `${label}.fileId`, MAX_ID_LENGTH),
     ownerPageId: string(file.ownerPageId, `${label}.ownerPageId`, MAX_ID_LENGTH),
@@ -2121,6 +2141,7 @@ const parsePageFileSummary = (value: unknown, label: string) => {
         : string(file.createdByTurnId, `${label}.createdByTurnId`, MAX_ID_LENGTH),
     createdAt: string(file.createdAt, `${label}.createdAt`),
     updatedAt: string(file.updatedAt, `${label}.updatedAt`),
+    bodyUsage: parsedBodyUsage,
   } as const;
 };
 
@@ -2429,6 +2450,7 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
     exactKeys(manifest, "library Page Files manifest", [
       "pageId",
       "revision",
+      "bodyUsageRevision",
       "files",
       "nextCursor",
       "hasMore",
@@ -2442,6 +2464,10 @@ const parseReadValue = (value: unknown): LibraryReadValue => {
       value: {
         pageId: string(manifest.pageId, "library Page Files manifest.pageId", MAX_ID_LENGTH),
         revision: revision(manifest.revision, "library Page Files manifest.revision"),
+        bodyUsageRevision: revision(
+          manifest.bodyUsageRevision,
+          "library Page Files manifest.bodyUsageRevision",
+        ),
         files: manifest.files.map((file, index) =>
           parsePageFileSummary(file, `library Page Files manifest.files[${index}]`),
         ),

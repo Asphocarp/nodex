@@ -1103,6 +1103,7 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
         value: {
           pageId: value.value.page_id,
           revision: value.value.revision,
+          bodyUsageRevision: value.value.body_usage_revision,
           files: value.value.files.map(mapPageFileSummary),
           nextCursor: value.value.next_cursor ?? null,
           hasMore: value.value.has_more,
@@ -1156,6 +1157,9 @@ const mapPageFileSummary = (file: {
   readonly created_by_turn_id?: string | null;
   readonly created_at: string;
   readonly updated_at: string;
+  readonly body_usage:
+    | { readonly kind: "not_in_body" }
+    | { readonly kind: "placed"; readonly placement_count: number };
 }) => ({
   fileId: file.file_id,
   ownerPageId: file.owner_page_id,
@@ -1169,6 +1173,10 @@ const mapPageFileSummary = (file: {
   createdByTurnId: file.created_by_turn_id ?? null,
   createdAt: file.created_at,
   updatedAt: file.updated_at,
+  bodyUsage:
+    file.body_usage.kind === "placed"
+      ? { kind: file.body_usage.kind, placementCount: file.body_usage.placement_count }
+      : { kind: file.body_usage.kind },
 });
 
 const mapPageDataSourceContext = (context: CorePageDetail["data_source_context"]): unknown => {

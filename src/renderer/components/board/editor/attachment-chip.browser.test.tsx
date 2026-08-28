@@ -29,6 +29,7 @@ const createPageFileMetadata = (overrides: Partial<PageFileMetadata> = {}): Page
   createdByTurnId: null,
   createdAt: "2026-08-28T00:00:00.000Z",
   updatedAt: "2026-08-28T00:00:00.000Z",
+  bodyUsage: { kind: "placed", placementCount: 1 },
   ...overrides,
 });
 

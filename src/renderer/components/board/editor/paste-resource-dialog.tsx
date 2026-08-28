@@ -1,7 +1,6 @@
-import { FileIcon, FolderIcon, PageIcon } from "@/components/shared/icons";
-import { Link2 } from "@/components/shared/icons/generic-icons";
 import { useRef, type ComponentProps } from "react";
 import { cn } from "@/lib/utils";
+import { AttachmentResourceIcon } from "../attachment-resource-icon";
 import { canMaterializePasteResourceItems, type PasteResourceDialogState } from "./paste-resource";
 import {
   Dialog,
@@ -28,13 +27,6 @@ interface PasteResourceDialogProps {
 
 const TEXT_PREVIEW_CHAR_LIMIT = 100_000;
 const textCountFormatter = new Intl.NumberFormat("en-US");
-
-function getItemIcon(kind: string, allowLink: boolean) {
-  if (allowLink) return Link2;
-  if (kind === "folder") return FolderIcon;
-  if (kind === "file") return FileIcon;
-  return PageIcon;
-}
 
 function getTextPreview(text: string) {
   const normalizedText = text.replace(/\r\n/g, "\n").trim();
@@ -96,9 +88,8 @@ export function PasteResourceDialog({
           </DialogHeader>
 
           <DialogBody className="gap-3">
-            <div className="overflow-hidden rounded-xl bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_9%,transparent)]">
+            <div className="overflow-hidden rounded-xl bg-transparent ring-[0.5px] ring-inset ring-token-border">
               {(state?.items ?? []).map((item, index) => {
-                const Icon = getItemIcon(item.kind, Boolean(item.path));
                 const textPreview =
                   item.kind === "text" && state?.textPayload
                     ? getTextPreview(state.textPayload)
@@ -109,12 +100,16 @@ export function PasteResourceDialog({
                     key={`${item.kind}:${item.name}:${item.path ?? index}`}
                     className={cn(
                       "flex items-center gap-2.5 px-3 py-2.5",
-                      index > 0 &&
-                        "border-t border-[color-mix(in_srgb,var(--foreground)_8%,transparent)]",
+                      index > 0 && "border-t-[0.5px] border-token-border",
                     )}
                   >
-                    <div className="rounded-lg bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] p-1.5 text-[color-mix(in_srgb,var(--foreground)_74%,transparent)]">
-                      <Icon className="size-3.5" />
+                    <div className="flex size-8 shrink-0 items-center justify-center">
+                      <AttachmentResourceIcon
+                        kind={item.kind}
+                        name={item.name}
+                        mimeType={item.mimeType}
+                        className="icon-sm"
+                      />
                     </div>
                     <div className="min-w-0 flex-1">
                       {textPreview ? (

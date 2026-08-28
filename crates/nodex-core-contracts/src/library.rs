@@ -16,7 +16,7 @@ use crate::document::DocumentHeadRevision;
 use crate::workspace::{ProjectAppearance, ProjectLifecycle};
 use crate::{ApplyResponse, ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
-pub const LIBRARY_CONTRACT_VERSION: u32 = 37;
+pub const LIBRARY_CONTRACT_VERSION: u32 = 38;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -1519,6 +1519,13 @@ pub enum LibraryPageFileChangeKind {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryPageFileBodyUsage {
+    NotInBody,
+    Placed { placement_count: u64 },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageFileSummary {
     pub file_id: String,
     pub owner_page_id: String,
@@ -1532,12 +1539,14 @@ pub struct LibraryPageFileSummary {
     pub created_by_turn_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub body_usage: LibraryPageFileBodyUsage,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageFileManifest {
     pub page_id: String,
     pub revision: i64,
+    pub body_usage_revision: i64,
     pub files: Vec<LibraryPageFileSummary>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
@@ -2777,6 +2786,7 @@ pub struct LibraryEvent {
     pub view_ids: Vec<String>,
     pub parent_keys: Vec<String>,
     pub page_file_manifest_revisions: std::collections::BTreeMap<String, i64>,
+    pub page_file_body_usage_revisions: std::collections::BTreeMap<String, i64>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

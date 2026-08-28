@@ -3736,6 +3736,9 @@ export interface components {
         readonly LibraryEvent: {
             readonly database_ids: readonly string[];
             readonly kind: components["schemas"]["LibraryEventKind"];
+            readonly page_file_body_usage_revisions: {
+                readonly [key: string]: number;
+            };
             readonly page_file_manifest_revisions: {
                 readonly [key: string]: number;
             };
@@ -4020,6 +4023,15 @@ export interface components {
             /** Format: int32 */
             readonly version: number;
         };
+        readonly LibraryPageFileBodyUsage: {
+            /** @enum {string} */
+            readonly kind: "not_in_body";
+        } | {
+            /** @enum {string} */
+            readonly kind: "placed";
+            /** Format: int64 */
+            readonly placement_count: number;
+        };
         readonly LibraryPageFileChange: {
             readonly file_id: string;
             /** @enum {string} */
@@ -4067,6 +4079,8 @@ export interface components {
         /** @enum {string} */
         readonly LibraryPageFileChangeKind: "create" | "replace" | "rename" | "delete" | "restore" | "clone";
         readonly LibraryPageFileManifest: {
+            /** Format: int64 */
+            readonly body_usage_revision: number;
             readonly files: readonly components["schemas"]["LibraryPageFileSummary"][];
             readonly has_more: boolean;
             readonly next_cursor?: string | null;
@@ -4089,6 +4103,7 @@ export interface components {
         readonly LibraryPageFileState: "live" | "deleted";
         readonly LibraryPageFileSummary: {
             readonly blob_etag: string;
+            readonly body_usage: components["schemas"]["LibraryPageFileBodyUsage"];
             /** Format: int64 */
             readonly byte_length: number;
             readonly created_at: string;
@@ -6701,6 +6716,7 @@ export interface components {
             readonly head_seq: number;
             /** @enum {string} */
             readonly kind: "document_updated";
+            readonly page_file_body_usage_changed: boolean;
             readonly update: readonly number[];
         } | {
             readonly document_id: string;
@@ -6710,6 +6726,7 @@ export interface components {
             readonly head_seq: number;
             /** @enum {string} */
             readonly kind: "document_resync_required";
+            readonly page_file_body_usage_changed: boolean;
             readonly update_hash: string;
             readonly update_id: string;
         } | {
@@ -6741,6 +6758,7 @@ export interface components {
             readonly document_id: string;
             /** @enum {string} */
             readonly kind: "document_invalidated";
+            readonly page_file_body_usage_changed: boolean;
             readonly reason: components["schemas"]["DocumentInvalidationReason"];
         };
         /** @enum {string} */

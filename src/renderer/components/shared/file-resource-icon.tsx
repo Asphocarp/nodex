@@ -1,5 +1,6 @@
 import type { ComponentType, CSSProperties } from "react";
 import { FileTabIconSvg, type FileTabIconName } from "@/components/shared/icons";
+import { getFileTreeIconColor, resolveFileTreeIconToken } from "@/lib/file-tree-icons";
 
 export type FileResourceIconKey = FileTabIconName;
 
@@ -229,4 +230,27 @@ export function FileResourceIcon({
 }) {
   const Icon = resolveFileResourceIcon(path, mimeType);
   return <Icon className={className} style={style} />;
+}
+
+/** Adds the format color used by file trees while preserving the shared path/MIME glyph. */
+export function ColorfulFileResourceIcon({
+  path,
+  mimeType,
+  className,
+  style,
+}: {
+  readonly path?: string | null;
+  readonly mimeType?: string | null;
+  readonly className?: string;
+  readonly style?: CSSProperties;
+}) {
+  const colorToken = resolveFileTreeIconToken(path || "");
+  return (
+    <FileResourceIcon
+      path={path}
+      mimeType={mimeType}
+      className={className}
+      style={{ color: getFileTreeIconColor(colorToken), ...style }}
+    />
+  );
 }

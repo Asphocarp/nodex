@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { describe, expect, test } from "vite-plus/test";
 import { render } from "@/test/dom";
 import {
+  ColorfulFileResourceIcon,
   FileResourceIcon,
   resolveFileResourceIcon,
   resolveFileResourceIconKey,
@@ -91,5 +92,18 @@ describe("FileResourceIcon", () => {
     );
 
     expect(view.container.querySelector("[data-file-tab-icon='pdf']")).not.toBeNull();
+  });
+
+  test("can apply the matching file-tree color to the shared glyph", () => {
+    const view = render(
+      <ColorfulFileResourceIcon
+        path="references/result.json"
+        mimeType="application/json"
+        className="size-4"
+      />,
+    );
+    const icon = view.container.querySelector<SVGSVGElement>("[data-file-tab-icon='json']");
+
+    expect(icon?.style.color).toContain("trees-file-icon-color-json");
   });
 });

@@ -1088,6 +1088,7 @@ fn reconstruct_event(
                 view_ids: metadata.affected_view_ids,
                 parent_keys: metadata.affected_parent_keys,
                 page_file_manifest_revisions: metadata.page_file_manifest_revisions,
+                page_file_body_usage_revisions: std::collections::BTreeMap::new(),
             })
         }
         "database.changed" => {

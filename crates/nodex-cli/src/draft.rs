@@ -1698,6 +1698,7 @@ mod tests {
             page_files: nodex_core_contracts::library::LibraryPageFileManifest {
                 page_id: "page-1".to_owned(),
                 revision: 0,
+                body_usage_revision: 0,
                 files: Vec::new(),
                 next_cursor: None,
                 has_more: false,
@@ -1734,6 +1735,7 @@ mod tests {
             base_page_files: nodex_core_contracts::library::LibraryPageFileManifest {
                 page_id: "page-1".to_owned(),
                 revision: 0,
+                body_usage_revision: 0,
                 files: Vec::new(),
                 next_cursor: None,
                 has_more: false,

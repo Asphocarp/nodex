@@ -15157,7 +15157,8 @@
           "database_ids",
           "view_ids",
           "parent_keys",
-          "page_file_manifest_revisions"
+          "page_file_manifest_revisions",
+          "page_file_body_usage_revisions"
         ],
         "properties": {
           "database_ids": {
@@ -15168,6 +15169,16 @@
           },
           "kind": {
             "$ref": "#/components/schemas/LibraryEventKind"
+          },
+          "page_file_body_usage_revisions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "page_file_manifest_revisions": {
             "type": "object",
@@ -16264,6 +16275,44 @@
           }
         }
       },
+      "LibraryPageFileBodyUsage": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "not_in_body"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "placement_count",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "placed"
+                ]
+              },
+              "placement_count": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
       "LibraryPageFileChange": {
         "oneOf": [
           {
@@ -16453,11 +16502,16 @@
         "required": [
           "page_id",
           "revision",
+          "body_usage_revision",
           "files",
           "has_more",
           "total"
         ],
         "properties": {
+          "body_usage_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
           "files": {
             "type": "array",
             "items": {
@@ -16551,11 +16605,15 @@
           "state",
           "created_by_actor_id",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "body_usage"
         ],
         "properties": {
           "blob_etag": {
             "type": "string"
+          },
+          "body_usage": {
+            "$ref": "#/components/schemas/LibraryPageFileBodyUsage"
           },
           "byte_length": {
             "type": "integer",
@@ -27864,6 +27922,7 @@
               "generation",
               "head_seq",
               "update",
+              "page_file_body_usage_changed",
               "kind"
             ],
             "properties": {
@@ -27884,6 +27943,9 @@
                   "document_updated"
                 ]
               },
+              "page_file_body_usage_changed": {
+                "type": "boolean"
+              },
               "update": {
                 "type": "array",
                 "items": {
@@ -27903,6 +27965,7 @@
               "head_seq",
               "update_id",
               "update_hash",
+              "page_file_body_usage_changed",
               "kind"
             ],
             "properties": {
@@ -27922,6 +27985,9 @@
                 "enum": [
                   "document_resync_required"
                 ]
+              },
+              "page_file_body_usage_changed": {
+                "type": "boolean"
               },
               "update_hash": {
                 "type": "string"
@@ -28017,6 +28083,7 @@
             "required": [
               "document_id",
               "reason",
+              "page_file_body_usage_changed",
               "kind"
             ],
             "properties": {
@@ -28028,6 +28095,9 @@
                 "enum": [
                   "document_invalidated"
                 ]
+              },
+              "page_file_body_usage_changed": {
+                "type": "boolean"
               },
               "reason": {
                 "$ref": "#/components/schemas/DocumentInvalidationReason"

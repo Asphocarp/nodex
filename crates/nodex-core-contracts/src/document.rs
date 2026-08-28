@@ -11,7 +11,7 @@ use crate::{
     ApplyResponse, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
 
-pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 8;
+pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 9;
 pub const OWNED_DOCUMENT_DESCRIPTOR_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -662,6 +662,7 @@ pub enum OwnedDocumentEvent {
         generation: i64,
         head_seq: i64,
         update: Vec<u8>,
+        page_file_body_usage_changed: bool,
     },
     /// The durable document effect remains replayable after Yjs history
     /// compaction, but its original update bytes are no longer retained.
@@ -673,6 +674,7 @@ pub enum OwnedDocumentEvent {
         head_seq: i64,
         update_id: String,
         update_hash: String,
+        page_file_body_usage_changed: bool,
     },
     CanvasUpdated {
         document_id: String,
@@ -693,6 +695,7 @@ pub enum OwnedDocumentEvent {
     DocumentInvalidated {
         document_id: String,
         reason: DocumentInvalidationReason,
+        page_file_body_usage_changed: bool,
     },
 }
 

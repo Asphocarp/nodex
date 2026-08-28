@@ -17,6 +17,7 @@ import {
   createOwnedPageFile,
   portablePageFilePathKey,
   prepareBrowserPageFiles,
+  readCompletePageFileManifest,
   validateBrowserPageFileBatch,
 } from "./page-file-resources";
 
@@ -51,6 +52,7 @@ describe("Page File path allocation", () => {
           value: {
             pageId: "page-1",
             revision: 0,
+            bodyUsageRevision: 0,
             files: [],
             nextCursor: null,
             hasMore: false,
@@ -129,5 +131,48 @@ describe("Page File path allocation", () => {
       "operation-1",
       "operation-1",
     ]);
+  });
+
+  test("rejects a paginated inventory assembled across body usage revisions", async () => {
+    api.readLibraryModule.mockReset();
+    api.readLibraryModule
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          value: {
+            kind: "page_files",
+            value: {
+              pageId: "page-1",
+              revision: 3,
+              bodyUsageRevision: 4,
+              files: [],
+              nextCursor: "next",
+              hasMore: true,
+              total: 0,
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          value: {
+            kind: "page_files",
+            value: {
+              pageId: "page-1",
+              revision: 3,
+              bodyUsageRevision: 5,
+              files: [],
+              nextCursor: null,
+              hasMore: false,
+              total: 0,
+            },
+          },
+        },
+      });
+
+    await expect(
+      readCompletePageFileManifest({ kind: "project", projectId: "project-1" }, "page-1"),
+    ).rejects.toThrow("Page File body usage changed while Files were being read");
   });
 });

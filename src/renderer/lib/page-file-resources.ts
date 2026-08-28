@@ -123,6 +123,7 @@ export async function readCompletePageFileManifest(
 ): Promise<LibraryPageFileManifest> {
   let cursor: string | undefined;
   let expectedRevision: number | null = null;
+  let expectedBodyUsageRevision: LibraryPageFileManifest["bodyUsageRevision"] | null = null;
   let total = 0;
   const files: LibraryPageFileSummary[] = [];
 
@@ -141,7 +142,14 @@ export async function readCompletePageFileManifest(
     if (expectedRevision !== null && page.revision !== expectedRevision) {
       throw new Error("Page Files changed while they were being read");
     }
+    if (
+      expectedBodyUsageRevision !== null &&
+      page.bodyUsageRevision !== expectedBodyUsageRevision
+    ) {
+      throw new Error("Page File body usage changed while Files were being read");
+    }
     expectedRevision = page.revision;
+    expectedBodyUsageRevision = page.bodyUsageRevision;
     total = page.total;
     files.push(...page.files);
     if (files.length > MAX_PAGE_FILE_COUNT) {
@@ -153,6 +161,7 @@ export async function readCompletePageFileManifest(
   return {
     pageId,
     revision: expectedRevision ?? 0,
+    bodyUsageRevision: expectedBodyUsageRevision ?? 0,
     files,
     nextCursor: null,
     hasMore: false,

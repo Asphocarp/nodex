@@ -134,6 +134,10 @@ export type LibraryPageFileChangeKind =
   | "restore"
   | "clone";
 
+export type LibraryPageFileBodyUsage =
+  | { readonly kind: "not_in_body" }
+  | { readonly kind: "placed"; readonly placementCount: number };
+
 export interface LibraryPageFileSummary {
   readonly fileId: string;
   readonly ownerPageId: string;
@@ -147,11 +151,13 @@ export interface LibraryPageFileSummary {
   readonly createdByTurnId: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly bodyUsage: LibraryPageFileBodyUsage;
 }
 
 export interface LibraryPageFileManifest {
   readonly pageId: string;
   readonly revision: number;
+  readonly bodyUsageRevision: number;
   readonly files: readonly LibraryPageFileSummary[];
   readonly nextCursor: string | null;
   readonly hasMore: boolean;

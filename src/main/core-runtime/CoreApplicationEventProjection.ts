@@ -147,6 +147,14 @@ export const projectCoreLibraryEvent = (
 ): LibraryNavigationChangedEvent | null => {
   const payload = atom.payload;
   if (payload.module !== "library") return null;
+  if (
+    payload.event.page_ids.length === 0 &&
+    payload.event.database_ids.length === 0 &&
+    payload.event.view_ids.length === 0 &&
+    payload.event.parent_keys.length === 0
+  ) {
+    return null;
+  }
   return {
     version: LIBRARY_NAVIGATION_EVENT_VERSION,
     libraryId,

@@ -529,8 +529,9 @@ function NfmEditorInstance({
     const pageId = sourcePageContext?.pageId;
     setPageFileAuthorityVersion(0);
     if (!pageId) return;
-    return subscribePageFileChanges(pageId, (revision) => {
-      setPageFileAuthorityVersion((version) => Math.max(version, revision));
+    return subscribePageFileChanges(pageId, ({ manifestRevision }) => {
+      if (manifestRevision === null) return;
+      setPageFileAuthorityVersion((version) => Math.max(version, manifestRevision));
     });
   }, [sourcePageContext?.pageId]);
 
