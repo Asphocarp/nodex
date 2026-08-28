@@ -2,10 +2,10 @@ import { createContext, useContext, useEffect, useRef, type ReactNode } from "re
 import type { DictationGesture } from "../../../shared/dictation";
 import type {
   GlobalDictationDeclineReason,
-  GlobalDictationRendererCommand,
   GlobalDictationRendererEvent,
 } from "../../../shared/global-dictation";
 import { invoke } from "@/lib/api";
+import { subscribeGlobalDictationCommands } from "@/lib/global-dictation-commands";
 
 export interface InAppDictationTarget {
   readonly id: string;
@@ -72,10 +72,7 @@ export function InAppDictationRouter({ children }: { readonly children: ReactNod
   };
 
   useEffect(() => {
-    if (!window.api) return;
-    return window.api.on("global-dictation:command", (value) => {
-      const command = value as GlobalDictationRendererCommand;
-      if (!command || typeof command !== "object" || !("sessionId" in command)) return;
+    return subscribeGlobalDictationCommands((command) => {
       if (command.type === "start") {
         if (activeRef.current) {
           void report({

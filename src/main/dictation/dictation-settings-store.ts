@@ -38,10 +38,12 @@ const parseSettings = (value: unknown): DictationSettings => {
     throw new Error("Dictation settings must be an object");
   }
   const input = value as Record<string, unknown>;
-  const microphoneInputDeviceId = input.microphoneInputDeviceId;
-  const keepGlobalBarVisible = input.keepGlobalBarVisible;
-  const playStartSound = input.playStartSound;
-  const playStopSound = input.playStopSound;
+  const microphoneInputDeviceId =
+    input.microphoneInputDeviceId ?? DEFAULT_DICTATION_SETTINGS.microphoneInputDeviceId;
+  const keepGlobalBarVisible =
+    input.keepGlobalBarVisible ?? DEFAULT_DICTATION_SETTINGS.keepGlobalBarVisible;
+  const playStartSound = input.playStartSound ?? DEFAULT_DICTATION_SETTINGS.playStartSound;
+  const playStopSound = input.playStopSound ?? DEFAULT_DICTATION_SETTINGS.playStopSound;
   const globalShortcutNudgeDismissed = input.globalShortcutNudgeDismissed ?? false;
   const dictionary = parseDictionary(input.dictionary);
   if (microphoneInputDeviceId !== null && typeof microphoneInputDeviceId !== "string") {
@@ -128,19 +130,29 @@ export class DictationSettingsStore {
   update(value: unknown): Promise<DictationSettings> {
     const patch = parseDictationSettingsPatch(value);
     return this.#serialize(async () => {
-      const next = { ...(await this.#readCurrent()), ...patch };
-      await writeDurableJson(this.#filePath, next, MAX_SETTINGS_BYTES);
+      const stored = await this.#readStored();
+      const current = stored === null ? DEFAULT_DICTATION_SETTINGS : parseSettings(stored);
+      const next = { ...current, ...patch };
+      await writeDurableJson(
+        this.#filePath,
+        { ...(stored === null ? {} : (stored as Record<string, unknown>)), ...patch },
+        MAX_SETTINGS_BYTES,
+      );
       return next;
     });
   }
 
   consumeGlobalShortcutNudge(): Promise<boolean> {
     return this.#serialize(async () => {
-      const current = await this.#readCurrent();
+      const stored = await this.#readStored();
+      const current = stored === null ? DEFAULT_DICTATION_SETTINGS : parseSettings(stored);
       if (current.globalShortcutNudgeDismissed) return false;
       await writeDurableJson(
         this.#filePath,
-        { ...current, globalShortcutNudgeDismissed: true },
+        {
+          ...(stored === null ? {} : (stored as Record<string, unknown>)),
+          globalShortcutNudgeDismissed: true,
+        },
         MAX_SETTINGS_BYTES,
       );
       return true;

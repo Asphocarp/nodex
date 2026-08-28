@@ -294,7 +294,7 @@ export function GlobalDictationBar({
         aria-label={accessibleLabel}
         onContextMenu={(event) => void contextMenu(event)}
         className={cn(
-          "flex items-center overflow-hidden border shadow-[0_4px_8px_-2px_rgba(0,0,0,0.2)] transition-[width,height,border-radius,background-color] duration-150 [transition-timing-function:cubic-bezier(0.77,0,0.175,1)] [@media(forced-colors:active)]:bg-[Canvas] [@media(forced-colors:active)]:backdrop-blur-none motion-reduce:transition-none",
+          "flex items-center overflow-hidden border-[0.5px] shadow-[0_4px_8px_-2px_rgba(0,0,0,0.2)] transition-[width,height,border-radius] duration-150 [transition-timing-function:cubic-bezier(0.77,0,0.175,1)] [@media(forced-colors:active)]:bg-[Canvas] [@media(forced-colors:active)]:backdrop-blur-none motion-reduce:transition-none",
           errorState ? "draggable" : "no-drag",
           mini &&
             "h-2 w-10 justify-center rounded-[4px] border-white/45 bg-black/70 px-0 backdrop-blur-[4px] [@media(prefers-reduced-transparency:reduce)]:bg-black/85 [@media(prefers-reduced-transparency:reduce)]:backdrop-blur-none",
@@ -308,7 +308,7 @@ export function GlobalDictationBar({
       >
         {state === "idle" ? (
           <span className="relative flex h-full w-full items-center justify-center text-white/65">
-            <DictationMicrophoneIcon className="absolute size-4 scale-75 opacity-0 transition-[opacity,transform] duration-150 [transition-timing-function:cubic-bezier(0.77,0,0.175,1)] group-hover:scale-100 group-hover:opacity-100 group-data-[state=delayed-open]:scale-100 group-data-[state=delayed-open]:opacity-100 motion-reduce:transition-none" />
+            <DictationMicrophoneIcon className="absolute size-4 scale-75 opacity-0 transition-transform duration-150 [transition-timing-function:cubic-bezier(0.77,0,0.175,1)] group-hover:scale-100 group-hover:opacity-100 group-data-[state=delayed-open]:scale-100 group-data-[state=delayed-open]:opacity-100 motion-reduce:transition-none" />
           </span>
         ) : null}
         {state === "transcribing" ? (
