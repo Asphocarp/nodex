@@ -6,6 +6,7 @@ import { act, fireEvent, render, screen, waitFor, type RenderResult } from "@tes
 import { afterEach, describe, expect, test } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import { contrastRatio, getPaintedBackground, parseComputedColor } from "@/test/color-contrast";
+import { pressProseMirrorShortcut } from "@/test/prosemirror-shortcut";
 import { inlineTintedChipVariants } from "@/components/ui/inline-tinted-chip";
 import { nfmSchema } from "./nfm-schema";
 import { createNfmEditorExtensions } from "./nfm-editor-extensions";
@@ -120,22 +121,6 @@ function typeString(editor: BlockNoteEditor<any, any, any>, text: string) {
   for (const character of text) simulateTextInput(editor, character);
 }
 
-function pressEditorShortcut(
-  editor: BlockNoteEditor<any, any, any>,
-  options: {
-    readonly key: string;
-    readonly code?: string;
-    readonly metaKey?: boolean;
-    readonly ctrlKey?: boolean;
-    readonly shiftKey?: boolean;
-  },
-) {
-  const view = editor.prosemirrorView;
-  if (!view) throw new Error("Expected a mounted editor view");
-  const event = new KeyboardEvent("keydown", options);
-  return !!view.someProp("handleKeyDown", (handler) => handler(view, event));
-}
-
 describe("NFM Equation surface in Chromium", () => {
   test("converts a complete double-dollar expression inline without opening the popup", async () => {
     const { editor, host } = await mountParagraph();
@@ -226,7 +211,7 @@ describe("NFM Equation surface in Chromium", () => {
     ]);
 
     await act(async () => {
-      expect(pressEditorShortcut(editor, { key: "Backspace", code: "Backspace" })).toBe(true);
+      expect(pressProseMirrorShortcut(editor, { key: "Backspace", code: "Backspace" })).toBe(true);
       await Promise.resolve();
     });
     expect(editor.getBlock("paragraph-1")?.content).toEqual([]);
@@ -245,10 +230,10 @@ describe("NFM Equation surface in Chromium", () => {
 
     await act(async () => {
       expect(
-        pressEditorShortcut(editor, {
+        pressProseMirrorShortcut(editor, {
           key: "E",
           code: "KeyE",
-          metaKey: true,
+          modKey: true,
           shiftKey: true,
         }),
       ).toBe(true);
@@ -268,10 +253,10 @@ describe("NFM Equation surface in Chromium", () => {
 
     await act(async () => {
       expect(
-        pressEditorShortcut(editor, {
+        pressProseMirrorShortcut(editor, {
           key: "E",
           code: "KeyE",
-          metaKey: true,
+          modKey: true,
           shiftKey: true,
         }),
       ).toBe(true);
