@@ -1,4 +1,4 @@
-import { FileIcon, FolderIcon, FolderOpenIcon, PageIcon } from "@/components/shared/icons";
+import { FolderOpenIcon } from "@/components/shared/icons";
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
 import { ArrowUpRight, Copy, Link2 } from "@/components/shared/icons/generic-icons";
@@ -17,6 +17,7 @@ import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import { cn } from "@/lib/utils";
 import { attachmentInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { formatAttachmentBytes } from "./attachment-chip-format";
+import { AttachmentResourceIcon } from "./attachment-resource-icon";
 import { getAttachmentTooltipLines } from "./attachment-chip-tooltip";
 import type { ManagedFolderManifest } from "../../../../shared/managed-assets";
 import { parsePageFileSource } from "../../../../shared/page-files";
@@ -64,13 +65,6 @@ export function getAttachmentLabel(
   const fallback = props.kind === "text" ? "Pasted text" : "Untitled attachment";
   const label = base.length > 0 ? base : fallback;
   return label.length > maxLength ? `${label.slice(0, maxLength).trimEnd()}...` : label;
-}
-
-function getAttachmentIcon(kind: AttachmentProps["kind"], mode: AttachmentProps["mode"]) {
-  if (mode === "link") return Link2;
-  if (kind === "folder") return FolderIcon;
-  if (kind === "file") return FileIcon;
-  return PageIcon;
 }
 
 function canPreviewAttachment(
@@ -198,10 +192,12 @@ function AttachmentPopover({
     <div className="w-[min(32rem,calc(100vw-2rem))] p-1 text-sm">
       <div className="flex items-start gap-2.5">
         <div className="mt-0.5 rounded-lg bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] p-1.5 text-[color-mix(in_srgb,var(--foreground)_76%,transparent)]">
-          {(() => {
-            const Icon = getAttachmentIcon(props.kind, props.mode);
-            return <Icon className="size-3.5" />;
-          })()}
+          <AttachmentResourceIcon
+            kind={props.kind}
+            name={props.name}
+            mimeType={props.mimeType}
+            className="size-3.5"
+          />
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium text-[var(--foreground)]">
@@ -328,29 +324,41 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
   const fileReferenceRouter = useFileReferenceRouter();
   const pageFileRuntime = usePageFilePlacementRuntime();
   const isOwnedFile = parsePageFileSource(inlineContent.props.source) !== null;
-  const [ownedLogicalPath, setOwnedLogicalPath] = useState<string | null>(null);
+  const [ownedMetadata, setOwnedMetadata] = useState<{
+    readonly source: string;
+    readonly logicalPath: string;
+    readonly mimeType: string;
+  } | null>(null);
   useEffect(() => {
     if (!isOwnedFile || !pageFileRuntime) return;
     let active = true;
     void pageFileRuntime
       .metadata(inlineContent.props.source)
       .then((file) => {
-        if (active) setOwnedLogicalPath(file.logicalPath);
+        if (!active) return;
+        setOwnedMetadata({
+          source: inlineContent.props.source,
+          logicalPath: file.logicalPath,
+          mimeType: file.mimeType,
+        });
       })
       .catch(() => {
-        if (active) setOwnedLogicalPath(null);
+        if (active) setOwnedMetadata(null);
       });
     return () => {
       active = false;
     };
   }, [inlineContent.props.source, isOwnedFile, pageFileRuntime]);
   const resolvedProps = useMemo<AttachmentProps>(() => {
-    if (!ownedLogicalPath) return inlineContent.props;
+    if (!ownedMetadata || ownedMetadata.source !== inlineContent.props.source) {
+      return inlineContent.props;
+    }
     return {
       ...inlineContent.props,
-      name: ownedLogicalPath.split("/").at(-1) || inlineContent.props.name,
+      name: ownedMetadata.logicalPath.split("/").at(-1) || inlineContent.props.name,
+      mimeType: ownedMetadata.mimeType,
     };
-  }, [inlineContent.props, ownedLogicalPath]);
+  }, [inlineContent.props, ownedMetadata]);
   const label = useMemo(() => getAttachmentLabel(resolvedProps), [resolvedProps]);
   const tooltipLines = getAttachmentTooltipLines(resolvedProps);
 
@@ -371,8 +379,6 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
     if (!path) return;
     await fileReferenceRouter.open({ path }, { title: label });
   }, [fileReferenceRouter, isOwnedFile, label, pageFileRuntime, resolvePrimaryPath, resolvedProps]);
-
-  const Icon = getAttachmentIcon(resolvedProps.kind, resolvedProps.mode);
 
   return (
     <NodexPopover open={open} onOpenChange={setOpen}>
@@ -406,7 +412,12 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
                 setOpen((current) => !current);
               }}
             >
-              <Icon className={inlineTintedChipIconClassName} />
+              <AttachmentResourceIcon
+                kind={resolvedProps.kind}
+                name={resolvedProps.name}
+                mimeType={resolvedProps.mimeType}
+                className={inlineTintedChipIconClassName}
+              />
               <span className={cn(inlineTintedChipLabelClassName, "blend truncate")}>{label}</span>
               {resolvedProps.mode === "link" && (
                 <Link2 className="-mr-0.5 ml-0.5 inline-block size-3.5 shrink-0 self-center" />
@@ -429,19 +440,18 @@ export function createAttachmentInlineContentSpec() {
       <AttachmentInlineContent inlineContent={inlineContent as { props: AttachmentProps }} />
     ),
     toExternalHTML: ({ inlineContent }) => {
-      const Icon = getAttachmentIcon(
-        (inlineContent as { props: AttachmentProps }).props.kind,
-        (inlineContent as { props: AttachmentProps }).props.mode,
-      );
-      const label = getAttachmentLabel((inlineContent as { props: AttachmentProps }).props, 80);
-      const modeLabel =
-        (inlineContent as { props: AttachmentProps }).props.mode === "link"
-          ? "Linked attachment"
-          : "Saved attachment";
+      const props = (inlineContent as { props: AttachmentProps }).props;
+      const label = getAttachmentLabel(props, 80);
+      const modeLabel = props.mode === "link" ? "Linked attachment" : "Saved attachment";
 
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 text-xs text-[var(--foreground)]">
-          <Icon className="size-3" />
+          <AttachmentResourceIcon
+            kind={props.kind}
+            name={props.name}
+            mimeType={props.mimeType}
+            className="size-3"
+          />
           <span>{label}</span>
           <span className="opacity-60">({modeLabel})</span>
         </span>

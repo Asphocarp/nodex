@@ -138,6 +138,7 @@ describe("readonly NFM BlockNote preview", () => {
     );
     expect(attachmentChip).not.toBeNull();
     if (!attachmentChip) return;
+    expect(attachmentChip.querySelector('[data-file-tab-icon="document"]')).not.toBeNull();
 
     fireEvent.click(attachmentChip);
     fireEvent.click(view.getByText("Plan mode"));

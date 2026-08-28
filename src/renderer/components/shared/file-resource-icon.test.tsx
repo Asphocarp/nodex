@@ -19,6 +19,7 @@ describe("FileResourceIcon", () => {
     ["/repo/run.sh", "shell"],
     ["/repo/Dockerfile", "terminal"],
     ["/repo/cover.png", "image"],
+    ["/repo/review.webm", "file"],
     ["/repo/Makefile", "build"],
     ["/repo/archive.zip", "folder"],
     ["/repo/LICENSE", "file"],
@@ -59,13 +60,16 @@ describe("FileResourceIcon", () => {
     expect(path?.getAttribute("d")?.startsWith("M4.77431 2H11.2257")).toBe(true);
   });
 
-  test("uses the simplified document and generic-file geometries independently", () => {
+  test("keeps document, generic-file, and image geometries independent", () => {
     const DocumentIcon = resolveFileResourceIcon("/repo/README.md");
     const FileIcon = resolveFileResourceIcon("/repo/LICENSE");
+    const ImageIcon = resolveFileResourceIcon("/repo/cover.webp");
     const documentView = render(createElement(DocumentIcon));
     const fileView = render(createElement(FileIcon));
+    const imageView = render(createElement(ImageIcon));
     const documentSvg = documentView.container.querySelector("svg");
     const fileSvg = fileView.container.querySelector("svg");
+    const imageSvg = imageView.container.querySelector("svg");
 
     expect(documentSvg?.getAttribute("data-file-tab-icon")).toBe("document");
     expect(documentSvg?.getAttribute("viewBox")).toBe("0 0 21 21");
@@ -73,8 +77,12 @@ describe("FileResourceIcon", () => {
       documentSvg?.querySelector("path")?.getAttribute("d")?.startsWith("M3.685 13.9927"),
     ).toBe(true);
     expect(fileSvg?.getAttribute("data-file-tab-icon")).toBe("file");
+    expect(fileSvg?.getAttribute("width")).toBe("16");
+    expect(fileSvg?.getAttribute("height")).toBe("16");
     expect(fileSvg?.getAttribute("viewBox")).toBe("0 0 10 10");
     expect(fileSvg?.querySelector("use")).toBe(null);
+    expect(imageSvg?.getAttribute("data-file-tab-icon")).toBe("image");
+    expect(imageSvg?.getAttribute("viewBox")).toBe("0 0 20 21");
   });
 
   test("renders the shared path and MIME projection without exposing resolver details", () => {
