@@ -164,6 +164,11 @@ opaque and sticky while the Board
 scrolls; Page and Block drags show the canonical insertion indicator before a
 drop. A collapsed target keeps its compact rail, highlights only that target,
 and puts its horizontal drop boundary below the complete collapsed header.
+User-triggered collapse and expand animate the complete Column width with an
+interruptible emphasized ease while the compact rail and full Card surface hand
+off through a short directional fade. Header and body stay aligned throughout
+the motion; reduced-motion preference changes the same transition into an
+immediate state change.
 Finite empty groups remain present as canonical collapsed rails instead of
 disappearing, while each populated Status column retains the full-width
 `New page` launcher. Historical Table, top-level Toggle List, and Calendar layouts
