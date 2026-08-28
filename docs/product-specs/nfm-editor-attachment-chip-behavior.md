@@ -365,6 +365,20 @@ Linked attachment:
 
 ## Preview Rules
 
+Preview loading follows the attachment resource identity, not the mounted
+popover content. Hover, keyboard focus, or opening the popover may start the
+bounded read. The result remains available while that attachment chip stays
+mounted, so a metadata-only label refresh or closing and reopening the popover
+does not restart the read. A change to source, owner authority, File manifest
+revision, kind, or preview-relevant MIME invalidates the result, and an older
+in-flight result cannot replace the new resource.
+
+A previewable attachment opens directly into either its retained preview or a
+visible loading state. It never renders an empty preview container between
+those states. A failed read presents `Preview unavailable.` while unsupported
+formats continue to use the truthful no-preview state. Closing and reopening a
+failed preview retries the same resource.
+
 ### Saved text
 
 Saved text attachments show a scrollable text preview in the popover.

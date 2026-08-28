@@ -1,9 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
-import { AttachmentPopoverView, type AttachmentProps } from "./attachment-chip";
+import { NodexPopover, NodexPopoverTrigger } from "@/components/ui/popover";
+import {
+  AttachmentPopoverView,
+  type AttachmentPreviewState,
+  type AttachmentProps,
+} from "./attachment-chip";
 import { AttachmentResourceIcon } from "../attachment-resource-icon";
 import { InlineReferenceVisual } from "../inline-reference-visual";
+import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 
 const attachment = {
   kind: "file",
@@ -34,7 +39,7 @@ const preview = `{
   ]
 }`;
 
-function AttachmentPopoverStory() {
+function AttachmentPopoverStory({ previewState }: { previewState: AttachmentPreviewState }) {
   return (
     <div className="flex min-h-[42rem] items-start justify-center pt-20">
       <div className="flex items-center gap-2 text-lg text-token-text-primary">
@@ -57,12 +62,10 @@ function AttachmentPopoverStory() {
               data-attachment-inline-chip="true"
             />
           </NodexPopoverTrigger>
-          <NodexPopoverContent side="bottom" align="start" className="w-auto" initialFocus={false}>
+          <NfmEditorPopoverContent side="bottom" align="start" className="w-auto">
             <AttachmentPopoverView
               attachment={attachment}
-              preview={{ type: "text", content: preview, truncated: false }}
-              previewAvailable
-              previewLoading={false}
+              previewState={previewState}
               isOwnedFile
               stateLabel="Owned by this Page"
               sizeLabel="1.0 KB"
@@ -71,7 +74,7 @@ function AttachmentPopoverStory() {
               onCopyPath={async () => undefined}
               onOpenOriginal={async () => undefined}
             />
-          </NodexPopoverContent>
+          </NfmEditorPopoverContent>
         </NodexPopover>
         <span>is ready.</span>
       </div>
@@ -88,4 +91,19 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const JsonFile: Story = {};
+export const JsonFile: Story = {
+  args: {
+    previewState: {
+      status: "ready",
+      preview: { type: "text", content: preview, truncated: false },
+    },
+  },
+};
+
+export const Loading: Story = {
+  args: { previewState: { status: "loading" } },
+};
+
+export const PreviewUnavailable: Story = {
+  args: { previewState: { status: "failed" } },
+};
