@@ -10,11 +10,12 @@ import {
   CodeBracketsIcon,
   ComposerResumeIcon,
   DatabaseIcon,
+  DeleteIcon,
+  DownloadIcon,
+  EditIcon,
   FileIcon,
   FolderIcon,
   FolderOpenIcon,
-  GoalEditIcon,
-  GoalTrashIcon,
   NewChatIcon,
   PageIcon,
   QueueFailureIcon,
@@ -22,6 +23,7 @@ import {
   QueuePendingInfoIcon,
   QueueSteerIcon,
   QueuedFollowUpIcon,
+  ReplaceIcon,
   SettingsBrowserIcon,
   SettingsComputerUseIcon,
   SettingsGitIcon,
@@ -89,6 +91,24 @@ describe("settings identity icons", () => {
   });
 });
 
+describe("shared action icon geometry", () => {
+  test.each([
+    ["edit", EditIcon, "0 0 21 21", "M11.7313 4.20472", "fill"],
+    ["replace", ReplaceIcon, "0 0 14 14", "M10.5 4.667", "stroke"],
+    ["download", DownloadIcon, "0 0 20 20", "M2.66831 12.6664", "fill"],
+    ["delete", DeleteIcon, "0 0 20 20", "M10.6299 1.33496", "fill"],
+  ])("renders the app-owned %s glyph", (_label, Icon, viewBox, pathPrefix, paintAttribute) => {
+    const view = render(<Icon />);
+    const svg = view.container.querySelector("svg");
+    const firstPath = svg?.querySelector("path");
+    const paintOwner = firstPath?.hasAttribute(paintAttribute) ? firstPath : svg;
+
+    expect(svg?.getAttribute("viewBox")).toBe(viewBox);
+    expect(firstPath?.getAttribute("d")?.startsWith(pathPrefix)).toBe(true);
+    expect(paintOwner?.getAttribute(paintAttribute)).toBe("currentColor");
+  });
+});
+
 describe("queued follow-up icon geometry", () => {
   test.each([
     ["follow-up lane", QueuedFollowUpIcon, "0 0 20 20", 1, "M2.66797 11V3.33301"],
@@ -97,8 +117,6 @@ describe("queued follow-up icon geometry", () => {
     ["delivery failure", QueueFailureIcon, "0 0 20 20", 2, "M9.995 12.315"],
     ["pending steer information", QueuePendingInfoIcon, "0 0 21 21", 3, "M10.6 9.70459"],
     ["resume", ComposerResumeIcon, "0 0 20 20", 1, "M6 14.7227"],
-    ["edit", GoalEditIcon, "0 0 21 21", 1, "M11.7313 4.20472"],
-    ["delete", GoalTrashIcon, "0 0 20 20", 1, "M10.6299 1.33496"],
     ["more", AutomationMoreIcon, "0 0 21 21", 3, "M15.6981 9.04712"],
     ["side chat", SidePanelSideChatIcon, "0 0 20 20", 2, "M3.165 10"],
   ])("preserves the fill-only %s glyph", (_label, Icon, viewBox, pathCount, firstPathPrefix) => {

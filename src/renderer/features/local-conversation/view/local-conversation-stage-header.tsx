@@ -1,7 +1,7 @@
 import { memo, useCallback, useState } from "react";
 import {
   ArchiveIcon,
-  GoalEditIcon,
+  EditIcon,
   ProjectActionsIcon,
   SessionPinFilledIcon,
   SessionPinIcon,
@@ -117,7 +117,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
               ) : null}
               {canRenameThread ? (
                 <NodexDropdownItem
-                  leftSlot={<GoalEditIcon className={menuIconClassName} />}
+                  leftSlot={<EditIcon className={menuIconClassName} />}
                   keyboardShortcut={model.shortcuts?.rename}
                   onSelect={() => actions.onRequestRenameThread?.()}
                 >

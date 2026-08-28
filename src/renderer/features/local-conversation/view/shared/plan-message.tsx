@@ -1,7 +1,7 @@
 import { useState, type MouseEvent } from "react";
 import { motion } from "motion/react";
 import {
-  PlanDownloadIcon,
+  DownloadIcon,
   PlanSidePanelCloseIcon,
   PlanSidePanelOpenIcon,
   ComposerPlanModeIcon,
@@ -118,7 +118,7 @@ export function PlanMessage({
           className="relative z-20 flex items-center gap-1"
         >
           <ThreadActionIconButton label="Download plan" onClick={handleDownload}>
-            <PlanDownloadIcon />
+            <DownloadIcon />
           </ThreadActionIconButton>
           <CopyMessageActionButton
             text={content}

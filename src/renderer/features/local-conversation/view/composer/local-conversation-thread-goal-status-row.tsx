@@ -9,11 +9,11 @@ import {
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import {
   GoalChevronRightIcon,
-  GoalEditIcon,
+  DeleteIcon,
+  EditIcon,
   GoalPauseIcon,
   GoalResumeIcon,
   GoalTargetIcon,
-  GoalTrashIcon,
   ActivitySpinnerIcon,
 } from "@/components/shared/icons";
 import {
@@ -384,7 +384,7 @@ export function ThreadGoalStatusRow({
                 void handleOpenEdit();
               }}
             >
-              <GoalEditIcon className="icon-2xs" />
+              <EditIcon className="icon-2xs" />
             </ThreadGoalRowIconButton>
             {toggleTarget ? (
               <ThreadGoalRowIconButton
@@ -412,7 +412,7 @@ export function ThreadGoalStatusRow({
                 void handleClear();
               }}
             >
-              <GoalTrashIcon className="icon-2xs" />
+              <DeleteIcon className="icon-2xs" />
             </ThreadGoalRowIconButton>
             {isObjectiveTruncated || isExpanded ? (
               <ThreadGoalRowIconButton

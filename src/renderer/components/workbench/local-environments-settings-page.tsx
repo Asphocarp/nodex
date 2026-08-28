@@ -1,6 +1,6 @@
 import { startTransition, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronRightIcon, Pencil } from "@/components/shared/icons/generic-icons";
-import { ActivitySpinnerIcon, PlusIcon } from "@/components/shared/icons";
+import { ChevronRightIcon } from "@/components/shared/icons/generic-icons";
+import { ActivitySpinnerIcon, EditIcon, PlusIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { localEnvironmentSnapshotQueryOptions } from "@/lib/query-options";
 import {
@@ -338,7 +338,7 @@ export function LocalEnvironmentsSettingsPage({
         aria-label="Edit local environment"
         onClick={() => setMode("edit")}
       >
-        <Pencil className="icon-xs" />
+        <EditIcon className="icon-xs" />
         Edit
       </NodexButton>
     ) : undefined;

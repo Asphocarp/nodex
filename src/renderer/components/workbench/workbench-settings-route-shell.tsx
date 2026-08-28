@@ -10,7 +10,8 @@ import {
   useState,
   type ComponentType,
 } from "react";
-import { Monitor, Moon, RotateCcw, Sun, Trash2 } from "@/components/shared/icons/generic-icons";
+import { DeleteIcon } from "@/components/shared/icons";
+import { Monitor, Moon, RotateCcw, Sun } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
@@ -1838,7 +1839,7 @@ export function BackupSettingsControl({ open }: { open: boolean }) {
                           disabled={isBackupBusy}
                           aria-label={`Delete snapshot ${backup.label?.trim() || backup.id}`}
                         >
-                          <Trash2 className="size-3.5" />
+                          <DeleteIcon className="size-3.5" />
                         </NodexButton>
                       </NodexTooltip>
                     </>

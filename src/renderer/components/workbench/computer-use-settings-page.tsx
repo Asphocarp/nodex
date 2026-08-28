@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { LockKeyhole, MonitorCog, Trash2, Volume2 } from "@/components/shared/icons/generic-icons";
+import { DeleteIcon } from "@/components/shared/icons";
+import { LockKeyhole, MonitorCog, Volume2 } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexDropdownItem,
@@ -143,7 +144,7 @@ export function ComputerUseSettingsView({
                     variant="ghost"
                     onClick={() => onRemoveAppApproval(approvedApp.bundleIdentifier)}
                   >
-                    <Trash2 className="size-3.5" />
+                    <DeleteIcon className="size-3.5" />
                   </NodexButton>
                 </NodexSettingsRow>
               ))
@@ -165,7 +166,7 @@ export function ComputerUseSettingsView({
                     variant="ghost"
                     onClick={() => onRemoveMessageApproval(thread.chatGuid)}
                   >
-                    <Trash2 className="size-3.5" />
+                    <DeleteIcon className="size-3.5" />
                   </NodexButton>
                 </NodexSettingsRow>
               ))}

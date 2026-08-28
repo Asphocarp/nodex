@@ -37,6 +37,7 @@ import {
 import {
   CheckmarkIcon,
   CodeBracketsIcon,
+  DownloadIcon,
   DragHandleDotsIcon,
   NfmSideMenuAiFaceIcon,
   NfmSideMenuChevronRightIcon,
@@ -54,7 +55,7 @@ import {
   PlusIcon,
   ReviewEnableWordWrapIcon,
 } from "@/components/shared/icons";
-import { Copy, Download, Maximize2, WandSparkles } from "@/components/shared/icons/generic-icons";
+import { Copy, Maximize2, WandSparkles } from "@/components/shared/icons/generic-icons";
 import { NodexPopover, NodexPopoverAnchor } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
 import { NodexTooltip } from "@/components/ui/tooltip";
@@ -572,7 +573,7 @@ function getBlockTypeIcon(item: NfmSideMenuTurnIntoItem) {
 function getActionIcon(key: NfmSideMenuActionKey) {
   if (key === "copy-code") return <Copy className="size-4" />;
   if (key === "expand-diagram") return <Maximize2 className="size-4" />;
-  if (key === "download-diagram") return <Download className="size-4" />;
+  if (key === "download-diagram") return <DownloadIcon className="size-4" />;
   if (key === "wrap-code") return <ReviewEnableWordWrapIcon className="size-4" />;
   if (key === "code-language") return <CodeBracketsIcon className="size-5" />;
   if (key === "format-code") return <WandSparkles className="size-4" />;

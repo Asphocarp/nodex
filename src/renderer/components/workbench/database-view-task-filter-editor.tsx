@@ -1,5 +1,4 @@
-import { PlusIcon } from "@/components/shared/icons";
-import { Trash2 } from "@/components/shared/icons/generic-icons";
+import { DeleteIcon, PlusIcon } from "@/components/shared/icons";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
@@ -102,7 +101,7 @@ export function DatabaseViewTaskFilterEditor({
           >
             {state.groups.length > 1 ? (
               <NodexIconButton
-                icon={Trash2}
+                icon={DeleteIcon}
                 size="xs"
                 tone="danger"
                 ariaLabel={`Remove filter group ${groupIndex + 1}`}

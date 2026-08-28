@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useForm, useStore } from "@tanstack/react-form";
-import { Trash2 } from "@/components/shared/icons/generic-icons";
 import {
   ActivitySpinnerIcon,
+  DeleteIcon,
   getLocalEnvironmentActionIconOption,
   LOCAL_ENVIRONMENT_ACTION_ICON_OPTIONS,
   LocalEnvironmentActionIcon,
@@ -281,7 +281,7 @@ function ActionEditor({
         </div>
         <div className="flex justify-end sm:justify-center">
           <NodexButton variant="ghost" size="icon-sm" aria-label="Delete" onClick={onDelete}>
-            <Trash2 className="icon-sm" />
+            <DeleteIcon className="icon-sm" />
           </NodexButton>
         </div>
       </div>

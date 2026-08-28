@@ -1,4 +1,4 @@
-import { CanvasIcon } from "@/components/shared/icons";
+import { CanvasIcon, EditIcon } from "@/components/shared/icons";
 import {
   lazy,
   Suspense,
@@ -10,7 +10,7 @@ import {
   type RefCallback,
 } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
-import { ExternalLink, Pencil } from "@/components/shared/icons/generic-icons";
+import { ExternalLink } from "@/components/shared/icons/generic-icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 
 import { CanvasDocumentState } from "@/components/board/canvas-document-state";
@@ -155,7 +155,7 @@ export function CanvasBlockFrame({
               aria-label={`Rename ${title}`}
               onClick={() => setRenaming(true)}
             >
-              <Pencil className="size-3.5" aria-hidden="true" />
+              <EditIcon className="size-3.5" aria-hidden="true" />
             </button>
           </NodexTooltip>
         ) : null}

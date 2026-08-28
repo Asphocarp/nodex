@@ -12,7 +12,8 @@ import {
   useDictionary,
   useEditorState,
 } from "@blocknote/react";
-import { ArrowLeft, ImageUp, TextCursorInput } from "@/components/shared/icons/generic-icons";
+import { ReplaceIcon } from "@/components/shared/icons";
+import { ArrowLeft, TextCursorInput } from "@/components/shared/icons/generic-icons";
 import { NodexFloatingSurface } from "@/components/ui/floating-surface";
 import { cn } from "@/lib/utils";
 import { type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
@@ -110,7 +111,7 @@ export function NfmFileReplaceButton({ onOpen }: NfmFileActionButtonProps) {
       className="bn-button"
       label={label}
       mainTooltip={label}
-      icon={<ImageUp />}
+      icon={<ReplaceIcon />}
       onClick={() => onOpen(block.id)}
     />
   );

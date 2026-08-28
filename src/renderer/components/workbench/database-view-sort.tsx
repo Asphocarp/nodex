@@ -1,5 +1,5 @@
-import { PlusIcon } from "@/components/shared/icons";
-import { ArrowDown, ArrowUp, ArrowUpDown, Trash2 } from "@/components/shared/icons/generic-icons";
+import { DeleteIcon, PlusIcon } from "@/components/shared/icons";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { createDatabaseViewSort, moveDatabaseViewSort } from "@/lib/database-view-authoring";
@@ -169,7 +169,7 @@ export function DatabaseViewSort({
                     onClick={() => setSorts(moveDatabaseViewSort(sorts, index, "down"))}
                   />
                   <NodexIconButton
-                    icon={Trash2}
+                    icon={DeleteIcon}
                     size="xs"
                     tone="danger"
                     ariaLabel={`Remove sort ${index + 1}`}

@@ -1,6 +1,5 @@
 import { useState, type CSSProperties, type MouseEvent, type PointerEvent, type Ref } from "react";
-import { Trash2 } from "@/components/shared/icons/generic-icons";
-import { ImageCommentMarkerShape, UpArrowIcon } from "@/components/shared/icons";
+import { DeleteIcon, ImageCommentMarkerShape, UpArrowIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -321,7 +320,7 @@ export function ImageCommentSurface({
                         cancelDraft();
                       }}
                     >
-                      <Trash2 aria-hidden="true" className="icon-sm" />
+                      <DeleteIcon aria-hidden="true" className="icon-sm" />
                     </NodexButton>
                     <div className="flex items-center gap-1.5">
                       <NodexButton variant="outline" size="sm" onClick={cancelDraft}>
