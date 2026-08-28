@@ -65,6 +65,13 @@ export const PageMentionInline: Story = {
   },
 };
 
+export const InlineReferences: Story = {
+  args: {
+    content:
+      'Page <mention-page url="nodex://pages/019-page-reference" />, chat <mention-thread uuid="019-thread-reference" />, and file <attachment kind="file" mode="materialized" source="nodex://files/019-file-reference" name="content-skeleton.tsx" mime="text/typescript" />.',
+  },
+};
+
 export const OrderedListNumbering: Story = {
   args: {
     content: "99. Ninety-nine\n100. One hundred\n101. One hundred one",

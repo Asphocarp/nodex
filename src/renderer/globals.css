@@ -256,7 +256,7 @@
 
 .nfm-editor
   :is([data-mention-inline-chip="true"]):is(:focus-visible, [data-mention-token-selected="true"])
-  > [data-mention-inline-label="true"] {
+  > [data-inline-reference-label="true"] {
   text-decoration-color: currentColor !important;
 }
 

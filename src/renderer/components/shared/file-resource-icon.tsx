@@ -1,9 +1,14 @@
-import type { ComponentType } from "react";
+import type { ComponentType, CSSProperties } from "react";
 import { FileTabIconSvg, type FileTabIconName } from "@/components/shared/icons";
 
 export type FileResourceIconKey = FileTabIconName;
 
-type FileResourceIconComponent = ComponentType<{ className?: string }>;
+interface FileResourceIconComponentProps {
+  className?: string;
+  style?: CSSProperties;
+}
+
+type FileResourceIconComponent = ComponentType<FileResourceIconComponentProps>;
 
 const EXACT_ICON_KEY_BY_NAME: Readonly<Record<string, FileResourceIconKey>> = {
   "skill.md": "skill",
@@ -162,8 +167,8 @@ export function resolveFileResourceIconKey(
 }
 
 function makeFileResourceIcon(iconKey: FileResourceIconKey): FileResourceIconComponent {
-  const ResolvedFileResourceIcon = ({ className }: { className?: string }) => (
-    <FileTabIconSvg className={className} icon={iconKey} />
+  const ResolvedFileResourceIcon = ({ className, style }: FileResourceIconComponentProps) => (
+    <FileTabIconSvg className={className} icon={iconKey} style={style} />
   );
   ResolvedFileResourceIcon.displayName = `FileResourceIcon(${iconKey})`;
   return ResolvedFileResourceIcon;
@@ -215,11 +220,13 @@ export function FileResourceIcon({
   path,
   mimeType,
   className,
+  style,
 }: {
   readonly path?: string | null;
   readonly mimeType?: string | null;
   readonly className?: string;
+  readonly style?: CSSProperties;
 }) {
   const Icon = resolveFileResourceIcon(path, mimeType);
-  return <Icon className={className} />;
+  return <Icon className={className} style={style} />;
 }

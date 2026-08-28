@@ -42,7 +42,7 @@ import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
 import { resolveAssetSourceToDisplayUrl } from "@/lib/assets";
 import { resolveAgentConfigChip, type AgentConfigProps } from "./agent-config-chip";
 import { formatAttachmentBytes } from "./attachment-chip-format";
-import { AttachmentResourceIcon } from "./attachment-resource-icon";
+import { AttachmentResourceIcon } from "../attachment-resource-icon";
 import { createReadonlyDateMentionInlineContentSpec } from "./date-mention-inline-content-spec";
 import { createReadonlyPageMentionInlineContentSpec } from "./page-mention-inline-content";
 import { resolveThreadMentionDisplay } from "@/lib/nfm/thread-mention-display";
@@ -56,6 +56,7 @@ import { openFileReferenceContextMenu } from "@/components/shared/file-link-anch
 import { useTheme } from "@/lib/use-theme";
 import { readNfmLinkHrefAtElement } from "./nfm-link-element";
 import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
+import { InlineReferenceVisual } from "../inline-reference-visual";
 import { useBlockReferenceHostRuntime } from "../../block-documents/block-reference-runtime-context";
 import {
   agentConfigInlineContentConfig,
@@ -209,17 +210,20 @@ const createReadonlyAttachmentInlineContentSpec = () =>
       const props = inlineContent.props as PreviewAttachmentProps;
       return (
         <NodexTooltip tooltipContent={props.source}>
-          <span contentEditable={false} className={inlineTintedChipVariants({ tone: "purple" })}>
-            <AttachmentResourceIcon
-              kind={props.kind}
-              name={props.name}
-              mimeType={props.mimeType}
-              className={inlineTintedChipIconClassName}
-            />
-            <span className={cn(inlineTintedChipLabelClassName, "truncate")}>
-              {formatPreviewAttachmentLabel(props)}
-            </span>
-          </span>
+          <InlineReferenceVisual
+            contentEditable={false}
+            label={formatPreviewAttachmentLabel(props)}
+            icon={
+              <AttachmentResourceIcon
+                kind={props.kind}
+                name={props.name}
+                mimeType={props.mimeType}
+                className="size-full"
+              />
+            }
+            trailing={props.mode === "link" ? <Link2 className="size-full" /> : undefined}
+            data-attachment-inline-chip="true"
+          />
         </NodexTooltip>
       );
     },

@@ -5,23 +5,18 @@ import { ArrowUpRight, Copy, Link2 } from "@/components/shared/icons/generic-ico
 
 import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import {
-  inlineTintedChipIconClassName,
-  inlineTintedChipLabelClassName,
-  inlineTintedChipVariants,
-} from "@/components/ui/inline-tinted-chip";
 import { readManagedAssetPreview } from "@/lib/assets";
 import { invoke } from "@/lib/api";
 import { useFileReferenceRouter } from "@/lib/file-reference-router";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
-import { cn } from "@/lib/utils";
 import { attachmentInlineContentConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 import { formatAttachmentBytes } from "./attachment-chip-format";
-import { AttachmentResourceIcon } from "./attachment-resource-icon";
+import { AttachmentResourceIcon } from "../attachment-resource-icon";
 import { getAttachmentTooltipLines } from "./attachment-chip-tooltip";
 import type { ManagedFolderManifest } from "../../../../shared/managed-assets";
 import { parsePageFileSource } from "../../../../shared/page-files";
 import { usePageFilePlacementRuntime, type PageFilePlacementRuntime } from "./page-file-runtime";
+import { InlineReferenceVisual } from "../inline-reference-visual";
 
 type AttachmentPreview =
   | { type: "text"; content: string; truncated: boolean }
@@ -396,13 +391,23 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
       >
         <span className="inline align-baseline">
           <NodexPopoverTrigger>
-            <button
+            <InlineReferenceVisual
+              as="button"
               type="button"
               contentEditable={false}
-              className={cn(
-                inlineTintedChipVariants({ tone: "purple", interactive: true }),
-                "blend",
-              )}
+              className="blend cursor-interaction"
+              label={label}
+              labelClassName="blend"
+              icon={
+                <AttachmentResourceIcon
+                  kind={resolvedProps.kind}
+                  name={resolvedProps.name}
+                  mimeType={resolvedProps.mimeType}
+                  className="size-full"
+                />
+              }
+              trailing={resolvedProps.mode === "link" ? <Link2 className="size-full" /> : undefined}
+              data-attachment-inline-chip="true"
               onMouseDown={(event) => {
                 event.preventDefault();
               }}
@@ -411,18 +416,7 @@ function AttachmentInlineContent({ inlineContent }: { inlineContent: { props: At
                 event.stopPropagation();
                 setOpen((current) => !current);
               }}
-            >
-              <AttachmentResourceIcon
-                kind={resolvedProps.kind}
-                name={resolvedProps.name}
-                mimeType={resolvedProps.mimeType}
-                className={inlineTintedChipIconClassName}
-              />
-              <span className={cn(inlineTintedChipLabelClassName, "blend truncate")}>{label}</span>
-              {resolvedProps.mode === "link" && (
-                <Link2 className="-mr-0.5 ml-0.5 inline-block size-3.5 shrink-0 self-center" />
-              )}
-            </button>
+            />
           </NodexPopoverTrigger>
         </span>
       </NodexTooltip>
@@ -445,16 +439,18 @@ export function createAttachmentInlineContentSpec() {
       const modeLabel = props.mode === "link" ? "Linked attachment" : "Saved attachment";
 
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] px-2 py-0.5 text-xs text-[var(--foreground)]">
-          <AttachmentResourceIcon
-            kind={props.kind}
-            name={props.name}
-            mimeType={props.mimeType}
-            className="size-3"
-          />
-          <span>{label}</span>
-          <span className="opacity-60">({modeLabel})</span>
-        </span>
+        <InlineReferenceVisual
+          label={`${label} (${modeLabel})`}
+          icon={
+            <AttachmentResourceIcon
+              kind={props.kind}
+              name={props.name}
+              mimeType={props.mimeType}
+              className="size-full"
+            />
+          }
+          trailing={props.mode === "link" ? <Link2 className="size-full" /> : undefined}
+        />
       );
     },
   });
